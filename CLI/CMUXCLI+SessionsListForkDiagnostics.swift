@@ -183,14 +183,15 @@ extension CMUXCLI {
             forkCommandAvailable: forkCommandAvailable
         )
         let forkSupported = support.supported
-        let forkStartupInputAvailable = forkArguments.map {
+        let piFamilyAgent = sessionsListPiFamilyAgent(agent: agent, launchCommand: trustedLaunchCommand)
+        let forkStartupInputAvailable = piFamilyAgent == nil && (forkArguments.map {
             sessionsListForkStartupInputAvailable(
                 arguments: $0,
                 agent: agent,
                 record: diagnosticRecord,
                 launchCommand: trustedLaunchCommand
             )
-        } ?? false
+        } ?? false)
         let unavailableReason: String
         if forkSupported {
             unavailableReason = "available"
@@ -361,6 +362,9 @@ extension CMUXCLI {
         guard forkCommandAvailable else {
             return (false, "agent_has_no_fork_command")
         }
+        if let piFamilyAgent = sessionsListPiFamilyAgent(agent: agent, launchCommand: launchCommand) {
+            return (false, "\(piFamilyAgent)_version_unverified")
+        }
         guard agent == "opencode" else {
             return (true, "available")
         }
@@ -376,6 +380,28 @@ extension CMUXCLI {
             return (false, "opencode_executable_missing")
         }
         return (false, "opencode_version_unverified")
+    }
+
+    private func sessionsListPiFamilyAgent(
+        agent: String,
+        launchCommand: AgentHookLaunchCommandRecord?
+    ) -> String? {
+        let capturedExecutable = [
+            launchCommand?.executablePath,
+            launchCommand?.arguments.first,
+        ]
+            .compactMap { $0.map(sessionsListExecutableBasename) }
+            .map { $0.lowercased() }
+            .first { $0 == "pi" || $0 == "omp" }
+        if let capturedExecutable {
+            return capturedExecutable
+        }
+        let launcher = sessionsListNormalized(launchCommand?.launcher)?.lowercased()
+        if launcher == "pi" || launcher == "omp" {
+            return launcher
+        }
+        let normalizedAgent = agent.lowercased()
+        return normalizedAgent == "pi" || normalizedAgent == "omp" ? normalizedAgent : nil
     }
 
     private func sessionsListOpenCodeLooksRemoteLike(

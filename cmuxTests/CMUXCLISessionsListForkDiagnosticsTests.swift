@@ -289,6 +289,21 @@ extension CMUXCLIErrorOutputRegressionTests {
         return try #require(sessions.first)
     }
 
+    @Test func testSessionsListFailsClosedForUnverifiedPiFamilyVersions() throws {
+        for agent in ["pi", "omp"] {
+            let session = try sessionsListDiagnosticSession(
+                agent: agent,
+                launcher: agent,
+                executablePath: agent,
+                arguments: [agent, "--session", "session-id"]
+            )
+            #expect(session["fork_command_available"] as? Bool == true)
+            #expect(session["fork_supported"] as? Bool == false)
+            #expect(session["fork_unavailable_reason"] as? String == "\(agent)_version_unverified")
+            #expect(session["fork_startup_input_available"] as? Bool == false)
+        }
+    }
+
     @Test func testSessionsListForkStartupInputCountsSelectedEnvironment() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
