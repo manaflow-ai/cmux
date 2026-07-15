@@ -10487,9 +10487,13 @@ struct VerticalTabsSidebar: View {
             .coordinateSpace(name: SidebarPointerInteractionMonitor.coordinateSpaceName)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(
+                SidebarPointerEventHost { hostView in
+                    pointerInteractionMonitor.attach(to: hostView)
+                }
+            )
+            .background(
                 SidebarScrollViewResolver { scrollView in
                     configureSidebarScrollView(scrollView)
-                    pointerInteractionMonitor.attach(to: scrollView)
                     dragAutoScrollController.attach(scrollView: scrollView)
                 }
                 .frame(width: 0, height: 0)

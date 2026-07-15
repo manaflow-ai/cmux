@@ -1,5 +1,47 @@
 import AppKit
 import Observation
+import SwiftUI
+
+/// A SwiftUI-owned AppKit view spanning the workspace-list viewport.
+///
+/// The host gives the pointer owner a stable window and coordinate source
+/// without discovering or mutating SwiftUI's private scroll-view hierarchy.
+@MainActor
+struct SidebarPointerEventHost: NSViewRepresentable {
+    let onResolve: @MainActor (NSView) -> Void
+
+    func makeNSView(context: Context) -> SidebarPointerEventHostView {
+        let view = SidebarPointerEventHostView()
+        view.onResolve = onResolve
+        return view
+    }
+
+    func updateNSView(_ nsView: SidebarPointerEventHostView, context: Context) {
+        nsView.onResolve = onResolve
+        nsView.resolve()
+    }
+
+    static func dismantleNSView(_ nsView: SidebarPointerEventHostView, coordinator: ()) {
+        nsView.onResolve?(nsView)
+        nsView.onResolve = nil
+    }
+}
+
+@MainActor
+final class SidebarPointerEventHostView: NSView {
+    var onResolve: (@MainActor (NSView) -> Void)?
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        resolve()
+    }
+
+    func resolve() {
+        onResolve?(self)
+    }
+}
 
 /// Owns pointer-derived interaction data for every row in one workspace sidebar.
 @MainActor
@@ -15,8 +57,8 @@ final class SidebarPointerInteractionMonitor {
     @ObservationIgnored private var rowFrames: [SidebarWorkspaceRenderItemID: CGRect] = [:]
     @ObservationIgnored private var workspaceIdsByRowId: [SidebarWorkspaceRenderItemID: UUID] = [:]
     @ObservationIgnored private var lastPointerLocation: CGPoint?
-    @ObservationIgnored private weak var resolvedScrollView: NSScrollView?
-    @ObservationIgnored private weak var scrollView: NSScrollView?
+    @ObservationIgnored private weak var resolvedHostView: NSView?
+    @ObservationIgnored private weak var hostView: NSView?
     @ObservationIgnored private weak var mouseMovedWindow: NSWindow?
     @ObservationIgnored private var pointerEventMonitor: Any?
     @ObservationIgnored private var middleClickMonitor: Any?
@@ -34,7 +76,7 @@ final class SidebarPointerInteractionMonitor {
                 return event
             }
         }
-        activateResolvedScrollView()
+        activateResolvedHost()
 
         if middleClickMonitor == nil {
             middleClickMonitor = NSEvent.addLocalMonitorForEvents(matching: .otherMouseDown) { [weak self] event in
@@ -70,24 +112,30 @@ final class SidebarPointerInteractionMonitor {
             NSEvent.removeMonitor(pointerEventMonitor)
             self.pointerEventMonitor = nil
         }
-        deactivateResolvedScrollView()
+        deactivateResolvedHost()
         lastPointerLocation = nil
         setHoveredRowId(nil)
     }
 
-    func attach(to scrollView: NSScrollView?) {
-        resolvedScrollView = scrollView
-        activateResolvedScrollView()
+    func attach(to candidate: NSView) {
+        if candidate.window != nil {
+            resolvedHostView = candidate
+        } else if resolvedHostView === candidate {
+            // Ignore teardown from an older host after SwiftUI has already
+            // mounted and resolved its replacement.
+            resolvedHostView = nil
+        }
+        activateResolvedHost()
     }
 
-    private func activateResolvedScrollView() {
-        guard pointerEventMonitor != nil, let resolvedScrollView else {
-            deactivateResolvedScrollView()
+    private func activateResolvedHost() {
+        guard pointerEventMonitor != nil, let resolvedHostView else {
+            deactivateResolvedHost()
             return
         }
-        scrollView = resolvedScrollView
+        hostView = resolvedHostView
 
-        let nextWindow = resolvedScrollView.window
+        let nextWindow = resolvedHostView.window
         guard mouseMovedWindow !== nextWindow else { return }
         if let mouseMovedWindow {
             WindowMouseMovedEventsCoordinator.disable(for: mouseMovedWindow, owner: self)
@@ -98,14 +146,14 @@ final class SidebarPointerInteractionMonitor {
         }
     }
 
-    private func deactivateResolvedScrollView() {
+    private func deactivateResolvedHost() {
         if let mouseMovedWindow {
             WindowMouseMovedEventsCoordinator.disable(for: mouseMovedWindow, owner: self)
         } else {
             WindowMouseMovedEventsCoordinator.disableOwner(self)
         }
         mouseMovedWindow = nil
-        scrollView = nil
+        hostView = nil
     }
 
     func updateFrame(
@@ -154,43 +202,44 @@ final class SidebarPointerInteractionMonitor {
     }
 
     private func handlePointerEvent(_ event: NSEvent) {
-        guard let scrollView,
-              let window = scrollView.window,
+        guard let hostView,
+              let window = hostView.window,
               event.windowNumber == window.windowNumber else { return }
-        let appKitPoint = scrollView.convert(event.locationInWindow, from: nil)
-        guard scrollView.bounds.contains(appKitPoint) else {
+        let appKitPoint = hostView.convert(event.locationInWindow, from: nil)
+        guard hostView.bounds.contains(appKitPoint) else {
             lastPointerLocation = nil
             setHoveredRowId(nil)
             return
         }
         recordPointerLocation(Self.swiftUIPoint(
             fromAppKitPoint: appKitPoint,
-            viewportBounds: scrollView.bounds
+            viewportBounds: hostView.bounds
         ))
     }
 
     private func reconcilePointerFromHostWindow() {
-        guard let scrollView, let window = scrollView.window else {
+        guard let hostView, let window = hostView.window else {
             setHoveredRowId(nil)
             return
         }
-        let appKitPoint = scrollView.convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        let appKitPoint = hostView.convert(window.mouseLocationOutsideOfEventStream, from: nil)
         recordPointerLocation(Self.swiftUIPoint(
             fromAppKitPoint: appKitPoint,
-            viewportBounds: scrollView.bounds
+            viewportBounds: hostView.bounds
         ))
     }
 
     private func handleMiddleClick(_ event: NSEvent) -> NSEvent? {
         guard event.buttonNumber == 2,
-              let scrollView,
-              event.window === scrollView.window else {
+              let hostView,
+              let window = hostView.window,
+              event.windowNumber == window.windowNumber else {
             return event
         }
-        let appKitPoint = scrollView.convert(event.locationInWindow, from: nil)
+        let appKitPoint = hostView.convert(event.locationInWindow, from: nil)
         let point = Self.swiftUIPoint(
             fromAppKitPoint: appKitPoint,
-            viewportBounds: scrollView.bounds
+            viewportBounds: hostView.bounds
         )
         guard let workspaceId = middleClickWorkspaceId(at: point) else { return event }
         recordPointerLocation(point)
