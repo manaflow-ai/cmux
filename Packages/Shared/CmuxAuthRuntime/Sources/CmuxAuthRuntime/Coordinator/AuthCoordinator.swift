@@ -613,11 +613,6 @@ public final class AuthCoordinator {
     /// the writes when a sign-out raced the fetch, so a signed-out shell does
     /// not get the old account's teams persisted back.
     private func refreshTeams(generation: UInt64) async {
-        defer {
-            if generation == sessionGeneration {
-                didResolveTeamScope = true
-            }
-        }
         do {
             let client = self.client
             let teams = try await runPhase(.listTeams, timeout: timeouts.network) {
@@ -626,6 +621,7 @@ public final class AuthCoordinator {
             guard generation == sessionGeneration else { return }
             availableTeams = teams
             selectedTeamID = Self.resolveTeamID(selectedTeamID: selectedTeamID, teams: teams)
+            finishTeamScopeResolution()
         } catch {
             authLog.error("Failed to list teams: \(error.localizedDescription, privacy: .private)")
         }
@@ -688,7 +684,6 @@ public final class AuthCoordinator {
         currentUser = cachedUser
         isAuthenticated = cachedUser != nil
         isRestoringSession = false
-        didResolveTeamScope = cachedUser != nil
     }
 
     func clearPersistedAuthForUITest() async {

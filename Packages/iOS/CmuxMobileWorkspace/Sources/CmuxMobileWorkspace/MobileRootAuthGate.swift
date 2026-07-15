@@ -91,6 +91,14 @@ public struct MobileRootAuthGate {
         stackAuthenticated && didResolveTeamScope && !attachTicketAuthenticated && connectionState != .connected
     }
 
+    /// Whether a disconnected Stack session must wait before reading team-scoped data.
+    public static func shouldWaitForTeamScope(
+        stackAuthenticated: Bool,
+        didResolveTeamScope: Bool
+    ) -> Bool {
+        stackAuthenticated && !didResolveTeamScope
+    }
+
     /// Whether the restoring-session UI should be shown while reconnecting a known
     /// paired Mac.
     ///

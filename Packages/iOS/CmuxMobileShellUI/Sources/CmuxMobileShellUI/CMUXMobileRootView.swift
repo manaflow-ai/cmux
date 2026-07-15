@@ -233,6 +233,18 @@ struct CMUXMobileRootView: View {
             streamingChatPreview
         } else if !isAuthenticated {
             SignInView()
+        } else if store.connectionState != .connected && MobileRootAuthGate.shouldWaitForTeamScope(
+            stackAuthenticated: authManager.isAuthenticated,
+            didResolveTeamScope: authManager.didResolveTeamScope
+        ) {
+            // Keep team-scoped paired-Mac and registry reads unmounted until
+            // Stack returns an authoritative team list, including an empty one.
+            RestoringStoredMacWorkspaceShell(
+                store: store,
+                signOut: signOut,
+                showAddDevice: showAddDevice,
+                reconnectStoredMac: reconnectStoredMacIfNeeded
+            )
         } else if store.connectionState != .connected && shouldShowRestoringStoredMac {
             RestoringStoredMacWorkspaceShell(
                 store: store,
