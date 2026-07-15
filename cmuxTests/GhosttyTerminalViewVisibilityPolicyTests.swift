@@ -74,17 +74,17 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         var committedValues: [Int] = []
         var completedValues: [Int] = []
 
-        let drain = scheduler.schedule(afterDrain: { completedValues.append(0) }) {
+        let drain = scheduler.schedule(onCompletion: { completedValues.append(0) }) {
             committedValues.append(0)
         }
         for value in 1...64 {
-            scheduler.schedule(afterDrain: { completedValues.append(value) }) {
+            scheduler.schedule(onCompletion: { completedValues.append(value) }) {
                 committedValues.append(value)
             }
         }
-        scheduler.schedule(afterDrain: { completedValues.append(100) }) {
+        scheduler.schedule(onCompletion: { completedValues.append(100) }) {
             committedValues.append(100)
-            scheduler.schedule(afterDrain: { completedValues.append(101) }) {
+            scheduler.schedule(onCompletion: { completedValues.append(101) }) {
                 committedValues.append(101)
             }
         }
@@ -102,7 +102,7 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         var committedValues: [Int] = []
         var completionCount = 0
 
-        let drain = scheduler.schedule(afterDrain: { completionCount += 1 }) {
+        let drain = scheduler.schedule(onCompletion: { completionCount += 1 }) {
             committedValues.append(1)
         }
         scheduler.schedule {
@@ -122,7 +122,7 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         var didCommit = false
         var didComplete = false
 
-        let commit = scheduler.schedule(afterDrain: { didComplete = true }) {
+        let commit = scheduler.schedule(onCompletion: { didComplete = true }) {
             didCommit = true
         }
         scheduler.cancel()

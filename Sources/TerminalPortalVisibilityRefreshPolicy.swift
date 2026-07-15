@@ -37,9 +37,9 @@ extension GhosttyTerminalView {
                     )
             )
         }
-        let unregisterCandidateAfterDrain: (@MainActor () -> Void)?
+        let unregisterCandidateOnCompletion: (@MainActor () -> Void)?
         if let candidateRegistrationToken {
-            unregisterCandidateAfterDrain = { @MainActor [weak hostedView] in
+            unregisterCandidateOnCompletion = { @MainActor [weak hostedView] in
                 hostedView?.unregisterTransientPortalHostCandidate(
                     hostId: hostId,
                     ownershipGeneration: snapshot.ownershipGeneration,
@@ -47,10 +47,10 @@ extension GhosttyTerminalView {
                 )
             }
         } else {
-            unregisterCandidateAfterDrain = nil
+            unregisterCandidateOnCompletion = nil
         }
         let drain = coordinator.portalMutationScheduler.schedule(
-            afterDrain: unregisterCandidateAfterDrain
+            onCompletion: unregisterCandidateOnCompletion
         ) {
             @MainActor [weak host, weak hostedView, weak terminalSurface, weak coordinator] in
             guard let host, let hostedView, let terminalSurface, let coordinator else { return }
