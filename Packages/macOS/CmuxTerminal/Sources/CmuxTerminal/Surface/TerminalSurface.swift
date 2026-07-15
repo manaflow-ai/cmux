@@ -275,18 +275,6 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// path explicitly requests it so background panes do not keep a focused
     /// state unless the workspace focus path requests it.
     var desiredFocusState: Bool = false
-    /// Desired Ghostty renderer visibility, retained even while the native
-    /// surface is absent so a hidden pane cannot restart visible after runtime
-    /// recreation.
-    var desiredOcclusionVisible = true
-    /// Last visibility applied to the current native surface. Reset whenever
-    /// that native surface is replaced.
-    var lastAppliedOcclusionVisible: Bool?
-
-    /// Stable, opaque identifiers used by renderer profiling across runtime recreation.
-    public var rendererProfilingIdentity: TerminalRendererProfilingIdentity {
-        TerminalRendererProfilingIdentity(workspaceId: tabId, surfaceId: id)
-    }
 
     /// Bumped after every completed runtime clipboard read.
     public internal(set) var clipboardReadGeneration = 0
@@ -335,7 +323,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
 #if DEBUG
                         logDebugEvent("find.needle updated tab=\(self?.tabId.uuidString.prefix(5) ?? "?") surface=\(self?.id.uuidString.prefix(5) ?? "?") chars=\(needle.count)")
 #endif
-                        _ = self?.performBindingAction("search:\(needle)")
+                        _ = self?.performInternalBindingAction("search:\(needle)")
                     }
             } else if let oldValue {
                 lastSearchNeedle = oldValue.needle
@@ -343,7 +331,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
 #if DEBUG
                 logDebugEvent("find.searchState cleared tab=\(tabId.uuidString.prefix(5)) surface=\(id.uuidString.prefix(5))")
 #endif
-                _ = performBindingAction("end_search")
+                _ = performInternalBindingAction("end_search")
             }
         }
     }
@@ -402,8 +390,11 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// hopped through `MainActor.assumeIsolated`; the isolation is now
     /// compiler-enforced).
     ///
-    /// - Parameters mirror the legacy initializer, plus the injected
-    ///   `dependencies` bundle constructed at the composition root.
+    /// Parameters mirror the legacy initializer, plus the injected
+    /// `dependencies` bundle constructed at the composition root.
+    ///
+    /// - Parameter preparePaneHost: Configures the newly-created pane host
+    ///   before it is attached or any startup work can create a runtime.
     @MainActor
     public init(
         id: UUID = UUID(),

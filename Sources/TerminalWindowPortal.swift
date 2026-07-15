@@ -715,9 +715,12 @@ final class WindowTerminalPortal: NSObject {
         // detach restores the saved one. A portal that dies without tearDown()
         // /detachHostedView never restores them, so a surviving hosted view is
         // left pinned at [] and the NEXT portal saves [] as its "original".
-        // Restore inline — deinit cannot hop to the @MainActor detach path.
-        for (hostedId, mask) in preAdoptionAutoresizingMaskByHostedId {
-            entriesByHostedId[hostedId]?.hostedView?.autoresizingMask = mask
+        // Restore inline — deinit cannot hop to the @MainActor detach path. Portal ownership
+        // is main-actor-bound through the registry, NSWindow association, and test callers.
+        MainActor.assumeIsolated {
+            for (hostedId, mask) in preAdoptionAutoresizingMaskByHostedId {
+                entriesByHostedId[hostedId]?.hostedView?.autoresizingMask = mask
+            }
         }
     }
 

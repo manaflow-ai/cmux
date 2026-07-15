@@ -43,8 +43,6 @@ extension TerminalController {
         "debug.panel_snapshot.reset",
         "debug.session_snapshot_benchmark",
         "debug.session_snapshot_seed_scrollback",
-        "debug.process_metrics.read",
-        "debug.process_metrics.reset",
         "debug.window.screenshot",
         "debug.terminal.simulate_file_drop",
         "debug.sidebar.simulate_drag",

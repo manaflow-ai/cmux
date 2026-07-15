@@ -1,23 +1,17 @@
 import Foundation
 
-@MainActor
-protocol AppMemoryMonitoringServices: AnyObject {
-    func startEventDrivenMemoryPressureMonitoring()
-}
-
-/// The launch composition starts event-driven memory pressure handling.
-@MainActor
-struct AppMemoryMonitoringStartup {
-    let services: any AppMemoryMonitoringServices
-
-    func start() {
-        services.startEventDrivenMemoryPressureMonitoring()
-    }
-}
-
-extension AppDelegate: AppMemoryMonitoringServices {
-    func startMemoryMonitoringIfNeeded() {
-        AppMemoryMonitoringStartup(services: self).start()
+extension AppDelegate {
+    /// Starts the per-pane runaway-memory guardrail and the central
+    /// memory-pressure monitor. The pane guardrail keeps its existing
+    /// process-tree accounting timer; global memory pressure is handled through
+    /// responder registration so future reclaim paths are one conformance away.
+    func startPaneMemoryGuardrailIfNeeded() {
+        let guardrail = PaneMemoryGuardrail.shared
+        guardrail.paneProvider = { [weak self] in
+            self?.paneMemoryGuardrailDescriptors() ?? []
+        }
+        guardrail.start()
+        startMemoryPressureMonitorIfNeeded()
     }
 
     func paneMemoryGuardrailDescriptors() -> [PaneMemoryDescriptor] {
@@ -28,7 +22,7 @@ extension AppDelegate: AppMemoryMonitoringServices {
         }
     }
 
-    func startEventDrivenMemoryPressureMonitoring() {
+    private func startMemoryPressureMonitorIfNeeded() {
         let monitor = MemoryPressureMonitor.shared
         monitor.registry.register(
             RendererRealizationMemoryPressureResponder(
@@ -50,18 +44,6 @@ extension AppDelegate: AppMemoryMonitoringServices {
         }
         monitor.start()
     }
-
-#if DEBUG
-    /// Explicit LLDB/debug-command hook for a single attributed pane-memory
-    /// snapshot. It never installs a timer.
-    func runPaneMemoryDiagnosticOnce() {
-        let guardrail = PaneMemoryGuardrail.shared
-        guardrail.paneProvider = { [weak self] in
-            self?.paneMemoryGuardrailDescriptors() ?? []
-        }
-        guardrail.runDiagnosticOnce()
-    }
-#endif
 
     private func postPersistentCriticalMemoryPressureWarning(snapshot: MemoryPressureSnapshot) {
         guard let notificationStore else { return }
