@@ -134,7 +134,13 @@ final class SharedLiveAgentIndex {
 
     func currentAutosaveCacheSchedulingRefresh() -> ProcessDetectedResumeIndexes.AutosaveAgentIndexCache? {
         scheduleRefreshIfStale()
-        guard let index else { return nil }
+        guard refreshTask == nil,
+              forkAvailabilityRefreshTask == nil,
+              !changePending,
+              deferredReloadTimer == nil,
+              let index else {
+            return nil
+        }
         return ProcessDetectedResumeIndexes.AutosaveAgentIndexCache(
             restorableAgentIndex: index,
             processScopeFingerprint: processScopeFingerprint
