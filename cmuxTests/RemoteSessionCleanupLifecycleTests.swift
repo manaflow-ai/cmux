@@ -58,6 +58,29 @@ struct RemoteSessionCleanupLifecycleTests {
     }
 
     @Test
+    func supersededDifferentIdentityTransitionCannotDestroyLatestPersistentSession() async throws {
+        let runner = CleanupLifecycleRecordingRunner()
+        let workspace = Workspace()
+        workspace.remoteSessionProcessRunnerOverrideForTesting = runner
+        let configurationA = Self.configuration(slot: "ssh-lifecycle-a", relayPort: 64_007)
+        let configurationB = Self.configuration(slot: "ssh-lifecycle-b", relayPort: 64_008)
+        workspace.configureRemoteConnection(configurationA, autoConnect: true)
+        _ = try #require(await Self.nextBootstrapRequest(runner))
+        await workspace.remoteSessionTransitionTask?.value
+
+        workspace.configureRemoteConnection(configurationB, autoConnect: true)
+        workspace.configureRemoteConnection(configurationA, autoConnect: true)
+
+        let cleanup = try #require(await Self.nextCleanupCommand(runner))
+        _ = try #require(await Self.nextBootstrapRequest(runner))
+        await workspace.remoteSessionTransitionTask?.value
+        #expect(!cleanup.contains("serve --persistent-stop --slot"))
+        #expect(cleanup.contains("64007.slot"))
+        #expect(workspace.remoteConfiguration == configurationA)
+        #expect(workspace.remoteSessionController?.configuration == configurationA)
+    }
+
+    @Test
     func failedSameIdentityTransportCleanupPreventsReplacementStartup() async throws {
         let runner = CleanupLifecycleRecordingRunner(cleanupStatuses: [1])
         let workspace = Workspace()

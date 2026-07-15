@@ -295,6 +295,27 @@ struct RemoteRelaySlotTeardownTests {
         #expect(!cleanupCommand.contains(".cmux/relay"))
     }
 
+    @Test
+    func coordinatorFallsBackToPersistentSlotStopWhenRelayMetadataIsMissing() async throws {
+        let runner = SpyProcessRunner(results: [
+            RemoteCommandResult(status: 64, stdout: "", stderr: "missing relay metadata"),
+            RemoteCommandResult(status: 0, stdout: "", stderr: ""),
+        ])
+        let coordinator = makeCoordinator(runner: runner)
+        coordinator.queue.sync { coordinator.daemonRemotePath = ".cmux/bin/cmuxd-remote" }
+
+        let succeeded = await coordinator.stopAndWait(cleanupScope: .persistentSlot)
+
+        #expect(succeeded)
+        #expect(runner.requests.count == 2)
+        let metadataCleanup = try #require(runner.requests.first?.arguments.last)
+        #expect(metadataCleanup.contains("64010.slot"))
+        let directCleanup = try #require(runner.requests.last?.arguments.last)
+        #expect(directCleanup.contains("$HOME/.cmux/bin/cmuxd-remote"))
+        #expect(directCleanup.contains("serve --persistent-stop --slot"))
+        #expect(!directCleanup.contains("relay_socket="))
+    }
+
     private func makeCoordinator(
         runner: SpyProcessRunner,
         host: any RemoteSessionHosting = IntentionalCleanupTestHost(),
