@@ -942,7 +942,10 @@ func servePersistentDaemonWithVerifierConfig(
 	defer hub.closeAll()
 	runtimeState, err := newRuntimeStateStore(config.runtimeStateFile)
 	if err != nil {
-		return err
+		if stderr != nil {
+			_, _ = fmt.Fprintf(stderr, "runtime state load failed; starting without saved state: %v\n", err)
+		}
+		runtimeState = newEmptyRuntimeStateStore(config.runtimeStateFile)
 	}
 	var activeConnections int64
 	var idleSince time.Time

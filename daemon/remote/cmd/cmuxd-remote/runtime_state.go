@@ -106,10 +106,7 @@ type runtimeStateStore struct {
 }
 
 func newRuntimeStateStore(filePath string) (*runtimeStateStore, error) {
-	store := &runtimeStateStore{
-		filePath:    filePath,
-		subscribers: map[uint64]*runtimeStateSubscriber{},
-	}
+	store := newEmptyRuntimeStateStore(filePath)
 	if filePath == "" {
 		return store, nil
 	}
@@ -119,6 +116,13 @@ func newRuntimeStateStore(filePath string) (*runtimeStateStore, error) {
 	}
 	store.document = document
 	return store, nil
+}
+
+func newEmptyRuntimeStateStore(filePath string) *runtimeStateStore {
+	return &runtimeStateStore{
+		filePath:    filePath,
+		subscribers: map[uint64]*runtimeStateSubscriber{},
+	}
 }
 
 func (s *runtimeStateStore) snapshot() *runtimeStateDocument {

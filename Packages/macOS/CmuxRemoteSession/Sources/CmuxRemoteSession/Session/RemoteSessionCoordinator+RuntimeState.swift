@@ -22,10 +22,6 @@ extension RemoteSessionCoordinator {
         guard configuration.persistentDaemonSlot != nil else { return }
         queue.async { [weak self] in
             guard let self, !self.isStopping else { return }
-            guard self.runtimeStatePublicationTask == nil else {
-                self.debugLog("remote.runtimeState.drop reason=awaitingHostPublication")
-                return
-            }
             guard state.count <= RemoteRuntimeStateDocument.maximumStateBytes else {
                 self.debugLog("remote.runtimeState.drop reason=oversized bytes=\(state.count)")
                 return
@@ -36,6 +32,10 @@ extension RemoteSessionCoordinator {
                 baseRevision: baseRevision ?? self.lastKnownRuntimeStateRevision
             )
             self.pendingRuntimeStateUpload = upload
+            guard self.runtimeStatePublicationTask == nil else {
+                self.debugLog("remote.runtimeState.defer reason=awaitingHostPublication")
+                return
+            }
             self.synchronizeRuntimeStateLocked()
             self.flushPendingRuntimeStateUploadLocked()
         }
@@ -103,7 +103,10 @@ extension RemoteSessionCoordinator {
             guard pendingRuntimeStateUpload?.state == upload.state else { return }
             pendingRuntimeStateUpload = nil
             lastKnownRuntimeStateRevision = document.revision
-            publishRuntimeStateRevisionToHostLocked(document.revision)
+            publishRuntimeStateRevisionToHostLocked(
+                document.revision,
+                rebasingPendingFrom: upload.baseRevision
+            )
         } catch {
             runtimeStateSynchronized = false
             debugLog("remote.runtimeState.putFailed error=\(error.localizedDescription)")
@@ -128,7 +131,7 @@ extension RemoteSessionCoordinator {
         let host = host
         runtimeStatePublicationTask = Task { [weak self] in
             guard !Task.isCancelled else { return }
-            _ = await host.publishRuntimeState(document)
+            let accepted = await host.publishRuntimeState(document)
             guard !Task.isCancelled else { return }
             self?.queue.async { [weak self] in
                 guard let self,
@@ -137,6 +140,11 @@ extension RemoteSessionCoordinator {
                       self.proxyLeaseGeneration == leaseGeneration,
                       self.runtimeStatePublicationGeneration == generation else { return }
                 self.runtimeStatePublicationTask = nil
+                guard accepted else {
+                    self.runtimeStateSynchronized = false
+                    self.debugLog("remote.runtimeState.publishRejected kind=document")
+                    return
+                }
                 self.completeRuntimeStateSynchronizationLocked()
             }
         }
@@ -144,14 +152,15 @@ extension RemoteSessionCoordinator {
 
     private func publishRuntimeStateRevisionToHostLocked(
         _ revision: UInt64,
-        completesSynchronization: Bool = false
+        completesSynchronization: Bool = false,
+        rebasingPendingFrom previousRevision: UInt64? = nil
     ) {
         let generation = beginRuntimeStatePublicationLocked()
         let leaseGeneration = proxyLeaseGeneration
         let host = host
         runtimeStatePublicationTask = Task { [weak self] in
             guard !Task.isCancelled else { return }
-            _ = await host.publishRuntimeStateRevision(revision)
+            let accepted = await host.publishRuntimeStateRevision(revision)
             guard !Task.isCancelled else { return }
             self?.queue.async { [weak self] in
                 guard let self,
@@ -160,6 +169,20 @@ extension RemoteSessionCoordinator {
                       self.proxyLeaseGeneration == leaseGeneration,
                       self.runtimeStatePublicationGeneration == generation else { return }
                 self.runtimeStatePublicationTask = nil
+                guard accepted else {
+                    self.runtimeStateSynchronized = false
+                    self.debugLog("remote.runtimeState.publishRejected kind=revision")
+                    return
+                }
+                if let previousRevision,
+                   let pendingUpload = self.pendingRuntimeStateUpload,
+                   pendingUpload.baseRevision == previousRevision {
+                    self.pendingRuntimeStateUpload = RemoteRuntimeStateUpload(
+                        schemaVersion: pendingUpload.schemaVersion,
+                        state: pendingUpload.state,
+                        baseRevision: revision
+                    )
+                }
                 if completesSynchronization {
                     self.completeRuntimeStateSynchronizationLocked()
                 } else {
