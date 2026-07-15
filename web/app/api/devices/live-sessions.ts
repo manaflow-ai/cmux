@@ -20,7 +20,7 @@ function boundedString(value: unknown, maxLength: number): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
   if (!trimmed) return undefined;
-  return trimmed.slice(0, maxLength);
+  return Array.from(trimmed).slice(0, maxLength).join("");
 }
 
 /**
