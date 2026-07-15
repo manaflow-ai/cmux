@@ -177,7 +177,7 @@ extension DockSplitStore {
     }
 
     private func flushDockWindowLayouts() {
-        for window in NSApp.windows where window.isVisible {
+        for window in dockPortalHostWindows() where window.isVisible {
             window.contentView?.layoutSubtreeIfNeeded()
         }
     }
