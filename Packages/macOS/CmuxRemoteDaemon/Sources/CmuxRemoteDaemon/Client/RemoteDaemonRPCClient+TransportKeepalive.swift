@@ -92,6 +92,7 @@ extension RemoteDaemonRPCClient {
         stdoutHandle = nil
         stderrHandle = nil
         streamSubscriptions.removeAll(keepingCapacity: false)
+        runtimeStateSubscription = nil
         failPTYSubscriptionsLocked(detail)
         signalPendingFailureLocked(detail)
         stopWebSocketKeepaliveLocked()

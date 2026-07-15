@@ -37,7 +37,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     // (see the isolation essay above); `writeQueue` serializes payload
     // writes; the registry is itself Sendable.
 
-    static let maxStdoutBufferBytes = 256 * 1024
+    static let maxStdoutBufferBytes = 4 * 1024 * 1024
     static let bakedVMDaemonSocketPath = "/run/cmuxd-remote.sock"
     static let socketForwardStartupGracePeriod: TimeInterval = 0.75
     static let webSocketKeepaliveInterval: TimeInterval = 5.0
@@ -62,6 +62,8 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     /// Optional wire capability for sequenced, acked PTY input
     /// (`pty.input.seq_ack`; value is test-pinned, do not change).
     public static let optionalPTYInputSeqAckCapability = RemoteDaemonCapability.ptyInputSeqAck.rawValue
+    /// Optional wire capability for revisioned server-authoritative workspace state.
+    public static let optionalRuntimeStateCapability = RemoteDaemonCapability.runtimeStateV1.rawValue
     /// Wire-pinned rpc error code the daemon returns for a sequenced
     /// `pty.write` whose seq is not exactly last+1.
     public static let ptyInputSeqGapErrorCode = "pty_input_seq_gap"
@@ -80,6 +82,13 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     struct PTYSubscription: @unchecked Sendable {
         let queue: DispatchQueue
         let handler: (RemoteDaemonPTYEvent) -> Void
+    }
+
+    // See StreamSubscription for the @unchecked Sendable justification.
+    struct RuntimeStateSubscription: @unchecked Sendable {
+        let id: UUID
+        let queue: DispatchQueue
+        let handler: @Sendable (RemoteRuntimeStateDocument) -> Void
     }
 
     let configuration: WorkspaceRemoteConfiguration
@@ -124,6 +133,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     var stderrBuffer = ""
     var streamSubscriptions: [String: StreamSubscription] = [:]
     var ptySubscriptions: [String: PTYSubscription] = [:]
+    var runtimeStateSubscription: RuntimeStateSubscription?
     var cliRequestsInFlight = 0
     var advertisedCapabilities: Set<String> = []
 
@@ -239,6 +249,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
         stderrBuffer = ""
         streamSubscriptions.removeAll(keepingCapacity: false)
         ptySubscriptions.removeAll(keepingCapacity: false)
+        runtimeStateSubscription = nil
         advertisedCapabilities.removeAll(keepingCapacity: false)
     }
 
@@ -283,6 +294,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
             webSocketSession = nil
             webSocketDelegate = nil
             streamSubscriptions.removeAll(keepingCapacity: false)
+            runtimeStateSubscription = nil
             failPTYSubscriptionsLocked(detail)
             return (
                 capturedProcess,

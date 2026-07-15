@@ -78,6 +78,21 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     var daemonReady = false
     var daemonBootstrapVersion: String?
     var daemonRemotePath: String?
+    var runtimeStateCapabilityAvailable = false
+    var runtimeStateSynchronized = false
+    var hasCompletedInitialRuntimeStateSynchronization = false
+    var lastKnownRuntimeStateRevision: UInt64 = 0
+    var pendingRuntimeStateUpload: RemoteRuntimeStateUpload?
+    var pendingAuthoritativeRuntimeStateDocument: RemoteRuntimeStateDocument?
+    var runtimeStateRPCTask: Task<Void, Never>?
+    var runtimeStateRPCGeneration: UInt64 = 0
+    var runtimeStateUploadInFlight: RemoteRuntimeStateUpload?
+    var runtimeStatePublicationTask: Task<Void, Never>?
+    var runtimeStatePublicationGeneration: UInt64 = 0
+    var runtimeStateRetryTask: Task<Void, Never>?
+    var runtimeStateRetryToken: UUID?
+    var runtimeStateRetryCount = 0
+    var runtimeStateRetrySuspended = false
     var reverseRelayProcess: Process?
     var reverseRelayControlMasterForwardSpec: String?
     var cliRelayServer: RemoteCLIRelayServer?
@@ -267,6 +282,8 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         releaseProxyLeaseLocked()
         proxyEndpoint = nil
         daemonReady = false
+        runtimeStateCapabilityAvailable = false
+        runtimeStateSynchronized = false
         daemonBootstrapVersion = nil
         daemonRemotePath = nil
         publishProxyEndpoint(nil)
@@ -335,6 +352,10 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
                 ])
             }
             daemonReady = true
+            runtimeStateCapabilityAvailable = hello.capabilities.contains(
+                RemoteDaemonRPCClient.optionalRuntimeStateCapability
+            )
+            runtimeStateSynchronized = false
             daemonBootstrapVersion = hello.version
             daemonRemotePath = hello.remotePath
             publishDaemonStatus(
@@ -365,6 +386,8 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
             }
         } catch {
             daemonReady = false
+            runtimeStateCapabilityAvailable = false
+            runtimeStateSynchronized = false
             daemonBootstrapVersion = nil
             daemonRemotePath = nil
             let retrySchedule = scheduleReconnectLocked(baseDelay: 4.0)
@@ -391,14 +414,34 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
 
         proxyLeaseGeneration &+= 1
         let leaseGeneration = proxyLeaseGeneration
-        let lease = proxyBroker.acquire(
-            configuration: configuration,
-            remotePath: remotePath
-        ) { [weak self] update in
+        let onProxyUpdate: @Sendable (RemoteProxyBrokerUpdate) -> Void = { [weak self] update in
             guard let coordinator = self else { return }
             coordinator.queue.async {
                 coordinator.handleProxyBrokerUpdateLocked(update, leaseGeneration: leaseGeneration)
             }
+        }
+        let lease: RemoteProxyLease
+        if runtimeStateCapabilityAvailable {
+            lease = proxyBroker.acquire(
+                configuration: configuration,
+                remotePath: remotePath,
+                onUpdate: onProxyUpdate,
+                onRuntimeState: { [weak self] document in
+                    guard let coordinator = self else { return }
+                    coordinator.queue.async {
+                        coordinator.handleRuntimeStateDocumentLocked(
+                            document,
+                            leaseGeneration: leaseGeneration
+                        )
+                    }
+                }
+            )
+        } else {
+            lease = proxyBroker.acquire(
+                configuration: configuration,
+                remotePath: remotePath,
+                onUpdate: onProxyUpdate
+            )
         }
         proxyLease = lease
     }
@@ -427,6 +470,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
             // failure would hit the suspended guard and never reschedule.
             reconnectSuspended = false
             reachabilityProbeGeneration &+= 1
+            synchronizeRuntimeStateLocked()
             guard proxyEndpoint != endpoint else {
                 publishState(
                     .connected,
@@ -469,6 +513,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
 
             releaseProxyLeaseLocked()
             daemonReady = false
+            runtimeStateSynchronized = false
             daemonBootstrapVersion = nil
             daemonRemotePath = nil
 

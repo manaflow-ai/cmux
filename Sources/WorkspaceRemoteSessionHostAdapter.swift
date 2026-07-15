@@ -1,4 +1,5 @@
 import CmuxCore
+import CmuxRemoteDaemon
 import CmuxRemoteSession
 import Foundation
 
@@ -6,7 +7,8 @@ import Foundation
 // exactly what the legacy controller's publish helpers owned: the weak
 // workspace reference, the main-queue hop, the stale-controller guard
 // (`activeRemoteSessionControllerID`), and the `remoteDisplayTarget` fallback.
-// Every method may be called from the coordinator's serial queue.
+// Synchronous methods may be called from the coordinator's serial queue; the
+// async runtime-state methods are awaited from a coordinator-owned task.
 //
 // `@unchecked Sendable`: `controllerID` is immutable and `workspace` is a
 // weak reference that is only assigned in `init`; afterwards it is read via
@@ -85,6 +87,35 @@ final class WorkspaceRemoteSessionHostAdapter: RemoteSessionHosting, @unchecked 
             guard let workspace else { return }
             guard workspace.activeRemoteSessionControllerID == controllerID else { return }
             workspace.applyBootstrapRemoteTTY(ttyName)
+        }
+    }
+
+    func publishRuntimeState(_ document: RemoteRuntimeStateDocument) async -> Bool {
+        guard !Task.isCancelled,
+              document.schemaVersion == SessionSnapshotSchema.currentVersion,
+              let snapshot = try? JSONDecoder().decode(
+                  SessionWorkspaceSnapshot.self,
+                  from: document.state
+              ),
+              !Task.isCancelled else { return false }
+        let controllerID = self.controllerID
+        return await MainActor.run { [weak workspace] in
+            guard !Task.isCancelled else { return false }
+            guard let workspace else { return false }
+            guard workspace.activeRemoteSessionControllerID == controllerID else { return false }
+            workspace.applyRemoteRuntimeState(document, snapshot: snapshot)
+            return true
+        }
+    }
+
+    func publishRuntimeStateRevision(_ revision: UInt64) async -> Bool {
+        let controllerID = self.controllerID
+        return await MainActor.run { [weak workspace] in
+            guard !Task.isCancelled else { return false }
+            guard let workspace else { return false }
+            guard workspace.activeRemoteSessionControllerID == controllerID else { return false }
+            workspace.acknowledgeRemoteRuntimeStateRevision(revision)
+            return true
         }
     }
 }

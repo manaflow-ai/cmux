@@ -17,6 +17,30 @@ protocol RemoteDaemonTunnelRPCClient: RemotePTYLifecycleRPCClient {
     ) throws
     /// Closes a daemon-side TCP proxy stream.
     func closeStream(streamID: String)
+    /// Fetches the authoritative workspace state for this daemon slot.
+    func getRuntimeState() throws -> RemoteRuntimeStateDocument?
+    /// Replaces the authoritative workspace state for this daemon slot.
+    func putRuntimeState(
+        schemaVersion: Int,
+        state: Data,
+        expectedRevision: UInt64?
+    ) throws -> RemoteRuntimeStateDocument
+    /// Subscribes to authoritative workspace-state changes.
+    func subscribeRuntimeState(
+        queue: DispatchQueue,
+        onDocument: @escaping @Sendable (RemoteRuntimeStateDocument) -> Void
+    ) throws -> RemoteRuntimeStateDocument?
+}
+
+extension RemoteDaemonTunnelRPCClient {
+    func subscribeRuntimeState(
+        queue _: DispatchQueue,
+        onDocument _: @escaping @Sendable (RemoteRuntimeStateDocument) -> Void
+    ) throws -> RemoteRuntimeStateDocument? {
+        throw NSError(domain: "cmux.remote.runtime-state", code: 1, userInfo: [
+            NSLocalizedDescriptionKey: "remote runtime state is unavailable",
+        ])
+    }
 }
 
 extension RemoteDaemonRPCClient: RemoteDaemonTunnelRPCClient {}

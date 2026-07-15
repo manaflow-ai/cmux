@@ -18,6 +18,8 @@ public enum RemoteDaemonCapability: String, Sendable, CaseIterable {
     case ptyResizeNotification = "pty.resize.notification"
     /// Sequenced, cumulatively acknowledged PTY input (`pty.input.seq_ack`).
     case ptyInputSeqAck = "pty.input.seq_ack"
+    /// Revisioned server-authoritative workspace state (`runtime.state.v1`).
+    case runtimeStateV1 = "runtime.state.v1"
 
     /// The capability family backing persistent SSH PTY sessions; missing any
     /// of these yields the persistent-PTY reconnect message.

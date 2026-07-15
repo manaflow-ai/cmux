@@ -49,6 +49,10 @@ private struct SessionPaneRestoreEntry {
 }
 
 extension Workspace {
+    func shouldAutoConnectRestoredRemote(_ configuration: WorkspaceRemoteConfiguration, snapshot: SessionWorkspaceSnapshot) -> Bool {
+        sessionRestorePolicy.shouldAutoConnectRestoredRemote(foregroundAuthToken: configuration.foregroundAuthToken, snapshot: snapshot)
+    }
+
     func sessionSnapshot(
         includeScrollback: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex? = nil,
@@ -150,7 +154,7 @@ extension Workspace {
     }
 
     @discardableResult
-    func restoreSessionSnapshot(_ snapshot: SessionWorkspaceSnapshot, excludingStableIdentities: Set<UUID> = []) -> [UUID: UUID] {
+    func restoreSessionSnapshot(_ snapshot: SessionWorkspaceSnapshot, excludingStableIdentities: Set<UUID> = [], restoringRemoteRuntime: Bool = false) -> [UUID: UUID] {
         let previousSuppressClosedPanelHistory = suppressClosedPanelHistory
         suppressClosedPanelHistory = true
         defer { suppressClosedPanelHistory = previousSuppressClosedPanelHistory }
@@ -175,21 +179,7 @@ extension Workspace {
         restoredGuardedWorkingDirectoriesByPanelId.removeAll(keepingCapacity: false)
         restoredResumeSessionWorkingDirectoriesByPanelId.removeAll(keepingCapacity: false)
 
-        let restoredRemoteConfiguration = snapshot.remote?.workspaceConfiguration(
-            localSocketPath: TerminalController.shared.currentSocketPathForRemoteRestore()
-        )
-        if let restoredRemoteConfiguration {
-            let shouldAutoConnect = sessionRestorePolicy.shouldAutoConnectRestoredRemote(
-                foregroundAuthToken: restoredRemoteConfiguration.foregroundAuthToken,
-                snapshot: snapshot
-            )
-            configureRemoteConnection(
-                restoredRemoteConfiguration,
-                autoConnect: shouldAutoConnect
-            )
-        } else {
-            disconnectRemoteConnection(clearConfiguration: true)
-        }
+        restoreRemoteConfiguration(from: snapshot, preservingActiveConnection: restoringRemoteRuntime)
 
         let normalizedCurrentDirectory = snapshot.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         if !normalizedCurrentDirectory.isEmpty {
@@ -209,7 +199,10 @@ extension Workspace {
             let previousValue = suppressRemoteTerminalStartupForSessionRestoreScaffold
             suppressRemoteTerminalStartupForSessionRestoreScaffold = true
             defer { suppressRemoteTerminalStartupForSessionRestoreScaffold = previousValue }
-            return restoreSessionLayout(snapshot.layout)
+            return restoreSessionLayout(
+                snapshot.layout,
+                replacingExistingPanes: restoringRemoteRuntime
+            )
         }()
         var oldToNewPanelIds: [UUID: UUID] = [:]
 
@@ -235,10 +228,7 @@ extension Workspace {
         groupId = snapshot.groupId
         restoreTodoState(from: snapshot)
 
-        // Status entries and agent PIDs are ephemeral runtime state tied to running
-        // processes (e.g. claude_code "Running"). Don't restore them across app
-        // restarts because the processes that set them are gone.
-        statusEntries.removeAll()
+        restoreStatusEntries(from: snapshot, preservingRemoteRuntimeState: restoringRemoteRuntime)
         clearAllAgentPIDs(refreshPorts: false)
         clearAllAgentLifecycleStates()
         agentListeningPorts.removeAll()
@@ -1099,14 +1089,31 @@ extension Workspace {
     }
 #endif
 
-    private func restoreSessionLayout(_ layout: SessionWorkspaceLayoutSnapshot) -> [SessionPaneRestoreEntry] {
+    private func restoreSessionLayout(
+        _ layout: SessionWorkspaceLayoutSnapshot,
+        replacingExistingPanes: Bool
+    ) -> [SessionPaneRestoreEntry] {
         guard let rootPaneId = bonsplitController.allPaneIds.first else {
             return []
+        }
+
+        if replacingExistingPanes {
+            collapseSessionRestoreLayout(keeping: rootPaneId)
         }
 
         var leaves: [SessionPaneRestoreEntry] = []
         restoreSessionLayoutNode(layout, inPane: rootPaneId, leaves: &leaves)
         return leaves
+    }
+
+    private func collapseSessionRestoreLayout(keeping rootPaneId: PaneID) {
+        let stalePaneIds = bonsplitController.allPaneIds.filter { $0 != rootPaneId }
+        for paneId in stalePaneIds.reversed() {
+            let forcedTabIds = bonsplitController.tabs(inPane: paneId).map(\.id)
+            forceCloseTabIds.formUnion(forcedTabIds)
+            _ = bonsplitController.closePane(paneId)
+            forceCloseTabIds.subtract(forcedTabIds)
+        }
     }
 
     private func restoreSessionLayoutNode(
@@ -2294,6 +2301,10 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var listeningPorts: [Int] = []
     @Published private(set) var activeRemoteTerminalSessionCount: Int = 0
     private var remoteSessionController: RemoteSessionCoordinator?
+    var remoteSessionControllerForRuntimeState: RemoteSessionCoordinator? { remoteSessionController }
+    var remoteRuntimeStateRevision: UInt64 = 0
+    var isApplyingRemoteRuntimeState = false
+    let remoteRuntimeStateEncodingPipeline = RemoteRuntimeStateEncodingPipeline()
     private enum RemoteForegroundAuthenticationPhase: Equatable {
         case readyBeforeConfiguration(token: String), authenticating(token: String)
     }
@@ -5253,6 +5264,7 @@ final class Workspace: Identifiable, ObservableObject {
         let configuration = configuration.scopedToOwnerWorkspace(id)
         defer { TerminalController.shared.notifyRemotePTYControllerAvailabilityChanged() }
         let previousConfiguration = remoteConfiguration
+        resetRemoteRuntimeStateRevision(preservingPersistentIdentity: previousConfiguration?.hasSamePersistentPTYIdentity(as: configuration) == true)
         let previousPresentedDirectory = presentedCurrentDirectory
         skipControlMasterCleanupAfterDetachedRemoteTransfer = false
         let shouldResetRemoteDisconnectOwnership = previousConfiguration.map { $0 != configuration } ?? true
@@ -5451,7 +5463,11 @@ final class Workspace: Identifiable, ObservableObject {
         configureRemoteConnection(remoteConfiguration, autoConnect: true)
     }
 
-    func disconnectRemoteConnection(clearConfiguration: Bool = false, disconnectedDetail: String? = nil) {
+    func disconnectRemoteConnection(
+        clearConfiguration: Bool = false,
+        disconnectedDetail: String? = nil,
+        waitingForPendingRemoteRuntimeState: Bool = false
+    ) {
         defer { TerminalController.shared.notifyRemotePTYControllerAvailabilityChanged() }
         let previousPresentedDirectory = presentedCurrentDirectory
         let shouldCleanupControlMaster =
@@ -5463,7 +5479,14 @@ final class Workspace: Identifiable, ObservableObject {
         let previousController = remoteSessionController
         activeRemoteSessionControllerID = nil
         remoteSessionController = nil
-        previousController?.stop()
+        if waitingForPendingRemoteRuntimeState, let previousController {
+            remoteRuntimeStateEncodingPipeline.finishPendingWork {
+                _ = await previousController.finishPendingRuntimeStateWork()
+                previousController.stop()
+            }
+        } else {
+            previousController?.stop()
+        }
         remoteForegroundAuthenticationPhase = nil
         remoteDisconnectPlaceholderPanelIds.formUnion(activeRemoteTerminalSurfaceIds)
         activeRemoteTerminalSurfaceIds.removeAll()
@@ -6356,6 +6379,13 @@ final class Workspace: Identifiable, ObservableObject {
 
     func teardownRemoteConnection() {
         disconnectRemoteConnection(clearConfiguration: true)
+    }
+
+    func teardownRemoteConnectionAfterPreservingRemoteRuntimeState() {
+        disconnectRemoteConnection(
+            clearConfiguration: true,
+            waitingForPendingRemoteRuntimeState: true
+        )
     }
 
     static func requestSSHControlMasterCleanupIfNeeded(configuration: WorkspaceRemoteConfiguration) {

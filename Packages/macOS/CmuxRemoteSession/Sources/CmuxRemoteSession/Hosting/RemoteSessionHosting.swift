@@ -1,4 +1,5 @@
 public import CmuxCore
+public import CmuxRemoteDaemon
 public import Foundation
 
 /// The coordinator's one-way publish seam back to the owning workspace model.
@@ -9,8 +10,9 @@ public import Foundation
 /// controller-ID guard that drops stale publishes from a replaced session
 /// coordinator; the coordinator itself never sees the workspace model.
 ///
-/// Every method may be called from the coordinator's private serial queue and
-/// must be safe to invoke from any thread.
+/// Publications originate from the coordinator's private serial queue. The
+/// runtime-state methods are awaited from a coordinator-owned task; every host
+/// must therefore remain safe to invoke from any thread.
 public protocol RemoteSessionHosting: Sendable {
     /// Publish a connection-state transition with an optional detail string.
     func publishConnectionState(_ state: WorkspaceRemoteConnectionState, detail: String?)
@@ -27,4 +29,17 @@ public protocol RemoteSessionHosting: Sendable {
     /// Publish the remote TTY name resolved for the workspace's bootstrap
     /// terminal.
     func publishBootstrapRemoteTTY(_ ttyName: String)
+    /// Publish a server-authoritative workspace document for cold restore.
+    /// Returns whether the active host accepted the document.
+    func publishRuntimeState(_ document: RemoteRuntimeStateDocument) async -> Bool
+    /// Publish the revision committed for a locally generated workspace snapshot.
+    /// Returns whether the active host accepted the revision.
+    func publishRuntimeStateRevision(_ revision: UInt64) async -> Bool
+}
+
+public extension RemoteSessionHosting {
+    /// Default for hosts that do not project remote runtime state.
+    func publishRuntimeState(_: RemoteRuntimeStateDocument) async -> Bool { true }
+    /// Default for hosts that do not track remote runtime revisions.
+    func publishRuntimeStateRevision(_: UInt64) async -> Bool { true }
 }

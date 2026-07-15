@@ -1,3 +1,4 @@
+import CmuxRemoteDaemon
 import CmuxRemoteWorkspace
 import Foundation
 
@@ -6,6 +7,12 @@ final class IntentionalCleanupTestTunnel: RemoteProxyTunneling, @unchecked Senda
     private let lock = NSLock()
     private var lifecycleByKey: [IntentionalCleanupTestTunnelKey: RemotePTYSessionLifecycle] = [:]
     private var bridgeServers: [(sessionID: String, server: RemotePTYBridgeServer)] = []
+    private var runtimeState: RemoteRuntimeStateDocument?
+    private var runtimeStateGetFailuresRemaining = 0
+    private var runtimeStatePutFailuresRemaining = 0
+    private var runtimeStateGetBlock: (started: DispatchSemaphore, release: DispatchSemaphore)?
+    private var runtimeStatePutBlock: (started: DispatchSemaphore, release: DispatchSemaphore)?
+    private var runtimeStateSubscriber: (@Sendable (RemoteRuntimeStateDocument) -> Void)?
 
     func start() throws {}
 
@@ -14,6 +21,7 @@ final class IntentionalCleanupTestTunnel: RemoteProxyTunneling, @unchecked Senda
             let servers = bridgeServers
             bridgeServers.removeAll()
             lifecycleByKey.removeAll()
+            runtimeStateSubscriber = nil
             return servers
         }
         for record in servers { record.server.stop() }
@@ -78,6 +86,117 @@ final class IntentionalCleanupTestTunnel: RemoteProxyTunneling, @unchecked Senda
         attachmentID: String,
         attachmentToken: String
     ) throws {}
+
+    func getRuntimeState() throws -> RemoteRuntimeStateDocument? {
+        let block = lock.withLock {
+            defer { runtimeStateGetBlock = nil }
+            return runtimeStateGetBlock
+        }
+        block?.started.signal()
+        block?.release.wait()
+        return try lock.withLock {
+            if runtimeStateGetFailuresRemaining > 0 {
+                runtimeStateGetFailuresRemaining -= 1
+                throw NSError(domain: "test.runtime-state", code: 2)
+            }
+            return runtimeState
+        }
+    }
+
+    func putRuntimeState(
+        schemaVersion: Int,
+        state: Data,
+        expectedRevision: UInt64?
+    ) throws -> RemoteRuntimeStateDocument {
+        let block = lock.withLock {
+            defer { runtimeStatePutBlock = nil }
+            return runtimeStatePutBlock
+        }
+        block?.started.signal()
+        block?.release.wait()
+        let (document, subscriber) = try lock.withLock {
+            if runtimeStatePutFailuresRemaining > 0 {
+                runtimeStatePutFailuresRemaining -= 1
+                throw NSError(domain: "test.runtime-state", code: 3)
+            }
+            let currentRevision = runtimeState?.revision ?? 0
+            if let expectedRevision, expectedRevision != currentRevision {
+                throw NSError(domain: "test.runtime-state", code: 1)
+            }
+            let document = RemoteRuntimeStateDocument(
+                schemaVersion: schemaVersion,
+                revision: currentRevision + 1,
+                updatedAtUnixMilliseconds: 1,
+                state: state,
+                ptySessions: Data("[]".utf8)
+            )
+            runtimeState = document
+            return (document, runtimeStateSubscriber)
+        }
+        subscriber?(document)
+        return document
+    }
+
+    func subscribeRuntimeState(
+        queue: DispatchQueue,
+        onDocument: @escaping @Sendable (RemoteRuntimeStateDocument) -> Void
+    ) throws -> RemoteRuntimeStateDocument? {
+        lock.withLock {
+            runtimeStateSubscriber = { document in
+                queue.sync {
+                    onDocument(document)
+                }
+            }
+            return runtimeState
+        }
+    }
+
+    func seedRuntimeState(_ document: RemoteRuntimeStateDocument?) {
+        lock.withLock { runtimeState = document }
+    }
+
+    func failNextRuntimeStateGet() {
+        failNextRuntimeStateGets(1)
+    }
+
+    func failNextRuntimeStateGets(_ count: Int) {
+        precondition(count >= 0)
+        lock.withLock { runtimeStateGetFailuresRemaining += count }
+    }
+
+    func clearRuntimeStateGetFailures() {
+        lock.withLock { runtimeStateGetFailuresRemaining = 0 }
+    }
+
+    func failNextRuntimeStatePut() {
+        lock.withLock { runtimeStatePutFailuresRemaining += 1 }
+    }
+
+    func blockNextRuntimeStateGet(
+        started: DispatchSemaphore,
+        release: DispatchSemaphore
+    ) {
+        lock.withLock {
+            runtimeStateGetBlock = (started: started, release: release)
+        }
+    }
+
+    func blockNextRuntimeStatePut(
+        started: DispatchSemaphore,
+        release: DispatchSemaphore
+    ) {
+        lock.withLock {
+            runtimeStatePutBlock = (started: started, release: release)
+        }
+    }
+
+    func publishRuntimeState(_ document: RemoteRuntimeStateDocument) {
+        let subscriber = lock.withLock {
+            runtimeState = document
+            return runtimeStateSubscriber
+        }
+        subscriber?(document)
+    }
 
     func startPTYBridge(
         sessionID: String,

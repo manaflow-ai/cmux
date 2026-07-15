@@ -1,4 +1,5 @@
 public import CmuxCore
+public import CmuxRemoteDaemon
 public import Dispatch
 internal import Foundation
 
@@ -25,6 +26,11 @@ internal import Foundation
 /// fire the legacy `cancel()` covered. Delays are identical (whole seconds,
 /// converted to milliseconds exactly).
 public final class RemoteProxyBroker: @unchecked Sendable {
+    private struct Subscriber {
+        let onUpdate: @Sendable (RemoteProxyBrokerUpdate) -> Void
+        let onRuntimeState: (@Sendable (RemoteRuntimeStateDocument) -> Void)?
+    }
+
     private final class Entry {
         let configuration: WorkspaceRemoteConfiguration
         var remotePath: String
@@ -34,7 +40,8 @@ public final class RemoteProxyBroker: @unchecked Sendable {
         var restartToken: UUID?
         var restartRetryCount = 0
         var ptyLifecycleSnapshot: RemotePTYLifecycleSnapshot?
-        var subscribers: [UUID: @Sendable (RemoteProxyBrokerUpdate) -> Void] = [:]
+        var subscribers: [UUID: Subscriber] = [:]
+        var runtimeStateSubscriptionActive = false
         var activeReadyTunnelOperationCount = 0
 
         init(configuration: WorkspaceRemoteConfiguration, remotePath: String) {
@@ -74,6 +81,35 @@ public final class RemoteProxyBroker: @unchecked Sendable {
         remotePath: String,
         onUpdate: @escaping @Sendable (RemoteProxyBrokerUpdate) -> Void
     ) -> RemoteProxyLease {
+        acquireInternal(
+            configuration: configuration,
+            remotePath: remotePath,
+            onUpdate: onUpdate,
+            onRuntimeState: nil
+        )
+    }
+
+    /// Subscribes to the shared tunnel and its authoritative runtime-state stream.
+    public func acquire(
+        configuration: WorkspaceRemoteConfiguration,
+        remotePath: String,
+        onUpdate: @escaping @Sendable (RemoteProxyBrokerUpdate) -> Void,
+        onRuntimeState: @escaping @Sendable (RemoteRuntimeStateDocument) -> Void
+    ) -> RemoteProxyLease {
+        acquireInternal(
+            configuration: configuration,
+            remotePath: remotePath,
+            onUpdate: onUpdate,
+            onRuntimeState: onRuntimeState
+        )
+    }
+
+    private func acquireInternal(
+        configuration: WorkspaceRemoteConfiguration,
+        remotePath: String,
+        onUpdate: @escaping @Sendable (RemoteProxyBrokerUpdate) -> Void,
+        onRuntimeState: (@Sendable (RemoteRuntimeStateDocument) -> Void)?
+    ) -> RemoteProxyLease {
         queue.sync {
             let key = Self.transportKey(for: configuration)
             let subscriberID = UUID()
@@ -93,7 +129,27 @@ public final class RemoteProxyBroker: @unchecked Sendable {
                 entries[key] = entry
             }
 
-            entry.subscribers[subscriberID] = onUpdate
+            entry.subscribers[subscriberID] = Subscriber(
+                onUpdate: onUpdate,
+                onRuntimeState: onRuntimeState
+            )
+            if onRuntimeState != nil,
+               !entry.runtimeStateSubscriptionActive,
+               let tunnel = entry.tunnel {
+                do {
+                    try startRuntimeStateSubscriptionLocked(
+                        key: key,
+                        entry: entry,
+                        tunnel: tunnel
+                    )
+                } catch {
+                    handleTunnelFailureLocked(
+                        key: key,
+                        detail: "Runtime-state subscription failed: \(error.localizedDescription)"
+                    )
+                    return RemoteProxyLease(key: key, subscriberID: subscriberID, broker: self)
+                }
+            }
             if let endpoint = entry.endpoint {
                 onUpdate(.ready(endpoint))
             } else {
@@ -278,7 +334,7 @@ public final class RemoteProxyBroker: @unchecked Sendable {
         }
     }
 
-    private func withReadyTunnel<T>(
+    func withReadyTunnel<T>(
         configuration: WorkspaceRemoteConfiguration,
         _ body: (any RemoteProxyTunneling) throws -> T
     ) throws -> T {
@@ -356,6 +412,13 @@ public final class RemoteProxyBroker: @unchecked Sendable {
             }
             try tunnel.start()
             entry.tunnel = tunnel
+            if entry.subscribers.values.contains(where: { $0.onRuntimeState != nil }) {
+                try startRuntimeStateSubscriptionLocked(
+                    key: key,
+                    entry: entry,
+                    tunnel: tunnel
+                )
+            }
             entry.ptyLifecycleSnapshot = nil
             let endpoint = BrowserProxyEndpoint(host: "127.0.0.1", port: localPort)
             entry.endpoint = endpoint
@@ -443,11 +506,42 @@ public final class RemoteProxyBroker: @unchecked Sendable {
         }
         entry.tunnel = nil
         entry.endpoint = nil
+        entry.runtimeStateSubscriptionActive = false
     }
 
     private func notifyLocked(_ entry: Entry, update: RemoteProxyBrokerUpdate) {
-        for callback in entry.subscribers.values {
-            callback(update)
+        for subscriber in entry.subscribers.values {
+            subscriber.onUpdate(update)
+        }
+    }
+
+    private func startRuntimeStateSubscriptionLocked(
+        key: String,
+        entry: Entry,
+        tunnel: any RemoteProxyTunneling
+    ) throws {
+        let tunnelID = ObjectIdentifier(tunnel)
+        _ = try tunnel.subscribeRuntimeState(queue: queue) { [weak self] document in
+            self?.handleRuntimeStateDocumentLocked(
+                key: key,
+                tunnelID: tunnelID,
+                document: document
+            )
+        }
+        entry.runtimeStateSubscriptionActive = true
+    }
+
+    private func handleRuntimeStateDocumentLocked(
+        key: String,
+        tunnelID: ObjectIdentifier,
+        document: RemoteRuntimeStateDocument
+    ) {
+        guard let entry = entries[key],
+              let tunnel = entry.tunnel,
+              ObjectIdentifier(tunnel) == tunnelID,
+              entry.runtimeStateSubscriptionActive else { return }
+        for subscriber in entry.subscribers.values {
+            subscriber.onRuntimeState?(document)
         }
     }
 
