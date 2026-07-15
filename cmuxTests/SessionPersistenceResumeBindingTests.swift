@@ -17,7 +17,7 @@ import Testing
         _ = await ProcessDetectedResumeIndexes.loadForAutosave(
             cachedAgentIndex: ProcessDetectedResumeIndexes.AutosaveAgentIndexCache(
                 restorableAgentIndex: .empty,
-                processDetectedAgentFingerprint: .empty
+                processScopeFingerprint: []
             ),
             processSnapshotProvider: {
                 processSnapshotCalls.withLock { $0 += 1 }
@@ -27,7 +27,7 @@ import Testing
                     includesProcessDetails: true
                 )
             },
-            processDetectedAgentFingerprintProvider: { _ in .empty },
+            processScopeFingerprintProvider: { _ in [] },
             fullLoad: {
                 fullLoadCalls.withLock { $0 += 1 }
                 return ProcessDetectedResumeIndexes(
@@ -72,31 +72,11 @@ import Testing
         let processSnapshotCalls = OSAllocatedUnfairLock(initialState: 0)
         let fingerprintCalls = OSAllocatedUnfairLock(initialState: 0)
         let fullLoadCalls = OSAllocatedUnfairLock(initialState: 0)
-        let panelKey = RestorableAgentSessionIndex.PanelKey(
-            workspaceId: UUID(),
-            panelId: UUID()
-        )
-        let changedFingerprint = ProcessDetectedResumeIndexes.processDetectedAgentFingerprint(
-            from: [
-                panelKey: (
-                    snapshot: SessionRestorableAgentSnapshot(
-                        kind: .codex,
-                        sessionId: "new-live-session",
-                        workingDirectory: "/tmp/new-live-session",
-                        launchCommand: nil
-                    ),
-                    updatedAt: 1,
-                    processIDs: [42],
-                    agentProcessIDs: [42],
-                    sessionIDSource: .explicit
-                )
-            ]
-        )
 
         _ = await ProcessDetectedResumeIndexes.loadForAutosave(
             cachedAgentIndex: ProcessDetectedResumeIndexes.AutosaveAgentIndexCache(
                 restorableAgentIndex: .empty,
-                processDetectedAgentFingerprint: .empty
+                processScopeFingerprint: ["old-process-scope"]
             ),
             processSnapshotProvider: {
                 processSnapshotCalls.withLock { $0 += 1 }
@@ -106,9 +86,9 @@ import Testing
                     includesProcessDetails: true
                 )
             },
-            processDetectedAgentFingerprintProvider: { _ in
+            processScopeFingerprintProvider: { _ in
                 fingerprintCalls.withLock { $0 += 1 }
-                return changedFingerprint
+                return ["new-process-scope"]
             },
             fullLoad: {
                 fullLoadCalls.withLock { $0 += 1 }
