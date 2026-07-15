@@ -136,6 +136,30 @@ git merge --ff-only merge/upstream-vX.Y.Z
 git push origin feat/sidebar-folder-drop
 ```
 
+## Build toolchain on this machine (zig / Ghostty CLI helper)
+
+The Xcode build has a "Build Ghostty CLI helper" run-script phase that needs a specific zig. Two
+gotchas hit this machine when building v0.64.19:
+
+1. **Exact zig version.** The phase requires exactly `zig 0.15.2`. Homebrew here has `0.16.0`, which
+   the strict check rejects. Zig 0.15.2 is installed isolated at
+   `~/.cache/cmux/zig/zig-aarch64-macos-0.15.2/zig` (Homebrew's 0.16.0 untouched). Point the build
+   at it with `CMUX_ZIG`:
+   ```bash
+   export CMUX_ZIG="$HOME/.cache/cmux/zig/zig-aarch64-macos-0.15.2/zig"
+   ```
+   To reinstall it later: `ZIG_FORCE_LOCAL_INSTALL=1 ZIG_INSTALL_ROOT="$HOME/.cache/cmux/zig" bash scripts/install-zig-ci.sh`
+
+2. **zig 0.15.2 vs the macOS 26 SDK.** Even with the right zig, the helper's build-runner fails to
+   link libSystem on macOS 26 (undefined `_sigaction`, `_waitpid`, etc.). This is a zig/SDK problem,
+   not a cmux or fork problem. For local dogfood builds, skip the real helper and build a stub (the
+   terminal still works via GhosttyKit; only the standalone bundled `ghostty` CLI is a stub):
+   ```bash
+   CMUX_SKIP_ZIG_BUILD=1 ./scripts/reload.sh --tag <tag>
+   ```
+   A proper release build needs the real helper, which CI builds in a controlled environment. Do not
+   ship a `CMUX_SKIP_ZIG_BUILD=1` build as a release.
+
 ## Notes
 
 - The `ghostty` and `vendor/bonsplit` submodules track upstream. Our fork does not modify them, so
