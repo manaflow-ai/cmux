@@ -85,8 +85,11 @@ extension Workspace {
     @discardableResult
     func reorderSurface(panelId: UUID, by offset: Int) -> Bool {
         if layoutMode == .canvas {
+            let previousRevision = canvasModel.revision
             guard canvasModel.reorderPanel(panelId, by: offset) else { return false }
-            canvasModel.viewport?.modelDidChangeExternally(animated: false)
+            if canvasModel.revision != previousRevision {
+                canvasModel.viewport?.modelDidChangeExternally(animated: false)
+            }
             return true
         }
         guard let paneId = paneId(forPanelId: panelId),
