@@ -145,6 +145,23 @@ struct RepositoryTerminalScriptsTests {
             manager.window = window
             defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowID) }
 
+            let resolver = RepositoryScriptResolver()
+            let firstResolution = try #require(
+                await resolver.resolve(directory: first.path, preferences: [])
+            )
+            let secondID = try #require(
+                await resolver.resolve(directory: second.path, preferences: [])?.identity.id
+            )
+            try await jsonStore.set([
+                RepositoryScriptPreference(
+                    repositoryID: firstResolution.identity.id,
+                    repositoryRoot: firstResolution.identity.workTreeRoot,
+                    archive: "echo old",
+                    overridesProjectScripts: true,
+                    promptDismissed: true
+                ),
+            ], for: catalog.terminal.repositoryScripts)
+
             let displayed = try #require(await hostActions.repositoryScriptSettingsContext())
             #expect(displayed.repositoryRoot == first.resolvingSymlinksInPath().path)
 
@@ -159,20 +176,17 @@ struct RepositoryTerminalScriptsTests {
             #expect(manager.selectedWorkspace?.currentDirectory == second.path)
             let updated = await hostActions.saveRepositoryScripts(
                 context: displayed,
-                setup: "echo first",
-                archive: ""
+                setup: "",
+                archive: "echo first"
             )
             #expect(updated?.repositoryID == displayed.repositoryID)
 
-            let resolver = RepositoryScriptResolver()
-            let firstID = try #require(
-                await resolver.resolve(directory: first.path, preferences: [])?.identity.id
-            )
-            let secondID = try #require(
-                await resolver.resolve(directory: second.path, preferences: [])?.identity.id
-            )
             let preferences = await jsonStore.value(for: catalog.terminal.repositoryScripts)
-            #expect(preferences.contains { $0.repositoryID == firstID })
+            let firstPreference = try #require(
+                preferences.first { $0.repositoryID == firstResolution.identity.id }
+            )
+            #expect(firstPreference.archive == "echo first")
+            #expect(firstPreference.promptDismissed)
             #expect(!preferences.contains { $0.repositoryID == secondID })
         }
     }
