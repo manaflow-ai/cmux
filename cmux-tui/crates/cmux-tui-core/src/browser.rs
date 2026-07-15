@@ -950,7 +950,7 @@ impl BrowserSurface {
     }
 
     pub(crate) fn resize_blocking(&self, cols: u16, rows: u16) -> anyhow::Result<bool> {
-        let before = self.size();
+        let needed = self.resize_needed(cols, rows);
         let (completion, finished) = sync_channel(1);
         self.enqueue_control(BrowserCommand::Reconfigure {
             cols: cols.max(1),
@@ -961,7 +961,7 @@ impl BrowserSurface {
             .recv()
             .map_err(|_| anyhow::anyhow!("browser command worker closed"))?
             .map_err(anyhow::Error::msg)?;
-        Ok(self.size() != before)
+        Ok(needed)
     }
 
     fn reconfigure_resize_blocking(&self, cols: u16, rows: u16) -> anyhow::Result<()> {
@@ -2396,10 +2396,10 @@ mod tests {
         let browser = surface.as_browser().expect("browser surface");
         *browser.cell_pixels.lock().unwrap() = (9, 16);
 
-        let (width, height) = browser.update_resize_state(10, 5).expect("changed geometry");
+        let _ = browser.update_resize_state(10, 5).expect("changed geometry");
         assert!(browser.resize_needed(10, 5));
 
-        browser.confirm_reconfigure(width, height);
+        assert!(browser.resize_blocking(10, 5).unwrap());
         assert!(!browser.resize_needed(10, 5));
     }
 
