@@ -3,8 +3,10 @@ import CMUXAuthCore
 import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxIrohTransport
+import CmuxMobileRPC
 import CmuxMobileShell
 import CmuxMobileShellModel
+import CmuxMobileTransport
 import CryptoKit
 import Foundation
 import Testing
@@ -286,6 +288,13 @@ struct MobileIrohRuntimeCompositionTests {
         case let .ok(devices): #expect(devices.isEmpty)
         case .authRejected, .transientFailure: Issue.record("Decorator changed the base device-list outcome")
         }
+        switch await registry.listLiveSessionDevices() {
+        case let .ok(devices): #expect(devices.isEmpty)
+        case .authRejected, .transientFailure: Issue.record("Decorator changed the live-session list outcome")
+        }
+        let listCalls = await base.listCallCounts()
+        #expect(listCalls.full == 1)
+        #expect(listCalls.liveSessions == 1)
     }
 
     @Test
@@ -576,6 +585,8 @@ private actor MobileIrohSnapshotRecorder {
 
 private actor MobileIrohBaseRegistry: DeviceRegistryRefreshing {
     let routes: [CmxAttachRoute]
+    private var fullListCalls = 0
+    private var liveSessionListCalls = 0
 
     init(routes: [CmxAttachRoute]) {
         self.routes = routes
@@ -585,7 +596,19 @@ private actor MobileIrohBaseRegistry: DeviceRegistryRefreshing {
         forMacDeviceID _: String,
         instanceTag _: String?
     ) -> [CmxAttachRoute]? { routes }
-    func listDevices() -> DeviceRegistryListOutcome { .ok([]) }
+    func listDevices() -> DeviceRegistryListOutcome {
+        fullListCalls += 1
+        return .ok([])
+    }
+
+    func listLiveSessionDevices() -> DeviceRegistryListOutcome {
+        liveSessionListCalls += 1
+        return .ok([])
+    }
+
+    func listCallCounts() -> (full: Int, liveSessions: Int) {
+        (fullListCalls, liveSessionListCalls)
+    }
 }
 
 @MainActor
