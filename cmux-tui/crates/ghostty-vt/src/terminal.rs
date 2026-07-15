@@ -725,17 +725,14 @@ impl Terminal {
 
     /// VT replay bounded to `max_bytes`, retaining the newest complete rows.
     ///
-    /// The formatter first measures the complete replay without allocating its
-    /// output, preserving full history when it fits. Oversized history is then
-    /// reduced to a recent row window derived from the budget and reduced
-    /// further until the active screen fits.
+    /// Formatting begins with a recent row window derived from the budget. A
+    /// fitting window grows geometrically up to the complete history, while an
+    /// oversized window shrinks until the active screen fits. This preserves
+    /// full history when it fits without first scanning unbounded scrollback.
     /// A pathological screen whose newest row alone exceeds the budget falls
     /// back to a terminal reset so callers can still attach and receive live
     /// output instead of entering a permanent overflow loop.
     pub fn vt_replay_bounded(&mut self, max_bytes: usize) -> Result<Vec<u8>> {
-        if let Some(replay) = self.vt_replay_with_selection_bounded(None, max_bytes)? {
-            return Ok(replay);
-        }
         let Some(scrollbar) = self.scrollbar() else {
             return Ok(minimal_vt_replay(max_bytes));
         };
@@ -746,9 +743,24 @@ impl Terminal {
         let screen_rows = scrollbar.len.min(scrollbar.total).max(1);
         let mut tail_rows =
             vt_replay_row_window(scrollbar.total, screen_rows, self.cols(), max_bytes);
+        let mut best = None;
+        let mut upper_failed = false;
 
         loop {
             if let Some(replay) = self.vt_replay_screen_tail_bounded(tail_rows, max_bytes)? {
+                if upper_failed || tail_rows == scrollbar.total {
+                    return Ok(replay);
+                }
+                best = Some(replay);
+                let next = tail_rows.saturating_mul(2).min(scrollbar.total);
+                if next == tail_rows {
+                    break;
+                }
+                tail_rows = next;
+                continue;
+            }
+            upper_failed = true;
+            if let Some(replay) = best {
                 return Ok(replay);
             }
             if tail_rows <= 1 {

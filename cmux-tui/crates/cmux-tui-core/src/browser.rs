@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender, SyncSender, TrySendError, sync_channel};
-use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use cmux_tui_cdp::{
@@ -149,7 +149,6 @@ enum BrowserCommand {
     Reconfigure {
         cols: u16,
         rows: u16,
-        completion: Option<Arc<BrowserResizeOperation>>,
     },
     #[cfg(test)]
     Hold {
@@ -179,42 +178,6 @@ struct BrowserWorkerErrorState {
     consecutive_timeouts: u8,
 }
 
-struct BrowserResizeOperation {
-    desired: (u16, u16),
-    result: Mutex<Option<Result<bool, String>>>,
-    changed: Condvar,
-    timed_out: AtomicBool,
-}
-
-impl BrowserResizeOperation {
-    fn new(desired: (u16, u16)) -> Self {
-        Self {
-            desired,
-            result: Mutex::new(None),
-            changed: Condvar::new(),
-            timed_out: AtomicBool::new(false),
-        }
-    }
-
-    fn wait(&self, timeout: Duration) -> Option<Result<bool, String>> {
-        let result = self.result.lock().unwrap();
-        if result.is_some() {
-            return result.clone();
-        }
-        let (result, _) = self.changed.wait_timeout(result, timeout).unwrap();
-        if result.is_none() {
-            self.timed_out.store(true, Ordering::Release);
-        }
-        result.clone()
-    }
-
-    fn complete(&self, result: Result<bool, String>) -> bool {
-        *self.result.lock().unwrap() = Some(result);
-        self.changed.notify_all();
-        self.timed_out.load(Ordering::Acquire)
-    }
-}
-
 pub struct BrowserRuntime {
     client: CdpClient,
     chrome: Option<Chrome>,
@@ -241,7 +204,6 @@ pub struct BrowserSurface {
     command_tx: Mutex<Option<SyncSender<BrowserCommand>>>,
     latest_reconfigure: Arc<Mutex<Option<BrowserCommand>>>,
     latest_nav: Arc<Mutex<Option<BrowserCommand>>>,
-    resize_operation: Mutex<Option<Arc<BrowserResizeOperation>>>,
     #[cfg(test)]
     worker_done: Mutex<Option<Receiver<()>>>,
 }
@@ -259,21 +221,6 @@ const DEFAULT_CAPTURE_MEGAPIXELS: f64 = TRANSPORT_SAFE_CAPTURE_MEGAPIXELS;
 const STALL_THRESHOLD: Duration = Duration::from_secs(2);
 const BROWSER_COMMAND_QUEUE_CAPACITY: usize = 64;
 const BROWSER_NOT_RESPONDING_MESSAGE: &str = "browser is not responding";
-#[cfg(not(test))]
-const BROWSER_RESIZE_COMPLETION_TIMEOUT: Duration = Duration::from_secs(5);
-#[cfg(test)]
-const BROWSER_RESIZE_COMPLETION_TIMEOUT: Duration = Duration::from_millis(100);
-
-#[derive(Debug)]
-pub struct BrowserResizeTimeout;
-
-impl std::fmt::Display for BrowserResizeTimeout {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("browser resize completion timed out")
-    }
-}
-
-impl std::error::Error for BrowserResizeTimeout {}
 
 impl BrowserRuntime {
     pub fn connect(opts: &SurfaceOptions) -> anyhow::Result<Arc<Self>> {
@@ -465,7 +412,6 @@ pub(crate) fn new_surface(
         command_tx: Mutex::new(Some(command_tx)),
         latest_reconfigure: latest_reconfigure.clone(),
         latest_nav: latest_nav.clone(),
-        resize_operation: Mutex::new(None),
         #[cfg(test)]
         worker_done: Mutex::new(Some(worker_done_rx)),
     }));
@@ -809,7 +755,7 @@ fn coalesce_worker_mouse_moves(batch: &mut Vec<BrowserCommand>) {
 
 fn run_browser_worker_command(
     surface: &Surface,
-    mut command: BrowserCommand,
+    command: BrowserCommand,
     mux: &Weak<Mux>,
     id: SurfaceId,
     failures: &mut BrowserWorkerErrorState,
@@ -817,10 +763,6 @@ fn run_browser_worker_command(
     let is_input = command.is_input();
     let is_reconfigure = matches!(command, BrowserCommand::Reconfigure { .. });
     let mut resize_changed = false;
-    let completion = match &mut command {
-        BrowserCommand::Reconfigure { completion, .. } => completion.take(),
-        _ => None,
-    };
     let result = {
         let Some(browser) = surface.as_browser() else {
             return;
@@ -852,7 +794,7 @@ fn run_browser_worker_command(
             BrowserCommand::Forward => browser.forward_blocking(),
             BrowserCommand::Reload => browser.reload_blocking(),
             BrowserCommand::Activate => browser.activate_blocking(),
-            BrowserCommand::Reconfigure { cols, rows, completion: _ } => {
+            BrowserCommand::Reconfigure { cols, rows } => {
                 browser.reconfigure_resize_blocking(cols, rows).map(|changed| {
                     resize_changed = changed;
                 })
@@ -864,15 +806,7 @@ fn run_browser_worker_command(
             }
         }
     };
-    let mut completion_abandoned = false;
-    if let Some(completion) = completion {
-        let outcome = result.as_ref().map(|_| resize_changed).map_err(ToString::to_string);
-        if let Some(browser) = surface.as_browser() {
-            completion_abandoned = browser.finish_resize_operation(&completion, outcome);
-        }
-    }
-    if completion_abandoned
-        && is_reconfigure
+    if is_reconfigure
         && resize_changed
         && result.is_ok()
         && let Some(mux) = mux.upgrade()
@@ -1014,61 +948,13 @@ impl BrowserSurface {
         self.close_command_sender();
     }
 
-    pub fn resize(&self, cols: u16, rows: u16) {
+    pub fn resize(&self, cols: u16, rows: u16) -> anyhow::Result<bool> {
         let (cols, rows) = (cols.max(1), rows.max(1));
         if !self.resize_needed(cols, rows) {
-            return;
+            return Ok(false);
         }
-        if let Err(e) = self.enqueue_latest_reconfigure(BrowserCommand::Reconfigure {
-            cols,
-            rows,
-            completion: None,
-        }) {
-            eprintln!("cmux-tui: browser resize failed for surface {}: {e}", self.meta.id);
-        }
-    }
-
-    pub(crate) fn resize_blocking(&self, cols: u16, rows: u16) -> anyhow::Result<bool> {
-        let desired = (cols.max(1), rows.max(1));
-        let (operation, enqueue) = {
-            let mut slot = self.resize_operation.lock().unwrap();
-            match slot.as_ref() {
-                Some(operation) if operation.desired == desired => (operation.clone(), false),
-                Some(_) => return Err(BrowserResizeTimeout.into()),
-                None => {
-                    let operation = Arc::new(BrowserResizeOperation::new(desired));
-                    *slot = Some(operation.clone());
-                    (operation, true)
-                }
-            }
-        };
-        if enqueue
-            && let Err(error) = self.enqueue_control(BrowserCommand::Reconfigure {
-                cols: desired.0,
-                rows: desired.1,
-                completion: Some(operation.clone()),
-            })
-        {
-            self.finish_resize_operation(&operation, Err(error.to_string()));
-            return Err(error);
-        }
-        match operation.wait(BROWSER_RESIZE_COMPLETION_TIMEOUT) {
-            Some(outcome) => outcome.map_err(anyhow::Error::msg),
-            None => Err(BrowserResizeTimeout.into()),
-        }
-    }
-
-    fn finish_resize_operation(
-        &self,
-        operation: &Arc<BrowserResizeOperation>,
-        outcome: Result<bool, String>,
-    ) -> bool {
-        let timed_out = operation.complete(outcome);
-        let mut slot = self.resize_operation.lock().unwrap();
-        if slot.as_ref().is_some_and(|current| Arc::ptr_eq(current, operation)) {
-            *slot = None;
-        }
-        timed_out
+        self.enqueue_latest_reconfigure(BrowserCommand::Reconfigure { cols, rows })?;
+        Ok(true)
     }
 
     fn reconfigure_resize_blocking(&self, cols: u16, rows: u16) -> anyhow::Result<bool> {
@@ -1091,7 +977,7 @@ impl BrowserSurface {
             *cell = next;
         }
         let (cols, rows) = self.size();
-        self.resize(cols, rows);
+        let _ = self.resize(cols, rows);
     }
 
     fn update_resize_state(&self, cols: u16, rows: u16) -> Option<(u32, u32)> {
@@ -1784,9 +1670,9 @@ fn percent_encode_query(input: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        BrowserCaptureOptions, BrowserCommand, BrowserFrame, BrowserResizeTimeout, BrowserSource,
-        BrowserStatus, capture_scale_for, new_surface, normalize_url, runtime_endpoint,
-        scaled_pixels, take_latest_worker_commands,
+        BrowserCaptureOptions, BrowserCommand, BrowserFrame, BrowserSource, BrowserStatus,
+        capture_scale_for, new_surface, normalize_url, runtime_endpoint, scaled_pixels,
+        take_latest_worker_commands,
     };
     use crate::{Mux, Surface, SurfaceOptions};
     use serde_json::{Value, json};
@@ -2156,18 +2042,15 @@ mod tests {
 
     #[test]
     fn latest_reconfigure_and_nav_slots_do_not_clobber_each_other() {
-        let latest_reconfigure = Arc::new(Mutex::new(Some(BrowserCommand::Reconfigure {
-            cols: 111,
-            rows: 222,
-            completion: None,
-        })));
+        let latest_reconfigure =
+            Arc::new(Mutex::new(Some(BrowserCommand::Reconfigure { cols: 111, rows: 222 })));
         let latest_nav =
             Arc::new(Mutex::new(Some(BrowserCommand::Navigate("https://next.test".to_string()))));
 
         let commands = take_latest_worker_commands(&latest_reconfigure, &latest_nav);
         assert_eq!(commands.len(), 2);
         match &commands[0] {
-            BrowserCommand::Reconfigure { cols, rows, completion: None } => {
+            BrowserCommand::Reconfigure { cols, rows } => {
                 assert_eq!((*cols, *rows), (111, 222));
             }
             _ => panic!("reconfigure must drain before nav"),
@@ -2192,7 +2075,7 @@ mod tests {
     }
 
     #[test]
-    fn browser_resize_completion_wait_is_bounded() {
+    fn browser_resize_is_nonblocking_and_latest_wins() {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
         let done = browser.take_worker_done_for_test();
@@ -2205,14 +2088,12 @@ mod tests {
             .unwrap();
         started.recv_timeout(Duration::from_secs(1)).unwrap();
 
-        let error = browser.resize_blocking(11, 5).unwrap_err();
-        assert!(error.downcast_ref::<BrowserResizeTimeout>().is_some());
-        let first_operation = browser.resize_operation.lock().unwrap().clone().unwrap();
-
-        let error = browser.resize_blocking(11, 5).unwrap_err();
-        assert!(error.downcast_ref::<BrowserResizeTimeout>().is_some());
-        let joined_operation = browser.resize_operation.lock().unwrap().clone().unwrap();
-        assert!(Arc::ptr_eq(&first_operation, &joined_operation));
+        assert!(browser.resize(11, 5).unwrap());
+        assert!(browser.resize(12, 6).unwrap());
+        assert!(matches!(
+            browser.latest_reconfigure.lock().unwrap().as_ref(),
+            Some(BrowserCommand::Reconfigure { cols: 12, rows: 6 })
+        ));
 
         release.send(()).unwrap();
         browser.kill();
@@ -2497,7 +2378,7 @@ mod tests {
         }
         assert!(browser.frames_stalled_at(now));
 
-        browser.resize_blocking(10, 5).unwrap();
+        browser.reconfigure_resize_blocking(10, 5).unwrap();
         {
             let state = browser.state.lock().unwrap();
             assert_eq!(state.last_frame_at, Some(now - Duration::from_secs(3)));
@@ -2505,7 +2386,7 @@ mod tests {
         }
         assert!(browser.frames_stalled_at(now));
 
-        browser.resize_blocking(11, 5).unwrap();
+        browser.reconfigure_resize_blocking(11, 5).unwrap();
         let state = browser.state.lock().unwrap();
         assert_eq!(state.last_frame_at, None);
         assert!(!state.stall_nudged);
@@ -2535,9 +2416,9 @@ mod tests {
         let _ = browser.update_resize_state(10, 5).expect("changed geometry");
         assert!(browser.resize_needed(10, 5));
 
-        assert!(browser.resize_blocking(10, 5).unwrap());
+        assert!(browser.reconfigure_resize_blocking(10, 5).unwrap());
         assert!(!browser.resize_needed(10, 5));
-        assert!(!browser.resize_blocking(10, 5).unwrap());
+        assert!(!browser.reconfigure_resize_blocking(10, 5).unwrap());
     }
 
     #[test]

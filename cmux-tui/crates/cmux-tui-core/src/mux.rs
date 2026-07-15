@@ -756,8 +756,8 @@ impl Mux {
         }
     }
 
-    /// Resize a surface and broadcast the final clamped size when it
-    /// actually changes.
+    /// Resize a surface and broadcast the final clamped size when it actually
+    /// changes. Browser workers broadcast after their asynchronous CDP work.
     pub fn resize_surface(&self, id: SurfaceId, cols: u16, rows: u16) -> anyhow::Result<bool> {
         let Some(surface) = self.surface(id) else {
             anyhow::bail!("unknown surface {id}");
@@ -769,6 +769,9 @@ impl Mux {
         let (cols, rows) = (cols.max(1), rows.max(1));
         if !surface.resize(cols, rows)? {
             return Ok(false);
+        }
+        if surface.as_browser().is_some() {
+            return Ok(true);
         }
         let (cols, rows) = surface.size();
         self.emit(MuxEvent::SurfaceResized { surface: id, cols, rows });

@@ -690,11 +690,12 @@ impl Surface {
 
     /// Resize this surface. PTYs receive cell dimensions; browsers also
     /// use the last configured cell pixel size for CDP device metrics.
-    /// Returns whether the final clamped size actually changed.
+    /// Returns whether a clamped size change was applied or accepted. Browser
+    /// reconfiguration completes on its worker and emits the final size there.
     pub fn resize(&self, cols: u16, rows: u16) -> anyhow::Result<bool> {
         match self {
             Surface::Pty(pty) => Ok(pty.resize(cols, rows)),
-            Surface::Browser(browser) => browser.resize_blocking(cols, rows),
+            Surface::Browser(browser) => browser.resize(cols, rows),
         }
     }
 

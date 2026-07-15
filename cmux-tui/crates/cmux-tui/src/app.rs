@@ -16,9 +16,8 @@ use std::time::{Duration, Instant};
 
 use base64::Engine;
 use cmux_tui_core::{
-    BrowserResizeTimeout, BrowserSource, BrowserStatus, MuxEvent, PaneId, Rect, SplitDir,
-    SplitEdge, SurfaceId, SurfaceKind, WorkspaceId, layout_screen, split_for_pane_edge,
-    split_sides,
+    BrowserSource, BrowserStatus, MuxEvent, PaneId, Rect, SplitDir, SplitEdge, SurfaceId,
+    SurfaceKind, WorkspaceId, layout_screen, split_for_pane_edge, split_sides,
 };
 use crossterm::ExecutableCommand;
 use crossterm::event::{
@@ -1073,9 +1072,8 @@ impl OrderedSession {
                         Ok(())
                     }
                     Err(error) => {
-                        let transient = is_remote_timeout(&error)
-                            || is_remote_transport_failure(&error)
-                            || error.downcast_ref::<BrowserResizeTimeout>().is_some();
+                        let transient =
+                            is_remote_timeout(&error) || is_remote_transport_failure(&error);
                         let mut failures = failures.lock().unwrap();
                         let previous = failures.get(&surface_id).map(|failure| failure.state);
                         let state = next_surface_sync_failure(previous, transient, false);
