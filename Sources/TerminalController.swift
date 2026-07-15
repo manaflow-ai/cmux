@@ -10643,6 +10643,11 @@ class TerminalController {
         if parsed.modifierFlags.contains(.control) { flags.insert(.maskControl) }
         if parsed.modifierFlags.contains(.option) { flags.insert(.maskAlternate) }
         if parsed.modifierFlags.contains(.shift) { flags.insert(.maskShift) }
+        // parseShortcutCombo emits only the four flags above today; map the
+        // remaining NSEvent modifiers anyway so this builder stays correct if
+        // combos ever carry them.
+        if parsed.modifierFlags.contains(.capsLock) { flags.insert(.maskAlphaShift) }
+        if parsed.modifierFlags.contains(.function) { flags.insert(.maskSecondaryFn) }
         cgEvent.flags = flags
         cgEvent.timestamp = CGEventTimestamp(timestamp * 1_000_000_000)
         return NSEvent(cgEvent: cgEvent)
