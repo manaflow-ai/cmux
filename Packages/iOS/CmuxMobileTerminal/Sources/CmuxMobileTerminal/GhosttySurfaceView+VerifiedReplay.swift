@@ -39,16 +39,9 @@ extension GhosttySurfaceView {
                 verifiedReplayRenderSuppressed = false
             }
         }
-        guard await submitVerifiedReplayRenderAndWait(read: nil) != nil,
-              !Task.isCancelled else {
-            return false
-        }
-
-        guard let frozen = await makeVerifiedReplayFrozenPresentation(
+        guard let frozen = await makeVerifiedReplayFrozenPresentationForFreeze(
             transactionID: transactionID
-        ) else {
-            return false
-        }
+        ) else { return false }
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -68,6 +61,27 @@ extension GhosttySurfaceView {
         )
         retainedFrozenPresentation = true
         return true
+    }
+
+    private func makeVerifiedReplayFrozenPresentationForFreeze(
+        transactionID: UInt64
+    ) async -> VerifiedReplayFrozenPresentation? {
+        let renderer = (layer.sublayers ?? []).first(where: isGhosttyRendererLayer)
+        let presentedContents = renderer?.presentation()?.contents ?? renderer?.contents
+        let requiresPresentedDrain = VerifiedReplayFreezeDrainPolicy.requiresPresentedDrain(
+            hasPresentedContents: presentedContents != nil
+        )
+        if requiresPresentedDrain {
+            guard await submitVerifiedReplayRenderAndWait(read: nil) != nil,
+                  !Task.isCancelled else { return nil }
+            return await makeVerifiedReplayFrozenPresentation(transactionID: transactionID)
+        }
+
+        // A new surface has no prior GPU frame to drain or preserve. Waiting
+        // for a presentation token here can never complete because Ghostty's
+        // zero-sized first target is correctly rejected by its size guard.
+        guard !Task.isCancelled, !isDismantled, window != nil else { return nil }
+        return makeVerifiedReplayBlankFrozenPresentation()
     }
 
     /// Removes the retained last-good pixels only for the transaction that

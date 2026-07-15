@@ -6,6 +6,10 @@ import UIKit
 
 @MainActor
 extension GhosttySurfaceView {
+    func makeVerifiedReplayBlankFrozenPresentation() -> VerifiedReplayFrozenPresentation {
+        makeVerifiedReplayFrozenPresentation(renderer: nil, image: nil)
+    }
+
     func makeVerifiedReplayFrozenPresentation(
         transactionID: UInt64
     ) async -> VerifiedReplayFrozenPresentation? {
