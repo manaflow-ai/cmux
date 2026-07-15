@@ -3,6 +3,23 @@ import Foundation
 
 @MainActor
 final class CmuxRunURLConfirmationPresenter {
+    private let nonModalFailurePresenter: CmuxRunURLNonModalFailurePresenter
+
+    init(
+        nonModalFailurePresenter: CmuxRunURLNonModalFailurePresenter =
+            CmuxRunURLNonModalFailurePresenter()
+    ) {
+        self.nonModalFailurePresenter = nonModalFailurePresenter
+    }
+
+    var nonModalFailureWindowForTesting: NSWindow? {
+        nonModalFailurePresenter.window
+    }
+
+    func dismissNonModalFailureForTesting() {
+        nonModalFailurePresenter.dismiss()
+    }
+
     func confirm(_ plan: CmuxRunExecutionPlan, presentingWindow: NSWindow?) -> Bool {
         let alert = NSAlert()
         alert.alertStyle = .critical
@@ -245,7 +262,7 @@ final class CmuxRunURLConfirmationPresenter {
     }
 
     private func showNonModalFailureMessage(_ message: String) {
-        CmuxRunURLNonModalFailurePresenter.shared.show(message: message)
+        nonModalFailurePresenter.show(message: message)
     }
 
     private func parseFailureMessage(_ error: CmuxRunURLParseError) -> String {

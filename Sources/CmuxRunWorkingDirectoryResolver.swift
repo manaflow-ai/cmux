@@ -135,15 +135,13 @@ struct CmuxRunWorkingDirectoryResolver: @unchecked Sendable {
             return .failure(.workingDirectoryResolutionTimedOut)
         case .completed(let status, let output):
             guard status == EXIT_SUCCESS,
-                  output.last == 0x0A,
-                  let resolved = String(data: Data(output.dropLast()), encoding: .utf8),
-                  (resolved as NSString).isAbsolutePath else {
+                  let resolvedDirectory = Self.resolvedDirectory(fromVerifierOutput: output) else {
                 return .failure(.workingDirectoryNotFound)
             }
-            if let error = canonicalPathValidationError(resolved) {
+            if let error = canonicalPathValidationError(resolvedDirectory.path) {
                 return .failure(error)
             }
-            return resolvedDirectory(at: resolved)
+            return .success(resolvedDirectory)
         }
     }
 
@@ -194,7 +192,46 @@ struct CmuxRunWorkingDirectoryResolver: @unchecked Sendable {
     ) -> CmuxRunWorkingDirectoryCommand {
         CmuxRunWorkingDirectoryCommand(
             executableURL: URL(fileURLWithPath: "/bin/sh"),
-            arguments: ["-c", "CDPATH= cd -P -- \"$1\" && pwd -P", "cmux-run", expandedPath]
+            arguments: [
+                "-c",
+                "CDPATH= cd -P -- \"$1\" || exit; "
+                    + "cmux_path=$(/bin/pwd -P) || exit; "
+                    + "printf '%s\\0' \"$cmux_path\" || exit; "
+                    + "/usr/bin/stat -f '%d:%i' .",
+                "cmux-run",
+                expandedPath
+            ]
+        )
+    }
+
+    private static func resolvedDirectory(
+        fromVerifierOutput output: Data
+    ) -> CmuxRunResolvedWorkingDirectory? {
+        guard output.last == 0x0A,
+              let separator = output.firstIndex(of: 0),
+              output[output.index(after: separator)..<output.index(before: output.endIndex)]
+                .firstIndex(of: 0) == nil else {
+            return nil
+        }
+
+        let pathData = output[..<separator]
+        let identityData = output[
+            output.index(after: separator)..<output.index(before: output.endIndex)
+        ]
+        guard let path = String(data: pathData, encoding: .utf8),
+              (path as NSString).isAbsolutePath,
+              let identityText = String(data: identityData, encoding: .utf8) else {
+            return nil
+        }
+        let identityParts = identityText.split(separator: ":", omittingEmptySubsequences: false)
+        guard identityParts.count == 2,
+              let device = UInt64(identityParts[0]),
+              let inode = UInt64(identityParts[1]) else {
+            return nil
+        }
+        return CmuxRunResolvedWorkingDirectory(
+            path: path,
+            identity: CmuxRunWorkingDirectoryIdentity(device: device, inode: inode)
         )
     }
 

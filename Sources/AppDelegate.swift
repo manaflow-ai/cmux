@@ -1033,7 +1033,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var isApplyingSessionRestore = false
     /// Durable navigation links received before startup restore registers their workspaces.
     var pendingStartupNavigationURLRequests: [CmuxNavigationURLRequest] = []
-    lazy var cmuxRunURLCoordinator = CmuxRunURLCoordinator(appDelegate: self)
+    lazy var cmuxRunURLConfirmationPresenter = CmuxRunURLConfirmationPresenter()
+    lazy var cmuxRunURLCoordinator = CmuxRunURLCoordinator(
+        appDelegate: self,
+        confirmationPresenter: cmuxRunURLConfirmationPresenter
+    )
     private var sessionAutosaveTimer: DispatchSourceTimer?
     private var sessionAutosaveTickInFlight = false
     private var sessionAutosaveDeferredRetryPending = false

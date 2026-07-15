@@ -3,8 +3,6 @@ import Foundation
 
 @MainActor
 final class CmuxRunURLNonModalFailurePresenter: NSObject {
-    static let shared = CmuxRunURLNonModalFailurePresenter()
-
     private var alert: NSAlert?
 
     var window: NSWindow? {

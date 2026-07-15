@@ -13,7 +13,7 @@ extension AppDelegate {
         case .none:
             return false
         case .multipleRunLinks:
-            CmuxRunURLConfirmationPresenter().showNonModalParseFailure(.multipleLinks)
+            cmuxRunURLConfirmationPresenter.showNonModalParseFailure(.multipleLinks)
             return true
         case .multipleSSHLinks:
             showCmuxSSHURLParseError(.multipleLinks)
@@ -22,7 +22,7 @@ extension AppDelegate {
             showCmuxTextURLParseError(.multipleLinks)
             return true
         case .busy:
-            CmuxRunURLConfirmationPresenter().showNonModalFailure(.busy)
+            cmuxRunURLConfirmationPresenter.showNonModalFailure(.busy)
             return true
         case .route:
             break
@@ -136,15 +136,15 @@ extension AppDelegate {
         guard intentCount > 0 else { return false }
         guard !cmuxRunURLCoordinator.isBusy,
               NSApp.modalWindow == nil else {
-            CmuxRunURLConfirmationPresenter().showNonModalFailure(.busy)
+            cmuxRunURLConfirmationPresenter.showNonModalFailure(.busy)
             return true
         }
         guard intentCount == 1 else {
-            CmuxRunURLConfirmationPresenter().showNonModalParseFailure(.multipleLinks)
+            cmuxRunURLConfirmationPresenter.showNonModalParseFailure(.multipleLinks)
             return true
         }
         if let error = errors.first {
-            CmuxRunURLConfirmationPresenter().showParseFailure(error)
+            cmuxRunURLConfirmationPresenter.showParseFailure(error)
             return true
         }
         if let request = requests.first {

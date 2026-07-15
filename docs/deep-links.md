@@ -49,7 +49,9 @@ characters, remote workspaces, missing directories, concurrent run requests,
 and targets that change after approval. Approval binds the directory's
 filesystem identity as well as its canonical path. The shell checks that
 identity after entering the directory and before running the command, so a
-same-path directory replacement fails closed. A run link cannot reuse a terminal,
+same-path directory replacement fails closed. Canonical-path and filesystem-
+identity lookup run in the same bounded verifier process; a stalled filesystem
+cannot leave approval handling blocked indefinitely. A run link cannot reuse a terminal,
 inject environment variables or input, run without focus, or receive a callback.
 The user must approve every command. cmux does not remember approval for raw
 shell commands because mutable scripts and shell expansion make command or

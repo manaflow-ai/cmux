@@ -31,6 +31,10 @@ struct CmuxRunURLRequest: Equatable {
             return .failure(.unsupportedURLShape)
         }
         guard components.host?.lowercased() == "run" else {
+            if components.host == nil,
+               components.path.split(separator: "/").first?.lowercased() == "run" {
+                return .failure(.unsupportedURLShape)
+            }
             return .success(nil)
         }
         guard components.user == nil,
