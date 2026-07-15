@@ -1,4 +1,5 @@
 import CryptoKit
+import CmuxCommandPalette
 import CmuxSettings
 import Foundation
 import Testing
@@ -101,6 +102,29 @@ struct CEFOmnibarIntegrationTests {
         )
 
         #expect(context.focusState.browser)
+    }
+
+    @Test
+    func activeDockOmnibarWinsOverMainBrowser() throws {
+        let dockPanel = CEFBrowserPanel(workspaceId: UUID())
+        let mainPanel = CEFBrowserPanel(workspaceId: UUID())
+
+        let resolved = try #require(preferredOmnibarPanel(
+            activeDockPanel: dockPanel,
+            mainPanel: mainPanel
+        ))
+
+        #expect(resolved.id == dockPanel.id)
+    }
+
+    @Test
+    func omnibarPaletteCapabilityIsDistinctFromWebKitCapability() {
+        #expect(CommandPaletteContextKeys.panelHasOmnibar != CommandPaletteContextKeys.panelIsBrowser)
+    }
+
+    @Test
+    func cefHostsShareOneApplicationEventMonitor() {
+        #expect(CEFBrowserHostCoordinator.usesSharedEventMonitor)
     }
 
     @Test
