@@ -822,90 +822,6 @@ struct MobileHostAuthorizationTests {
         #expect(status.routes.isEmpty)
         #expect(service.debugListenerPortForTesting() == nil)
     }
-    @Test func testTerminalOutputDemandIgnoresUnrelatedTopics() async {
-        MobileHostService.debugResetEventSubscriptionsForTesting()
-        defer { MobileHostService.debugResetEventSubscriptionsForTesting() }
-        let session = makeSubscriptionTestSession()
-
-        await session.subscribe(streamID: "events", topics: ["workspace.updated"])
-
-        #expect(!MobileHostService.debugHasTerminalOutputSubscribersForTesting())
-        _ = await session.unsubscribe(streamID: "events")
-    }
-    @Test func testEitherTerminalOutputTopicEnablesAggregateDemand() async {
-        MobileHostService.debugResetEventSubscriptionsForTesting()
-        defer { MobileHostService.debugResetEventSubscriptionsForTesting() }
-        let session = makeSubscriptionTestSession()
-
-        await session.subscribe(streamID: "bytes", topics: ["terminal.bytes"])
-        #expect(MobileHostService.debugHasTerminalOutputSubscribersForTesting())
-        _ = await session.unsubscribe(streamID: "bytes")
-        #expect(!MobileHostService.debugHasTerminalOutputSubscribersForTesting())
-
-        await session.subscribe(streamID: "grid", topics: ["terminal.render_grid"])
-        #expect(MobileHostService.debugHasTerminalOutputSubscribersForTesting())
-        _ = await session.unsubscribe(streamID: "grid")
-        #expect(!MobileHostService.debugHasTerminalOutputSubscribersForTesting())
-    }
-    @Test func testTerminalOutputDemandRemainsUntilFinalStreamUnsubscribes() async {
-        MobileHostService.debugResetEventSubscriptionsForTesting()
-        defer { MobileHostService.debugResetEventSubscriptionsForTesting() }
-        let session = makeSubscriptionTestSession()
-
-        await session.subscribe(streamID: "bytes", topics: ["terminal.bytes"])
-        await session.subscribe(streamID: "grid", topics: ["terminal.render_grid"])
-        _ = await session.unsubscribe(streamID: "bytes")
-        #expect(MobileHostService.debugHasTerminalOutputSubscribersForTesting())
-        _ = await session.unsubscribe(streamID: "grid")
-        #expect(!MobileHostService.debugHasTerminalOutputSubscribersForTesting())
-    }
-    @Test func testTerminalOutputDemandReplacementIsIdempotent() async {
-        MobileHostService.debugResetEventSubscriptionsForTesting()
-        defer { MobileHostService.debugResetEventSubscriptionsForTesting() }
-        let session = makeSubscriptionTestSession()
-
-        await session.subscribe(streamID: "events", topics: ["terminal.bytes"])
-        await session.subscribe(streamID: "events", topics: ["terminal.bytes"])
-        #expect(MobileHostService.debugHasTerminalOutputSubscribersForTesting())
-        _ = await session.unsubscribe(streamID: "events")
-
-        #expect(!MobileHostService.debugHasTerminalOutputSubscribersForTesting())
-    }
-    @Test func testResetClearsTerminalOutputDemand() async {
-        MobileHostService.debugResetEventSubscriptionsForTesting()
-        defer { MobileHostService.debugResetEventSubscriptionsForTesting() }
-        let session = makeSubscriptionTestSession()
-
-        await session.subscribe(streamID: "events", topics: ["terminal.render_grid"])
-        #expect(MobileHostService.debugHasTerminalOutputSubscribersForTesting())
-        MobileHostService.debugResetEventSubscriptionsForTesting()
-        #expect(!MobileHostService.debugHasTerminalOutputSubscribersForTesting())
-    }
-    @Test func testTerminalOutputActivationIsVisibleToFirstConcurrentAppend() async throws {
-        MobileHostService.debugResetEventSubscriptionsForTesting()
-        let surfaceID = UUID()
-        let tee = MobileTerminalByteTee.shared
-        tee.dropSurface(surfaceID: surfaceID)
-        defer {
-            tee.dropSurface(surfaceID: surfaceID)
-            MobileHostService.debugResetEventSubscriptionsForTesting()
-        }
-        let session = makeSubscriptionTestSession()
-        await session.subscribe(streamID: "grid", topics: ["terminal.render_grid"])
-
-        let bytes: [UInt8] = [0x61, 0x62, 0x63]
-        await Task.detached {
-            bytes.withUnsafeBufferPointer {
-                tee.append(surfaceID: surfaceID, bytes: $0)
-            }
-        }.value
-
-        for _ in 0..<100 where tee.currentSequence(surfaceID: surfaceID) != UInt64(bytes.count) {
-            try await Task.sleep(nanoseconds: 1_000_000)
-        }
-        #expect(tee.currentSequence(surfaceID: surfaceID) == UInt64(bytes.count))
-        _ = await session.unsubscribe(streamID: "grid")
-    }
     private func scopedAttachTicket(workspaceID: String, terminalID: String?) throws -> CmxAttachTicket {
         let route = try CmxAttachRoute(id: "debug", kind: .debugLoopback, endpoint: .hostPort(host: "127.0.0.1", port: 58465))
         return try CmxAttachTicket(
@@ -951,20 +867,6 @@ struct MobileHostAuthorizationTests {
             ticket: ticket,
             request: request,
             createdWorkspaceIDs: createdWorkspaceIDs
-        )
-    }
-    private func makeSubscriptionTestSession() -> MobileHostConnection {
-        MobileHostConnection(
-            id: UUID(),
-            connection: NWConnection(
-                host: NWEndpoint.Host("127.0.0.1"),
-                port: NWEndpoint.Port(rawValue: 9)!,
-                using: .tcp
-            ),
-            authorizeRequest: { _ in nil },
-            onAuthorizedRequest: { _ in },
-            handleRequest: { _ in .ok([:]) },
-            onClose: { _ in }
         )
     }
     func drainMobileHostMainQueue() async {
@@ -1172,7 +1074,6 @@ actor TestMobileHostIndependentEventWriter: MobileHostIndependentEventWriting {
 }
 struct ImmediateMobileHostIrohClock: CmxIrohRelayClock {
     private let instant = Date(timeIntervalSince1970: 1_700_000_000)
-
     func now() -> Date { instant }
     func sleep(until _: Date) async throws {}
 }

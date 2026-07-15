@@ -12,13 +12,52 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `b4b6d69c8`. It advances the previous cmux pin
-`a6305908a` with an exact Ghostty CLI executable-path contract for embedded
-hosts. The commit is reachable from fork `main` through `67b388b73` and was
-published via https://github.com/manaflow-ai/ghostty/pull/115.
+Current cmux pinned fork head: `366c801e0`. It advances the previous cmux pin
+`b4b6d69c8` with wrap-aware URL matching across semantic soft wraps. The commit
+is reachable from fork `main` through the merged
+https://github.com/manaflow-ai/ghostty/pull/118.
 The corresponding universal ReleaseFast GhosttyKit archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-366c801e066c37695c2d9be4a6567662bd763ad0-crashsubdir-cmux-crash-v1
+and pinned in `scripts/ghosttykit-checksums.txt`.
+
+The previous `b4b6d69c8` pin introduced an exact Ghostty CLI executable-path
+contract for embedded hosts. That commit is reachable from fork `main` through
+`67b388b73` and was published via
+https://github.com/manaflow-ai/ghostty/pull/115. Its universal ReleaseFast
+GhosttyKit archive is published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-b4b6d69c82033e16137266a04b364dc53d16c350-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
+
+### URL matching across semantic soft wraps
+
+- Commits:
+  - `e0ab6113a` (test: cover URL links across semantic soft wraps)
+  - `eee34d0f9` (fix: match URLs across semantic soft wraps)
+  - `cbf65567a` (fix: scope wrapped link candidates by matcher)
+  - `ee1e56791` (test: cover idempotent URL link finalization)
+  - `30bd02565` (fix: preserve custom matchers across finalization)
+  - `366c801e0` (merge Ghostty PR #118 into fork `main`)
+- Files:
+  - `src/Surface.zig`
+  - `src/config/Config.zig`
+  - `src/config/url.zig`
+  - `src/input/Link.zig`
+  - `src/terminal/StringMap.zig`
+- Summary:
+  - Keeps semantic prompt boundaries for path and custom-link matching, while
+    letting explicit-scheme URLs use the complete soft-wrapped logical line
+    when a semantic marker divides the line at a visual row boundary.
+  - Assigns candidate bounds to each matcher so URL matching can use the wider
+    logical line without weakening the narrower scopes for paths or custom
+    matchers.
+  - Keeps link hover, click, preview, and copy on one selection path; clicking
+    any wrapped row yields the same complete URL.
+  - Preserves custom matchers when configuration finalization or cloning calls
+    `Config.finalize()` repeatedly, with focused regression coverage for that
+    idempotence contract.
+  - Conflict note: future upstream syncs must preserve the explicit-scheme
+    wider scope, matcher-owned candidate bounds, and idempotent custom-matcher
+    finalization together.
 
 ### Embedded Ghostty CLI path ownership
 
