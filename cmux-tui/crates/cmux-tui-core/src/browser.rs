@@ -208,7 +208,10 @@ struct BrowserCaptureOptions {
     fixed_capture_scale: Option<f64>,
 }
 
-const DEFAULT_CAPTURE_MEGAPIXELS: f64 = 2.0;
+// Two megapixels leave headroom below the 16 MiB transport message cap even
+// for an incompressible RGBA PNG after base64 and JSON encoding.
+const TRANSPORT_SAFE_CAPTURE_MEGAPIXELS: f64 = 2.0;
+const DEFAULT_CAPTURE_MEGAPIXELS: f64 = TRANSPORT_SAFE_CAPTURE_MEGAPIXELS;
 const STALL_THRESHOLD: Duration = Duration::from_secs(2);
 const BROWSER_COMMAND_QUEUE_CAPACITY: usize = 64;
 const BROWSER_NOT_RESPONDING_MESSAGE: &str = "browser is not responding";
@@ -424,7 +427,8 @@ impl BrowserCaptureOptions {
             opts.browser_max_capture_megapixels
         } else {
             DEFAULT_CAPTURE_MEGAPIXELS
-        };
+        }
+        .min(TRANSPORT_SAFE_CAPTURE_MEGAPIXELS);
         let fixed_capture_scale = opts
             .browser_capture_scale
             .filter(|scale| scale.is_finite() && *scale > 0.0 && *scale <= 1.0);
@@ -433,12 +437,11 @@ impl BrowserCaptureOptions {
 }
 
 fn capture_scale_for(pane_px_w: u32, pane_px_h: u32, opts: BrowserCaptureOptions) -> f64 {
-    if let Some(scale) = opts.fixed_capture_scale {
-        return scale;
-    }
     let area = f64::from(pane_px_w.max(1)) * f64::from(pane_px_h.max(1));
     let budget = opts.max_capture_megapixels.max(f64::MIN_POSITIVE) * 1_000_000.0;
-    if area <= budget { 1.0 } else { (budget / area).sqrt().clamp(f64::MIN_POSITIVE, 1.0) }
+    let budget_scale =
+        if area <= budget { 1.0 } else { (budget / area).sqrt().clamp(f64::MIN_POSITIVE, 1.0) };
+    opts.fixed_capture_scale.map_or(budget_scale, |scale| scale.min(budget_scale))
 }
 
 fn scaled_pixels(pane_px_w: u32, pane_px_h: u32, scale: f64) -> (u32, u32) {
@@ -1779,6 +1782,15 @@ mod tests {
             BrowserCaptureOptions { max_capture_megapixels: 2.0, fixed_capture_scale: Some(0.5) };
         assert_eq!(capture_scale_for(800, 600, fixed), 0.5);
         assert_eq!(scaled_pixels(800, 600, 0.5), (400, 300));
+
+        let configured = BrowserCaptureOptions::from_options(&SurfaceOptions {
+            browser_max_capture_megapixels: 20.0,
+            browser_capture_scale: Some(1.0),
+            ..SurfaceOptions::default()
+        });
+        let capped_scale = capture_scale_for(4760, 2548, configured);
+        let capped = scaled_pixels(4760, 2548, capped_scale);
+        assert!(u64::from(capped.0) * u64::from(capped.1) <= 2_010_000);
     }
 
     #[test]

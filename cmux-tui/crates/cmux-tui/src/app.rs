@@ -191,10 +191,10 @@ impl MuxTitleIngress {
         self.state.lock().unwrap().titles.remove(&surface);
     }
 
-    fn take(&self) -> HashMap<SurfaceId, Arc<str>> {
+    fn snapshot(&self) -> HashMap<SurfaceId, Arc<str>> {
         let mut state = self.state.lock().unwrap();
         state.wake_queued = false;
-        std::mem::take(&mut state.titles)
+        state.titles.clone()
     }
 }
 
@@ -2229,7 +2229,7 @@ impl App {
     }
 
     fn apply_mux_titles(&mut self) -> bool {
-        let titles = self.mux_titles.take();
+        let titles = self.mux_titles.snapshot();
         if titles.is_empty() {
             return false;
         }
@@ -2283,6 +2283,7 @@ impl App {
         }
         self.tree = tree;
         self.rebuild_tab_locations();
+        self.apply_mux_titles();
     }
 
     fn replace_authoritative_tree(&mut self, tree: TreeView, routing_generation: u64) {
@@ -6891,6 +6892,25 @@ mod tests {
         assert_eq!(app.tree.pane(2).unwrap().tabs[0].title, "title-9999");
         assert_eq!(app.tree.pane(2).unwrap().tabs[1].title, "");
         assert!(app.mux_titles.push(updated_surface, "next".to_string()));
+    }
+
+    #[test]
+    fn title_ingress_reapplies_after_old_and_future_tree_snapshots() {
+        let mux = Mux::new("title-snapshot-order-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+
+        app.replace_tree(notify_tree(41, false));
+        assert!(app.mux_titles.push(41, "live-title".to_string()));
+        app.handle(AppEvent::MuxTitlesReady).unwrap();
+        assert_eq!(app.tree.pane(2).unwrap().tabs[0].title, "live-title");
+
+        app.replace_tree(notify_tree(41, false));
+        assert_eq!(app.tree.pane(2).unwrap().tabs[0].title, "live-title");
+
+        assert!(app.mux_titles.push(42, "future-title".to_string()));
+        app.handle(AppEvent::MuxTitlesReady).unwrap();
+        app.replace_tree(notify_tree(42, false));
+        assert_eq!(app.tree.pane(2).unwrap().tabs[0].title, "future-title");
     }
 
     #[test]
