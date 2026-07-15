@@ -182,14 +182,19 @@ private extension ReflowOptions {
                     // s4: mid-sentence continuation. The previous line is full
                     //     enough to have wrapped (prose-like, within widthTolerance
                     //     of the candidate paragraph's widest line) and this line
-                    //     resumes lowercase. Ambiguous command continuation
+                    //     resumes prose (lowercase, or a caseless script inside
+                    //     an indented paragraph). Ambiguous command continuation
                     //     tokens additionally require the actual terminal width.
-                    //     Uppercase starts, list markers, and digits still do
-                    //     not trigger it, which keeps line-oriented output unjoined.
+                    //     Uppercase starts, list markers, and digits still do not
+                    //     trigger it, which keeps line-oriented output unjoined.
                     let candidateMaxVisibleLength = max(p.maxVisibleLength, visLen)
                     let previousLineWasFull = p.prevVisibleLength >= minWrapWidth
                         && p.prevVisibleLength + max(0, widthTolerance) >= candidateMaxVisibleLength
-                    let lowercaseContinuation = startsLowercaseLetter(content)
+                    let caselessContinuation = startsCaselessLetter(content)
+                        && (commonIndent > 0 || p.hasJoined)
+                    let startsProseContinuation = startsLowercaseLetter(content)
+                        || caselessContinuation
+                    let proseContinuation = startsProseContinuation
                         && hasProseContinuationEvidence(
                             previous: p.prevContent,
                             current: content,
@@ -207,11 +212,13 @@ private extension ReflowOptions {
                         && reachedTerminalWidth
                         && !startsCommandContinuationToken(p.prevContent)
                         && !startsOptionLikeRow(p.prevContent)
-                    let s4 = p.prevHasSpace
+                    let previousLooksLikeProse = p.prevHasSpace
+                        || (caselessContinuation && containsCaselessLetter(p.prevContent))
+                    let s4 = previousLooksLikeProse
                         && p.allowsWidthJoin
                         && !structuredCode
                         && previousLineWasFull
-                        && (lowercaseContinuation || commandContinuation)
+                        && (proseContinuation || commandContinuation)
                     let canJoin = !p.prevEndsTerminator && (s1 || s3 || s4)
 
                     if canJoin {
@@ -443,9 +450,9 @@ private struct Paragraph {
     /// Whether the most recently appended physical line ends with sentence
     /// punctuation (a hard boundary — never join past it).
     var prevEndsTerminator: Bool
-    /// Whether the most recently appended physical line contained a space
-    /// (prose-like). Gates the width signal so single-token columns (paths,
-    /// URLs, hashes) are not width-joined.
+    /// Whether the most recently appended physical line contained a space.
+    /// Alongside the caseless-script check, this gates the width signal so
+    /// single-token columns (paths, URLs, hashes) are not width-joined.
     var prevHasSpace: Bool
     /// Normalized content of the most recently appended physical line.
     var prevContent: String

@@ -1,7 +1,19 @@
 import Foundation
 
 extension ReflowOptions {
-    /// Width-only lowercase joins are intentionally narrower than command/indent
+    /// True when the first non-whitespace character is a letter from a script
+    /// without case. Uniformly indented, full-width paragraphs use this as the
+    /// counterpart to the lowercase Latin continuation signal.
+    func startsCaselessLetter(_ s: String) -> Bool {
+        guard let first = s.first(where: { $0 != " " && $0 != "\t" }) else { return false }
+        return first.isLetter && !first.isLowercase && !first.isUppercase
+    }
+
+    func containsCaselessLetter(_ s: String) -> Bool {
+        s.contains { $0.isLetter && !$0.isLowercase && !$0.isUppercase }
+    }
+
+    /// Width-only prose joins are intentionally narrower than command/indent
     /// joins: without indentation, independent log rows can look like prose. Join
     /// only when the surrounding words have a sentence-continuation shape.
     func hasProseContinuationEvidence(
