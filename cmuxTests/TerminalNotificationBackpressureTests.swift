@@ -372,6 +372,70 @@ final class TerminalNotificationSessionReplacementTests: XCTestCase {
         XCTAssertEqual(store.notifications, [unrelated])
     }
 
+    func testReleaseRestoredAwayWorkspacePreservesTransferredNotificationsAndQueuedWork() {
+        let store = TerminalNotificationStore.shared
+        let bus = TerminalMutationBus.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+
+        bus.discardPendingNotifications()
+        bus.setDrainsSuspendedForTesting(true)
+        store.replaceNotificationsForTesting([])
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        let oldWorkspace = manager.addWorkspace(select: true)
+        let newWorkspace = manager.addWorkspace(select: true)
+        let oldPanelId = oldWorkspace.focusedPanelId!
+        let newPanelId = newWorkspace.focusedPanelId!
+        let notificationId = UUID()
+        defer {
+            bus.discardPendingNotifications()
+            bus.drainForTesting()
+            bus.setDrainsSuspendedForTesting(false)
+            store.replaceNotificationsForTesting([])
+            for workspace in manager.tabs {
+                workspace.teardownAllPanels()
+            }
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        store.replaceNotificationsForTesting([
+            notification(
+                id: notificationId,
+                tabId: oldWorkspace.id,
+                surfaceId: oldPanelId,
+                title: "Transferred history",
+                createdAt: Date(timeIntervalSince1970: 1),
+                isRead: false
+            ),
+        ])
+        XCTAssertTrue(bus.enqueueNotification(
+            tabId: oldWorkspace.id,
+            surfaceId: oldPanelId,
+            title: "Queued during restore",
+            subtitle: "",
+            body: ""
+        ))
+
+        manager.releaseRestoredAwayWorkspaces(
+            [oldWorkspace],
+            originalWorkspaceIds: [oldWorkspace.id],
+            replacements: [newWorkspace],
+            panelIdMaps: [[oldPanelId: newPanelId]]
+        )
+
+        XCTAssertEqual(store.notifications.map(\.id), [notificationId])
+        XCTAssertEqual(store.notifications.first?.tabId, newWorkspace.id)
+        XCTAssertEqual(store.notifications.first?.surfaceId, newPanelId)
+        let queued = bus.notificationIdentityStateForTesting()
+        XCTAssertEqual(queued.count, 1)
+        XCTAssertEqual(queued.first?.2, newWorkspace.id)
+        XCTAssertEqual(queued.first?.3, newPanelId)
+    }
+
     private func notification(
         id: UUID,
         tabId: UUID,

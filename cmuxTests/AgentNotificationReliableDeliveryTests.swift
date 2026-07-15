@@ -270,6 +270,46 @@ final class AgentNotificationReliableDeliveryTests: XCTestCase {
         XCTAssertEqual(recorded.map(\.title), ["Validated completion"])
         XCTAssertEqual(recorded.first?.tabId, workspace.id)
         XCTAssertNil(recorded.first?.surfaceId)
+        XCTAssertNil(recorded.first?.panelId)
+    }
+
+    func testValidatedPolicyRequestFallsBackToOpenableWorkspaceRow() {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        store.replaceNotificationsForTesting([])
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        let workspace = manager.addWorkspace(select: true)
+        let stalePanelId = UUID()
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            store.replaceNotificationsForTesting([])
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        let request = TerminalNotificationPolicyRequest(
+            tabId: workspace.id,
+            surfaceId: stalePanelId,
+            panelId: stalePanelId,
+            retargetsToLiveSurfaceOwner: true,
+            title: "Validated completion",
+            subtitle: "",
+            body: "",
+            cwd: nil,
+            isAppFocused: false,
+            isFocusedPanel: false
+        )
+
+        let retargeted = store.notificationPolicyRequestAtLiveOwner(request)
+        XCTAssertEqual(retargeted?.tabId, workspace.id)
+        XCTAssertNil(retargeted?.surfaceId)
+        XCTAssertNil(retargeted?.panelId)
     }
 
     func testClearStartedAfterSessionTransferUsesReplacementRoute() {

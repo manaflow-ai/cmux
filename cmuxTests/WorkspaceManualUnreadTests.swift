@@ -2077,6 +2077,39 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertNotEqual(notificationWithoutPanelIdFingerprint, manager.sessionAutosaveFingerprint())
 
         resetUnreadState()
+        let readOrphanFingerprint = manager.sessionAutosaveFingerprint()
+        store.replaceNotificationsForTesting([
+            TerminalNotification(
+                id: UUID(),
+                tabId: workspace.id,
+                surfaceId: UUID(),
+                title: "Read orphan",
+                subtitle: "",
+                body: "",
+                createdAt: notificationCreatedAt,
+                isRead: true
+            ),
+        ])
+        XCTAssertNotEqual(readOrphanFingerprint, manager.sessionAutosaveFingerprint())
+
+        resetUnreadState()
+        let aliasFingerprint = manager.sessionAutosaveFingerprint()
+        store.replaceNotificationsForTesting([
+            TerminalNotification(
+                id: UUID(),
+                tabId: workspace.id,
+                surfaceId: UUID(),
+                panelId: panelId,
+                title: "Read alias",
+                subtitle: "",
+                body: "",
+                createdAt: notificationCreatedAt,
+                isRead: true
+            ),
+        ])
+        XCTAssertNotEqual(aliasFingerprint, manager.sessionAutosaveFingerprint())
+
+        resetUnreadState()
         store.setFocusedReadIndicator(forTabId: workspace.id, surfaceId: panelId)
         XCTAssertNotEqual(cleanFingerprint, manager.sessionAutosaveFingerprint())
 

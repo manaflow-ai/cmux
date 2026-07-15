@@ -454,6 +454,67 @@ struct NotificationRestoreBannerOwnershipTests {
         #expect(store.externalBannerOwnerIDForTesting(tabId: tabId, surfaceId: surfaceId) == replacementId)
     }
 
+    @Test func feedCapEvictionDismissesEvictedBannerOwner() {
+        let store = TerminalNotificationStore.shared
+        let previousNotifications = store.notifications
+        let tombstoneKey = TerminalNotificationStore.dismissedTombstoneDefaultsKey
+        let previousTombstones = UserDefaults.standard.object(forKey: tombstoneKey)
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+        let evictedTabId = UUID()
+        let evictedSurfaceId = UUID()
+        let evictedId = UUID()
+        let evicted = notification(
+            id: evictedId,
+            tabId: evictedTabId,
+            surfaceId: evictedSurfaceId,
+            title: "Evicted owner",
+            createdAt: Date(timeIntervalSince1970: 0)
+        )
+        let retained = (1..<TerminalNotificationStore.maximumNotificationFeedCount).map { index in
+            notification(
+                id: UUID(),
+                tabId: UUID(),
+                surfaceId: UUID(),
+                title: "Retained \(index)",
+                createdAt: Date(timeIntervalSince1970: TimeInterval(index))
+            )
+        }
+        defer {
+            if let previousTombstones {
+                UserDefaults.standard.set(previousTombstones, forKey: tombstoneKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: tombstoneKey)
+            }
+            store.reloadDismissedTombstonesForTesting()
+            store.replaceNotificationsForTesting(previousNotifications)
+            store.resetNotificationDeliveryHandlerForTesting()
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+        }
+
+        UserDefaults.standard.removeObject(forKey: tombstoneKey)
+        store.reloadDismissedTombstonesForTesting()
+        AppFocusState.overrideIsFocused = false
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        store.replaceNotificationsForTesting(([evicted] + retained).sorted(by: TerminalNotificationStore.notificationSortPrecedes))
+        #expect(store.externalBannerOwnerIDForTesting(tabId: evictedTabId, surfaceId: evictedSurfaceId) == evictedId)
+
+        store.addNotification(
+            id: UUID(),
+            acceptedAt: Date(timeIntervalSince1970: TimeInterval(TerminalNotificationStore.maximumNotificationFeedCount + 1)),
+            tabId: UUID(),
+            surfaceId: UUID(),
+            title: "Replacement at cap",
+            subtitle: "",
+            body: "",
+            retargetsToLiveSurfaceOwner: false
+        )
+
+        #expect(!store.notifications.contains(where: { $0.id == evictedId }))
+        #expect(store.externalBannerOwnerIDForTesting(tabId: evictedTabId, surfaceId: evictedSurfaceId) == nil)
+        let tombstones = UserDefaults.standard.stringArray(forKey: tombstoneKey) ?? []
+        #expect(tombstones.contains(evictedId.uuidString))
+    }
+
     private func notification(
         id: UUID,
         tabId: UUID,
