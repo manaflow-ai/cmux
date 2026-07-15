@@ -97,19 +97,39 @@ struct PasteboardTextContentsTests {
         #expect(service.pasteboard(for: ghostty_clipboard_e(rawValue: 99)) == nil)
     }
 
-    @Test func rewritingPlainTextPreservesRichRepresentations() throws {
+    @Test func rewritingTextKeepsRichRepresentationsConsistent() throws {
         let scratch = ScratchPasteboard()
         let service = TerminalPasteboardService()
+        let originalAttributed = NSAttributedString(string: "original")
+        let originalRTF = try originalAttributed.data(
+            from: NSRange(location: 0, length: originalAttributed.length),
+            documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]
+        )
         let item = NSPasteboardItem()
         #expect(item.setString("original", forType: .string))
         #expect(item.setString("<b>original</b>", forType: .html))
+        #expect(item.setData(originalRTF, forType: .rtf))
         #expect(scratch.pasteboard.writeObjects([item]))
 
         #expect(service.rewritePlainText("reflowed", in: scratch.pasteboard))
 
         #expect(scratch.pasteboard.string(forType: .string) == "reflowed")
-        #expect(scratch.pasteboard.string(forType: .html) == "<b>original</b>")
-        #expect(try #require(scratch.pasteboard.types).contains(.html))
+        let htmlText = service.attributedString(
+            from: scratch.pasteboard,
+            type: .html,
+            documentType: .html
+        )?.string.trimmingCharacters(in: .newlines)
+        #expect(htmlText == "reflowed")
+        #expect(
+            service.attributedString(
+                from: scratch.pasteboard,
+                type: .rtf,
+                documentType: .rtf
+            )?.string == "reflowed"
+        )
+        let types = try #require(scratch.pasteboard.types)
+        #expect(types.contains(.html))
+        #expect(types.contains(.rtf))
     }
 }
 
