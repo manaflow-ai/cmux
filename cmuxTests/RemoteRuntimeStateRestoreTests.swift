@@ -163,8 +163,11 @@ struct RemoteRuntimeStateRestoreTests {
         ))
         #expect(workspace.bonsplitController.allPaneIds.count == 2)
 
-        let attachingConfiguration = Self.configuration(terminalStartupCommand: nil)
-        workspace.configureRemoteConnection(attachingConfiguration, autoConnect: false)
+        workspace.configureRemoteConnection(
+            Self.configuration(terminalStartupCommand: nil),
+            autoConnect: false
+        )
+        let attachingConfiguration = try #require(workspace.remoteConfiguration)
         let document = RemoteRuntimeStateDocument(
             schemaVersion: SessionSnapshotSchema.currentVersion,
             revision: 1,
