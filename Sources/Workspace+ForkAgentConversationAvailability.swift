@@ -25,16 +25,66 @@ extension Workspace {
         forPanelId panelId: UUID,
         liveAgentIndex: SharedLiveAgentIndex = .shared
     ) -> WorkspaceForkAgentConversationAvailability {
-        guard panels[panelId] is TerminalPanel else { return .notTerminalPanel }
-        if restoredAgentSnapshotForContinuation(panelId: panelId) == nil {
-            guard liveAgentIndex.prepareForkAvailabilityProbe(
-                workspaceId: id,
-                panelId: panelId
-            ) else {
-                return .agentIndexRefreshing
+        forkAgentConversationContextMenuOpenSelection(
+            forPanelId: panelId,
+            liveAgentIndex: liveAgentIndex
+        ).availability
+    }
+
+    func forkAgentConversationContextMenuOpenSelection(
+        forPanelId panelId: UUID,
+        liveAgentIndex: SharedLiveAgentIndex = .shared
+    ) -> (
+        availability: WorkspaceForkAgentConversationAvailability,
+        snapshot: SessionRestorableAgentSnapshot?
+    ) {
+        guard panels[panelId] is TerminalPanel else { return (.notTerminalPanel, nil) }
+        guard allowsAgentContinuation(forPanelId: panelId) else {
+            return (.noAgentSnapshot, nil)
+        }
+
+        if let restoredSnapshot = restoredAgentSnapshotForContinuation(panelId: panelId) {
+            switch ContentView.commandPaletteSnapshotForkAvailability(
+                restoredSnapshot,
+                isRemoteTerminal: isRemoteTerminalSurface(panelId)
+            ) {
+            case .supportedWithoutProbe:
+                return (.available, restoredSnapshot)
+            case .unsupported:
+                return (.unsupported, nil)
+            case .requiresProbe:
+                break
             }
         }
-        return forkAgentConversationContextMenuAvailability(forPanelId: panelId)
+
+        guard liveAgentIndex.prepareForkAvailabilityProbe(
+            workspaceId: id,
+            panelId: panelId
+        ) else {
+            return (.agentIndexRefreshing, nil)
+        }
+        guard let verifiedSnapshot = liveAgentIndex.snapshotForForkAvailability(
+            workspaceId: id,
+            panelId: panelId
+        ) else {
+            return (.noAgentSnapshot, nil)
+        }
+        if let observation = liveAgentIndex.index?.entry(workspaceId: id, panelId: panelId) {
+            reconcileCompletedRestoredAgent(panelId: panelId, observation: observation)
+        }
+        guard allowsAgentContinuation(forPanelId: panelId) else {
+            return (.noAgentSnapshot, nil)
+        }
+
+        switch ContentView.commandPaletteSnapshotForkAvailability(
+            verifiedSnapshot,
+            isRemoteTerminal: isRemoteTerminalSurface(panelId)
+        ) {
+        case .supportedWithoutProbe, .requiresProbe:
+            return (.available, verifiedSnapshot)
+        case .unsupported:
+            return (.unsupported, nil)
+        }
     }
 
     private func forkAgentConversationContextMenuCandidateSnapshot(

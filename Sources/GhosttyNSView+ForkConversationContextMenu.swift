@@ -78,10 +78,6 @@ extension GhosttyNSView {
         let availability = located.workspace.forkAgentConversationContextMenuOpenAvailability(
             forPanelId: panelId
         )
-        if availability == .agentIndexRefreshing,
-           !located.workspace.forkAgentConversationContextMenuAvailability(forPanelId: panelId).isAvailable {
-            return .noAgentSnapshot
-        }
 #if DEBUG
         if !availability.isAvailable {
             cmuxDebugLog(

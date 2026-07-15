@@ -11140,26 +11140,10 @@ final class Workspace: Identifiable, ObservableObject {
         forkAgentConversationContextMenuOpenAvailability(forPanelId: panelId).isAvailable
     }
 
-    /// Snapshot used by the right-click fork path. Prefers restored snapshots, then asks
-    /// `SharedLiveAgentIndex` for a process-sensitive snapshot so live panel remaps do not
-    /// inherit the stale-tolerant cache used by close-history restore paths.
+    /// Snapshot used by the right-click fork path. The shared context-menu selection verifies
+    /// probe-required agents before returning a process-sensitive snapshot.
     func forkableAgentSnapshot(forPanelId panelId: UUID) -> SessionRestorableAgentSnapshot? {
-        if let snapshot = restoredAgentSnapshotForContinuation(panelId: panelId) {
-            return snapshot
-        }
-        guard let snapshot = SharedLiveAgentIndex.shared.snapshotForForkAvailability(
-            workspaceId: id,
-            panelId: panelId
-        ) else {
-            return nil
-        }
-        if let observation = SharedLiveAgentIndex.shared.index?.entry(
-            workspaceId: id,
-            panelId: panelId
-        ) {
-            reconcileCompletedRestoredAgent(panelId: panelId, observation: observation)
-        }
-        return allowsAgentContinuation(forPanelId: panelId) ? snapshot : nil
+        forkAgentConversationContextMenuOpenSelection(forPanelId: panelId).snapshot
     }
 
     /// Fork the panel's agent conversation into a brand-new sibling tab placed immediately
