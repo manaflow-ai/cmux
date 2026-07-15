@@ -134,10 +134,11 @@ enum TerminalForegroundCommandCapture {
     }
 
     /// `allCases` intentionally omits the registry-owned kinds (grok, pi,
-    /// antigravity) so Vault registrations can override them; the sanitizer
-    /// still understands those kinds, so add their exact executables back.
+    /// antigravity, ollama) so Vault registrations can override them; the
+    /// sanitizer still understands those kinds, so add their exact
+    /// executables back.
     private static let knownAgentExecutables = Set(RestorableAgentKind.allCases.map(\.rawValue))
-        .union(["grok", "pi", "antigravity"])
+        .union(["grok", "pi", "antigravity", "ollama"])
 
     private static let agentExecutableAliases: [String: String] = [
         "agy": "antigravity",

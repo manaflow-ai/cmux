@@ -25,6 +25,8 @@ export interface ApnsNotificationInput {
   readonly body: string;
   readonly workspaceId?: string | null;
   readonly surfaceId?: string | null;
+  /** Whether a tap may resolve the surface outside `workspaceId`. */
+  readonly retargetsToLiveSurfaceOwner?: boolean;
   readonly macDeviceId?: string | null;
   /**
    * Stable Mac-side notification id. Surfaced in the payload as
@@ -57,12 +59,11 @@ export interface ApnsNotificationInput {
 export const CMUX_APNS_CATEGORY = "cmux.terminal";
 
 /**
- * Build the APNs JSON payload. Adds `cmux.workspaceId`/`cmux.surfaceId`/
- * `cmux.macDeviceId`/`cmux.notificationId` custom keys so a tapped notification
- * can deep-link to the right terminal on the right Mac and a swipe can be
- * dismiss-synced, sets the dismiss-action `category`, and marks the alert
- * time-sensitive (the app holds that
- * entitlement).
+ * Build the APNs JSON payload. Adds the workspace/surface ids, live-owner
+ * retargeting provenance, Mac id, and notification id under `cmux` so a tap
+ * can deep-link without crossing a confined workspace boundary and a swipe can
+ * be dismiss-synced. Also sets the dismiss-action `category` and marks the
+ * alert time-sensitive (the app holds that entitlement).
  */
 export function buildApnsPayload(input: ApnsNotificationInput): Record<string, unknown> {
   if (input.kind === "dismiss") return buildDismissPayload(input);
@@ -83,9 +84,12 @@ export function buildApnsPayload(input: ApnsNotificationInput): Record<string, u
   };
   if (typeof input.badgeCount === "number") aps.badge = input.badgeCount;
 
-  const cmux: Record<string, string> = {};
+  const cmux: Record<string, string | boolean> = {};
   if (input.workspaceId) cmux.workspaceId = input.workspaceId;
   if (input.surfaceId) cmux.surfaceId = input.surfaceId;
+  if (typeof input.retargetsToLiveSurfaceOwner === "boolean") {
+    cmux.retargetsToLiveSurfaceOwner = input.retargetsToLiveSurfaceOwner;
+  }
   if (input.macDeviceId) cmux.macDeviceId = input.macDeviceId;
   if (input.notificationId) cmux.notificationId = input.notificationId;
 

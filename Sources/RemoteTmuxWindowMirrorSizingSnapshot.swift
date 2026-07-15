@@ -1,3 +1,4 @@
+import CmuxRemoteSession
 import AppKit
 import CmuxTerminal
 

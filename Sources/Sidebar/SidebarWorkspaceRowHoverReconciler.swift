@@ -12,4 +12,11 @@ struct SidebarWorkspaceRowHoverReconciler: NSViewRepresentable {
     func updateNSView(_ nsView: SidebarWorkspaceRowHoverReconcilerView, context: Context) {
         nsView.onPointerHoverChanged = onPointerHoverChanged
     }
+
+    static func dismantleNSView(
+        _ nsView: SidebarWorkspaceRowHoverReconcilerView,
+        coordinator: ()
+    ) {
+        nsView.stopHoverEventConsumption()
+    }
 }

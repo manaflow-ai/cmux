@@ -400,6 +400,10 @@ jobs:
           fi
           cp "$TMP_PROFILE" "$PROFILE_PATH"
 
+      - name: Strip release binaries
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: ./scripts/strip-release-bundle.sh "build-universal/Build/Products/Release/cmux.app"
+
       - name: Codesign app
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         env:

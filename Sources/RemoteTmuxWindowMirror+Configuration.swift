@@ -26,8 +26,7 @@ extension RemoteTmuxWindowMirror {
         bonsplitController.configuration = nextConfiguration
         bonsplitController.tabShortcutHintsEnabled = false
         if sizingChanged {
-            refreshDividerPositions()
-            _ = updateClientSize()
+            setNeedsSizingPassIgnoringInputs()
         }
     }
 }

@@ -100,6 +100,10 @@ extension TabItemView {
 
         Divider()
 
+        workspaceTodoContextMenuSection
+
+        Divider()
+
         if let key = renameWorkspaceShortcut.keyEquivalent {
             Button(String(localized: "contextMenu.renameWorkspace", defaultValue: "Rename Workspace…")) {
                 promptRename()

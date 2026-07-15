@@ -54,7 +54,7 @@ import {
 } from "./syncDevices";
 import {
   applyBackupOps,
-  listBackupSnapshotWithUnscopedFallback,
+  listBackupSnapshot,
   normalizeClientScope,
   pairedMacsCollection,
   PairedMacBackupApplyError,
@@ -367,7 +367,10 @@ export class TeamPresence extends DurableObject {
     clientScope?: string | null,
   ): Promise<{ records: PairedMacBackupRecord[]; deletedMacDeviceIDs: string[] }> {
     await this.rememberTeamId(teamId);
-    return await listBackupSnapshotWithUnscopedFallback(this.syncStorage(), userId, clientScope);
+    // A tagged scope is authoritative from its first read. An unscoped record
+    // cannot prove which Mac app tag produced its routes, so falling back across
+    // that boundary could reconnect one iOS build to another app instance.
+    return await listBackupSnapshot(this.syncStorage(), userId, clientScope);
   }
 
   // ---- Subscribe transports (worker forwards the original Request) ----

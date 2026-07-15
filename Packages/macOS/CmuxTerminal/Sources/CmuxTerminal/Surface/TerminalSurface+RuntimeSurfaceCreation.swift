@@ -110,6 +110,10 @@ extension TerminalSurface {
         }
 
         let spawnPolicy = spawnPolicyProvider.currentSpawnPolicy()
+        for (key, value) in spawnPolicy.socketAuthenticationEnvironment
+            where !key.isEmpty && !value.isEmpty {
+            setManagedEnvironmentValue(key, value)
+        }
         let claudeHooksEnabled = spawnPolicy.claudeHooksEnabled
         if !claudeHooksEnabled {
             setManagedEnvironmentValue("CMUX_CLAUDE_HOOKS_DISABLED", "1")

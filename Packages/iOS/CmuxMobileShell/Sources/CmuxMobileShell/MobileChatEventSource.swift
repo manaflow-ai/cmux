@@ -1,6 +1,6 @@
 public import CmuxAgentChat
 public import CmuxMobileRPC
-import Foundation
+public import Foundation
 
 /// The iOS implementation of ``CmuxAgentChat/ChatEventSource``: adapts the
 /// mobile RPC client to the chat domain seam.
@@ -13,12 +13,21 @@ import Foundation
 public actor MobileChatEventSource: ChatEventSource {
     private let client: MobileCoreRPCClient
     private let coding = ChatWireCoding()
+    public nonisolated let supportsArtifacts: Bool
+    /// Whether the connected Mac supports session-wide artifact gallery pages.
+    public nonisolated let supportsArtifactGallery: Bool
 
     /// Creates the adapter.
     ///
     /// - Parameter client: The connected RPC client for the paired Mac.
-    public init(client: MobileCoreRPCClient) {
+    public init(
+        client: MobileCoreRPCClient,
+        supportsArtifacts: Bool = false,
+        supportsArtifactGallery: Bool = false
+    ) {
         self.client = client
+        self.supportsArtifacts = supportsArtifacts
+        self.supportsArtifactGallery = supportsArtifactGallery
     }
 
     /// Lists chat-capable agent sessions the Mac knows about.
@@ -228,5 +237,242 @@ public actor MobileChatEventSource: ChatEventSource {
             ]
         )
         _ = try await client.sendRequest(request)
+    }
+
+    public func artifactStat(sessionID: String, path: String) async throws -> ChatArtifactStat {
+        try await artifactCall(
+            method: "mobile.chat.artifact.stat",
+            params: [
+                "session_id": sessionID,
+                "path": path,
+            ]
+        )
+    }
+
+    public func artifactFetch(
+        sessionID: String,
+        path: String,
+        progress: (@Sendable (_ fetchedBytes: Int64, _ totalBytes: Int64) -> Void)?
+    ) async throws -> Data {
+        var offset: Int64 = 0
+        var result = Data()
+        while true {
+            let chunk: ChatArtifactChunk = try await artifactCall(
+                method: "mobile.chat.artifact.fetch",
+                params: [
+                    "session_id": sessionID,
+                    "path": path,
+                    "offset": offset,
+                    "length": ChatArtifactTransferPolicy.defaultPolicy.maxRawChunkBytes,
+                ]
+            )
+            if result.isEmpty, chunk.totalSize > 0, chunk.totalSize <= Int64(Int.max) {
+                result.reserveCapacity(Int(chunk.totalSize))
+            }
+            result.append(chunk.data)
+            offset = chunk.offset + Int64(chunk.data.count)
+            progress?(offset, chunk.totalSize)
+            if chunk.eof {
+                return result
+            }
+            guard !chunk.data.isEmpty else {
+                throw ChatArtifactError.macUnreachable
+            }
+        }
+    }
+
+    public func artifactThumbnail(
+        sessionID: String,
+        path: String,
+        maxDimension: Int
+    ) async throws -> ChatArtifactThumbnail {
+        try await artifactCall(
+            method: "mobile.chat.artifact.thumbnail",
+            params: [
+                "session_id": sessionID,
+                "path": path,
+                "max_dimension": maxDimension,
+            ]
+        )
+    }
+
+    public func artifactList(sessionID: String, path: String) async throws -> ChatArtifactDirectoryListing {
+        try await artifactCall(
+            method: "mobile.chat.artifact.list",
+            params: [
+                "session_id": sessionID,
+                "path": path,
+            ]
+        )
+    }
+
+    /// Fetches one stable page of the session-wide artifact gallery.
+    ///
+    /// - Parameters:
+    ///   - sessionID: Session whose transcript authorizes the gallery universe.
+    ///   - cursor: Opaque append-only cursor, or `nil` for a fresh snapshot.
+    ///   - pageSize: Requested page size; the Mac clamps it to 100.
+    ///   - query: Optional whole-session basename/path substring search.
+    /// - Returns: A sectioned first page or flat search page.
+    public func chatArtifactGallery(
+        sessionID: String,
+        cursor: String? = nil,
+        pageSize: Int = 60,
+        query: String? = nil
+    ) async throws -> ChatArtifactGalleryPage {
+        var params: [String: Any] = [
+            "session_id": sessionID,
+            "page_size": pageSize,
+        ]
+        if let cursor {
+            params["cursor"] = cursor
+        }
+        if let query, !query.isEmpty {
+            params["query"] = query
+        }
+        return try await artifactCall(
+            method: "mobile.chat.artifact.gallery",
+            params: params
+        )
+    }
+
+    /// Scans file references rendered by one terminal surface.
+    ///
+    /// - Parameters:
+    ///   - workspaceID: Workspace containing the terminal.
+    ///   - surfaceID: Terminal surface to scan.
+    ///   - visibleOnly: Whether to scan only the rendered viewport. The default
+    ///     keeps the existing visible-screen-plus-scrollback behavior.
+    ///   - countOnly: Whether to skip terminal items and return only the bound
+    ///     session's complete gallery count when supported.
+    /// - Returns: Capped file references detected by the Mac.
+    public func terminalArtifactScan(
+        workspaceID: String,
+        surfaceID: String,
+        visibleOnly: Bool = false,
+        countOnly: Bool = false
+    ) async throws -> TerminalArtifactScanResponse {
+        var params: [String: Any] = [
+            "workspace_id": workspaceID,
+            "surface_id": surfaceID,
+        ]
+        if visibleOnly {
+            params["visible_only"] = true
+        }
+        if countOnly {
+            params["count_only"] = true
+        }
+        return try await artifactCall(
+            method: "mobile.terminal.artifact.scan",
+            params: params
+        )
+    }
+
+    public func terminalArtifactStat(
+        workspaceID: String,
+        surfaceID: String,
+        path: String
+    ) async throws -> ChatArtifactStat {
+        try await artifactCall(
+            method: "mobile.terminal.artifact.stat",
+            params: [
+                "workspace_id": workspaceID,
+                "surface_id": surfaceID,
+                "path": path,
+            ]
+        )
+    }
+
+    public func terminalArtifactFetch(
+        workspaceID: String,
+        surfaceID: String,
+        path: String,
+        progress: (@Sendable (_ fetchedBytes: Int64, _ totalBytes: Int64) -> Void)?
+    ) async throws -> Data {
+        var offset: Int64 = 0
+        var result = Data()
+        while true {
+            let chunk: ChatArtifactChunk = try await artifactCall(
+                method: "mobile.terminal.artifact.fetch",
+                params: [
+                    "workspace_id": workspaceID,
+                    "surface_id": surfaceID,
+                    "path": path,
+                    "offset": offset,
+                    "length": ChatArtifactTransferPolicy.defaultPolicy.maxRawChunkBytes,
+                ]
+            )
+            if result.isEmpty, chunk.totalSize > 0, chunk.totalSize <= Int64(Int.max) {
+                result.reserveCapacity(Int(chunk.totalSize))
+            }
+            result.append(chunk.data)
+            offset = chunk.offset + Int64(chunk.data.count)
+            progress?(offset, chunk.totalSize)
+            if chunk.eof {
+                return result
+            }
+            guard !chunk.data.isEmpty else {
+                throw ChatArtifactError.macUnreachable
+            }
+        }
+    }
+
+    public func terminalArtifactThumbnail(
+        workspaceID: String,
+        surfaceID: String,
+        path: String,
+        maxDimension: Int
+    ) async throws -> ChatArtifactThumbnail {
+        try await artifactCall(
+            method: "mobile.terminal.artifact.thumbnail",
+            params: [
+                "workspace_id": workspaceID,
+                "surface_id": surfaceID,
+                "path": path,
+                "max_dimension": maxDimension,
+            ]
+        )
+    }
+
+    private func artifactCall<T: Decodable>(
+        method: String,
+        params: [String: Any]
+    ) async throws -> T {
+        do {
+            let request = try MobileCoreRPCClient.requestData(method: method, params: params)
+            let result = try await client.sendRequest(request)
+            return try coding.decode(T.self, from: result)
+        } catch {
+            throw Self.artifactError(from: error)
+        }
+    }
+
+    private nonisolated static func artifactError(from error: any Error) -> ChatArtifactError {
+        guard let connectionError = error as? MobileShellConnectionError else {
+            return .macUnreachable
+        }
+        switch connectionError {
+        case .invalidResponse, .connectionClosed, .requestTimedOut,
+             .insecureManualRoute, .attachTicketExpired,
+             .authorizationFailed, .accountMismatch:
+            return .macUnreachable
+        case .rpcError(let code, _):
+            switch code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "invalid_params":
+                return .invalidParams
+            case "not_found":
+                return .sessionNotFound
+            case "forbidden":
+                return .forbidden
+            case "file_not_found":
+                return .fileNotFound
+            case "unsupported_media":
+                return .unsupportedMedia
+            case "unavailable":
+                return .unavailable
+            default:
+                return .macUnreachable
+            }
+        }
     }
 }

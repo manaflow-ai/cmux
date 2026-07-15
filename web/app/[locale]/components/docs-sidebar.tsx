@@ -1,18 +1,25 @@
 "use client";
 
 import { useLocale, useTranslations } from "next-intl";
-import { Link, usePathname } from "../../../i18n/navigation";
-import { navItemsForLocale, isSection, type NavLink } from "./docs-nav-items";
+import { usePathname } from "../../../i18n/navigation";
+import {
+  navItemsForLocale,
+  isSection,
+  type NavLink,
+} from "./docs-nav-items";
 import { DocsSearch } from "./docs-search";
+import { ContentLocaleLink } from "./content-locale-link";
 
 function SidebarLink({
   item,
+  locale,
   pathname,
   onNavigate,
   indent,
   t,
 }: {
   item: NavLink;
+  locale: string;
   pathname: string;
   onNavigate?: () => void;
   indent?: boolean;
@@ -20,8 +27,10 @@ function SidebarLink({
 }) {
   const active = pathname === item.href;
   return (
-    <Link
+    <ContentLocaleLink
       href={item.href}
+      currentLocale={locale}
+      contentLocales={item.contentLocales}
       onClick={onNavigate}
       className={`block py-1.5 text-[14px] rounded-md transition-colors ${
         indent ? "px-5" : "px-3"
@@ -32,7 +41,7 @@ function SidebarLink({
       }`}
     >
       {t(item.titleKey)}
-    </Link>
+    </ContentLocaleLink>
   );
 }
 
@@ -57,6 +66,7 @@ export function DocsSidebar({ onNavigate }: { onNavigate?: () => void }) {
                   <SidebarLink
                     key={child.href}
                     item={child}
+                    locale={locale}
                     pathname={pathname}
                     onNavigate={onNavigate}
                     indent
@@ -70,6 +80,7 @@ export function DocsSidebar({ onNavigate }: { onNavigate?: () => void }) {
             <SidebarLink
               key={entry.href}
               item={entry}
+              locale={locale}
               pathname={pathname}
               onNavigate={onNavigate}
               t={t}

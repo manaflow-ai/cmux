@@ -141,3 +141,36 @@ pub(crate) fn truncate(s: &str, max: usize) -> String {
         out
     }
 }
+
+pub(crate) fn middle_truncate(input: &str, max_chars: usize) -> String {
+    let chars = input.chars().collect::<Vec<_>>();
+    if chars.len() <= max_chars {
+        return input.to_string();
+    }
+    if max_chars == 0 {
+        return String::new();
+    }
+    if max_chars <= 3 {
+        return ".".repeat(max_chars);
+    }
+    let keep = max_chars - 3;
+    let front = keep.div_ceil(2);
+    let back = keep / 2;
+    let mut output = chars[..front].iter().collect::<String>();
+    output.push_str("...");
+    output.extend(&chars[chars.len() - back..]);
+    output
+}
+
+#[cfg(test)]
+mod tests {
+    use super::middle_truncate;
+
+    #[test]
+    fn middle_truncates_for_narrow_columns() {
+        assert_eq!(middle_truncate("abcdefghi", 7), "ab...hi");
+        assert_eq!(middle_truncate("abcdefghi", 3), "...");
+        assert_eq!(middle_truncate("abc", 3), "abc");
+        assert_eq!(middle_truncate("abc", 0), "");
+    }
+}

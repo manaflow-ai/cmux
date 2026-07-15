@@ -59,4 +59,12 @@ import GhosttyKit
         #expect(snapshot.offset == 120)
         #expect(snapshot.len == 40)
     }
+
+    @Test func capturesExplicitGeometry() {
+        let snapshot = GhosttyScrollbar(total: 500, offset: 120, len: 40)
+
+        #expect(snapshot.total == 500)
+        #expect(snapshot.offset == 120)
+        #expect(snapshot.len == 40)
+    }
 }

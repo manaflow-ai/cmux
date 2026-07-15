@@ -11,11 +11,39 @@ if ! awk '
   in_universal && /-destination '\''generic\/platform=macOS'\''/ { saw_universal_destination=1 }
   in_universal && /ARCHS="arm64 x86_64"/ { saw_universal_archs=1 }
   in_universal && /ONLY_ACTIVE_ARCH=NO/ { saw_universal_only_active_arch=1 }
+  in_universal && /COMPILATION_CACHE_ENABLE_CACHING=YES/ { saw_compilation_cache=1 }
+  in_universal && /COMPILER_INDEX_STORE_ENABLE=NO/ { saw_index_disabled=1 }
+  in_universal && /-showBuildTimingSummary/ { saw_timing_summary=1 }
   END {
-    exit !(saw_universal_destination && saw_universal_archs && saw_universal_only_active_arch)
+    exit !(saw_universal_destination && saw_universal_archs && saw_universal_only_active_arch && saw_compilation_cache && saw_index_disabled && saw_timing_summary)
   }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly workflow must build the nightly app as universal arm64+x86_64"
+  echo "FAIL: nightly workflow must build the universal app with compilation caching, no index store, and timing output"
+  exit 1
+fi
+
+if ! awk '
+  /^      - name: Cache Xcode compilation results/ { in_cache=1; next }
+  in_cache && /^      - name:/ { in_cache=0 }
+  in_cache && /path: build-universal\/CompilationCache\.noindex/ { saw_path=1 }
+  in_cache && /key: xcode-compilation-nightly-/ { saw_key=1 }
+  in_cache && /steps\.compilation-cache-key\.outputs\.toolchain/ { saw_toolchain=1 }
+  in_cache && /steps\.compilation-cache-key\.outputs\.utc_week/ { saw_week=1 }
+  in_cache && /restore-keys:/ { saw_restore=1 }
+  END { exit !(saw_path && saw_key && saw_toolchain && saw_week && !saw_restore) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly workflow must use one toolchain-scoped cache per week without stale fallback"
+  exit 1
+fi
+
+if ! awk '
+  /^      - name: Bound Xcode compilation cache size/ { in_bound=1; next }
+  in_bound && /^      - name:/ { in_bound=0 }
+  in_bound && /max_cache_kib=\$\(\(3 \* 1024 \* 1024\)\)/ { saw_limit=1 }
+  in_bound && /rm -rf "\$cache_path"/ { saw_skip_save=1 }
+  END { exit !(saw_limit && saw_skip_save) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly workflow must skip saving Xcode compilation caches larger than 3 GiB"
   exit 1
 fi
 

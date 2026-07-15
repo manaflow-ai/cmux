@@ -127,6 +127,21 @@ describe("billing portal route", () => {
     expect(getUser).toHaveBeenCalledWith({ or: "return-null" });
   });
 
+  test("blocks direct portal requests from the iOS App Store distribution", async () => {
+    const response = await GET(
+      new NextRequest(
+        "https://cmux.test/api/billing/portal?cmux_distribution=appstore&cmux_scheme=cmux",
+      ),
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/app-pricing?cmux_app=1&cmux_distribution=appstore&billing=unavailable",
+    );
+    expect(getUser).not.toHaveBeenCalled();
+    expect(createPortalSession).not.toHaveBeenCalled();
+  });
+
   test("falls back to an existing anonymous purchaser and opens that portal", async () => {
     returnNullUser = null;
     anonymousIfExistsUser = anonymousUser;

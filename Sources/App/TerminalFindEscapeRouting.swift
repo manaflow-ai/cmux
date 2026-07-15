@@ -31,7 +31,7 @@ func cmuxCloseFocusedTerminalFindForEscape(event: NSEvent, appDelegate: AppDeleg
     cmuxDebugLog("find.escape.close terminal panel=\(panel.id.uuidString.prefix(5))")
 #endif
     panel.hostedView.beginFindEscapeSuppression()
-    panel.searchState = nil
+    panel.surface.closeSearchFromExplicitInput()
     panel.hostedView.moveFocus()
     return true
 }

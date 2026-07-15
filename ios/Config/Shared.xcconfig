@@ -47,6 +47,10 @@ CMUX_PRESENCE_BASE_URL =
 // with MobileAuthComposition.authEnvironmentInfoPlistKey.
 CMUX_IOS_AUTH_ENV =
 
+// Crash reporting stays enabled for development and TestFlight. The official
+// App Store lane overrides this to NO until its consent lifecycle is proven.
+CMUX_CRASH_REPORTING_ENABLED = YES
+
 // ==========================================
 // Platform Configuration
 // ==========================================

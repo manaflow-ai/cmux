@@ -1633,6 +1633,57 @@
         }
       }
     },
+    "agent.deliveryTarget.error.invalidPid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PID must be a positive integer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PID は正の整数でなければなりません。"
+          }
+        }
+      }
+    },
+    "agent.deliveryTarget.error.notFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No live delivery target"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有効な配信先が見つかりません。"
+          }
+        }
+      }
+    },
+    "agent.deliveryTarget.error.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delivery target resolution is unavailable; retry after cmux finishes starting."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配信先の解決を利用できません。cmux の起動が完了してから再試行してください。"
+          }
+        }
+      }
+    },
     "agent.generic.notification.body.approvalNeeded": {
       "extractionState": "manual",
       "localizations": {
@@ -1816,6 +1867,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "完了"
+          }
+        }
+      }
+    },
+    "agent.ollama.displayName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ollama"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ollama"
           }
         }
       }
@@ -31374,31 +31442,118 @@
         }
       }
     },
+    "cli.error.workspaceLoadingInvalidId": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid --id '%@'. Use letters, digits, '.', '_', or '-' (no spaces)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無効な --id '%@' です。英数字、'.'、'_'、'-' のみ使用できます（空白不可）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "잘못된 --id '%@'입니다. 영문자, 숫자, '.', '_', '-'만 사용할 수 있습니다(공백 불가)."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неприпустимий --id '%@'. Використовуйте літери, цифри, '.', '_' або '-' (без пробілів)."
+          }
+        }
+      }
+    },
+    "cli.error.workspaceLoadingInvalidState": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid state '%@'. Expected on or off. %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無効な状態 '%@' です。on または off を指定してください。%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "잘못된 상태 '%@'입니다. on 또는 off를 지정하세요. %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неприпустимий стан '%@'. Очікується on або off. %@"
+          }
+        }
+      }
+    },
+    "cli.error.workspaceLoadingNoWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No workspace resolved. Run inside a cmux workspace or pass --workspace <id>."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを特定できませんでした。cmux のワークスペース内で実行するか、--workspace <id> を指定してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스를 확인할 수 없습니다. cmux 워크스페이스 안에서 실행하거나 --workspace <id>를 지정하세요."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося визначити робочий простір. Запустіть у робочому просторі cmux або передайте --workspace <id>."
+          }
+        }
+      }
+    },
     "cli.error.workspaceSubcommandRequired": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "workspace requires a subcommand. Try: list, create, env, close, rename, select, reconnect, disconnect, loading, group"
+            "value": "workspace requires a subcommand. Try: list, create, env, close, rename, select, status, reconnect, disconnect, loading, group"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "workspace にはサブコマンドが必要です。利用可能: list, create, env, close, rename, select, reconnect, disconnect, loading, group"
+            "value": "workspace にはサブコマンドが必要です。利用可能: list, create, env, close, rename, select, status, reconnect, disconnect, loading, group"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "workspace에는 하위 명령이 필요합니다. 사용 가능: list, create, env, close, rename, select, reconnect, disconnect, loading, group"
+            "value": "workspace에는 하위 명령이 필요합니다. 사용 가능: list, create, env, close, rename, select, status, reconnect, disconnect, loading, group"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "workspace потребує підкоманди. Доступні: list, create, env, close, rename, select, reconnect, disconnect, loading, group"
+            "value": "workspace потребує підкоманди. Доступні: list, create, env, close, rename, select, status, reconnect, disconnect, loading, group"
           }
         }
       }
@@ -31409,25 +31564,25 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unknown workspace subcommand: %@. Try: list, create, env, close, rename, select, reconnect, disconnect, loading, group"
+            "value": "Unknown workspace subcommand: %@. Try: list, create, env, close, rename, select, status, reconnect, disconnect, loading, group"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "不明な workspace サブコマンド: %@。利用可能: list, create, env, close, rename, select, reconnect, disconnect, loading, group"
+            "value": "不明な workspace サブコマンド: %@。利用可能: list, create, env, close, rename, select, status, reconnect, disconnect, loading, group"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "알 수 없는 workspace 하위 명령: %@. 사용 가능: list, create, env, close, rename, select, reconnect, disconnect, loading, group"
+            "value": "알 수 없는 workspace 하위 명령: %@. 사용 가능: list, create, env, close, rename, select, status, reconnect, disconnect, loading, group"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Невідома підкоманда workspace: %@. Доступні: list, create, env, close, rename, select, reconnect, disconnect, loading, group"
+            "value": "Невідома підкоманда workspace: %@. Доступні: list, create, env, close, rename, select, status, reconnect, disconnect, loading, group"
           }
         }
       }
@@ -32364,6 +32519,131 @@
           "stringUnit": {
             "state": "translated",
             "value": "Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]\n\n透過 SSH tmux 控制模式，將遠端主機的 tmux 工作階段鏡像到目前的 cmux 視窗。每個工作階段會成為工作區，每個視窗會成為分頁，多窗格視窗則會成為原生分割。需要啟用「Remote tmux」測試功能。\n\n若需要互動式驗證，cmux 會在此終端機中執行 ssh，然後透過共用連線重試。系統會採用 ~/.ssh/config 中的別名與設定。\n\nFlags:\n  --port <n>          SSH 連接埠\n  --identity <path>   SSH 身分檔案路徑\n  --no-focus          不選取鏡像工作區，也不啟用其視窗\n\nExample:\n  cmux ssh-tmux dev@my-host\n  cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519"
+          }
+        }
+      }
+    },
+    "cli.help.ssh-tmux.newWindow": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خيار إضافي:\n  --new-window        فتح المرآة في نافذة جديدة مخصصة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dodatna opcija:\n  --new-window        Otvori zrcaljenje u namjenskom novom prozoru"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekstra flag:\n  --new-window        Åbn spejlingen i et dedikeret nyt vindue"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zusätzliche Option:\n  --new-window        Spiegel in einem eigenen neuen Fenster öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Additional flag:\n  --new-window        Open the mirror in a dedicated new window"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opción adicional:\n  --new-window        Abrir el reflejo en una nueva ventana dedicada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Option supplémentaire :\n  --new-window        Ouvrir le miroir dans une nouvelle fenêtre dédiée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opzione aggiuntiva:\n  --new-window        Apri la replica in una nuova finestra dedicata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追加フラグ:\n  --new-window        専用の新しいウィンドウでミラーを開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជម្រើសបន្ថែម៖\n  --new-window        បើកការឆ្លុះក្នុងបង្អួចថ្មីដាច់ដោយឡែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "추가 플래그:\n  --new-window        전용 새 창에서 미러 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekstra flagg:\n  --new-window        Åpne speilet i et eget nytt vindu"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dodatkowa flaga:\n  --new-window        Otwórz kopię lustrzaną w dedykowanym nowym oknie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opção adicional:\n  --new-window        Abrir o espelho em uma nova janela dedicada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дополнительный флаг:\n  --new-window        Открыть зеркало в отдельном новом окне"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แฟล็กเพิ่มเติม:\n  --new-window        เปิดมิเรอร์ในหน้าต่างใหม่แยกต่างหาก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ek bayrak:\n  --new-window        Yansımayı ayrılmış yeni bir pencerede aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Додатковий прапорець:\n  --new-window        Відкрити дзеркало в окремому новому вікні"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其他选项:\n  --new-window        在专用的新窗口中打开镜像"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其他選項:\n  --new-window        在專用的新視窗中開啟鏡像"
           }
         }
       }
@@ -43745,89 +44025,82 @@
         }
       }
     },
-    "cli.error.workspaceLoadingInvalidId": {
+    "cli.error.sshSessionAttachWorkspaceRequiresValue": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Invalid --id '%@'. Use letters, digits, '.', '_', or '-' (no spaces)."
+            "value": "ssh-session-attach: --workspace requires a value"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "無効な --id '%@' です。英数字、'.'、'_'、'-' のみ使用できます（空白不可）。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "잘못된 --id '%@'입니다. 영문자, 숫자, '.', '_', '-'만 사용할 수 있습니다(공백 불가)."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Неприпустимий --id '%@'. Використовуйте літери, цифри, '.', '_' або '-' (без пробілів)."
+            "value": "ssh-session-attach: --workspace の値を指定してください"
           }
         }
       }
     },
-    "cli.error.workspaceLoadingInvalidState": {
+    "cli.workspace.usage": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Invalid state '%@'. Expected on or off. %@"
+            "value": "Usage: cmux workspace <subcommand> [flags]\n\nCanonical noun for workspace operations. Legacy verbs\n(new-workspace, list-workspaces, close-workspace,\nrename-workspace, select-workspace) keep working and print a\none-time deprecation hint pointing here.\n\nSubcommands:\n  list                    List workspaces in a window\n  create [flags]          Create a workspace (same flags as new-workspace)\n  env [workspace] [--mask]\n                          Print a workspace's configured environment\n                          variables (--mask redacts the values)\n  close <workspace>       Close a workspace\n  rename <workspace> --title <new>\n  select <workspace>      Make a workspace active\n  status [set <lane|auto>]\n                          Show or pin the workspace todo status\n  reconnect [workspace]   Reconnect a remote (SSH) workspace, including one\n                          whose automatic reconnect paused because the host\n                          was unreachable\n  disconnect [workspace]  Stop a remote (SSH) workspace's connection\n  loading <on|off> [--id <name>] Toggle the workspace loading spinner.\n  group <subcommand>      Workspace group operations (see cmux workspace-group --help)\nenv/reconnect/disconnect accept a positional handle or --workspace\n<id|ref|index>, defaulting to the caller's workspace, then the\nselected one (of --window's window when given).\nExamples:\n  cmux workspace list --json\n  cmux workspace create --name Build --cwd ~/projects/myapp\n  cmux workspace env workspace:3 --mask\n  cmux workspace close workspace:3\n  cmux workspace reconnect\n  cmux workspace disconnect --workspace workspace:3"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "無効な状態 '%@' です。on または off を指定してください。%@"
+            "value": "使い方: cmux workspace <サブコマンド> [フラグ]\n\nワークスペース操作の正規の名前空間です。従来の動詞コマンド\n(new-workspace、list-workspaces、close-workspace、\nrename-workspace、select-workspace) は引き続き動作し、ここを指す\n非推奨ヒントを一度だけ表示します。\n\nサブコマンド:\n  list                    ウィンドウ内のワークスペースを一覧表示\n  create [flags]          ワークスペースを作成 (new-workspace と同じフラグ。\n                          --env KEY=VALUE と --env-file <path> を含む)\n  env [workspace] [--mask]\n                          ワークスペースに設定された環境変数を表示\n                          (--mask は値を伏せ字にします)\n  close <workspace>       ワークスペースを閉じる\n  rename <workspace> --title <new>\n  select <workspace>      ワークスペースをアクティブにする\n  reconnect [workspace]   リモート (SSH) ワークスペースを再接続。ホストに\n                          到達できず自動再接続が一時停止したものも含む\n  disconnect [workspace]  リモート (SSH) ワークスペースの接続を停止\n  status [set <lane|auto>]\n                          ワークスペースの todo ステータスを表示/固定\n  loading <on|off> [--id <name>]\n                          ワークスペースの読み込みスピナーを切り替え。--id ごとに\n                          別のローダーとして積み重なり、省略時は既定の 1 つを\n                          切り替えます\n  group <subcommand>      ワークスペースグループ操作 (cmux workspace-group --help を参照)\n\nenv/reconnect/disconnect は位置引数のハンドルまたは --workspace\n<id|ref|index> を受け付け、省略時は呼び出し元のワークスペース、\n次に選択中のワークスペース (--window 指定時はそのウィンドウ) を\n対象にします。\n\n例:\n  cmux workspace list --json\n  cmux workspace create --name Build --cwd ~/projects/myapp\n  cmux workspace create --cwd . --env AWS_PROFILE=prod --env-file ./.cmux.env\n  cmux workspace env workspace:3 --mask\n  cmux workspace close workspace:3\n  cmux workspace reconnect\n  cmux workspace disconnect --workspace workspace:3\n  cmux workspace loading on\n  cmux workspace loading on --id build\n  cmux workspace loading off"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "잘못된 상태 '%@'입니다. on 또는 off를 지정하세요. %@"
+            "value": "사용법: cmux workspace <하위 명령> [플래그]\n\n워크스페이스 작업의 표준 네임스페이스입니다. 기존 동사형 명령\n(new-workspace, list-workspaces, close-workspace,\nrename-workspace, select-workspace)은 계속 작동하며 이곳을\n가리키는 사용 중단 안내를 한 번 표시합니다.\n\n하위 명령:\n  list                    창의 워크스페이스 목록 표시\n  create [flags]          워크스페이스 생성 (new-workspace와 동일한 플래그.\n                          --env KEY=VALUE 및 --env-file <path> 포함)\n  env [workspace] [--mask]\n                          워크스페이스에 설정된 환경 변수 표시\n                          (--mask는 값을 가립니다)\n  close <workspace>       워크스페이스 닫기\n  rename <workspace> --title <new>\n  select <workspace>      워크스페이스를 활성화\n  reconnect [workspace]   원격 (SSH) 워크스페이스 재연결. 호스트에 연결할\n                          수 없어 자동 재연결이 일시 중지된 경우 포함\n  disconnect [workspace]  원격 (SSH) 워크스페이스 연결 중지\n  status [set <lane|auto>]\n                          워크스페이스의 todo 상태 표시/고정\n  loading <on|off> [--id <name>]\n                          워크스페이스 로딩 스피너 전환. --id마다 별도의\n                          로더로 누적되며, 생략 시 기본 로더 하나를 전환\n  group <subcommand>      워크스페이스 그룹 작업 (cmux workspace-group --help 참고)\n\nenv/reconnect/disconnect는 위치 핸들 또는 --workspace\n<id|ref|index>를 받으며, 기본값은 호출자의 워크스페이스, 그다음\n선택된 워크스페이스입니다 (--window 지정 시 해당 창 기준).\n\n예시:\n  cmux workspace list --json\n  cmux workspace create --name Build --cwd ~/projects/myapp\n  cmux workspace create --cwd . --env AWS_PROFILE=prod --env-file ./.cmux.env\n  cmux workspace env workspace:3 --mask\n  cmux workspace close workspace:3\n  cmux workspace reconnect\n  cmux workspace disconnect --workspace workspace:3\n  cmux workspace loading on\n  cmux workspace loading on --id build\n  cmux workspace loading off"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Неприпустимий стан '%@'. Очікується on або off. %@"
+            "value": "Використання: cmux workspace <підкоманда> [прапорці]\n\nКанонічний простір імен для операцій з робочими просторами.\nЗастарілі дієслівні команди (new-workspace, list-workspaces,\nclose-workspace, rename-workspace, select-workspace) продовжують\nпрацювати й одноразово показують підказку про застарілість, що\nвказує сюди.\n\nПідкоманди:\n  list                    Список робочих просторів у вікні\n  create [flags]          Створити робочий простір (ті самі прапорці, що й\n                          new-workspace, зокрема --env KEY=VALUE та --env-file <path>)\n  env [workspace] [--mask]\n                          Показати налаштовані змінні середовища робочого\n                          простору (--mask приховує значення)\n  close <workspace>       Закрити робочий простір\n  rename <workspace> --title <new>\n  select <workspace>      Зробити робочий простір активним\n  reconnect [workspace]   Перепідключити віддалений (SSH) робочий простір,\n                          зокрема той, де автоматичне перепідключення\n                          призупинено через недосяжний хост\n  disconnect [workspace]  Зупинити з'єднання віддаленого (SSH) робочого простору\n  status [set <lane|auto>]\n                          Показати або закріпити todo-статус робочого простору\n  loading <on|off> [--id <name>]\n                          Перемкнути індикатор завантаження робочого простору.\n                          Кожен --id — окремий лоадер; без --id перемикається\n                          один типовий\n  group <subcommand>      Операції з групами робочих просторів (див. cmux workspace-group --help)\n\nenv/reconnect/disconnect приймають позиційний дескриптор або --workspace\n<id|ref|index>; типово використовується робочий простір викликача,\nдалі — вибраний (у вікні з --window, якщо задано).\n\nПриклади:\n  cmux workspace list --json\n  cmux workspace create --name Build --cwd ~/projects/myapp\n  cmux workspace create --cwd . --env AWS_PROFILE=prod --env-file ./.cmux.env\n  cmux workspace env workspace:3 --mask\n  cmux workspace close workspace:3\n  cmux workspace reconnect\n  cmux workspace disconnect --workspace workspace:3\n  cmux workspace loading on\n  cmux workspace loading on --id build\n  cmux workspace loading off"
           }
         }
       }
     },
-    "cli.error.workspaceLoadingNoWorkspace": {
+    "cli.workspace.status.usage": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No workspace resolved. Run inside a cmux workspace or pass --workspace <id>."
+            "value": "Usage: cmux workspace status [set <lane|auto> | cycle] [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]\n\nShow or pin a workspace's todo lifecycle status. Without arguments prints\nthe effective status, the inferred status, and the override, targeting the\ncaller's workspace by default.\n\nLanes are inferred from live signals (agent needs input > agent running >\nopen PR > all PRs merged/closed > dirty git tree > todo). `set <lane>`\npins a manual lane that auto-clears as soon as the inferred lane changes;\n`set auto` clears the pin immediately. `cycle` advances the manual override\none lane forward (todo → working → needs-attention → review → done → todo).\n\nLanes: todo, working, needs-attention, review, done\n\nExamples:\n  cmux workspace status\n  cmux workspace status set review\n  cmux workspace status cycle\n  cmux workspace status set auto --workspace workspace:2"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ワークスペースを特定できませんでした。cmux のワークスペース内で実行するか、--workspace <id> を指定してください。"
+            "value": "使い方: cmux workspace status [set <lane|auto> | cycle] [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]\n\nワークスペースの todo ライフサイクルステータスを表示または固定します。引数なしでは、\n有効なステータス、推定ステータス、上書き状態を表示し、既定では呼び出し元の\nワークスペースを対象にします。\n\nレーンはライブシグナルから推定されます (agent needs input > agent running >\nopen PR > all PRs merged/closed > dirty git tree > todo)。`set <lane>` は\n手動レーンを固定し、推定レーンが変わると自動的に解除されます。`set auto` は\n固定をすぐに解除します。`cycle` は手動上書きを 1 レーン先へ進めます\n(todo → working → needs-attention → review → done → todo)。\n\nレーン: todo, working, needs-attention, review, done\n\n例:\n  cmux workspace status\n  cmux workspace status set review\n  cmux workspace status cycle\n  cmux workspace status set auto --workspace workspace:2"
           }
-        },
-        "ko": {
+        }
+      }
+    },
+    "cli.todo.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "워크스페이스를 확인할 수 없습니다. cmux 워크스페이스 안에서 실행하거나 --workspace <id>를 지정하세요."
+            "value": "Usage: cmux todo <subcommand> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]\n\nPer-workspace checklist, writable by you and by agents. Targets the\ncaller's workspace by default. Items are capped at 50 per workspace.\n\nSubcommands:\n  add \"text\" [--state <pending|in-progress|completed>] [--origin <user|agent>]\n  list                    Print items (1-based indexes) and progress\n  check <index|id>        Mark an item completed\n  uncheck <index|id>      Mark an item pending\n  start <index|id>        Mark an item in-progress\n  edit <index|id> \"text\"  Rewrite an item's text\n  rm <index|id>           Remove an item\n  clear                   Remove every item\n  set ['<json>']          Atomically replace the whole checklist from a\n                          JSON array of {text, state?, id?, origin?}\n                          objects (inline argument, or piped on stdin).\n                          Items whose id matches an existing item keep\n                          their identity and origin; the rest are created\n                          and unnamed existing items are removed.\n  open                    Open (or focus) the workspace's todo pane\n\n<index> is the 1-based number printed by `cmux todo list`; <id> is the\nitem UUID from `cmux todo list --json`.\n\nExamples:\n  cmux todo add \"write regression test\"\n  cmux todo list\n  cmux todo check 1\n  cmux todo start 2 --workspace workspace:3\n  my-plan-tool --json | cmux todo set\n  cmux todo open\n\nSee also: cmux workspace status"
           }
         },
-        "uk": {
+        "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не вдалося визначити робочий простір. Запустіть у робочому просторі cmux або передайте --workspace <id>."
+            "value": "使い方: cmux todo <subcommand> [--workspace <id|ref|index>] [--window <id|ref|index>] [--json]\n\nワークスペースごとのチェックリストです。ユーザーとエージェントのどちらも書き込めます。\n既定では呼び出し元のワークスペースを対象にします。項目数はワークスペースごとに\n50 件までです。\n\nサブコマンド:\n  add \"text\" [--state <pending|in-progress|completed>] [--origin <user|agent>]\n  list                    項目 (1 始まりの番号) と進捗を表示\n  check <index|id>        項目を完了にする\n  uncheck <index|id>      項目を未着手に戻す\n  start <index|id>        項目を進行中にする\n  edit <index|id> \"text\"  項目のテキストを書き換える\n  rm <index|id>           項目を削除\n  clear                   すべての項目を削除\n  set ['<json>']          {text, state?, id?, origin?} オブジェクトの\n                          JSON 配列でチェックリスト全体を原子的に置き換えます\n                          (インライン引数、または標準入力からパイプ)。\n                          id が既存項目と一致する項目は ID と origin を維持し、\n                          それ以外は新規作成され、名前のない既存項目は削除されます。\n  open                    ワークスペースの todo ペインを開く (またはフォーカスする)\n\n<index> は `cmux todo list` に表示される 1 始まりの番号です。<id> は\n`cmux todo list --json` に含まれる項目 UUID です。\n\n例:\n  cmux todo add \"write regression test\"\n  cmux todo list\n  cmux todo check 1\n  cmux todo start 2 --workspace workspace:3\n  my-plan-tool --json | cmux todo set\n  cmux todo open\n\n関連項目: cmux workspace status"
           }
         }
       }
@@ -43857,1582 +44130,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Використання: cmux workspace loading <on|off> [--id <name>] [--workspace <id>] [--window <id>] [--json]"
-          }
-        }
-      }
-    },
-    "settings.app.loadingSpinnerPosition": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "موضع مؤشر التحميل"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pozicija indikatora učitavanja"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Placering af indlæsningsindikator"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Position des Ladeindikators"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Loading Spinner Position"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Posición del indicador de carga"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Position de l’indicateur de chargement"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Posizione dell’indicatore di caricamento"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "読み込みスピナーの位置"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "로딩 스피너 위치"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Plassering av lasteindikator"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pozycja wskaźnika ładowania"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Posição do indicador de carregamento"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Положение индикатора загрузки"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ตำแหน่งตัวบ่งชี้การโหลด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Yükleme göstergesi konumu"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Розташування індикатора завантаження"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "加载指示器位置"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "載入指示器位置"
-          }
-        }
-      }
-    },
-    "settings.app.loadingSpinnerPosition.left": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يسار"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lijevo"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Venstre"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Links"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Left"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Izquierda"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gauche"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sinistra"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "左"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "왼쪽"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Venstre"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lewo"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Esquerda"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Слева"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ซ้าย"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sol"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ліворуч"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "左"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "左"
-          }
-        }
-      }
-    },
-    "settings.app.loadingSpinnerPosition.right": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يمين"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Desno"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Højre"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rechts"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Right"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Derecha"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Droite"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Destra"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "右"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "오른쪽"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Høyre"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prawo"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Direita"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Справа"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ขวา"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sağ"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Праворуч"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "右"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "右"
-          }
-        }
-      }
-    },
-    "settings.app.loadingSpinnerPosition.subtitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إظهار المؤشر على يسار صف مساحة العمل (بمشاركة موضع شارة غير المقروء) أو على يمينه."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prikazuje indikator lijevo (dijeli mjesto sa značkom nepročitanog) ili desno u redu radnog prostora."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Viser indikatoren til venstre (deler plads med ulæst-mærket) eller til højre i arbejdsområdets række."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zeigt den Indikator links (teilt den Platz mit der Ungelesen-Plakette) oder rechts in der Arbeitsbereichszeile."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show the spinner on the left (sharing the unread badge slot) or the right of the workspace row."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Muestra el indicador a la izquierda (compartiendo el espacio de la insignia de no leídos) o a la derecha de la fila del espacio de trabajo."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Affiche l’indicateur à gauche (partageant l’emplacement du badge non lu) ou à droite de la ligne de l’espace de travail."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostra l’indicatore a sinistra (condividendo lo spazio del badge non letti) o a destra della riga dello spazio di lavoro."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "スピナーをワークスペース行の左（未読バッジの位置を共有）または右に表示します。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "워크스페이스 행의 왼쪽(읽지 않음 배지 자리 공유) 또는 오른쪽에 스피너를 표시합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Viser indikatoren til venstre (deler plass med ulest-merket) eller til høyre i arbeidsområderaden."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pokazuje wskaźnik po lewej stronie (współdzieląc miejsce z plakietką nieprzeczytanych) lub po prawej stronie wiersza obszaru roboczego."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostra o indicador à esquerda (compartilhando o espaço do selo de não lidos) ou à direita da linha do espaço de trabalho."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показывает индикатор слева (совместно со значком непрочитанного) или справа в строке рабочего пространства."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แสดงตัวบ่งชี้ทางซ้าย (ใช้ตำแหน่งเดียวกับป้ายยังไม่ได้อ่าน) หรือทางขวาของแถวเวิร์กสเปซ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Göstergeyi çalışma alanı satırının solunda (okunmamış rozetiyle aynı yeri paylaşır) veya sağında gösterir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показує індикатор ліворуч (спільно зі значком непрочитаного) або праворуч у рядку робочого простору."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在工作区行的左侧（与未读标记共用位置）或右侧显示指示器。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在工作區列的左側（與未讀標記共用位置）或右側顯示指示器。"
-          }
-        }
-      }
-    },
-    "settings.app.notificationBadgePosition": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "موضع شارة الإشعارات"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pozicija značke obavijesti"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Placering af notifikationsmærke"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Position der Benachrichtigungsplakette"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Notification Badge Position"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Posición de la insignia de notificaciones"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Position du badge de notification"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Posizione del badge di notifica"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "通知バッジの位置"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "알림 배지 위치"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Plassering av varselmerke"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pozycja plakietki powiadomień"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Posição do selo de notificação"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Положение значка уведомлений"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ตำแหน่งป้ายการแจ้งเตือน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bildirim rozeti konumu"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Розташування значка сповіщень"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "通知标记位置"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "通知標記位置"
-          }
-        }
-      }
-    },
-    "settings.app.notificationBadgePosition.subtitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إظهار شارة الإشعارات غير المقروءة على يسار صف مساحة العمل أو على يمينه."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prikazuje značku nepročitanih obavijesti lijevo ili desno u redu radnog prostora."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Viser ulæst-notifikationsmærket til venstre eller højre i arbejdsområdets række."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zeigt die Ungelesen-Plakette links oder rechts in der Arbeitsbereichszeile."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show the unread notification badge on the left or the right of the workspace row."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Muestra la insignia de notificaciones no leídas a la izquierda o a la derecha de la fila del espacio de trabajo."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Affiche le badge de notifications non lues à gauche ou à droite de la ligne de l’espace de travail."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostra il badge delle notifiche non lette a sinistra o a destra della riga dello spazio di lavoro."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未読通知バッジをワークスペース行の左または右に表示します。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "읽지 않은 알림 배지를 워크스페이스 행의 왼쪽 또는 오른쪽에 표시합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Viser ulest-varselmerket til venstre eller høyre i arbeidsområderaden."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pokazuje plakietkę nieprzeczytanych powiadomień po lewej lub prawej stronie wiersza obszaru roboczego."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostra o selo de notificações não lidas à esquerda ou à direita da linha do espaço de trabalho."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показывает значок непрочитанных уведомлений слева или справа в строке рабочего пространства."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แสดงป้ายการแจ้งเตือนที่ยังไม่ได้อ่านทางซ้ายหรือทางขวาของแถวเวิร์กสเปซ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Okunmamış bildirim rozetini çalışma alanı satırının solunda veya sağında gösterir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показує значок непрочитаних сповіщень ліворуч або праворуч у рядку робочого простору."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在工作区行的左侧或右侧显示未读通知标记。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在工作區列的左側或右側顯示未讀通知標記。"
-          }
-        }
-      }
-    },
-    "settings.app.showAgentActivity": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إظهار مؤشر التحميل"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prikaži indikator učitavanja"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis indlæsningsindikator"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ladeindikator anzeigen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Loading Spinner"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar indicador de carga"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher l’indicateur de chargement"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostra indicatore di caricamento"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "読み込みスピナーを表示"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "로딩 스피너 표시"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis lasteindikator"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pokaż wskaźnik ładowania"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar indicador de carregamento"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показывать индикатор загрузки"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แสดงตัวบ่งชี้การโหลด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Yükleme göstergesini göster"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показувати індикатор завантаження"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "显示加载指示器"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "顯示載入指示器"
-          }
-        }
-      }
-    },
-    "settings.app.showAgentActivity.subtitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إظهار مؤشر تحميل على مساحات العمل التي بها وكلاء برمجة قيد التشغيل أو عمليات تحميل نشطة. يبقى ظاهرًا حتى عند إخفاء تفاصيل الشريط الجانبي."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prikazuje indikator učitavanja na radnim prostorima s pokrenutim agentima za kodiranje ili aktivnim učitavanjima. Ostaje vidljiv i kada su detalji bočne trake skriveni."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Viser en indlæsningsindikator på arbejdsområder med kørende kodningsagenter eller aktive indlæsninger. Forbliver synlig, selv når sidepanelets detaljer er skjult."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zeigt einen Ladeindikator auf Arbeitsbereichen mit laufenden Coding-Agenten oder aktiven Ladevorgängen. Bleibt sichtbar, auch wenn Seitenleisten-Details ausgeblendet sind."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show a loading spinner on workspaces with running coding agents or active loaders. Stays visible even when sidebar details are hidden."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Muestra un indicador de carga en los espacios de trabajo con agentes de código en ejecución o cargas activas. Permanece visible incluso cuando los detalles de la barra lateral están ocultos."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Affiche un indicateur de chargement sur les espaces de travail avec des agents de codage en cours ou des chargements actifs. Reste visible même lorsque les détails de la barre latérale sont masqués."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostra un indicatore di caricamento negli spazi di lavoro con agenti di codifica in esecuzione o caricamenti attivi. Rimane visibile anche quando i dettagli della barra laterale sono nascosti."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "実行中のコーディングエージェントまたはアクティブなローダーがあるワークスペースに読み込みスピナーを表示します。サイドバーの詳細を非表示にしても表示され続けます。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "실행 중인 코딩 에이전트 또는 활성 로더가 있는 워크스페이스에 로딩 스피너를 표시합니다. 사이드바 세부 정보를 숨겨도 계속 표시됩니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Viser en lasteindikator på arbeidsområder med aktive kodeagenter eller aktive lastinger. Forblir synlig selv når sidefeltdetaljer er skjult."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pokazuje wskaźnik ładowania w obszarach roboczych z uruchomionymi agentami kodowania lub aktywnymi ładowaniami. Pozostaje widoczny nawet po ukryciu szczegółów paska bocznego."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostra um indicador de carregamento nos espaços de trabalho com agentes de codificação em execução ou carregamentos ativos. Permanece visível mesmo quando os detalhes da barra lateral estão ocultos."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показывает индикатор загрузки в рабочих пространствах с запущенными агентами кодирования или активными загрузками. Остаётся видимым, даже если детали боковой панели скрыты."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แสดงตัวบ่งชี้การโหลดบนเวิร์กสเปซที่มีเอเจนต์เขียนโค้ดกำลังทำงานหรือมีการโหลดที่ใช้งานอยู่ ยังคงแสดงแม้ซ่อนรายละเอียดแถบด้านข้าง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Çalışan kodlama aracıları veya etkin yüklemeler olan çalışma alanlarında bir yükleme göstergesi gösterir. Kenar çubuğu ayrıntıları gizliyken bile görünür kalır."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показує індикатор завантаження в робочих просторах із запущеними агентами кодування або активними завантаженнями. Залишається видимим, навіть якщо деталі бічної панелі приховано."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在有正在运行的编码代理或活动加载任务的工作区上显示加载指示器。即使隐藏侧边栏详细信息也会保持显示。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在有執行中的編碼代理或作用中載入工作的工作區上顯示載入指示器。即使隱藏側邊欄詳細資訊也會保持顯示。"
-          }
-        }
-      }
-    },
-    "settings.search.alias.setting.app.loading-spinner-position": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side workspace تحميل مؤشر يسار يمين موضع"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side workspace učitavanje indikator lijevo desno pozicija"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side workspace indlæsning indikator venstre højre placering"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side workspace laden Indikator links rechts Position"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side workspace"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side workspace carga indicador izquierda derecha posición"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side workspace chargement indicateur gauche droite position"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side workspace caricamento indicatore sinistra destra posizione"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side workspace 読み込み スピナー 位置 左 右 サイド"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side workspace 로딩 스피너 왼쪽 오른쪽 위치"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side workspace lasting indikator venstre høyre plassering"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side workspace ładowanie wskaźnik lewo prawo pozycja"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side workspace carregamento indicador esquerda direita posição"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side workspace загрузка индикатор слева справа положение"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side workspace โหลด ตัวบ่งชี้ ซ้าย ขวา ตำแหน่ง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side workspace yükleme gösterge sol sağ konum"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side workspace завантаження індикатор ліворуч праворуч розташування"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side workspace 加载 指示器 左 右 位置"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side workspace 載入 指示器 左 右 位置"
-          }
-        }
-      }
-    },
-    "settings.search.alias.setting.app.notification-badge-position": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side workspace تحميل مؤشر يسار يمين موضع"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side workspace učitavanje indikator lijevo desno pozicija"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side workspace indlæsning indikator venstre højre placering"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side workspace laden Indikator links rechts Position"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side workspace"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side workspace carga indicador izquierda derecha posición"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side workspace chargement indicateur gauche droite position"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side workspace caricamento indicatore sinistra destra posizione"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side workspace 通知 未読 バッジ 位置 左 右 サイド"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side workspace 로딩 스피너 왼쪽 오른쪽 위치"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side workspace lasting indikator venstre høyre plassering"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side workspace ładowanie wskaźnik lewo prawo pozycja"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side workspace carregamento indicador esquerda direita posição"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side workspace загрузка индикатор слева справа положение"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side workspace โหลด ตัวบ่งชี้ ซ้าย ขวา ตำแหน่ง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side workspace yükleme gösterge sol sağ konum"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side workspace завантаження індикатор ліворуч праворуч розташування"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side workspace 加载 指示器 左 右 位置"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side workspace 載入 指示器 左 右 位置"
-          }
-        }
-      }
-    },
-    "settings.search.alias.setting.app.show-agent-activity": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.showAgentActivity loading spinner active coding agent agents running activity تحميل مؤشر يسار يمين موضع"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.showAgentActivity loading spinner active coding agent agents running activity učitavanje indikator lijevo desno pozicija"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.showAgentActivity loading spinner active coding agent agents running activity indlæsning indikator venstre højre placering"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.showAgentActivity loading spinner active coding agent agents running activity laden Indikator links rechts Position"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.showAgentActivity loading spinner active coding agent agents running activity"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.showAgentActivity loading spinner active coding agent agents running activity carga indicador izquierda derecha posición"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.showAgentActivity loading spinner active coding agent agents running activity chargement indicateur gauche droite position"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.showAgentActivity loading spinner active coding agent agents running activity caricamento indicatore sinistra destra posizione"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.showAgentActivity loading spinner active coding agent agents running activity 読み込み スピナー アクティブ コーディング エージェント 実行中 アクティビティ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.showAgentActivity loading spinner active coding agent agents running activity 로딩 스피너 왼쪽 오른쪽 위치"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.showAgentActivity loading spinner active coding agent agents running activity lasting indikator venstre høyre plassering"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.showAgentActivity loading spinner active coding agent agents running activity ładowanie wskaźnik lewo prawo pozycja"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.showAgentActivity loading spinner active coding agent agents running activity carregamento indicador esquerda direita posição"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.showAgentActivity loading spinner active coding agent agents running activity загрузка индикатор слева справа положение"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.showAgentActivity loading spinner active coding agent agents running activity โหลด ตัวบ่งชี้ ซ้าย ขวา ตำแหน่ง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.showAgentActivity loading spinner active coding agent agents running activity yükleme gösterge sol sağ konum"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.showAgentActivity loading spinner active coding agent agents running activity завантаження індикатор ліворуч праворуч розташування"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.showAgentActivity loading spinner active coding agent agents running activity 加载 指示器 左 右 位置"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sidebar.showAgentActivity loading spinner active coding agent agents running activity 載入 指示器 左 右 位置"
-          }
-        }
-      }
-    },
-    "sidebar.agentActivity.tooltip.many": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "جارٍ التحميل (%lld مهام نشطة)"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Učitavanje (%lld aktivnih zadataka)"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Indlæser (%lld aktive opgaver)"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wird geladen (%lld aktive Aufgaben)"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Loading (%lld active tasks)"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cargando (%lld tareas activas)"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chargement (%lld tâches actives)"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Caricamento (%lld attività attive)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "読み込み中（アクティブなタスク %lld 件）"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "로딩 중(활성 작업 %lld개)"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Laster (%lld aktive oppgaver)"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ładowanie (%lld aktywnych zadań)"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Carregando (%lld tarefas ativas)"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Загрузка (%lld активных задач)"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "กำลังโหลด (งานที่ทำงานอยู่ %lld รายการ)"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Yükleniyor (%lld etkin görev)"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Завантаження (%lld активних завдань)"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在加载（%lld 个活跃任务）"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在載入（%lld 個作用中任務）"
-          }
-        }
-      }
-    },
-    "sidebar.agentActivity.tooltip.one": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "جارٍ التحميل (مهمة نشطة واحدة)"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Učitavanje (1 aktivan zadatak)"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Indlæser (1 aktiv opgave)"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wird geladen (1 aktive Aufgabe)"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Loading (1 active task)"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cargando (1 tarea activa)"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chargement (1 tâche active)"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Caricamento (1 attività attiva)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "読み込み中（アクティブなタスク 1 件）"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "로딩 중(활성 작업 1개)"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Laster (1 aktiv oppgave)"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ładowanie (1 aktywne zadanie)"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Carregando (1 tarefa ativa)"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Загрузка (1 активная задача)"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "กำลังโหลด (งานที่ทำงานอยู่ 1 รายการ)"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Yükleniyor (1 etkin görev)"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Завантаження (1 активне завдання)"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在加载（1 个活跃任务）"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "正在載入（1 個作用中任務）"
-          }
-        }
-      }
-    },
-    "cli.workspace.usage": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Usage: cmux workspace <subcommand> [flags]\n\nCanonical noun for workspace operations. Legacy verbs\n(new-workspace, list-workspaces, close-workspace,\nrename-workspace, select-workspace) keep working and print a\none-time deprecation hint pointing here.\n\nSubcommands:\n  list                    List workspaces in a window\n  create [flags]          Create a workspace (same flags as new-workspace,\n                          including --env KEY=VALUE and --env-file <path>)\n  env [workspace] [--mask]\n                          Print a workspace's configured environment\n                          variables (--mask redacts the values)\n  close <workspace>       Close a workspace\n  rename <workspace> --title <new>\n  select <workspace>      Make a workspace active\n  reconnect [workspace]   Reconnect a remote (SSH) workspace, including one\n                          whose automatic reconnect paused because the host\n                          was unreachable\n  disconnect [workspace]  Stop a remote (SSH) workspace's connection\n  loading <on|off> [--id <name>]\n                          Toggle the workspace's loading spinner. Each --id\n                          is a separate loader that stacks; omit for one\n                          default loader.\n  group <subcommand>      Workspace group operations (see cmux workspace-group --help)\n\nenv/reconnect/disconnect accept a positional handle or --workspace\n<id|ref|index>, defaulting to the caller's workspace, then the\nselected one (of --window's window when given).\n\nExamples:\n  cmux workspace list --json\n  cmux workspace create --name Build --cwd ~/projects/myapp\n  cmux workspace create --cwd . --env AWS_PROFILE=prod --env-file ./.cmux.env\n  cmux workspace env workspace:3 --mask\n  cmux workspace close workspace:3\n  cmux workspace reconnect\n  cmux workspace disconnect --workspace workspace:3\n  cmux workspace loading on\n  cmux workspace loading on --id build\n  cmux workspace loading off"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "使い方: cmux workspace <サブコマンド> [フラグ]\n\nワークスペース操作の正規の名前空間です。従来の動詞コマンド\n(new-workspace、list-workspaces、close-workspace、\nrename-workspace、select-workspace) は引き続き動作し、ここを指す\n非推奨ヒントを一度だけ表示します。\n\nサブコマンド:\n  list                    ウィンドウ内のワークスペースを一覧表示\n  create [flags]          ワークスペースを作成 (new-workspace と同じフラグ。\n                          --env KEY=VALUE と --env-file <path> を含む)\n  env [workspace] [--mask]\n                          ワークスペースに設定された環境変数を表示\n                          (--mask は値を伏せ字にします)\n  close <workspace>       ワークスペースを閉じる\n  rename <workspace> --title <new>\n  select <workspace>      ワークスペースをアクティブにする\n  reconnect [workspace]   リモート (SSH) ワークスペースを再接続。ホストに\n                          到達できず自動再接続が一時停止したものも含む\n  disconnect [workspace]  リモート (SSH) ワークスペースの接続を停止\n  loading <on|off> [--id <name>]\n                          ワークスペースの読み込みスピナーを切り替え。--id ごとに\n                          別のローダーとして積み重なり、省略時は既定の 1 つを\n                          切り替えます\n  group <subcommand>      ワークスペースグループ操作 (cmux workspace-group --help を参照)\n\nenv/reconnect/disconnect は位置引数のハンドルまたは --workspace\n<id|ref|index> を受け付け、省略時は呼び出し元のワークスペース、\n次に選択中のワークスペース (--window 指定時はそのウィンドウ) を\n対象にします。\n\n例:\n  cmux workspace list --json\n  cmux workspace create --name Build --cwd ~/projects/myapp\n  cmux workspace create --cwd . --env AWS_PROFILE=prod --env-file ./.cmux.env\n  cmux workspace env workspace:3 --mask\n  cmux workspace close workspace:3\n  cmux workspace reconnect\n  cmux workspace disconnect --workspace workspace:3\n  cmux workspace loading on\n  cmux workspace loading on --id build\n  cmux workspace loading off"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "사용법: cmux workspace <하위 명령> [플래그]\n\n워크스페이스 작업의 표준 네임스페이스입니다. 기존 동사형 명령\n(new-workspace, list-workspaces, close-workspace,\nrename-workspace, select-workspace)은 계속 작동하며 이곳을\n가리키는 사용 중단 안내를 한 번 표시합니다.\n\n하위 명령:\n  list                    창의 워크스페이스 목록 표시\n  create [flags]          워크스페이스 생성 (new-workspace와 동일한 플래그.\n                          --env KEY=VALUE 및 --env-file <path> 포함)\n  env [workspace] [--mask]\n                          워크스페이스에 설정된 환경 변수 표시\n                          (--mask는 값을 가립니다)\n  close <workspace>       워크스페이스 닫기\n  rename <workspace> --title <new>\n  select <workspace>      워크스페이스를 활성화\n  reconnect [workspace]   원격 (SSH) 워크스페이스 재연결. 호스트에 연결할\n                          수 없어 자동 재연결이 일시 중지된 경우 포함\n  disconnect [workspace]  원격 (SSH) 워크스페이스 연결 중지\n  loading <on|off> [--id <name>]\n                          워크스페이스 로딩 스피너 전환. --id마다 별도의\n                          로더로 누적되며, 생략 시 기본 로더 하나를 전환\n  group <subcommand>      워크스페이스 그룹 작업 (cmux workspace-group --help 참고)\n\nenv/reconnect/disconnect는 위치 핸들 또는 --workspace\n<id|ref|index>를 받으며, 기본값은 호출자의 워크스페이스, 그다음\n선택된 워크스페이스입니다 (--window 지정 시 해당 창 기준).\n\n예시:\n  cmux workspace list --json\n  cmux workspace create --name Build --cwd ~/projects/myapp\n  cmux workspace create --cwd . --env AWS_PROFILE=prod --env-file ./.cmux.env\n  cmux workspace env workspace:3 --mask\n  cmux workspace close workspace:3\n  cmux workspace reconnect\n  cmux workspace disconnect --workspace workspace:3\n  cmux workspace loading on\n  cmux workspace loading on --id build\n  cmux workspace loading off"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Використання: cmux workspace <підкоманда> [прапорці]\n\nКанонічний простір імен для операцій з робочими просторами.\nЗастарілі дієслівні команди (new-workspace, list-workspaces,\nclose-workspace, rename-workspace, select-workspace) продовжують\nпрацювати й одноразово показують підказку про застарілість, що\nвказує сюди.\n\nПідкоманди:\n  list                    Список робочих просторів у вікні\n  create [flags]          Створити робочий простір (ті самі прапорці, що й\n                          new-workspace, зокрема --env KEY=VALUE та --env-file <path>)\n  env [workspace] [--mask]\n                          Показати налаштовані змінні середовища робочого\n                          простору (--mask приховує значення)\n  close <workspace>       Закрити робочий простір\n  rename <workspace> --title <new>\n  select <workspace>      Зробити робочий простір активним\n  reconnect [workspace]   Перепідключити віддалений (SSH) робочий простір,\n                          зокрема той, де автоматичне перепідключення\n                          призупинено через недосяжний хост\n  disconnect [workspace]  Зупинити з'єднання віддаленого (SSH) робочого простору\n  loading <on|off> [--id <name>]\n                          Перемкнути індикатор завантаження робочого простору.\n                          Кожен --id — окремий лоадер; без --id перемикається\n                          один типовий\n  group <subcommand>      Операції з групами робочих просторів (див. cmux workspace-group --help)\n\nenv/reconnect/disconnect приймають позиційний дескриптор або --workspace\n<id|ref|index>; типово використовується робочий простір викликача,\nдалі — вибраний (у вікні з --window, якщо задано).\n\nПриклади:\n  cmux workspace list --json\n  cmux workspace create --name Build --cwd ~/projects/myapp\n  cmux workspace create --cwd . --env AWS_PROFILE=prod --env-file ./.cmux.env\n  cmux workspace env workspace:3 --mask\n  cmux workspace close workspace:3\n  cmux workspace reconnect\n  cmux workspace disconnect --workspace workspace:3\n  cmux workspace loading on\n  cmux workspace loading on --id build\n  cmux workspace loading off"
           }
         }
       }
@@ -45508,6 +44205,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "再接続"
+          }
+        }
+      }
+    },
+    "command.addWorkspaceChecklistItem.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Checklist Item…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チェックリスト項目を追加…"
           }
         }
       }
@@ -52750,6 +51464,23 @@
         }
       }
     },
+    "command.markWorkspaceDone.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark Workspace as Done"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを完了にする"
+          }
+        }
+      }
+    },
     "command.markdownZoomIn.title": {
       "extractionState": "manual",
       "localizations": {
@@ -55757,6 +54488,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "開啟所有工作區 PR 連結"
+          }
+        }
+      }
+    },
+    "command.openWorkspaceTodoPane.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Todo Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todoペインを開く"
           }
         }
       }
@@ -61587,6 +60335,40 @@
         }
       }
     },
+    "command.workspaceStatus.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace Status: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースのステータス: %@"
+          }
+        }
+      }
+    },
+    "command.workspaceStatusAuto.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace Status: Auto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースのステータス: 自動"
+          }
+        }
+      }
+    },
     "commandPalette.description.workspaceInputHint": {
       "extractionState": "manual",
       "localizations": {
@@ -62011,6 +60793,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "工作區"
+          }
+        }
+      }
+    },
+    "commandPalette.kind.workspaceTodo": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todos"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todo"
           }
         }
       }
@@ -66522,6 +65321,23 @@
         }
       }
     },
+    "contextMenu.addChecklistItem": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Checklist Item…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チェックリスト項目を追加…"
+          }
+        }
+      }
+    },
     "contextMenu.chooseCustomColor": {
       "extractionState": "manual",
       "localizations": {
@@ -67888,6 +66704,23 @@
         }
       }
     },
+    "contextMenu.markWorkspaceDone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark Workspace as Done"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを完了にする"
+          }
+        }
+      }
+    },
     "contextMenu.markWorkspaceRead": {
       "extractionState": "manual",
       "localizations": {
@@ -68122,6 +66955,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "將工作區標為未讀"
+          }
+        }
+      }
+    },
+    "contextMenu.markWorkspacesDone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark Workspaces as Done"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択したワークスペースを完了にする"
           }
         }
       }
@@ -70645,6 +69495,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "ターミナルのスクロールバーを隠す"
+          }
+        }
+      }
+    },
+    "contextMenu.workspaceStatus": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステータス"
+          }
+        }
+      }
+    },
+    "contextMenu.workspaceStatus.auto": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto — %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動 — %@"
           }
         }
       }
@@ -100478,6 +99362,40 @@
         }
       }
     },
+    "featureFlags.agentChat.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows the Agent chat entrypoints in the new-workspace dropdown, command palette, and surface tab bar."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規ワークスペースのドロップダウン、コマンドパレット、サーフェスタブバーにエージェントチャットの入口を表示します。"
+          }
+        }
+      }
+    },
+    "featureFlags.agentChat.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent chat UI"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントチャットUI"
+          }
+        }
+      }
+    },
     "featureFlags.clearAll": {
       "extractionState": "manual",
       "localizations": {
@@ -123975,6 +122893,176 @@
         }
       }
     },
+    "mobile.chat.artifact.error.fileNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That file is no longer available on the Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのファイルはMac上で利用できなくなりました。"
+          }
+        }
+      }
+    },
+    "mobile.chat.artifact.error.forbidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That file was not referenced by this conversation."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのファイルはこの会話で参照されていません。"
+          }
+        }
+      }
+    },
+    "mobile.chat.artifact.error.galleryInvalidParams": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux couldn't tell which session this gallery belongs to."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このギャラリーがどのセッションのものか判別できませんでした。"
+          }
+        }
+      }
+    },
+    "mobile.chat.artifact.error.invalidParams": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux couldn't tell which session or file was requested."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "どのセッションのどのファイルが要求されたか判別できませんでした。"
+          }
+        }
+      }
+    },
+    "mobile.chat.artifact.error.invalidCursor": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The gallery cursor is invalid."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ギャラリーのカーソルが無効です。"
+          }
+        }
+      }
+    },
+    "mobile.chat.artifact.error.sessionNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That agent session is no longer available."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのエージェントセッションは利用できなくなりました。"
+          }
+        }
+      }
+    },
+    "mobile.chat.artifact.error.unsupportedMedia": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This file type cannot be previewed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイル形式はプレビューできません。"
+          }
+        }
+      }
+    },
+    "mobile.terminal.artifact.error.forbidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That file is not currently shown in this terminal."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのファイルは現在このターミナルに表示されていません。"
+          }
+        }
+      }
+    },
+    "mobile.terminal.artifact.error.invalidParams": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux couldn't tell which terminal or file was requested."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "どのターミナルのどのファイルが要求されたか判別できませんでした。"
+          }
+        }
+      }
+    },
+    "mobile.terminal.artifact.error.terminalNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That terminal is no longer available."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのターミナルは利用できなくなりました。"
+          }
+        }
+      }
+    },
     "mobile.chat.error.interruptNotAccepted": {
       "extractionState": "manual",
       "localizations": {
@@ -132478,6 +131566,131 @@
         }
       }
     },
+    "remoteTmux.error.windowCreationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر على cmux إنشاء نافذة جديدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije mogao kreirati novi prozor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke oprette et nyt vindue"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte kein neues Fenster erstellen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not create a new window"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo crear una ventana nueva"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas pu créer une nouvelle fenêtre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non è riuscito a creare una nuova finestra"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は新しいウインドウを作成できませんでした"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនអាចបង្កើតបង្អួចថ្មីបានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 새 창을 만들 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kunne ikke opprette et nytt vindu"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie mógł utworzyć nowego okna"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não conseguiu criar uma nova janela"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не удалось создать новое окно"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ไม่สามารถสร้างหน้าต่างใหม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux yeni bir pencere oluşturamadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не вдалося створити нове вікно"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法创建新窗口"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法建立新視窗"
+          }
+        }
+      }
+    },
     "remoteTmux.pane.close": {
       "extractionState": "manual",
       "localizations": {
@@ -140058,6 +139271,482 @@
         }
       }
     },
+    "settings.app.loadingSpinnerPosition": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "موضع مؤشر التحميل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pozicija indikatora učitavanja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Placering af indlæsningsindikator"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Position des Ladeindikators"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading Spinner Position"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posición del indicador de carga"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Position de l’indicateur de chargement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posizione dell’indicatore di caricamento"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み込みスピナーの位置"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로딩 스피너 위치"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plassering av lasteindikator"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pozycja wskaźnika ładowania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posição do indicador de carregamento"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Положение индикатора загрузки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตำแหน่งตัวบ่งชี้การโหลด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yükleme göstergesi konumu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розташування індикатора завантаження"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "加载指示器位置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "載入指示器位置"
+          }
+        }
+      }
+    },
+    "settings.app.loadingSpinnerPosition.left": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يسار"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lijevo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Venstre"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Links"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Left"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Izquierda"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gauche"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sinistra"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "왼쪽"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Venstre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lewo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esquerda"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Слева"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ซ้าย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sol"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ліворуч"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左"
+          }
+        }
+      }
+    },
+    "settings.app.loadingSpinnerPosition.right": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمين"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Højre"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechts"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Right"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Derecha"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Droite"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Destra"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오른쪽"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Høyre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prawo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Direita"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Справа"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ขวา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sağ"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Праворуч"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右"
+          }
+        }
+      }
+    },
+    "settings.app.loadingSpinnerPosition.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار المؤشر على يسار صف مساحة العمل (بمشاركة موضع شارة غير المقروء) أو على يمينه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikazuje indikator lijevo (dijeli mjesto sa značkom nepročitanog) ili desno u redu radnog prostora."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viser indikatoren til venstre (deler plads med ulæst-mærket) eller til højre i arbejdsområdets række."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt den Indikator links (teilt den Platz mit der Ungelesen-Plakette) oder rechts in der Arbeitsbereichszeile."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the spinner on the left (sharing the unread badge slot) or the right of the workspace row."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra el indicador a la izquierda (compartiendo el espacio de la insignia de no leídos) o a la derecha de la fila del espacio de trabajo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche l’indicateur à gauche (partageant l’emplacement du badge non lu) ou à droite de la ligne de l’espace de travail."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra l’indicatore a sinistra (condividendo lo spazio del badge non letti) o a destra della riga dello spazio di lavoro."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スピナーをワークスペース行の左（未読バッジの位置を共有）または右に表示します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스 행의 왼쪽(읽지 않음 배지 자리 공유) 또는 오른쪽에 스피너를 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viser indikatoren til venstre (deler plass med ulest-merket) eller til høyre i arbeidsområderaden."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokazuje wskaźnik po lewej stronie (współdzieląc miejsce z plakietką nieprzeczytanych) lub po prawej stronie wiersza obszaru roboczego."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra o indicador à esquerda (compartilhando o espaço do selo de não lidos) ou à direita da linha do espaço de trabalho."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывает индикатор слева (совместно со значком непрочитанного) или справа в строке рабочего пространства."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงตัวบ่งชี้ทางซ้าย (ใช้ตำแหน่งเดียวกับป้ายยังไม่ได้อ่าน) หรือทางขวาของแถวเวิร์กสเปซ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Göstergeyi çalışma alanı satırının solunda (okunmamış rozetiyle aynı yeri paylaşır) veya sağında gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показує індикатор ліворуч (спільно зі значком непрочитаного) або праворуч у рядку робочого простору."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在工作区行的左侧（与未读标记共用位置）或右侧显示指示器。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在工作區列的左側（與未讀標記共用位置）或右側顯示指示器。"
+          }
+        }
+      }
+    },
     "settings.app.makeSidebarPullRequestClickable": {
       "extractionState": "manual",
       "localizations": {
@@ -140651,6 +140340,244 @@
           "stringUnit": {
             "state": "translated",
             "value": "新工作區位置"
+          }
+        }
+      }
+    },
+    "settings.app.notificationBadgePosition": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "موضع شارة الإشعارات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pozicija značke obavijesti"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Placering af notifikationsmærke"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Position der Benachrichtigungsplakette"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notification Badge Position"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posición de la insignia de notificaciones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Position du badge de notification"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posizione del badge di notifica"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知バッジの位置"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알림 배지 위치"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plassering av varselmerke"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pozycja plakietki powiadomień"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posição do selo de notificação"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Положение значка уведомлений"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตำแหน่งป้ายการแจ้งเตือน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildirim rozeti konumu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розташування значка сповіщень"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知标记位置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知標記位置"
+          }
+        }
+      }
+    },
+    "settings.app.notificationBadgePosition.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار شارة الإشعارات غير المقروءة على يسار صف مساحة العمل أو على يمينه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikazuje značku nepročitanih obavijesti lijevo ili desno u redu radnog prostora."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viser ulæst-notifikationsmærket til venstre eller højre i arbejdsområdets række."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt die Ungelesen-Plakette links oder rechts in der Arbeitsbereichszeile."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the unread notification badge on the left or the right of the workspace row."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra la insignia de notificaciones no leídas a la izquierda o a la derecha de la fila del espacio de trabajo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche le badge de notifications non lues à gauche ou à droite de la ligne de l’espace de travail."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra il badge delle notifiche non lette a sinistra o a destra della riga dello spazio di lavoro."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未読通知バッジをワークスペース行の左または右に表示します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "읽지 않은 알림 배지를 워크스페이스 행의 왼쪽 또는 오른쪽에 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viser ulest-varselmerket til venstre eller høyre i arbeidsområderaden."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokazuje plakietkę nieprzeczytanych powiadomień po lewej lub prawej stronie wiersza obszaru roboczego."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra o selo de notificações não lidas à esquerda ou à direita da linha do espaço de trabalho."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывает значок непрочитанных уведомлений слева или справа в строке рабочего пространства."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงป้ายการแจ้งเตือนที่ยังไม่ได้อ่านทางซ้ายหรือทางขวาของแถวเวิร์กสเปซ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Okunmamış bildirim rozetini çalışma alanı satırının solunda veya sağında gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показує значок непрочитаних сповіщень ліворуч або праворуч у рядку робочого простору."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在工作区行的左侧或右侧显示未读通知标记。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在工作區列的左側或右側顯示未讀通知標記。"
           }
         }
       }
@@ -142362,6 +142289,244 @@
         }
       }
     },
+    "settings.app.showAgentActivity": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار مؤشر التحميل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži indikator učitavanja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis indlæsningsindikator"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ladeindikator anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Loading Spinner"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar indicador de carga"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher l’indicateur de chargement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra indicatore di caricamento"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み込みスピナーを表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로딩 스피너 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis lasteindikator"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż wskaźnik ładowania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar indicador de carregamento"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать индикатор загрузки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงตัวบ่งชี้การโหลด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yükleme göstergesini göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати індикатор завантаження"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示加载指示器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示載入指示器"
+          }
+        }
+      }
+    },
+    "settings.app.showAgentActivity.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار مؤشر تحميل على مساحات العمل التي بها وكلاء برمجة قيد التشغيل أو عمليات تحميل نشطة. يبقى ظاهرًا حتى عند إخفاء تفاصيل الشريط الجانبي."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikazuje indikator učitavanja na radnim prostorima s pokrenutim agentima za kodiranje ili aktivnim učitavanjima. Ostaje vidljiv i kada su detalji bočne trake skriveni."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viser en indlæsningsindikator på arbejdsområder med kørende kodningsagenter eller aktive indlæsninger. Forbliver synlig, selv når sidepanelets detaljer er skjult."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt einen Ladeindikator auf Arbeitsbereichen mit laufenden Coding-Agenten oder aktiven Ladevorgängen. Bleibt sichtbar, auch wenn Seitenleisten-Details ausgeblendet sind."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show a loading spinner on workspaces with running coding agents or active loaders. Stays visible even when sidebar details are hidden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra un indicador de carga en los espacios de trabajo con agentes de código en ejecución o cargas activas. Permanece visible incluso cuando los detalles de la barra lateral están ocultos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche un indicateur de chargement sur les espaces de travail avec des agents de codage en cours ou des chargements actifs. Reste visible même lorsque les détails de la barre latérale sont masqués."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra un indicatore di caricamento negli spazi di lavoro con agenti di codifica in esecuzione o caricamenti attivi. Rimane visibile anche quando i dettagli della barra laterale sono nascosti."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中のコーディングエージェントまたはアクティブなローダーがあるワークスペースに読み込みスピナーを表示します。サイドバーの詳細を非表示にしても表示され続けます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 중인 코딩 에이전트 또는 활성 로더가 있는 워크스페이스에 로딩 스피너를 표시합니다. 사이드바 세부 정보를 숨겨도 계속 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viser en lasteindikator på arbeidsområder med aktive kodeagenter eller aktive lastinger. Forblir synlig selv når sidefeltdetaljer er skjult."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokazuje wskaźnik ładowania w obszarach roboczych z uruchomionymi agentami kodowania lub aktywnymi ładowaniami. Pozostaje widoczny nawet po ukryciu szczegółów paska bocznego."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra um indicador de carregamento nos espaços de trabalho com agentes de codificação em execução ou carregamentos ativos. Permanece visível mesmo quando os detalhes da barra lateral estão ocultos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывает индикатор загрузки в рабочих пространствах с запущенными агентами кодирования или активными загрузками. Остаётся видимым, даже если детали боковой панели скрыты."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงตัวบ่งชี้การโหลดบนเวิร์กสเปซที่มีเอเจนต์เขียนโค้ดกำลังทำงานหรือมีการโหลดที่ใช้งานอยู่ ยังคงแสดงแม้ซ่อนรายละเอียดแถบด้านข้าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalışan kodlama aracıları veya etkin yüklemeler olan çalışma alanlarında bir yükleme göstergesi gösterir. Kenar çubuğu ayrıntıları gizliyken bile görünür kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показує індикатор завантаження в робочих просторах із запущеними агентами кодування або активними завантаженнями. Залишається видимим, навіть якщо деталі бічної панелі приховано."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在有正在运行的编码代理或活动加载任务的工作区上显示加载指示器。即使隐藏侧边栏详细信息也会保持显示。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在有執行中的編碼代理或作用中載入工作的工作區上顯示載入指示器。即使隱藏側邊欄詳細資訊也會保持顯示。"
+          }
+        }
+      }
+    },
     "settings.app.showBranchDirectory": {
       "extractionState": "manual",
       "localizations": {
@@ -143159,6 +143324,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Показувати повідомлення сповіщення в бічній панелі"
+          }
+        }
+      }
+    },
+    "settings.app.notificationMessageLineLimit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notification Preview Lines"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知プレビューの行数"
+          }
+        }
+      }
+    },
+    "settings.app.notificationMessageLineLimit.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maximum lines shown for the latest notification below each workspace title."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各ワークスペース名の下に表示する最新通知の最大行数です。"
           }
         }
       }
@@ -152867,6 +153066,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "これらの機能は実験的で、変更されたり壊れたりする可能性があります。テストする場合だけ有効にしてください。"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.workspaceTodosChecklistStyle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checklist Style"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チェックリストの表示スタイル"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.workspaceTodosChecklistStyle.inline": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inline"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インライン"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.workspaceTodosChecklistStyle.popover": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Popover"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ポップオーバー"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.workspaceTodosChecklistStyle.subtitleInline": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clicking a row's checklist summary expands the items inline under the row."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行のチェックリスト概要をクリックすると、行の下に項目がインライン展開されます。"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.workspaceTodosChecklistStyle.subtitlePopover": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clicking a row's checklist summary opens an anchored popover."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行のチェックリスト概要をクリックすると、アンカー付きのポップオーバーが開きます。"
           }
         }
       }
@@ -166844,6 +167128,125 @@
         }
       }
     },
+    "settings.search.alias.setting.app.loading-spinner-position": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side workspace تحميل مؤشر يسار يمين موضع"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side workspace učitavanje indikator lijevo desno pozicija"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side workspace indlæsning indikator venstre højre placering"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side workspace laden Indikator links rechts Position"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side workspace"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side workspace carga indicador izquierda derecha posición"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side workspace chargement indicateur gauche droite position"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side workspace caricamento indicatore sinistra destra posizione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side workspace 読み込み スピナー 位置 左 右 サイド"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side workspace 로딩 스피너 왼쪽 오른쪽 위치"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side workspace lasting indikator venstre høyre plassering"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side workspace ładowanie wskaźnik lewo prawo pozycja"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side workspace carregamento indicador esquerda direita posição"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side workspace загрузка индикатор слева справа положение"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side workspace โหลด ตัวบ่งชี้ ซ้าย ขวา ตำแหน่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side workspace yükleme gösterge sol sağ konum"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side workspace завантаження індикатор ліворуч праворуч розташування"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side workspace 加载 指示器 左 右 位置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side workspace 載入 指示器 左 右 位置"
+          }
+        }
+      }
+    },
     "settings.search.alias.setting.app.markdown-font-family": {
       "extractionState": "manual",
       "localizations": {
@@ -167367,6 +167770,125 @@
           "stringUnit": {
             "state": "translated",
             "value": "app.newWorkspacePlacement new tab insert position order top bottom end 應用程式 一般 偏好設定 行為 Dock 選單列 狀態 側邊欄 工作區 分頁 顏色 調色盤 徽章 已選取 反白 指示器 作用中 點 新增標籤頁 標籤頁 新增工作區 • %@ 新工作區位置 App 底部 最上方"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.notification-badge-position": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side workspace تحميل مؤشر يسار يمين موضع"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side workspace učitavanje indikator lijevo desno pozicija"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side workspace indlæsning indikator venstre højre placering"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side workspace laden Indikator links rechts Position"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side workspace"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side workspace carga indicador izquierda derecha posición"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side workspace chargement indicateur gauche droite position"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side workspace caricamento indicatore sinistra destra posizione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side workspace 通知 未読 バッジ 位置 左 右 サイド"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side workspace 로딩 스피너 왼쪽 오른쪽 위치"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side workspace lasting indikator venstre høyre plassering"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side workspace ładowanie wskaźnik lewo prawo pozycja"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side workspace carregamento indicador esquerda direita posição"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side workspace загрузка индикатор слева справа положение"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side workspace โหลด ตัวบ่งชี้ ซ้าย ขวา ตำแหน่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side workspace yükleme gösterge sol sağ konum"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side workspace завантаження індикатор ліворуч праворуч розташування"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side workspace 加载 指示器 左 右 位置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side workspace 載入 指示器 左 右 位置"
           }
         }
       }
@@ -168438,6 +168960,125 @@
           "stringUnit": {
             "state": "translated",
             "value": "app.reorderOnNotification notification reorder move workspace top unread sort 應用程式 一般 偏好設定 行為 Dock 選單列 狀態 側邊欄 工作區 分頁 顏色 調色盤 徽章 已選取 反白 指示器 作用中 點 通知 未讀 訊息 圓環 閃爍 聲音 桌面 提醒 • %@ 移動 App 1 則未讀通知 最上方"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.show-agent-activity": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showAgentActivity loading spinner active coding agent agents running activity تحميل مؤشر يسار يمين موضع"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showAgentActivity loading spinner active coding agent agents running activity učitavanje indikator lijevo desno pozicija"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showAgentActivity loading spinner active coding agent agents running activity indlæsning indikator venstre højre placering"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showAgentActivity loading spinner active coding agent agents running activity laden Indikator links rechts Position"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showAgentActivity loading spinner active coding agent agents running activity"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showAgentActivity loading spinner active coding agent agents running activity carga indicador izquierda derecha posición"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showAgentActivity loading spinner active coding agent agents running activity chargement indicateur gauche droite position"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showAgentActivity loading spinner active coding agent agents running activity caricamento indicatore sinistra destra posizione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showAgentActivity loading spinner active coding agent agents running activity 読み込み スピナー アクティブ コーディング エージェント 実行中 アクティビティ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showAgentActivity loading spinner active coding agent agents running activity 로딩 스피너 왼쪽 오른쪽 위치"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showAgentActivity loading spinner active coding agent agents running activity lasting indikator venstre høyre plassering"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showAgentActivity loading spinner active coding agent agents running activity ładowanie wskaźnik lewo prawo pozycja"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showAgentActivity loading spinner active coding agent agents running activity carregamento indicador esquerda direita posição"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showAgentActivity loading spinner active coding agent agents running activity загрузка индикатор слева справа положение"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showAgentActivity loading spinner active coding agent agents running activity โหลด ตัวบ่งชี้ ซ้าย ขวา ตำแหน่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showAgentActivity loading spinner active coding agent agents running activity yükleme gösterge sol sağ konum"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showAgentActivity loading spinner active coding agent agents running activity завантаження індикатор ліворуч праворуч розташування"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showAgentActivity loading spinner active coding agent agents running activity 加载 指示器 左 右 位置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.showAgentActivity loading spinner active coding agent agents running activity 載入 指示器 左 右 位置"
           }
         }
       }
@@ -171937,6 +172578,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "automation.workspaceAutoNaming automation.autoNamingAgent ai auto naming auto-name auto name workspace tab workspaces tabs title titles rename workspace rename tab renaming generated summarize summary summarizer conversation agent picker naming agent 自動化 自動命名 名稱 工作區 分頁 標題 重新命名 摘要 產生 代理程式 選擇器"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.betaFeatures.workspace-todos-checklist-style": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.beta.workspaceTodos.checklistStyle workspace todo todos task status checklist popover inline presentation style beta"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.beta.workspaceTodos.checklistStyle ワークスペース Todo Todos タスク ステータス チェックリスト ポップオーバー インライン 表示 スタイル ベータ"
           }
         }
       }
@@ -187571,6 +188229,23 @@
         }
       }
     },
+    "shortcut.cycleWorkspaceStatus.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cycle Workspace Status"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースのステータスを切り替える"
+          }
+        }
+      }
+    },
     "shortcut.diffViewerOpenFileSearch.label": {
       "extractionState": "manual",
       "localizations": {
@@ -187696,127 +188371,229 @@
         }
       }
     },
+    "shortcut.diffViewerNextFile.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff Viewer: Next File"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "差分ビューア: 次のファイル"
+          }
+        }
+      }
+    },
+    "shortcut.diffViewerPreviousFile.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff Viewer: Previous File"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "差分ビューア: 前のファイル"
+          }
+        }
+      }
+    },
+    "shortcut.diffViewerScrollDownEmacs.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viewers: Scroll Down (Emacs)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビューア: 下へスクロール（Emacs）"
+          }
+        }
+      }
+    },
+    "shortcut.diffViewerScrollHalfPageDown.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viewers: Scroll Half Page Down"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビューア: 半ページ下へスクロール"
+          }
+        }
+      }
+    },
+    "shortcut.diffViewerScrollHalfPageUp.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viewers: Scroll Half Page Up"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビューア: 半ページ上へスクロール"
+          }
+        }
+      }
+    },
+    "shortcut.diffViewerScrollUpEmacs.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viewers: Scroll Up (Emacs)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビューア: 上へスクロール（Emacs）"
+          }
+        }
+      }
+    },
     "shortcut.diffViewerScrollDown.label": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll Down"
+            "value": "Viewers: Scroll Down"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll Down"
+            "value": "Viewers: Scroll Down"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll Down"
+            "value": "Viewers: Scroll Down"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll Down"
+            "value": "Viewers: Scroll Down"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll Down"
+            "value": "Viewers: Scroll Down"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll Down"
+            "value": "Viewers: Scroll Down"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll Down"
+            "value": "Viewers: Scroll Down"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll Down"
+            "value": "Viewers: Scroll Down"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "差分ビューア: 下へスクロール"
+            "value": "ビューア: 下へスクロール"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll Down"
+            "value": "Viewers: Scroll Down"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll Down"
+            "value": "Viewers: Scroll Down"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll Down"
+            "value": "Viewers: Scroll Down"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll Down"
+            "value": "Viewers: Scroll Down"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll Down"
+            "value": "Viewers: Scroll Down"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll Down"
+            "value": "Viewers: Scroll Down"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll Down"
+            "value": "Viewers: Scroll Down"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll Down"
+            "value": "Viewers: Scroll Down"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll Down"
+            "value": "Viewers: Scroll Down"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll Down"
+            "value": "Viewers: Scroll Down"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll Down"
+            "value": "Viewers: Scroll Down"
           }
         }
       }
@@ -187827,121 +188604,121 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll to Bottom"
+            "value": "Viewers: Scroll to Bottom"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll to Bottom"
+            "value": "Viewers: Scroll to Bottom"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll to Bottom"
+            "value": "Viewers: Scroll to Bottom"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll to Bottom"
+            "value": "Viewers: Scroll to Bottom"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll to Bottom"
+            "value": "Viewers: Scroll to Bottom"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll to Bottom"
+            "value": "Viewers: Scroll to Bottom"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll to Bottom"
+            "value": "Viewers: Scroll to Bottom"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll to Bottom"
+            "value": "Viewers: Scroll to Bottom"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "差分ビューア: 末尾へスクロール"
+            "value": "ビューア: 末尾へスクロール"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll to Bottom"
+            "value": "Viewers: Scroll to Bottom"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll to Bottom"
+            "value": "Viewers: Scroll to Bottom"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll to Bottom"
+            "value": "Viewers: Scroll to Bottom"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll to Bottom"
+            "value": "Viewers: Scroll to Bottom"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll to Bottom"
+            "value": "Viewers: Scroll to Bottom"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll to Bottom"
+            "value": "Viewers: Scroll to Bottom"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll to Bottom"
+            "value": "Viewers: Scroll to Bottom"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll to Bottom"
+            "value": "Viewers: Scroll to Bottom"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll to Bottom"
+            "value": "Viewers: Scroll to Bottom"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll to Bottom"
+            "value": "Viewers: Scroll to Bottom"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll to Bottom"
+            "value": "Viewers: Scroll to Bottom"
           }
         }
       }
@@ -187952,121 +188729,121 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll to Top"
+            "value": "Viewers: Scroll to Top"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll to Top"
+            "value": "Viewers: Scroll to Top"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll to Top"
+            "value": "Viewers: Scroll to Top"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll to Top"
+            "value": "Viewers: Scroll to Top"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll to Top"
+            "value": "Viewers: Scroll to Top"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll to Top"
+            "value": "Viewers: Scroll to Top"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll to Top"
+            "value": "Viewers: Scroll to Top"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll to Top"
+            "value": "Viewers: Scroll to Top"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "差分ビューア: 先頭へスクロール"
+            "value": "ビューア: 先頭へスクロール"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll to Top"
+            "value": "Viewers: Scroll to Top"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll to Top"
+            "value": "Viewers: Scroll to Top"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll to Top"
+            "value": "Viewers: Scroll to Top"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll to Top"
+            "value": "Viewers: Scroll to Top"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll to Top"
+            "value": "Viewers: Scroll to Top"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll to Top"
+            "value": "Viewers: Scroll to Top"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll to Top"
+            "value": "Viewers: Scroll to Top"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll to Top"
+            "value": "Viewers: Scroll to Top"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll to Top"
+            "value": "Viewers: Scroll to Top"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll to Top"
+            "value": "Viewers: Scroll to Top"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll to Top"
+            "value": "Viewers: Scroll to Top"
           }
         }
       }
@@ -188077,121 +188854,121 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll Up"
+            "value": "Viewers: Scroll Up"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll Up"
+            "value": "Viewers: Scroll Up"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll Up"
+            "value": "Viewers: Scroll Up"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll Up"
+            "value": "Viewers: Scroll Up"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll Up"
+            "value": "Viewers: Scroll Up"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll Up"
+            "value": "Viewers: Scroll Up"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll Up"
+            "value": "Viewers: Scroll Up"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll Up"
+            "value": "Viewers: Scroll Up"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "差分ビューア: 上へスクロール"
+            "value": "ビューア: 上へスクロール"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll Up"
+            "value": "Viewers: Scroll Up"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll Up"
+            "value": "Viewers: Scroll Up"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll Up"
+            "value": "Viewers: Scroll Up"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll Up"
+            "value": "Viewers: Scroll Up"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll Up"
+            "value": "Viewers: Scroll Up"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll Up"
+            "value": "Viewers: Scroll Up"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll Up"
+            "value": "Viewers: Scroll Up"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll Up"
+            "value": "Viewers: Scroll Up"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll Up"
+            "value": "Viewers: Scroll Up"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll Up"
+            "value": "Viewers: Scroll Up"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diff Viewer: Scroll Up"
+            "value": "Viewers: Scroll Up"
           }
         }
       }
@@ -191093,6 +191870,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "最古の未読としてマークして次の最新未読にジャンプ"
+          }
+        }
+      }
+    },
+    "shortcut.markWorkspaceDone.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark Workspace as Done"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを完了にする"
           }
         }
       }
@@ -194966,6 +195760,23 @@
         }
       }
     },
+    "shortcut.toggleChecklistItemComplete.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle Checklist Item Complete"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チェックリスト項目の完了を切り替える"
+          }
+        }
+      }
+    },
     "shortcut.toggleFocusedWorkspaceGroupCollapsed.label": {
       "extractionState": "manual",
       "localizations": {
@@ -196617,6 +197428,142 @@
         }
       }
     },
+    "shortcutDiscovery.button.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show all shortcuts"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのショートカットを表示"
+          }
+        }
+      }
+    },
+    "shortcutDiscovery.section.app": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリ"
+          }
+        }
+      }
+    },
+    "shortcutDiscovery.section.browser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser & Find"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザと検索"
+          }
+        }
+      }
+    },
+    "shortcutDiscovery.section.navigation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Navigation"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ナビゲーション"
+          }
+        }
+      }
+    },
+    "shortcutDiscovery.section.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Other"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その他"
+          }
+        }
+      }
+    },
+    "shortcutDiscovery.section.panes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペイン"
+          }
+        }
+      }
+    },
+    "shortcutDiscovery.section.workspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース"
+          }
+        }
+      }
+    },
+    "shortcutDiscovery.unassigned": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unassigned"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未割り当て"
+          }
+        }
+      }
+    },
     "sidebar.activeTabIndicator.leftRail": {
       "extractionState": "manual",
       "localizations": {
@@ -196675,6 +197622,244 @@
         }
       }
     },
+    "sidebar.agentActivity.tooltip.many": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ التحميل (%lld مهام نشطة)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Učitavanje (%lld aktivnih zadataka)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indlæser (%lld aktive opgaver)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird geladen (%lld aktive Aufgaben)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading (%lld active tasks)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cargando (%lld tareas activas)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chargement (%lld tâches actives)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Caricamento (%lld attività attive)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み込み中（アクティブなタスク %lld 件）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로딩 중(활성 작업 %lld개)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laster (%lld aktive oppgaver)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ładowanie (%lld aktywnych zadań)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carregando (%lld tarefas ativas)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Загрузка (%lld активных задач)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังโหลด (งานที่ทำงานอยู่ %lld รายการ)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yükleniyor (%lld etkin görev)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Завантаження (%lld активних завдань)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在加载（%lld 个活跃任务）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在載入（%lld 個作用中任務）"
+          }
+        }
+      }
+    },
+    "sidebar.agentActivity.tooltip.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ التحميل (مهمة نشطة واحدة)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Učitavanje (1 aktivan zadatak)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indlæser (1 aktiv opgave)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird geladen (1 aktive Aufgabe)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading (1 active task)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cargando (1 tarea activa)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chargement (1 tâche active)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Caricamento (1 attività attiva)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み込み中（アクティブなタスク 1 件）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로딩 중(활성 작업 1개)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laster (1 aktiv oppgave)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ładowanie (1 aktywne zadanie)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carregando (1 tarefa ativa)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Загрузка (1 активная задача)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังโหลด (งานที่ทำงานอยู่ 1 รายการ)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yükleniyor (1 etkin görev)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Завантаження (1 активне завдання)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在加载（1 个活跃任务）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在載入（1 個作用中任務）"
+          }
+        }
+      }
+    },
     "sidebar.browserStack.closeGroup": {
       "extractionState": "manual",
       "localizations": {
@@ -196705,6 +197890,244 @@
           "stringUnit": {
             "state": "translated",
             "value": "新しいタブ"
+          }
+        }
+      }
+    },
+    "sidebar.checklist.addItem": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add item"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "項目を追加"
+          }
+        }
+      }
+    },
+    "sidebar.checklist.addItemPlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New checklist item"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいチェックリスト項目"
+          }
+        }
+      }
+    },
+    "sidebar.checklist.checkTooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark as completed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了にする"
+          }
+        }
+      }
+    },
+    "sidebar.checklist.collapseTooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide checklist items"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チェックリスト項目を隠す"
+          }
+        }
+      }
+    },
+    "sidebar.checklist.editItem": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編集"
+          }
+        }
+      }
+    },
+    "sidebar.checklist.editItemPlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Item text"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "項目のテキスト"
+          }
+        }
+      }
+    },
+    "sidebar.checklist.expandTooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show checklist items"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チェックリスト項目を表示"
+          }
+        }
+      }
+    },
+    "sidebar.checklist.markInProgress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark In Progress"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "進行中にする"
+          }
+        }
+      }
+    },
+    "sidebar.checklist.moreItems": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "… %lld more"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "… 残り%lld件"
+          }
+        }
+      }
+    },
+    "sidebar.checklist.openAsPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open as Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインとして開く"
+          }
+        }
+      }
+    },
+    "sidebar.checklist.popoverTooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show checklist"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チェックリストを表示"
+          }
+        }
+      }
+    },
+    "sidebar.checklist.removeItem": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除"
+          }
+        }
+      }
+    },
+    "sidebar.checklist.removeItemTooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove item"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "項目を削除"
+          }
+        }
+      }
+    },
+    "sidebar.checklist.uncheckTooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark as pending"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未完了にする"
           }
         }
       }
@@ -203096,6 +204519,176 @@
           "stringUnit": {
             "state": "translated",
             "value": "遠端工作區"
+          }
+        }
+      }
+    },
+    "sidebar.status.autoReturn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto — return to %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動 — %@に戻す"
+          }
+        }
+      }
+    },
+    "sidebar.status.done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Done"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了"
+          }
+        }
+      }
+    },
+    "sidebar.status.needsAttention": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs Attention"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要対応"
+          }
+        }
+      }
+    },
+    "sidebar.status.none": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "None (hide status)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "なし（ステータスを非表示）"
+          }
+        }
+      }
+    },
+    "sidebar.status.review": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In Review"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レビュー中"
+          }
+        }
+      }
+    },
+    "sidebar.status.todo": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未着手"
+          }
+        }
+      }
+    },
+    "sidebar.status.tooltip.inferred": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ — inferred"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ — 自動判定"
+          }
+        }
+      }
+    },
+    "sidebar.status.tooltip.manual": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ — set manually"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ — 手動で設定"
+          }
+        }
+      }
+    },
+    "sidebar.status.working": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Working"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作業中"
+          }
+        }
+      }
+    },
+    "sidebar.statusPopover.pinFootnote": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pinned status clears when activity changes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "固定したステータスはアクティビティが変わると解除されます"
           }
         }
       }
@@ -226920,6 +228513,74 @@
         }
       }
     },
+    "workspace.todo.notification.checklistCompleteBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every checklist item is done."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのチェックリスト項目が完了しました。"
+          }
+        }
+      }
+    },
+    "workspace.todo.notification.checklistCompleteTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checklist complete"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チェックリスト完了"
+          }
+        }
+      }
+    },
+    "workspace.todo.notification.doneBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This workspace's status is now done."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークスペースのステータスが完了になりました。"
+          }
+        }
+      }
+    },
+    "workspace.todo.notification.doneTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace marked done"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを完了にしました"
+          }
+        }
+      }
+    },
     "workspace.tooltip.newBrowser": {
       "extractionState": "manual",
       "localizations": {
@@ -231441,36 +233102,53 @@
         }
       }
     },
-    "featureFlags.agentChat.title": {
+    "workspaceTodoPane.emptyChecklist": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agent chat UI"
+            "value": "No checklist items yet."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントチャットUI"
+            "value": "チェックリスト項目はまだありません。"
           }
         }
       }
     },
-    "featureFlags.agentChat.description": {
+    "workspaceTodoPane.title": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows the Agent chat entrypoints in the new-workspace dropdown, command palette, and surface tab bar."
+            "value": "Todos"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "新規ワークスペースのドロップダウン、コマンドパレット、サーフェスタブバーにエージェントチャットの入口を表示します。"
+            "value": "Todo"
+          }
+        }
+      }
+    },
+    "workspaceTodoPane.workspaceUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This workspace is no longer available."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークスペースはすでに利用できません。"
           }
         }
       }

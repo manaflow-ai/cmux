@@ -553,14 +553,14 @@ extension TerminalSurface {
         // realizeRenderer() double-realize and trip Ghostty's defunct assert.
         rendererRealized = true
         recordRuntimeSurfaceCreation()
-        // Install the PTY tee so MobileTerminalByteTee receives every byte
+        // Install the shared PTY tee so output consumers receive every byte
         // the read thread produces, in order, before the VT parser runs.
         // Paired iPhones consume these bytes via `terminal.bytes` events
         // and feed them into their own libghostty surface, guaranteeing
         // grid parity by construction. The lease is released alongside
         // `surfaceCallbackContext` when the surface tears down.
         mobileByteTeeLease?.release()
-        mobileByteTeeLease = byteTee.installTee(on: createdSurface, surfaceID: id)
+        mobileByteTeeLease = byteTee.installTee(on: createdSurface, workspaceID: tabId, surfaceID: id)
         if runtimeInitialInput != nil {
             nextRuntimeInitialInput = nil
         }
@@ -614,7 +614,7 @@ extension TerminalSurface {
             }()
             if shouldReapply {
                 let action = String(format: "set_font_size:%.3f", inheritedRuntimeFontPoints)
-                _ = performBindingAction(action)
+                _ = performInternalBindingAction(action)
             }
         }
 

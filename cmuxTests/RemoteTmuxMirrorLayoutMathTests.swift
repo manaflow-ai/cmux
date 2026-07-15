@@ -1,3 +1,4 @@
+import CmuxRemoteSession
 import Bonsplit
 import Foundation
 import Testing
@@ -26,6 +27,10 @@ import Testing
             dividerThickness: 1
         )
 
+        // Placement slack belongs to the native divider plan, not the tmux
+        // claim. Width has no chrome; height is two 30pt tab bars minus the
+        // divider-for-separator credit (1 − 10): 800/10 → 80,
+        // (300 − 51)/10 → 24.
         #expect(grid?.columns == 80)
         #expect(grid?.rows == 24)
     }
@@ -47,6 +52,8 @@ import Testing
             dividerThickness: 1
         )
 
+        // Width chrome: 0 + 0 + (1 − 10) = −9 → (800 + 9)/10 → 80;
+        // height is one real 30pt tab bar: (300 − 30)/10 → 27.
         #expect(grid?.columns == 80)
         #expect(grid?.rows == 27)
     }
@@ -87,7 +94,7 @@ import Testing
             rest: [rootChildren[1]],
             orientation: .horizontal
         )
-        #expect(abs(rootFraction - 0.504_201_680_7) < 0.000_001)
+        #expect(abs(rootFraction - 601.0 / 1192.0) < 0.000_001)
 
         guard case .vertical(let nestedChildren) = rootChildren[1].content else {
             Issue.record("Expected nested vertical split")
@@ -98,7 +105,7 @@ import Testing
             rest: [nestedChildren[1]],
             orientation: .vertical
         )
-        #expect(abs(nestedFraction - 0.511_111_111_1) < 0.000_001)
+        #expect(abs(nestedFraction - 231.0 / 452.0) < 0.000_001)
     }
 
     @Test func dragConversionUsesTheActualLocalParentExtentBelowTenPercent() {
@@ -159,7 +166,7 @@ import Testing
             tree: RemoteTmuxNativeSplitTree(layout: layout),
             metrics: metrics
         )
-        guard case .split(_, _, let orientation, let first, let rest) = measured else {
+        guard case .split(_, _, _, let orientation, let first, let rest) = measured else {
             Issue.record("Expected binary root")
             return
         }
@@ -167,8 +174,8 @@ import Testing
             first: first,
             second: rest,
             orientation: orientation
-        ) - (90.0 / 571.0)) < 0.000_001)
-        guard case .split(_, _, let restOrientation, let second, let third) = rest else {
+        ) - (91.0 / 574.0)) < 0.000_001)
+        guard case .split(_, _, _, let restOrientation, let second, let third) = rest else {
             Issue.record("Expected right-associated remainder")
             return
         }
@@ -176,7 +183,7 @@ import Testing
             first: second,
             second: third,
             orientation: restOrientation
-        ) - (190.0 / 480.0)) < 0.000_001)
+        ) - (191.0 / 482.0)) < 0.000_001)
     }
 
     @Test func embeddedBonsplitProfileKeepsOnlySupportedNestedActions() {
@@ -210,6 +217,23 @@ import Testing
 
         #expect(grid?.columns == 20)
         #expect(grid?.rows == 5)
+    }
+
+    @Test func railAllocationNeverPropagatesMoreThanHalfPointOfCarry() throws {
+        let metrics = RemoteTmuxNativeLayoutMetrics(
+            cellSize: CGSize(width: 10, height: 10),
+            surfacePadding: .zero,
+            tabBarHeight: 30,
+            dividerThickness: 1
+        )
+        let positive = try #require(metrics.railAllocation(
+            firstIdeal: 0, secondIdeal: 0, carry: 4, available: 1
+        ))
+        let negative = try #require(metrics.railAllocation(
+            firstIdeal: 0, secondIdeal: 0, carry: -4, available: 1
+        ))
+        #expect(positive.secondCarry == 0.5)
+        #expect(negative.secondCarry == -0.5)
     }
 
 }

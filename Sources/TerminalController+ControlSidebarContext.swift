@@ -29,10 +29,7 @@ extension TerminalController: ControlSidebarContext {
         pid: Int32?
     ) {
         let appFormat = SidebarMetadataFormat(rawValue: format.rawValue) ?? .plain
-        controlSidebarScheduleMutation(target: target) { _, tab in
-            if let panelId = panelID, !tab.panels.keys.contains(panelId) {
-                return
-            }
+        controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, tab in
             guard Self.shouldReplaceStatusEntry(
                 current: tab.statusEntries[key],
                 key: key,
@@ -78,10 +75,7 @@ extension TerminalController: ControlSidebarContext {
         pid: Int32,
         panelID: UUID?
     ) {
-        controlSidebarScheduleMutation(target: target) { _, tab in
-            if let panelId = panelID, !tab.panels.keys.contains(panelId) {
-                return
-            }
+        controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, tab in
             let didReplaceAgentRuntime = tab.recordAgentPID(
                 key: key,
                 pid: pid,
@@ -165,10 +159,7 @@ extension TerminalController: ControlSidebarContext {
             // Unreachable: the coordinator only forwards a value this app produced.
             return
         }
-        controlSidebarScheduleMutation(target: target) { _, tab in
-            if let panelId = panelID, !tab.panels.keys.contains(panelId) {
-                return
-            }
+        controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, tab in
             tab.setAgentLifecycle(key: key, panelId: panelID, lifecycle: lifecycle)
         }
     }
@@ -229,10 +220,7 @@ extension TerminalController: ControlSidebarContext {
         panelID: UUID?,
         clearStatus: Bool
     ) {
-        controlSidebarScheduleMutation(target: target) { _, tab in
-            if let panelId = panelID, !tab.panels.keys.contains(panelId) {
-                return
-            }
+        controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, tab in
             tab.clearAgentPID(
                 key: key,
                 panelId: panelID,

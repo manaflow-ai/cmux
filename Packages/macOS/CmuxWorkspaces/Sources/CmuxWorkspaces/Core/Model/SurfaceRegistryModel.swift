@@ -45,6 +45,11 @@ public final class SurfaceRegistryModel<TabSelectionRequest> {
     /// by panel id (legacy `Workspace.surfaceTTYNames`).
     public var surfaceTTYNames: [UUID: String] = [:]
 
+    /// The indexed character-device identifier for each reported surface TTY.
+    /// The workspace updates this beside ``surfaceTTYNames`` so live agent
+    /// routing never performs per-surface filesystem work on the main actor.
+    public var surfaceTTYDevices: [UUID: Int64] = [:]
+
     /// The shell-activity classification reported for each terminal panel,
     /// keyed by panel id (legacy `Workspace.panelShellActivityStates`).
     public var panelShellActivityStates: [UUID: PanelShellActivityState] = [:]

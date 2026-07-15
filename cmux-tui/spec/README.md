@@ -32,7 +32,8 @@ The generator must preserve the wire command names, parameter names, result shap
 | --- | --- |
 | `commands.md` | Command contract, CLI mapping for each command, examples, and compatibility notes |
 | `events.md` | Subscribe and attach event payloads, ordering guarantees, and proposed filters |
-| `transports.md` | Implemented Unix socket transport and proposed HTTP, SSE, and WebSocket transports |
+| `transports.md` | Implemented Unix socket and WebSocket transports plus proposed HTTP and SSE transports |
+| `frontends.md` | Canonical connection, synchronization, terminal streaming, and agent/notification guide for frontend authors |
 | `cli.md` | Generated `cmux-tui <verb>` conventions, exit codes, stdin rules, verb table, and examples |
 | `bindings.md` | Language binding style sheets and conformance suite contract |
 | `plugins.md` | Sidebar plugin PTY, manifest, lifecycle, focus, and config contract |

@@ -6,8 +6,8 @@ import WebKit
     enum PolicyCancellationKind { case terminal(restoreAttemptID: UUID?) }
     private let subframeDownloadIntents = BrowserSubframeDownloadIntentTracker()
     private var shouldPrintAfterCurrentNavigationFinishes = false
-    var didStartProvisionalNavigation: ((WKWebView) -> Void)?
-    var didCommit: ((WKWebView) -> Void)?
+    var didStartProvisionalNavigation: ((WKWebView, WKNavigation?) -> Void)?
+    var didCommit: ((WKWebView, WKNavigation?) -> Void)?
     var didFinish: ((WKWebView) -> Void)?
     var didFailNavigation: ((WKWebView, String, WKNavigation?) -> Void)?
     var didCancelProvisionalNavigation: ((WKWebView, WKNavigation?) -> Void)?
@@ -93,14 +93,14 @@ import WebKit
         lastAttemptedURL = lastAttemptedURL ?? webView.url ?? lastAttemptedRequest?.url
         shouldPrintAfterCurrentNavigationFinishes = false
         didClearPDFDocument?()
-        didStartProvisionalNavigation?(webView)
+        didStartProvisionalNavigation?(webView, navigation)
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         if activeSSLTrustBypassReplayRequest != nil || activeSSLTrustBypassErrorPageRetryRequest != nil {
             clearAttemptedRequest(discardPendingBypasses: true)
         }
-        didCommit?(webView)
+        didCommit?(webView, navigation)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {

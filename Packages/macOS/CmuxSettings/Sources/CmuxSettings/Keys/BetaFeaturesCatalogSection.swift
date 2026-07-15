@@ -47,6 +47,15 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "customSidebars.beta.enabled"
     )
 
+    /// How a workspace row's checklist opens from its summary line while the
+    /// workspace-todos feature is on: an anchored popover (default) or the
+    /// round-1 inline expansion.
+    public let workspaceTodosChecklistStyle = DefaultsKey<WorkspaceTodoChecklistStyle>(
+        id: "sidebar.beta.workspaceTodos.checklistStyle",
+        defaultValue: .popover,
+        userDefaultsKey: "sidebarWorkspaceTodosChecklistStyle"
+    )
+
     /// Remote tmux: mirror a remote host's tmux sessions in the cmux sidebar
     /// over `ssh … tmux -CC` (iTerm2-style control mode). Sessions appear as
     /// sidebar workspaces, tmux windows as tabs, and tmux panes as splits;

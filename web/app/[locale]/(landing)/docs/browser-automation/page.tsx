@@ -1,18 +1,16 @@
 import { useTranslations } from "next-intl";
-import { getTranslations } from "next-intl/server";
-import { buildAlternates } from "@/i18n/seo";
+import { auditedDocsMetadata } from "../audited-docs-metadata";
 import { DocsSchema } from "../docs-schema";
 import { CodeBlock } from "@/app/[locale]/components/code-block";
 import { DocsHeading } from "@/app/[locale]/components/docs-heading";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
-  const t = await getTranslations({ locale, namespace: "docs.browserAutomation" });
-  return {
-    title: t("metaTitle"),
-    description: t("metaDescription"),
-    alternates: buildAlternates(locale, "/docs/browser-automation"),
-  };
+  return auditedDocsMetadata({
+    locale,
+    pageKey: "browserAutomation",
+    path: "/docs/browser-automation",
+  });
 }
 
 export default function BrowserAutomationPage() {

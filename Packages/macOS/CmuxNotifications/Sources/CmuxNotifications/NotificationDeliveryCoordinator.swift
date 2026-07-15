@@ -265,6 +265,9 @@ public final class NotificationDeliveryCoordinator {
                 return UUID(uuidString: surfaceIdString)
             }()
             let notificationId = notificationId(response)
+            let retargetsToLiveSurfaceOwner = response.userInfo[
+                terminalIdentifiers.retargetsToLiveSurfaceOwnerUserInfoKey
+            ] as? Bool ?? true
             if let clickAction = NotificationNavClickAction(userInfo: response.userInfo) {
                 let didPerform = terminalNavigation.performClickAction(clickAction)
                 if didPerform, let notificationId {
@@ -276,7 +279,8 @@ public final class NotificationDeliveryCoordinator {
                 _ = terminalNavigation.openNotification(
                     id: notificationId,
                     fallbackTabId: tabId,
-                    fallbackSurfaceId: surfaceId
+                    fallbackSurfaceId: surfaceId,
+                    fallbackRetargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner
                 )
             } else {
                 _ = terminalNavigation.open(tabId: tabId, surfaceId: surfaceId, notificationId: nil)

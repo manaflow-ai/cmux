@@ -112,11 +112,11 @@ final class DiffCommentsBridge: NSObject, WKScriptMessageHandlerWithReply {
     }
 
     static func isTrustedDiffViewerFrame(_ frameInfo: WKFrameInfo) -> Bool {
-        guard frameInfo.isMainFrame,
-              let token = diffViewerToken(from: frameInfo.request.url) else {
-            return false
-        }
-        return CmuxDiffViewerURLSchemeHandler.shared.hasActiveSession(token: token)
+        frameInfo.isMainFrame && isTrustedDiffViewerURL(frameInfo.request.url)
+    }
+
+    static func isTrustedDiffViewerURL(_ url: URL?) -> Bool {
+        DiffViewerSessionTrustRegistry.shared.isTrustedDiffViewerURL(url)
     }
 
     /// Extracts the diff viewer session token from a live page URL. Unlike

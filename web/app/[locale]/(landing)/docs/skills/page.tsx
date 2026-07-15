@@ -1,6 +1,5 @@
 import { useTranslations } from "next-intl";
-import { getTranslations } from "next-intl/server";
-import { buildAlternates } from "@/i18n/seo";
+import { auditedDocsMetadata } from "../audited-docs-metadata";
 import { DocsSchema } from "../docs-schema";
 import { Link } from "@/i18n/navigation";
 import { CodeBlock } from "@/app/[locale]/components/code-block";
@@ -183,12 +182,11 @@ export async function generateMetadata({
   params: Promise<{ locale: string }>;
 }) {
   const { locale } = await params;
-  const t = await getTranslations({ locale, namespace: "docs.skills" });
-  return {
-    title: t("metaTitle"),
-    description: t("metaDescription"),
-    alternates: buildAlternates(locale, "/docs/skills"),
-  };
+  return auditedDocsMetadata({
+    locale,
+    pageKey: "skills",
+    path: "/docs/skills",
+  });
 }
 
 export default function SkillsPage() {

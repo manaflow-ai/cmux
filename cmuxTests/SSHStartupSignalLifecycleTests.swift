@@ -156,8 +156,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
             .appendingPathComponent("cmux-ssh-reconnect-\(UUID().uuidString)", isDirectory: true)
         let fakeCLI = root.appendingPathComponent("cmux")
         let fakeSSH = root.appendingPathComponent("ssh")
+        let fakeSleep = root.appendingPathComponent("sleep")
         let logFile = root.appendingPathComponent("ssh-session-end.log")
         let attemptFile = root.appendingPathComponent("ssh-attempts.txt")
+        let sleepLog = root.appendingPathComponent("sleep-delays.txt")
 
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
@@ -175,8 +177,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "if [ \"$count\" -eq 1 ]; then exit 255; fi",
             "exit 0",
         ])
+        try writeShellFile(at: fakeSleep, lines: ["#!/bin/sh", "printf '%s\\n' \"$1\" >> \"${CMUX_TEST_SLEEP_LOG}\""])
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLI.path)
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSleep.path)
 
         let startupCommand = try generatedSSHStartupCommand()
         var environment = ProcessInfo.processInfo.environment
@@ -187,14 +191,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
         environment["CMUX_TEST_SESSION_END_LOG"] = logFile.path
         environment["CMUX_TEST_ATTEMPT_FILE"] = attemptFile.path
+        environment["CMUX_TEST_SLEEP_LOG"] = sleepLog.path
         environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
 
-        let result = runProcess(
-            executablePath: "/bin/sh",
-            arguments: ["-c", startupCommand],
-            environment: environment,
-            timeout: 5
-        )
+        let result = runProcess(executablePath: "/bin/sh", arguments: ["-c", startupCommand], environment: environment, timeout: 5)
 
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
@@ -203,10 +203,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         // install-channel failure therefore yields three raw SSH invocations:
         // failed install, retried install, successful session.
         XCTAssertEqual((try? String(contentsOf: attemptFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines), "3")
+        XCTAssertEqual(try String(contentsOf: sleepLog, encoding: .utf8), "2\n")
         let recordedCalls = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
-        let sessionEndCalls = recordedCalls
-            .split(separator: "\n")
-            .filter { $0.contains("ssh-session-end") }
+        let sessionEndCalls = recordedCalls.split(separator: "\n").filter { $0.contains("ssh-session-end") }
         XCTAssertEqual(sessionEndCalls.count, 1, recordedCalls)
     }
 

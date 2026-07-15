@@ -27,6 +27,7 @@
 //!     "agents": ["claude", "codex", "opencode", "pi"]
 //!   },
 //!   "sidebar": {
+//!     "view": "files",
 //!     "width": 22,
 //!     "max_width": 0,
 //!     "plugin": {
@@ -36,6 +37,7 @@
 //!   },
 //!   "browser": {
 //!     "chrome_binary": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+//!     "mode": "headful",
 //!     "cdp_url": "http://127.0.0.1:9222",
 //!     "discover": false,
 //!     "discover_ports": [9222],
@@ -46,6 +48,10 @@
 //!   },
 //!   "scrollbar": {
 //!     "position": "column"
+//!   },
+//!   "server": {
+//!     "ws": "127.0.0.1:7681",
+//!     "ws_token": "replace-with-a-secret"
 //!   },
 //!   "keys": {
 //!     "prefix": "ctrl+b",
@@ -74,7 +80,7 @@
 //! `close-pane`, `rename-tab` (alias: `rename-pane`), `rename-screen`,
 //! `rename-workspace`, `close-screen`, `prev-screen`, `next-screen`,
 //! `select-screen-0` through `select-screen-9`, `new-screen`,
-//! `next-workspace`, `new-workspace`, `toggle-sidebar`, `focus-sidebar`,
+//! `next-workspace`, `new-workspace`, `toggle-sidebar`, `toggle-sidebar-view`, `focus-sidebar`,
 //! `focus-left`, `focus-right`, `focus-up`, `focus-down`, `focus-next-pane`,
 //! `swap-pane-prev`, `swap-pane-next`, `zoom-pane`, `resize-grow`,
 //! `resize-shrink`, `scroll-up`, `scroll-down`, `browser-back`,
@@ -95,6 +101,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use cmux_tui_core::BrowserMode;
 use cmux_tui_core::SidebarPluginOptions;
 use cmux_tui_core::SurfaceOptions;
 use cmux_tui_core::platform;
@@ -128,11 +135,20 @@ struct RawConfig {
     browser: RawBrowser,
     #[serde(default)]
     scrollbar: RawScrollbar,
+    #[serde(default)]
+    server: RawServer,
     /// Key bindings: `"prefix"` plus one entry per action. Values may be
     /// a chord string, an array of chord strings, `"none"`, or
     /// `"alt_shortcuts": false`.
     #[serde(default)]
     keys: HashMap<String, Value>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawServer {
+    ws: Option<String>,
+    ws_token: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -351,6 +367,7 @@ struct RawTabs {
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawSidebar {
+    view: Option<String>,
     width: Option<u16>,
     max_width: Option<u16>,
     plugin: Option<RawSidebarPlugin>,
@@ -367,6 +384,7 @@ struct RawSidebarPlugin {
 #[serde(deny_unknown_fields)]
 struct RawBrowser {
     chrome_binary: Option<String>,
+    mode: Option<ConfigBrowserMode>,
     cdp_url: Option<String>,
     discover: Option<bool>,
     discover_ports: Option<Vec<u16>>,
@@ -374,6 +392,22 @@ struct RawBrowser {
     ephemeral: Option<bool>,
     max_capture_megapixels: Option<f64>,
     capture_scale: Option<f64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum ConfigBrowserMode {
+    Headful,
+    Headless,
+}
+
+impl From<ConfigBrowserMode> for BrowserMode {
+    fn from(mode: ConfigBrowserMode) -> Self {
+        match mode {
+            ConfigBrowserMode::Headful => BrowserMode::Headful,
+            ConfigBrowserMode::Headless => BrowserMode::Headless,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -485,6 +519,8 @@ impl Default for Tabs {
 /// Sidebar behavior.
 #[derive(Debug, Clone)]
 pub struct Sidebar {
+    /// Built-in view used when `plugin` is unset. The default is the file browser.
+    pub view: SidebarView,
     pub width: u16,
     pub max_width: u16,
     pub plugin: Option<SidebarPluginOptions>,
@@ -492,13 +528,40 @@ pub struct Sidebar {
 
 impl Default for Sidebar {
     fn default() -> Self {
-        Sidebar { width: 22, max_width: 0, plugin: None }
+        Sidebar { view: SidebarView::Workspaces, width: 22, max_width: 0, plugin: None }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SidebarView {
+    #[default]
+    Files,
+    Workspaces,
+}
+
+impl SidebarView {
+    pub fn toggled(self) -> Self {
+        match self {
+            Self::Files => Self::Workspaces,
+            Self::Workspaces => Self::Files,
+        }
+    }
+}
+
+fn parse_sidebar_view(value: &str) -> Result<SidebarView, String> {
+    match value {
+        "files" => Ok(SidebarView::Files),
+        "workspaces" => Ok(SidebarView::Workspaces),
+        _ => Err(format!(
+            "cmux-tui: ignoring unknown sidebar.view {value:?}; expected \"files\" or \"workspaces\""
+        )),
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct Browser {
     pub chrome_binary: Option<String>,
+    pub mode: BrowserMode,
     pub cdp_url: Option<String>,
     pub discover: bool,
     pub discover_ports: Vec<u16>,
@@ -512,6 +575,7 @@ impl Default for Browser {
     fn default() -> Self {
         Browser {
             chrome_binary: None,
+            mode: BrowserMode::Headful,
             cdp_url: None,
             discover: false,
             discover_ports: vec![9222],
@@ -547,6 +611,7 @@ pub enum Action {
     NextWorkspace,
     NewWorkspace,
     ToggleSidebar,
+    ToggleSidebarView,
     FocusSidebar,
     FocusLeft,
     FocusRight,
@@ -591,6 +656,7 @@ impl Action {
             Action::NextWorkspace => "next-workspace".to_string(),
             Action::NewWorkspace => "new-workspace".to_string(),
             Action::ToggleSidebar => "toggle-sidebar".to_string(),
+            Action::ToggleSidebarView => "toggle-sidebar-view".to_string(),
             Action::FocusSidebar => "focus-sidebar".to_string(),
             Action::FocusLeft => "focus-left".to_string(),
             Action::FocusRight => "focus-right".to_string(),
@@ -695,6 +761,7 @@ impl Default for Keys {
                 bind(KeyCode::Char('w'), Action::NextWorkspace),
                 bind(KeyCode::Char('W'), Action::NewWorkspace),
                 bind(KeyCode::Char('s'), Action::ToggleSidebar),
+                bind(KeyCode::Char('e'), Action::ToggleSidebarView),
                 bind(KeyCode::Char('S'), Action::FocusSidebar),
                 bind(KeyCode::Char('o'), Action::FocusNextPane),
                 bind(KeyCode::Char('h'), Action::FocusLeft),
@@ -851,6 +918,7 @@ fn all_actions() -> &'static [Action] {
         Action::NextWorkspace,
         Action::NewWorkspace,
         Action::ToggleSidebar,
+        Action::ToggleSidebarView,
         Action::FocusSidebar,
         Action::FocusLeft,
         Action::FocusRight,
@@ -924,7 +992,14 @@ pub struct Config {
     pub sidebar: Sidebar,
     pub browser: Browser,
     pub scrollbar: Scrollbar,
+    pub server: Server,
     pub keys: Keys,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Server {
+    pub ws: Option<String>,
+    pub ws_token: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -1038,6 +1113,12 @@ pub fn load() -> Config {
     if let Some(w) = raw.sidebar.width {
         config.sidebar.width = w.clamp(10, 60);
     }
+    if let Some(view) = raw.sidebar.view {
+        match parse_sidebar_view(&view) {
+            Ok(view) => config.sidebar.view = view,
+            Err(warning) => eprintln!("{warning}"),
+        }
+    }
     if let Some(w) = raw.sidebar.max_width {
         config.sidebar.max_width = w;
     }
@@ -1058,6 +1139,9 @@ pub fn load() -> Config {
         }
     }
     config.browser.chrome_binary = raw.browser.chrome_binary.filter(|s| !s.trim().is_empty());
+    if let Some(mode) = raw.browser.mode {
+        config.browser.mode = mode.into();
+    }
     config.browser.cdp_url = raw.browser.cdp_url.filter(|s| !s.trim().is_empty());
     if let Some(discover) = raw.browser.discover {
         config.browser.discover = discover;
@@ -1090,12 +1174,15 @@ pub fn load() -> Config {
     if let Some(position) = raw.scrollbar.position {
         config.scrollbar.position = position;
     }
+    config.server.ws = raw.server.ws.filter(|value| !value.trim().is_empty());
+    config.server.ws_token = raw.server.ws_token.filter(|value| !value.trim().is_empty());
     config.keys.apply(&raw.keys);
     config
 }
 
 pub fn apply_browser_to_surface_options(config: &Config, options: &mut SurfaceOptions) {
     options.chrome_binary = config.browser.chrome_binary.clone();
+    options.browser_mode = config.browser.mode;
     options.cdp_url = config.browser.cdp_url.clone();
     options.browser_discover = config.browser.discover;
     options.browser_discover_ports = config.browser.discover_ports.clone();
@@ -1416,6 +1503,35 @@ mod tests {
     }
 
     #[test]
+    fn parses_websocket_server_config() {
+        let raw: RawConfig =
+            serde_json::from_str(r#"{"server":{"ws":"127.0.0.1:7681","ws_token":"secret"}}"#)
+                .unwrap();
+        assert_eq!(raw.server.ws.as_deref(), Some("127.0.0.1:7681"));
+        assert_eq!(raw.server.ws_token.as_deref(), Some("secret"));
+    }
+
+    #[test]
+    fn ignores_empty_websocket_server_config_values() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_mux_config = std::env::var_os("CMUX_MUX_CONFIG");
+        let dir = std::env::temp_dir()
+            .join(format!("mux-config-test-empty-websocket-values-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("mux.json");
+        std::fs::write(&path, r#"{"server":{"ws":"","ws_token":"   "}}"#).unwrap();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("CMUX_MUX_CONFIG", &path) };
+
+        let config = load();
+
+        restore_env_var("CMUX_MUX_CONFIG", old_mux_config);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(config.server.ws, None);
+        assert_eq!(config.server.ws_token, None);
+    }
+
+    #[test]
     fn tab_labels_are_numbers_except_agents() {
         let tabs = Tabs::default();
         assert_eq!(tab_label(&tabs, 0, "", None), "1");
@@ -1452,6 +1568,7 @@ mod tests {
                 },
                 "tabs": {"min_width": 9, "solid_background": false},
                 "sidebar": {
+                    "view": "workspaces",
                     "width": 30,
                     "max_width": 38,
                     "plugin": {
@@ -1488,6 +1605,7 @@ mod tests {
         assert!(!config.tabs.solid_background);
         assert_eq!(config.sidebar.width, 30);
         assert_eq!(config.sidebar.max_width, 38);
+        assert_eq!(config.sidebar.view, SidebarView::Workspaces);
         let plugin = config.sidebar.plugin.as_ref().expect("sidebar plugin config");
         assert_eq!(plugin.command, vec!["/tmp/sidebar-plugin", "--mode", "test"]);
         assert_eq!(plugin.cwd.as_deref(), Some("/tmp"));
@@ -1515,6 +1633,22 @@ mod tests {
         );
         // Untouched keys keep their default.
         assert_eq!(config.theme.border_inactive, Theme::default().border_inactive);
+    }
+
+    #[test]
+    fn browser_mode_defaults_headful_parses_headless_and_rejects_invalid_values() {
+        let raw: RawConfig = serde_json::from_str(r##"{}"##).unwrap();
+        assert!(raw.browser.mode.is_none());
+        assert_eq!(Browser::default().mode, BrowserMode::Headful);
+
+        let raw: RawConfig =
+            serde_json::from_str(r##"{"browser": {"mode": "headless"}}"##).unwrap();
+        assert_eq!(raw.browser.mode.map(BrowserMode::from), Some(BrowserMode::Headless));
+
+        let err = serde_json::from_str::<RawConfig>(r##"{"browser": {"mode": "stealth"}}"##)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("unknown variant `stealth`"), "{err}");
     }
 
     #[test]
@@ -1589,6 +1723,21 @@ mod tests {
     }
 
     #[test]
+    fn sidebar_view_defaults_parses_and_unknown_values_fall_back_with_warning() {
+        assert_eq!(Sidebar::default().view, SidebarView::Workspaces);
+        assert_eq!(parse_sidebar_view("files"), Ok(SidebarView::Files));
+        assert_eq!(parse_sidebar_view("workspaces"), Ok(SidebarView::Workspaces));
+
+        let warning = parse_sidebar_view("tree").unwrap_err();
+        assert!(warning.contains("unknown sidebar.view \"tree\""));
+        let mut sidebar = Sidebar::default();
+        if let Ok(view) = parse_sidebar_view("tree") {
+            sidebar.view = view;
+        }
+        assert_eq!(sidebar.view, SidebarView::Workspaces);
+    }
+
+    #[test]
     fn tmux_close_pane_flip_is_default() {
         let keys = Keys::default();
         assert_eq!(
@@ -1609,6 +1758,7 @@ mod tests {
             ("swap-pane-prev", Action::SwapPanePrev),
             ("swap-pane-next", Action::SwapPaneNext),
             ("scroll-up", Action::ScrollUp),
+            ("toggle-sidebar-view", Action::ToggleSidebarView),
         ];
         for (name, action) in cases {
             let mut keys = Keys::default();

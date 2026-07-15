@@ -90,11 +90,28 @@ export const accountDeletionTombstones = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     startedAt: timestamp("started_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
+    analyticsDeletedAt: timestamp("analytics_deleted_at", { withTimezone: true }),
     errorMessage: text("error_message"),
   },
   (table) => [
     index("account_deletion_tombstones_status_updated_idx").on(table.status, table.updatedAt),
     index("account_deletion_tombstones_user_idx").on(table.userId),
+  ],
+);
+
+export const accountAnalyticsForwardLeases = pgTable(
+  "account_analytics_forward_leases",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    operationId: uuid("operation_id").notNull(),
+    userIdHash: text("user_id_hash").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    index("account_analytics_forward_leases_expiry_idx").on(table.expiresAt),
+    index("account_analytics_forward_leases_user_expiry_idx").on(table.userIdHash, table.expiresAt),
+    index("account_analytics_forward_leases_operation_idx").on(table.operationId),
   ],
 );
 

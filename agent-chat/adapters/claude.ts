@@ -2,6 +2,7 @@ import type { Adapter, CommandEntry, OptionChoice, OptionValue, SessionCtx, Sess
 import { readLines, tryParse, truncate } from "./lines";
 import { prettifyModelLabel } from "./model-label";
 import { agentModelCatalog, selectEnabledModel } from "../catalog";
+import { inheritedClaudeLaunchStateKeys } from "./claude-environment-policy.generated";
 
 const PERMISSION_CHOICES: OptionChoice[] = [
   { value: "default", label: "Default" },
@@ -38,6 +39,14 @@ const BUILT_IN_MODELS: Array<{ slug: string; label: string; minVersion?: string;
   { slug: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", context: true },
   { slug: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
 ];
+
+export function claudeIndependentLaunchEnvironment(
+  environment: Record<string, string | undefined> = process.env,
+): Record<string, string | undefined> {
+  const launchEnvironment = { ...environment };
+  for (const key of inheritedClaudeLaunchStateKeys) delete launchEnvironment[key];
+  return launchEnvironment;
+}
 
 function curatedClaudeModels(): Array<{ slug: string; label: string; description?: string; minVersion?: string; context?: boolean; fast?: boolean; deprecated?: boolean }> {
   const remote = agentModelCatalog.provider("claude");
@@ -229,7 +238,7 @@ function ensureProc(sess: SessionCtx): Bun.Subprocess<"pipe", "pipe", "pipe"> {
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",
-    env: { ...process.env, CLAUDECODE: undefined, CLAUDE_CODE_ENTRYPOINT: undefined, CLAUDE_CODE_SSE_PORT: undefined },
+    env: claudeIndependentLaunchEnvironment(),
   });
   st.proc = proc;
 
@@ -623,7 +632,7 @@ async function fetchClaudeModels(cwd: string): Promise<{ choices: OptionChoice[]
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",
-    env: { ...process.env, CLAUDECODE: undefined, CLAUDE_CODE_ENTRYPOINT: undefined, CLAUDE_CODE_SSE_PORT: undefined },
+    env: claudeIndependentLaunchEnvironment(),
   });
   try {
     return await new Promise<{ choices: OptionChoice[]; meta: Map<string, ClaudeModelMeta> }>((resolve, reject) => {

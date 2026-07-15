@@ -2,23 +2,17 @@ import Foundation
 
 @MainActor
 extension RemoteTmuxWindowMirror {
-    enum ControlKeySendResult {
-        case sent
-        case rejected
-        case unknownKey
-    }
-
     func sendInput(toPane tmuxPaneID: Int, text: String) -> Bool {
         guard let data = text.data(using: .utf8) else { return false }
         return connectionSendKeys(paneID: tmuxPaneID, data: data)
     }
 
-    func sendKey(toPane tmuxPaneID: Int, name: String) -> ControlKeySendResult {
+    func sendKey(toPane tmuxPaneID: Int, name: String) -> RemoteTmuxControlKeySendResult {
         guard let key = Self.tmuxKeyName(name) else { return .unknownKey }
         return sendControlCommand("send-keys -t %\(tmuxPaneID) \(key)") ? .sent : .rejected
     }
 
-    private static func tmuxKeyName(_ raw: String) -> String? {
+    static func tmuxKeyName(_ raw: String) -> String? {
         let normalized = raw.lowercased().replacingOccurrences(of: "+", with: "-")
         let aliases: [String: String] = [
             "enter": "Enter", "return": "Enter", "tab": "Tab",

@@ -11,6 +11,8 @@ enum MobileAttachTicketStoreError: Error {
     case invalidAttachURL
 }
 
+extension MobileAttachTicketStoreError: Equatable {}
+
 final class MobileAttachTicketStore {
     private struct Record {
         let ticket: CmxAttachTicket
@@ -46,7 +48,7 @@ final class MobileAttachTicketStore {
             workspaceID: workspaceID,
             terminalID: terminalID,
             macDeviceID: MobileHostIdentity.deviceID(),
-            macDisplayName: MobileHostIdentity.displayName(),
+            macDisplayName: MobileHostIdentity.instanceDisplayName(),
             macUserEmail: macUserEmail,
             macUserID: macUserID,
             macPairingCompatibilityVersion: macPairingCompatibilityVersion,
@@ -62,12 +64,22 @@ final class MobileAttachTicketStore {
         return ticket
     }
 
-    func payload(for ticket: CmxAttachTicket) throws -> [String: Any] {
+    func payload(
+        for ticket: CmxAttachTicket,
+        target: MobileAttachTarget? = nil
+    ) throws -> [String: Any] {
         var payload: [String: Any] = [
             "ticket": try Self.jsonObject(ticket),
-            "attach_url": try attachURL(for: ticket).absoluteString,
             "routes": ticket.routes.map(\.mobileHostJSONObject)
         ]
+        switch target {
+        case nil:
+            payload["attach_url"] = try legacyAttachURL(for: ticket).absoluteString
+        case .ticketOnly:
+            break
+        case .some(let target):
+            payload["attach_url"] = try attachURL(for: ticket, target: target).absoluteString
+        }
         // `expires_at` describes the minted attach token's lifetime (tickets
         // from `createTicket` always carry one). The QR payload itself encodes
         // no expiry; a displayed pairing code never goes stale.
@@ -75,6 +87,23 @@ final class MobileAttachTicketStore {
             payload["expires_at"] = ISO8601DateFormatter().string(from: expiresAt)
         }
         return payload
+    }
+
+    /// Preserves the pre-target RPC contract for callers that omit `target`.
+    /// Explicit targets use their stricter destination-specific encoders below.
+    private func legacyAttachURL(for ticket: CmxAttachTicket) throws -> URL {
+        if let pairingURL = CmxPairingQRCode().encode(ticket),
+           let url = URL(string: pairingURL) {
+            return url
+        }
+        let data = try CmxAttachTicketCompactCoder().encode(ticket)
+        let payload = Self.base64URLEncode(data)
+        guard let url = URL(
+            string: "\(CmxPairingURLScheme.current)://attach?v=\(ticket.version)&payload=\(payload)"
+        ) else {
+            throw MobileAttachTicketStoreError.invalidAttachURL
+        }
+        return url
     }
 
     func validTicket(authToken: String?, now: Date = Date()) -> CmxAttachTicket? {
@@ -128,34 +157,34 @@ final class MobileAttachTicketStore {
         recordsByAuthToken[authToken] = record
     }
 
-    private func attachURL(for ticket: CmxAttachTicket) throws -> URL {
-        // Preferred form: the minimal v2 pairing-code grammar — bare Tailscale
-        // `host:port` routes in the URL query, nothing else. Everything the
-        // older grammars carried has a better channel: the auth token never
-        // authorized anything (the owner's Stack access token is the host's
-        // sole gate, `MobileHostService.authorizationError(for:)`), the
-        // display name and device id arrive post-handshake from
-        // `mobile.host.status`, and a pairing QR never expires. A DEBUG Mac's
-        // dev loopback route is dropped outright (a scanned code must never
-        // point a phone at itself). The much shorter plain-text URL also
-        // drops the QR several versions, so the code scans faster.
-        if let pairingURL = CmxPairingQRCode().encode(ticket), let url = URL(string: pairingURL) {
+    private func attachURL(for ticket: CmxAttachTicket, target: MobileAttachTarget) throws -> URL {
+        switch target {
+        case .ticketOnly:
+            throw MobileAttachTicketStoreError.invalidAttachURL
+        case .simulatorInjection:
+            let data = try CmxAttachTicketCompactCoder().encode(ticket)
+            let payload = Self.base64URLEncode(data)
+            guard let url = URL(
+                string: "\(CmxPairingURLScheme.current)://attach?v=\(ticket.version)&payload=\(payload)"
+            ) else {
+                throw MobileAttachTicketStoreError.invalidAttachURL
+            }
+            return url
+        case .physicalDevice:
+            guard ticket.routes.allSatisfy({
+                $0.kind == .tailscale && !CmxLoopbackHost().matches($0)
+            }),
+            let pairingURL = CmxPairingQRCode().encode(ticket),
+            let url = URL(string: pairingURL),
+            let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+            let decoded = try? CmxPairingQRCode().decode(components),
+            decoded.routes == ticket.routes else {
+                // A phone URL never falls back to v1. If v2 cannot represent
+                // the exact routes, fail instead of silently changing them.
+                throw MobileAttachTicketStoreError.invalidAttachURL
+            }
             return url
         }
-        // Fallback for tickets the minimal grammar cannot express (workspace-
-        // scoped, custom routes, loopback-only dev tickets): the compact
-        // short-key v1 payload. The full ticket (including the token) still
-        // rides in `payload(for:)["ticket"]` for RPC consumers.
-        let data = try CmxAttachTicketCompactCoder().encode(ticket)
-        let payload = Self.base64URLEncode(data)
-        // Channel-specific scheme (see ``CmxPairingURLScheme``): the v1 fallback
-        // QR must open the matching iOS channel just like the v2 path in
-        // ``CmxPairingQRCode/encode(_:)``, so a dev Mac never hands a release
-        // phone a code the system camera routes to a dev build (or vice versa).
-        guard let url = URL(string: "\(CmxPairingURLScheme.current)://attach?v=\(ticket.version)&payload=\(payload)") else {
-            throw MobileAttachTicketStoreError.invalidAttachURL
-        }
-        return url
     }
 
     private func pruneExpired(now: Date) {
@@ -200,6 +229,8 @@ enum MobileHostIdentity {
     private static let deviceIDKey = "mobileHost.deviceID"
     private static let sharedDeviceIDFileName = "mobile-host-device-id"
     private static let stableBundleIdentifier = "com.cmuxterm.app"
+    private static let maximumDisplayNameUTF16Length = 128
+    private static let maximumDisplayedBuildTagUTF16Length = 64
 
     static func deviceID() -> String {
         let stableDefaults = Bundle.main.bundleIdentifier == stableBundleIdentifier
@@ -297,24 +328,107 @@ enum MobileHostIdentity {
         return settled
     }
 
-    static func displayName() -> String? {
-        displayName(defaults: .standard)
+    /// Stable physical-device name. Device-level registry and backup rows use
+    /// this value because they are shared by every tagged app instance.
+    static func baseDisplayName() -> String? {
+        baseDisplayName(defaults: .standard)
     }
 
-    /// The name the iOS app shows for this Mac during pairing.
-    ///
-    /// Uses the user's override from
-    /// ``SettingCatalog/mobile``.`iOSPairingDisplayName` when it is set to a
-    /// non-empty value, otherwise falls back to the Mac's name from System
-    /// Settings (`Host.current().localizedName`).
-    static func displayName(defaults: UserDefaults) -> String? {
+    static func baseDisplayName(defaults: UserDefaults) -> String? {
+        baseDisplayName(defaults: defaults, hostName: Host.current().localizedName)
+    }
+
+    static func baseDisplayName(
+        defaults: UserDefaults,
+        hostName: String?
+    ) -> String? {
         let key = SettingCatalog().mobile.iOSPairingDisplayName.userDefaultsKey
+        let baseName: String?
         if let override = defaults.string(forKey: key) {
             let trimmed = override.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty {
-                return trimmed
+                baseName = trimmed
+            } else {
+                baseName = hostName
             }
+        } else {
+            baseName = hostName
         }
-        return Host.current().localizedName
+
+        guard let baseName else { return nil }
+        let trimmedName = baseName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedName.isEmpty ? nil : trimmedName
+    }
+
+    /// Per-app-instance name sent through tickets, authenticated status, and
+    /// presence. Tagged DEBUG builds append their canonical launch tag while
+    /// release and untagged builds keep the stable base name.
+    static func instanceDisplayName() -> String? {
+        instanceDisplayName(defaults: .standard)
+    }
+
+    static func instanceDisplayName(defaults: UserDefaults) -> String? {
+        instanceDisplayName(
+            defaults: defaults,
+            hostName: Host.current().localizedName,
+            buildTag: currentDebugBuildTag()
+        )
+    }
+
+    static func instanceDisplayName(
+        defaults: UserDefaults,
+        hostName: String?,
+        buildTag: String?
+    ) -> String? {
+        guard let trimmedName = baseDisplayName(defaults: defaults, hostName: hostName) else {
+            return nil
+        }
+        let trimmedTag = buildTag?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmedTag.isEmpty, trimmedTag != "default" else {
+            return trimmedName
+        }
+        let originalSuffix = " (\(trimmedTag))"
+        let unsuffixedName = trimmedName.hasSuffix(originalSuffix)
+            ? String(trimmedName.dropLast(originalSuffix.count))
+            : trimmedName
+        let displayedTag = prefix(
+            of: trimmedTag,
+            fittingUTF16Length: maximumDisplayedBuildTagUTF16Length
+        )
+        let suffix = " (\(displayedTag))"
+        let baseNameBudget = maximumDisplayNameUTF16Length - suffix.utf16.count
+        let boundedName = prefix(of: unsuffixedName, fittingUTF16Length: baseNameBudget)
+        return boundedName + suffix
+    }
+
+    /// Canonical app-instance tag used by registry and presence. This is the
+    /// same launch tag that owns the tagged socket and bundle identity.
+    static func instanceTag() -> String {
+        SocketControlSettings.launchTag() ?? "default"
+    }
+
+    /// Returns the longest whole-character prefix that fits a UTF-16 wire limit.
+    /// The cloud presence and paired-Mac APIs cap display names at 128 UTF-16
+    /// code units, matching JavaScript's `String.length` measurement.
+    private static func prefix(of value: String, fittingUTF16Length limit: Int) -> String {
+        guard limit > 0 else { return "" }
+        var result = ""
+        var length = 0
+        for character in value {
+            let characterLength = String(character).utf16.count
+            guard length + characterLength <= limit else { break }
+            result.append(character)
+            length += characterLength
+        }
+        return result
+    }
+
+    private static func currentDebugBuildTag() -> String? {
+        #if DEBUG
+        let tag = instanceTag()
+        return tag == "default" ? nil : tag
+        #else
+        nil
+        #endif
     }
 }

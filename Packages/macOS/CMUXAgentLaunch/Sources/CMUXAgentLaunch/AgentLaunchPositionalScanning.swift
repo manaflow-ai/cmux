@@ -129,6 +129,9 @@ extension AgentLaunchSanitizer {
         if arg.contains("=") {
             return 1
         }
+        if policy.booleanOptions.contains(arg) {
+            return 1
+        }
         if policy.optionalValueOptions.contains(arg) {
             guard index + 1 < args.count else { return 1 }
             let value = args[index + 1]

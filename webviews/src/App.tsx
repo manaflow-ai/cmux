@@ -4,6 +4,7 @@ import type { SelectedLineRange } from "@pierre/diffs";
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import { preparePresortedFileTreeInput } from "@pierre/trees";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import "../../Resources/markdown-viewer/viewer-navigation.js";
 import { copyGitApplyCommand, resolveDiffNavigationURL } from "./actions";
 import { resolveDiffViewerAppearance } from "./appearance";
 import { BranchBasePicker, type BranchPickerPayload } from "./BranchBasePicker";
@@ -63,6 +64,7 @@ type AppState = {
   copyFeedback: string;
   draft: CommentDraft | null;
   fileSearchOpen: boolean;
+  fileSearchRequest: number;
   filesWidth: number;
   filesVisible: boolean;
   items: DiffItem[];
@@ -83,6 +85,7 @@ type AppAction =
   | { type: "set-copy-feedback"; message: string }
   | { type: "set-draft"; draft: CommentDraft | null }
   | { type: "set-file-search-open"; open: boolean }
+  | { type: "request-file-search" }
   | { type: "set-files-width"; width: number }
   | { type: "set-files-visible"; visible: boolean }
   | { type: "set-metrics"; metrics: StreamMetrics }
@@ -107,6 +110,7 @@ function initialAppState(config: DiffViewerConfig, initialStatus: DiffViewerStat
     copyFeedback: "",
     draft: null,
     fileSearchOpen: false,
+    fileSearchRequest: 0,
     filesWidth: 252,
     filesVisible: true,
     items: [],
@@ -188,6 +192,8 @@ function reducer(state: AppState, action: AppAction): AppState {
     };
   case "set-file-search-open":
     return { ...state, fileSearchOpen: action.open, filesVisible: action.open ? true : state.filesVisible };
+  case "request-file-search":
+    return { ...state, fileSearchOpen: true, fileSearchRequest: state.fileSearchRequest + 1, filesVisible: true };
   case "set-files-width":
     return { ...state, filesWidth: action.width };
   case "set-files-visible":
@@ -243,6 +249,7 @@ export function App({ config, initialStatus }: ConfigProps) {
   const [state, dispatch] = useReducer(reducer, initialAppState(config, initialStatus));
   const latestState = useSyncedRef(state);
   const codeViewRef = useRef<CodeViewHandle<any> | null>(null);
+  const codeViewScrollTopRef = useRef(0);
   const copyFallbackRef = useRef<HTMLTextAreaElement | null>(null);
   const viewerContainerRef = useRef<HTMLDivElement | null>(null);
   const workerModuleURL = resolveDiffViewerAssetURL(config.assets?.workerModuleURL);
@@ -264,7 +271,6 @@ export function App({ config, initialStatus }: ConfigProps) {
   usePendingReplacement(payload, label, dispatch);
   useRenderDiff(config, label, dispatch, latestState);
   useCommentsBootstrap(bridgeAvailable ? repoRoot : null, comments.onLoaded);
-  useKeyboardShortcuts(payload.shortcuts ?? {}, viewerContainerRef, dispatch);
   useOptionsDismiss(state.optionsOpen, dispatch);
 
   const renderCommentAnnotation = (annotation: CommentAnnotation, item: DiffItem) => {
@@ -314,8 +320,9 @@ export function App({ config, initialStatus }: ConfigProps) {
   };
 
   const selectedTreePath = state.treeSource?.treePathByItemId.get(state.activeItemId) ?? state.activeTreePath;
-  const scrollToItem = (itemId: string) => {
-    const target = scrollTargetForItem(itemId, state.items);
+  const scrollToItem = useCallback((itemId: string) => {
+    const current = latestState.current;
+    const target = scrollTargetForItem(itemId, current.items);
     if (!target) {
       return;
     }
@@ -323,9 +330,25 @@ export function App({ config, initialStatus }: ConfigProps) {
     dispatch({
       type: "set-active-item",
       itemId: target,
-      treePath: state.treeSource?.treePathByItemId.get(target),
+      treePath: current.treeSource?.treePathByItemId.get(target),
     });
-  };
+  }, [latestState]);
+  const jumpAdjacentFile = useCallback((direction: -1 | 1) => {
+    const current = latestState.current;
+    const visibleItem = visibleItemId(
+      current.items,
+      codeViewScrollTopRef.current,
+      (itemId) => codeViewRef.current?.getInstance()?.getTopForItem(itemId),
+    );
+    const target = adjacentItemId(visibleItem || current.activeItemId, current.items, direction);
+    if (target) {
+      scrollToItem(target);
+    }
+  }, [latestState, scrollToItem]);
+  const handleCodeViewScroll = useCallback((scrollTop: number) => {
+    codeViewScrollTopRef.current = scrollTop;
+  }, []);
+  useNativeViewerNavigation(viewerContainerRef, dispatch, jumpAdjacentFile);
   const setStatus = (status: DiffViewerStatus) => {
     applyDiffViewerStatusToDocument(status);
     dispatch({ type: "set-status", status });
@@ -382,6 +405,7 @@ export function App({ config, initialStatus }: ConfigProps) {
                 className="code-view-root"
                 containerRef={viewerContainerRef}
                 items={state.items}
+                onScroll={handleCodeViewScroll}
                 options={renderedCodeViewOptions}
                 renderAnnotation={(annotation, item) =>
                   renderCommentAnnotation(annotation as CommentAnnotation, item as DiffItem)}
@@ -1083,6 +1107,7 @@ function FilesSidebar({
         {state.treeSource ? (
           <PierreFileTree
             fileSearchOpen={state.fileSearchOpen}
+            fileSearchRequest={state.fileSearchRequest}
             label={label}
             onSelectItem={onSelectItem}
             selectedPath={selectedPath}
@@ -1106,12 +1131,14 @@ function FilesSidebar({
 
 function PierreFileTree({
   fileSearchOpen,
+  fileSearchRequest,
   label,
   onSelectItem,
   selectedPath,
   source,
 }: {
   fileSearchOpen: boolean;
+  fileSearchRequest: number;
   label: DiffViewerLabelResolver;
   onSelectItem: (itemId: string) => void;
   selectedPath: string;
@@ -1144,7 +1171,7 @@ function PierreFileTree({
   });
 
   usePierreFileTreeSource(model, source);
-  usePierreFileTreeSearch(model, fileSearchOpen);
+  usePierreFileTreeSearch(model, fileSearchOpen, fileSearchRequest);
   usePierreFileTreeSelection(model, selectedPath);
 
   return <FileTree model={model} style={{ height: "100%" }} />;
@@ -1299,14 +1326,24 @@ function usePierreFileTreeSource(
   }, [model, source]);
 }
 
-function usePierreFileTreeSearch(model: ReturnType<typeof useFileTree>["model"], fileSearchOpen: boolean): void {
+function usePierreFileTreeSearch(
+  model: ReturnType<typeof useFileTree>["model"],
+  fileSearchOpen: boolean,
+  fileSearchRequest: number,
+): void {
   useEffect(() => {
     if (fileSearchOpen) {
-      model.openSearch("");
+      const wasOpen = model.isSearchOpen();
+      model.openSearch(wasOpen ? model.getSearchValue() : "");
+      if (wasOpen) {
+        const container = model.getFileTreeContainer();
+        const root = container?.shadowRoot ?? container?.getRootNode();
+        (root as ParentNode | undefined)?.querySelector<HTMLInputElement>("[data-file-tree-search-input]")?.focus();
+      }
     } else {
       model.closeSearch();
     }
-  }, [fileSearchOpen, model]);
+  }, [fileSearchOpen, fileSearchRequest, model]);
 }
 
 function usePierreFileTreeSelection(model: ReturnType<typeof useFileTree>["model"], selectedPath: string): void {
@@ -1468,74 +1505,45 @@ function usePageDataAttributes(state: AppState) {
   }, [state]);
 }
 
-function useKeyboardShortcuts(
-  shortcuts: any,
+function useNativeViewerNavigation(
   viewerRef: React.MutableRefObject<HTMLDivElement | null>,
   dispatch: React.Dispatch<AppAction>,
+  onJumpAdjacentFile: (direction: -1 | 1) => void,
 ) {
   useEffect(() => {
-    const scrollDownShortcut = normalizeShortcut(shortcuts.diffViewerScrollDown);
-    const scrollUpShortcut = normalizeShortcut(shortcuts.diffViewerScrollUp);
-    const scrollBottomShortcut = normalizeShortcut(shortcuts.diffViewerScrollToBottom);
-    const scrollTopShortcut = normalizeShortcut(shortcuts.diffViewerScrollToTop);
-    const fileSearchShortcut = normalizeShortcut(shortcuts.diffViewerOpenFileSearch);
-    let pendingChord: PendingChord | null = null;
-    let chordTimeout = 0;
-    const clearPendingChord = () => {
-      pendingChord = null;
-      if (chordTimeout !== 0) {
-        window.clearTimeout(chordTimeout);
-        chordTimeout = 0;
+    window.__cmuxPerformDiffViewerNavigationAction = (action: string) => {
+      const viewer = viewerRef.current;
+      if (viewer && CmuxViewerNavigation.performAction(action, viewer)) {
+        return true;
       }
+      switch (action) {
+        case "diffViewerOpenFileSearch":
+          dispatch({ type: "request-file-search" });
+          return true;
+        case "diffViewerNextFile":
+          if (viewer) CmuxViewerNavigation.resetSmoothTarget(viewer);
+          onJumpAdjacentFile(1);
+          return true;
+        case "diffViewerPreviousFile":
+          if (viewer) CmuxViewerNavigation.resetSmoothTarget(viewer);
+          onJumpAdjacentFile(-1);
+          return true;
+      }
+      return false;
     };
-    const listener = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || isTypingShortcutTarget(event.target)) {
-        return;
-      }
-      if (pendingChord && !shortcutStrokeMatchesEvent(pendingChord.shortcut.second, event)) {
-        clearPendingChord();
-      }
-      if (pendingChord && shortcutStrokeMatchesEvent(pendingChord.shortcut.second, event)) {
-        event.preventDefault();
-        pendingChord.action();
-        clearPendingChord();
-        return;
-      }
-      if (shortcutMatchesEvent(scrollDownShortcut, event)) {
-        event.preventDefault();
-        scrollViewerBy(viewerRef.current, 1);
-        return;
-      }
-      if (shortcutMatchesEvent(scrollUpShortcut, event)) {
-        event.preventDefault();
-        scrollViewerBy(viewerRef.current, -1);
-        return;
-      }
-      if (shortcutMatchesEvent(scrollBottomShortcut, event)) {
-        event.preventDefault();
-        viewerRef.current?.scrollTo({ top: viewerRef.current.scrollHeight, behavior: "auto" });
-        return;
-      }
-      if (shortcutMatchesEvent(fileSearchShortcut, event)) {
-        event.preventDefault();
-        dispatch({ type: "set-file-search-open", open: true });
-        return;
-      }
-      if (scrollTopShortcut && shortcutStartsChord(scrollTopShortcut, event)) {
-        event.preventDefault();
-        pendingChord = {
-          shortcut: scrollTopShortcut,
-          action: () => viewerRef.current?.scrollTo({ top: 0, behavior: "auto" }),
-        };
-        chordTimeout = window.setTimeout(clearPendingChord, 700);
-      }
-    };
-    document.addEventListener("keydown", listener);
+    document.documentElement.dataset.cmuxViewerNavigationReady = "true";
+    document.dispatchEvent(new window.Event("cmux-diff-viewer-navigation-readiness-change"));
+    const disposeManualInputReset = CmuxViewerNavigation.installManualInputReset({
+      target: document,
+      getScroller: () => viewerRef.current!,
+    });
     return () => {
-      clearPendingChord();
-      document.removeEventListener("keydown", listener);
+      delete window.__cmuxPerformDiffViewerNavigationAction;
+      delete document.documentElement.dataset.cmuxViewerNavigationReady;
+      document.dispatchEvent(new window.Event("cmux-diff-viewer-navigation-readiness-change"));
+      disposeManualInputReset();
     };
-  }, [dispatch, shortcuts, viewerRef]);
+  }, [dispatch, onJumpAdjacentFile, viewerRef]);
 }
 
 function useOptionsDismiss(optionsOpen: boolean, dispatch: React.Dispatch<AppAction>) {
@@ -1563,90 +1571,44 @@ function useOptionsDismiss(optionsOpen: boolean, dispatch: React.Dispatch<AppAct
   }, [dispatch, optionsOpen]);
 }
 
-type ShortcutStroke = {
-  command: boolean;
-  control: boolean;
-  key: string;
-  option: boolean;
-  shift: boolean;
-};
-
-type ShortcutBinding = {
-  first: ShortcutStroke;
-  second: ShortcutStroke | null;
-};
-
-type PendingChord = {
-  action: () => void;
-  shortcut: ShortcutBinding;
-};
-
-function normalizeShortcut(rawShortcut: any): ShortcutBinding | null {
-  if (!rawShortcut || rawShortcut.unbound === true || !rawShortcut.first) {
-    return null;
-  }
-  return {
-    first: normalizeShortcutStroke(rawShortcut.first),
-    second: rawShortcut.second ? normalizeShortcutStroke(rawShortcut.second) : null,
-  };
-}
-
-function normalizeShortcutStroke(rawStroke: any): ShortcutStroke {
-  return {
-    key: String(rawStroke?.key ?? "").toLowerCase(),
-    command: rawStroke?.command === true,
-    shift: rawStroke?.shift === true,
-    option: rawStroke?.option === true,
-    control: rawStroke?.control === true,
-  };
-}
-
-function shortcutMatchesEvent(shortcut: ShortcutBinding | null, event: KeyboardEvent): boolean {
-  return Boolean(shortcut && !shortcut.second && shortcutStrokeMatchesEvent(shortcut.first, event));
-}
-
-function shortcutStartsChord(shortcut: ShortcutBinding, event: KeyboardEvent): boolean {
-  return Boolean(shortcut.second && shortcutStrokeMatchesEvent(shortcut.first, event));
-}
-
-function shortcutStrokeMatchesEvent(stroke: ShortcutStroke | null, event: KeyboardEvent): boolean {
-  if (!stroke || event.metaKey !== stroke.command || event.ctrlKey !== stroke.control || event.altKey !== stroke.option) {
-    return false;
-  }
-  if (event.shiftKey !== stroke.shift) {
-    return false;
-  }
-  return normalizedShortcutEventKey(event) === stroke.key;
-}
-
-function normalizedShortcutEventKey(event: KeyboardEvent): string {
-  if (event.code === "Space") {
-    return "space";
-  }
-  if (typeof event.key !== "string" || event.key.length === 0) {
-    return "";
-  }
-  return event.key.length === 1 ? event.key.toLowerCase() : event.key.toLowerCase();
-}
-
-function isTypingShortcutTarget(target: EventTarget | null): boolean {
-  const element = target instanceof Element ? target : null;
-  return Boolean(element?.closest("input, textarea, select, [contenteditable='true']"));
-}
-
-function scrollViewerBy(viewer: HTMLDivElement | null, direction: number): void {
-  if (!viewer) {
-    return;
-  }
-  const amount = Math.max(80, Math.floor(viewer.clientHeight * 0.38));
-  viewer.scrollBy({ top: direction * amount, behavior: "auto" });
-}
-
 function scrollTargetForItem(itemId: string, items: DiffItem[]): string {
   if (items.some((item) => item.id === itemId)) {
     return itemId;
   }
   return items[0]?.id ?? "";
+}
+
+export function adjacentItemId(activeItemId: string, items: DiffItem[], direction: -1 | 1): string {
+  if (items.length === 0) {
+    return "";
+  }
+  const currentIndex = items.findIndex((item) => item.id === activeItemId);
+  if (currentIndex < 0) {
+    return direction > 0 ? items[0].id : items[items.length - 1].id;
+  }
+  const targetIndex = currentIndex + direction;
+  return targetIndex >= 0 && targetIndex < items.length ? items[targetIndex].id : "";
+}
+
+export function visibleItemId(
+  items: DiffItem[],
+  scrollTop: number,
+  getTopForItem: (itemId: string) => number | undefined,
+): string {
+  let low = 0;
+  let high = items.length - 1;
+  let visibleIndex = items.length > 0 ? 0 : -1;
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    const top = getTopForItem(items[middle].id);
+    if (top != null && top <= scrollTop + 1) {
+      visibleIndex = middle;
+      low = middle + 1;
+    } else {
+      high = middle - 1;
+    }
+  }
+  return visibleIndex >= 0 ? items[visibleIndex].id : "";
 }
 
 function getInitialFileTreeRowCount(): number {

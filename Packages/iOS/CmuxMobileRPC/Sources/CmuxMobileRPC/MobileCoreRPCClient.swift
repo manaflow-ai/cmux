@@ -317,7 +317,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                 ticket: ticket,
                 workspaceSelection: workspaceSelection.value
             )
-        case "workspace.move", "workspace.group.action":
+        case "workspace.move", "workspace.group.action", "workspace.group.create":
             // These mutations are Mac-scoped. Always preserve the attach-ticket
             // context when one exists so the host can reject workspace-scoped
             // tickets instead of receiving a Stack-only request.
@@ -328,7 +328,11 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
              "mobile.terminal.paste", "terminal.paste",
              "mobile.terminal.paste_image", "terminal.paste_image",
              "mobile.terminal.replay", "terminal.replay",
-             "mobile.terminal.viewport", "terminal.viewport":
+             "mobile.terminal.viewport", "terminal.viewport",
+             "mobile.terminal.artifact.scan",
+             "mobile.terminal.artifact.stat",
+             "mobile.terminal.artifact.fetch",
+             "mobile.terminal.artifact.thumbnail":
             return !ticketCoverage.ticketCoversTerminalRequest(
                 ticket: ticket,
                 workspaceSelection: workspaceSelection.value,

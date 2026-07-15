@@ -939,6 +939,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "notificationMessageLineLimit": "Número máximo de líneas que se muestran para la notificación más reciente debajo del título de cada espacio de trabajo.",
           "rightMaxWidth": "Ancho máximo en puntos para la barra lateral derecha. Si se omite, se aplica el límite dinámico integrado."
         },
         "fileExplorer": {
@@ -1388,6 +1389,7 @@
     "dock": {
       "metaTitle": "Dock",
       "metaDescription": "Agrega controles TUI personalizados a la barra lateral derecha de cmux con Dock JSON.",
+      "metaDescriptionShort": "Agrega controles TUI personalizados a la barra lateral derecha de cmux con Dock JSON para feeds, registros, colas y herramientas interactivas.",
       "title": "Dock",
       "intro": "Dock te permite agregar controles TUI a la barra lateral derecha. Cada control es un comando definido en JSON y se muestra en su propia sección de terminal basada en Ghostty. Úsalo para feeds, registros, colas, estado de git, servidores de desarrollo o cualquier TUI que tu equipo quiera tener junto a cada workspace.",
       "configTitle": "Configuración",
@@ -1535,7 +1537,8 @@
     },
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode: OpenCode multiagente en cmux",
-      "metaDescription": "oh-my-opencode (cmux omo) ejecuta la CLI de OpenCode con el plugin oh-my-openagent dentro de cmux. Orquesta Claude, GPT, Gemini y Grok como agentes paralelos, cada uno en una división nativa de cmux."
+      "metaDescription": "oh-my-opencode (cmux omo) ejecuta la CLI de OpenCode con el plugin oh-my-openagent dentro de cmux. Orquesta Claude, GPT, Gemini y Grok como agentes paralelos, cada uno en una división nativa de cmux.",
+      "metaDescriptionShort": "cmux omo ejecuta OpenCode con oh-my-openagent y coordina Claude, GPT, Gemini y Grok como agentes paralelos, cada uno en una división nativa de cmux."
     },
     "ios": {
       "metaTitle": "App para iOS",

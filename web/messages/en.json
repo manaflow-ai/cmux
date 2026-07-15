@@ -341,7 +341,9 @@
   "pricing": {
     "metaTitle": "Pricing — cmux",
     "metaDescription": "cmux is a free, open source macOS terminal for AI coding agents. Upgrade to Pro for Cloud VMs, cmux Vault session backup, and a model gateway. Enterprise adds SSO and self-hosting.",
+    "metaDescriptionShort": "cmux is a free, open source macOS terminal. Pro adds Cloud VMs, Vault session backup, and a model gateway; Enterprise adds SSO and self-hosting.",
     "metaDescriptionNoVault": "cmux is a free, open source macOS terminal for AI coding agents. Upgrade to Pro for Cloud VMs and a model gateway. Enterprise adds SSO and self-hosting.",
+    "metaDescriptionNoVaultShort": "cmux is a free, open source macOS terminal. Pro adds Cloud VMs and a model gateway; Enterprise adds SSO and self-hosting.",
     "title": "Pricing",
     "perMonth": "/month",
     "perUserMonth": "/user/month",
@@ -694,7 +696,7 @@
   },
   "community": {
     "title": "Community",
-    "description": "Browse projects built by the cmux community, from agent hooks to multi-agent orchestration and remote access.",
+    "description": "Browse projects built by the cmux community, from agent hooks to multi-agent orchestration and remote access tools.",
     "metaTitle": "Community — cmux",
     "metaDescription": "Browse every project from awesome-cmux on the cmux community page",
     "sourceAction": "View awesome-cmux",
@@ -994,7 +996,7 @@
     },
     "cmuxOmo": {
       "metaTitle": "oh-my-openagent subagents as native cmux panes",
-      "metaDescription": "oh-my-openagent (formerly oh-my-opencode) orchestrates parallel specialist agents across Claude, GPT, and Gemini. cmux omo turns their tmux panes into native splits."
+      "metaDescription": "oh-my-openagent orchestrates specialist Claude, GPT, and Gemini agents in parallel. cmux omo turns each tmux pane into a native split."
     },
     "gpl": {
       "metaTitle": "cmux is now GPL",
@@ -1090,7 +1092,7 @@
       },
       "cmuxOmo": {
         "title": "oh-my-openagent subagents as native cmux panes",
-        "summary": "oh-my-openagent (formerly oh-my-opencode) orchestrates parallel specialist agents across Claude, GPT, and Gemini. cmux omo turns their tmux panes into native splits.",
+        "summary": "oh-my-openagent orchestrates specialist Claude, GPT, and Gemini agents in parallel. cmux omo turns each tmux pane into a native split.",
         "date": "March 30, 2026",
         "p1": "<code>cmux omo</code> integrates oh-my-openagent (formerly oh-my-opencode), a plugin for OpenCode that orchestrates specialist agents across Claude, GPT, and Gemini in parallel. Each agent gets its own tmux pane. <code>cmux omo</code> uses the same tmux shim as <claudeTeamsLink><code>cmux claude-teams</code></claudeTeamsLink>: fake <code>TMUX</code> env var, every tmux command translated to cmux splits. It auto-installs the plugin into a shadow config so <code>~/.config/opencode</code> stays untouched.",
         "p2": "The shim also intercepts <code>terminal-notifier</code> calls and routes them through <code>cmux notify</code>. Works over SSH via the Go relay daemon."
@@ -1404,6 +1406,7 @@
       "enableDesc": "Open Settings → Beta Features and turn on Remote tmux. The toggle is off by default, so nothing changes for local terminals until you opt in.",
       "attachTitle": "Attaching",
       "attachIntro": "Run cmux ssh-tmux <destination> in a terminal — an ~/.ssh/config alias or user@host. cmux mirrors that host's tmux sessions into the current window's sidebar: each session becomes a workspace, each window a tab, and multi-pane windows become in-tab splits.",
+      "attachNewWindow": "Pass --new-window to open the mirror in a dedicated new window instead of the current window.",
       "attachSockets": "The remote.tmux.* socket commands (below) give finer control. remote.tmux.mirror is the mirror entry point; it accepts window/caller routing and can optionally select the mirrored workspace.",
       "attachCli": "Hosts that authenticate non-interactively (ssh-agent, or a key in ~/.ssh/config) attach with no prompt. If the host needs interactive authentication (a password, host-key confirmation, or MFA), cmux runs ssh inline in your terminal so you can authenticate, then mirrors into the current window. Accepts --port, --identity, and --no-focus.",
       "troubleshootTitle": "If you get \"Permission denied\"",
@@ -1740,6 +1743,7 @@
           "wordWrap": "Wrap long lines at the editor's right edge instead of scrolling horizontally."
         },
         "sidebar": {
+          "notificationMessageLineLimit": "Maximum lines shown for the latest notification below each workspace title.",
           "rightMaxWidth": "Maximum width in points for the right sidebar. When omitted, the built-in dynamic cap applies."
         },
         "fileExplorer": {
@@ -2947,6 +2951,10 @@
       "metaDescription": "Guides comparing cmux with other macOS terminals, how it is built on Ghostty, and how to run Claude Code, Codex, and OpenCode in cmux.",
       "title": "Guides",
       "intro": "Comparisons, background, and use-case guides for cmux. For product documentation, see the docs."
+    },
+    "remoteTmux": {
+      "title": "Remote tmux",
+      "metaDescription": "Use cmux as a native macOS front end for tmux running on another machine."
     },
     "compare": {
       "metaTitle": "Compare cmux with AI coding terminals and agent workspaces",
@@ -4465,6 +4473,7 @@
       "cursorCli": "A terminal for Cursor CLI",
       "keyboardShortcuts": "Keyboard shortcuts",
       "browserAutomation": "Browser automation",
+      "remoteTmux": "Remote tmux",
       "compare": "Compare cmux"
     },
     "agents": {

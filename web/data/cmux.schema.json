@@ -975,6 +975,26 @@
           "default": true,
           "description": "Show custom workspace descriptions in the sidebar."
         },
+        "beta": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Experimental sidebar features.",
+          "properties": {
+            "workspaceTodos": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "Workspace todos checklist presentation.",
+              "properties": {
+                "checklistStyle": {
+                  "type": "string",
+                  "enum": ["popover", "inline"],
+                  "default": "popover",
+                  "description": "How a row's checklist opens from its summary line: an anchored popover or inline expansion."
+                }
+              }
+            }
+          }
+        },
         "branchLayout": {
           "type": "string",
           "enum": ["vertical", "inline"],
@@ -985,6 +1005,14 @@
           "type": "boolean",
           "default": true,
           "description": "Show the latest notification text in the sidebar."
+        },
+        "notificationMessageLineLimit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50,
+          "default": 12,
+          "description": "Maximum lines shown for the latest notification below each workspace title.",
+          "descriptionKey": "schemaDescriptions.sidebar.notificationMessageLineLimit"
         },
         "showBranchDirectory": {
           "type": "boolean",
@@ -1552,6 +1580,9 @@
               "renameTab",
               "renameWorkspace",
               "editWorkspaceDescription",
+              "markWorkspaceDone",
+              "cycleWorkspaceStatus",
+              "toggleChecklistItemComplete",
               "closeTab",
               "closeOtherTabsInPane",
               "closeWorkspace",
@@ -1620,9 +1651,15 @@
               "openDiffViewer",
               "diffViewerScrollDown",
               "diffViewerScrollUp",
+              "diffViewerScrollHalfPageDown",
+              "diffViewerScrollHalfPageUp",
+              "diffViewerScrollDownEmacs",
+              "diffViewerScrollUpEmacs",
               "diffViewerScrollToBottom",
               "diffViewerScrollToTop",
-              "diffViewerOpenFileSearch"
+              "diffViewerOpenFileSearch",
+              "diffViewerNextFile",
+              "diffViewerPreviousFile"
             ]
           },
           "properties": {
@@ -1638,6 +1675,18 @@
             "diffViewerScrollUp": {
               "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             },
+            "diffViewerScrollHalfPageDown": {
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
+            },
+            "diffViewerScrollHalfPageUp": {
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
+            },
+            "diffViewerScrollDownEmacs": {
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
+            },
+            "diffViewerScrollUpEmacs": {
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
+            },
             "diffViewerScrollToBottom": {
               "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             },
@@ -1645,6 +1694,12 @@
               "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             },
             "diffViewerOpenFileSearch": {
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
+            },
+            "diffViewerNextFile": {
+              "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
+            },
+            "diffViewerPreviousFile": {
               "$ref": "#/$defs/bareFirstStrokeShortcutBindingNullable"
             }
           },

@@ -680,8 +680,6 @@ final class BrowserPanelInitialNavigationTests: XCTestCase {
         XCTAssertEqual(store.entries.map(\.url), [normalURL.absoluteString])
     }
 }
-
-
 @MainActor
 final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
     private func trustedDiffViewerTestRoot() -> URL {
@@ -718,12 +716,14 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         try FileManager.default.createDirectory(at: assetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: rootURL) }
 
-        try """
+        let deflatedAssetURL = assetURL.appendingPathExtension("deflate")
+        let deflatedWorkerAssetURL = workerAssetURL.appendingPathExtension("deflate")
+        try DeflatedAssetTestSupport.writeText("""
         export const marker = "module-ok";
-        """.write(to: assetURL, atomically: true, encoding: .utf8)
-        try """
+        """, to: deflatedAssetURL)
+        try DeflatedAssetTestSupport.writeText("""
         export const workerMarker = "js-ok";
-        """.write(to: workerAssetURL, atomically: true, encoding: .utf8)
+        """, to: deflatedWorkerAssetURL)
         try """
         <!doctype html>
         <html>
@@ -753,8 +753,8 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
             token: token,
             files: [
                 .init(requestPath: "/index.html", fileURL: indexURL, mimeType: "text/html"),
-                .init(requestPath: "/assets/mod.mjs", fileURL: assetURL, mimeType: "text/javascript"),
-                .init(requestPath: "/assets/worker.js", fileURL: workerAssetURL, mimeType: "text/javascript"),
+                .init(requestPath: "/assets/mod.mjs", fileURL: deflatedAssetURL, mimeType: "text/javascript"),
+                .init(requestPath: "/assets/worker.js", fileURL: deflatedWorkerAssetURL, mimeType: "text/javascript"),
                 .init(requestPath: "/index.patch", fileURL: patchURL, mimeType: "text/x-diff"),
             ]
         )
@@ -790,7 +790,6 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         XCTAssertNil(delegate.error)
         wait(for: [moduleLoaded], timeout: 10)
         XCTAssertEqual(moduleHandler.body as? String, "module-ok:js-ok:wasm-ok")
-
         let evaluated = expectation(description: "module evaluated")
         webView.evaluateJavaScript("document.body.dataset.loaded || ''") { value, error in
             XCTAssertNil(error)

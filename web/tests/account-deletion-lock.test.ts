@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
-import { isBlockingAccountDeletionTombstone } from "../services/account/deletionLock";
+import type { cloudDb } from "../db/client";
+import {
+  ACCOUNT_ANALYTICS_FORWARD_LEASE_MS,
+  isBlockingAccountDeletionTombstone,
+  withAccountDeletionAnalyticsForwardLease,
+} from "../services/account/deletionLock";
 
 describe("account deletion tombstone lock", () => {
   test("blocks fresh nonterminal deletion tombstones", () => {
@@ -32,5 +37,40 @@ describe("account deletion tombstone lock", () => {
       status: "cleanup_incomplete",
       updatedAt: new Date("2026-07-09T09:00:00.000Z"),
     }, now)).toBe(true);
+  });
+
+  test("starts an analytics forward lease after advisory locks are acquired", async () => {
+    let now = new Date("2026-07-09T10:00:00.000Z");
+    let insertedExpiresAt: Date | undefined;
+    const tx = {
+      execute: async () => {
+        now = new Date("2026-07-09T10:00:45.000Z");
+      },
+      select: () => ({
+        from: () => ({ where: async () => [] }),
+      }),
+      delete: () => ({ where: async () => undefined }),
+      insert: () => ({
+        values: async (values: readonly { readonly expiresAt: Date }[]) => {
+          insertedExpiresAt = values[0]?.expiresAt;
+        },
+      }),
+    };
+    const db = {
+      transaction: async (operation: (transaction: typeof tx) => Promise<unknown>) =>
+        await operation(tx),
+    } as unknown as ReturnType<typeof cloudDb>;
+
+    await withAccountDeletionAnalyticsForwardLease(
+      db,
+      ["user-after-lock"],
+      async () => "forwarded",
+      () => true,
+      () => now,
+    );
+
+    expect(insertedExpiresAt?.getTime()).toBe(
+      now.getTime() + ACCOUNT_ANALYTICS_FORWARD_LEASE_MS,
+    );
   });
 });

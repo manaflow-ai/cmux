@@ -113,8 +113,14 @@ extension SocketControlServer {
             let yielded = connectionsContinuation.yield(
                 ControlConnection(socket: clientSocket, peerProcessID: peerPid)
             )
-            if case .enqueued = yielded {} else {
-                // Terminated or dropped stream: nobody owns the fd now.
+            switch yielded {
+            case .enqueued:
+                break
+            case let .dropped(connection):
+                close(connection.socket)
+            case .terminated:
+                close(clientSocket)
+            @unknown default:
                 close(clientSocket)
             }
         }

@@ -145,6 +145,14 @@ struct PanelContentView: View {
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+        case .workspaceTodo:
+            if let workspaceTodoPanel = panel as? WorkspaceTodoPanel {
+                WorkspaceTodoPanelView(
+                    panel: workspaceTodoPanel,
+                    isFocused: isFocused,
+                    onRequestPanelFocus: onRequestPanelFocus
+                )
+            }
         case .cloudVMLoading:
             if let loadingPanel = panel as? CloudVMLoadingPanel {
                 CloudVMLoadingPanelView(panel: loadingPanel)
@@ -167,7 +175,7 @@ struct PanelContentView: View {
     private var shouldInstallPaneDropTarget: Bool {
         guard isVisibleInUI else { return false }
         switch panel.panelType {
-        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .agentSession, .project, .extensionBrowser, .cloudVMLoading:
+        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .agentSession, .project, .extensionBrowser, .workspaceTodo, .cloudVMLoading:
             return true
         case .terminal, .browser:
             return false

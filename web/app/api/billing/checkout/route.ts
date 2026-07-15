@@ -3,7 +3,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 
 import { validatedNativeCallbackScheme } from "../../../lib/native-callback";
-import { isAppStoreDistributionMode } from "../../../lib/billing";
+import {
+  appStorePricingUnavailableURL,
+  isAppStoreDistributionMode,
+} from "../../../lib/billing";
 import { cloudDb } from "../../../../db/client";
 import { stripeCustomers } from "../../../../db/schema";
 import {
@@ -48,7 +51,7 @@ async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
       cmux_ios_app_store: request.nextUrl.searchParams.get("cmux_ios_app_store"),
     })
   ) {
-    return NextResponse.redirect(appStorePricingRedirect(request));
+    return NextResponse.redirect(appStorePricingUnavailableURL(request.nextUrl));
   }
 
   const stackServerApp = await checkoutStackServerApp();
@@ -308,20 +311,6 @@ async function checkoutStackServerApp(): Promise<CheckoutStackServerApp | null> 
   const { getStackServerApp, isStackConfigured } = await import("../../../lib/stack");
   if (!isStackConfigured()) return null;
   return getStackServerApp();
-}
-
-function appStorePricingRedirect(request: NextRequest): URL {
-  const redirectURL = new URL("/app-pricing", request.url);
-  redirectURL.searchParams.set("cmux_app", "1");
-  redirectURL.searchParams.set("cmux_distribution", "appstore");
-  redirectURL.searchParams.set("billing", "unavailable");
-
-  for (const key of ["cmux_scheme", "appearance", "background"]) {
-    const value = request.nextUrl.searchParams.get(key);
-    if (value) redirectURL.searchParams.set(key, value);
-  }
-
-  return redirectURL;
 }
 
 function isStackTeamUniqueConflict(error: unknown): boolean {

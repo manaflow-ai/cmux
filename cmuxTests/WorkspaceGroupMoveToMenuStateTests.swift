@@ -112,4 +112,40 @@ struct WorkspaceGroupMoveToMenuStateTests {
         #expect(manager.workspaceGroups.contains { $0.id == groupId })
         #expect(manager.tabs.filter { $0.groupId == groupId }.count == originalIds.count + 1)
     }
+
+    @Test func mobileWorkspaceGroupCreateUsesTrimmedTitleAndReturnsWorkspaceList() throws {
+        let manager = TabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer { TerminalController.shared.setActiveTabManager(previousManager) }
+
+        let result = TerminalController.shared.v2MobileWorkspaceGroupCreate(params: ["title": " Ops "])
+
+        guard case .ok(let payload) = result,
+              let object = payload as? [String: Any],
+              let groups = object["groups"] as? [[String: Any]] else {
+            return #expect(Bool(false), "group create should return a workspace list payload")
+        }
+        #expect(manager.workspaceGroups.count == 1)
+        #expect(manager.workspaceGroups.first?.name == "Ops")
+        #expect(manager.tabs.contains { $0.id == manager.workspaceGroups.first?.anchorWorkspaceId })
+        #expect(groups.first?["name"] as? String == "Ops")
+    }
+
+    @Test func mobileWorkspaceGroupCreateTreatsBlankTitleAsAutoName() throws {
+        let manager = TabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let expectedName = String.localizedStringWithFormat(manager.localizedAutoGroupNameFormat, 1)
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer { TerminalController.shared.setActiveTabManager(previousManager) }
+
+        let result = TerminalController.shared.v2MobileWorkspaceGroupCreate(params: ["title": "   "])
+
+        guard case .ok = result else {
+            return #expect(Bool(false), "blank title should create a default-named group")
+        }
+        #expect(manager.workspaceGroups.first?.name == expectedName)
+    }
 }

@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
-import { App } from "../src/App";
+import { adjacentItemId, App, visibleItemId } from "../src/App";
 import { createDiffViewerStatus } from "../src/status";
 
 type FetchMock = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> | Response;
@@ -193,6 +193,59 @@ test("layout toggle persists user choice while explicit payload layout wins", as
   );
 
   expect(dom.window.document.documentElement.dataset.layout).toBe("unified");
+});
+
+test("adjacent diff file navigation moves in order and stops at the edges", () => {
+  const items = [{ id: "one" }, { id: "two" }, { id: "three" }] as any;
+
+  expect(adjacentItemId("one", items, 1)).toBe("two");
+  expect(adjacentItemId("two", items, -1)).toBe("one");
+  expect(adjacentItemId("three", items, 1)).toBe("");
+  expect(adjacentItemId("one", items, -1)).toBe("");
+  expect(adjacentItemId("missing", items, 1)).toBe("one");
+  expect(adjacentItemId("missing", items, -1)).toBe("three");
+  expect(adjacentItemId("missing", [], 1)).toBe("");
+});
+
+test("visible diff file follows the scroll position", () => {
+  const items = [{ id: "one" }, { id: "two" }, { id: "three" }] as any;
+  const tops: Record<string, number> = { one: 0, two: 500, three: 900 };
+
+  expect(visibleItemId(items, 0, (id) => tops[id])).toBe("one");
+  expect(visibleItemId(items, 650, (id) => tops[id])).toBe("two");
+  expect(visibleItemId(items, 1000, (id) => tops[id])).toBe("three");
+
+  const manyItems = Array.from({ length: 4096 }, (_, index) => ({ id: `item-${index}` })) as any;
+  let lookups = 0;
+  expect(visibleItemId(manyItems, 3000, (id) => {
+    lookups += 1;
+    return Number(id.slice("item-".length)) * 10;
+  })).toBe("item-300");
+  expect(lookups).toBeLessThanOrEqual(13);
+});
+
+test("native viewer navigation remains installed after an unrelated render", async () => {
+  dom = createDom();
+  installDomGlobals(dom, () => {
+    throw new Error("unexpected fetch");
+  });
+  renderApp(
+    <App
+      config={{
+        payload: { statusMessage: "Rendered diff" },
+      }}
+      initialStatus={createDiffViewerStatus("Rendered diff", { loading: false, statusOnly: true })}
+    />,
+  );
+
+  const action = dom.window.__cmuxPerformDiffViewerNavigationAction;
+  expect(action).toBeFunction();
+  dom.window.document.getElementById("layout-toggle")?.click();
+  await waitFor(() => dom?.window.document.documentElement.dataset.layout === "split");
+  expect(dom.window.__cmuxPerformDiffViewerNavigationAction).toBe(action);
+  expect(action?.("diffViewerOpenFileSearch")).toBe(true);
+  expect(action?.("unknown")).toBe(false);
+  await waitFor(() => dom?.window.document.getElementById("file-search-toggle")?.getAttribute("aria-pressed") === "true");
 });
 
 function createDom(): JSDOM {

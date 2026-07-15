@@ -3,11 +3,18 @@ import Foundation
 
 @MainActor
 extension TerminalController {
-    /// Drops a projected pane's control refs when it leaves mirror topology.
-    /// Installed as `RemoteTmuxWindowMirror.onControlPaneRemoved`.
-    static func remoteTmuxControlPaneRemovalHandler() -> (PaneID, UUID) -> Void {
+    static func remoteTmuxControlPaneRemovalHandler() -> (PaneID, UUID?) -> Void {
         { [weak controller = TerminalController.shared] paneID, surfaceID in
-            controller?.cleanupSurfaceState(surfaceIds: [surfaceID], paneIds: [paneID.id])
+            controller?.cleanupSurfaceState(
+                surfaceIds: surfaceID.map { [$0] } ?? [],
+                paneIds: [paneID.id]
+            )
+        }
+    }
+
+    static func remoteTmuxControlSurfaceRemovalHandler() -> (UUID) -> Void {
+        { [weak controller = TerminalController.shared] surfaceID in
+            controller?.cleanupSurfaceState(surfaceIds: [surfaceID])
         }
     }
 
@@ -18,10 +25,10 @@ extension TerminalController {
             }
             var hasOrdinarySurface = false
             for panelID in panelIDs {
-                if let mirror = workspace.remoteTmuxWindowMirror(forPanelId: panelID) {
-                    for pane in mirror.controlPanes() {
-                        _ = v2Ref(kind: .pane, uuid: pane.paneID.id)
-                        _ = v2Ref(kind: .surface, uuid: pane.panel.id)
+                if workspace.isRemoteTmuxControlContainer(panelID) {
+                    for location in workspace.remoteTmuxControlPanes(containerPanelID: panelID) {
+                        _ = v2Ref(kind: .pane, uuid: location.pane.paneID.id)
+                        _ = v2Ref(kind: .surface, uuid: location.pane.panel.id)
                     }
                 } else {
                     hasOrdinarySurface = true

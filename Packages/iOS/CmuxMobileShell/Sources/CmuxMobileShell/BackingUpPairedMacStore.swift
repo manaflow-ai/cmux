@@ -18,7 +18,7 @@ public import Foundation
 ///   the account's server backup) and resets the restore memo so a same-launch
 ///   re-sign-in restores again.
 public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRefreshing {
-    private let inner: any MobilePairedMacStoring
+    let inner: any MobilePairedMacStoring
     let backup: any PairedMacBackingUp
     /// The current team id, read live so the restore is scoped per (account,
     /// team): the backup DO is per-team, so switching teams must re-restore.
@@ -34,7 +34,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
     private var inFlight: [String: Task<RestoreOutcome, Never>] = [:]
     /// The most recent signed-in account seen on a read/write, so `remove` (which
     /// has no account parameter) only mirrors deletes while signed in.
-    private var lastSignedInAccount: String?
+    var lastSignedInAccount: String?
     private let restoreBoundary: PairedMacRestoreBoundary
     private let pendingDeleteStore: any PairedMacPendingDeleteStoring
     private var pendingDeleteIDsByScope: [String: Set<String>] = [:]
@@ -65,6 +65,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         macDeviceID: String,
         displayName: String?,
         routes: [CmxAttachRoute],
+        instanceTag: String? = nil,
         markActive: Bool,
         stackUserID: String?,
         teamID: String?,
@@ -92,6 +93,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             macDeviceID: macDeviceID,
             displayName: displayName,
             routes: routes,
+            instanceTag: instanceTag,
             markActive: markActive,
             stackUserID: stackUserID,
             teamID: team,
@@ -123,7 +125,8 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
                 macDeviceID: previouslyActive.macDeviceID,
                 account: account,
                 teamID: team,
-                includesCustomizations: false
+                includesCustomizations: false,
+                instanceAuthority: .preserve
             )
         }
     }
@@ -193,14 +196,16 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             macDeviceID: macDeviceID,
             account: account,
             teamID: team,
-            includesCustomizations: false
+            includesCustomizations: false,
+            instanceAuthority: .preserve
         )
         if let previouslyActive, previouslyActive.macDeviceID != macDeviceID {
             await uploadCurrentRecord(
                 macDeviceID: previouslyActive.macDeviceID,
                 account: account,
                 teamID: team,
-                includesCustomizations: false
+                includesCustomizations: false,
+                instanceAuthority: .preserve
             )
         }
     }
@@ -217,7 +222,8 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             macDeviceID: previous.macDeviceID,
             account: stackUserID,
             teamID: team,
-            includesCustomizations: false
+            includesCustomizations: false,
+            instanceAuthority: .preserve
         )
     }
 
@@ -254,7 +260,8 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             macDeviceID: macDeviceID,
             account: account,
             teamID: team,
-            includesCustomizations: true
+            includesCustomizations: true,
+            instanceAuthority: .preserve
         )
     }
 
@@ -388,7 +395,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
     /// The team to scope an inner call to: an explicit `teamID` wins (e.g. a restore
     /// that knows its team), else the currently-selected team. (`??` can't take an
     /// async right-hand side, so this is a plain method.)
-    private func resolvedTeam(_ teamID: String?) async -> String? {
+    func resolvedTeam(_ teamID: String?) async -> String? {
         if let teamID { return teamID }
         return await teamIDProvider()
     }
@@ -415,7 +422,8 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             isActive: mac.isActive,
             customName: mac.customName,
             customColor: mac.customColor,
-            customIcon: mac.customIcon
+            customIcon: mac.customIcon,
+            instanceTag: mac.instanceTag
         )
     }
 
@@ -423,12 +431,13 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
     /// only for explicit rename/color/icon writes; other mirrors preserve the
     /// server's current customizations. Best-effort.
     @discardableResult
-    private func uploadCurrentRecord(
+    func uploadCurrentRecord(
         macDeviceID: String,
         account: String,
         teamID: String? = nil,
         includesCustomizations: Bool = false,
-        allowTombstoneRevive: Bool = false
+        allowTombstoneRevive: Bool = false,
+        instanceAuthority: PairedMacBackupInstanceAuthorityWriteMode = .authoritative
     ) async -> Bool {
         let team = await resolvedTeam(teamID)
         guard let mac = (try? await inner.loadAll(stackUserID: account, teamID: team))?
@@ -437,12 +446,18 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         let op: PairedMacBackupOp
         if allowTombstoneRevive {
             op = includesCustomizations
-                ? .revive(record)
-                : .revivePreservingCustomizations(record)
+                ? .revive(record, instanceAuthority: instanceAuthority)
+                : .revivePreservingCustomizations(
+                    record,
+                    instanceAuthority: instanceAuthority
+                )
         } else if includesCustomizations {
-            op = .upsert(record)
+            op = .upsert(record, instanceAuthority: instanceAuthority)
         } else {
-            op = .upsertPreservingCustomizations(record)
+            op = .upsertPreservingCustomizations(
+                record,
+                instanceAuthority: instanceAuthority
+            )
         }
         return await backup.upload(ops: [op], teamID: team, expectedUserID: account)
     }
@@ -513,7 +528,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
     }
 
     @discardableResult
-    private func clearPendingDelete(macDeviceID: String, account: String, teamID: String?) async -> Bool {
+    func clearPendingDelete(macDeviceID: String, account: String, teamID: String?) async -> Bool {
         let scope = await nonoptionalScopeKey(account: account, teamID: teamID)
         return await clearPendingDelete(macDeviceID: macDeviceID, scope: scope)
     }

@@ -105,7 +105,7 @@ struct DisconnectedWorkspaceShellView: View {
         }
         .sheet(isPresented: $showingSettings) {
             // Reuse the same Settings sheet the workspace list opens from its
-            // 3-dots menu so the no-devices screen's chrome matches. There is no
+            // Settings button so the no-devices screen's chrome matches. There is no
             // connected host or QR to rescan here, but the store is forwarded so
             // a user whose active Mac went offline can still switch to another
             // paired Mac; the sheet also surfaces the account + Sign Out.
@@ -356,16 +356,17 @@ struct DisconnectedWorkspaceShellView: View {
     }
     #endif
 
-    /// The top-left 3-dots overflow, matching ``WorkspaceListView``'s
+    /// The top-left settings entrypoint, matching ``WorkspaceListView``'s
     /// `settingsMenu` so switching between the connected and no-devices screens
-    /// is not jarring. On iOS it opens the full Settings sheet (which holds Sign
-    /// Out); on macOS it is an inline menu with Sign Out as an item.
+    /// is not jarring. On iOS it is a Settings button that opens the full sheet
+    /// (which holds Sign Out); on macOS it is an inline overflow menu with Sign
+    /// Out as an item.
     private var settingsMenu: some View {
         #if os(iOS)
         Button {
             showingSettings = true
         } label: {
-            Image(systemName: "ellipsis.circle")
+            MobileWorkspaceSettingsIcon()
         }
         .accessibilityLabel(L10n.string("mobile.workspaces.settings", defaultValue: "Settings"))
         .accessibilityIdentifier("MobileWorkspaceSettingsMenu")

@@ -26,6 +26,9 @@ public protocol TerminalSurfacePaneHosting: NSView {
     /// indicator text.
     func syncKeyStateIndicator(text: String?)
 
+    /// Notifies the pane that explicit terminal input is about to be sent.
+    func terminalSurfaceDidReceiveExplicitInput()
+
     /// Draws or clears the mobile-viewport cap border.
     ///
     /// - Parameters:

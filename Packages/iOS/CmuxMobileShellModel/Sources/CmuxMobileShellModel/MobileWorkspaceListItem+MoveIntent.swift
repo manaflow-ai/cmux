@@ -36,11 +36,14 @@ extension Array where Element == MobileWorkspacePreview {
     /// - Parameters:
     ///   - intent: The move intent derived from the rendered list snapshot.
     ///   - movedWorkspaceID: The dragged workspace, or a moved group's anchor workspace.
+    ///   - groups: The group snapshots used to preserve group membership and ordering.
     /// - Returns: A workspace snapshot with the move applied.
     public func applyingWorkspaceMoveIntent(
         _ intent: MobileWorkspaceMoveIntent,
-        movedWorkspaceID: MobileWorkspacePreview.ID
+        movedWorkspaceID: MobileWorkspacePreview.ID,
+        groups: [MobileWorkspaceGroupPreview]
     ) -> [MobileWorkspacePreview] {
-        MobileWorkspaceOrderMoveApplier(workspaces: self).applying(intent, movedWorkspaceID: movedWorkspaceID)
+        MobileWorkspaceOrderMoveApplier(workspaces: self, groups: groups)
+            .applying(intent, movedWorkspaceID: movedWorkspaceID)
     }
 }
