@@ -78,12 +78,18 @@ struct ReflowStructureTests {
 
     @Test func wrappedBulletRejoins() {
         let input = "- a long bullet item that\n  wrapped onto the next line\n"
-        #expect(reflow(input) == "- a long bullet item that wrapped onto the next line\n")
+        #expect(
+            ReflowOptions.default.reflow(input, terminalWidth: 25)
+                == "- a long bullet item that wrapped onto the next line\n"
+        )
     }
 
     @Test func wrappedNestedBulletKeepsListIndentation() {
         let input = "  - child item that wraps\n    onto the next line\n  - sibling\n"
-        #expect(reflow(input) == "  - child item that wraps onto the next line\n  - sibling\n")
+        #expect(
+            ReflowOptions.default.reflow(input, terminalWidth: 25)
+                == "  - child item that wraps onto the next line\n  - sibling\n"
+        )
     }
 
     @Test func bareURLWrapJoinsWithoutSpace() {

@@ -22,9 +22,15 @@ struct ReflowParagraphTests {
     @Test func singleWordContinuationJoinsWithSpace() {
         // A single-word continuation must join with a space, never "Helloworld".
         let input = "A short lead ending in Hello\n  world\n"
-        let result = reflow(input)
+        let result = ReflowOptions.default.reflow(input, terminalWidth: 28)
         #expect(result == "A short lead ending in Hello world\n")
         #expect(!result.contains("Helloworld"))
+    }
+
+    @Test func shortIndentedFileRowIsNotJoined() {
+        let input = "Files changed\n  readme.md\n"
+        #expect(reflow(input) == input)
+        #expect(ReflowOptions.default.reflow(input, terminalWidth: 80) == input)
     }
 
     @Test func adjacentPunctuatedLinesDoNotInventBlankSeparator() {
@@ -225,12 +231,16 @@ struct ReflowParagraphTests {
     }
 
     @Test func indentSignalDecidesTheJoin() {
-        // Same text: with a continuation indent it joins; without it, it does not.
+        // Same text at its wrap width: with a continuation indent it joins;
+        // without one, it does not.
         let withIndent = "Lead line goes here\n  continues on this line\n"
-        #expect(reflow(withIndent) == "Lead line goes here continues on this line\n")
+        #expect(
+            ReflowOptions.default.reflow(withIndent, terminalWidth: 19)
+                == "Lead line goes here continues on this line\n"
+        )
 
         let withoutIndent = "Lead line goes here\ncontinues on this line\n"
-        #expect(reflow(withoutIndent) == withoutIndent)
+        #expect(ReflowOptions.default.reflow(withoutIndent, terminalWidth: 19) == withoutIndent)
     }
 
     @Test func shortOptionHelpRowsAreNotJoined() {
