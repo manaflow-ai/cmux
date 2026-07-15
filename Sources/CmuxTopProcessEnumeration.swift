@@ -4,9 +4,17 @@ import Foundation
 private nonisolated let cmuxTopPIDPathBufferSize = 4096
 
 nonisolated extension CmuxTopProcessSnapshot {
-    static func allProcesses(includeProcessDetails: Bool, includeCMUXScope: Bool) -> [CmuxTopProcessInfo] {
-        let sampledProcesses = allBSDProcesses()
-        guard !sampledProcesses.isEmpty else { return [] }
+    static func allProcessesWithPerformanceProof(
+        includeProcessDetails: Bool,
+        includeCMUXScope: Bool
+    ) -> (
+        processes: [CmuxTopProcessInfo],
+        proof: ProcessPerformanceCaptureProof,
+        isComplete: Bool
+    ) {
+        let enumeration = allBSDProcesses()
+        let sampledProcesses = enumeration.processes
+        guard !sampledProcesses.isEmpty else { return ([], .libproc, enumeration.isComplete) }
 
         var scopeKeyByPID: [Int: CmuxTopProcessScopeCacheKey] = [:]
         scopeKeyByPID.reserveCapacity(sampledProcesses.count)
@@ -42,17 +50,28 @@ nonisolated extension CmuxTopProcessSnapshot {
             for: currentCPUSamples,
             activeKeys: activeScopeKeys,
             parentKeysByKey: parentScopeKeys,
-            sampledAtNanoseconds: sampledAtNanoseconds
+            sampledAtNanoseconds: sampledAtNanoseconds,
+            allowsPruning: enumeration.isComplete
         )
         for index in processRecords.indices {
             guard let key = processRecords[index].cpuSampleKey,
                   let cpuPercent = cpuPercentages[key] else { continue }
             processRecords[index].info.cpuPercent = cpuPercent
         }
-        if includeCMUXScope {
+        if includeCMUXScope, enumeration.isComplete {
             pruneCMUXScopeCache(activeKeys: activeScopeKeys)
         }
-        return processRecords.map(\.info)
+        return (processRecords.map(\.info), .libproc, enumeration.isComplete)
+    }
+
+    static func allProcesses(
+        includeProcessDetails: Bool,
+        includeCMUXScope: Bool
+    ) -> [CmuxTopProcessInfo] {
+        allProcessesWithPerformanceProof(
+            includeProcessDetails: includeProcessDetails,
+            includeCMUXScope: includeCMUXScope
+        ).processes
     }
 
     static func deviceIdentifier(forTTYName ttyName: String) -> Int64? {
@@ -154,18 +173,25 @@ nonisolated extension CmuxTopProcessSnapshot {
         ), cpuSampleKey)
     }
 
-    private static func allBSDProcesses() -> [proc_bsdinfo] {
+    private static func allBSDProcesses() -> (processes: [proc_bsdinfo], isComplete: Bool) {
         let pidStride = MemoryLayout<pid_t>.stride
-        func bsdInfos(from pids: [pid_t], count: Int) -> [proc_bsdinfo] {
-            pids.prefix(count).compactMap { pid in
-                guard pid > 0 else { return nil }
-                return bsdInfo(for: Int(pid))
+        func bsdInfos(from pids: [pid_t], count: Int) -> (processes: [proc_bsdinfo], isComplete: Bool) {
+            var processes: [proc_bsdinfo] = []
+            var isComplete = true
+            processes.reserveCapacity(count)
+            for pid in pids.prefix(count) where pid > 0 {
+                if let info = bsdInfo(for: Int(pid)) {
+                    processes.append(info)
+                } else if processStillPresent(pid) {
+                    isComplete = false
+                }
             }
+            return (processes, isComplete)
         }
 
         // proc_listallpids returns a PID count; the buffer size argument is bytes.
         let initialPIDCount = Int(proc_listallpids(nil, 0))
-        guard initialPIDCount > 0 else { return [] }
+        guard initialPIDCount > 0 else { return ([], false) }
         var capacity = max(1, initialPIDCount + 32)
         var lastPIDs: [pid_t] = []
         var lastCount = 0
@@ -174,8 +200,10 @@ nonisolated extension CmuxTopProcessSnapshot {
             let returnedCount = pids.withUnsafeMutableBufferPointer { buffer in
                 proc_listallpids(buffer.baseAddress, Int32(buffer.count * pidStride))
             }
-            guard returnedCount >= 0 else {
-                return lastCount > 0 ? bsdInfos(from: lastPIDs, count: lastCount) : []
+            guard returnedCount > 0 else {
+                guard lastCount > 0 else { return ([], false) }
+                let partial = bsdInfos(from: lastPIDs, count: lastCount)
+                return (partial.processes, false)
             }
             let returnedPIDCount = Int(returnedCount)
             let count = min(pids.count, returnedPIDCount)
@@ -188,14 +216,41 @@ nonisolated extension CmuxTopProcessSnapshot {
             }
             capacity = max(pids.count * 2, returnedPIDCount + 32)
         }
-        return lastCount > 0 ? bsdInfos(from: lastPIDs, count: lastCount) : []
+        guard lastCount > 0 else { return ([], false) }
+        let partial = bsdInfos(from: lastPIDs, count: lastCount)
+        return (partial.processes, false)
     }
 
     private static func bsdInfo(for pid: Int) -> proc_bsdinfo? {
         var info = proc_bsdinfo()
         let expectedSize = MemoryLayout<proc_bsdinfo>.stride
         let size = proc_pidinfo(pid_t(pid), PROC_PIDTBSDINFO, 0, &info, Int32(expectedSize))
-        return size == expectedSize ? info : nil
+        if size == expectedSize { return info }
+        guard let process = kinfoProc(for: pid) else { return nil }
+        return bsdInfo(from: process)
+    }
+
+    private static func bsdInfo(from process: kinfo_proc) -> proc_bsdinfo {
+        var info = proc_bsdinfo()
+        info.pbi_pid = UInt32(bitPattern: process.kp_proc.p_pid)
+        info.pbi_ppid = UInt32(bitPattern: process.kp_eproc.e_ppid)
+        info.pbi_pgid = UInt32(bitPattern: process.kp_eproc.e_pgid)
+        info.pbi_start_tvsec = UInt64(max(0, process.kp_proc.p_un.__p_starttime.tv_sec))
+        info.pbi_start_tvusec = UInt64(max(0, process.kp_proc.p_un.__p_starttime.tv_usec))
+        info.e_tdev = UInt32(bitPattern: process.kp_eproc.e_tdev)
+        info.e_tpgid = UInt32(bitPattern: process.kp_eproc.e_tpgid)
+        withUnsafeBytes(of: process.kp_proc.p_comm) { source in
+            withUnsafeMutableBytes(of: &info.pbi_comm) { destination in
+                destination.copyBytes(from: source.prefix(destination.count))
+            }
+        }
+        return info
+    }
+
+    private static func processStillPresent(_ pid: pid_t) -> Bool {
+        errno = 0
+        if kill(pid, 0) == 0 { return true }
+        return errno == EPERM
     }
 
     private static func taskInfo(for pid: Int) -> proc_taskinfo? {

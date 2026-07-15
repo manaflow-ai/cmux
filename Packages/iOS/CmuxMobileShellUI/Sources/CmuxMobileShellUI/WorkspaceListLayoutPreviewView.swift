@@ -16,7 +16,11 @@ public struct WorkspaceListLayoutPreviewView: View {
     @State private var selectedTerminalID: MobileTerminalPreview.ID? = "terminal-build"
     @State private var macSelection: WorkspaceMacSelection = .all
     @State private var browserStore = BrowserSurfaceStore(defaultURL: URL(string: "https://cmux.dev/"))
+    // Safety: DEBUG screenshot-only presenter is owned by this preview view and
+    // only mutates its fired flag from the SwiftUI task that requests the banner.
+    private let notificationPresenter = ScreenshotNotificationPresenter()
 
+    /// Creates a static workspace-list preview for App Store screenshot capture.
     public init() {}
 
     @State private var workspaces: [MobileWorkspacePreview] = [
@@ -50,6 +54,10 @@ public struct WorkspaceListLayoutPreviewView: View {
             ]
         ),
     ]
+
+    private var showNotificationBanner: Bool {
+        ProcessInfo.processInfo.environment["CMUX_UITEST_NOTIFICATION_BANNER"] == "1"
+    }
 
     public var body: some View {
         Group {
@@ -125,6 +133,13 @@ public struct WorkspaceListLayoutPreviewView: View {
         .onAppear {
             if let workspace = workspaces.first(where: { $0.id == "workspace-main" }) {
                 browserStore.openBrowser(for: workspace.browserSurfaceIdentity)
+            }
+        }
+        .task {
+            // Fire a REAL local notification (not a drawn banner) so the system
+            // renders the genuine banner over this workspace list.
+            if showNotificationBanner {
+                notificationPresenter.fire()
             }
         }
     }

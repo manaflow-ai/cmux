@@ -310,6 +310,9 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Validate managed relay catalog
+        run: bun ../scripts/generate-managed-iroh-relay-catalog.ts --check
+
       - name: Typecheck
         run: bun run typecheck
 
@@ -558,6 +561,49 @@ jobs:
             echo "::warning::Passwordless sudo unavailable; XCTest will use its default automation-mode setup"
           fi
 
+      - name: Run notification routing regressions
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # The tolerant full-suite step can accept assertion failures or stop
+          # after an app-host crash before this suite runs. Keep notification
+          # move/clear causality coverage on a non-tolerant focused invocation.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/AgentNotificationRegressionTests \
+            -only-testing:cmuxTests/ClaudeHookLifecycleCleanupTests \
+            -only-testing:cmuxTests/ClaudeHookLiveDeliveryTargetTests \
+            -only-testing:cmuxTests/ClaudeHookPIDAuthenticationTests \
+            -only-testing:cmuxTests/PhonePushPresenceGateTests \
+            test
+
+      - name: Run remote tmux mirror detach and placement regressions
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # Closing a mirrored workspace must never kill the remote tmux session,
+          # and --new-window must consolidate mirrors moved across source windows.
+          # Keep these destructive/topology regressions outside the tolerant full
+          # suite so an ordinary assertion failure cannot be accepted as expected.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/RemoteTmuxMirrorCloseDetachTests \
+            test
+
       - name: Run browser system proxy mirror regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
@@ -677,6 +723,24 @@ jobs:
             -destination "platform=macOS" \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/RemoteTmuxMirrorLayoutIdentityTests \
+            test
+
+      - name: Run notification scroll restoration regression
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/NotificationRowSnapshotBoundaryTests \
+            -only-testing:cmuxTests/NotificationScrollRestoreLifecycleTests \
+            -only-testing:cmuxTests/NotificationScrollRestoreRecoveryTests \
             test
 
       - name: Run unit tests
@@ -829,6 +893,7 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omx_fallback_path.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omc_fallback_path.py
           python3 tests/test_issue_2448_shell_claude_wrapper_dispatch.py
+          python3 tests/test_issue_8093_ghostty_ssh_binary_path.py
           python3 tests/test_issue_6714_zsh_shim_noclobber.py
           python3 tests/test_shell_git_branch_stale_cwd.py
           python3 tests/test_shell_git_config_remote_url_parsing.py
@@ -1053,7 +1118,9 @@ jobs:
             CmuxRemoteDaemon
             CmuxRemoteWorkspace
             CmuxRemoteSession
+            CmuxAgentChat
             CmuxAuthRuntime
+            CmuxIrohTransport
             CmuxCommandPalette
             CmuxControlSocket
             CmuxFoundation
@@ -1085,21 +1152,8 @@ jobs:
             fi
             echo "::group::swift test $pkgdir"
             case "$pkg" in
-            CmuxAuthRuntime)
-              suite_list="$(
-                find "$pkgdir/Tests" -name '*.swift' -print0 \
-                  | xargs -0 perl -ne 'print "$1\n" if /^\s*@Suite(?:\([^)]*\))?\s+struct\s+([A-Za-z0-9_]+)/' \
-                  | sort -u
-              )"
-              if [ -z "$suite_list" ]; then
-                echo "::error::no Swift Testing suites found for $pkg"
-                exit 1
-              fi
-              while IFS= read -r suite; do
-                [ -n "$suite" ] || continue
-                echo "swift test $pkgdir --filter $suite"
-                swift test --package-path "$pkgdir" --filter "$suite"
-              done <<< "$suite_list"
+            CmuxAuthRuntime|CmuxIrohTransport)
+              ./scripts/ci/run-swift-testing-suites.sh "$pkgdir"
               ;;
             CmuxTerminal|CmuxTerminalCore)
               test_status=0

@@ -34,12 +34,11 @@ extension AuthCoordinator {
                 try await self.accessTokenWithoutStateClear()
             }
         } catch AuthError.unauthorized {
-            // Launch restore/revalidation owns the empty-token verdict while
-            // it is active. In particular, simulator DEBUG builds start with
-            // an empty in-memory token store while credential auto-login is
-            // rebuilding the cached session. Clearing here would cancel that
-            // owner and erase its cached identity/team before it can finish.
-            if isRevalidatingSession {
+            // A session transition owns the temporarily empty token store. This
+            // method is a reader, so it cannot publish a signed-out verdict or
+            // bump sessionGeneration out from under that writer. Callers retry
+            // after restore/sign-in reaches its terminal state.
+            if sessionTokenTransitionIsActive {
                 throw AuthError.networkError
             }
             if let devToken = await devAuthAccessTokenFallback() {
@@ -151,7 +150,7 @@ extension AuthCoordinator {
                 try await self.forceRefreshAccessTokenWithoutStateClear()
             }
         } catch AuthError.unauthorized {
-            if isRevalidatingSession {
+            if sessionTokenTransitionIsActive {
                 throw AuthError.networkError
             }
             clearAuthState(preservePendingCode: true)

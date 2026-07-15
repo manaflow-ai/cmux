@@ -12,10 +12,13 @@ import AppKit
 public struct CMUXMobileAppView: View {
     @Environment(AuthCoordinator.self) private var authManager
     @State private var store: CMUXMobileShellStore
-    /// This scene's phone browser store, injected into the environment. Unlike
-    /// terminals, browser state has no Mac-side counterpart and must survive
-    /// view reconstruction and workspace re-syncs.
-    @State var browserStore: BrowserSurfaceStore
+    /// Phone-local browser surfaces, owned for the app's lifetime and injected
+    /// into the environment so the workspace detail view can present a browser
+    /// pane without threading the store through every intermediate view. Browser
+    /// state lives here (not in the shell store) because, unlike terminals, it
+    /// has no Mac-side counterpart and must survive `workspace.updated` re-syncs.
+    @State private var browserStore: BrowserSurfaceStore
+    private let signOutHook: MobileSignOutHook
     #if os(iOS)
     private let onboardingStore: MobileOnboardingStore
     #endif
@@ -31,26 +34,34 @@ public struct CMUXMobileAppView: View {
     ///     and ad-hoc construction never present onboarding.
     public init(
         store: CMUXMobileShellStore = .preview(),
-        browserStore: BrowserSurfaceStore,
-        onboardingStore: MobileOnboardingStore = MobileOnboardingStore(defaults: .standard, forceSeen: true)
+        browserStore: BrowserSurfaceStore = BrowserSurfaceStore(),
+        onboardingStore: MobileOnboardingStore = MobileOnboardingStore(defaults: .standard, forceSeen: true),
+        signOutHook: MobileSignOutHook = MobileSignOutHook()
     ) {
         _store = State(initialValue: store)
         _browserStore = State(initialValue: browserStore)
         self.onboardingStore = onboardingStore
+        self.signOutHook = signOutHook
     }
     #else
     public init(
         store: CMUXMobileShellStore = .preview(),
-        browserStore: BrowserSurfaceStore
+        browserStore: BrowserSurfaceStore = BrowserSurfaceStore(),
+        signOutHook: MobileSignOutHook = MobileSignOutHook()
     ) {
         _store = State(initialValue: store)
         _browserStore = State(initialValue: browserStore)
+        self.signOutHook = signOutHook
     }
     #endif
 
     public var body: some View {
         #if os(iOS)
-        CMUXMobileRootView(store: store, onboardingStore: onboardingStore)
+        CMUXMobileRootView(
+            store: store,
+            onboardingStore: onboardingStore,
+            signOutHook: signOutHook
+        )
             .environment(browserStore)
             .onAppear(perform: synchronizeBrowserPersistenceScope)
             .onChange(of: browserPersistenceScope) { _, _ in
@@ -66,7 +77,7 @@ public struct CMUXMobileAppView: View {
                 reconcileBrowserSurfacesIfAuthoritative()
             }
         #else
-        CMUXMobileRootView(store: store)
+        CMUXMobileRootView(store: store, signOutHook: signOutHook)
             .environment(browserStore)
             .onAppear(perform: synchronizeBrowserPersistenceScope)
             .onChange(of: browserPersistenceScope) { _, _ in
