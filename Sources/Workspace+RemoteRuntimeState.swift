@@ -64,11 +64,23 @@ extension Workspace {
             terminal.scrollback = nil
             snapshot.panels[index].terminal = terminal
         }
-        guard let state = try? JSONEncoder().encode(snapshot) else { return }
-        controller.enqueueRuntimeState(
-            schemaVersion: SessionSnapshotSchema.currentVersion,
-            state: state
-        )
+        let runtimeSnapshot = snapshot
+        let baseRevision = remoteRuntimeStateRevision
+        let schemaVersion = SessionSnapshotSchema.currentVersion
+        remoteRuntimeStateEncodingTask?.cancel()
+        // The app target remains Swift 5/Xcode 16 compatible, where
+        // `@concurrent` is unavailable; a detached task keeps multi-megabyte
+        // encoding off the main autosave path.
+        remoteRuntimeStateEncodingTask = Task.detached(priority: .utility) {
+            guard !Task.isCancelled,
+                  let state = try? JSONEncoder().encode(runtimeSnapshot),
+                  !Task.isCancelled else { return }
+            controller.enqueueRuntimeState(
+                schemaVersion: schemaVersion,
+                state: state,
+                baseRevision: baseRevision
+            )
+        }
     }
 
     func teardownPanelsForClosePreservingRemoteRuntimeState() {

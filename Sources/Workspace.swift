@@ -2284,6 +2284,7 @@ final class Workspace: Identifiable, ObservableObject {
     var remoteSessionControllerForRuntimeState: RemoteSessionCoordinator? { remoteSessionController }
     var remoteRuntimeStateRevision: UInt64 = 0
     var isApplyingRemoteRuntimeState = false
+    var remoteRuntimeStateEncodingTask: Task<Void, Never>?
     private enum RemoteForegroundAuthenticationPhase: Equatable {
         case readyBeforeConfiguration(token: String), authenticating(token: String)
     }

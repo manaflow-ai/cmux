@@ -31,6 +31,9 @@ extension RemoteDaemonRPCClient {
         guard schemaVersion > 0 else {
             throw Self.runtimeStateError(code: 40, message: "runtime state schema version must be greater than zero")
         }
+        guard state.count <= RemoteRuntimeStateDocument.maximumStateBytes else {
+            throw Self.runtimeStateError(code: 46, message: "runtime state exceeds the maximum encoded size")
+        }
         let stateObject = try JSONSerialization.jsonObject(with: state, options: [])
         guard stateObject is [String: Any] else {
             throw Self.runtimeStateError(code: 41, message: "runtime state must be a JSON object")

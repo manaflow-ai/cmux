@@ -88,7 +88,11 @@ struct RemoteRuntimeStateCoordinatorTests {
             fixture.coordinator.runtimeStateSynchronized = false
         }
         let offlineEdit = Data(#"{"title":"offline edit"}"#.utf8)
-        fixture.coordinator.enqueueRuntimeState(schemaVersion: 1, state: offlineEdit)
+        fixture.coordinator.enqueueRuntimeState(
+            schemaVersion: 1,
+            state: offlineEdit,
+            baseRevision: 7
+        )
         fixture.coordinator.queue.sync {}
 
         Self.synchronize(fixture)
@@ -99,6 +103,76 @@ struct RemoteRuntimeStateCoordinatorTests {
         #expect(stored.state == offlineEdit)
         #expect(fixture.host.documents.map(\.revision) == [7])
         #expect(fixture.host.revisions == [8])
+    }
+
+    @Test("a snapshot captured before initial restore cannot overwrite fetched state")
+    func staleInitialCaptureIsDiscarded() throws {
+        let fixture = Self.fixture()
+        defer { fixture.stop() }
+        let serverState = Data(#"{"title":"server"}"#.utf8)
+        fixture.provider.tunnel.seedRuntimeState(RemoteRuntimeStateDocument(
+            schemaVersion: 1,
+            revision: 7,
+            updatedAtUnixMilliseconds: 1,
+            state: serverState,
+            ptySessions: Data("[]".utf8)
+        ))
+        Self.synchronize(fixture)
+
+        fixture.coordinator.enqueueRuntimeState(
+            schemaVersion: 1,
+            state: Data(#"{"title":"stale capture"}"#.utf8),
+            baseRevision: 0
+        )
+        fixture.coordinator.queue.sync {}
+
+        let storedDocument = try fixture.provider.tunnel.getRuntimeState()
+        let stored = try #require(storedDocument)
+        #expect(stored.revision == 7)
+        #expect(stored.state == serverState)
+        #expect(fixture.host.revisions.isEmpty)
+    }
+
+    @Test("a reconnect accepts newer server state instead of overwriting it")
+    func reconnectAcceptsAdvancedServerRevision() throws {
+        let fixture = Self.fixture()
+        defer { fixture.stop() }
+        fixture.provider.tunnel.seedRuntimeState(RemoteRuntimeStateDocument(
+            schemaVersion: 1,
+            revision: 7,
+            updatedAtUnixMilliseconds: 1,
+            state: Data(#"{"title":"initial"}"#.utf8),
+            ptySessions: Data("[]".utf8)
+        ))
+        Self.synchronize(fixture)
+
+        fixture.coordinator.queue.sync {
+            fixture.coordinator.proxyLease = nil
+            fixture.coordinator.runtimeStateSynchronized = false
+        }
+        fixture.coordinator.enqueueRuntimeState(
+            schemaVersion: 1,
+            state: Data(#"{"title":"offline edit"}"#.utf8),
+            baseRevision: 7
+        )
+        fixture.coordinator.queue.sync {}
+        let advancedState = Data(#"{"title":"other client"}"#.utf8)
+        fixture.provider.tunnel.seedRuntimeState(RemoteRuntimeStateDocument(
+            schemaVersion: 1,
+            revision: 8,
+            updatedAtUnixMilliseconds: 2,
+            state: advancedState,
+            ptySessions: Data("[]".utf8)
+        ))
+
+        Self.synchronize(fixture)
+
+        let storedDocument = try fixture.provider.tunnel.getRuntimeState()
+        let stored = try #require(storedDocument)
+        #expect(stored.revision == 8)
+        #expect(stored.state == advancedState)
+        #expect(fixture.host.documents.map(\.revision) == [7, 8])
+        #expect(fixture.host.revisions.isEmpty)
     }
 
     private static func synchronize(_ fixture: RemoteRuntimeStateCoordinatorFixture) {

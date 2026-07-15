@@ -10,6 +10,9 @@ public struct RemoteRuntimeStateDocument: Sendable, Equatable {
     /// The runtime-state wire protocol implemented by this client.
     public static let protocolVersion = 1
 
+    /// Maximum encoded JSON-object size accepted by the daemon.
+    public static let maximumStateBytes = 3 * 1024 * 1024
+
     /// Client-owned schema version for the JSON object in ``state``.
     public let schemaVersion: Int
     /// Monotonically increasing daemon-owned revision.

@@ -36,20 +36,79 @@ type runtimeStateSnapshot struct {
 	PTYSessions     []map[string]any `json:"pty_sessions"`
 }
 
-type runtimeStateSubscriber func(runtimeStateDocument)
+type runtimeStateSubscriberCallback func(runtimeStateDocument)
+
+type runtimeStateSubscriber struct {
+	updates  chan runtimeStateDocument
+	done     chan struct{}
+	stopOnce sync.Once
+	callback runtimeStateSubscriberCallback
+}
+
+func newRuntimeStateSubscriber(callback runtimeStateSubscriberCallback) *runtimeStateSubscriber {
+	subscriber := &runtimeStateSubscriber{
+		updates:  make(chan runtimeStateDocument, 1),
+		done:     make(chan struct{}),
+		callback: callback,
+	}
+	go subscriber.run()
+	return subscriber
+}
+
+func (s *runtimeStateSubscriber) run() {
+	for {
+		select {
+		case <-s.done:
+			return
+		default:
+		}
+		select {
+		case <-s.done:
+			return
+		case document := <-s.updates:
+			s.callback(document)
+		}
+	}
+}
+
+func (s *runtimeStateSubscriber) offer(document runtimeStateDocument) {
+	select {
+	case <-s.done:
+		return
+	default:
+	}
+	select {
+	case s.updates <- document:
+		return
+	default:
+	}
+	select {
+	case <-s.updates:
+	default:
+	}
+	select {
+	case <-s.done:
+	case s.updates <- document:
+	default:
+	}
+}
+
+func (s *runtimeStateSubscriber) stop() {
+	s.stopOnce.Do(func() { close(s.done) })
+}
 
 type runtimeStateStore struct {
 	mu               sync.Mutex
 	filePath         string
 	document         *runtimeStateDocument
 	nextSubscriberID uint64
-	subscribers      map[uint64]runtimeStateSubscriber
+	subscribers      map[uint64]*runtimeStateSubscriber
 }
 
 func newRuntimeStateStore(filePath string) (*runtimeStateStore, error) {
 	store := &runtimeStateStore{
 		filePath:    filePath,
-		subscribers: map[uint64]runtimeStateSubscriber{},
+		subscribers: map[uint64]*runtimeStateSubscriber{},
 	}
 	if filePath == "" {
 		return store, nil
@@ -104,24 +163,24 @@ func (s *runtimeStateStore) put(
 		}
 	}
 	s.document = cloneRuntimeStateDocument(&document)
-	subscribers := make([]runtimeStateSubscriber, 0, len(s.subscribers))
+	subscribers := make([]*runtimeStateSubscriber, 0, len(s.subscribers))
 	for _, subscriber := range s.subscribers {
 		subscribers = append(subscribers, subscriber)
 	}
 	s.mu.Unlock()
 
 	for _, subscriber := range subscribers {
-		subscriber(document)
+		subscriber.offer(document)
 	}
 	return document, nil
 }
 
-func (s *runtimeStateStore) subscribe(subscriber runtimeStateSubscriber) (uint64, *runtimeStateDocument) {
+func (s *runtimeStateStore) subscribe(callback runtimeStateSubscriberCallback) (uint64, *runtimeStateDocument) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.nextSubscriberID++
 	id := s.nextSubscriberID
-	s.subscribers[id] = subscriber
+	s.subscribers[id] = newRuntimeStateSubscriber(callback)
 	return id, cloneRuntimeStateDocument(s.document)
 }
 
@@ -130,8 +189,12 @@ func (s *runtimeStateStore) unsubscribe(id uint64) {
 		return
 	}
 	s.mu.Lock()
+	subscriber := s.subscribers[id]
 	delete(s.subscribers, id)
 	s.mu.Unlock()
+	if subscriber != nil {
+		subscriber.stop()
+	}
 }
 
 func cloneRuntimeStateDocument(document *runtimeStateDocument) *runtimeStateDocument {

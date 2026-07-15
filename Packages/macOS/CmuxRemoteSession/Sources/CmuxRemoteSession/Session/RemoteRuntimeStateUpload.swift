@@ -4,4 +4,6 @@ internal import Foundation
 struct RemoteRuntimeStateUpload: Sendable {
     let schemaVersion: Int
     let state: Data
+    /// Daemon revision the workspace snapshot was derived from.
+    let baseRevision: UInt64?
 }

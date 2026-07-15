@@ -80,6 +80,8 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     var daemonRemotePath: String?
     var runtimeStateCapabilityAvailable = false
     var runtimeStateSynchronized = false
+    var hasCompletedInitialRuntimeStateSynchronization = false
+    var lastKnownRuntimeStateRevision: UInt64 = 0
     var pendingRuntimeStateUpload: RemoteRuntimeStateUpload?
     var reverseRelayProcess: Process?
     var reverseRelayControlMasterForwardSpec: String?

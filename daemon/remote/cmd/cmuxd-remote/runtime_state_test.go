@@ -181,10 +181,11 @@ func TestRuntimeStateStorePutDoesNotBlockOnSlowSubscriber(t *testing.T) {
 	subscriberStarted := make(chan struct{})
 	releaseSubscriber := make(chan struct{})
 	defer close(releaseSubscriber)
-	_, _ = store.subscribe(func(runtimeStateDocument) {
+	subscriberID, _ := store.subscribe(func(runtimeStateDocument) {
 		close(subscriberStarted)
 		<-releaseSubscriber
 	})
+	defer store.unsubscribe(subscriberID)
 
 	putDone := make(chan error, 1)
 	go func() {
