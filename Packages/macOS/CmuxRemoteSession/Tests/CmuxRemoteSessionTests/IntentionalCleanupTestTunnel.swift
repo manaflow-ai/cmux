@@ -1,3 +1,4 @@
+import CmuxRemoteDaemon
 import CmuxRemoteWorkspace
 import Foundation
 
@@ -6,6 +7,8 @@ final class IntentionalCleanupTestTunnel: RemoteProxyTunneling, @unchecked Senda
     private let lock = NSLock()
     private var lifecycleByKey: [IntentionalCleanupTestTunnelKey: RemotePTYSessionLifecycle] = [:]
     private var bridgeServers: [(sessionID: String, server: RemotePTYBridgeServer)] = []
+    private var runtimeState: RemoteRuntimeStateDocument?
+    private var runtimeStateGetFailuresRemaining = 0
 
     func start() throws {}
 
@@ -78,6 +81,46 @@ final class IntentionalCleanupTestTunnel: RemoteProxyTunneling, @unchecked Senda
         attachmentID: String,
         attachmentToken: String
     ) throws {}
+
+    func getRuntimeState() throws -> RemoteRuntimeStateDocument? {
+        try lock.withLock {
+            if runtimeStateGetFailuresRemaining > 0 {
+                runtimeStateGetFailuresRemaining -= 1
+                throw NSError(domain: "test.runtime-state", code: 2)
+            }
+            return runtimeState
+        }
+    }
+
+    func putRuntimeState(
+        schemaVersion: Int,
+        state: Data,
+        expectedRevision: UInt64?
+    ) throws -> RemoteRuntimeStateDocument {
+        try lock.withLock {
+            let currentRevision = runtimeState?.revision ?? 0
+            if let expectedRevision, expectedRevision != currentRevision {
+                throw NSError(domain: "test.runtime-state", code: 1)
+            }
+            let document = RemoteRuntimeStateDocument(
+                schemaVersion: schemaVersion,
+                revision: currentRevision + 1,
+                updatedAtUnixMilliseconds: 1,
+                state: state,
+                ptySessions: Data("[]".utf8)
+            )
+            runtimeState = document
+            return document
+        }
+    }
+
+    func seedRuntimeState(_ document: RemoteRuntimeStateDocument?) {
+        lock.withLock { runtimeState = document }
+    }
+
+    func failNextRuntimeStateGet() {
+        lock.withLock { runtimeStateGetFailuresRemaining += 1 }
+    }
 
     func startPTYBridge(
         sessionID: String,

@@ -55,6 +55,18 @@ final class TestPTYLifecycleRPCClient: RemoteDaemonTunnelRPCClient, @unchecked S
 
     func closeStream(streamID: String) {}
 
+    func getRuntimeState() throws -> RemoteRuntimeStateDocument? {
+        throw NSError(domain: "test.remote.runtime-state", code: 1)
+    }
+
+    func putRuntimeState(
+        schemaVersion: Int,
+        state: Data,
+        expectedRevision: UInt64?
+    ) throws -> RemoteRuntimeStateDocument {
+        throw NSError(domain: "test.remote.runtime-state", code: 1)
+    }
+
     func closePTY(sessionID: String, timeout: TimeInterval) throws {
         closeStarted.signal()
         let error = lock.withLock {

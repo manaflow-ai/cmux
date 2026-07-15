@@ -33,6 +33,7 @@ struct RemoteDaemonRPCClientCapabilityTests {
         #expect(RemoteDaemonRPCClient.requiredPTYWriteNotificationCapability == "pty.write.notification")
         #expect(RemoteDaemonRPCClient.requiredPTYResizeNotificationCapability == "pty.resize.notification")
         #expect(RemoteDaemonRPCClient.optionalPTYInputSeqAckCapability == "pty.input.seq_ack")
+        #expect(RemoteDaemonRPCClient.optionalRuntimeStateCapability == "runtime.state.v1")
         #expect(RemoteDaemonRPCClient.ptyInputSeqGapErrorCode == "pty_input_seq_gap")
     }
 
@@ -84,6 +85,9 @@ struct RemoteDaemonRPCClientCapabilityTests {
         #expect(!RemoteDaemonRPCClient.requiredCapabilities(
             for: configuration(preserveAfterTerminalExit: true, persistentDaemonSlot: "slot")
         ).contains("pty.input.seq_ack"))
+        #expect(!RemoteDaemonRPCClient.requiredCapabilities(
+            for: configuration(preserveAfterTerminalExit: true, persistentDaemonSlot: "slot")
+        ).contains("runtime.state.v1"))
     }
 
     @Test("missingRequiredCapabilities filters advertised capabilities preserving order")
