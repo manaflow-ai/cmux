@@ -61,7 +61,42 @@ custom_theme_file="$themes_dir/$custom_theme_name"
 backup_dir="$(mktemp -d "${TMPDIR:-/tmp}/cmux-theme-cycle.XXXXXX")"
 config_existed=0
 custom_theme_existed=0
+config_mutated=0
+custom_theme_mutated=0
 restored=0
+
+reload_config() {
+  CMUX_TAG="$tag" "$repo_root/scripts/cmux-debug-cli.sh" reload-config >/dev/null
+}
+
+restore() {
+  local status=$?
+  if (( restored )); then
+    return "$status"
+  fi
+  restored=1
+  if (( config_mutated )); then
+    if (( config_existed )); then
+      cp -p "$backup_dir/config" "$config_file"
+    else
+      rm -f "$config_file"
+    fi
+  fi
+  if (( custom_theme_mutated )); then
+    if (( custom_theme_existed )); then
+      cp -p "$backup_dir/custom-theme" "$custom_theme_file"
+    else
+      rm -f "$custom_theme_file"
+    fi
+  fi
+  if (( config_mutated || custom_theme_mutated )); then
+    reload_config || true
+    printf 'Restored original Ghostty theme.\n'
+  fi
+  rm -rf "$backup_dir"
+  return "$status"
+}
+trap restore EXIT INT TERM
 
 mkdir -p "$config_dir" "$themes_dir"
 if [[ -L "$config_file" ]]; then
@@ -78,6 +113,7 @@ if [[ -f "$config_file" ]]; then
   cp -p "$config_file" "$backup_dir/config"
   config_existed=1
 else
+  config_mutated=1
   : > "$config_file"
 fi
 if [[ -f "$custom_theme_file" ]]; then
@@ -85,6 +121,7 @@ if [[ -f "$custom_theme_file" ]]; then
   custom_theme_existed=1
 fi
 
+custom_theme_mutated=1
 cat > "$custom_theme_file" <<'EOF'
 palette = 0=#042F34
 palette = 1=#FF6B6B
@@ -110,10 +147,6 @@ selection-background = #2A6870
 selection-foreground = #FFFFFF
 EOF
 
-reload_config() {
-  CMUX_TAG="$tag" "$repo_root/scripts/cmux-debug-cli.sh" reload-config >/dev/null
-}
-
 set_theme() {
   local theme="$1"
   local temporary
@@ -132,33 +165,11 @@ set_theme() {
       if (!replaced) print "theme = \"" theme "\""
     }
   ' "$config_file" > "$temporary"
+  config_mutated=1
   mv "$temporary" "$config_file"
   reload_config
   printf '%s  %s\n' "$(date '+%H:%M:%S')" "$theme"
 }
-
-restore() {
-  local status=$?
-  if (( restored )); then
-    return "$status"
-  fi
-  restored=1
-  if (( config_existed )); then
-    cp -p "$backup_dir/config" "$config_file"
-  else
-    rm -f "$config_file"
-  fi
-  if (( custom_theme_existed )); then
-    cp -p "$backup_dir/custom-theme" "$custom_theme_file"
-  else
-    rm -f "$custom_theme_file"
-  fi
-  reload_config || true
-  rm -rf "$backup_dir"
-  printf 'Restored original Ghostty theme.\n'
-  return "$status"
-}
-trap restore EXIT INT TERM
 
 themes=("Monokai Classic" "Atom One Light" "$custom_theme_name")
 completed=0
