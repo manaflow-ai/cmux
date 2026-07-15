@@ -113,16 +113,22 @@ struct DeviceTreeView: View {
             .task {
                 // This screen is the user's connection-debug view. The online dots
                 // (presence) and secondary workspace counts already update live via
-                // push subscriptions, so keeping it "live" just needs a gentle,
-                // timer-driven refresh of the local rows + connected foreground state.
+                // push subscriptions. Refresh local rows + connected foreground
+                // state every tick, and the account registry every third tick so
+                // handoff rows advance without turning this into a hot polling path.
                 // `refreshComputersScreen()` deliberately does NOT dial offline Macs
                 // on the timer (that would fan out a reconnect storm to every saved
                 // Mac); presence-push recovery and the explicit pull-to-refresh /
                 // per-Mac Reconnect button handle reconnects. The timer sequence is
                 // cancelled on dismiss by the surrounding SwiftUI `.task`.
                 await reload()
+                var registryRefreshTicks = 0
                 for await _ in Timer.publish(every: 10, on: .main, in: .common).autoconnect().values {
                     await store.refreshComputersScreen()
+                    registryRefreshTicks += 1
+                    if registryRefreshTicks.isMultiple(of: 3) {
+                        await store.loadRegistryDevices()
+                    }
                 }
             }
         }
