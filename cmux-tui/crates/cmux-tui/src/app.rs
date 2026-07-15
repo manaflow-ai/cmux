@@ -172,6 +172,7 @@ fn forward_mux_event(
 struct MuxTitleIngressState {
     wake_queued: bool,
     titles: HashMap<SurfaceId, Arc<str>>,
+    dirty: HashSet<SurfaceId>,
 }
 
 impl MuxTitleIngress {
@@ -179,6 +180,7 @@ impl MuxTitleIngress {
     fn push(&self, surface: SurfaceId, title: impl Into<Arc<str>>) -> bool {
         let mut state = self.state.lock().unwrap();
         state.titles.insert(surface, title.into());
+        state.dirty.insert(surface);
         if state.wake_queued {
             false
         } else {
@@ -188,12 +190,23 @@ impl MuxTitleIngress {
     }
 
     fn remove(&self, surface: SurfaceId) {
-        self.state.lock().unwrap().titles.remove(&surface);
+        let mut state = self.state.lock().unwrap();
+        state.titles.remove(&surface);
+        state.dirty.remove(&surface);
+    }
+
+    fn take_dirty(&self) -> HashMap<SurfaceId, Arc<str>> {
+        let mut state = self.state.lock().unwrap();
+        state.wake_queued = false;
+        let dirty = std::mem::take(&mut state.dirty);
+        dirty
+            .into_iter()
+            .filter_map(|surface| state.titles.get(&surface).cloned().map(|title| (surface, title)))
+            .collect()
     }
 
     fn snapshot(&self) -> HashMap<SurfaceId, Arc<str>> {
-        let mut state = self.state.lock().unwrap();
-        state.wake_queued = false;
+        let state = self.state.lock().unwrap();
         state.titles.clone()
     }
 }
@@ -2229,7 +2242,16 @@ impl App {
     }
 
     fn apply_mux_titles(&mut self) -> bool {
+        let titles = self.mux_titles.take_dirty();
+        self.apply_mux_title_snapshot(titles)
+    }
+
+    fn reapply_mux_titles(&mut self) -> bool {
         let titles = self.mux_titles.snapshot();
+        self.apply_mux_title_snapshot(titles)
+    }
+
+    fn apply_mux_title_snapshot(&mut self, titles: HashMap<SurfaceId, Arc<str>>) -> bool {
         if titles.is_empty() {
             return false;
         }
@@ -2283,7 +2305,7 @@ impl App {
         }
         self.tree = tree;
         self.rebuild_tab_locations();
-        self.apply_mux_titles();
+        self.reapply_mux_titles();
     }
 
     fn replace_authoritative_tree(&mut self, tree: TreeView, routing_generation: u64) {
@@ -2316,6 +2338,7 @@ impl App {
             self.drag = None;
         }
         self.render_states.remove(&surface);
+        self.mux_titles.remove(surface);
         self.session.forget_surface(surface);
         if self.sidebar_plugin_surface == Some(surface) {
             self.session.invalidate_sidebar_plugin_sync();
@@ -6892,6 +6915,10 @@ mod tests {
         assert_eq!(app.tree.pane(2).unwrap().tabs[0].title, "title-9999");
         assert_eq!(app.tree.pane(2).unwrap().tabs[1].title, "");
         assert!(app.mux_titles.push(updated_surface, "next".to_string()));
+        let dirty = app.mux_titles.take_dirty();
+        assert_eq!(dirty.len(), 1);
+        assert_eq!(dirty.get(&updated_surface).map(AsRef::as_ref), Some("next"));
+        assert_eq!(app.mux_titles.snapshot().len(), 2);
     }
 
     #[test]
@@ -7035,11 +7062,13 @@ mod tests {
         let mut app = test_app(Session::Local(mux));
         app.replace_tree(notify_tree(42, false));
         app.render_states.insert(42, RenderState::new().unwrap());
+        app.mux_titles.push(42, "stale-title".to_string());
 
         app.replace_authoritative_tree(TreeView::default(), 0);
 
         assert!(!app.render_states.contains_key(&42));
         assert!(!app.tab_locations.contains_key(&42));
+        assert!(!app.mux_titles.snapshot().contains_key(&42));
     }
 
     #[test]
