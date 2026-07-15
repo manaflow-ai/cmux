@@ -119,6 +119,65 @@ struct NotificationFeedScaleTests {
     }
 
     @Test
+    func frozenFeedSnapshotSurvivesStorageCompaction() {
+        let store = TerminalNotificationStore.shared
+        let eventBus = CmuxEventBus.shared
+        let tabId = UUID()
+        let surfaceId = UUID()
+        let limit = TerminalNotificationStore.maximumNotificationFeedCount
+
+        let notifications = (0..<limit).map { index in
+            TerminalNotification(
+                id: UUID(),
+                tabId: tabId,
+                surfaceId: surfaceId,
+                retargetsToLiveSurfaceOwner: false,
+                title: "History \(index)",
+                subtitle: "",
+                body: "",
+                createdAt: Date(timeIntervalSince1970: TimeInterval(index)),
+                isRead: false
+            )
+        }.sorted(by: TerminalNotificationStore.notificationSortPrecedes)
+
+        store.replaceNotificationsForTesting(notifications)
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        store.configureSuppressedNotificationFeedbackHandlerForTesting { _, _ in }
+        TerminalNotificationStore.notificationFeedCompactionOffsetForTesting = 8
+        eventBus.resetForTesting()
+        defer {
+            store.replaceNotificationsForTesting([])
+            TerminalNotificationStore.notificationFeedCompactionOffsetForTesting = nil
+            store.resetNotificationDeliveryHandlerForTesting()
+            store.resetSuppressedNotificationFeedbackHandlerForTesting()
+            eventBus.resetForTesting()
+        }
+
+        let frozen = store.notifications
+        let frozenFirst = frozen.first?.id
+        let frozenLast = frozen.last?.id
+
+        for index in 0..<8 {
+            store.addNotification(
+                id: UUID(),
+                acceptedAt: Date(timeIntervalSince1970: TimeInterval(limit + index + 1)),
+                tabId: tabId,
+                surfaceId: surfaceId,
+                title: "Live \(index)",
+                subtitle: "",
+                body: "",
+                retargetsToLiveSurfaceOwner: false
+            )
+        }
+
+        #expect(frozen.count == limit)
+        #expect(frozen.first?.id == frozenFirst)
+        #expect(frozen.last?.id == frozenLast)
+        #expect(store.notifications.count == limit)
+        #expect(store.notifications.first?.title == "Live 7")
+    }
+
+    @Test
     func inconsistentIncrementalIndexesRebuildInsteadOfTrapping() {
         let tabId = UUID()
         let existing = TerminalNotification(

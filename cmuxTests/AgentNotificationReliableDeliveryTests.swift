@@ -220,6 +220,58 @@ final class AgentNotificationReliableDeliveryTests: XCTestCase {
         XCTAssertEqual(identity.3, newSurfaceId)
     }
 
+    func testValidatedReliableAdmissionFallsBackToWorkspaceIfSurfaceDisappearsBeforeDrain() async throws {
+        let bus = TerminalMutationBus.shared
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        bus.discardPendingNotifications()
+        bus.setDrainsSuspendedForTesting(true)
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        store.configureSuppressedNotificationFeedbackHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = false
+        let workspace = manager.addWorkspace(select: true)
+        let surfaceId = UUID()
+        defer {
+            reset(bus)
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            store.resetSuppressedNotificationFeedbackHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+        }
+
+        let result = await AgentNotificationDelivery().enqueueReliably(
+            workspaceID: workspace.id,
+            surfaceID: surfaceId,
+            title: "Validated completion",
+            subtitle: "",
+            body: "",
+            category: nil,
+            pending: false,
+            allowWorkspaceFallbackForValidatedSurface: true
+        )
+        XCTAssertEqual(result, .accepted)
+
+        bus.drainForTesting()
+
+        let recorded = Array(store.notifications)
+        XCTAssertEqual(recorded.map(\.title), ["Validated completion"])
+        XCTAssertEqual(recorded.first?.tabId, workspace.id)
+        XCTAssertNil(recorded.first?.surfaceId)
+    }
+
     func testClearStartedAfterSessionTransferUsesReplacementRoute() {
         let bus = TerminalMutationBus.shared
         let oldTabId = UUID()

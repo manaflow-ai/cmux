@@ -191,14 +191,19 @@ struct ControlCommandExecutionPolicyTests {
     }
 
     @Test func v1NotificationFamilyUsesSafeMainThreadPolicy() {
-        // The synchronous verbs collapse their main hop inline, while
-        // notify_target_async can wait for queue capacity and stays worker-only.
+        // The synchronous notify verbs collapse their main hop inline, while
+        // list_notifications formats the full feed and notify_target_async can
+        // wait for queue capacity, so both stay worker-only.
         for command in [
-            "notify", "notify_surface", "notify_target", "list_notifications", "clear_notifications",
+            "notify", "notify_surface", "notify_target", "clear_notifications",
         ] {
             let policy = ControlCommandExecutionPolicy(forV1Command: command)
             #expect(policy == .socketWorker(mainThreadCallable: true), "\(command)")
         }
+        #expect(
+            ControlCommandExecutionPolicy(forV1Command: "list_notifications")
+                == .socketWorker(mainThreadCallable: false)
+        )
         #expect(
             ControlCommandExecutionPolicy(forV1Command: "notify_target_async")
                 == .socketWorker(mainThreadCallable: false)
@@ -301,11 +306,12 @@ struct ControlCommandExecutionPolicyTests {
         let expectedWorker = telemetry.union(notification).union(terminalRead)
             .union(resolutionReads).union(sends).union(["ping"])
         #expect(ControlCommandExecutionPolicy.socketWorkerV1Commands == expectedWorker)
-        // read_screen and notify_target_async remain worker-only: the former
-        // performs multi-MB formatting and the latter may wait for capacity.
+        // read_screen, list_notifications, and notify_target_async remain
+        // worker-only: the first two can perform multi-row formatting and the
+        // latter may wait for capacity.
         #expect(
             ControlCommandExecutionPolicy.mainThreadCallableSocketWorkerV1Commands
-                == expectedWorker.subtracting(terminalRead.union(["notify_target_async"]))
+                == expectedWorker.subtracting(terminalRead.union(["list_notifications", "notify_target_async"]))
         )
     }
 }
