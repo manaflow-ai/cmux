@@ -12,12 +12,32 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `eb500e9f4`. It advances the previous cmux pin
-`5ae712a89` through the bounded-scrollback merge `81a6daa8e`, then adds
-terminal-owned scrollbar snapshots, absolute row-space identity, OSC-boundary
-geometry, and compare-and-set absolute-row restoration for notification
-scrollback replay. The commit is reachable from fork `main` through
-`cbbddb292`.
+Current cmux pinned fork head: `b4b6d69c8`. It advances the previous cmux pin
+`a6305908a` with an exact Ghostty CLI executable-path contract for embedded
+hosts. The commit is reachable from fork `main` through `67b388b73` and was
+published via https://github.com/manaflow-ai/ghostty/pull/115.
+The corresponding universal ReleaseFast GhosttyKit archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-b4b6d69c82033e16137266a04b364dc53d16c350-crashsubdir-cmux-crash-v1
+and pinned in `scripts/ghosttykit-checksums.txt`.
+
+### Embedded Ghostty CLI path ownership
+
+- `src/termio/Exec.zig` exports `GHOSTTY_BIN` as the exact CLI executable.
+  Native Ghostty resolves to its running binary; an embedded host can supply a
+  separate helper without assuming the host GUI executable is named `ghostty`.
+- The zsh, bash, fish, nushell, and elvish SSH integrations invoke
+  `GHOSTTY_BIN` directly. They install no SSH wrapper when an embedded host has
+  not supplied a helper, so missing optional CLI support cannot break ordinary
+  `ssh`.
+- `GHOSTTY_BIN_DIR` remains the directory contract for the independent `path`
+  shell-integration feature; it is no longer used to reconstruct a CLI filename.
+- Conflict note: future upstream merges must preserve the distinction between
+  the exact CLI path (`GHOSTTY_BIN`) and its PATH directory
+  (`GHOSTTY_BIN_DIR`) across `src/termio/Exec.zig` and every shell integration.
+
+The earlier fork history below includes terminal-owned scrollbar snapshots,
+absolute row-space identity, OSC-boundary geometry, and compare-and-set
+absolute-row restoration for notification scrollback replay.
 
 The underlying compression, selection, and full-scrollback changes were
 published via
