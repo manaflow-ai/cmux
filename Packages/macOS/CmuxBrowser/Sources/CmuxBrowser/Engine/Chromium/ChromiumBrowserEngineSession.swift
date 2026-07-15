@@ -84,6 +84,11 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
     /// Queues or performs a top-level CDP navigation.
     public func load(_ request: URLRequest) {
         guard let url = request.url else { return }
+        guard supportsNavigation(request) else {
+            pendingRequest = nil
+            presentMessage(BrowserEngineSessionError.unsupportedChromiumNavigationRequest.localizedDescription)
+            return
+        }
         guard application != nil else {
             updateState { state in
                 state.url = url
@@ -520,6 +525,14 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
             localized: "browser.chromium.error.launchFailed",
             defaultValue: "Chromium could not start. Try another installed Chromium browser or switch to WebKit."
         ))
+    }
+
+    private func supportsNavigation(_ request: URLRequest) -> Bool {
+        let method = request.httpMethod ?? "GET"
+        guard method.caseInsensitiveCompare("GET") == .orderedSame else { return false }
+        guard request.allHTTPHeaderFields?.isEmpty != false else { return false }
+        guard request.httpBody == nil, request.httpBodyStream == nil else { return false }
+        return request.cachePolicy == .useProtocolCachePolicy
     }
 
     private func presentOperationFailure() {

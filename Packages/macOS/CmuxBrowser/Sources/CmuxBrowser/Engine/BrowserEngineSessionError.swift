@@ -8,6 +8,9 @@ public enum BrowserEngineSessionError: LocalizedError, Sendable {
     /// A Chromium application could not be found.
     case chromiumUnavailable
 
+    /// A Chromium navigation would discard URL request semantics.
+    case unsupportedChromiumNavigationRequest
+
     /// A Chrome DevTools Protocol operation failed.
     case chromiumProtocol(String)
 
@@ -29,6 +32,11 @@ public enum BrowserEngineSessionError: LocalizedError, Sendable {
             return String(
                 localized: "browser.chromium.error.notInstalled",
                 defaultValue: "Chromium is selected, but no supported Chromium browser is installed."
+            )
+        case .unsupportedChromiumNavigationRequest:
+            return String(
+                localized: "browser.chromium.error.unsupportedNavigationRequest",
+                defaultValue: "This request requires WebKit because Chromium cannot preserve its method, headers, body, or cache policy."
             )
         case .chromiumProtocol:
             return String(
