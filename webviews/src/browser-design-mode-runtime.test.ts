@@ -656,9 +656,11 @@ describe("browser design-mode runtime", () => {
       new dom.window.MouseEvent(name, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y }),
     );
 
+    // A freehand stroke whose farthest sweep goes beyond where the pointer is
+    // released: the region must bound the WHOLE stroke, not the endpoints.
     at("pointerdown", 10, 20);
     at("pointermove", 40, 50);
-    at("pointermove", 110, 140);
+    at("pointermove", 210, 340);
     at("pointerup", 110, 140);
 
     const state = runtime.composerState();
@@ -666,7 +668,7 @@ describe("browser design-mode runtime", () => {
     expect(state.can_copy).toBe(true);
     const selection = runtime.snapshot().selections?.[0];
     expect(selection?.tag_name).toBe("region");
-    expect(selection?.bounds).toEqual({ x: 10, y: 20, width: 100, height: 120 });
+    expect(selection?.bounds).toEqual({ x: 10, y: 20, width: 200, height: 320 });
 
     // The trailing click from the same gesture must not add an element selection.
     at("click", 110, 140);

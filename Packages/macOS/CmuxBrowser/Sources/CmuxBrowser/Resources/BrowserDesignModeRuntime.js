@@ -70,6 +70,7 @@
   const marqueeThresholdPixels = 5;
   let pendingPointer = null;
   let marqueeActive = false;
+  let marqueePoints = [];
   let suppressClicksUntil = 0;
 
   const number = (value) => {
@@ -872,17 +873,37 @@
       background: "rgba(10, 132, 255, 0.10)",
     });
 
-    shadow.append(shield, selectionLayer, marqueeBox, margin, border, padding, content, badge);
+    // Freehand pen stroke rendered while dragging a capture region,
+    // Cursor-style; the region is the stroke's bounding box.
+    const svgNS = "http://www.w3.org/2000/svg";
+    const strokeSvg = document.createElementNS(svgNS, "svg");
+    Object.assign(strokeSvg.style, {
+      display: "none",
+      position: "fixed",
+      inset: "0",
+      width: "100vw",
+      height: "100vh",
+      pointerEvents: "none",
+    });
+    const strokePath = document.createElementNS(svgNS, "polyline");
+    strokePath.setAttribute("fill", "none");
+    strokePath.setAttribute("stroke", "rgb(229, 83, 75)");
+    strokePath.setAttribute("stroke-width", "2.5");
+    strokePath.setAttribute("stroke-linecap", "round");
+    strokePath.setAttribute("stroke-linejoin", "round");
+    strokeSvg.append(strokePath);
+
+    shadow.append(shield, selectionLayer, marqueeBox, strokeSvg, margin, border, padding, content, badge);
     document.documentElement.appendChild(overlayHost);
     overlay = {
       shield, selectionLayer, selectionOutlines: [], regionOutlines: [], marqueeBox,
-      margin, border, padding, content, badge,
+      strokeSvg, strokePath, margin, border, padding, content, badge,
     };
   };
 
   const hideOverlay = () => {
     if (!overlay) return;
-    for (const name of ["margin", "border", "padding", "content", "badge", "marqueeBox"]) {
+    for (const name of ["margin", "border", "padding", "content", "badge", "marqueeBox", "strokeSvg"]) {
       overlay[name].style.display = "none";
     }
     for (const outline of overlay.selectionOutlines) outline.style.display = "none";
@@ -1265,9 +1286,11 @@
       const dx = event.clientX - pendingPointer.x;
       const dy = event.clientY - pendingPointer.y;
       if (marqueeActive || Math.hypot(dx, dy) > marqueeThresholdPixels) {
+        if (!marqueeActive) marqueePoints = [{ x: pendingPointer.x, y: pendingPointer.y }];
         marqueeActive = true;
         hoveredElement = null;
-        updateMarqueeBox(pendingPointer, event.clientX, event.clientY);
+        marqueePoints.push({ x: event.clientX, y: event.clientY });
+        updateMarqueeBox();
         return;
       }
     }
@@ -1277,18 +1300,29 @@
     scheduleOverlayRefresh();
   };
 
-  const marqueeRect = (origin, clientX, clientY) => ({
-    x: Math.min(origin.x, clientX),
-    y: Math.min(origin.y, clientY),
-    width: Math.abs(clientX - origin.x),
-    height: Math.abs(clientY - origin.y),
-  });
+  // The captured region is the bounding box of the whole freehand stroke,
+  // not just its endpoints, so circling or scribbling over an area crops it.
+  const marqueeBounds = () => {
+    let minX = Infinity; let minY = Infinity; let maxX = -Infinity; let maxY = -Infinity;
+    for (const point of marqueePoints) {
+      minX = Math.min(minX, point.x);
+      minY = Math.min(minY, point.y);
+      maxX = Math.max(maxX, point.x);
+      maxY = Math.max(maxY, point.y);
+    }
+    if (!Number.isFinite(minX)) return { x: 0, y: 0, width: 0, height: 0 };
+    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+  };
 
-  const updateMarqueeBox = (origin, clientX, clientY) => {
+  const updateMarqueeBox = () => {
     createOverlay();
     if (!overlay) return;
-    const rect = marqueeRect(origin, clientX, clientY);
-    place(overlay.marqueeBox, rect);
+    place(overlay.marqueeBox, marqueeBounds());
+    overlay.strokePath.setAttribute(
+      "points",
+      marqueePoints.map((point) => `${point.x},${point.y}`).join(" "),
+    );
+    overlay.strokeSvg.style.display = "block";
     hideHoverFeedback();
   };
 
@@ -1342,9 +1376,16 @@
     marqueeActive = false;
     if (!armed) return;
     suppressClicksUntil = (globalThis.performance?.now?.() || 0) + 500;
-    if (overlay) overlay.marqueeBox.style.display = "none";
+    if (overlay) {
+      overlay.marqueeBox.style.display = "none";
+      overlay.strokeSvg.style.display = "none";
+      overlay.strokePath.setAttribute("points", "");
+    }
     if (wasMarquee) {
-      finalizeRegion(marqueeRect(armed, event.clientX, event.clientY));
+      marqueePoints.push({ x: event.clientX, y: event.clientY });
+      const bounds = marqueeBounds();
+      marqueePoints = [];
+      finalizeRegion(bounds);
       return;
     }
     const candidate = elementUnderPoint(armed.x, armed.y);
@@ -1442,6 +1483,7 @@
     }
     pendingPointer = null;
     marqueeActive = false;
+    marqueePoints = [];
     document.removeEventListener("keydown", onKeyDown, true);
     globalThis.removeEventListener("scroll", scheduleOverlayRefresh, true);
     globalThis.removeEventListener("resize", scheduleOverlayRefresh, true);
