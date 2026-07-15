@@ -327,6 +327,9 @@ jobs:
       CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID: ${{ vars.IOS_TESTFLIGHT_EXTERNAL_GROUP_ID }}
       CMUX_TESTFLIGHT_EXTERNAL_GROUP_NAME: ${{ vars.IOS_TESTFLIGHT_EXTERNAL_GROUP_NAME }}
       CMUX_TESTFLIGHT_ASSIGN_EXTERNAL_GROUP: "0"
+      # Internal builds use separate bundle ID and display name (set here so provisioning profile step can use it)
+      IOS_BETA_BUNDLE_ID: dev.cmux.app.internal
+      IOS_BETA_DISPLAY_NAME: cmux INTERNAL
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
