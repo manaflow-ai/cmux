@@ -48,10 +48,10 @@ import Testing
         ) == .chromium)
     }
 
-    @Test func automaticConsidersBothHTTPSAndHTTPHandlers() {
+    @Test func automaticUsesThePreferredHTTPSHandler() {
         #expect(resolver.resolve(
             preference: .automatic,
             defaultHandlerBundleIdentifiers: ["com.example.UnknownBrowser", "com.brave.Browser"]
-        ) == .chromium)
+        ) == .webKit)
     }
 }

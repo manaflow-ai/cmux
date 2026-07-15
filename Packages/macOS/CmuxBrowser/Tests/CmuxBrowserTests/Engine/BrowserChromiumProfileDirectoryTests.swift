@@ -3,6 +3,24 @@ import Testing
 @testable import CmuxBrowser
 
 @Suite struct BrowserChromiumProfileDirectoryTests {
+    @Test func sameProfileUsesOnePersistentDirectory() {
+        let builder = BrowserChromiumProfileDirectory()
+        let profileID = UUID()
+
+        let firstSession = builder.url(
+            profileID: profileID,
+            surfaceID: UUID(),
+            sessionID: UUID()
+        )
+        let secondSession = builder.url(
+            profileID: profileID,
+            surfaceID: UUID(),
+            sessionID: UUID()
+        )
+
+        #expect(firstSession == secondSession)
+    }
+
     @Test func removesOnlyTheOwnedSession() throws {
         let builder = BrowserChromiumProfileDirectory()
         let profileID = UUID()

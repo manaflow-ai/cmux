@@ -65,18 +65,19 @@ import Testing
         })
     }
 
-    @Test func saturatedUnfinishedInputReportsBackpressureWithoutSplittingTransitions() {
+    @Test func saturatedUnfinishedInputStillAcceptsAReleaseTransition() {
         var queue = ChromiumViewportInputQueue()
 
         for index in 0..<ChromiumViewportInputQueue.maximumPendingCommands {
             queue.enqueue(key(type: "keyDown", code: "Key\(index)"))
         }
-        let originalCommands = queue.commands
-
         let accepted = queue.enqueue(key(type: "keyUp", code: "Key0"))
 
-        #expect(accepted == false)
-        #expect(queue.commands == originalCommands)
+        #expect(accepted)
+        #expect(queue.count == ChromiumViewportInputQueue.maximumPendingCommands)
+        #expect(queue.commands.filter { command in
+            command.parameters["code"] == .string("Key0")
+        }.map { $0.parameters["type"] } == [.string("keyUp")])
     }
 
     private func mouse(
