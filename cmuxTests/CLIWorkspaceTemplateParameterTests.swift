@@ -15,7 +15,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             listenerFD: listenerFD,
             state: state,
             fulfillWhen: { line in
-                self.jsonObject(line)?["method"] as? String == "surface.send_text"
+                self.jsonObject(line)?["method"] as? String == "workspace.create"
             }
         ) { line in
             guard let request = self.jsonObject(line),
@@ -48,10 +48,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
             arguments: [
                 "workspace", "create",
                 "--name", "Dev {{ticket}}",
+                "--cwd", "{{root}}",
                 "--command", "api --ticket {{ticket}} --port {{apiPort}}",
                 "--param", "ticket=FIRST",
                 "--param=ticket=BERKS-87",
                 "--param", "apiPort",
+                "--param", "root=/tmp/cmux-template-root",
                 "--focus", "false",
             ],
             environment: environment,
@@ -66,16 +68,25 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let create = try XCTUnwrap(requests.first { $0["method"] as? String == "workspace.create" })
         let createParams = try XCTUnwrap(create["params"] as? [String: Any])
         XCTAssertEqual(createParams["title"] as? String, "Dev {{ticket}}")
+        XCTAssertEqual(createParams["cwd"] as? String, "{{root}}")
+        XCTAssertEqual(
+            createParams["caller_cwd"] as? String,
+            FileManager.default.currentDirectoryPath
+        )
+        XCTAssertEqual(
+            createParams["initial_command"] as? String,
+            "api --ticket {{ticket}} --port {{apiPort}}"
+        )
         XCTAssertEqual(createParams["focus"] as? Bool, false)
         XCTAssertEqual(
             createParams["template_params"] as? [String: String],
-            ["ticket": "BERKS-87", "apiPort": "4100"]
+            [
+                "ticket": "BERKS-87",
+                "apiPort": "4100",
+                "root": "/tmp/cmux-template-root",
+            ]
         )
-
-        let send = try XCTUnwrap(requests.first { $0["method"] as? String == "surface.send_text" })
-        let sendParams = try XCTUnwrap(send["params"] as? [String: Any])
-        XCTAssertEqual(sendParams["workspace_id"] as? String, "workspace:9")
-        XCTAssertEqual(sendParams["text"] as? String, "api --ticket BERKS-87 --port 4100\r")
+        XCTAssertFalse(requests.contains { $0["method"] as? String == "surface.send_text" })
     }
 
     func testLayoutOpenForwardsTemplateParametersWithoutFocus() throws {
@@ -110,8 +121,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
             executablePath: try bundledCLIPath(),
             arguments: [
                 "layout", "open", "Ticket Dev",
+                "--cwd", "{{root}}",
                 "--param", "ticket=BERKS-87",
                 "--param", "vitePort=5174",
+                "--param", "root=/tmp/cmux-layout-root",
                 "--focus", "false",
             ],
             environment: workspaceTemplateCLIEnvironment(socketPath: socketPath),
@@ -126,9 +139,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(request["method"] as? String, "layout.open")
         let params = try XCTUnwrap(request["params"] as? [String: Any])
         XCTAssertEqual(params["focus"] as? Bool, false)
+        XCTAssertEqual(params["cwd"] as? String, "{{root}}")
+        XCTAssertEqual(
+            params["caller_cwd"] as? String,
+            FileManager.default.currentDirectoryPath
+        )
         XCTAssertEqual(
             params["template_params"] as? [String: String],
-            ["ticket": "BERKS-87", "vitePort": "5174"]
+            [
+                "ticket": "BERKS-87",
+                "vitePort": "5174",
+                "root": "/tmp/cmux-layout-root",
+            ]
         )
     }
 
