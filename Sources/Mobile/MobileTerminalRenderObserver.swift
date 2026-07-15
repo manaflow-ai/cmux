@@ -280,14 +280,10 @@ final class MobileTerminalRenderObserver {
         }
 
         var themedFrame = snapshot.frame
-        var configCandidate = themedFrame.terminalConfigTheme
-        if configCandidate?.boldColor == nil {
-            configCandidate?.boldColor = terminalConfigThemesBySurfaceID[surfaceID]?.boldColor
-                ?? cachedTerminalTheme.boldColor
-        }
         let configTheme = MobileTerminalThemeEmissionDecision.resolveConfigTheme(
-            candidate: configCandidate,
-            cached: terminalConfigThemesBySurfaceID[surfaceID]
+            candidate: themedFrame.terminalConfigTheme,
+            cached: terminalConfigThemesBySurfaceID[surfaceID],
+            fallbackBoldColor: cachedTerminalTheme.boldColor
         )
         themedFrame.terminalConfigTheme = configTheme
         if snapshot.frame.terminalConfigTheme != nil, let configTheme {
@@ -334,6 +330,11 @@ final class MobileTerminalRenderObserver {
         var themedFrame = frame
         themedFrame.terminalTheme = (frame.terminalTheme ?? cachedTerminalTheme)
             .applyingSurfaceColors(from: frame)
+        themedFrame.terminalConfigTheme = MobileTerminalThemeEmissionDecision.resolveConfigTheme(
+            candidate: frame.terminalConfigTheme,
+            cached: nil,
+            fallbackBoldColor: cachedTerminalTheme.boldColor
+        )
         themedFrame.terminalThemeRevision = nextTerminalThemeRevision()
         return themedFrame
     }
@@ -385,14 +386,6 @@ final class MobileTerminalRenderObserver {
     }
 
     #if DEBUG
-    func debugResetRenderGridCacheForTesting() {
-        clearRenderGridCaches()
-    }
-
-    var debugRenderGridCacheCountForTesting: Int {
-        renderGridStatesBySurfaceID.count
-    }
-
     var debugIsRetainingNotificationDemandForTesting: Bool {
         releaseFrameDemand != nil && releaseTickDemand != nil
     }

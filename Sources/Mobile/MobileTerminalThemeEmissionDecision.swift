@@ -20,8 +20,13 @@ struct MobileTerminalThemeEmissionDecision: Equatable {
 
     static func resolveConfigTheme(
         candidate: TerminalTheme?,
-        cached: TerminalTheme?
+        cached: TerminalTheme?,
+        fallbackBoldColor: String? = nil
     ) -> TerminalTheme? {
-        candidate ?? cached
+        guard var resolved = candidate ?? cached else { return nil }
+        if resolved.boldColor == nil {
+            resolved.boldColor = fallbackBoldColor
+        }
+        return resolved
     }
 }
