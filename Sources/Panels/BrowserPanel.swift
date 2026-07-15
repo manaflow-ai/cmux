@@ -2821,6 +2821,16 @@ final class BrowserPanel: Panel, ObservableObject {
     /// in flight (`chromium` is only assigned post-await).
     private var chromiumActivationInProgress = false
 
+    /// True when a mount requested Chromium activation but the surface is a
+    /// remote-workspace pane whose loopback proxy endpoint has not arrived yet.
+    /// The Content Shell can only adopt a proxy at launch, so activation waits;
+    /// `setRemoteProxyEndpoint` re-invokes it when the endpoint lands.
+    private var chromiumActivationWaitingForRemoteProxy = false
+
+    /// The `--proxy-server` value the live Chromium session was launched with,
+    /// used to detect endpoint changes that require a session restart.
+    private var chromiumLaunchedProxyServer: String?
+
     /// True after the Chromium browser process ended; reload restarts a fresh session.
     @Published private(set) var chromiumDisconnected: Bool = false
 
@@ -4523,6 +4533,7 @@ final class BrowserPanel: Panel, ObservableObject {
         remoteProxyEndpoint = endpoint
         applyProxyConfigurationIfAvailable()
         resumePendingRemoteNavigationIfNeeded()
+        syncChromiumSessionProxyIfNeeded()
     }
 
     func setRemoteWorkspaceStatus(_ status: BrowserRemoteWorkspaceStatus?) {
@@ -4713,6 +4724,7 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         applyProxyConfigurationIfAvailable()
         resumePendingRemoteNavigationIfNeeded()
+        syncChromiumSessionProxyIfNeeded()
     }
 
     @discardableResult
@@ -5876,13 +5888,24 @@ final class BrowserPanel: Panel, ObservableObject {
         // same window spawn a redundant Content Shell. This synchronous flag closes
         // that window.
         guard engineKind == .chromium, chromium == nil, !chromiumActivationInProgress else { return }
+        // The Content Shell adopts `--proxy-server` at launch only, so a
+        // remote-workspace pane must wait for its loopback proxy endpoint
+        // (WebKit parity: `pendingRemoteNavigation` queues until the endpoint
+        // arrives). `setRemoteProxyEndpoint` re-invokes activation.
+        if usesRemoteWorkspaceProxy, remoteProxyEndpoint == nil {
+            chromiumActivationWaitingForRemoteProxy = true
+            return
+        }
+        chromiumActivationWaitingForRemoteProxy = false
         chromiumActivationInProgress = true
-        let initialURL = pendingInitialChromiumURL ?? blankURLString
+        let proxyServer = chromiumRemoteProxyServer
+        let rawInitialURL = pendingInitialChromiumURL ?? blankURLString
+        let initialURL = chromiumOutboundURLString(rawInitialURL)
         let requestedProfileID = profileID
 #if DEBUG
         if let interceptor = chromiumActivationInterceptorForTesting {
             chromiumActivationInProgress = false
-            interceptor(initialURL, nil)
+            interceptor(initialURL, proxyServer)
             return
         }
 #endif
@@ -5890,19 +5913,22 @@ final class BrowserPanel: Panel, ObservableObject {
             do {
                 let (session, model, webView) = try await ChromiumRuntimeManager.shared.acquireSession(
                     initialURL: initialURL,
-                    profileID: requestedProfileID
+                    profileID: requestedProfileID,
+                    proxyServer: proxyServer
                 )
                 self.chromiumActivationInProgress = false
                 guard self.engineKind == .chromium, self.chromium == nil else {
                     session.close()
                     return
                 }
+                self.chromiumLaunchedProxyServer = proxyServer
                 let state = BrowserPanelChromiumState(session: session, model: model, webView: webView)
                 self.chromium = state
                 self.startChromiumMirroring(state)
-                if let pendingURL = self.pendingInitialChromiumURL, pendingURL != initialURL {
+                if let pendingURL = self.pendingInitialChromiumURL, pendingURL != rawInitialURL {
                     self.pendingInitialChromiumURL = nil
-                    Task { try? await session.navigate(to: pendingURL) }
+                    let outboundURL = self.chromiumOutboundURLString(pendingURL)
+                    Task { try? await session.navigate(to: outboundURL) }
                 }
             } catch {
 #if DEBUG
@@ -5924,6 +5950,61 @@ final class BrowserPanel: Panel, ObservableObject {
                 BrowserEngineSettings.postFallbackNotificationIfNeeded(workspaceId: self.workspaceId)
             }
         }
+    }
+
+    /// `--proxy-server` value for a Chromium launch on this surface: the
+    /// remote-workspace loopback broker as a SOCKS5 proxy, or `nil` for local
+    /// panes. SOCKS5 makes Chromium send hostnames to the proxy unresolved, so
+    /// the loopback alias host reaches the broker without a DNS round trip
+    /// (WebKit parity: `applyProxyConfigurationIfAvailable` prefers SOCKS too).
+    private var chromiumRemoteProxyServer: String? {
+        guard usesRemoteWorkspaceProxy, let endpoint = remoteProxyEndpoint else { return nil }
+        let host = endpoint.host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !host.isEmpty, endpoint.port > 0, endpoint.port <= 65535 else { return nil }
+        return "socks5://\(host):\(endpoint.port)"
+    }
+
+    /// URL string the Chromium session should actually load. Remote panes
+    /// rewrite loopback hosts to the proxy alias domain so the SOCKS broker
+    /// recognizes and tunnels them to the remote host (WebKit parity:
+    /// `remoteProxyPreparedRequest`); local panes map alias URLs back to
+    /// localhost so a pane that moved out of a remote workspace keeps working.
+    /// Idempotent in both directions.
+    private func chromiumOutboundURLString(_ urlString: String) -> String {
+        guard let url = URL(string: urlString) else { return urlString }
+        if usesRemoteWorkspaceProxy {
+            guard let rewritten = Self.remoteProxyLoopbackAliasURL(for: url) else { return urlString }
+            return rewritten.absoluteString
+        }
+        guard let display = Self.remoteProxyDisplayURL(for: url) else { return urlString }
+        return display.absoluteString
+    }
+
+    /// The Content Shell adopts its proxy at launch only, so endpoint changes
+    /// cannot be applied to a live session in place. When activation was
+    /// deferred waiting for the endpoint, run it now; when a live session's
+    /// launch proxy no longer matches the desired one (broker port moved on
+    /// reconnect, or the pane moved between local and remote workspaces),
+    /// restart the session at its current URL.
+    private func syncChromiumSessionProxyIfNeeded() {
+        guard engineKind == .chromium else { return }
+        if chromiumActivationWaitingForRemoteProxy {
+            activateChromiumIfNeeded()
+            return
+        }
+        guard let state = chromium, !chromiumDisconnected else { return }
+        let desired = chromiumRemoteProxyServer
+        // A remote pane whose endpoint dropped keeps the stale-proxied session:
+        // restarting without a proxy could not reach the remote host either,
+        // and the endpoint usually returns at the same port after reconnect.
+        if usesRemoteWorkspaceProxy && desired == nil { return }
+        guard desired != chromiumLaunchedProxyServer else { return }
+        lastMirroredChromiumURL = lastMirroredChromiumURL ?? currentURL?.absoluteString
+        state.teardown()
+        chromium = nil
+        chromiumLaunchedProxyServer = nil
+        pendingInitialChromiumURL = lastMirroredChromiumURL
+        activateChromiumIfNeeded()
     }
 
     private func startChromiumMirroring(_ state: BrowserPanelChromiumState) {
@@ -6041,8 +6122,12 @@ final class BrowserPanel: Panel, ObservableObject {
         let urlString = rawURLString.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !urlString.isEmpty, urlString != blankURLString else { return }
         lastMirroredChromiumURL = urlString
-        guard let url = URL(string: urlString), currentURL != url else { return }
-        currentURL = url
+        guard let url = URL(string: urlString) else { return }
+        // Remote panes browse the loopback alias domain; the omnibar shows the
+        // localhost form the user typed (WebKit parity: `remoteProxyDisplayURL`).
+        let displayURL = Self.remoteProxyDisplayURL(for: url) ?? url
+        guard currentURL != displayURL else { return }
+        currentURL = displayURL
     }
 
     private func handleChromiumDisconnected() {
@@ -6068,10 +6153,11 @@ final class BrowserPanel: Panel, ObservableObject {
     func navigate(to url: URL, recordTypedNavigation: Bool = false) {
         if engineKind == .chromium {
             let urlString = url.absoluteString
-            currentURL = url
+            currentURL = Self.remoteProxyDisplayURL(for: url) ?? url
             lastMirroredChromiumURL = urlString
             if let session = chromium?.session, !chromiumDisconnected {
-                Task { try? await session.navigate(to: urlString) }
+                let outboundURL = chromiumOutboundURLString(urlString)
+                Task { try? await session.navigate(to: outboundURL) }
             } else {
                 pendingInitialChromiumURL = urlString
             }

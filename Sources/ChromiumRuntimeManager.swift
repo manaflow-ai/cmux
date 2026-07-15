@@ -14,7 +14,11 @@ final class ChromiumRuntimeManager {
         (try? ChromiumRuntimeLocator().locate()) != nil
     }
 
-    func acquireSession(initialURL: String, profileID: UUID) async throws -> (ChromiumSession, ChromiumBrowserModel, ChromiumWebView) {
+    func acquireSession(
+        initialURL: String,
+        profileID: UUID,
+        proxyServer: String? = nil
+    ) async throws -> (ChromiumSession, ChromiumBrowserModel, ChromiumWebView) {
         let runtime: ChromiumRuntime
         if let existing = self.runtime {
             runtime = existing
@@ -27,6 +31,7 @@ final class ChromiumRuntimeManager {
         let session = try await runtime.openSession(
             initialURL: initialURL,
             userDataDirectory: surfaceDataDirectory(profileID: profileID),
+            proxyServer: proxyServer,
             enableDevTools: true
         )
         let model = ChromiumBrowserModel()
