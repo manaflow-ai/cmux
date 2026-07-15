@@ -101,6 +101,207 @@ import Testing
         #expect(store.terminalReorderGate.requiresRefresh(workspaceID: workspaceID))
     }
 
+    @Test func secondaryToolbarRecoveryRetainsCapturedOwnerAcrossForegroundRescope() async throws {
+        let foregroundRouter = RoutingHostRouter()
+        let secondaryRouter = RoutingHostRouter()
+        await secondaryRouter.workspaceListGate.setHoldFirst(true)
+        let fixture = try await makeSecondaryRecoveryStore(
+            foregroundRouter: foregroundRouter,
+            secondaryRouter: secondaryRouter
+        )
+        var completions: [Result<Void, MobileWorkspaceMutationFailure>] = []
+
+        fixture.store.createTerminal(in: fixture.secondaryWorkspaceID) { result in
+            completions.append(result)
+        }
+        try rescopeToReplacementForeground(fixture, router: foregroundRouter)
+        try await waitForRecoveryRoute(
+            store: fixture.store,
+            capturedOwner: secondaryRouter,
+            currentForeground: foregroundRouter
+        )
+
+        let capturedOwnerRequests = await secondaryRouter.workspaceListGate.requestCount()
+        let currentForegroundRequests = await foregroundRouter.workspaceListGate.requestCount()
+        #expect(capturedOwnerRequests == 1)
+        #expect(currentForegroundRequests == 0)
+        #expect(completions.isEmpty, "completion must wait for the captured owner's response")
+        #expect(fixture.store.terminalCreationRequestOwner.isActive)
+        #expect(fixture.store.terminalReorderGate.isActive(
+            workspaceID: fixture.secondaryWorkspaceID
+        ))
+        #expect(fixture.store.terminalReorderGate.requiresRefresh(
+            workspaceID: fixture.secondaryWorkspaceID
+        ))
+        guard capturedOwnerRequests == 1, currentForegroundRequests == 0 else { return }
+
+        await secondaryRouter.workspaceListGate.releaseFirst()
+        try await waitForTerminalCreationOwnerToFinish(fixture.store)
+
+        #expect(completions.count == 1)
+        guard completions.count == 1 else { return }
+        guard case .success = completions[0] else {
+            Issue.record("captured owner recovery should succeed: \(completions[0])")
+            return
+        }
+        #expect(!fixture.store.terminalReorderGate.requiresRefresh(
+            workspaceID: fixture.secondaryWorkspaceID
+        ))
+        #expect(fixture.store.terminalReorderGate.canMutate(
+            workspaceID: fixture.secondaryWorkspaceID
+        ))
+    }
+
+    @Test func secondaryToolbarRecoveryFailureUsesCapturedHostAcrossForegroundRescope() async throws {
+        let foregroundRouter = RoutingHostRouter()
+        let secondaryRouter = RoutingHostRouter()
+        await foregroundRouter.setRejectWorkspaceList(true)
+        await secondaryRouter.setRejectWorkspaceList(true)
+        await secondaryRouter.workspaceListGate.setHoldFirst(true)
+        let fixture = try await makeSecondaryRecoveryStore(
+            foregroundRouter: foregroundRouter,
+            secondaryRouter: secondaryRouter
+        )
+        var completions: [Result<Void, MobileWorkspaceMutationFailure>] = []
+
+        fixture.store.createTerminal(in: fixture.secondaryWorkspaceID) { result in
+            completions.append(result)
+        }
+        try rescopeToReplacementForeground(fixture, router: foregroundRouter)
+        try await waitForRecoveryRoute(
+            store: fixture.store,
+            capturedOwner: secondaryRouter,
+            currentForeground: foregroundRouter
+        )
+
+        let capturedOwnerRequests = await secondaryRouter.workspaceListGate.requestCount()
+        let currentForegroundRequests = await foregroundRouter.workspaceListGate.requestCount()
+        #expect(capturedOwnerRequests == 1)
+        #expect(currentForegroundRequests == 0)
+        #expect(completions.isEmpty, "failure must wait for the captured owner's response")
+        #expect(fixture.store.terminalReorderGate.requiresRefresh(
+            workspaceID: fixture.secondaryWorkspaceID
+        ))
+        guard capturedOwnerRequests == 1, currentForegroundRequests == 0 else { return }
+
+        await secondaryRouter.workspaceListGate.releaseFirst()
+        try await waitForTerminalCreationOwnerToFinish(fixture.store)
+
+        #expect(completions.count == 1)
+        guard completions.count == 1 else { return }
+        guard case let .failure(.appliedNeedsRefresh(hostDisplayName)) = completions[0] else {
+            Issue.record("captured owner rejection should require refresh: \(completions[0])")
+            return
+        }
+        #expect(hostDisplayName == "Secondary Mac")
+        #expect(fixture.store.terminalReorderGate.requiresRefresh(
+            workspaceID: fixture.secondaryWorkspaceID
+        ))
+        #expect(!fixture.store.terminalReorderGate.canMutate(
+            workspaceID: fixture.secondaryWorkspaceID
+        ))
+    }
+
+    private struct SecondaryRecoveryFixture {
+        let store: MobileShellComposite
+        let secondaryWorkspaceID: MobileWorkspacePreview.ID
+        let replacementWorkspace: MobileWorkspacePreview
+        let actionCapabilities: MobileWorkspaceActionCapabilities
+    }
+
+    private func makeSecondaryRecoveryStore(
+        foregroundRouter: RoutingHostRouter,
+        secondaryRouter: RoutingHostRouter
+    ) async throws -> SecondaryRecoveryFixture {
+        let store = try await makeRecoveryStore(router: foregroundRouter)
+        try installSecondaryClient(
+            on: store,
+            macDeviceID: "secondary-mac",
+            router: secondaryRouter
+        )
+        let sourceWorkspace = try #require(store.workspaces.first)
+        let capabilities = MobileWorkspaceActionCapabilities(
+            supportsTerminalCloseActions: true,
+            supportsTerminalCreateInPane: true,
+            supportsTerminalReorderActions: true
+        )
+        var foregroundWorkspace = sourceWorkspace
+        foregroundWorkspace.macDeviceID = "test-mac"
+        foregroundWorkspace.name = "Foreground collision"
+        var secondaryWorkspace = sourceWorkspace
+        secondaryWorkspace.macDeviceID = "secondary-mac"
+        secondaryWorkspace.name = "Secondary collision"
+        store.setWorkspaceStatesForTesting(
+            [
+                "test-mac": MacWorkspaceState(
+                    macDeviceID: "test-mac",
+                    displayName: "Foreground Mac",
+                    workspaces: [foregroundWorkspace],
+                    status: .connected,
+                    actionCapabilities: capabilities
+                ),
+                "secondary-mac": MacWorkspaceState(
+                    macDeviceID: "secondary-mac",
+                    displayName: "Secondary Mac",
+                    workspaces: [secondaryWorkspace],
+                    status: .connected,
+                    actionCapabilities: capabilities
+                ),
+            ],
+            foregroundMacDeviceID: "test-mac"
+        )
+        let secondaryWorkspaceID = try #require(
+            store.workspaces.first(where: { $0.macDeviceID == "secondary-mac" })?.id
+        )
+        store.terminalReorderGate.requireRefresh(workspaceID: secondaryWorkspaceID)
+        return SecondaryRecoveryFixture(
+            store: store,
+            secondaryWorkspaceID: secondaryWorkspaceID,
+            replacementWorkspace: sourceWorkspace,
+            actionCapabilities: capabilities
+        )
+    }
+
+    private func rescopeToReplacementForeground(
+        _ fixture: SecondaryRecoveryFixture,
+        router: RoutingHostRouter
+    ) throws {
+        try installFreshRemoteClient(on: fixture.store, router: router)
+        fixture.store.connectedHostName = "Replacement Mac"
+        var replacementWorkspace = fixture.replacementWorkspace
+        replacementWorkspace.macDeviceID = "test-mac-2"
+        replacementWorkspace.name = "Replacement foreground"
+        fixture.store.setWorkspaceStatesForTesting(
+            [
+                "test-mac-2": MacWorkspaceState(
+                    macDeviceID: "test-mac-2",
+                    displayName: "Replacement Mac",
+                    workspaces: [replacementWorkspace],
+                    status: .connected,
+                    actionCapabilities: fixture.actionCapabilities
+                ),
+            ],
+            foregroundMacDeviceID: "test-mac-2"
+        )
+    }
+
+    private func waitForRecoveryRoute(
+        store: MobileShellComposite,
+        capturedOwner: RoutingHostRouter,
+        currentForeground: RoutingHostRouter
+    ) async throws {
+        for _ in 0..<300 {
+            let capturedOwnerRequests = await capturedOwner.workspaceListGate.requestCount()
+            let currentForegroundRequests = await currentForeground.workspaceListGate.requestCount()
+            if capturedOwnerRequests > 0
+                || currentForegroundRequests > 0
+                || !store.terminalCreationRequestOwner.isActive {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(1))
+        }
+    }
+
     private func makeRecoveryStore(
         router: RoutingHostRouter,
         rpcRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
