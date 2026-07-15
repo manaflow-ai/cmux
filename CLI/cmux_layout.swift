@@ -158,7 +158,10 @@ extension CMUXCLI {
         let windowHandle = try normalizeWindowHandle(windowOpt ?? windowOverride, client: client)
         var params: [String: Any] = ["name": name]
         if let windowHandle { params["window_id"] = windowHandle }
-        if let cwdOpt { params["cwd"] = resolvePath(cwdOpt) }
+        if let cwdOpt {
+            params["cwd"] = cwdOpt
+            params["caller_cwd"] = FileManager.default.currentDirectoryPath
+        }
         if !templateParameterOptions.values.isEmpty {
             params["template_params"] = templateParameterOptions.values
         }

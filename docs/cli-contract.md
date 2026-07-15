@@ -235,6 +235,14 @@ strings. `{{name=default}}` supplies an inline fallback, and `\{{name}}` emits a
 literal `{{name}}`. Names use the same grammar as custom-command parameters:
 they start with a letter or `_` and continue with letters, digits, `_`, or `-`.
 
+File-backed workspace definitions opt into placeholder handling by declaring a
+`params` object; use `"params": {}` when every value should be entered at
+launch. Selecting an opted-in configured layout or saved layout in the cmux UI
+opens a parameter sheet with one editable field per placeholder, prefilled from
+the precedence rules below. Definitions without `params` preserve existing
+`{{...}}` text literally. Socket `workspace.create` requests opt in by supplying
+at least one `template_params` value.
+
 Parameterization covers the workspace `name`, `cwd`, `setup`, and `env` values;
 surface `name`, `command`, `cwd`, `env` values, and `url`; and the corresponding
 title, description, initial command, and initial environment fields on

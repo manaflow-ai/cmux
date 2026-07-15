@@ -124,6 +124,7 @@ extension ControlCommandCoordinator {
             routing: routingSelectors(params),
             name: name,
             cwd: optionalTrimmedRawString(params, "cwd"),
+            callerCwd: optionalTrimmedRawString(params, "caller_cwd"),
             templateParameters: templateParameters,
             focusRequested: bool(params, "focus") ?? false
         ) ?? .tabManagerUnavailable

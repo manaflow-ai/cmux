@@ -136,19 +136,35 @@ extension TerminalController {
         let initialCommand: String?
         let initialEnv: [String: String]
         let description: String?
-        do {
-            let values = try resolver.resolvedValues(
-                for: templateDefinition.templateStrings + additionalTemplates
-            )
-            resolvedDefinition = templateDefinition.substitutingTemplateValues(values)
-            initialCommand = initialCommandTemplate.map { CmuxTemplate($0).substituting(values) }
-            initialEnv = initialEnvTemplate.mapValues { CmuxTemplate($0).substituting(values) }
-            description = descriptionTemplate.map { CmuxTemplate($0).substituting(values) }
-        } catch {
-            return workspaceTemplateResolutionFailure(error)
+        if templateParameters.isEmpty {
+            resolvedDefinition = templateDefinition
+            initialCommand = initialCommandTemplate
+            initialEnv = initialEnvTemplate
+            description = descriptionTemplate
+        } else {
+            do {
+                let values = try resolver.resolvedValues(
+                    for: templateDefinition.templateStrings + additionalTemplates
+                )
+                resolvedDefinition = templateDefinition.substitutingTemplateValues(values)
+                initialCommand = initialCommandTemplate.map { CmuxTemplate($0).substituting(values) }
+                initialEnv = initialEnvTemplate.mapValues { CmuxTemplate($0).substituting(values) }
+                description = descriptionTemplate.map { CmuxTemplate($0).substituting(values) }
+            } catch {
+                return workspaceTemplateResolutionFailure(error)
+            }
         }
         let title = resolvedDefinition.name
-        let cwd = resolvedDefinition.cwd
+        let callerCwd = v2RawString(params, "caller_cwd")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let cwdBase = (callerCwd?.isEmpty == false ? callerCwd : nil)
+            ?? FileManager.default.homeDirectoryForCurrentUser.path
+        let cwd = resolvedDefinition.cwd.map { value in
+            CmuxConfigStore.resolveCwd(
+                value,
+                relativeTo: cwdBase
+            )
+        }
         let workspaceEnv = Workspace.sanitizedWorkspaceEnvironment(resolvedDefinition.env ?? [:])
         layoutNode = resolvedDefinition.layout
 

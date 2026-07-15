@@ -82,6 +82,7 @@ extension TerminalController: ControlLayoutContext {
         routing: ControlRoutingSelectors,
         name: String,
         cwd: String?,
+        callerCwd: String?,
         templateParameters: [String: String],
         focusRequested: Bool
     ) -> ControlLayoutOpenResolution {
@@ -99,6 +100,7 @@ extension TerminalController: ControlLayoutContext {
                     fromSavedLayout: layout,
                     cwdOverride: cwd,
                     templateParameters: templateParameters,
+                    baseCwd: callerCwd,
                     focus: focus
                 )
                 return .opened(workspaceID: workspace.id)

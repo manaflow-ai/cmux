@@ -7480,7 +7480,8 @@ struct CMUXCLI {
         var params: [String: Any] = [:]
         try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowOpt ?? windowOverride)
         if let cwdOpt {
-            params["cwd"] = resolvePath(cwdOpt)
+            params["cwd"] = cwdOpt
+            params["caller_cwd"] = FileManager.default.currentDirectoryPath
         }
         if let nameOpt { params["title"] = nameOpt }
         if let descriptionOpt { params["description"] = descriptionOpt }
@@ -7494,16 +7495,8 @@ struct CMUXCLI {
         if !templateParameterOptions.values.isEmpty {
             params["template_params"] = templateParameterOptions.values
         }
-        let resolvedCommand: String?
         if layoutOpt == nil, let commandOpt {
-            resolvedCommand = try resolveWorkspaceCommandTemplate(
-                commandOpt,
-                templateParameters: templateParameterOptions.values,
-                workspaceEnvironment: workspaceEnv,
-                commandName: commandName
-            )
-        } else {
-            resolvedCommand = nil
+            params["initial_command"] = commandOpt
         }
         if let layoutOpt {
             guard let layoutData = layoutOpt.data(using: .utf8),
@@ -7519,14 +7512,6 @@ struct CMUXCLI {
             print(jsonString(formatIDs(response, mode: idFormat)))
         } else {
             print("OK \(wsId)")
-        }
-        if layoutOpt == nil, let commandText = resolvedCommand, !wsId.isEmpty {
-            let text = unescapeSendText(commandText + "\\n")
-            let sendParams: [String: Any] = [
-                "text": text,
-                "workspace_id": wsId
-            ]
-            _ = try client.sendV2(method: "surface.send_text", params: sendParams)
         }
     }
 

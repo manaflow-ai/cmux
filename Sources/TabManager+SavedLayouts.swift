@@ -8,9 +8,11 @@ extension TabManager {
         cwdOverride: String?,
         templateParameters: [String: String] = [:],
         processEnvironment: [String: String] = ProcessInfo.processInfo.environment,
+        baseCwd: String? = nil,
         focus: Bool
     ) throws -> Workspace {
-        let baseCwd = FileManager.default.homeDirectoryForCurrentUser.path
+        let resolvedBaseCwd = baseCwd
+            ?? FileManager.default.homeDirectoryForCurrentUser.path
         var template = layout.workspace
         if let cwdOverride {
             template.cwd = cwdOverride
@@ -19,7 +21,10 @@ extension TabManager {
             templateParameters,
             processEnvironment: processEnvironment
         )
-        let resolvedCwd = CmuxConfigStore.resolveCwd(definition.cwd, relativeTo: baseCwd)
+        let resolvedCwd = CmuxConfigStore.resolveCwd(
+            definition.cwd,
+            relativeTo: resolvedBaseCwd
+        )
         let workspace = addWorkspace(
             title: definition.name ?? layout.name,
             workingDirectory: resolvedCwd,

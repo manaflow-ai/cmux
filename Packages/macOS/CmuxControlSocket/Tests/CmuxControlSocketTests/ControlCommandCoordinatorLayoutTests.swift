@@ -7,6 +7,7 @@ private final class FakeLayoutControlCommandContext: ControlCommandContext {
     struct OpenInvocation: Equatable {
         let name: String
         let cwd: String?
+        let callerCwd: String?
         let templateParameters: [String: String]
         let focusRequested: Bool
     }
@@ -18,12 +19,14 @@ private final class FakeLayoutControlCommandContext: ControlCommandContext {
         routing: ControlRoutingSelectors,
         name: String,
         cwd: String?,
+        callerCwd: String?,
         templateParameters: [String: String],
         focusRequested: Bool
     ) -> ControlLayoutOpenResolution {
         openInvocation = OpenInvocation(
             name: name,
             cwd: cwd,
+            callerCwd: callerCwd,
             templateParameters: templateParameters,
             focusRequested: focusRequested
         )
@@ -46,6 +49,7 @@ struct ControlCommandCoordinatorLayoutTests {
             params: [
                 "name": .string("Ticket Dev"),
                 "cwd": .string("/tmp/{{ticket}}"),
+                "caller_cwd": .string("/Users/tester/project"),
                 "focus": .bool(false),
                 "template_params": .object([
                     "ticket": .string("BERKS-87"),
@@ -57,6 +61,7 @@ struct ControlCommandCoordinatorLayoutTests {
         #expect(context.openInvocation == .init(
             name: "Ticket Dev",
             cwd: "/tmp/{{ticket}}",
+            callerCwd: "/Users/tester/project",
             templateParameters: ["ticket": "BERKS-87", "vitePort": "5174"],
             focusRequested: false
         ))

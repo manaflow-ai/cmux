@@ -103,38 +103,6 @@ extension CMUXCLI {
         return WorkspaceTemplateParameterOptions(values: values, remaining: remaining)
     }
 
-    func resolveWorkspaceCommandTemplate(
-        _ command: String,
-        templateParameters: [String: String],
-        workspaceEnvironment: [String: String],
-        commandName: String,
-        processEnvironment: [String: String] = ProcessInfo.processInfo.environment
-    ) throws -> String {
-        let literalWorkspaceEnvironment = workspaceEnvironment.filter { _, value in
-            !CmuxTemplate(value).containsVariables
-        }
-        do {
-            return try CmuxTemplateResolver(
-                explicitValues: templateParameters,
-                workspaceEnvironment: literalWorkspaceEnvironment,
-                processEnvironment: processEnvironment
-            ).resolve(CmuxTemplate(command))
-        } catch CmuxTemplateResolutionError.missingVariables(let names) {
-            throw CLIError(
-                message: String(
-                    format: String(
-                        localized: "cli.workspace.templateParameter.error.missing",
-                        defaultValue: "%@: missing workspace template parameters: %@"
-                    ),
-                    locale: .current,
-                    commandName,
-                    names.joined(separator: ", ")
-                ),
-                v2Code: "missing_parameters"
-            )
-        }
-    }
-
     private func parseWorkspaceTemplateParameter(
         _ raw: String,
         commandName: String,

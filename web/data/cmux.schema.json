@@ -1778,7 +1778,7 @@
       "additionalProperties": {
         "type": "string"
       },
-      "description": "Default values for workspace {{variable}} placeholders. Explicit invocation template_params/--param values take precedence."
+      "description": "Opts the workspace into {{variable}} placeholder handling and supplies default values. Use an empty object to request every value in the launch UI. Explicit invocation template_params/--param values take precedence."
     },
     "workspaceLayoutNode": {
       "oneOf": [
