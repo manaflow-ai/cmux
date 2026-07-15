@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -29,22 +30,79 @@ func TestPersistentDaemonServerIgnoresCorruptRuntimeState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listen unix: %v", err)
 	}
-	if err := listener.Close(); err != nil {
-		t.Fatalf("close listener: %v", err)
+	defer listener.Close()
+	acceptingListener := &acceptSignalListener{
+		Listener: listener,
+		started:  make(chan struct{}),
 	}
 	var stderr bytes.Buffer
-	err = servePersistentDaemonWithVerifierConfig(
-		listener,
-		persistentDaemonFixedTokenVerifier("token"),
-		&stderr,
-		persistentDaemonServerConfig{runtimeStateFile: path},
-	)
-	if err != nil {
+	done := make(chan error, 1)
+	go func() {
+		done <- servePersistentDaemonWithVerifierConfig(
+			acceptingListener,
+			persistentDaemonFixedTokenVerifier("token"),
+			&stderr,
+			persistentDaemonServerConfig{runtimeStateFile: path},
+		)
+	}()
+	select {
+	case err := <-done:
 		t.Fatalf("corrupt optional runtime state stopped persistent daemon: %v", err)
+	case <-acceptingListener.started:
+	case <-time.After(time.Second):
+		t.Fatal("persistent daemon did not begin accepting connections")
+	}
+
+	conn, reader, writer := openPersistentTestClient(t, socketPath, "token")
+	get := persistentTestRPCCall(t, conn, reader, writer, rpcRequest{
+		ID:     "get-after-corruption",
+		Method: "runtime.state.get",
+		Params: map[string]any{},
+	})
+	getResult := requireRuntimeStateResult(t, get)
+	if present, _ := getResult["present"].(bool); present {
+		t.Fatalf("corrupt runtime state unexpectedly restored: %v", getResult)
+	}
+	put := persistentTestRPCCall(t, conn, reader, writer, rpcRequest{
+		ID:     "replace-corrupt-state",
+		Method: "runtime.state.put",
+		Params: map[string]any{
+			"schema_version": 1,
+			"state":          map[string]any{"title": "recovered"},
+		},
+	})
+	requireRuntimeStateResult(t, put)
+	_ = conn.Close()
+	_ = listener.Close()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("stop recovered persistent daemon: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("recovered persistent daemon did not stop")
+	}
+	document, err := loadRuntimeStateDocument(path)
+	if err != nil {
+		t.Fatalf("reload replacement runtime state: %v", err)
+	}
+	if document == nil || document.Revision != 1 || !strings.Contains(string(document.State), "recovered") {
+		t.Fatalf("replacement runtime state = %+v", document)
 	}
 	if !strings.Contains(stderr.String(), "runtime state") {
 		t.Fatalf("missing corrupt runtime state diagnostic: %q", stderr.String())
 	}
+}
+
+type acceptSignalListener struct {
+	net.Listener
+	started chan struct{}
+	once    sync.Once
+}
+
+func (l *acceptSignalListener) Accept() (net.Conn, error) {
+	l.once.Do(func() { close(l.started) })
+	return l.Listener.Accept()
 }
 
 func TestPersistentDaemonRuntimeStateIsSharedRevisionedAndObservable(t *testing.T) {
