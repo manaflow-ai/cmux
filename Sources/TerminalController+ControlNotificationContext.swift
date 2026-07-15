@@ -184,13 +184,7 @@ extension TerminalController: ControlNotificationContext {
     }
 
     func controlNotificationDismissAllRead() -> Int {
-        let readIds = TerminalNotificationStore.shared.notifications
-            .filter(\.isRead)
-            .map(\.id)
-        for id in readIds {
-            TerminalNotificationStore.shared.remove(id: id)
-        }
-        return readIds.count
+        TerminalNotificationStore.shared.removeReadNotifications()
     }
 
     func controlNotificationDismiss(id: UUID) -> ControlNotificationDismissResolution {

@@ -66,7 +66,6 @@ struct ExternalNotificationBannerOwnership {
         ownerByKey = reconciled
 
         let restoredOwners = restoredOwnerIDs.compactMap { mergedById[$0] }
-            .filter { !$0.isRead }
             .sorted(by: TerminalNotificationStore.notificationSortPrecedes)
         for notification in restoredOwners {
             let key = Self.key(notification)

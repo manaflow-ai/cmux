@@ -1461,7 +1461,8 @@ final class TerminalNotificationStore: ObservableObject {
         switch mutation {
         case .insertion(let inserted):
             CmuxEventBus.shared.publishNotificationCreated(inserted, delivery: "store", replacedNotificationIds: [])
-        case .insertionEvicting(let inserted, _):
+        case .insertionEvicting(let inserted, let evicted):
+            CmuxEventBus.shared.publishNotificationRemoved(evicted)
             CmuxEventBus.shared.publishNotificationCreated(inserted, delivery: "store", replacedNotificationIds: [])
         case .readState(let before, let after) where appliedIncrementally:
             if !before.isRead, after.isRead {
@@ -1820,6 +1821,35 @@ final class TerminalNotificationStore: ObservableObject {
         }
         center.removeDeliveredNotificationsOffMain(withIdentifiers: [id.uuidString])
         emitNotificationsDismissed(ids: [id.uuidString], drainedSuperseded: drainedSuperseded)
+    }
+
+    @discardableResult
+    func removeReadNotifications() -> Int {
+        var retained: [TerminalNotification] = []
+        var removed: [TerminalNotification] = []
+        retained.reserveCapacity(notifications.count)
+        for notification in notifications {
+            if notification.isRead {
+                removed.append(notification)
+            } else {
+                retained.append(notification)
+            }
+        }
+        guard !removed.isEmpty else { return 0 }
+        var drainedSuperseded: [String] = []
+        drainedSuperseded.reserveCapacity(removed.count)
+        for notification in removed {
+            drainedSuperseded.append(contentsOf: supersededPhoneDismissesForRowAction(notification))
+        }
+        replaceNotificationFeed(retained)
+        let ids = removed.map { $0.id.uuidString }
+        externalBannerOwnership.clear(ids: ids)
+        for notification in removed {
+            clearFocusedReadIndicator(forTabId: notification.tabId, surfaceId: notification.surfaceId)
+        }
+        center.removeDeliveredNotificationsOffMain(withIdentifiers: ids)
+        emitNotificationsDismissed(ids: ids, drainedSuperseded: drainedSuperseded)
+        return removed.count
     }
 
     private func supersededPhoneDismissesForRowAction(_ notification: TerminalNotification) -> [String] {

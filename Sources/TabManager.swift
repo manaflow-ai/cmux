@@ -5600,6 +5600,28 @@ extension TabManager {
         }
     }
 
+    private struct SessionAutosaveNotificationIndexCache {
+        private var storeID: ObjectIdentifier?
+        private var revision: UInt64?
+        private var index: SessionAutosaveNotificationIndex?
+
+        @MainActor
+        mutating func index(for store: TerminalNotificationStore) -> SessionAutosaveNotificationIndex {
+            let storeID = ObjectIdentifier(store)
+            let revision = store.notificationFeedRevision
+            if self.storeID == storeID, self.revision == revision, let index {
+                return index
+            }
+            let index = SessionAutosaveNotificationIndex(notifications: store.notifications)
+            self.storeID = storeID
+            self.revision = revision
+            self.index = index
+            return index
+        }
+    }
+
+    private static var sessionAutosaveNotificationIndexCache = SessionAutosaveNotificationIndexCache()
+
     func sessionAutosaveFingerprint(
         restorableAgentIndex: RestorableAgentSessionIndex = .empty,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex = .empty
@@ -5609,7 +5631,7 @@ extension TabManager {
         hasher.combine(tabs.count)
         let notificationStore = AppDelegate.shared?.notificationStore
         let notificationIndex = notificationStore.map { store in
-            SessionAutosaveNotificationIndex(notifications: store.notifications)
+            Self.sessionAutosaveNotificationIndexCache.index(for: store)
         }
         // Workspace groups participate in the session snapshot, so changes
         // that only touch group metadata (rename / collapse / pin a group,
@@ -5645,7 +5667,7 @@ extension TabManager {
             hasher.combine(workspace.surfaceListeningPorts.count); workspace.combineTodoStateIntoSessionAutosaveFingerprint(into: &hasher)
             hasher.combine(notificationStore?.hasManualUnread(forTabId: workspace.id) ?? false)
             hasher.combine(notificationStore?.workspaceIsUnread(forTabId: workspace.id) ?? false)
-            let panelIds = workspace.panels.keys.sorted { $0.uuidString < $1.uuidString }
+            let panelIds = workspace.panels.keys.sorted(by: Self.uuidSortPrecedes)
             let panelIdSet = Set(panelIds)
             Self.hashNotifications(
                 notificationIndex?.workspaceAndOrphanNotifications(
