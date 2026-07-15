@@ -67,9 +67,23 @@ final class ShortcutListModel {
     private var latestBindings: [String: StoredShortcut] { pendingBindings ?? bindings }
 
     private func ingestBindings(_ dictionary: [String: StoredShortcut]) {
-        let changedActionIds = Set(bindings.keys).union(dictionary.keys)
-            .filter { bindings[$0] != dictionary[$0] }
-        bindings = dictionary
+        // Only surface bindings the runtime will actually honor. A modifier-less
+        // ("bare") first stroke is honored only for actions that allow it (or
+        // for Space) — mirror that action-aware rule from the runtime reader so
+        // a hand-authored bare binding on a modifier-required action isn't
+        // presented as the active shortcut while the app ignores it and falls
+        // back to the default. The raw entry still stays in cmux.json (merge-on-
+        // save never drops untouched keys); it is just not shown as loaded.
+        let loadable = dictionary.filter { key, shortcut in
+            guard let action = ShortcutAction(rawValue: key) else { return true }
+            if shortcut.isUnbound { return true }
+            return action.allowsBareFirstStroke
+                || shortcut.first.hasAnyModifier
+                || shortcut.first.key == "space"
+        }
+        let changedActionIds = Set(bindings.keys).union(loadable.keys)
+            .filter { bindings[$0] != loadable[$0] }
+        bindings = loadable
         pruneRestoreShortcuts()
         pruneConflictRejections(changedActionIds: Set(changedActionIds))
         pruneNumberedDigitRejections(changedActionIds: Set(changedActionIds))
@@ -414,18 +428,31 @@ final class ShortcutListModel {
         numberedDigitRejections.removeAll()
         conflictRejections.removeAll()
         rejectedConflictShortcuts.removeAll()
-        await write([:])
+        await write([:], replacingAll: true)
     }
 
     /// Persists `updated` to the bindings store, recording any failure to the
     /// error log.
-    private func write(_ updated: [String: StoredShortcut]) async {
+    ///
+    /// Per-action edits (`replacingAll == false`) merge only the entries that
+    /// actually changed into the on-disk `shortcuts.bindings` object, so bindings
+    /// the UI never loaded — e.g. hand-authored string strokes, or object-form
+    /// entries dropped when a sibling failed to decode — are preserved verbatim
+    /// instead of being clobbered by a full-block rewrite. "Reset Defaults"
+    /// (`replacingAll == true`) intentionally replaces the whole object.
+    private func write(_ updated: [String: StoredShortcut], replacingAll: Bool = false) async {
         pendingWriteGeneration += 1
         let generation = pendingWriteGeneration
+        let previous = bindings
         pendingBindings = updated
         bindings = updated
         do {
-            try await jsonStore.set(updated, for: catalog.shortcuts.bindings)
+            if replacingAll {
+                try await jsonStore.set(updated, for: catalog.shortcuts.bindings)
+            } else {
+                let changed = updated.filter { previous[$0.key] != $0.value }
+                try await jsonStore.merge(changed, for: catalog.shortcuts.bindings)
+            }
             if pendingWriteGeneration == generation {
                 pendingBindings = nil
             }

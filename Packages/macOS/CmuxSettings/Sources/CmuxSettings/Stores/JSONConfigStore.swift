@@ -120,6 +120,31 @@ public actor JSONConfigStore {
         }
     }
 
+    /// Merges `entries` into the dictionary already stored at `key`'s path,
+    /// overwriting only the provided keys and leaving every other on-disk entry
+    /// byte-for-form untouched.
+    ///
+    /// Unlike ``set(_:for:)`` — which replaces the whole object at the leaf —
+    /// this preserves sibling entries the caller did not pass, including entries
+    /// authored in a schema-valid form this process would never emit itself
+    /// (e.g. a hand-written string stroke `"cmd+shift+up"` rather than the
+    /// object form). Use it for user-editable maps like `shortcuts.bindings`,
+    /// passing only the entries that actually changed, so editing one entry can
+    /// never rewrite or silently drop the others.
+    public func merge<Element: SettingCodable>(
+        _ entries: [String: Element],
+        for key: JSONKey<[String: Element]>
+    ) throws {
+        guard !entries.isEmpty else { return }
+        try mutateRoot { root in
+            var existing = (key.path.lookup(in: root) as? [String: Any]) ?? [:]
+            for (entryKey, element) in entries {
+                existing[entryKey] = element.encodeForJSON()
+            }
+            key.path.assign(existing, in: &root)
+        }
+    }
+
     /// Removes the key's entry from the file. Parent objects that become
     /// empty are pruned. The file itself is not deleted even when no entries
     /// remain.

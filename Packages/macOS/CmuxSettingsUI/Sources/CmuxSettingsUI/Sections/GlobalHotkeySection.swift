@@ -164,7 +164,11 @@ public struct GlobalHotkeySection: View {
 
     private func write(_ updated: [String: StoredShortcut]) async {
         do {
-            try await jsonStore.set(updated, for: catalog.shortcuts.bindings)
+            // Merge only the changed entries so this section, which owns just the
+            // global-hotkey binding, never rewrites or drops the other bindings
+            // in cmux.json (including ones authored directly in the file).
+            let changed = updated.filter { bindings[$0.key] != $0.value }
+            try await jsonStore.merge(changed, for: catalog.shortcuts.bindings)
         } catch {
             errorLog.record(error, keyID: catalog.shortcuts.bindings.id)
         }
