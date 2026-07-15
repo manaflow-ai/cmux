@@ -1,4 +1,6 @@
 extension MobileShellComposite {
+    private static let workspaceDiffsCapability = "workspace.diffs.v1"
+
     /// Whether the Mac supports workspace close requests.
     public var supportsWorkspaceCloseActions: Bool { supportedHostCapabilities.contains(Self.workspaceCloseCapability) }
     /// Whether the Mac supports workspace move/reorder requests.
@@ -19,4 +21,6 @@ extension MobileShellComposite {
     }
     /// Whether the Mac supports terminal artifact scan/stat/fetch/thumbnail RPCs.
     public var supportsTerminalArtifacts: Bool { supportedHostCapabilities.contains(Self.terminalArtifactCapability) }
+    /// Whether the Mac supports read-only native workspace-diff RPCs.
+    public var supportsWorkspaceDiffs: Bool { supportedHostCapabilities.contains(Self.workspaceDiffsCapability) }
 }
