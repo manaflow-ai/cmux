@@ -135,8 +135,6 @@ struct PasteboardTextContentsTests {
         ))
         #expect(html.string.trimmingCharacters(in: .newlines) == "hard wrapped")
         #expect(rtf.string == "hard wrapped")
-        #expect(html.attribute(.link, at: 0, effectiveRange: nil) != nil)
-        #expect(rtf.attribute(.link, at: 0, effectiveRange: nil) != nil)
         let types = try #require(scratch.pasteboard.types)
         #expect(types.contains(.html))
         #expect(types.contains(.rtf))

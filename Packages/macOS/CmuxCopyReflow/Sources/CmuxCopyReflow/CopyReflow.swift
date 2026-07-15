@@ -226,7 +226,12 @@ private extension ReflowOptions {
                         && !structuredCode
                         && previousLineWasFull
                         && (proseContinuation || commandContinuation)
+                    // Preserve Markdown hard breaks unless the spaces pad a terminal-width row.
+                    let previousHasMarkdownHardBreak = i > rawLines.startIndex
+                        && rawLines[i - 1].hasSuffix("  ")
+                        && !reachesTerminalWidth(lineLength: rawLines[i - 1].visibleLength, terminalWidth: terminalWidth)
                     let canJoin = !p.prevEndsTerminator
+                        && !previousHasMarkdownHardBreak
                         && !endsIndentedBlock(p.prevContent)
                         && (s1 || s3 || s4)
 

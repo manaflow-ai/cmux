@@ -69,25 +69,25 @@ extension TerminalPasteboardService: TerminalClipboardReading {
 
     /// Rewrites the terminal's text representations after copy reflow.
     ///
-    /// Existing plain-text, HTML, and RTF flavors are retained. Rich flavors
-    /// are edited to match `string` while preserving attributes on surviving
-    /// content, so paste destinations cannot select stale hard-wrapped text.
+    /// Existing plain-text, HTML, and RTF flavor availability is retained.
+    /// Rich flavors are regenerated from `string` without requesting their
+    /// potentially lazy source payloads, so paste destinations cannot select
+    /// stale hard-wrapped text or block the copy path on unbounded rich data.
     /// Attachment-bearing RTFD is dropped because its text cannot be safely
     /// rewritten independently of its file-wrapper contents.
     /// For larger payloads, expensive rich flavors are dropped and the
     /// transformed plain text remains available to every paste destination.
     /// The replacement item is fully materialized before the pasteboard is
-    /// changed; a failed publish restores the original item.
+    /// changed; a failed rich publish falls back to transformed plain text.
     ///
     /// - Parameters:
     ///   - string: The transformed text to publish through every text flavor.
     ///   - pasteboard: The terminal pasteboard whose existing flavors are updated.
-    /// - Returns: `true` when every advertised text representation was updated.
+    /// - Returns: `true` when the transformed text was published.
     @discardableResult
     public func rewriteTextRepresentations(_ string: String, in pasteboard: NSPasteboard) -> Bool {
         guard let items = pasteboard.pasteboardItems,
               items.count == 1,
-              let originalItem = copiedPasteboardItem(items[0]),
               let replacementItem = rewrittenPasteboardItem(
                   items[0],
                   text: string,
@@ -97,27 +97,16 @@ extension TerminalPasteboardService: TerminalClipboardReading {
         }
 
         pasteboard.clearContents()
-        guard pasteboard.writeObjects([replacementItem]) else {
-            pasteboard.clearContents()
-            _ = pasteboard.writeObjects([originalItem])
-            return false
-        }
-        return true
+        if pasteboard.writeObjects([replacementItem]) { return true }
+        pasteboard.clearContents()
+        return pasteboard.setString(string, forType: .string)
     }
 }
 
 extension TerminalPasteboardService {
-    /// Keeps synchronous AppKit rich-text parsing below the interactive-copy
+    /// Keeps synchronous AppKit rich-text serialization below the interactive-copy
     /// latency budget; larger rewrites publish the authoritative plain text.
     private static let richTextRewriteByteLimit = 64 * 1024
-
-    private func copiedPasteboardItem(_ source: NSPasteboardItem) -> NSPasteboardItem? {
-        let copy = NSPasteboardItem()
-        for type in source.types {
-            guard copyPasteboardRepresentation(type, from: source, to: copy) else { return nil }
-        }
-        return copy
-    }
 
     private func rewrittenPasteboardItem(
         _ source: NSPasteboardItem,
@@ -125,147 +114,32 @@ extension TerminalPasteboardService {
         preservingRichText: Bool
     ) -> NSPasteboardItem? {
         let rewritten = NSPasteboardItem()
-        for type in source.types {
-            if type == .rtfd {
-                continue
-            }
-            if !preservingRichText, isRichTextType(type) {
-                continue
-            }
-            if isPlainTextType(type) {
-                guard rewritten.setString(text, forType: type) else { return nil }
-                continue
-            }
+        let sourceTypes = source.types
+        let plainTextTypes = sourceTypes.filter(isPlainTextType)
+        for type in plainTextTypes {
+            guard rewritten.setString(text, forType: type) else { return nil }
+        }
+        if !plainTextTypes.contains(.string),
+           !rewritten.setString(text, forType: .string) {
+            return nil
+        }
+        guard preservingRichText else { return rewritten }
 
-            let documentType: NSAttributedString.DocumentType?
-            switch type {
-            case .html:
-                documentType = .html
-            case .rtf:
-                documentType = .rtf
-            default:
-                documentType = nil
-            }
-            if let documentType {
-                guard let attributed = attributedString(
-                    from: source,
-                    type: type,
-                    documentType: documentType
-                ),
-                      let replacement = attributedString(
-                          attributed,
-                          replacingTextWith: text
-                      ),
-                      let data = try? replacement.data(
-                          from: NSRange(location: 0, length: replacement.length),
-                          documentAttributes: [
-                              .documentType: documentType,
-                              .characterEncoding: String.Encoding.utf8.rawValue,
-                          ]
-                      ),
-                      rewritten.setData(data, forType: type) else { return nil }
-                continue
-            }
-
-            guard copyPasteboardRepresentation(type, from: source, to: rewritten) else {
-                return nil
-            }
+        let attributed = NSAttributedString(string: text)
+        for (type, documentType) in [
+            (NSPasteboard.PasteboardType.html, NSAttributedString.DocumentType.html),
+            (.rtf, .rtf),
+        ] where sourceTypes.contains(type) {
+            guard let data = try? attributed.data(
+                from: NSRange(location: 0, length: attributed.length),
+                documentAttributes: [
+                    .documentType: documentType,
+                    .characterEncoding: String.Encoding.utf8.rawValue,
+                ]
+            ),
+                rewritten.setData(data, forType: type) else { return nil }
         }
         return rewritten
-    }
-
-    private func copyPasteboardRepresentation(
-        _ type: NSPasteboard.PasteboardType,
-        from source: NSPasteboardItem,
-        to destination: NSPasteboardItem
-    ) -> Bool {
-        if let data = source.data(forType: type) {
-            return destination.setData(data, forType: type)
-        }
-        if let string = source.string(forType: type) {
-            return destination.setString(string, forType: type)
-        }
-        if let propertyList = source.propertyList(forType: type) {
-            return destination.setPropertyList(propertyList, forType: type)
-        }
-        return false
-    }
-
-    /// Replaces text while retaining attributes on every surviving non-whitespace token.
-    /// Reflow only removes tokens and rewrites whitespace; if a future transform
-    /// inserts non-whitespace content, alignment fails and the pasteboard rewrite
-    /// is aborted before any representation is changed.
-    private func attributedString(
-        _ attributed: NSAttributedString,
-        replacingTextWith replacement: String
-    ) -> NSAttributedString? {
-        guard let edits = textEdits(from: attributed.string, to: replacement) else { return nil }
-        let rewritten = NSMutableAttributedString(attributedString: attributed)
-        for edit in edits.reversed() {
-            rewritten.replaceCharacters(in: edit.range, with: edit.replacement)
-        }
-        guard rewritten.string == replacement else { return nil }
-        return rewritten
-    }
-
-    /// Produces a linear edit plan by aligning non-whitespace tokens in order.
-    /// Gaps between aligned tokens contain the newlines, indentation, padding,
-    /// and decorations that copy reflow is allowed to remove or normalize.
-    private func textEdits(
-        from source: String,
-        to target: String
-    ) -> [(range: NSRange, replacement: String)]? {
-        var sourceSearchIndex = source.startIndex
-        var targetSearchIndex = target.startIndex
-        var sourceGapStart = source.startIndex
-        var targetGapStart = target.startIndex
-        var edits: [(range: NSRange, replacement: String)] = []
-
-        while let targetToken = nextNonWhitespaceToken(
-            in: target,
-            searchIndex: &targetSearchIndex
-        ) {
-            var matchingSourceToken: Range<String.Index>?
-            while let sourceToken = nextNonWhitespaceToken(
-                in: source,
-                searchIndex: &sourceSearchIndex
-            ) {
-                if source[sourceToken] == target[targetToken] {
-                    matchingSourceToken = sourceToken
-                    break
-                }
-            }
-            guard let matchingSourceToken else { return nil }
-            let sourceGap = sourceGapStart..<matchingSourceToken.lowerBound
-            let targetGap = targetGapStart..<targetToken.lowerBound
-            if source[sourceGap] != target[targetGap] {
-                edits.append((NSRange(sourceGap, in: source), String(target[targetGap])))
-            }
-            sourceGapStart = matchingSourceToken.upperBound
-            targetGapStart = targetToken.upperBound
-        }
-
-        let sourceGap = sourceGapStart..<source.endIndex
-        let targetGap = targetGapStart..<target.endIndex
-        if source[sourceGap] != target[targetGap] {
-            edits.append((NSRange(sourceGap, in: source), String(target[targetGap])))
-        }
-        return edits
-    }
-
-    private func nextNonWhitespaceToken(
-        in string: String,
-        searchIndex: inout String.Index
-    ) -> Range<String.Index>? {
-        while searchIndex < string.endIndex, string[searchIndex].isWhitespace {
-            searchIndex = string.index(after: searchIndex)
-        }
-        guard searchIndex < string.endIndex else { return nil }
-        let start = searchIndex
-        while searchIndex < string.endIndex, !string[searchIndex].isWhitespace {
-            searchIndex = string.index(after: searchIndex)
-        }
-        return start..<searchIndex
     }
 
     private func attributedStringContents(

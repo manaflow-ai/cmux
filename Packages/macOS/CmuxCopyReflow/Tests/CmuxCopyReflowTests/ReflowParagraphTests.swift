@@ -319,7 +319,10 @@ struct ReflowParagraphTests {
         let line1 = "The quick brown fox jumps over the lazy dog and keeps running across the whole field today"
         let line2 = "and then it stops."
         let input = "\(line1)      \n\(line2)   \n"
-        let result = reflow(input)
+        let result = ReflowOptions.default.reflow(
+            input,
+            terminalWidth: line1.count + 6
+        )
         #expect(result == "\(line1) \(line2)\n")
         #expect(!result.contains("  "), "no padding-run gaps should survive")
     }
