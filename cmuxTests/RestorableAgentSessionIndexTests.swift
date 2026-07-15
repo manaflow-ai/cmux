@@ -1210,8 +1210,8 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         let cases: [(launcher: String, store: String, verbNeedles: [String])] = [
             ("codex", "codex-hook-sessions.json", ["'fork'"]),
             ("opencode", "opencode-hook-sessions.json", ["'--session'", "'--fork'"]),
-            ("pi", "pi-hook-sessions.json", ["'--session'", "'--fork'"]),
-            ("omp", "omp-hook-sessions.json", ["'--session'", "'--fork'"]),
+            ("pi", "pi-hook-sessions.json", ["'--fork'"]),
+            ("omp", "omp-hook-sessions.json", ["'--fork'"]),
         ]
         for testCase in cases {
             let ws = UUID()

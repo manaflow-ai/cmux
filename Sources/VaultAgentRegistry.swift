@@ -139,7 +139,7 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
             detect: CmuxVaultAgentDetectRule(processName: "pi", argvContains: ["pi"]),
             sessionIdSource: .piSessionFile,
             resumeCommand: "{{executable}} --session {{sessionId}}",
-            forkCommand: "{{executable}} --session {{sessionId}} --fork",
+            forkCommand: "{{executable}} --fork {{sessionId}}",
             cwd: .preserve,
             sessionDirectory: "~/.pi/agent/sessions"
         )
@@ -156,7 +156,7 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
             ),
             sessionIdSource: .piSessionFile,
             resumeCommand: "{{executable}} --session {{sessionId}}",
-            forkCommand: "{{executable}} --session {{sessionId}} --fork",
+            forkCommand: "{{executable}} --fork {{sessionId}}",
             cwd: .preserve,
             sessionDirectory: "~/.omp/agent/sessions"
         )

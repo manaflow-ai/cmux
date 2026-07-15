@@ -206,7 +206,7 @@ extension Array where Element == String {
         guard startIndex < endIndex else { return nil }
         for index in indices where index >= startIndex {
             let argument = self[index]
-            if argument == "--session" || argument == "--resume" || argument == "-r" {
+            if argument == "--session" || argument == "--resume" || argument == "--fork" || argument == "-r" {
                 let nextIndex = self.index(after: index)
                 guard nextIndex < endIndex else { continue }
                 if let value = normalizedNonOptionValue(self[nextIndex]) {
@@ -220,6 +220,10 @@ extension Array where Element == String {
             }
             if argument.hasPrefix("--resume="),
                let value = normalizedNonOptionValue(String(argument.dropFirst("--resume=".count))) {
+                return value
+            }
+            if argument.hasPrefix("--fork="),
+               let value = normalizedNonOptionValue(String(argument.dropFirst("--fork=".count))) {
                 return value
             }
             if argument.hasPrefix("-r="),
