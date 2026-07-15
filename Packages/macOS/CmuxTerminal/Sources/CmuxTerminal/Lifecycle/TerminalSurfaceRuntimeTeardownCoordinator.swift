@@ -13,23 +13,19 @@ internal import CMUXDebugLog
 /// and injects it through ``TerminalSurfaceRuntimeDependencies``.
 public actor TerminalSurfaceRuntimeTeardownCoordinator {
     private let timeout: Duration = .seconds(5)
+#if DEBUG
+    // Readable at internal scope in DEBUG so the debug-only extension in
+    // TerminalSurfaceRuntimeTeardownCoordinator+Debug.swift can report the
+    // pending count; private in release builds.
+    var pendingReasonsById: [UUID: String] = [:]
+#else
     private var pendingReasonsById: [UUID: String] = [:]
+#endif
     private var queuedRequests: [TerminalSurfaceRuntimeTeardownRequest] = []
     private var isWorkerRunning = false
 
     /// Creates the process's teardown coordinator.
     public init() {}
-
-#if DEBUG
-    /// Test support: native frees still queued or in flight. A test that
-    /// drops a live TerminalSurface instead of releasing it leaves its free —
-    /// and the surface's io threads — racing whatever runs next in the same
-    /// host; suites that create surfaces assert this drained back to their
-    /// baseline after teardown.
-    public var debugPendingTeardownCount: Int {
-        pendingReasonsById.count
-    }
-#endif
 
     /// Reads a bounded screen tail away from the main actor and before any
     /// subsequently enqueued native free for the same surface.
