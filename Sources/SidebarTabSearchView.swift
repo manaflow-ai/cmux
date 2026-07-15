@@ -31,6 +31,11 @@ struct SidebarTabSearchView: View {
     /// ready-made navigation actions. Backed by
     /// `ContentView.commandPaletteSwitcherEntries(includeSurfaces:)`.
     let entriesProvider: () -> [CommandPaletteCommand]
+    /// Cheap fingerprint of the switcher corpus (names/metadata hash, no fuzzy
+    /// preparation). Checked on every keystroke so the session cache rebuilds
+    /// when workspaces or surfaces change mid-search instead of serving stale
+    /// rows. Backed by `ContentView.commandPaletteSwitcherEntriesFingerprint`.
+    var fingerprintProvider: () -> Int = { 0 }
     /// This sidebar's window, used to accept only the `searchTabs` focus request
     /// routed to this window (the notification is posted per target window).
     var focusTargetWindow: NSWindow?
@@ -52,6 +57,9 @@ struct SidebarTabSearchView: View {
     /// keystroke would be needless work.
     @State private var cachedIndex: SidebarTabSearchIndex?
     @State private var cachedActions: [String: () -> Void] = [:]
+    /// Fingerprint the cached corpus was built from; a mismatch on the next
+    /// keystroke forces a rebuild.
+    @State private var cachedFingerprint: Int?
 
     private static let resultLimit = 40
     private static let workspaceIdPrefix = "switcher.workspace."
@@ -264,16 +272,19 @@ struct SidebarTabSearchView: View {
             selectedIndex = 0
             cachedIndex = nil
             cachedActions = [:]
+            cachedFingerprint = nil
             return
         }
 
+        let fingerprint = fingerprintProvider()
         let index: SidebarTabSearchIndex
-        if let cachedIndex {
+        if let cachedIndex, cachedFingerprint == fingerprint {
             index = cachedIndex
         } else {
             let built = buildCorpus()
             cachedIndex = built.index
             cachedActions = built.actions
+            cachedFingerprint = fingerprint
             index = built.index
         }
 
@@ -336,6 +347,7 @@ struct SidebarTabSearchView: View {
         // End the search session: the next search rebuilds a fresh corpus.
         cachedIndex = nil
         cachedActions = [:]
+        cachedFingerprint = nil
     }
 }
 

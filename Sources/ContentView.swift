@@ -1605,6 +1605,7 @@ struct ContentView: View {
             },
             observedWindow: observedWindow,
             sidebarTabSearchEntriesProvider: { commandPaletteSwitcherEntries(includeSurfaces: true) },
+            sidebarTabSearchFingerprintProvider: { commandPaletteSwitcherEntriesFingerprint(includeSurfaces: true) },
             selection: $sidebarSelectionState.selection,
             selectedTabIds: $selectedTabIds, lastSidebarSelectionIndex: $lastSidebarSelectionIndex, sidebarRenderWorkerClient: $sidebarRenderWorkerClient
         )
@@ -9883,6 +9884,9 @@ struct VerticalTabsSidebar: View {
     /// (workspaces + surfaces, each with its focus action). Defaulted so
     /// previews and tests can construct the sidebar without wiring it.
     var sidebarTabSearchEntriesProvider: () -> [CommandPaletteCommand] = { [] }
+    /// Cheap corpus fingerprint so the tab search rebuilds its session cache
+    /// when workspaces/surfaces change mid-search. Defaulted for previews/tests.
+    var sidebarTabSearchFingerprintProvider: () -> Int = { 0 }
     @EnvironmentObject var tabManager: TabManager
     // Observe the coalesced unread projection instead of the notification store
     // so notification churn (terminal/agent activity) no longer reconstructs
@@ -10530,6 +10534,7 @@ struct VerticalTabsSidebar: View {
                 // Padded below the draggable titlebar strip / window controls.
                 SidebarTabSearchView(
                     entriesProvider: sidebarTabSearchEntriesProvider,
+                    fingerprintProvider: sidebarTabSearchFingerprintProvider,
                     focusTargetWindow: observedWindow,
                     availableDropdownHeight: sidebarTabSearchAvailableDropdownHeight
                 )
