@@ -130,7 +130,52 @@ extension RemoteTmuxControlConnection {
         windowCloseRecoveryTokensAwaitingList.subtract(closeRecoveryTokens)
         windowCloseRecoveryTokensInFlight = closeRecoveryTokens
         windowListRequestInFlight = true
+        armWindowCloseRecoveryDeadlines(for: closeRecoveryTokens)
+        armWindowReorderRecoveryDeadline(for: windowReorderGeneration)
         return true
+    }
+
+    /// A FIFO-following recovery read gets a fresh bounded budget only once it
+    /// is actually written. An older coalesced list must finish before this
+    /// deadline starts, otherwise it would consume the recovery's whole budget.
+    private func armWindowCloseRecoveryDeadlines(for tokens: Set<UUID>) {
+        for token in tokens where windowCloseRequests[token] != nil {
+            windowCloseDeadlineCancellations.removeValue(forKey: token)?()
+            windowCloseDeadlineCancellations[token] = scheduleActivityQueryDeadline(
+                Self.mobileMutationVerificationTimeout
+            ) { [weak self] in
+                guard let self,
+                      self.windowCloseRequests[token] != nil,
+                      self.windowCloseRecoveryTokensInFlight.contains(token) else { return }
+                self.windowCloseDeadlineCancellations.removeValue(forKey: token)?()
+                guard self.finishWindowCloseRequest(token: token, outcome: .unknown) else { return }
+                self.record("window-close-recovery-deadline")
+                self.beginReconnecting()
+            }
+        }
+    }
+
+    /// The verification generation remains the mutation owner through its full
+    /// recovery snapshot. If that snapshot is silent, fail the owner exactly
+    /// once and discard the unusable stream instead of retaining its FIFO slot.
+    private func armWindowReorderRecoveryDeadline(for requestGeneration: UInt64) {
+        guard windowReorderRecoveryGeneration == requestGeneration,
+              let verificationGeneration = windowReorderVerificationGeneration else { return }
+        windowReorderDeadlineCancellations.removeValue(forKey: verificationGeneration)?()
+        windowReorderDeadlineCancellations[verificationGeneration] = scheduleActivityQueryDeadline(
+            Self.mobileMutationVerificationTimeout
+        ) { [weak self] in
+            guard let self,
+                  self.windowReorderRecoveryGeneration == requestGeneration,
+                  self.windowReorderVerificationGeneration == verificationGeneration else { return }
+            self.windowReorderDeadlineCancellations.removeValue(forKey: verificationGeneration)?()
+            guard self.finishWindowReorderVerification(
+                generation: verificationGeneration,
+                outcome: .unknown
+            ) else { return }
+            self.record("window-reorder-recovery-deadline")
+            self.beginReconnecting()
+        }
     }
 
     func completeWindowListRequest() {

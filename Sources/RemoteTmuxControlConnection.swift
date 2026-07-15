@@ -686,6 +686,12 @@ final class RemoteTmuxControlConnection {
         failPendingNewWindowRequests()
         failPendingWindowCloseRequests()
         failPendingWindowReorderVerifications()
+        // The old stream is unusable now, not after the reconnect backoff.
+        // Drop its positional correlation immediately so a late reply cannot
+        // consume a slot that a replacement stream will later reuse.
+        pendingCommands.removeAll()
+        windowReorderBatchFailed = false
+        windowReorderRecoveryGeneration = nil
         resetWindowListRequestCoalescing()
         cancelSizingFollowUps()
         pendingPostAttachAction = nil

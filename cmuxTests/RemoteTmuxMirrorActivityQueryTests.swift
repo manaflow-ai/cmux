@@ -368,6 +368,9 @@ extension RemoteTmuxMirrorTargetingTests {
             #expect(deadlines.scheduledCount == 2, "the written recovery read needs its own deadline")
 
             deadlines.fireNext()
+            for _ in 0..<50 where observedResult == nil {
+                await Task.yield()
+            }
 
             #expect(resultErrorCode(observedResult) == "result_unknown")
             #expect(harness.connection.windowCloseRequests[token] == nil)
@@ -636,6 +639,9 @@ extension RemoteTmuxMirrorTargetingTests {
             #expect(deadlines.scheduledCount == 2, "the written recovery read needs its own deadline")
 
             deadlines.fireNext()
+            for _ in 0..<50 where observedResult == nil {
+                await Task.yield()
+            }
 
             #expect(resultErrorCode(observedResult) == "result_unknown")
             #expect(harness.connection.windowReorderVerificationTokens[token] == nil)
