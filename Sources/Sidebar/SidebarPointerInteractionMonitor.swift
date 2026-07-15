@@ -188,7 +188,10 @@ final class SidebarPointerInteractionMonitor {
     }
 
     func middleClickWorkspaceId(at point: CGPoint) -> UUID? {
-        rowId(at: point).flatMap { workspaceIdsByRowId[$0] }
+        guard let rowId = rowId(at: point),
+              let workspaceId = workspaceIdsByRowId[rowId],
+              rowId == .workspace(workspaceId) else { return nil }
+        return workspaceId
     }
 
     nonisolated static func swiftUIPoint(
