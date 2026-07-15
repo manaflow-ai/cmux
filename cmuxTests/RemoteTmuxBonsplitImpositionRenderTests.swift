@@ -1602,6 +1602,97 @@ import Testing
         }
         withExtendedLifetime((connectionA, connectionB)) {}
     }
+
+    /// A reading parked because it exceeded the window's transient bound must
+    /// NOT be consumed while that window is still in a live resize: the frame
+    /// it reports then is the old, smaller one, and judging the (valid,
+    /// larger) post-resize reading against it discards it for good — no later
+    /// callback re-delivers it. The reading stays parked until the window
+    /// settles, and the first settled pass consumes it.
+    @Test func parkedReadingSurvivesALiveResizingWindowBound() throws {
+        let window = LiveResizeProbeWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered, defer: false
+        )
+        let contentView = try #require(window.contentView)
+        let probe = NSView(frame: contentView.bounds)
+        contentView.addSubview(probe)
+        window.makeKeyAndOrderFront(nil)
+        contentView.layoutSubtreeIfNeeded()
+        defer { window.orderOut(nil) }
+
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "live-resize-\(UUID().uuidString)@host"),
+            sessionName: "work"
+        )
+        let mirror = RemoteTmuxWindowMirror(
+            windowId: 0,
+            panelId: UUID(),
+            connection: connection,
+            layout: node(.horizontal([
+                node(.pane(1), w: 61, h: 35, x: 0, y: 0),
+                node(.pane(2), w: 61, h: 35, x: 62, y: 0),
+            ]), w: 123, h: 35, x: 0, y: 0),
+            geometrySource: {
+                RemoteTmuxMirrorGeometry(
+                    cellWidthPx: 16, cellHeightPx: 34,
+                    surfacePadWidthPx: 8, surfacePadHeightPx: 0,
+                    scale: 2
+                )
+            },
+            hostingContentSizeSource: { nil },
+            makePanel: { _ in nil }
+        )
+        mirror.isVisibleForSizing = true
+        mirror.hostProbeView = probe
+
+        let bound = try #require(mirror.visibleHostingContext()?.contentSize)
+        // A good reading within the current bound banks.
+        let good = CGSize(width: bound.width - 60, height: bound.height - 60)
+        mirror.noteContainerSize(pointSize: good, scale: 2)
+        #expect(mirror.containerSizePt == good)
+
+        // Mid-live-resize: the window still reports its transient (small)
+        // frame while the slot already reads its larger post-resize size.
+        window.liveResizeActive = true
+        let postResize = CGSize(width: bound.width + 120, height: bound.height + 90)
+        mirror.noteContainerSize(pointSize: postResize, scale: 2)
+        #expect(mirror.pendingOversizedReading != nil, "an oversized reading parks")
+
+        // A pass during the live resize must not consume it against the stale
+        // bound; the reading survives.
+        mirror.performSizingPassNow()
+        #expect(
+            mirror.containerSizePt == good,
+            "a live-resizing bound must not consume the parked reading"
+        )
+        #expect(
+            mirror.pendingOversizedReading != nil,
+            "the reading stays parked until the window settles"
+        )
+
+        // The resize ends and the window grows past the reading; the first
+        // settled pass consumes it.
+        window.liveResizeActive = false
+        window.setContentSize(NSSize(width: 1140, height: 940))
+        contentView.layoutSubtreeIfNeeded()
+        let settled = try #require(mirror.visibleHostingContext()?.contentSize)
+        #expect(settled.width >= postResize.width && settled.height >= postResize.height)
+        mirror.performSizingPassNow()
+        #expect(
+            mirror.containerSizePt == postResize,
+            "the settled pass consumes the parked post-resize reading"
+        )
+        withExtendedLifetime(connection) {}
+    }
+}
+
+/// An NSWindow whose live-resize state a test can drive, so the mirror's
+/// settled-bound gate can be exercised without a real edge drag.
+private final class LiveResizeProbeWindow: NSWindow {
+    var liveResizeActive = false
+    override var inLiveResize: Bool { liveResizeActive }
 }
 
 private func node(

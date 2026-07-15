@@ -154,8 +154,12 @@ extension TerminalSurface {
         reapplyAssignedGrid()
     }
 
+    /// Re-applies the current pin's pixel size to the surface. The mirror
+    /// calls this when a pane's rendered grid falls behind an assignment the
+    /// pin already holds — an unchanged ``setAssignedGrid`` is a no-op, so the
+    /// surface needs an explicit nudge back onto the pinned grid.
     @MainActor
-    private func reapplyAssignedGrid() {
+    public func reapplyAssignedGrid() {
         guard manualIO, lastUncappedPixelWidth > 0, lastUncappedPixelHeight > 0,
               lastXScale > 0, lastYScale > 0 else { return }
         _ = updateSize(

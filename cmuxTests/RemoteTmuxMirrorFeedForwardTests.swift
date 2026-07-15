@@ -644,6 +644,111 @@ import Testing
         mirror.bonsplitController.noteDividerDragSession(false)
     }
 
+    /// A drag ending during a remote apply must still land the user's final
+    /// divider position at tmux. Skipping the send outright (only scheduling a
+    /// pass) loses the move: it never reaches tmux and the next sizing pass
+    /// re-imposes the pre-drag layout. The send is deferred one runloop turn,
+    /// after the apply's synchronous scope clears the flag, and then fires.
+    @Test func dragEndDuringRemoteApplyStillSendsTheFinalPosition() throws {
+        let two = node(.horizontal([
+            node(.pane(1), w: 61, h: 34, x: 0, y: 0),
+            node(.pane(2), w: 61, h: 34, x: 62, y: 0),
+        ]), w: 123, h: 34, x: 0, y: 0)
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "drag-defer-\(UUID().uuidString)@host"),
+            sessionName: "work"
+        )
+        let pipe = Pipe()
+        let writer = RemoteTmuxControlPipeWriter(
+            handle: pipe.fileHandleForWriting,
+            label: "remote-tmux-drag-defer-test",
+            maxPendingBytes: 1 << 16,
+            onFailure: {}
+        )
+        defer { writer.close(); try? pipe.fileHandleForReading.close() }
+        connection.installStdinWriterForTesting(writer)
+        connection.handleMessageForTesting(.enter)
+        let geometry = calibratedGeometry
+        let mirror = RemoteTmuxWindowMirror(
+            windowId: 0,
+            panelId: UUID(),
+            connection: connection,
+            layout: two,
+            geometrySource: { geometry },
+            hostingContentSizeSource: { CGSize(width: 800, height: 620) },
+            makePanel: { _ in nil }
+        )
+        mirror.isVisibleForSizing = true
+        mirror.containerSizePt = CGSize(width: 800, height: 620)
+        mirror.containerScale = 2
+        mirror.reconcile(layout: two)
+        mirror.performSizingPassNow()
+        guard case .split(let split) = mirror.bonsplitController.treeSnapshot(),
+              let splitId = UUID(uuidString: split.id) else {
+            Issue.record("the reconciled tree holds no split")
+            return
+        }
+        // Rebaseline the drag detector off the imposed state (no live views
+        // ever mirror the fraction back headlessly).
+        _ = mirror.syncChangedDividerPositions()
+
+        // The user drags to a feasible position, then releases WHILE a remote
+        // apply is in flight.
+        mirror.bonsplitController.noteDividerDragSession(true)
+        mirror.bonsplitController.setDividerPosition(0.3, forSplit: splitId)
+        let pendingBefore = connection.pendingCommandKindsForTesting.count
+        mirror.isApplyingRemoteLayout = true
+        mirror.splitTabBarDividerDragDidEnd(mirror.bonsplitController)
+        #expect(
+            connection.pendingCommandKindsForTesting.count == pendingBefore,
+            "the send must not run mid-apply"
+        )
+        mirror.isApplyingRemoteLayout = false
+        mirror.bonsplitController.noteDividerDragSession(false)
+
+        // The deferred flush runs on the next runloop turn and sends the move.
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        #expect(
+            connection.pendingCommandKindsForTesting.count == pendingBefore + 1,
+            "the deferred drag-end must send the user's final divider position"
+        )
+    }
+
+    // MARK: assigned-grid pin lag (marathon residual)
+
+    /// The input-only settle proof cannot see a pin that fell behind: when
+    /// tmux grows a pane's assignment between our claim and settle and the pin
+    /// applied against stale cell metrics, the surface renders one row short
+    /// and wraps while the sizing inputs read unchanged. The output-parity
+    /// re-arm must treat a rendered grid behind its assignment as a miss and
+    /// schedule a recovery pass (which re-applies the pin).
+    @Test func settleRearmsWhenRenderedGridLagsTheAssignment() {
+        let (mirror, _) = readyMirror(layout: reflow123)
+        mirror.isVisibleForSizing = true
+        mirror.performSizingPassNow()
+        #expect(!mirror.sizingPassScheduled)
+        #expect(mirror.gridParityMismatch() == nil, "no samples yet is not a lag")
+
+        // tmux assigned pane 1 41×35; the surface still renders one row short.
+        mirror.lastRenderedGrids = [1: (41, 34), 2: (40, 35), 3: (40, 35)]
+        #expect(mirror.gridParityMismatch() != nil, "a short render is a grid lag")
+        mirror.rearmIfOutputMissedPlan()
+        #expect(
+            mirror.sizingPassScheduled,
+            "a rendered grid behind its assignment must re-arm the pass"
+        )
+    }
+
+    /// The mirror is settled once every renderable pane renders exactly its
+    /// assigned grid — a grid at or beyond the assignment is not a lag (the
+    /// pin clips a surplus; only a short render wraps).
+    @Test func gridParityIgnoresPanesThatRenderTheirAssignment() {
+        let (mirror, _) = readyMirror(layout: reflow123)
+        mirror.isVisibleForSizing = true
+        mirror.lastRenderedGrids = [1: (41, 35), 2: (40, 35), 3: (40, 35)]
+        #expect(mirror.gridParityMismatch() == nil)
+    }
+
     // MARK: drag → tmux cell conversion: grid feasibility
 
     /// A divider drag converts to a resize-pane span in cells, and tmux can

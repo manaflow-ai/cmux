@@ -238,6 +238,17 @@ extension RemoteTmuxWindowMirror {
             if let node = leaves[paneId], node.width > 0, node.height > 0 {
                 if panel.surface.setAssignedGrid(columns: node.width, rows: node.height) {
                     pinGrew = true
+                } else if let rendered = lastRenderedGrids[paneId],
+                          rendered.cols < node.width || rendered.rows < node.height {
+                    // The pin value already equals the assignment, but the
+                    // surface is still rendering fewer cells: tmux grew the
+                    // pane after the pin last applied (against stale cell
+                    // metrics between our claim and settle), and an unchanged
+                    // setAssignedGrid is a no-op. Re-apply against the current
+                    // metrics and kick a redraw to refill the late cells —
+                    // otherwise the pane renders short and wraps forever.
+                    panel.surface.reapplyAssignedGrid()
+                    pinGrew = true
                 }
             } else {
                 panel.surface.clearAssignedGrid()
@@ -250,6 +261,27 @@ extension RemoteTmuxWindowMirror {
         if pinGrew {
             connection?.scheduleAttachRedrawKickIfNeeded()
         }
+    }
+
+    /// The first renderable pane whose last sampled grid is behind the cells
+    /// tmux assigned it. This is the residual the input-only settle proof
+    /// cannot see: `renderedLayout` is part of the sizing inputs, but a pin
+    /// that applied against stale cell metrics can leave the surface one
+    /// row/column short of an assignment that grew between our claim and
+    /// settle, so the pane renders short and wraps while inputs read
+    /// unchanged. Panes tmux itself squeezed to a one-cell axis carry no
+    /// renderable grid (the render oracle skips them the same way), so they
+    /// never count as a lag.
+    func gridParityMismatch() -> String? {
+        for (paneId, node) in renderedLayout.leavesByPaneID {
+            guard node.width > 1, node.height > 1,
+                  let rendered = lastRenderedGrids[paneId] else { continue }
+            if rendered.cols < node.width || rendered.rows < node.height {
+                return "pane=%\(paneId) assigned=\(node.width)x\(node.height)"
+                    + " rendered=\(rendered.cols)x\(rendered.rows)"
+            }
+        }
+        return nil
     }
 
     func performSizingPassNow() {
@@ -281,7 +313,16 @@ extension RemoteTmuxWindowMirror {
         // reading there lost the one re-judgment, and the reveal path never
         // re-delivers it — the reading stays parked for the next bounded
         // pass instead.
-        if let parked = pendingOversizedReading, let bound = visibleHostingBound {
+        // Consume the parked reading only against a SETTLED bound. While the
+        // hosting window is in a live resize it still reports its transient
+        // (old, smaller) frame, so a valid post-resize reading that legitimately
+        // exceeds that frame would be judged against noise and discarded for
+        // good — the window never re-delivers it. Leave it parked; live-resize
+        // end fires a fresh geometry callback whose settled pass consumes it.
+        // A nil window (an injected bound, or the no-host fallback) is treated
+        // as settled: there is no live resize to wait on.
+        if let parked = pendingOversizedReading, let bound = visibleHostingBound,
+           hostingContext?.window?.inLiveResize != true {
             pendingOversizedReading = nil
             if parked.size.width <= bound.width + 0.5,
                parked.size.height <= bound.height + 0.5 {
@@ -396,7 +437,7 @@ extension RemoteTmuxWindowMirror {
     /// miss the plan at an input fixed point, request one recovery pass,
     /// capped per fixed point so an extent bonsplit genuinely cannot apply
     /// (a hard minimum) stops after a bounded correction instead of looping.
-    private func rearmIfOutputMissedPlan() {
+    func rearmIfOutputMissedPlan() {
         guard !isTornDown, !sizingPassScheduled, isVisibleForSizing,
               !bonsplitController.isDividerDragActive,
               // A sent divider resize makes the plan KNOWN stale until the
@@ -411,7 +452,12 @@ extension RemoteTmuxWindowMirror {
               completed == currentSizingInputs()
         else { return }
         guard outputParityRearmsSpent < 3 else { return }
-        guard let mismatch = outputParityMismatch() else { return }
+        // Re-arm on EITHER a hosted-frame miss (the plan's points never
+        // reached the views) OR a grid-lag miss (the pin never followed an
+        // assignment that grew); the recovery pass re-imposes the plan and
+        // re-applies the pin, and the cap bounds a miss that genuinely cannot
+        // converge.
+        guard let mismatch = outputParityMismatch() ?? gridParityMismatch() else { return }
         outputParityRearmsSpent += 1
         #if DEBUG
         RemoteTmuxSizingDiagnostics.parityRearmCount += 1
