@@ -3,30 +3,30 @@ import SwiftUI
 
 /// Cursor-style floating composer card for Design Mode.
 ///
-/// Shows the selected element chips, a change-description field, and the
-/// copy action. Visual language mirrors the cmux agent composer
-/// (`TextBoxInput`): material card, continuous 15pt corners, hairline
-/// stroke, compact pill chips.
+/// Matches Cursor's design-mode composer: a flat dark card with the selected
+/// element chips inline ahead of the change-description field, and a footer
+/// with the copy shortcut hint and action. Always renders dark, like the
+/// selection overlays it accompanies.
 struct BrowserDesignModePopover: View {
     @Bindable var controller: BrowserDesignModeController
     @FocusState private var requestFieldFocused: Bool
     @State private var isCloseHovered = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             if let selections = controller.snapshot?.selections, !selections.isEmpty {
-                selectionHeader(selections)
-                requestEditor
+                composerRow(selections)
                 errorMessage
                 footer
             } else {
                 emptyState
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 9)
-        .frame(width: 400)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .frame(width: 440)
         .background(cardBackground)
+        .environment(\.colorScheme, .dark)
         .onExitCommand { controller.dismissComposer() }
         .onAppear { requestFieldFocused = controller.snapshot?.selections.isEmpty == false }
         .onChange(of: controller.snapshot?.selections.map(\.selector)) { _, selectors in
@@ -37,48 +37,28 @@ struct BrowserDesignModePopover: View {
     }
 
     private var cardBackground: some View {
-        let shape = RoundedRectangle(cornerRadius: 15, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
         return shape
-            .fill(.regularMaterial)
-            .overlay(shape.strokeBorder(Color.primary.opacity(0.14), lineWidth: 1))
-            .shadow(color: Color.black.opacity(0.18), radius: 12, y: 4)
+            .fill(Color(red: 0.118, green: 0.118, blue: 0.125).opacity(0.98))
+            .overlay(shape.strokeBorder(Color.white.opacity(0.10), lineWidth: 1))
+            .shadow(color: Color.black.opacity(0.35), radius: 14, y: 5)
     }
 
-    private func selectionHeader(_ selections: [BrowserDesignModeSelection]) -> some View {
-        HStack(alignment: .top, spacing: 6) {
-            BrowserDesignModeChipFlowLayout(spacing: 4) {
-                ForEach(Array(selections.enumerated()), id: \.offset) { index, selection in
-                    BrowserDesignModeSelectionChip(
-                        selection: selection,
-                        onRemove: {
-                            Task { @MainActor in await controller.removeSelection(at: index) }
-                        }
-                    )
-                }
+    private func composerRow(_ selections: [BrowserDesignModeSelection]) -> some View {
+        BrowserDesignModeComposerRowLayout(spacing: 5, rowSpacing: 4, minimumFieldWidth: 150) {
+            ForEach(Array(selections.enumerated()), id: \.offset) { index, selection in
+                BrowserDesignModeSelectionChip(
+                    selection: selection,
+                    onRemove: {
+                        Task { @MainActor in await controller.removeSelection(at: index) }
+                    }
+                )
             }
-            Spacer(minLength: 0)
-            closeButton
+            requestField
         }
     }
 
-    private var closeButton: some View {
-        Button {
-            controller.dismissComposer()
-        } label: {
-            Image(systemName: "xmark")
-                .font(.system(size: 8, weight: .bold))
-                .foregroundStyle(isCloseHovered ? AnyShapeStyle(.primary) : AnyShapeStyle(.tertiary))
-                .frame(width: 18, height: 18)
-                .background(Circle().fill(isCloseHovered ? Color.primary.opacity(0.12) : Color.clear))
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .onHover { isCloseHovered = $0 }
-        .safeHelp(String(localized: "common.close", defaultValue: "Close"))
-        .accessibilityLabel(String(localized: "common.close", defaultValue: "Close"))
-    }
-
-    private var requestEditor: some View {
+    private var requestField: some View {
         TextField(
             String(
                 localized: "browser.designMode.composer.describeChange",
@@ -89,13 +69,14 @@ struct BrowserDesignModePopover: View {
         )
         .textFieldStyle(.plain)
         .lineLimit(1...5)
-        .cmuxFont(size: 13)
+        .cmuxFont(size: 13.5)
+        .foregroundStyle(.white.opacity(0.96))
+        .tint(Color(red: 0.35, green: 0.62, blue: 1.0))
         .focused($requestFieldFocused)
         .onSubmit {
             Task { @MainActor in await controller.copySelection() }
         }
-        .padding(.horizontal, 2)
-        .padding(.vertical, 6)
+        .padding(.vertical, 2)
         .accessibilityLabel(
             String(
                 localized: "browser.designMode.composer.describeChange",
@@ -116,6 +97,9 @@ struct BrowserDesignModePopover: View {
 
     private var footer: some View {
         HStack(spacing: 8) {
+            Text(String(localized: "browser.designMode.copy.shortcut", defaultValue: "⌘↩"))
+                .cmuxFont(size: 12)
+                .foregroundStyle(.white.opacity(0.40))
             if controller.didCopy {
                 Label(
                     String(localized: "browser.designMode.copy.copied", defaultValue: "Copied"),
@@ -126,9 +110,6 @@ struct BrowserDesignModePopover: View {
                 .transition(.opacity)
             }
             Spacer(minLength: 0)
-            Text(String(localized: "browser.designMode.copy.shortcut", defaultValue: "⌘↩"))
-                .cmuxFont(size: 11)
-                .foregroundStyle(.tertiary)
             Button {
                 Task { @MainActor in await controller.copySelection() }
             } label: {
@@ -141,6 +122,7 @@ struct BrowserDesignModePopover: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
+            .tint(Color(red: 0.25, green: 0.47, blue: 0.96))
             .keyboardShortcut(.return, modifiers: .command)
             .disabled(!controller.canCopy)
             .accessibilityIdentifier("BrowserDesignModeCopyButton")
@@ -160,7 +142,7 @@ struct BrowserDesignModePopover: View {
                             defaultValue: "Select one or more elements on the page."
                         )
                     )
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.white.opacity(0.55))
                 }
             }
             .cmuxFont(size: 11)
@@ -168,5 +150,22 @@ struct BrowserDesignModePopover: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             closeButton
         }
+    }
+
+    private var closeButton: some View {
+        Button {
+            controller.dismissComposer()
+        } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 8, weight: .bold))
+                .foregroundStyle(isCloseHovered ? AnyShapeStyle(.white) : AnyShapeStyle(.white.opacity(0.45)))
+                .frame(width: 18, height: 18)
+                .background(Circle().fill(isCloseHovered ? Color.white.opacity(0.12) : Color.clear))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isCloseHovered = $0 }
+        .safeHelp(String(localized: "common.close", defaultValue: "Close"))
+        .accessibilityLabel(String(localized: "common.close", defaultValue: "Close"))
     }
 }

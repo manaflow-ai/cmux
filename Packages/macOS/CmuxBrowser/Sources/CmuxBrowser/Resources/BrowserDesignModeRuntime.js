@@ -779,11 +779,11 @@
       background: "transparent",
     });
 
-    const margin = box("margin", "rgba(246, 178, 107, 0.28)");
-    const border = box("border", "rgba(255, 214, 102, 0.30)");
-    const padding = box("padding", "rgba(131, 211, 124, 0.30)");
-    const content = box("content", "rgba(91, 155, 213, 0.28)");
-    content.style.outline = "2px solid rgb(10, 132, 255)";
+    const margin = box("margin", "transparent");
+    const border = box("border", "transparent");
+    const padding = box("padding", "transparent");
+    const content = box("content", "rgba(10, 132, 255, 0.13)");
+    content.style.outline = "1.5px solid rgb(10, 132, 255)";
     content.style.outlineOffset = "-1px";
 
     const selectionLayer = document.createElement("div");
@@ -799,12 +799,12 @@
       position: "fixed",
       pointerEvents: "none",
       maxWidth: "min(520px, calc(100vw - 16px))",
-      padding: "4px 7px",
-      borderRadius: "5px",
+      padding: "5px 10px",
+      borderRadius: "6px",
       color: "white",
-      background: "rgba(27, 31, 38, 0.96)",
-      boxShadow: "0 2px 10px rgba(0, 0, 0, 0.28)",
-      font: "600 11px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace",
+      background: "rgb(10, 132, 255)",
+      boxShadow: "0 2px 8px rgba(0, 0, 0, 0.35)",
+      font: "600 12px/1.3 -apple-system, BlinkMacSystemFont, sans-serif",
       whiteSpace: "nowrap",
       overflow: "hidden",
       textOverflow: "ellipsis",
@@ -843,8 +843,7 @@
       boxSizing: "border-box",
       border: "2px solid rgb(10, 132, 255)",
       borderRadius: "2px",
-      background: "rgba(10, 132, 255, 0.07)",
-      boxShadow: "0 0 0 1px rgba(255, 255, 255, 0.32)",
+      background: "transparent",
     });
     return element;
   };
@@ -864,7 +863,11 @@
         outline.style.display = "none";
         continue;
       }
-      outline.style.opacity = reference === activeReference ? "1" : "0.72";
+      // Cursor-style: the active (last) selection outlines purple, earlier
+      // stacked selections outline accent blue.
+      outline.style.borderColor = reference === activeReference
+        ? "rgb(175, 82, 222)"
+        : "rgb(10, 132, 255)";
       place(outline, element.getBoundingClientRect());
     }
   };
@@ -904,48 +907,25 @@
     }
 
     const rect = element.getBoundingClientRect();
-    const computed = getComputedStyle(element);
-    const margin = {
-      top: number(computed.marginTop), right: number(computed.marginRight),
-      bottom: number(computed.marginBottom), left: number(computed.marginLeft),
-    };
-    const border = {
-      top: number(computed.borderTopWidth), right: number(computed.borderRightWidth),
-      bottom: number(computed.borderBottomWidth), left: number(computed.borderLeftWidth),
-    };
-    const padding = {
-      top: number(computed.paddingTop), right: number(computed.paddingRight),
-      bottom: number(computed.paddingBottom), left: number(computed.paddingLeft),
-    };
+    // Cursor-style hover: a single accent veil + outline over the element
+    // bounds. The margin/border/padding boxes stay hidden.
+    place(overlay.content, { x: rect.x, y: rect.y, width: rect.width, height: rect.height });
+    positionHoverBadge(element, rect, selected);
+  };
 
-    place(overlay.margin, {
-      x: rect.x - margin.left, y: rect.y - margin.top,
-      width: rect.width + margin.left + margin.right,
-      height: rect.height + margin.top + margin.bottom,
-    });
-    place(overlay.border, { x: rect.x, y: rect.y, width: rect.width, height: rect.height });
-    place(overlay.padding, {
-      x: rect.x + border.left, y: rect.y + border.top,
-      width: rect.width - border.left - border.right,
-      height: rect.height - border.top - border.bottom,
-    });
-    place(overlay.content, {
-      x: rect.x + border.left + padding.left,
-      y: rect.y + border.top + padding.top,
-      width: rect.width - border.left - border.right - padding.left - padding.right,
-      height: rect.height - border.top - border.bottom - padding.top - padding.bottom,
-    });
-
-    const selector = displaySelectorFor(element);
+  const positionHoverBadge = (element, rect, selected) => {
     if (element === selected) {
       overlay.badge.style.display = "none";
-    } else {
-      overlay.badge.textContent = `${selector}  ${Math.round(rect.width)} × ${Math.round(rect.height)}`;
-      overlay.badge.style.display = "block";
-      const badgeHeight = overlay.badge.getBoundingClientRect().height || 24;
-      overlay.badge.style.left = `${Math.max(8, Math.min(rect.x, globalThis.innerWidth - 220))}px`;
-      overlay.badge.style.top = `${rect.y > badgeHeight + 8 ? rect.y - badgeHeight - 5 : rect.bottom + 5}px`;
+      return;
     }
+    overlay.badge.textContent = displaySelectorFor(element);
+    overlay.badge.style.display = "block";
+    const badgeRect = overlay.badge.getBoundingClientRect();
+    const badgeWidth = badgeRect.width || 120;
+    const badgeHeight = badgeRect.height || 24;
+    const left = Math.max(8, Math.min(rect.right - badgeWidth, globalThis.innerWidth - badgeWidth - 8));
+    overlay.badge.style.left = `${left}px`;
+    overlay.badge.style.top = `${rect.y > badgeHeight + 8 ? rect.y - badgeHeight - 5 : rect.y + 5}px`;
   };
 
   const scheduleOverlayRefresh = () => {
@@ -1134,12 +1114,13 @@
     return emit();
   };
 
-  const selectElement = (element) => {
+  const selectElement = (element, stack = false) => {
     if (!element || element === overlayHost || overlayHost?.contains(element)) return snapshot();
     cancelSelectionRecovery();
     cancelMutationEmission();
     const elementIndex = selectedReferences.findIndex((reference) => reference.element === element);
-    if (elementIndex === selectedReferences.length - 1 && selectedElement === element && selectedBaseline) {
+    if (elementIndex === selectedReferences.length - 1 && selectedElement === element && selectedBaseline
+        && (stack || selectedReferences.length === 1)) {
       hoveredElement = null;
       scheduleOverlayRefresh();
       return snapshot();
@@ -1147,7 +1128,8 @@
     const validatedBaseline = baselineFor(element);
     if (!validatedBaseline) return snapshot();
     if (edits.size) restoreAll();
-    let referenceIndex = elementIndex;
+    if (!stack) selectedReferences.length = 0;
+    let referenceIndex = selectedReferences.findIndex((reference) => reference.element === element);
     if (referenceIndex < 0) {
       referenceIndex = selectedReferences.findIndex(
         (reference) => reference.baseline?.selector === validatedBaseline.selector,
@@ -1211,7 +1193,7 @@
     event.stopImmediatePropagation();
     if (event.button !== 0) return;
     const candidate = elementUnderPoint(event.clientX, event.clientY);
-    if (candidate) selectElement(candidate);
+    if (candidate) selectElement(candidate, event.shiftKey === true);
   };
 
   const blockPageGesture = (event) => {
@@ -1316,10 +1298,10 @@
 
     snapshot,
 
-    select(selector) {
+    select(selector, stack) {
       let element = null;
       try { element = document.querySelector(String(selector || "")); } catch (_) {}
-      return element ? selectElement(element) : snapshot();
+      return element ? selectElement(element, stack === true) : snapshot();
     },
 
     composerState,

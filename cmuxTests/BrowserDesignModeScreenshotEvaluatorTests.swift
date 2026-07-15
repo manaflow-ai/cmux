@@ -262,7 +262,7 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
             };
             document.dispatchEvent(new PointerEvent('pointermove', eventInit));
             const hover = runtime.composerState();
-            document.dispatchEvent(new MouseEvent('click', eventInit));
+            document.dispatchEvent(new MouseEvent('click', { ...eventInit, shiftKey: true }));
             const stacked = runtime.composerState();
             return { hover, stacked };
             """,

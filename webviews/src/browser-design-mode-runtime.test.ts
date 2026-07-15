@@ -40,7 +40,8 @@ type DesignRuntime = {
   enable(): Snapshot;
   destroy(): Snapshot;
   snapshot(): Snapshot;
-  select(selector: string): Snapshot;
+  select(selector: string, stack?: boolean): Snapshot;
+  composerState(): { selection_count: number; selectors: string[] };
   applyStyle(property: string, value: string): Snapshot;
   applyText(value: string): Snapshot;
   revert(id: string): Snapshot;
@@ -615,6 +616,36 @@ describe("browser design-mode runtime", () => {
 
     expect(runtime.snapshot().selection?.selector).toBe("#danger");
     expect(pagePointerDowns).toBe(0);
+  });
+
+  test("plain click replaces the selection; shift-click stacks", () => {
+    const { dom, runtime } = fixture(`<main><button id="first">A</button><button id="second">B</button></main>`);
+    const first = dom.window.document.querySelector("#first") as HTMLButtonElement;
+    const second = dom.window.document.querySelector("#second") as HTMLButtonElement;
+    let underPoint: HTMLElement = first;
+    Object.defineProperty(dom.window.document, "elementFromPoint", { value: () => underPoint });
+    const pointerDown = (init: Record<string, unknown> = {}) => dom.window.document.dispatchEvent(
+      new dom.window.MouseEvent("pointerdown", { bubbles: true, cancelable: true, button: 0, clientX: 4, clientY: 4, ...init }),
+    );
+
+    pointerDown();
+    underPoint = second;
+    pointerDown();
+    let state = runtime.composerState();
+    expect(state.selection_count).toBe(1);
+    expect(state.selectors).toEqual(["#second"]);
+
+    underPoint = first;
+    pointerDown({ shiftKey: true });
+    state = runtime.composerState();
+    expect(state.selection_count).toBe(2);
+    expect(state.selectors).toEqual(["#second", "#first"]);
+
+    underPoint = second;
+    pointerDown();
+    state = runtime.composerState();
+    expect(state.selection_count).toBe(1);
+    expect(state.selectors).toEqual(["#second"]);
   });
 
   test("destroy restores every touched node and removes injected DOM state", () => {
