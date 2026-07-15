@@ -13,7 +13,7 @@ struct TerminalScrollPlanDeadlineTests {
         startScrollPlan([8, -5, 3], in: session)
 
         try await requireEventually {
-            harness.deadline.budgets == [.milliseconds(600)]
+            harness.deadline.budgets == [.milliseconds(1_400)]
                 && harness.remote.pending.count == 1
                 && harness.localReceipts.count == 1
         }
@@ -96,7 +96,7 @@ struct TerminalScrollPlanDeadlineTests {
         }
 
         try await requireEventually {
-            harness.deadline.budgets == [.milliseconds(600), .milliseconds(200)]
+            harness.deadline.budgets == [.milliseconds(600), .milliseconds(1_000)]
         }
         let suffix = try #require(harness.remote.pending.first)
         harness.remote.pending.removeFirst()

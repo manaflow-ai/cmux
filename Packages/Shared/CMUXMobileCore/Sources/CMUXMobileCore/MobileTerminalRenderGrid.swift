@@ -10,6 +10,16 @@ public enum MobileTerminalRenderGridError: Error, Equatable, Sendable {
     case invalidSpanWidth(row: Int, column: Int, width: Int, columns: Int)
 }
 
+/// Immutable bridge for Foundation's non-Sendable JSON object graph. The
+/// encoder creates a fresh tree that callers only read while sending it.
+public struct MobileTerminalRenderGridJSONObject: @unchecked Sendable {
+    public let value: [String: Any]
+
+    public init(value: [String: Any]) {
+        self.value = value
+    }
+}
+
 public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     public static let currentFormat = "cmux.render-grid.v1"
 
@@ -21,6 +31,10 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     /// Older hosts omit it, in which case clients retain the byte-sequence
     /// compatibility path.
     public var renderRevision: UInt64?
+    /// Producer revision that a partial frame was diffed against. Clients may
+    /// apply the delta only after reaching at least this revision; otherwise a
+    /// dropped predecessor requires a full replay.
+    public var baseRenderRevision: UInt64?
     public var columns: Int
     public var rows: Int
     public var cursor: Cursor?
@@ -69,6 +83,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         surfaceID: String,
         stateSeq: UInt64,
         renderRevision: UInt64? = nil,
+        baseRenderRevision: UInt64? = nil,
         columns: Int,
         rows: Int,
         cursor: Cursor? = nil,
@@ -191,6 +206,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         self.surfaceID = surfaceID
         self.stateSeq = stateSeq
         self.renderRevision = renderRevision
+        self.baseRenderRevision = full ? nil : baseRenderRevision
         self.columns = columns
         self.rows = rows
         self.cursor = cursor
@@ -217,6 +233,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         let surfaceID = try container.decode(String.self, forKey: .surfaceID)
         let stateSeq = try container.decode(UInt64.self, forKey: .stateSeq)
         let renderRevision = try container.decodeIfPresent(UInt64.self, forKey: .renderRevision)
+        let baseRenderRevision = try container.decodeIfPresent(UInt64.self, forKey: .baseRenderRevision)
         let columns = try container.decode(Int.self, forKey: .columns)
         let rows = try container.decode(Int.self, forKey: .rows)
         let cursor = try container.decodeIfPresent(Cursor.self, forKey: .cursor)
@@ -240,6 +257,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             surfaceID: surfaceID,
             stateSeq: stateSeq,
             renderRevision: renderRevision,
+            baseRenderRevision: baseRenderRevision,
             columns: columns,
             rows: rows,
             cursor: cursor,
@@ -267,6 +285,10 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             return [:]
         }
         return object
+    }
+
+    public func sendableJSONObject() throws -> MobileTerminalRenderGridJSONObject {
+        MobileTerminalRenderGridJSONObject(value: try jsonObject())
     }
 
     public static func decodeJSONObject(_ object: Any) throws -> MobileTerminalRenderGridFrame {
@@ -323,6 +345,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         case surfaceID = "surface_id"
         case stateSeq = "state_seq"
         case renderRevision = "render_revision"
+        case baseRenderRevision = "base_render_revision"
         case columns
         case rows
         case cursor

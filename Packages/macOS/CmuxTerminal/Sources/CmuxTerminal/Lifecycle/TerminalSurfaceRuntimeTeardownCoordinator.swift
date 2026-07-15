@@ -6,6 +6,44 @@ internal import CMUXMobileCore
 internal import CMUXDebugLog
 #endif
 
+final class TerminalNativeSurfaceOperation<Value: Sendable>: @unchecked Sendable {
+    private enum State {
+        case pending([CheckedContinuation<Value, Never>])
+        case resolved(Value)
+    }
+
+    private let lock = NSLock()
+    private var state: State = .pending([])
+
+    func resolve(_ value: Value) {
+        lock.lock()
+        guard case .pending(let pendingWaiters) = state else {
+            lock.unlock()
+            preconditionFailure("native surface operation resolved twice")
+        }
+        state = .resolved(value)
+        lock.unlock()
+        for waiter in pendingWaiters {
+            waiter.resume(returning: value)
+        }
+    }
+
+    func value() async -> Value {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            switch state {
+            case .resolved(let result):
+                lock.unlock()
+                continuation.resume(returning: result)
+            case .pending(var waiters):
+                waiters.append(continuation)
+                state = .pending(waiters)
+                lock.unlock()
+            }
+        }
+    }
+}
+
 /// Serializes native `ghostty_surface_free` calls off the close/deinit paths.
 ///
 /// Frees run one at a time on a utility worker so re-entrant close/deinit
@@ -14,6 +52,13 @@ internal import CMUXDebugLog
 /// and injects it through ``TerminalSurfaceRuntimeDependencies``.
 public actor TerminalSurfaceRuntimeTeardownCoordinator {
     private let timeout: Duration = .seconds(5)
+    /// Every operation that dereferences a native surface pointer runs here.
+    /// Enqueueing is synchronous, so a read submitted before owner teardown is
+    /// guaranteed to finish before the later free reaches the same FIFO lane.
+    private nonisolated let nativeSurfaceQueue = DispatchQueue(
+        label: "dev.cmux.terminal.native-surface-lifecycle",
+        qos: .utility
+    )
     private var pendingReasonsById: [UUID: String] = [:]
     private var queuedRequests: [TerminalSurfaceRuntimeTeardownRequest] = []
     private var isWorkerRunning = false
@@ -24,18 +69,36 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     /// Reads a bounded screen tail away from the main actor and before any
     /// subsequently enqueued native free for the same surface.
     ///
-    /// The request performs no suspension while it holds the borrowed pointer;
-    /// actor serialization therefore makes the read and a later free mutually
-    /// exclusive.
-    func readScreenTailVT(_ request: TerminalSurfaceRuntimeScreenTailRequest) -> String? {
-        request.read()
+    /// Reads and frees share one serial worker. Actor isolation alone is not
+    /// sufficient because native free intentionally runs outside this actor.
+    nonisolated func enqueueScreenTailVTRead(
+        _ request: TerminalSurfaceRuntimeScreenTailRequest
+    ) -> TerminalNativeSurfaceOperation<String?> {
+        enqueueNativeSurfaceOperation { request.read() }
     }
 
     /// Captures and decodes one bounded render grid without occupying the main actor.
-    func readRenderGrid(
+    nonisolated func enqueueRenderGridRead(
         _ request: TerminalSurfaceRuntimeRenderGridRequest
-    ) -> (frame: MobileTerminalRenderGridFrame, rows: [String])? {
-        request.read()
+    ) -> TerminalNativeSurfaceOperation<(frame: MobileTerminalRenderGridFrame, rows: [String])?> {
+        enqueueNativeSurfaceOperation { request.read() }
+    }
+
+    private nonisolated func enqueueNativeSurfaceOperation<Result: Sendable>(
+        _ operation: @escaping @Sendable () -> Result
+    ) -> TerminalNativeSurfaceOperation<Result> {
+        let pending = TerminalNativeSurfaceOperation<Result>()
+        nativeSurfaceQueue.async {
+            pending.resolve(operation())
+        }
+        return pending
+    }
+
+    /// Test seam for proving that reads and frees cannot overlap.
+    nonisolated func enqueueNativeSurfaceOperationForTesting(
+        _ operation: @escaping @Sendable () -> Void
+    ) -> TerminalNativeSurfaceOperation<Void> {
+        enqueueNativeSurfaceOperation(operation)
     }
 
     /// Queues a native-surface free from any isolation (the surface model's
@@ -92,7 +155,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
                     Task {
                         await self.observeTimeout(id: request.id)
                     }
-                    await Self.free(request)
+                    await self.free(request)
                     await self.complete(id: request.id)
                 }
             }
@@ -107,14 +170,17 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         return queuedRequests.removeFirst()
     }
 
-    private nonisolated static func free(_ request: TerminalSurfaceRuntimeTeardownRequest) async {
+    private nonisolated func free(_ request: TerminalSurfaceRuntimeTeardownRequest) async {
 #if DEBUG
         logDebugEvent(
             "surface.lifecycle.nativeFree.begin surface=\(request.surfaceToken) " +
             "workspace=\(request.workspaceToken) reason=\(request.reason)"
         )
 #endif
-        request.freeSurface(request.surface)
+        let operation = enqueueNativeSurfaceOperation {
+            request.freeSurface(request.surface)
+        }
+        await operation.value()
         if request.callbackContext != nil || request.manualIOContext != nil || request.byteTeeLease != nil {
             // The request is the @unchecked Sendable transport for the
             // callback userdata; release through the request so the @Sendable

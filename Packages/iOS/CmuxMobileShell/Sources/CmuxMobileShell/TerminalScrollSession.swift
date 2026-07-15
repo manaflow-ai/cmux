@@ -35,7 +35,9 @@ final class TerminalScrollSession {
         _ followingScrollRuns: [MobileTerminalScrollRun]
     ) -> Bool
     typealias CompleteGridlessAuthoritative = @MainActor @Sendable (_ renderRevision: UInt64?) -> Bool
-    typealias ReconciliationDidComplete = @MainActor @Sendable () -> Void
+    typealias ReconciliationDidComplete = @MainActor @Sendable (
+        _ followingScrollRuns: [MobileTerminalScrollRun]
+    ) -> Void
     typealias RequestReplay = @MainActor @Sendable (_ interactionEpoch: UInt64) -> Void
     typealias AdvanceEpoch = @MainActor @Sendable () -> UInt64
     typealias AdvanceInputEpoch = @MainActor @Sendable (_ submissionCount: Int) -> UInt64
@@ -111,6 +113,7 @@ final class TerminalScrollSession {
     nonisolated static let maximumQueuedInteractionCount = 64
     nonisolated static let maximumQueuedInputByteCount = 64 * 1_024
     nonisolated static let interactionDeadlineMilliseconds: UInt64 = 200
+    nonisolated static let prefetchInteractionDeadlineMilliseconds: UInt64 = 1_000
     nonisolated static let maximumInteractionPlanDeadlineIntervals: UInt64 = 3
     nonisolated static let interactionDeadlineDuration = Duration.milliseconds(
         Int64(interactionDeadlineMilliseconds)
@@ -119,13 +122,19 @@ final class TerminalScrollSession {
         interactionDeadlineMilliseconds * 1_000_000
 
     nonisolated static func interactionPlanDeadlineDuration(
-        plannedRequestCount: Int
+        plannedRequestCount: Int,
+        includesPrefetch: Bool = false
     ) -> Duration {
         let intervals = min(
             UInt64(max(plannedRequestCount, 1)),
             maximumInteractionPlanDeadlineIntervals
         )
-        return .milliseconds(Int64(interactionDeadlineMilliseconds * intervals))
+        let prefetchAllowance = includesPrefetch
+            ? prefetchInteractionDeadlineMilliseconds - interactionDeadlineMilliseconds
+            : 0
+        return .milliseconds(Int64(
+            interactionDeadlineMilliseconds * intervals + prefetchAllowance
+        ))
     }
 
     let token: UUID
@@ -178,6 +187,12 @@ final class TerminalScrollSession {
     }
 
     var shouldDeferLiveRenderGrid: Bool { phase.defersLiveRenderGrid }
+
+    var pendingOptimisticScrollRuns: [MobileTerminalScrollRun] {
+        guard case .scroll(let scroll) = intents.first,
+              !scroll.localReceipts.isEmpty else { return [] }
+        return scroll.runs
+    }
 
     init(
         token: UUID = UUID(),
@@ -455,7 +470,7 @@ final class TerminalScrollSession {
         accumulatedRowsSincePrefetch = 0
         hasPrimedPrefetch = false
         hasUnsettledScroll = false
-        if wasDeferring { reconciliationDidComplete() }
+        if wasDeferring { reconciliationDidComplete([]) }
         if cancelLocalInteraction { cancelLocal() }
     }
 

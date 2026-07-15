@@ -71,6 +71,20 @@ extension MobileShellComposite {
             }
             return false
         }
+        if source == "event",
+           let baseRevision = renderGrid.baseRenderRevision {
+            let acceptedRevision = acceptedTerminalRenderRevisionsBySurfaceID[renderGrid.surfaceID] ?? 0
+            let retainedRevision = terminalOutputQueuesBySurfaceID[renderGrid.surfaceID]?
+                .latestRetainedRenderRevision
+            let availableRevision = retainedRevision ?? acceptedRevision
+            guard availableRevision == baseRevision else {
+                MobileDebugLog.anchormux(
+                    "sync.render_grid_missing_base surface=\(renderGrid.surfaceID) base=\(baseRevision) available=\(availableRevision)"
+                )
+                requestTerminalReplay(surfaceID: renderGrid.surfaceID)
+                return false
+            }
+        }
         // The stale floor is the delivered high-water mark, surviving a replay
         // barrier via the pre-barrier stash: a buffered frame from before the
         // barrier must not paint (and must not establish an outdated baseline)

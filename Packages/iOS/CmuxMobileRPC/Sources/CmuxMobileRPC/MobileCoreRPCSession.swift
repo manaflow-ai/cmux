@@ -8,6 +8,10 @@ actor MobileCoreRPCSession {
     typealias ConnectingTask = (id: UUID, lease: MobileRPCConnectAttemptLease?, task: Task<any CmxByteTransport, any Error>, waiters: Set<UUID>, completed: Bool)
     static let defaultAbandonedConnectCleanupTimeoutNanoseconds: UInt64 = 1_000_000_000
     static let defaultLateAbandonedConnectCloseTimeoutNanoseconds: UInt64 = 5_000_000_000
+    /// Each event is bounded by the frame codec. Keeping the two oldest events
+    /// caps pre-consumer memory while preserving dependency order; overflow
+    /// closes the connection and forces an authoritative replay.
+    static let eventListenerBufferCapacity = 2
 
     struct EventSubscription {
         let id: UUID
@@ -124,7 +128,9 @@ actor MobileCoreRPCSession {
     func addEventListener(topics: Set<String>) -> EventSubscription {
         let id = UUID()
         var continuation: AsyncStream<MobileEventEnvelope>.Continuation!
-        let stream = AsyncStream<MobileEventEnvelope>(bufferingPolicy: .bufferingNewest(256)) { cont in
+        let stream = AsyncStream<MobileEventEnvelope>(
+            bufferingPolicy: .bufferingOldest(Self.eventListenerBufferCapacity)
+        ) { cont in
             continuation = cont
         }
         listeners[id] = EventListener(topics: topics, continuation: continuation)
@@ -140,6 +146,10 @@ actor MobileCoreRPCSession {
     }
 
     func connectWaiterCountForTesting() -> Int { connectionTask?.waiters.count ?? 0 }
+
+    func dispatchFrameForTesting(_ frame: Data) async -> Bool {
+        await dispatch(frame: frame)
+    }
 
     func tearDown(error: MobileShellConnectionError) async {
         guard !isTearingDown else { return }
@@ -412,28 +422,34 @@ actor MobileCoreRPCSession {
                 return
             }
             for frame in frames {
-                dispatch(frame: frame)
+                guard await dispatch(frame: frame) else { return }
             }
         }
     }
 
-    private func dispatch(frame: Data) {
+    /// Returns `false` when event delivery must stop. A listener overflow is a
+    /// protocol discontinuity because render-grid events may depend on a prior
+    /// delta, so it tears down the transport instead of silently dropping one.
+    private func dispatch(frame: Data) async -> Bool {
         let parsed = try? JSONSerialization.jsonObject(with: frame) as? [String: Any]
-        guard let envelope = parsed else { return }
+        guard let envelope = parsed else { return true }
         if (envelope["kind"] as? String) == "event" {
-            guard let topic = envelope["topic"] as? String else { return }
+            guard let topic = envelope["topic"] as? String else { return true }
             let event = MobileEventEnvelope.parsing(
                 topic: topic,
                 payload: envelope["payload"],
                 streamID: envelope["stream_id"] as? String
             )
             for (_, listener) in listeners where listener.topics.contains(topic) {
-                listener.continuation.yield(event)
+                if case .dropped = listener.continuation.yield(event) {
+                    await tearDown(error: .invalidResponse)
+                    return false
+                }
             }
-            return
+            return true
         }
-        guard let id = envelope["id"] as? String else { return }
-        guard let cont = pending.removeValue(forKey: id) else { return }
+        guard let id = envelope["id"] as? String else { return true }
+        guard let cont = pending.removeValue(forKey: id) else { return true }
         requestTimeoutTasks.removeValue(forKey: id)?.cancel()
         if (envelope["ok"] as? Bool) == true {
             let result = envelope["result"] ?? [:]
@@ -442,7 +458,7 @@ actor MobileCoreRPCSession {
             } else {
                 cont.resume(returning: .failure(.invalidResponse))
             }
-            return
+            return true
         }
         let errorPayload = envelope["error"] as? [String: Any]
         let message = (errorPayload?["message"] as? String) ?? "RPC error"
@@ -458,6 +474,7 @@ actor MobileCoreRPCSession {
         default:
             cont.resume(returning: .failure(.rpcError(code, message)))
         }
+        return true
     }
 
     private func failPending(requestID: String, error: MobileShellConnectionError) {

@@ -168,6 +168,104 @@ private final class MobileHostConnectionRegistry: @unchecked Sendable {
     }
 }
 
+/// Preserves event order independently for each phone connection without
+/// retaining an unbounded number of large render-grid payloads. Overflow is a
+/// protocol discontinuity, so the connection is closed and the phone rebuilds
+/// from an authoritative replay instead of consuming a delta with a missing
+/// predecessor.
+private final class MobileHostEventDeliveryQueue: @unchecked Sendable {
+    static let shared = MobileHostEventDeliveryQueue()
+    /// Two waiting payloads plus at most one write currently in flight.
+    private static let maximumPendingEventCount = 2
+
+    private struct PendingEvent: @unchecked Sendable {
+        let topic: String
+        let payload: [String: Any]
+    }
+
+    private struct ConnectionState {
+        var pending: [PendingEvent] = []
+        var isDraining = false
+        var isOverflowed = false
+    }
+
+    private let lock = NSLock()
+    private var states: [ObjectIdentifier: ConnectionState] = [:]
+
+    func enqueue(topic: String, payload: [String: Any], on connection: MobileHostConnection) {
+        let key = ObjectIdentifier(connection)
+        var shouldStartDrain = false
+        var didOverflow = false
+
+        lock.lock()
+        var state = states[key] ?? ConnectionState()
+        if state.isOverflowed {
+            lock.unlock()
+            return
+        } else if state.pending.count >= Self.maximumPendingEventCount {
+            state.pending.removeAll(keepingCapacity: false)
+            state.isOverflowed = true
+            states[key] = state
+            didOverflow = true
+        } else {
+            state.pending.append(PendingEvent(topic: topic, payload: payload))
+            if !state.isDraining {
+                state.isDraining = true
+                shouldStartDrain = true
+            }
+            states[key] = state
+        }
+        lock.unlock()
+
+        if didOverflow {
+            Task {
+                await connection.close(reason: "event delivery backlog exceeded")
+            }
+        } else if shouldStartDrain {
+            Task { [self] in
+                await drain(key: key, connection: connection)
+            }
+        }
+    }
+
+    private func drain(key: ObjectIdentifier, connection: MobileHostConnection) async {
+        while let event = nextEvent(for: key) {
+            let delivered = await connection.sendEvent(topic: event.topic, payload: event.payload)
+            #if DEBUG
+            cmuxDebugLog("mobile.emit -> connection delivered=\(delivered) topic=\(event.topic)")
+            #endif
+            if !delivered {
+                removeState(for: key)
+                return
+            }
+        }
+    }
+
+    private func nextEvent(for key: ObjectIdentifier) -> PendingEvent? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard var state = states[key] else { return nil }
+        guard !state.isOverflowed else { return nil }
+        guard !state.pending.isEmpty else {
+            states.removeValue(forKey: key)
+            return nil
+        }
+        let event = state.pending.removeFirst()
+        states[key] = state
+        return event
+    }
+
+    private func removeState(for key: ObjectIdentifier) {
+        lock.lock()
+        states.removeValue(forKey: key)
+        lock.unlock()
+    }
+
+    func remove(connection: MobileHostConnection) {
+        removeState(for: ObjectIdentifier(connection))
+    }
+}
+
 private enum MobileHostPublicStatusCache {
     private static let lock = NSLock()
     private nonisolated(unsafe) static var routes: [CmxAttachRoute] = []
@@ -476,12 +574,11 @@ final class MobileHostService {
         cmuxDebugLog("mobile.emit topic=\(topic) connections=\(connections.count)")
         #endif
         for connection in connections {
-            Task {
-                let delivered = await connection.sendEvent(topic: topic, payload: payload)
-                #if DEBUG
-                cmuxDebugLog("mobile.emit -> connection delivered=\(delivered) topic=\(topic)")
-                #endif
-            }
+            MobileHostEventDeliveryQueue.shared.enqueue(
+                topic: topic,
+                payload: payload,
+                on: connection
+            )
         }
     }
 
@@ -1883,6 +1980,7 @@ actor MobileHostConnection {
             return
         }
         isClosed = true
+        MobileHostEventDeliveryQueue.shared.remove(connection: self)
         firstFrameTimeoutTask?.cancel()
         firstFrameTimeoutTask = nil
         idleTimeoutTask?.cancel()

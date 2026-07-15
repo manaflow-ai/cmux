@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import CMUXMobileCore
+import CmuxAgentChat
 import CmuxMobileShell
 import CmuxMobileTerminal
 import SwiftUI
@@ -40,6 +41,17 @@ extension GhosttySurfaceRepresentable.Coordinator: GhosttySurfaceViewDelegate {
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didTapAtCol col: Int, row: Int) {
         Task { @MainActor [weak self] in
             guard let self else { return }
+            if self.artifactFilesEnabled,
+               let snapshot = await surfaceView.visibleTextForArtifactHitTesting(),
+               let path = TerminalArtifactTapHitTester().path(
+                   in: snapshot.text,
+                   col: col,
+                   row: row,
+                   columns: snapshot.columns
+               ) {
+                self.onArtifactPathTapped(path)
+                return
+            }
             await self.store?.clickTerminal(surfaceID: self.surfaceID, col: col, row: row)
         }
     }

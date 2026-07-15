@@ -205,7 +205,10 @@ extension MobileShellComposite {
         deferredTerminalRenderGridEventsBySurfaceID[frame.surfaceID] = deferred
     }
 
-    func flushDeferredTerminalRenderGridEvent(surfaceID: String) {
+    func flushDeferredTerminalRenderGridEvent(
+        surfaceID: String,
+        followingScrollRuns: [MobileTerminalScrollRun] = []
+    ) {
         guard let deferred = deferredTerminalRenderGridEventsBySurfaceID.removeValue(forKey: surfaceID) else {
             return
         }
@@ -219,7 +222,8 @@ extension MobileShellComposite {
             frame,
             expectedSurfaceID: surfaceID,
             source: "event",
-            preparedBytes: deferred.preparedBytes
+            preparedBytes: deferred.preparedBytes,
+            followingScrollRuns: followingScrollRuns
         )
     }
 

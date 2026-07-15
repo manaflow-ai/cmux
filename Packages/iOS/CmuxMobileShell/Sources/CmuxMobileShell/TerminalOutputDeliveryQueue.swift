@@ -62,6 +62,15 @@ struct TerminalOutputDeliveryQueue: Sendable {
         inFlight
     }
 
+    var latestRetainedRenderRevision: UInt64? {
+        var latest = inFlight?.renderGridFrame?.renderRevision
+        for index in pendingHeadIndex..<pending.count {
+            guard let revision = pending[index].delivery.renderGridFrame?.renderRevision else { continue }
+            latest = max(latest ?? 0, revision)
+        }
+        return latest
+    }
+
     mutating func enqueue(_ delivery: TerminalOutputDelivery) -> TerminalOutputDelivery? {
         if let byteCount = delivery.nonreplaceableRawByteCount,
            queuedRawDeliveryCount >= Self.maximumQueuedRawDeliveryCount

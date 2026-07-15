@@ -22,12 +22,17 @@ enum TerminalInputIntent: Sendable {
 
 enum TerminalRPCDeadlinePolicy {
     case interaction
+    case scroll(prefetch: Bool)
     case input
 
     var timeoutNanoseconds: UInt64? {
         switch self {
         case .interaction:
             TerminalScrollSession.interactionRPCDeadlineNanoseconds
+        case .scroll(let prefetch):
+            (prefetch
+                ? TerminalScrollSession.prefetchInteractionDeadlineMilliseconds
+                : TerminalScrollSession.interactionDeadlineMilliseconds) * 1_000_000
         case .input:
             // `nil` delegates to the client's normal runtime RPC deadline.
             nil

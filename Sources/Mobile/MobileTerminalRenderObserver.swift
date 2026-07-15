@@ -199,8 +199,11 @@ final class MobileTerminalRenderObserver {
         ) else { return }
         let frame = emission.frame
         renderGridStatesBySurfaceID[surfaceID] = emission.state
-        guard let payload = try? frame.jsonObject() else { return }
-        MobileHostService.emitEvent(topic: "terminal.render_grid", payload: payload)
+        let payloadTask = Task.detached(priority: .utility) {
+            try frame.sendableJSONObject()
+        }
+        guard let payload = try? await payloadTask.value else { return }
+        MobileHostService.emitEvent(topic: "terminal.render_grid", payload: payload.value)
         #if DEBUG
         cmuxDebugLog(
             "mobile.render_grid surface=\(surfaceID.uuidString.prefix(8)) full=\(frame.full) " +

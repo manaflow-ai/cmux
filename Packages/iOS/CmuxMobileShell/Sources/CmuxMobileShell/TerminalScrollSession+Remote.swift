@@ -115,7 +115,7 @@ extension TerminalScrollSession {
             guard let self else { return }
             var response: TerminalScrollResponse?
             for chunk in plannedRequestChunks {
-                self.restartScrollDeadline(id: id, plannedRequestCount: chunk.count)
+                self.restartScrollDeadline(id: id, plannedRequests: chunk)
                 for plannedRequest in chunk {
                     guard !Task.isCancelled,
                           let plannedResponse = await self.sendRemote(plannedRequest),
@@ -135,12 +135,13 @@ extension TerminalScrollSession {
         }
     }
 
-    private func restartScrollDeadline(id: UUID, plannedRequestCount: Int) {
+    private func restartScrollDeadline(id: UUID, plannedRequests: [TerminalScrollRequest]) {
         deadlineTask?.cancel()
         deadlineTask = Task { @MainActor [weak self] in
             guard let self else { return }
             await self.interactionDeadline(Self.interactionPlanDeadlineDuration(
-                plannedRequestCount: plannedRequestCount
+                plannedRequestCount: plannedRequests.count,
+                includesPrefetch: plannedRequests.contains { $0.prefetchWindow != nil }
             ))
             guard !Task.isCancelled else { return }
             self.scrollDeadlineDidFire(id: id)
@@ -239,7 +240,7 @@ extension TerminalScrollSession {
         latestReconciledRevision = transaction.request.clientRevision
         cancelPhaseTasks()
         phase = .idle
-        reconciliationDidComplete()
+        reconciliationDidComplete(pendingOptimisticScrollRuns)
         startNextIntentIfIdle()
     }
 
@@ -247,7 +248,7 @@ extension TerminalScrollSession {
         latestReconciledRevision = transaction.request.clientRevision
         cancelPhaseTasks()
         phase = .idle
-        reconciliationDidComplete()
+        reconciliationDidComplete(pendingOptimisticScrollRuns)
         startNextIntentIfIdle()
     }
 

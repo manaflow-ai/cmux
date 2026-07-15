@@ -4490,9 +4490,8 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
                 nextBuffer.append(data)
             }
 
-            if let payload = Self.nextFrame(from: &nextBuffer) {
-                self.respond(to: payload, on: connection, remainingBuffer: nextBuffer)
-                return
+            while let payload = Self.nextFrame(from: &nextBuffer) {
+                self.respond(to: payload, on: connection)
             }
 
             if isComplete || error != nil {
@@ -4504,23 +4503,20 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         }
     }
 
-    private func respond(to payload: Data, on connection: NWConnection, remainingBuffer: Data) {
+    private func respond(to payload: Data, on connection: NWConnection) {
         do {
             let responseFrame = try makeResponseFrame(for: payload, on: connection)
-            let sendResponse = { [weak self, weak connection] in
-                guard let self, let connection else { return }
+            let sendResponse = { [weak connection] in
+                guard let connection else { return }
                 connection.send(
                     content: responseFrame,
                     contentContext: .defaultMessage,
                     isComplete: false,
-                    completion: .contentProcessed { [weak self, weak connection] error in
-                        guard error == nil,
-                              let self,
-                              let connection else {
+                    completion: .contentProcessed { [weak connection] error in
+                        guard error == nil else {
                             connection?.cancel()
                             return
                         }
-                        self.receiveRequest(on: connection, buffer: remainingBuffer)
                     }
                 )
             }

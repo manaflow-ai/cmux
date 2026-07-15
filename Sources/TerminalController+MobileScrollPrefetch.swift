@@ -16,21 +16,43 @@ extension TerminalController {
         scrollForwardLines: Int = 0
     ) async -> MobileTerminalRenderGridFrame? {
         guard surfaceID == terminalPanel.id else { return nil }
-        var beforeRows = max(0, scrollbackLines)
-        var afterRows = max(0, scrollForwardLines)
-        while true {
-            if let frame = await terminalPanel.surface.mobileRenderGridFrame(
-                stateSeq: seq,
-                scrollbackLines: beforeRows,
-                scrollForwardLines: afterRows
-            )?.frame {
-                return stampMobileRenderGridFrame(frame, surfaceID: surfaceID)
-            }
-            guard terminalPanel.surface.hasLiveSurface else { return nil }
-            guard beforeRows > 0 || afterRows > 0 else { return nil }
-            beforeRows /= 2
-            afterRows /= 2
+        let beforeRows = max(0, scrollbackLines)
+        let afterRows = max(0, scrollForwardLines)
+        if let frame = await terminalPanel.surface.mobileRenderGridFrame(
+            stateSeq: seq,
+            scrollbackLines: beforeRows,
+            scrollForwardLines: afterRows
+        )?.frame {
+            return stampMobileRenderGridFrame(frame, surfaceID: surfaceID)
         }
+        guard terminalPanel.surface.hasLiveSurface,
+              beforeRows > 0 || afterRows > 0,
+              let viewportFrame = await terminalPanel.surface.mobileRenderGridFrame(
+                stateSeq: seq,
+                scrollbackLines: 0,
+                scrollForwardLines: 0
+              )?.frame else {
+            return nil
+        }
+
+        // A bounded export can fail because requested history is unusually
+        // style-heavy. Preserve responsiveness with one reduced retry. If even
+        // the viewport-only export failed above, further history retries cannot
+        // succeed and would only hold Ghostty's renderer lock repeatedly.
+        let retryBeforeRows = beforeRows / 2
+        let retryAfterRows = afterRows / 2
+        let selectedFrame: MobileTerminalRenderGridFrame
+        if retryBeforeRows > 0 || retryAfterRows > 0,
+           let reducedFrame = await terminalPanel.surface.mobileRenderGridFrame(
+            stateSeq: seq,
+            scrollbackLines: retryBeforeRows,
+            scrollForwardLines: retryAfterRows
+           )?.frame {
+            selectedFrame = reducedFrame
+        } else {
+            selectedFrame = viewportFrame
+        }
+        return stampMobileRenderGridFrame(selectedFrame, surfaceID: surfaceID)
     }
 
     func stampMobileRenderGridFrame(
@@ -83,10 +105,13 @@ extension TerminalController {
             payload["render_revision"] = renderRevision
         }
         guard renderGrid.activeScreen == .primary else { return payload }
-        guard let renderGridObject = try? renderGrid.jsonObject() else { return nil }
+        let renderGridObjectTask = Task.detached(priority: .utility) {
+            try renderGrid.sendableJSONObject()
+        }
+        guard let renderGridObject = try? await renderGridObjectTask.value else { return nil }
         payload["columns"] = renderGrid.columns
         payload["rows"] = renderGrid.rows
-        payload["render_grid"] = renderGridObject
+        payload["render_grid"] = renderGridObject.value
         payload["seq"] = renderGrid.stateSeq
         return payload
     }

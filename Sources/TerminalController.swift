@@ -14124,11 +14124,20 @@ class TerminalController {
             "surface_id": surfaceId.uuidString,
             "seq": seq,
         ]
+        let renderGridObject: MobileTerminalRenderGridJSONObject?
+        if let renderGrid {
+            let renderGridObjectTask = Task.detached(priority: .utility) {
+                try renderGrid.sendableJSONObject()
+            }
+            renderGridObject = try? await renderGridObjectTask.value
+        } else {
+            renderGridObject = nil
+        }
         if let renderGrid,
-           let renderGridObject = try? renderGrid.jsonObject() {
+           let renderGridObject {
             payload["columns"] = renderGrid.columns
             payload["rows"] = renderGrid.rows
-            payload["render_grid"] = renderGridObject
+            payload["render_grid"] = renderGridObject.value
         } else {
             let snapshotData = readTerminalTextFromVTExportForSnapshot(
                 terminalPanel: terminalPanel,

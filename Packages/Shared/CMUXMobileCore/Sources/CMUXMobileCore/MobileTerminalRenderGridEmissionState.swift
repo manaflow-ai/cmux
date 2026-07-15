@@ -10,6 +10,8 @@ public struct MobileTerminalRenderGridEmissionState: Equatable, Sendable {
     public let rows: Int
     /// Terminal byte sequence covered by the frame that produced this state.
     public let stateSeq: UInt64
+    /// Mac-side capture revision of the frame that produced this state.
+    public let renderRevision: UInt64?
     /// Terminal screen represented by the frame that produced this state.
     public let activeScreen: MobileTerminalRenderGridFrame.Screen
     /// Per-row text/style signatures from ``MobileTerminalRenderGridFrame/rowSignatures()``.
@@ -28,6 +30,7 @@ public struct MobileTerminalRenderGridEmissionState: Equatable, Sendable {
         columns: Int,
         rows: Int,
         stateSeq: UInt64,
+        renderRevision: UInt64? = nil,
         activeScreen: MobileTerminalRenderGridFrame.Screen,
         rowSignatures: [String]
     ) {
@@ -37,6 +40,7 @@ public struct MobileTerminalRenderGridEmissionState: Equatable, Sendable {
         self.columns = columns
         self.rows = rows
         self.stateSeq = stateSeq
+        self.renderRevision = renderRevision
         self.activeScreen = activeScreen
         self.rowSignatures = rowSignatures
     }

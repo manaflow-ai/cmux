@@ -110,8 +110,11 @@ extension MobileShellComposite {
                     renderRevision: revision
                 ) ?? false
             },
-            reconciliationDidComplete: { [weak self] in
-                self?.flushDeferredTerminalRenderGridEvent(surfaceID: surfaceID)
+            reconciliationDidComplete: { [weak self] followingScrollRuns in
+                self?.flushDeferredTerminalRenderGridEvent(
+                    surfaceID: surfaceID,
+                    followingScrollRuns: followingScrollRuns
+                )
             },
             requestReplay: { [weak self] epoch in
                 self?.requestTerminalReplay(
@@ -280,7 +283,9 @@ extension MobileShellComposite {
                     method: "mobile.terminal.scroll",
                     params: params
                 ),
-                timeoutNanoseconds: TerminalRPCDeadlinePolicy.interaction.timeoutNanoseconds
+                timeoutNanoseconds: TerminalRPCDeadlinePolicy.scroll(
+                    prefetch: request.prefetchWindow != nil
+                ).timeoutNanoseconds
             )
             guard remoteClient === client else { return nil }
             let response = try await terminalRenderGridProcessor.processScrollResponse(

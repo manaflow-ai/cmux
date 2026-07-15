@@ -81,7 +81,7 @@ extension TerminalSurface {
     ) async -> (frame: MobileTerminalRenderGridFrame, rows: [String])? {
         guard let surface = liveSurfaceForGhosttyAccess(reason: "mobileRenderGrid") else { return nil }
         let surfaceID = id.uuidString
-        let result = await runtimeTeardown.readRenderGrid(
+        let pendingRead = runtimeTeardown.enqueueRenderGridRead(
             TerminalSurfaceRuntimeRenderGridRequest(
                 surface: surface,
                 surfaceID: surfaceID,
@@ -92,6 +92,7 @@ extension TerminalSurface {
                 scrollForwardLines: scrollForwardLines
             )
         )
+        let result = await pendingRead.value()
         guard self.surface == surface, hasLiveSurface else { return nil }
         return result
     }

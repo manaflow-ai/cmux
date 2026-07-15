@@ -471,7 +471,7 @@ private func renderGridFrame(surfaceID: String, seq: UInt64, text: String) throw
     // The empty responses must consume the retry budget so the requests
     // stop instead of looping once per delta forever.
     var deltaSeq: UInt64 = 100
-    for _ in 0..<5 {
+    for attempt in 1...MobileShellComposite.maxTerminalReplayFailureRetries {
         await transport.deliver(try renderGridEventFrame(
             surfaceID: surfaceID,
             seq: deltaSeq,
@@ -480,9 +480,14 @@ private func renderGridFrame(surfaceID: String, seq: UInt64, text: String) throw
             full: false
         ))
         deltaSeq += 1
-        _ = try await pollUntil(attempts: 50) {
+        let replayStarted = try await pollUntil(attempts: 50) {
+            await router.count(of: "mobile.terminal.replay") >= replayCountAfterMount + attempt
+        }
+        #expect(replayStarted)
+        let replaySettled = try await pollUntil(attempts: 50) {
             !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
         }
+        #expect(replaySettled)
     }
 
     let budgetSpent = try await pollUntil {
