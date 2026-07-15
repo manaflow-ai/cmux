@@ -596,7 +596,11 @@ extension CMUXCLI {
                         arguments: [name]
                     ))
                 }
-                guard index + 1 < arguments.count else {
+                // An option-shaped token is a missing value, not a value; a
+                // bare `-` stays valid (Git's previous-checkout shorthand) and
+                // dash-leading values can use the `--option=value` form.
+                guard index + 1 < arguments.count,
+                      !arguments[index + 1].hasPrefix("-") || arguments[index + 1] == "-" else {
                     throw CLIError(message: worktreeLocalizedFormat(
                         "cli.worktree.error.optionRequiresValue",
                         defaultValue: "%@ requires a value",
