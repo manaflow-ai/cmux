@@ -2,7 +2,7 @@ import Foundation
 import CMUXAgentLaunch
 
 extension CMUXCLI {
-    private static let codexPermissionEvidenceTailBytes = 256 * 1024
+    private static let codexPermissionEvidenceChunkBytes = 64 * 1024
 
     private func codexLaunchHasExplicitPermissions(_ launchCommand: AgentHookLaunchCommandRecord?) -> Bool {
         guard let launchCommand,
@@ -81,6 +81,9 @@ extension CMUXCLI {
         transcriptPath: String? = nil,
         currentPID: Int? = nil
     ) -> AgentHookLaunchCommandRecord? {
+        if normalizedHookValue(current?.source)?.lowercased() == "rejected" {
+            return current
+        }
         if kind == "codex",
            let currentPID,
            currentPID == mapped?.pid,
@@ -89,9 +92,6 @@ extension CMUXCLI {
             return mapped?.launchCommand
         }
         let selected: AgentHookLaunchCommandRecord? = {
-            if normalizedHookValue(current?.source)?.lowercased() == "rejected" {
-                return current
-            }
             let currentSource = normalizedHookValue(current?.source)?.lowercased()
             if let current,
                currentSource != "default",
@@ -205,55 +205,68 @@ extension CMUXCLI {
         guard let handle = FileHandle(forReadingAtPath: expandedPath) else { return [] }
         defer { try? handle.close() }
         guard let endOffset = try? handle.seekToEnd() else { return [] }
-        let startOffset = endOffset > UInt64(Self.codexPermissionEvidenceTailBytes)
-            ? endOffset - UInt64(Self.codexPermissionEvidenceTailBytes)
-            : 0
-        do {
-            try handle.seek(toOffset: startOffset)
-        } catch {
-            return []
-        }
-        guard var data = try? handle.readToEnd() else { return [] }
-        if startOffset > 0,
-           let firstNewline = data.firstIndex(of: 0x0A) {
-            data.removeSubrange(data.startIndex...firstNewline)
-        }
-
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        for line in data.split(separator: 0x0A).reversed() {
-            guard let object = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
-                  object["type"] as? String == "turn_context",
-                  let timestamp = object["timestamp"] as? String,
-                  let date = formatter.date(from: timestamp) else {
-                continue
+        var offset = endOffset
+        var pending = Data()
+        while offset > 0 {
+            let byteCount = min(UInt64(Self.codexPermissionEvidenceChunkBytes), offset)
+            offset -= byteCount
+            do {
+                try handle.seek(toOffset: offset)
+            } catch {
+                return []
             }
-            if date.timeIntervalSince1970 >= capturedAt {
-                continue
+            guard let chunk = try? handle.read(upToCount: Int(byteCount)) else { return [] }
+            pending.insert(contentsOf: chunk, at: pending.startIndex)
+            while let newline = pending.lastIndex(of: 0x0A) {
+                let lineStart = pending.index(after: newline)
+                let line = Data(pending[lineStart...])
+                pending.removeSubrange(newline...)
+                if let arguments = codexPermissionArguments(
+                    from: line,
+                    before: capturedAt,
+                    formatter: formatter
+                ) {
+                    return arguments
+                }
             }
-            guard let payload = object["payload"] as? [String: Any] else { continue }
-            let approvalPolicy = normalizedHookValue(payload["approval_policy"] as? String)
-            var sandboxMode: String?
-            if let sandbox = payload["sandbox_policy"] as? [String: Any],
-               let value = normalizedHookValue(sandbox["type"] as? String) {
-                sandboxMode = value
-            }
-            if approvalPolicy == "never", sandboxMode == "danger-full-access" {
-                return ["--yolo"]
-            }
-            if approvalPolicy == "never", sandboxMode == "disabled" {
-                return ["--dangerously-bypass-approvals-and-sandbox"]
-            }
-            var arguments: [String] = []
-            if let approvalPolicy {
-                arguments.append(contentsOf: ["-a", approvalPolicy])
-            }
-            if let sandboxMode,
-               ["read-only", "workspace-write", "danger-full-access"].contains(sandboxMode) {
-                arguments.append(contentsOf: ["-s", sandboxMode])
-            }
-            return arguments
         }
-        return []
+        return codexPermissionArguments(from: pending, before: capturedAt, formatter: formatter) ?? []
+    }
+
+    private func codexPermissionArguments(
+        from line: Data,
+        before capturedAt: TimeInterval,
+        formatter: ISO8601DateFormatter
+    ) -> [String]? {
+        guard !line.isEmpty,
+              let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+              object["type"] as? String == "turn_context",
+              let timestamp = object["timestamp"] as? String,
+              let date = formatter.date(from: timestamp),
+              date.timeIntervalSince1970 < capturedAt,
+              let payload = object["payload"] as? [String: Any] else {
+            return nil
+        }
+        let approvalPolicy = normalizedHookValue(payload["approval_policy"] as? String)
+        let sandboxMode = (payload["sandbox_policy"] as? [String: Any]).flatMap {
+            normalizedHookValue($0["type"] as? String)
+        }
+        if approvalPolicy == "never", sandboxMode == "danger-full-access" {
+            return ["--yolo"]
+        }
+        if approvalPolicy == "never", sandboxMode == "disabled" {
+            return ["--dangerously-bypass-approvals-and-sandbox"]
+        }
+        var arguments: [String] = []
+        if let approvalPolicy {
+            arguments.append(contentsOf: ["-a", approvalPolicy])
+        }
+        if let sandboxMode,
+           ["read-only", "workspace-write", "danger-full-access"].contains(sandboxMode) {
+            arguments.append(contentsOf: ["-s", sandboxMode])
+        }
+        return arguments.isEmpty ? nil : arguments
     }
 }

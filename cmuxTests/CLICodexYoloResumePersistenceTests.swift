@@ -30,8 +30,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 [executable, "-a", "on-request", "-s", "workspace-write"]
             ),
             (
-                "same-process-large-tail", [executable, "--yolo"], "never", "danger-full-access",
-                0, 256 * 1024 + 1, 4300, 4300,
+                "legacy-bare-large-tail", [executable], "never", "danger-full-access",
+                0, 256 * 1024 + 1, 4300, 4400,
                 [executable, "--yolo"]
             ),
         ]
