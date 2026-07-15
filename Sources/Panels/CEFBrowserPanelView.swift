@@ -10,6 +10,7 @@ struct CEFBrowserPanelView: View {
 
     @Environment(\.colorScheme) private var colorScheme
     @State private var suggestions: BrowserPortalOmnibarSuggestionsConfiguration?
+    @State private var visibilityOwnerID = UUID()
     @State private var chromeStyle: BrowserChromeStyle
     @State private var tabBarFontSize: CGFloat = GhosttyConfig.load(
         globalFontMagnificationPercent: GlobalFontMagnification.storedPercent
@@ -72,6 +73,7 @@ struct CEFBrowserPanelView: View {
 
             CEFBrowserHostRepresentable(
                 hostView: panel.hostView,
+                ownerID: visibilityOwnerID,
                 suggestions: suggestions,
                 onRequestPanelFocus: onRequestPanelFocus
             )
@@ -82,14 +84,14 @@ struct CEFBrowserPanelView: View {
         }
         .background(Color(nsColor: chromeStyle.backgroundColor))
         .onAppear {
-            panel.setVisibleInUI(isVisibleInUI)
+            panel.setVisibleInUI(isVisibleInUI, ownerID: visibilityOwnerID)
             refreshChromeStyle()
         }
         .onDisappear {
-            panel.setVisibleInUI(false)
+            panel.releaseVisibilityOwner(visibilityOwnerID)
         }
         .onChange(of: isVisibleInUI) { _, visible in
-            panel.setVisibleInUI(visible)
+            panel.setVisibleInUI(visible, ownerID: visibilityOwnerID)
         }
         .onChange(of: colorScheme) { _, _ in
             refreshChromeStyle()

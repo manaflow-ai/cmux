@@ -13,6 +13,8 @@ public protocol CEFBrowserDelegate: AnyObject {
     func browser(_ browser: CEFBrowser, didUpdateLoadingState isLoading: Bool, canGoBack: Bool, canGoForward: Bool)
     /// Browser destruction completed; the browser is unusable afterwards.
     func browserDidClose(_ browser: CEFBrowser)
+    /// A page requested a popup; the embedder must route it to an owned surface.
+    func browser(_ browser: CEFBrowser, didRequestPopupTo url: String)
 }
 
 /// All delegate callbacks are optional.
@@ -27,6 +29,7 @@ public extension CEFBrowserDelegate {
     func browser(_ browser: CEFBrowser, didUpdateLoadingState isLoading: Bool, canGoBack: Bool, canGoForward: Bool) {}
     /// Default no-op.
     func browserDidClose(_ browser: CEFBrowser) {}
+    func browser(_ browser: CEFBrowser, didRequestPopupTo url: String) {}
 }
 
 /// Backs one cef_client_t and its sub-handlers. All sub-handler structs share
@@ -39,6 +42,7 @@ final class CEFClientImpl {
     var onBrowserCreated: ((CEFBrowser) -> Void)?
     /// Fires after each main-frame load completes.
     var onLoadEnd: ((CEFBrowser) -> Void)?
+    var onPopupRequestedForTesting: ((String) -> Void)?
     /// Strong reference cycle browser<->client is broken in on_before_close.
     private var pendingBrowser: CEFBrowser?
 
@@ -124,8 +128,14 @@ final class CEFClientImpl {
         // secondary browser with the same client would bypass CEFBrowser's
         // ownership and shutdown accounting, so popup entry points fail
         // closed until cmux has an explicit owned-popup routing contract.
-        ptr.pointee.on_before_popup = { _, _, _, _, _, _, _, _, _, _, _, _, _, _ in
-            1
+        ptr.pointee.on_before_popup = { selfPtr, _, _, _, targetURL, _, _, _, _, _, _, _, _, _ in
+            guard let selfPtr, let targetURL = String(cefString: targetURL) else { return 1 }
+            let impl = CEFHandler.object(CEFClientImpl.self, from: selfPtr)
+            impl.onPopupRequestedForTesting?(targetURL)
+            if let browser = impl.browser {
+                impl.delegate?.browser(browser, didRequestPopupTo: targetURL)
+            }
+            return 1
         }
         ptr.pointee.on_after_created = { selfPtr, browserPtr in
             guard let selfPtr, let browserPtr else { return }

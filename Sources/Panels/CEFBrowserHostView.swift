@@ -8,6 +8,7 @@ final class CEFBrowserHostView: NSView {
     let containerView: CEFBrowserContainerView
 
     private var omnibarSuggestionsHostingView: BrowserPortalOmnibarSuggestionsHostingView?
+    private var omnibarSuggestionsOwnerID: UUID?
     private var zOrderCheckView: NSView?
 
     init(containerView: CEFBrowserContainerView) {
@@ -34,8 +35,10 @@ final class CEFBrowserHostView: NSView {
     }
 
     func setOmnibarSuggestions(
-        _ configuration: BrowserPortalOmnibarSuggestionsConfiguration?
+        _ configuration: BrowserPortalOmnibarSuggestionsConfiguration?,
+        ownerID: UUID
     ) {
+        omnibarSuggestionsOwnerID = ownerID
         guard let configuration else {
             omnibarSuggestionsHostingView?.removeFromSuperview()
             omnibarSuggestionsHostingView = nil
@@ -57,6 +60,13 @@ final class CEFBrowserHostView: NSView {
         overlay.popupFrameInTopLeftCoordinates = configuration.popupFrame
         installOverlay(overlay)
         omnibarSuggestionsHostingView = overlay
+    }
+
+    func clearOmnibarSuggestions(ownerID: UUID) {
+        guard omnibarSuggestionsOwnerID == ownerID else { return }
+        omnibarSuggestionsOwnerID = nil
+        omnibarSuggestionsHostingView?.removeFromSuperview()
+        omnibarSuggestionsHostingView = nil
     }
 
     private func installOverlay(_ overlay: BrowserPortalOmnibarSuggestionsHostingView) {

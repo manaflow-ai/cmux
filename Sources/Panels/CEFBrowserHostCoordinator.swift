@@ -6,6 +6,7 @@ import CEFKit
 final class CEFBrowserHostCoordinator {
     private let registrationID: ObjectIdentifier
     private let registration: Registration
+    let presentationOwnerID: UUID
     static let usesSharedEventMonitor = true
 
     private final class Registration {
@@ -23,9 +24,11 @@ final class CEFBrowserHostCoordinator {
 
     init(
         containerView: CEFBrowserContainerView,
+        presentationOwnerID: UUID,
         onRequestPanelFocus: @escaping () -> Void
     ) {
         registrationID = ObjectIdentifier(containerView)
+        self.presentationOwnerID = presentationOwnerID
         let registration = Registration(
             containerView: containerView,
             onRequestPanelFocus: onRequestPanelFocus

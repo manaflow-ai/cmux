@@ -196,10 +196,12 @@ struct CEFOmnibarIntegrationTests {
         let container = CEFBrowserContainerView(frame: .zero)
         var oldCoordinator: CEFBrowserHostCoordinator? = CEFBrowserHostCoordinator(
             containerView: container,
+            presentationOwnerID: UUID(),
             onRequestPanelFocus: {}
         )
         let replacement = CEFBrowserHostCoordinator(
             containerView: container,
+            presentationOwnerID: UUID(),
             onRequestPanelFocus: {}
         )
 

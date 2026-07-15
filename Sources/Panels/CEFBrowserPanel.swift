@@ -43,6 +43,7 @@ final class CEFBrowserPanel: Panel, OmnibarHostingPanel, @preconcurrency CEFBrow
     private var hasStarted = false
     private var isCreatingBrowser = false
     private var isClosing = false
+    private var visibilityOwnerID: UUID?
     private var wantsFocus = false
     private var isAddressFieldFocused = false
     private(set) var isVisibleInUI = true
@@ -233,6 +234,21 @@ final class CEFBrowserPanel: Panel, OmnibarHostingPanel, @preconcurrency CEFBrow
     }
 
     func setVisibleInUI(_ visible: Bool) {
+        applyVisibleInUI(visible)
+    }
+
+    func setVisibleInUI(_ visible: Bool, ownerID: UUID) {
+        visibilityOwnerID = ownerID
+        applyVisibleInUI(visible)
+    }
+
+    func releaseVisibilityOwner(_ ownerID: UUID) {
+        guard visibilityOwnerID == ownerID else { return }
+        visibilityOwnerID = nil
+        applyVisibleInUI(false)
+    }
+
+    private func applyVisibleInUI(_ visible: Bool) {
         guard isVisibleInUI != visible else { return }
         isVisibleInUI = visible
         hostView.isHidden = !visible
@@ -242,6 +258,10 @@ final class CEFBrowserPanel: Panel, OmnibarHostingPanel, @preconcurrency CEFBrow
         } else {
             browser?.setFocus(false)
         }
+    }
+
+    func routePopupNavigation(_ url: String) {
+        navigate(to: url)
     }
 
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {
@@ -342,6 +362,11 @@ final class CEFBrowserPanel: Panel, OmnibarHostingPanel, @preconcurrency CEFBrow
         guard browser === self.browser else { return }
         currentURL = url
         lastEmbeddedURL = url
+    }
+
+    func browser(_ browser: CEFBrowser, didRequestPopupTo url: String) {
+        guard browser === self.browser else { return }
+        routePopupNavigation(url)
     }
 
     func browser(_ browser: CEFBrowser, didUpdateTitle title: String) {
