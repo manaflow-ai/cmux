@@ -3392,6 +3392,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     weak var terminalSurface: TerminalSurface?
+    /// Retained independently because the weak surface can clear before view teardown.
+    private var titleUpdateSurfaceKey: GhosttyTitleUpdateSurfaceKey?
     // SAFETY: replay setup replaces this before runtime attachment; callbacks only read it.
     nonisolated(unsafe) var currentDirectoryActionDispatcher = GhosttyCurrentDirectoryActionDispatcher()
     var scrollbar: GhosttyScrollbar?
@@ -3823,6 +3825,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     func attachSurface(_ surface: TerminalSurface) {
         let isSameSurface = terminalSurface === surface
         let isAlreadyAttached = surface.isAttached(to: self)
+        let nextTitleUpdateSurfaceKey = GhosttyTitleUpdateSurfaceKey(
+            surfaceId: surface.id,
+            sourceSurface: surface
+        )
+        if titleUpdateSurfaceKey != nextTitleUpdateSurfaceKey {
+            if let titleUpdateSurfaceKey {
+                GhosttyApp.shared.titleUpdateIngress.retire(titleUpdateSurfaceKey)
+            }
+            titleUpdateSurfaceKey = nextTitleUpdateSurfaceKey
+        }
         if !isSameSurface {
             pendingInputDemandKeyEvents.removeAll(keepingCapacity: false)
             appliedColorScheme = nil
@@ -7524,7 +7536,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
     deinit {
         selectionAccessibilitySignal.finish()
-        if let tabId, let terminalSurface { GhosttyApp.shared.titleUpdateIngress.retire(tabId: tabId, surfaceId: terminalSurface.id, sourceSurface: terminalSurface) }
+        if let titleUpdateSurfaceKey {
+            GhosttyApp.shared.titleUpdateIngress.retire(titleUpdateSurfaceKey)
+        }
 #if DEBUG
         cmuxDebugLog(
             "surface.view.deinit view=\(Unmanaged.passUnretained(self).toOpaque()) " +

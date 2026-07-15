@@ -17,39 +17,29 @@ nonisolated struct GhosttyTitleUpdateMailbox: Sendable {
         sourceSurfaceIdentifier: ObjectIdentifier,
         title: String
     ) -> Bool {
-        let key = GhosttyTitleUpdateSurfaceKey(
-            tabId: tabId,
+        let surfaceKey = GhosttyTitleUpdateSurfaceKey(
             surfaceId: surfaceId,
             sourceSurfaceIdentifier: sourceSurfaceIdentifier
         )
-        guard lastTitleBySurface[key] != title else { return false }
-        lastTitleBySurface[key] = title
+        guard lastTitleBySurface[surfaceKey] != title else { return false }
+        lastTitleBySurface[surfaceKey] = title
         sequence &+= 1
         let wasEmpty = pendingUpdates.isEmpty && pendingRetirements.isEmpty
-        pendingUpdates[key] = GhosttyTitleUpdate(
+        pendingUpdates[surfaceKey] = GhosttyTitleUpdate(
             tabId: tabId,
-            surfaceId: surfaceId,
+            surfaceId: surfaceKey.surfaceId,
             title: title,
-            sourceSurfaceIdentifier: sourceSurfaceIdentifier,
+            sourceSurfaceIdentifier: surfaceKey.sourceSurfaceIdentifier,
             sequence: sequence
         )
         return wasEmpty
     }
 
-    mutating func retire(
-        tabId: UUID,
-        surfaceId: UUID,
-        sourceSurfaceIdentifier: ObjectIdentifier
-    ) -> Bool {
-        let key = GhosttyTitleUpdateSurfaceKey(
-            tabId: tabId,
-            surfaceId: surfaceId,
-            sourceSurfaceIdentifier: sourceSurfaceIdentifier
-        )
-        guard lastTitleBySurface.removeValue(forKey: key) != nil else { return false }
+    mutating func retire(_ surfaceKey: GhosttyTitleUpdateSurfaceKey) -> Bool {
+        guard lastTitleBySurface.removeValue(forKey: surfaceKey) != nil else { return false }
         let wasEmpty = pendingUpdates.isEmpty && pendingRetirements.isEmpty
-        pendingRetirements.insert(key)
-        pendingUpdates.removeValue(forKey: key)
+        pendingRetirements.insert(surfaceKey)
+        pendingUpdates.removeValue(forKey: surfaceKey)
         return wasEmpty
     }
 

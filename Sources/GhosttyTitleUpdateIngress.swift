@@ -45,11 +45,7 @@ final class GhosttyTitleUpdateIngress: Sendable {
                 let operations = mailbox.withLock { $0.takePendingOperations() }
                 for operation in operations {
                     if let retirement = operation.retirement {
-                        await dispatcher.retire(
-                            tabId: retirement.tabId,
-                            surfaceId: retirement.surfaceId,
-                            sourceSurfaceIdentifier: retirement.sourceSurfaceIdentifier
-                        )
+                        await dispatcher.retire(retirement)
                     }
                     if let update = operation.update {
                         await dispatcher.receive(update)
@@ -79,15 +75,8 @@ final class GhosttyTitleUpdateIngress: Sendable {
         }
     }
 
-    func retire(tabId: UUID, surfaceId: UUID, sourceSurface: AnyObject) {
-        let sourceSurfaceIdentifier = ObjectIdentifier(sourceSurface)
-        let shouldWake = mailbox.withLock {
-            $0.retire(
-                tabId: tabId,
-                surfaceId: surfaceId,
-                sourceSurfaceIdentifier: sourceSurfaceIdentifier
-            )
-        }
+    func retire(_ surfaceKey: GhosttyTitleUpdateSurfaceKey) {
+        let shouldWake = mailbox.withLock { $0.retire(surfaceKey) }
         if shouldWake {
             _ = wakeupContinuation.yield(())
         }

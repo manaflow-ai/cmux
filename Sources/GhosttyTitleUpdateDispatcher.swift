@@ -40,7 +40,6 @@ actor GhosttyTitleUpdateDispatcher {
 
     func receive(_ update: GhosttyTitleUpdate) {
         let key = GhosttyTitleUpdateSurfaceKey(
-            tabId: update.tabId,
             surfaceId: update.surfaceId,
             sourceSurfaceIdentifier: update.sourceSurfaceIdentifier
         )
@@ -68,14 +67,9 @@ actor GhosttyTitleUpdateDispatcher {
         await flush()
     }
 
-    func retire(tabId: UUID, surfaceId: UUID, sourceSurfaceIdentifier: ObjectIdentifier) {
-        let key = GhosttyTitleUpdateSurfaceKey(
-            tabId: tabId,
-            surfaceId: surfaceId,
-            sourceSurfaceIdentifier: sourceSurfaceIdentifier
-        )
-        states.removeValue(forKey: key)
-        pendingKeys.remove(key)
+    func retire(_ surfaceKey: GhosttyTitleUpdateSurfaceKey) {
+        states.removeValue(forKey: surfaceKey)
+        pendingKeys.remove(surfaceKey)
     }
 
     private func scheduleFlushIfNeeded() {

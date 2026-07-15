@@ -54,6 +54,9 @@ struct GhosttyTitleUpdateMailboxTests {
         let tabId = UUID()
         let surfaceId = UUID()
         let sourceIdentifier = ObjectIdentifier(NSObject())
+        let surfaceKey = GhosttyTitleUpdateSurfaceKey(
+            surfaceId: surfaceId, sourceSurfaceIdentifier: sourceIdentifier
+        )
 
         #expect(mailbox.submit(
             tabId: tabId,
@@ -61,20 +64,12 @@ struct GhosttyTitleUpdateMailboxTests {
             sourceSurfaceIdentifier: sourceIdentifier,
             title: "pending"
         ))
-        _ = mailbox.retire(
-            tabId: tabId,
-            surfaceId: surfaceId,
-            sourceSurfaceIdentifier: sourceIdentifier
-        )
+        _ = mailbox.retire(surfaceKey)
 
         let operations = mailbox.takePendingOperations()
         #expect(operations.count == 1)
         let operation = try #require(operations.first)
-        #expect(operation.retirement == GhosttyTitleUpdateSurfaceKey(
-            tabId: tabId,
-            surfaceId: surfaceId,
-            sourceSurfaceIdentifier: sourceIdentifier
-        ))
+        #expect(operation.retirement == surfaceKey)
         #expect(operation.update == nil)
     }
 
@@ -83,6 +78,9 @@ struct GhosttyTitleUpdateMailboxTests {
         let tabId = UUID()
         let surfaceId = UUID()
         let sourceIdentifier = ObjectIdentifier(NSObject())
+        let surfaceKey = GhosttyTitleUpdateSurfaceKey(
+            surfaceId: surfaceId, sourceSurfaceIdentifier: sourceIdentifier
+        )
         _ = mailbox.submit(
             tabId: tabId,
             surfaceId: surfaceId,
@@ -90,11 +88,7 @@ struct GhosttyTitleUpdateMailboxTests {
             title: "old"
         )
         _ = mailbox.takePendingOperations()
-        #expect(mailbox.retire(
-            tabId: tabId,
-            surfaceId: surfaceId,
-            sourceSurfaceIdentifier: sourceIdentifier
-        ))
+        #expect(mailbox.retire(surfaceKey))
         _ = mailbox.submit(
             tabId: tabId,
             surfaceId: surfaceId,
@@ -111,11 +105,7 @@ struct GhosttyTitleUpdateMailboxTests {
         let operations = mailbox.takePendingOperations()
         #expect(operations.count == 1)
         let operation = try #require(operations.first)
-        #expect(operation.retirement == GhosttyTitleUpdateSurfaceKey(
-            tabId: tabId,
-            surfaceId: surfaceId,
-            sourceSurfaceIdentifier: sourceIdentifier
-        ))
+        #expect(operation.retirement == surfaceKey)
         #expect(operation.update == GhosttyTitleUpdate(
             tabId: tabId,
             surfaceId: surfaceId,
@@ -131,15 +121,15 @@ struct GhosttyTitleUpdateMailboxTests {
         let destinationTabId = UUID()
         let surfaceId = UUID()
         let sourceIdentifier = ObjectIdentifier(NSObject())
+        let surfaceKey = GhosttyTitleUpdateSurfaceKey(
+            surfaceId: surfaceId, sourceSurfaceIdentifier: sourceIdentifier
+        )
         #expect(mailbox.submit(
             tabId: originalTabId, surfaceId: surfaceId,
             sourceSurfaceIdentifier: sourceIdentifier, title: "stable"
         ))
         _ = mailbox.takePendingOperations()
-        #expect(mailbox.retire(
-            tabId: destinationTabId, surfaceId: surfaceId,
-            sourceSurfaceIdentifier: sourceIdentifier
-        ))
+        #expect(mailbox.retire(surfaceKey))
         let operations = mailbox.takePendingOperations()
         #expect(operations.count == 1)
         let operation = try #require(operations.first)
