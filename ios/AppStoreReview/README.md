@@ -84,7 +84,7 @@ ios/scripts/validate-app-store-release.sh \
 ## Files
 
 - `review-notes.md` contains the notes to paste into App Store Connect Review Information.
-- `reviewer-setup.md` contains the prepared Mac and manual-pairing setup needed so App Review can test without owning a Mac.
+- `reviewer-setup.md` contains the prepared Mac and account-discovered Iroh handoff setup needed so App Review can test without owning a Mac or installing another networking app.
 - `metadata-screenshots-checklist.md` lists the metadata, screenshots, privacy, and payment gates that must be complete before submission.
 
 Do not commit demo account passwords. Add them only in App Store Connect Review

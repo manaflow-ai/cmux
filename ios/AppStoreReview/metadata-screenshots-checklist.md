@@ -15,8 +15,10 @@ complete in App Store Connect or in the submitted binary.
 
 - [ ] App Review contact name, email, and phone are filled in ASC.
 - [ ] Demo account credentials are entered only in ASC Review Information, never in git.
-- [ ] `review-notes.md` is pasted into ASC notes and edited with the exact review Mac or manual pairing code for this build.
-- [ ] Backend services needed by the demo account are live before submission.
+- [ ] `review-notes.md` is pasted into ASC notes and its monitored contact placeholders are replaced.
+- [ ] The production backend supports account-discovered live-session handoff and is live for the demo account.
+- [ ] The prepared review Mac is awake, signed in to the demo account, has Mobile Pairing enabled, reports Iroh ready, and advertises an `App Review` session.
+- [ ] A clean install of the final signed IPA reaches `App Review` from an outside network with VPN software disabled and without another networking app.
 - [ ] Account deletion is available in app or the submission is blocked until the account lifecycle satisfies App Review Guideline 5.1.1(v).
 
 ## Metadata
@@ -27,7 +29,7 @@ complete in App Store Connect or in the submitted binary.
 - [ ] Metadata does not describe TestFlight, beta access, dev builds, unfinished features, or unsupported platforms.
 - [ ] Category and age rating are complete and match the app's terminal, remote-control, notifications, and account features.
 - [ ] Content rights declaration is complete.
-- [ ] App Privacy answers match collected data: account identifiers, device token when push is enabled, analytics if enabled, and pairing/device metadata.
+- [ ] App Privacy answers match collected data: account identifiers, device token when push is enabled, analytics if enabled, pairing/device metadata, and linked Other User Content for account-linked workspace/session summaries used for App Functionality.
 
 ## Screenshots
 
@@ -57,7 +59,7 @@ complete in App Store Connect or in the submitted binary.
 - [x] iPhone and iPad analytics collection is disabled until the user consents, and Settings exposes a control that withdraws consent for the same telemetry gate used by analytics and crash reporting.
 - [x] In-app Delete Account deletes the account-linked PostHog person and requests deletion of its events and recordings before deleting the Stack user.
 - [ ] Production web env has `POSTHOG_PERSONAL_API_KEY` with `person:write` scope and an explicit `POSTHOG_ENVIRONMENT_ID` (or `POSTHOG_PROJECT_ID`) for that key. Destructive deletion has no default project fallback.
-- [ ] Every `reviewer-setup.md` placeholder is replaced only in ASC with working demo credentials, concrete Tailscale access, concrete host, port, and monitored contact. These live values stay out of git.
+- [ ] Every `reviewer-setup.md` placeholder is replaced only in ASC with working demo credentials and a monitored contact. These live values stay out of git.
 
 ## ASC Validation Commands
 

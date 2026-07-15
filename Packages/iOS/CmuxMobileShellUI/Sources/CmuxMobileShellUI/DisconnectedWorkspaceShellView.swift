@@ -40,6 +40,10 @@ struct DisconnectedWorkspaceShellView: View {
     /// The display name of the computer whose reconnect just failed, driving
     /// the failure alert. `nil` = no alert.
     @State private var connectFailedComputerName: String?
+    /// The account-discovered session currently attaching.
+    @State private var pendingHandoffID: String?
+    /// The advertised session that could not be resolved after attaching.
+    @State private var failedHandoffSessionTitle: String?
     #endif
 
     var body: some View {
@@ -68,12 +72,20 @@ struct DisconnectedWorkspaceShellView: View {
                 .task {
                     // Load (and, via the backup decorator, restore) saved Macs so a
                     // known/restored Mac shows up here for one-tap reconnect. Only
-                    // auto-present the pairing sheet when there is nothing to pick,
-                    // so a returning user is not buried under the add-device flow.
+                    // auto-present manual pairing when neither a saved Mac nor an
+                    // account-discovered session can connect this installation.
                     await store?.loadPairedMacs()
-                    if store?.pairedMacs.isEmpty ?? true {
+                    #if os(iOS)
+                    await store?.loadRegistryDevices()
+                    let hasAccountSession = !handoffSessions.isEmpty
+                    #else
+                    let hasAccountSession = false
+                    #endif
+                    if MobileFirstConnectionState(
+                        hasSavedComputer: !(store?.pairedMacs.isEmpty ?? true),
+                        hasAccountSession: hasAccountSession
+                    ).shouldPresentManualPairing {
                         showAddDevice()
-                        return
                     }
                     #if os(iOS)
                     // Registry + presence enrich the rows (online dots, build
@@ -82,7 +94,6 @@ struct DisconnectedWorkspaceShellView: View {
                     // screen it deliberately does NOT dial offline Macs (see
                     // `refreshComputersScreen()`), so no reconnect storm.
                     // Cancellation is wired to this `.task`'s lifecycle.
-                    await store?.loadRegistryDevices()
                     while !Task.isCancelled {
                         try? await Task.sleep(for: .seconds(10))
                         guard !Task.isCancelled else { break }
@@ -126,6 +137,20 @@ struct DisconnectedWorkspaceShellView: View {
                 defaultValue: "Make sure the computer is awake and online, then try again."
             ))
         }
+        .alert(
+            L10n.string("mobile.handoff.failure.title", defaultValue: "Couldn't Continue Session"),
+            isPresented: Binding(
+                get: { failedHandoffSessionTitle != nil },
+                set: { if !$0 { failedHandoffSessionTitle = nil } }
+            )
+        ) {
+            Button(L10n.string("mobile.common.ok", defaultValue: "OK"), role: .cancel) {}
+        } message: {
+            Text(L10n.string(
+                "mobile.handoff.failure.message",
+                defaultValue: "The session may have ended or its computer may be offline. Refresh and try again."
+            ))
+        }
         #endif
     }
 
@@ -136,41 +161,70 @@ struct DisconnectedWorkspaceShellView: View {
         store.map { MacComputerSnapshot.snapshots(from: $0) } ?? []
     }
 
+    /// Live sessions advertised by Macs in the signed-in account.
+    private var handoffSessions: [RegistryLiveSessionSnapshot] {
+        RegistryLiveSessionSnapshot.snapshots(from: store?.registryDevices ?? [])
+    }
+
     @ViewBuilder
     private var content: some View {
-        if !savedComputers.isEmpty {
-            savedComputersList(savedComputers)
+        if !savedComputers.isEmpty || !handoffSessions.isEmpty {
+            connectionOptionsList(savedComputers)
         } else {
             emptyState
         }
     }
 
-    /// The returning-user state: a real list of the saved computers, one row per
-    /// logical Mac, with presence, last-seen, tap-to-reconnect, and
-    /// swipe-to-remove — the same row component as the Computers screen.
+    /// Available account sessions and saved computers. Saved computers use the
+    /// same row component as the Computers screen, including presence,
+    /// last-seen, tap-to-reconnect, and swipe-to-remove.
     /// Snapshot boundary (see AGENTS.md): rows receive immutable
     /// ``MacComputerSnapshot`` values and closures only, never the store.
-    private func savedComputersList(_ computers: [MacComputerSnapshot]) -> some View {
+    private func connectionOptionsList(_ computers: [MacComputerSnapshot]) -> some View {
         List {
-            Section {
-                ForEach(computers) { computer in
-                    MacComputerRow(
-                        computer: computer,
-                        requestRemove: { computerPendingRemovalID = $0 },
-                        isConfirmingRemove: removalConfirmationBinding(for: computer.deviceId),
-                        confirmRemove: { _ in confirmComputerRemoval() },
-                        style: .reconnect,
-                        connect: { connect(to: $0, named: computer.title) },
-                        isConnecting: connectingMacID == computer.deviceId
-                    )
+            if !handoffSessions.isEmpty {
+                Section {
+                    ForEach(handoffSessions) { session in
+                        RegistryLiveSessionRow(
+                            session: session,
+                            isConnecting: pendingHandoffID == session.id,
+                            continueSession: { continueSession(session) }
+                        )
+                        .disabled(pendingHandoffID != nil)
+                    }
+                } header: {
+                    Text(L10n.string(
+                        "mobile.handoff.section.title",
+                        defaultValue: "Continue on This Device"
+                    ))
+                } footer: {
+                    Text(L10n.string(
+                        "mobile.handoff.section.footer",
+                        defaultValue: "Choose a live session to connect to its computer and pick up where you left off."
+                    ))
                 }
-            } header: {
-                Text(L10n.string("mobile.devices.savedTitle", defaultValue: "Your Computers"))
-            } footer: {
-                Text(L10n.string(
-                    "mobile.disconnected.listFooter",
-                    defaultValue: "Tap a computer to reconnect. Swipe left to remove one."
-                ))
+            }
+            if !computers.isEmpty {
+                Section {
+                    ForEach(computers) { computer in
+                        MacComputerRow(
+                            computer: computer,
+                            requestRemove: { computerPendingRemovalID = $0 },
+                            isConfirmingRemove: removalConfirmationBinding(for: computer.deviceId),
+                            confirmRemove: { _ in confirmComputerRemoval() },
+                            style: .reconnect,
+                            connect: { connect(to: $0, named: computer.title) },
+                            isConnecting: connectingMacID == computer.deviceId
+                        )
+                    }
+                } header: {
+                    Text(L10n.string("mobile.devices.savedTitle", defaultValue: "Your Computers"))
+                } footer: {
+                    Text(L10n.string(
+                        "mobile.disconnected.listFooter",
+                        defaultValue: "Tap a computer to reconnect. Swipe left to remove one."
+                    ))
+                }
             }
             Section {
                 Button(action: showAddDevice) {
@@ -200,6 +254,26 @@ struct DisconnectedWorkspaceShellView: View {
             await store?.loadRegistryDevices()
         }
         .accessibilityIdentifier("MobileDisconnectedSavedMacList")
+    }
+
+    private func continueSession(_ session: RegistryLiveSessionSnapshot) {
+        guard pendingHandoffID == nil, let store else { return }
+        pendingHandoffID = session.id
+        Task { @MainActor in
+            defer { pendingHandoffID = nil }
+            guard let workspaceID = await store.prepareRegistrySessionHandoff(
+                deviceID: session.deviceID,
+                instanceTag: session.instanceTag,
+                sessionID: session.sessionID
+            ) else {
+                await store.loadRegistryDevices()
+                failedHandoffSessionTitle = session.workspaceTitle
+                return
+            }
+            // The shell mounts after this first successful connection. Reuse its
+            // one-shot navigation request so the selected workspace opens there.
+            store.navigateToWorkspaceForDeeplink(workspaceID)
+        }
     }
 
     /// The never-paired/empty state (also previews, where `store` is `nil`).

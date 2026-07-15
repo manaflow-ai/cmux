@@ -11,7 +11,7 @@
 	<!-- First-party data collection. Crash/diagnostics SDKs (e.g. Sentry) are not
 	     linked into the iOS app; analytics are first-party product-interaction
 	     events sent to the cmux web API (server-side PostHog proxy), gated by an
-	     in-app opt-out. Keep in lockstep with the App Store Connect privacy label. -->
+	     in-app consent control. Keep in lockstep with the App Store Connect privacy label. -->
 	<key>NSPrivacyCollectedDataTypes</key>
 	<array>
 		<dict>
@@ -24,6 +24,20 @@
 			<key>NSPrivacyCollectedDataTypePurposes</key>
 			<array>
 				<string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
+			</array>
+		</dict>
+		<dict>
+			<!-- Account-discovered handoff publishes bounded workspace and session
+			     summaries, never terminal transcripts, commands, or terminal output. -->
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeOtherUserContent</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
 			</array>
 		</dict>
 	</array>

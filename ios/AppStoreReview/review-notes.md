@@ -1,7 +1,7 @@
 # cmux iOS Review Notes
 
 cmux for iOS is a companion app for the cmux macOS terminal. It lets a signed-in
-user pair with their Mac, view workspaces, receive terminal notifications, and
+user connect to their Mac, view workspaces, receive terminal notifications, and
 send input to an active terminal session from iPhone or iPad.
 
 Official App Store Connect app: Apple ID `6783338052`.
@@ -10,24 +10,20 @@ Reviewer access:
 
 - Use the demo account entered in App Store Connect Review Information. Do not
   put demo credentials in this repository.
-- After sign-in, use the Add Computer flow shown in the app. Pairing can be
-  tested with a prepared review Mac after joining the supplied Tailscale network
-  and entering the exact Name, Tailscale Host, and Port values supplied in the
-  Review Information notes, or by scanning a generated QR/link whose ticketed
-  route is reachable from the same review network path.
-- The reviewer does not need to own or install cmux on a Mac. Before submission,
-  append the prepared review Mac details below directly into App Store Connect:
-  - Name: `App Review Mac`
-  - Host: `<TAILSCALE_MAGICDNS_OR_100_X_ADDRESS>`
-  - Port: `<CMUX_MOBILE_HOST_PORT>`
-  - Tailscale access: `<TAILSCALE_REVIEW_ACCESS>`
-  - Review contact: `<REVIEW_CONTACT_EMAIL>` / `<REVIEW_CONTACT_PHONE>`
-- The prepared Mac must use a dedicated review-only macOS user, no personal or
-  developer credentials, a safe `App Review` workspace, and a network route
-  restricted to the cmux mobile host port. Revoke the credentials and reset the
-  review user after App Review finishes.
-- The app may request Local Network permission during pairing so it can discover
-  and connect to the user's Mac.
+- The reviewer does not need to own a Mac, install cmux on a Mac, install a VPN,
+  or install a third-party networking app. We keep a prepared review Mac online,
+  signed in to the same demo account, and running a safe session.
+- After sign-in and onboarding, the first connection screen shows a `Continue on
+  This Device` section. Tap the session named `App Review` to connect through
+  cmux's built-in encrypted device connection.
+- Before submission, append a monitored review contact directly in App Store
+  Connect: `<REVIEW_CONTACT_EMAIL>` / `<REVIEW_CONTACT_PHONE>`.
+- The prepared Mac uses a dedicated review-only macOS user with no personal or
+  developer credentials. Revoke the demo access and reset that user after App
+  Review finishes.
+- The app may request Local Network permission to improve direct connectivity
+  when the iPhone or iPad and Mac are on the same network. Remote review access
+  does not require the reviewer to join the Mac's network.
 - Camera permission is used only to scan cmux pairing QR codes.
 - Microphone and speech recognition permissions are used only when the reviewer
   chooses voice transcription in the message box.
@@ -51,19 +47,20 @@ Privacy and account handling:
 - Sign in supports Apple, Google, GitHub, and email code through Stack Auth.
 - Push notifications are opt-in. The device token is uploaded only after the user
   enables phone notifications.
+- The same-account handoff stores bounded workspace and session summaries needed
+  to display live sessions. It does not upload terminal transcripts, command
+  text, or terminal output for discovery.
 - `ITSAppUsesNonExemptEncryption` is `false`; the app uses standard platform
-  networking and TLS.
+  networking and encryption.
 
 Primary review path:
 
 1. Sign in with the demo account supplied in App Store Connect.
-2. Tap Add Computer.
-3. Install Tailscale from the App Store and sign in with the supplied review
-   access first.
-4. Enter the supplied Name, Tailscale Host, and Port values, then tap Pair. If a
-   generated ticketed QR/link route is reachable after joining the supplied
-   Tailscale network, Scan QR Code can be used instead.
-5. Open the workspace list, then open the `App Review` workspace detail.
-6. Send `echo app-review-ok` from the message box.
+2. Complete the short onboarding flow.
+3. On the first connection screen, find `Continue on This Device`.
+4. Tap the `App Review` session. The app connects to the prepared review Mac and
+   opens the workspace.
+5. Send `echo app-review-ok` from the message box.
+6. Confirm the terminal prints `app-review-ok`.
 7. Enable phone notifications and verify the opt-in prompt, then disable them
    again from the same surface.
