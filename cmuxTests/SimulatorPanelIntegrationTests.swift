@@ -78,6 +78,11 @@ struct SimulatorPanelIntegrationTests {
 
     @Test("Session restore preserves preferred Simulator identity")
     func sessionPersistence() throws {
+        let flags = CmuxFeatureFlags.shared
+        let simulatorFlag = CmuxFeatureFlags.allFlags[5]
+        let previousOverride = flags.overrideValue(for: simulatorFlag)
+        flags.setOverride(true, for: simulatorFlag)
+        defer { flags.setOverride(previousOverride, for: simulatorFlag) }
         let preferredDeviceID = "00000000-0000-0000-0000-000000000001"
         let preferredRuntimeID = "com.apple.CoreSimulator.SimRuntime.iOS-26-5"
         let preferredDeviceTypeID = "com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13-inch-M5"
@@ -101,6 +106,7 @@ struct SimulatorPanelIntegrationTests {
         #expect(panelSnapshot.simulator?.runtimeIdentifier == preferredRuntimeID)
         #expect(panelSnapshot.simulator?.deviceTypeIdentifier == preferredDeviceTypeID)
 
+        flags.setOverride(false, for: simulatorFlag)
         let restoredWorkspace = Workspace()
         restoredWorkspace.restoreSessionSnapshot(snapshot)
         let restoredPanel = try #require(
@@ -113,6 +119,7 @@ struct SimulatorPanelIntegrationTests {
         #expect(restoredPanel.selectedDeviceTypeIdentifier == preferredDeviceTypeID)
         let restoredSurfaceID = try #require(restoredWorkspace.surfaceIdFromPanelId(restoredPanel.id))
         #expect(restoredWorkspace.bonsplitController.tab(restoredSurfaceID)?.kind == SurfaceKind.simulator.rawValue)
+        flags.setOverride(true, for: simulatorFlag)
     }
 
     @Test("Remote tmux mirror workspaces reject local Simulator surfaces")
@@ -154,7 +161,12 @@ struct SimulatorPanelIntegrationTests {
     }
 
     @Test("Remote disable closes the worker and re-enable replaces it")
-    func remoteFeatureFlagLifecycle() async {
+    func remoteFeatureFlagLifecycle() async throws {
+        let flags = CmuxFeatureFlags.shared
+        let simulatorFlag = CmuxFeatureFlags.allFlags[5]
+        let previousOverride = flags.overrideValue(for: simulatorFlag)
+        flags.setOverride(true, for: simulatorFlag)
+        defer { flags.setOverride(previousOverride, for: simulatorFlag) }
         let firstClient = SimulatorFeatureFlagPaneClient()
         let secondClient = SimulatorFeatureFlagPaneClient()
         var clients: [SimulatorFeatureFlagPaneClient] = [firstClient, secondClient]
@@ -162,14 +174,14 @@ struct SimulatorPanelIntegrationTests {
         defer { panel.close() }
         let firstCoordinator = panel.coordinator
 
-        panel.suspendForRemoteDisable()
+        flags.setOverride(false, for: simulatorFlag)
         for _ in 0..<100 {
             if await firstClient.stopCount != 0 { break }
             await Task.yield()
         }
 
         #expect(await firstClient.stopCount == 1)
-        panel.resumeAfterRemoteEnable()
+        flags.setOverride(true, for: simulatorFlag)
         #expect(panel.coordinator !== firstCoordinator)
 
         await panel.coordinator.start()

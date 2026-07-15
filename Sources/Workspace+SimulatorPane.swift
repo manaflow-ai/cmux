@@ -22,9 +22,11 @@ extension Workspace {
         preferredRuntimeIdentifier: String? = nil,
         preferredDeviceTypeIdentifier: String? = nil,
         focus: Bool? = nil,
-        targetIndex: Int? = nil
+        targetIndex: Int? = nil,
+        restoringSession: Bool = false
     ) -> SimulatorPanel? {
-        guard CmuxFeatureFlags.shared.isSimulatorEnabled, !isRemoteTmuxMirror else { return nil }
+        guard (CmuxFeatureFlags.shared.isSimulatorEnabled || restoringSession),
+              !isRemoteTmuxMirror else { return nil }
         let shouldFocus = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalPanel?.hostedView

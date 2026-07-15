@@ -27,7 +27,8 @@ extension Workspace {
             preferredDeviceID: snapshot.simulator?.deviceUDID,
             preferredRuntimeIdentifier: snapshot.simulator?.runtimeIdentifier,
             preferredDeviceTypeIdentifier: snapshot.simulator?.deviceTypeIdentifier,
-            focus: false
+            focus: false,
+            restoringSession: true
         ) else {
             return nil
         }

@@ -21,6 +21,7 @@ final class SimulatorPanel: Panel {
     private var preferredDeviceID: String?
     private var preferredRuntimeIdentifier: String?
     private var preferredDeviceTypeIdentifier: String?
+    @ObservationIgnored private var featureFlagsObserver: (any NSObjectProtocol)?
     private var isFeatureDisabled = false
     private var isClosed = false
 
@@ -56,6 +57,16 @@ final class SimulatorPanel: Panel {
             preferredRuntimeIdentifier: preferredRuntimeIdentifier,
             preferredDeviceTypeIdentifier: preferredDeviceTypeIdentifier
         )
+        featureFlagsObserver = NotificationCenter.default.addObserver(
+            forName: .cmuxFeatureFlagsDidChange,
+            object: CmuxFeatureFlags.shared,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.reconcileRemoteFeatureFlag()
+            }
+        }
+        reconcileRemoteFeatureFlag()
     }
 
     convenience init(
@@ -96,6 +107,10 @@ final class SimulatorPanel: Panel {
     func close() {
         guard !isClosed else { return }
         isClosed = true
+        if let featureFlagsObserver {
+            NotificationCenter.default.removeObserver(featureFlagsObserver)
+            self.featureFlagsObserver = nil
+        }
         let coordinator = self.coordinator
         Task {
             await coordinator.close()
@@ -137,5 +152,13 @@ final class SimulatorPanel: Panel {
         preferredDeviceID = selectedDeviceID
         preferredRuntimeIdentifier = selectedRuntimeIdentifier
         preferredDeviceTypeIdentifier = selectedDeviceTypeIdentifier
+    }
+
+    private func reconcileRemoteFeatureFlag() {
+        if CmuxFeatureFlags.shared.isSimulatorEnabled {
+            resumeAfterRemoteEnable()
+        } else {
+            suspendForRemoteDisable()
+        }
     }
 }

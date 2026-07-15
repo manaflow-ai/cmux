@@ -24,7 +24,6 @@ struct SimulatorPanelView: View {
                 cmuxReadableColorScheme(for: appearance.backgroundColor)
             )
             .onAppear {
-                panel.resumeAfterRemoteEnable()
                 panel.coordinator.setAccessibilityOverlayVisibility(isVisibleInUI)
                 panel.coordinator.setLiveStatusVisibility(isVisibleInUI)
             }
@@ -72,11 +71,5 @@ struct SimulatorFeatureDisabledView: View {
             \.colorScheme,
             cmuxReadableColorScheme(for: appearance.backgroundColor)
         )
-        .onAppear {
-            // A remote kill switch must release the isolated worker and every
-            // long-running Simulator resource. Re-enabling replaces this closed
-            // coordinator with a fresh isolated client for the same device.
-            panel.suspendForRemoteDisable()
-        }
     }
 }
