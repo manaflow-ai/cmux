@@ -114,6 +114,7 @@ pub enum AttachFrame {
 
 const ATTACH_STREAM_CAPACITY: usize = 256;
 const ATTACH_STREAM_MAX_BYTES: usize = 16 * 1024 * 1024;
+pub(crate) const VT_REPLAY_MAX_BYTES: usize = 8 * 1024 * 1024;
 
 pub struct AttachFrameReceiver {
     receiver: Receiver<AttachFrame>,
@@ -723,7 +724,7 @@ impl Surface {
         let queued_bytes = Arc::new(AtomicUsize::new(0));
         // Snapshot and tap registration under the same terminal lock:
         // the reader thread cannot apply bytes between the two.
-        let replay = term.vt_replay()?;
+        let replay = term.vt_replay_bounded(VT_REPLAY_MAX_BYTES)?;
         let (cols, rows) = (term.cols(), term.rows());
         pty.taps.lock().unwrap().push(AttachTap {
             sender: tx,
@@ -947,7 +948,7 @@ impl PtySurface {
         });
         // Nominal cell metrics; only pixel size reports observe these.
         let _ = term.resize(cols, rows, 8, 16);
-        let replay = term.vt_replay().unwrap_or_default();
+        let replay = term.vt_replay_bounded(VT_REPLAY_MAX_BYTES).unwrap_or_default();
         self.broadcast_attach_frame(AttachFrame::Resized { cols, rows, replay });
         true
     }

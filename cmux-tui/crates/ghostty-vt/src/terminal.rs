@@ -502,23 +502,10 @@ impl Terminal {
         unwrap_lines: bool,
         trim: bool,
     ) -> Option<String> {
-        let grid_ref = |x: u16, y: u64| -> Option<sys::GhosttyGridRef> {
-            let y = u32::try_from(y).ok()?;
-            let point = sys::GhosttyPoint {
-                tag,
-                value: sys::GhosttyPointValue { coordinate: sys::GhosttyPointCoordinate { x, y } },
-            };
-            let mut out = sys::GhosttyGridRef {
-                size: size_of::<sys::GhosttyGridRef>(),
-                ..Default::default()
-            };
-            let result = unsafe { sys::ghostty_terminal_grid_ref(self.raw, point, &mut out) };
-            (result == sys::GHOSTTY_SUCCESS).then_some(out)
-        };
         let selection = sys::GhosttySelection {
             size: size_of::<sys::GhosttySelection>(),
-            start: grid_ref(start.0, start.1)?,
-            end: grid_ref(end.0, end.1)?,
+            start: self.grid_ref(tag, start.0, start.1)?,
+            end: self.grid_ref(tag, end.0, end.1)?,
             rectangle: false,
         };
         let opts = sys::GhosttyFormatterTerminalOptions {
@@ -559,6 +546,82 @@ impl Terminal {
     /// state, charsets, and tabstops. This is the attach primitive: a new
     /// frontend replays this, then follows the live pty stream.
     pub fn vt_replay(&mut self) -> Result<Vec<u8>> {
+        self.vt_replay_with_selection(None)
+    }
+
+    /// VT replay bounded to `max_bytes`, retaining the newest complete rows.
+    ///
+    /// Full history is preserved when it fits. Oversized history is reduced
+    /// until the active screen and as much recent scrollback as possible fit.
+    /// A pathological screen whose newest row alone exceeds the budget falls
+    /// back to a terminal reset so callers can still attach and receive live
+    /// output instead of entering a permanent overflow loop.
+    pub fn vt_replay_bounded(&mut self, max_bytes: usize) -> Result<Vec<u8>> {
+        let full = self.vt_replay()?;
+        if full.len() <= max_bytes {
+            return Ok(full);
+        }
+
+        let Some(scrollbar) = self.scrollbar() else {
+            return Ok(minimal_vt_replay(max_bytes));
+        };
+        if scrollbar.total == 0 {
+            return Ok(minimal_vt_replay(max_bytes));
+        }
+
+        let screen_rows = scrollbar.len.min(scrollbar.total).max(1);
+        let proportional_rows = ((u128::from(scrollbar.total) * max_bytes as u128)
+            / full.len() as u128)
+            .min(u128::from(scrollbar.total)) as u64;
+        let mut tail_rows = proportional_rows.max(screen_rows);
+
+        loop {
+            if let Ok(replay) = self.vt_replay_screen_tail(tail_rows)
+                && replay.len() <= max_bytes
+            {
+                return Ok(replay);
+            }
+
+            let next = if tail_rows > screen_rows {
+                screen_rows + (tail_rows - screen_rows) / 2
+            } else if tail_rows > 1 {
+                tail_rows / 2
+            } else {
+                break;
+            };
+            tail_rows = if next == tail_rows { screen_rows } else { next };
+        }
+
+        Ok(minimal_vt_replay(max_bytes))
+    }
+
+    fn vt_replay_screen_tail(&mut self, rows: u64) -> Result<Vec<u8>> {
+        let scrollbar = self.scrollbar().ok_or(crate::Error::InvalidValue)?;
+        let cols = self.cols();
+        if cols == 0 || scrollbar.total == 0 || rows == 0 {
+            return Err(crate::Error::InvalidValue);
+        }
+        let selection = sys::GhosttySelection {
+            size: size_of::<sys::GhosttySelection>(),
+            start: self
+                .grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, 0, scrollbar.total.saturating_sub(rows))
+                .ok_or(crate::Error::InvalidValue)?,
+            end: self
+                .grid_ref(
+                    sys::GHOSTTY_POINT_TAG_SCREEN,
+                    cols.saturating_sub(1),
+                    scrollbar.total - 1,
+                )
+                .ok_or(crate::Error::InvalidValue)?,
+            rectangle: false,
+        };
+        self.vt_replay_with_selection(Some(&selection))
+    }
+
+    fn vt_replay_with_selection(
+        &mut self,
+        selection: Option<&sys::GhosttySelection>,
+    ) -> Result<Vec<u8>> {
         let opts = sys::GhosttyFormatterTerminalOptions {
             size: size_of::<sys::GhosttyFormatterTerminalOptions>(),
             emit: sys::GHOSTTY_FORMATTER_FORMAT_VT,
@@ -582,9 +645,21 @@ impl Terminal {
                     charsets: true,
                 },
             },
-            selection: ptr::null(),
+            selection: selection.map_or(ptr::null(), |value| value),
         };
         self.format(opts)
+    }
+
+    fn grid_ref(&self, tag: sys::GhosttyPointTag, x: u16, y: u64) -> Option<sys::GhosttyGridRef> {
+        let y = u32::try_from(y).ok()?;
+        let point = sys::GhosttyPoint {
+            tag,
+            value: sys::GhosttyPointValue { coordinate: sys::GhosttyPointCoordinate { x, y } },
+        };
+        let mut out =
+            sys::GhosttyGridRef { size: size_of::<sys::GhosttyGridRef>(), ..Default::default() };
+        let result = unsafe { sys::ghostty_terminal_grid_ref(self.raw, point, &mut out) };
+        (result == sys::GHOSTTY_SUCCESS).then_some(out)
     }
 
     fn format(&mut self, opts: sys::GhosttyFormatterTerminalOptions) -> Result<Vec<u8>> {
@@ -616,6 +691,11 @@ impl Terminal {
         unsafe { sys::ghostty_formatter_free(formatter) };
         result
     }
+}
+
+fn minimal_vt_replay(max_bytes: usize) -> Vec<u8> {
+    const RESET: &[u8] = b"\x1bc";
+    if max_bytes >= RESET.len() { RESET.to_vec() } else { Vec::new() }
 }
 
 impl Drop for Terminal {

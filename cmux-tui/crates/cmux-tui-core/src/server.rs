@@ -1735,7 +1735,8 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &MessageWriter) -> anyho
             let surface = get_surface(mux, surface)?;
             require_pty(&surface)?;
             let (cols, rows, replay) = surface.try_with_terminal(|t| {
-                t.vt_replay().map(|replay| (t.cols(), t.rows(), replay))
+                t.vt_replay_bounded(crate::surface::VT_REPLAY_MAX_BYTES)
+                    .map(|replay| (t.cols(), t.rows(), replay))
             })??;
             Ok(json!({
                 "cols": cols,
