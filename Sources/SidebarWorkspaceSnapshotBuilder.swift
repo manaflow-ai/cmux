@@ -66,5 +66,9 @@ struct SidebarWorkspaceSnapshotBuilder {
         let checklistCompletedCount: Int
         let checklistTotalCount: Int
         let checklistFirstUncheckedText: String?
+        // Agent-hook status key (e.g. "claude_code") of the agent currently
+        // reporting `.running` in this workspace, or nil when none is working.
+        // Drives the walking pixel-pet "agent is working" glyph on the row.
+        let runningAgentStatusKey: String?
     }
 }

@@ -13410,6 +13410,22 @@ struct TabItemView: View, Equatable {
                     audioColor: activeSecondaryColor(0.8)
                 )
 
+                // Walking pixel-pet shown while a coding agent is actively
+                // working in this workspace, tinted to the agent's color.
+                if let runningAgentStatusKey = workspaceSnapshot.runningAgentStatusKey {
+                    let workingAgentName = SidebarWorkingAgentPresentation.displayName(forStatusKey: runningAgentStatusKey)
+                    let agentWorkingTooltip = String(
+                        localized: "sidebar.agentWorking.tooltip",
+                        defaultValue: "\(workingAgentName) is working…"
+                    )
+                    SidebarWorkingAgentIndicatorView(
+                        species: PixelAgentPet.Species(agentStatusKey: runningAgentStatusKey),
+                        pointSize: scaledFontSize(11)
+                    )
+                    .safeHelp(agentWorkingTooltip)
+                    .accessibilityLabel(agentWorkingTooltip)
+                }
+
                 if isEditing {
                     SidebarInlineRenameField(
                         initialText: renameDraft,
@@ -14286,8 +14302,25 @@ struct TabItemView: View, Equatable {
             checklistItems: tab.todoState.checklist,
             checklistCompletedCount: checklistProgress.completedCount,
             checklistTotalCount: checklistProgress.totalCount,
-            checklistFirstUncheckedText: checklistProgress.firstUncheckedText
+            checklistFirstUncheckedText: checklistProgress.firstUncheckedText,
+            runningAgentStatusKey: runningAgentStatusKey()
         )
+    }
+
+    /// The agent whose walking pixel-pet the row should show, or nil when no
+    /// agent in the workspace is actively working. Reads the per-panel agent
+    /// lifecycle states reported by agent hooks; the row already refreshes this
+    /// snapshot whenever those states change (`.sidebarAgentRuntimeObservation`).
+    private func runningAgentStatusKey() -> String? {
+        let statesByPanel = tab.agentLifecycleStatesByPanelId
+        guard !statesByPanel.isEmpty else { return nil }
+        var runningKeys: Set<String> = []
+        for (_, statesByAgent) in statesByPanel {
+            for (agentKey, state) in statesByAgent where state == .running {
+                runningKeys.insert(agentKey)
+            }
+        }
+        return SidebarWorkingAgentPresentation.primaryStatusKey(among: runningKeys)
     }
 
     private var sidebarVisibleCustomDescription: String? {

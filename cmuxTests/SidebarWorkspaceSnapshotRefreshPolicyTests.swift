@@ -103,6 +103,36 @@ import Testing
         #expect(decision.pendingWorkspaceSnapshot == next)
         #expect(decision.hasDeferredWorkspaceObservationInvalidation)
     }
+
+    @Test func contextMenuRunningAgentChangeUpdatesDisplayedGlyphImmediately() {
+        let current = Self.snapshot(
+            latestConversationMessage: "old message",
+            listeningPorts: [3000],
+            runningAgentStatusKey: nil
+        )
+        let next = Self.snapshot(
+            latestConversationMessage: "new message",
+            listeningPorts: [3000, 4000],
+            runningAgentStatusKey: "claude_code"
+        )
+
+        let decision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
+            current: current,
+            next: next,
+            force: false,
+            contextMenuVisible: true
+        )
+
+        // The working-agent pet is a leading row glyph, so it must update
+        // immediately even while the context menu is open…
+        #expect(decision.workspaceSnapshotStorage?.runningAgentStatusKey == "claude_code")
+        // …while telemetry-heavy fields stay frozen until the menu closes.
+        #expect(decision.workspaceSnapshotStorage?.latestConversationMessage == "old message")
+        #expect(decision.workspaceSnapshotStorage?.listeningPorts == [3000])
+        #expect(decision.pendingWorkspaceSnapshot == next)
+        #expect(decision.hasDeferredWorkspaceObservationInvalidation)
+    }
+
     @Test func closedContextMenuStoresNextAndClearsPending() {
         let current = Self.snapshot(title: "old", isPinned: false)
         let next = Self.snapshot(title: "new", isPinned: true)
@@ -130,7 +160,8 @@ import Testing
         listeningPorts: [Int] = [],
         finderDirectoryPath: String? = nil,
         mediaActivity: BrowserMediaActivity = BrowserMediaActivity(),
-        activeCodingAgentCount: Int = 0
+        activeCodingAgentCount: Int = 0,
+        runningAgentStatusKey: String? = nil
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: presentationKey ?? Self.presentationKey(),
@@ -162,7 +193,8 @@ import Testing
             checklistItems: [],
             checklistCompletedCount: 0,
             checklistTotalCount: 0,
-            checklistFirstUncheckedText: nil
+            checklistFirstUncheckedText: nil,
+            runningAgentStatusKey: runningAgentStatusKey
         )
     }
 
