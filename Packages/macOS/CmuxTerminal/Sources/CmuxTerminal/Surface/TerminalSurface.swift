@@ -136,6 +136,11 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// The owning workspace id.
     public private(set) var tabId: UUID
 
+    /// Stable, opaque identifiers used by renderer profiling across runtime recreation.
+    public var rendererProfilingIdentity: TerminalRendererProfilingIdentity {
+        TerminalRendererProfilingIdentity(workspaceId: tabId, surfaceId: id)
+    }
+
     /// Port ordinal for CMUX_PORT range assignment. Captured at construction so
     /// every runtime startup path uses the same immutable workspace port range.
     let portOrdinal: Int
@@ -258,6 +263,13 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// path explicitly requests it so background panes do not keep a focused
     /// state unless the workspace focus path requests it.
     var desiredFocusState: Bool = false
+    /// Desired Ghostty renderer visibility, retained even while the native
+    /// surface is absent so a hidden pane cannot restart visible after runtime
+    /// recreation.
+    var desiredOcclusionVisible = true
+    /// Last visibility applied to the current native surface. Reset whenever
+    /// that native surface is replaced.
+    var lastAppliedOcclusionVisible: Bool?
 
     /// Bumped after every completed runtime clipboard read.
     public internal(set) var clipboardReadGeneration = 0
@@ -306,7 +318,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
 #if DEBUG
                         logDebugEvent("find.needle updated tab=\(self?.tabId.uuidString.prefix(5) ?? "?") surface=\(self?.id.uuidString.prefix(5) ?? "?") chars=\(needle.count)")
 #endif
-                        _ = self?.performBindingAction("search:\(needle)")
+                        _ = self?.performInternalBindingAction("search:\(needle)")
                     }
             } else if let oldValue {
                 lastSearchNeedle = oldValue.needle
@@ -314,7 +326,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
 #if DEBUG
                 logDebugEvent("find.searchState cleared tab=\(tabId.uuidString.prefix(5)) surface=\(id.uuidString.prefix(5))")
 #endif
-                _ = performBindingAction("end_search")
+                _ = performInternalBindingAction("end_search")
             }
         }
     }
@@ -373,8 +385,11 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// hopped through `MainActor.assumeIsolated`; the isolation is now
     /// compiler-enforced).
     ///
-    /// - Parameters mirror the legacy initializer, plus the injected
-    ///   `dependencies` bundle constructed at the composition root.
+    /// Parameters mirror the legacy initializer, plus the injected
+    /// `dependencies` bundle constructed at the composition root.
+    ///
+    /// - Parameter preparePaneHost: Configures the newly-created pane host
+    ///   before it is attached or any startup work can create a runtime.
     @MainActor
     public init(
         id: UUID = UUID(),
@@ -392,6 +407,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         manualIO: Bool = false,
         manualInputHandler: (@Sendable (Data) -> Void)? = nil,
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
+        preparePaneHost: @Sendable @MainActor (any TerminalSurfacePaneHosting) -> Void = { _ in },
         dependencies: TerminalSurfaceRuntimeDependencies
     ) {
         self.id = id
@@ -433,6 +449,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         )
         self.surfaceView = views.surfaceView
         self.paneHost = views.paneHost
+        preparePaneHost(self.paneHost)
         registry.register(self)
         self.paneHost.attachSurface(self)
 
@@ -574,12 +591,12 @@ public final class TerminalSurface: Identifiable, ObservableObject {
             workspaceId: tabId,
             reason: "deinit",
             surface: surfaceToFree,
-            callbackContext: callbackContext
+            callbackContext: callbackContext,
+            manualIOContext: manualIOContext,
+            byteTeeLease: teeLease
         )
-        // The teardown coordinator releases callbackContext; manualIOContext and
-        // teeLease are not transported through the request, so release them here.
-        manualIOContext?.release()
-        teeLease?.release()
+        // The teardown coordinator releases every callback owner after native
+        // free has stopped the PTY/manual-I/O thread.
     }
 }
 

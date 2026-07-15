@@ -31,6 +31,7 @@ struct SocketClientAuthorizationTests {
     }
 
     @Test func cmuxOnlyAllowsReparentedClientWithInheritedCapability() throws {
+        var authorization = authorization
         let authority = SocketClientCapabilityAuthority(
             secret: Data(repeating: 0xA5, count: SocketClientCapabilityAuthority.secureByteCount),
             audience: "com.cmuxterm.test"
@@ -40,17 +41,23 @@ struct SocketClientAuthorizationTests {
         )
         let envelope = try #require(SocketClientCapabilityEnvelope(capability: capability))
         let command = "hooks claude prompt-submit"
+        var ancestryEvaluationCount = 0
 
         #expect(authorization.authorizedCommand(
             envelope.wrap(command),
             peerProcessID: 123,
             peerHasSameUID: true,
             capabilityAuthority: authority,
-            isDescendant: { _ in false }
+            isDescendant: { _ in
+                ancestryEvaluationCount += 1
+                return false
+            }
         ) == command)
+        #expect(ancestryEvaluationCount == 0)
     }
 
     @Test func cmuxOnlyRejectsReparentedClientWithoutCapability() {
+        var authorization = authorization
         let authority = SocketClientCapabilityAuthority(
             secret: Data(repeating: 0xA5, count: SocketClientCapabilityAuthority.secureByteCount),
             audience: "com.cmuxterm.test"
@@ -65,6 +72,7 @@ struct SocketClientAuthorizationTests {
     }
 
     @Test func cmuxOnlyRejectsCapabilityFromDifferentUser() throws {
+        var authorization = authorization
         let authority = SocketClientCapabilityAuthority(
             secret: Data(repeating: 0xA5, count: SocketClientCapabilityAuthority.secureByteCount),
             audience: "com.cmuxterm.test"
@@ -80,5 +88,95 @@ struct SocketClientAuthorizationTests {
             capabilityAuthority: authority,
             isDescendant: { _ in false }
         ) == nil)
+    }
+
+    @Test func cmuxOnlyChecksOrdinaryDescendantAncestryOncePerConnection() {
+        var authorization = authorization
+        let authority = SocketClientCapabilityAuthority(
+            secret: Data(repeating: 0xA5, count: SocketClientCapabilityAuthority.secureByteCount),
+            audience: "com.cmuxterm.test"
+        )
+        var ancestryEvaluationCount = 0
+        let isDescendant: (pid_t) -> Bool = { pid in
+            ancestryEvaluationCount += 1
+            return pid == 123
+        }
+
+        #expect(authorization.authorizedCommand(
+            "ping",
+            peerProcessID: 123,
+            peerHasSameUID: true,
+            capabilityAuthority: authority,
+            isDescendant: isDescendant
+        ) == "ping")
+        #expect(authorization.authorizedCommand(
+            "system.capabilities",
+            peerProcessID: 123,
+            peerHasSameUID: true,
+            capabilityAuthority: authority,
+            isDescendant: isDescendant
+        ) == "system.capabilities")
+        #expect(ancestryEvaluationCount == 1)
+    }
+
+    @Test func exhaustedPreauthorizationCachesDescendantForLaterCommands() {
+        var authorization = authorization
+        let authority = SocketClientCapabilityAuthority(
+            secret: Data(repeating: 0xA5, count: SocketClientCapabilityAuthority.secureByteCount),
+            audience: "com.cmuxterm.test"
+        )
+        var ancestryEvaluationCount = 0
+        let isDescendant: (pid_t) -> Bool = { pid in
+            ancestryEvaluationCount += 1
+            return pid == 123
+        }
+
+        let admitted = authorization.cacheAncestryAuthorization(
+            peerProcessID: 123,
+            isDescendant: isDescendant
+        )
+        #expect(admitted)
+        #expect(authorization.authorizedCommand(
+            "ping",
+            peerProcessID: 123,
+            peerHasSameUID: true,
+            capabilityAuthority: authority,
+            isDescendant: isDescendant
+        ) == "ping")
+        #expect(authorization.authorizedCommand(
+            "system.capabilities",
+            peerProcessID: 123,
+            peerHasSameUID: true,
+            capabilityAuthority: authority,
+            isDescendant: isDescendant
+        ) == "system.capabilities")
+        #expect(ancestryEvaluationCount == 1)
+    }
+
+    @Test func exhaustedPreauthorizationRejectsAndCachesNonDescendant() {
+        var authorization = authorization
+        let authority = SocketClientCapabilityAuthority(
+            secret: Data(repeating: 0xA5, count: SocketClientCapabilityAuthority.secureByteCount),
+            audience: "com.cmuxterm.test"
+        )
+        var ancestryEvaluationCount = 0
+        let isDescendant: (pid_t) -> Bool = { _ in
+            ancestryEvaluationCount += 1
+            return false
+        }
+
+        let admitted = authorization.cacheAncestryAuthorization(
+            peerProcessID: 123,
+            isDescendant: isDescendant
+        )
+        #expect(!admitted)
+        #expect(authorization.authorizedCommand(
+            "ping",
+            peerProcessID: 123,
+            peerHasSameUID: true,
+            capabilityAuthority: authority,
+            isDescendant: isDescendant
+        ) == nil)
+        #expect(ancestryEvaluationCount == 1)
     }
 }
