@@ -10,7 +10,7 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite(.serialized)
+@Suite
 struct MobileHostServiceSettingsTests {
     @Test func mobileHostListenerDefaultsOffUntilIOSPairingIsEnabled() throws {
         let suiteName = "MobileHostServiceSettingsTests.\(UUID().uuidString)"

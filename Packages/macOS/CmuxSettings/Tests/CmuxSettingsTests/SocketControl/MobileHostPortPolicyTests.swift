@@ -13,16 +13,17 @@ import Testing
         let catalogDefault = SettingCatalog().mobile.iOSPairingPort.defaultValue
         let nodivsEnvironment = [SocketControlSettings.launchTagEnvKey: "nodivs"]
         let wtodoEnvironment = [SocketControlSettings.launchTagEnvKey: "wtodo"]
+        let policy = MobileHostPortPolicy()
 
-        let nodivs = MobileHostPortPolicy.configuredPort(
+        let nodivs = policy.configuredPort(
             defaults: defaults,
             environment: nodivsEnvironment
         )
-        let nodivsRelaunch = MobileHostPortPolicy.configuredPort(
+        let nodivsRelaunch = policy.configuredPort(
             defaults: defaults,
             environment: nodivsEnvironment
         )
-        let wtodo = MobileHostPortPolicy.configuredPort(
+        let wtodo = policy.configuredPort(
             defaults: defaults,
             environment: wtodoEnvironment
         )
@@ -33,7 +34,7 @@ import Testing
         #expect(nodivs != wtodo)
         #expect(MobileHostPortPolicy.taggedDevelopmentPortRange.contains(nodivs))
         #expect(MobileHostPortPolicy.taggedDevelopmentPortRange.contains(wtodo))
-        #expect(MobileHostPortPolicy.resolvedDesiredPort(
+        #expect(policy.resolvedDesiredPort(
             defaults: defaults,
             environment: wtodoEnvironment
         ) == wtodo)
@@ -47,12 +48,13 @@ import Testing
 
         defaults.set(9000, forKey: SettingCatalog().mobile.iOSPairingPort.userDefaultsKey)
         let environment = [SocketControlSettings.launchTagEnvKey: "nodivs"]
+        let policy = MobileHostPortPolicy()
 
-        #expect(MobileHostPortPolicy.configuredPort(
+        #expect(policy.configuredPort(
             defaults: defaults,
             environment: environment
         ) == 9000)
-        #expect(MobileHostPortPolicy.resolvedDesiredPort(
+        #expect(policy.resolvedDesiredPort(
             defaults: defaults,
             environment: environment
         ) == 9000)

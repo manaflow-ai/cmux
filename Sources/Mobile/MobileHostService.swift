@@ -481,7 +481,7 @@ final class MobileHostService {
         defaults: UserDefaults = .standard,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> Int {
-        MobileHostPortPolicy.configuredPort(
+        MobileHostPortPolicy().configuredPort(
             defaults: defaults,
             environment: environment
         )
@@ -499,7 +499,7 @@ final class MobileHostService {
         defaults: UserDefaults = .standard,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> Int? {
-        MobileHostPortPolicy.resolvedDesiredPort(
+        MobileHostPortPolicy().resolvedDesiredPort(
             defaults: defaults,
             environment: environment
         )
