@@ -399,7 +399,7 @@ final class SharedLiveAgentIndex {
         self.processScopeFingerprint = processScopeFingerprint
         recordEventReloadBackpressure(
             indexedSessionCount: newIndex.entryCount,
-            liveAgentCount: liveAgentProcessFingerprint.count,
+            liveAgentCount: newIndex.liveAgentProcessCount,
             completedAt: loadedAt
         )
 #if DEBUG
@@ -470,10 +470,7 @@ final class SharedLiveAgentIndex {
 
     func scheduleHookStoreRefresh() {
         let reloadInterval = Self.hookEventReloadInterval(
-            liveAgentCount: max(
-                liveAgentProcessFingerprint.count,
-                eventReloadBackpressureLiveAgentCount
-            ),
+            liveAgentCount: eventReloadBackpressureLiveAgentCount,
             indexedSessionCount: max(index?.entryCount ?? 0, eventReloadBackpressureEntryCount)
         )
         let completedAt = eventReloadBackpressureCompletedAt ?? loadedAt

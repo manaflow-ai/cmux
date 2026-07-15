@@ -17,10 +17,11 @@ struct SharedLiveAgentIndexHookStoreInvalidationTests {
         let successorStarted = DispatchSemaphore(value: 0)
         let loadCount = OSAllocatedUnfairLock(initialState: 0)
         var now = Date(timeIntervalSince1970: 100)
+        let loadedIndex = Self.index(liveAgentProcessIDs: Set(1...64))
         let scopedResult: SharedLiveAgentIndex.LoadResult = (
-            index: .empty,
+            index: loadedIndex,
             surfaceResumeBindingIndex: .empty,
-            liveAgentProcessFingerprint: Set((0..<64).map { "agent-\($0)" }),
+            liveAgentProcessFingerprint: loadedIndex.liveAgentProcessFingerprint(),
             processScopeFingerprint: [],
             forkValidatedPanels: []
         )
@@ -42,9 +43,9 @@ struct SharedLiveAgentIndexHookStoreInvalidationTests {
             dateProvider: { now }
         )
 
-        #expect(await sharedIndex.scopedIndexCapturedAfterRequest()?.entryCount == 0)
+        #expect(await sharedIndex.scopedIndexCapturedAfterRequest()?.entryCount == 1)
         #expect(sharedIndex.index == nil)
-        #expect(sharedIndex.latestCompletedLoadResult?.liveAgentProcessFingerprint.count == 64)
+        #expect(sharedIndex.latestCompletedLoadResult?.liveAgentProcessFingerprint.count == 1)
 
         now.addTimeInterval(10)
         sharedIndex.handleHookStoreChange()
@@ -227,6 +228,40 @@ struct SharedLiveAgentIndexHookStoreInvalidationTests {
         }
         return RestorableAgentSessionIndex.load(
             homeDirectory: "/tmp/cmux-indexed-cadence-missing-home",
+            fileManager: .default,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: detected,
+            processArgumentsProvider: { _ in nil },
+            processIdentityProvider: { _ in nil }
+        )
+    }
+
+    nonisolated private static func index(
+        liveAgentProcessIDs: Set<Int>
+    ) -> RestorableAgentSessionIndex {
+        let key = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: UUID(),
+            panelId: UUID()
+        )
+        let detected: [
+            RestorableAgentSessionIndex.PanelKey:
+                RestorableAgentSessionIndex.ProcessDetectedSnapshotEntry
+        ] = [
+            key: (
+                snapshot: SessionRestorableAgentSnapshot(
+                    kind: .codex,
+                    sessionId: "scoped-live-process-workload",
+                    workingDirectory: "/tmp/cmux-scoped-live-process-workload",
+                    launchCommand: nil
+                ),
+                updatedAt: 1,
+                processIDs: liveAgentProcessIDs,
+                agentProcessIDs: liveAgentProcessIDs,
+                sessionIDSource: .explicit
+            ),
+        ]
+        return RestorableAgentSessionIndex.load(
+            homeDirectory: "/tmp/cmux-scoped-live-process-workload-missing-home",
             fileManager: .default,
             registry: CmuxVaultAgentRegistry(registrations: []),
             detectedSnapshots: detected,
