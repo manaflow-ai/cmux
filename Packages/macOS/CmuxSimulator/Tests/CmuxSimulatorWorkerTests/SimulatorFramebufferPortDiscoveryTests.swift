@@ -50,4 +50,25 @@ struct SimulatorFramebufferPortDiscoveryTests {
         #expect(transports.first?.width == 8)
         #expect(transports.first?.height == 12)
     }
+
+    @Test("A failed publication resume remains retryable")
+    func failedResumeCanRetry() async throws {
+        let fixture = SimulatorFramebufferPortFixture()
+        var transports: [SimulatorFrameTransportDescriptor] = []
+        let framebuffer = SimulatorFramebuffer(
+            onFrameTransportChange: { transports.append($0) },
+            onDisplayChange: { _ in }
+        )
+        try await framebuffer.start(device: fixture.device)
+        try await framebuffer.setPublishingEnabled(false)
+        fixture.removeSurface()
+
+        await #expect(throws: SimulatorWorkerFailure.self) {
+            try await framebuffer.setPublishingEnabled(true)
+        }
+
+        fixture.publishFrame(width: 8, height: 12)
+        try await framebuffer.setPublishingEnabled(true)
+        #expect(transports.count == 2)
+    }
 }

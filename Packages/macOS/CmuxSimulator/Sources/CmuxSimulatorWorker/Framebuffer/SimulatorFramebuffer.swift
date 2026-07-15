@@ -86,8 +86,8 @@ final class SimulatorFramebuffer {
 
     func setPublishingEnabled(_ enabled: Bool) async throws {
         guard publishingEnabled != enabled else { return }
-        publishingEnabled = enabled
         if !enabled {
+            publishingEnabled = false
             framePublisherGeneration &+= 1
             framePublisher?.cancel()
             framePublisher = nil
@@ -98,7 +98,13 @@ final class SimulatorFramebuffer {
                 "SimulatorKit retained no framebuffer surface while resuming publication."
             )
         }
-        try await startPublisher(initialSurface: surface)
+        publishingEnabled = true
+        do {
+            try await startPublisher(initialSurface: surface)
+        } catch {
+            publishingEnabled = false
+            throw error
+        }
         _ = publishLatest(readNativeOrientation: true)
     }
 

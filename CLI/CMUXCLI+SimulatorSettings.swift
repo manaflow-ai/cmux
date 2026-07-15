@@ -1,3 +1,4 @@
+import CmuxSimulator
 import Foundation
 
 extension CMUXCLI {
@@ -54,7 +55,11 @@ extension CMUXCLI {
                 "service": normalized.service,
                 "bundle_id": bundleIdentifier,
             ],
-            timeout: normalized.service == "all" ? 135 : 60,
+            timeout: SimulatorOperationDeadline.clientTimeout(
+                for: normalized.service == "all"
+                    ? SimulatorOperationDeadline.permissionResetAll
+                    : SimulatorOperationDeadline.permissionMutation
+            ),
             output: .permissionsUpdated(
                 action: normalized.action,
                 service: normalized.service,
@@ -75,7 +80,9 @@ extension CMUXCLI {
             return request(
                 "simulator.ui.status",
                 [:],
-                timeout: 130,
+                timeout: SimulatorOperationDeadline.clientTimeout(
+                    for: SimulatorOperationDeadline.interfaceRead
+                ),
                 output: .interfaceStatus
             )
         }
@@ -102,7 +109,9 @@ extension CMUXCLI {
             return request(
                 "simulator.ui.status",
                 [:],
-                timeout: 130,
+                timeout: SimulatorOperationDeadline.clientTimeout(
+                    for: SimulatorOperationDeadline.interfaceRead
+                ),
                 output: .interfaceValue(option: option)
             )
         }
@@ -110,7 +119,9 @@ extension CMUXCLI {
         return request(
             "simulator.ui.set",
             ["option": option, "value": value],
-            timeout: 130,
+            timeout: SimulatorOperationDeadline.clientTimeout(
+                for: SimulatorOperationDeadline.interfaceMutation
+            ),
             output: .interfaceUpdated(option: option)
         )
     }

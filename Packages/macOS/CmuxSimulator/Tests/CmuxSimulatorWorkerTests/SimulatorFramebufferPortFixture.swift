@@ -22,4 +22,8 @@ final class SimulatorFramebufferPortFixture {
     func publishFrame(width: Int, height: Int) {
         descriptor.publishFrame(width: width, height: height)
     }
+
+    func removeSurface() {
+        descriptor.removeSurface()
+    }
 }

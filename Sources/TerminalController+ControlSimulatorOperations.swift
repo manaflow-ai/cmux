@@ -279,15 +279,18 @@ extension TerminalController {
     }
 
     private func simulatorTimeout(for operation: ControlSimulatorOperation) -> TimeInterval {
-        if case .selectDevice = operation { return 210 }
-        if case .recover = operation { return 130 }
+        if case .selectDevice = operation { return SimulatorOperationDeadline.selectDevice }
+        if case .recover = operation { return SimulatorOperationDeadline.recover }
         if case .cameraConfigure = operation { return 160 }
         if case .cameraSwitch = operation { return 160 }
-        if case .interfaceStatus = operation { return 125 }
-        if case .interfaceSet = operation { return 125 }
+        if case .interfaceStatus = operation { return SimulatorOperationDeadline.interfaceRead }
+        if case .interfaceSet = operation { return SimulatorOperationDeadline.interfaceMutation }
         if case let .permissionsSet(_, service, _) = operation {
-            return service == SimulatorPrivacyService.all.rawValue ? 130 : 55
+            return service == SimulatorPrivacyService.all.rawValue
+                ? SimulatorOperationDeadline.permissionResetAll
+                : SimulatorOperationDeadline.permissionMutation
         }
+        if case .permissionsRead = operation { return SimulatorOperationDeadline.permissionRead }
         if case .accessibility = operation { return 35 }
         return 35
     }

@@ -1,3 +1,4 @@
+import CmuxSimulator
 import Foundation
 
 extension CMUXCLI {
@@ -14,7 +15,13 @@ extension CMUXCLI {
             guard let value = oneSimulatorValue(arguments) else {
                 throw simulatorArgumentsError(subcommand)
             }
-            return request("simulator.select_device", ["device_id": value], timeout: 220)
+            return request(
+                "simulator.select_device",
+                ["device_id": value],
+                timeout: SimulatorOperationDeadline.clientTimeout(
+                    for: SimulatorOperationDeadline.selectDevice
+                )
+            )
         case "tap":
             guard !arguments.readsStandardInput, arguments.file == nil,
                   values.count == 2 || values.count == 4 else { throw simulatorArgumentsError(subcommand) }
