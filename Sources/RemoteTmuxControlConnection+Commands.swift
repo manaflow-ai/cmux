@@ -221,6 +221,10 @@ extension RemoteTmuxControlConnection {
         // must reset with it, or requests matching pre-drop sends would be
         // suppressed against a server that no longer has them.
         sentWindowSizes.removeAll()
+        // Parity episodes are per connection too: a re-arm budget spent
+        // against the old transport must not suppress re-arms when this
+        // reseed's own resends get lost or raced the same way.
+        windowClaimParityRearmsSpent.removeAll()
         if let size = lastClientSize {
             send("refresh-client -C \(size.columns)x\(size.rows)")
         }

@@ -57,11 +57,16 @@ extension TerminalWindowPortalLifecycleTests {
         realizeWindowLayout(window)
 
         let host = portal.hostView
-        // Autoresizing-translated constraints are the SAFE kind: AppKit
-        // regenerates them from the view's ACTUAL frame, so they can never
-        // carry an engine solution the frame doesn't already hold. The
-        // dangerous kind is an explicit constraint tying the host to another
-        // view — that reads the engine's solution for the OTHER view.
+        // Only autoresizing-translated constraints may involve the host,
+        // and they are tolerated rather than trusted: a flexible mask
+        // translates into edge pins whose frozen margins re-derive size on
+        // every superview resize — the exact mechanism that stomped
+        // portal-hosted views until adoption started clearing their masks.
+        // The host keeps its [.width, .height] mask deliberately (it must
+        // track the theme frame) and the portal stays its only frame
+        // writer. What this test bans is the dangerous kind: an explicit
+        // constraint tying the host to another view, which reads the
+        // engine's solution for the OTHER view.
         let translatedClassName = "NSAutoresizingMaskLayoutConstraint"
         var offending: [NSLayoutConstraint] = []
         var current: NSView? = host

@@ -42,7 +42,12 @@ extension RemoteTmuxWindowMirror {
             ),
             // The tree renders at the exact-fit size, so drag fractions are
             // relative to it — reading them against the whole region would
-            // convert cells with the wrong denominator.
+            // convert cells with the wrong denominator. This denominator is
+            // deliberately NOT re-bounded by the region the way the divider
+            // plan's parent is: renderFrameSize is already region-clamped
+            // when computed, and a drag landing between a region shrink and
+            // the next render pass must still convert against what is
+            // actually on screen.
             parentSize: renderFrameSize ?? containerSizePt,
             metrics: metrics,
             sendWithoutBaseline: sendWithoutBaseline
