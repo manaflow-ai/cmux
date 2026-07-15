@@ -11,6 +11,8 @@ nonisolated struct VerifiedReplaySurfaceRead: @unchecked Sendable {
     let stateSeq: UInt64
     let renderEpoch: String
     let renderRevision: UInt64
+    let expectedCursorColor: String?
+    let configuredCursorColor: String?
 }
 
 /// Tokened render invocation dereferenced only by the surface's serial queue.

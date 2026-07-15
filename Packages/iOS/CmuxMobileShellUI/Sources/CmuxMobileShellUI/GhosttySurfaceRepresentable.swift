@@ -435,7 +435,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 surfaceID: frame.surfaceID,
                 stateSeq: frame.stateSeq,
                 renderEpoch: frame.renderEpoch,
-                renderRevision: frame.renderRevision
+                renderRevision: frame.renderRevision,
+                expectedCursorColor: frame.terminalCursorColor
             )
             guard !Task.isCancelled else { return }
             finishVerifiedReplay(

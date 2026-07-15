@@ -147,10 +147,42 @@ private extension GhosttySurfaceView {
             )
             return
         }
-        pending.observedFrame = observed
+        pending.observedFrame = normalizedVerifiedReplayObservedFrameForSubmission(
+            observed,
+            read: pending.read
+        )
         pending.fence.markObservedFrameReady()
         pendingVerifiedReplayPresentation = pending
         completePendingVerifiedReplayPresentationIfPresented()
+    }
+}
+
+extension GhosttySurfaceView {
+    func normalizedVerifiedReplayObservedFrameForSubmission(
+        _ observed: MobileTerminalRenderGridFrame,
+        read: VerifiedReplaySurfaceRead?
+    ) -> MobileTerminalRenderGridFrame {
+        observed.normalizingVerifiedReplayCursor(
+            expectedCursorColor: read?.expectedCursorColor,
+            configuredCursorColor: read?.configuredCursorColor
+        )
+    }
+}
+
+extension MobileTerminalRenderGridFrame {
+    func normalizingVerifiedReplayCursor(
+        expectedCursorColor: String?,
+        configuredCursorColor: String?
+    ) -> Self {
+        guard expectedCursorColor == nil,
+              let observedColor = TerminalTheme.rgbComponents(terminalCursorColor),
+              let configuredColor = TerminalTheme.rgbComponents(configuredCursorColor),
+              observedColor == configuredColor else {
+            return self
+        }
+        var normalized = self
+        normalized.terminalCursorColor = nil
+        return normalized
     }
 }
 

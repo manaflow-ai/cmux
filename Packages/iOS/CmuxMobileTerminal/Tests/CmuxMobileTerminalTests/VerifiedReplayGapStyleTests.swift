@@ -49,27 +49,7 @@ struct VerifiedReplayGapStyleTests {
         }
         #expect(mounted)
         let size = try #require(view.debugGeometrySnapshotForTesting().renderedSize)
-        let frame = try MobileTerminalRenderGridFrame(
-            surfaceID: "gap-style",
-            stateSeq: 1,
-            renderEpoch: "gap-style-epoch",
-            renderRevision: 1,
-            columns: size.columns,
-            rows: size.rows,
-            cursor: .init(row: 0, column: 21),
-            styles: [
-                .init(id: 0, foreground: "#FFFFFF", background: "#1E1E1E"),
-                .init(id: 1, foreground: "#5FD700", background: "#585858"),
-                .init(id: 2, foreground: "#585858", background: "#1E1E1E"),
-                .init(id: 3, foreground: "#FFFFFF", background: "#585858"),
-            ],
-            rowSpans: [
-                .init(row: 0, column: 0, styleID: 1, text: "left ", cellWidth: 5),
-                .init(row: 0, column: 5, styleID: 2, text: "", cellWidth: 1),
-                .init(row: 0, column: 6, styleID: 3, text: " ", cellWidth: 1),
-                .init(row: 0, column: 20, styleID: 2, text: "", cellWidth: 1),
-            ]
-        )
+        let frame = try makeFrame(size: size)
 
         #expect(await view.freezeVerifiedReplayPresentation(transactionID: 1))
         #expect(await view.applyViewSizeAndWait(cols: size.columns, rows: size.rows))
@@ -86,6 +66,31 @@ struct VerifiedReplayGapStyleTests {
         let observedFrame = try #require(observed)
         let observedSnapshot = try #require(MobileTerminalRenderGridVisualSnapshot(fullFrame: observedFrame))
         #expect(observedSnapshot == expectedSnapshot)
+    }
+
+    private func makeFrame(size: TerminalGridSize) throws -> MobileTerminalRenderGridFrame {
+        let theme = TerminalThemeStore.current
+        return try MobileTerminalRenderGridFrame(
+            surfaceID: "gap-style",
+            stateSeq: 1,
+            renderEpoch: "gap-style-epoch",
+            renderRevision: 1,
+            columns: size.columns,
+            rows: size.rows,
+            cursor: .init(row: 0, column: 21),
+            styles: [
+                .init(id: 0, foreground: theme.foreground, background: theme.background),
+                .init(id: 1, foreground: "#5FD700", background: "#585858"),
+                .init(id: 2, foreground: "#585858", background: "#1E1E1E"),
+                .init(id: 3, foreground: "#FFFFFF", background: "#585858")
+            ],
+            rowSpans: [
+                .init(row: 0, column: 0, styleID: 1, text: "left ", cellWidth: 5),
+                .init(row: 0, column: 5, styleID: 2, text: "", cellWidth: 1),
+                .init(row: 0, column: 6, styleID: 3, text: " ", cellWidth: 1),
+                .init(row: 0, column: 20, styleID: 2, text: "", cellWidth: 1)
+            ]
+        )
     }
 
     private func waitUntil(

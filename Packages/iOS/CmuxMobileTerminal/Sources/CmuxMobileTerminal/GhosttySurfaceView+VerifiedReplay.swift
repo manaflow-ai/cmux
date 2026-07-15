@@ -134,7 +134,8 @@ extension GhosttySurfaceView {
         surfaceID: String,
         stateSeq: UInt64,
         renderEpoch: String,
-        renderRevision: UInt64
+        renderRevision: UInt64,
+        expectedCursorColor: String?
     ) async -> MobileTerminalRenderGridFrame? {
         guard let surface,
               !isDismantled,
@@ -148,7 +149,9 @@ extension GhosttySurfaceView {
             surfaceID: surfaceID,
             stateSeq: stateSeq,
             renderEpoch: renderEpoch,
-            renderRevision: renderRevision
+            renderRevision: renderRevision,
+            expectedCursorColor: expectedCursorColor,
+            configuredCursorColor: TerminalThemeStore.current.cursor
         )
         let submission = await submitVerifiedReplayRenderAndWait(read: read)
         guard !Task.isCancelled else { return nil }
