@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 import Testing
 
@@ -55,6 +56,27 @@ struct RepositoryTerminalScriptsTests {
         #expect(overridden.projectScripts.setup == "pnpm install")
         #expect(overridden.source == .userSettings)
         #expect(resolver.trustDescriptor(for: overridden) == nil)
+    }
+
+    @Test func oversizedProjectConfigIsIgnored() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try makeNormalRepository(at: root)
+        let padding = String(repeating: "x", count: 1_048_576)
+        let config = #"{"scripts":{"setup":"pnpm install"},"padding":"\#(padding)"}"#
+        #expect(config.utf8.count > 1_048_576)
+        try writeConfig(
+            config,
+            at: root.appendingPathComponent(".cmux/cmux.json")
+        )
+
+        let resolution = try #require(
+            RepositoryScriptResolver().resolve(directory: root.path, preferences: [])
+        )
+
+        #expect(resolution.setup == nil)
+        #expect(resolution.projectScripts.isEmpty)
+        #expect(resolution.source == .none)
     }
 
     @Test func scopedConfigWinsOverLegacyRootConfig() throws {
@@ -120,6 +142,42 @@ struct RepositoryTerminalScriptsTests {
         #expect(RepositorySetupLaunchPlan(location: .horizontalSplit) == .split(.vertical))
     }
 
+    @Test func archiveScriptUsesBoundedDiscardingCommandInvocation() async throws {
+        let commands = RecordingRepositoryArchiveCommandRunner()
+        let script = "printf 'cleanup output'\nprintf 'cleanup error' >&2"
+
+        _ = await RepositoryArchiveScriptRunner(commands: commands).run(script, in: "/repo")
+
+        let recorded = await commands.lastInvocation()
+        let invocation = try #require(recorded)
+        #expect(invocation.directory == "/repo")
+        #expect(invocation.executable == "/bin/zsh")
+        #expect(invocation.arguments.prefix(2) == ["-l", "-c"])
+        let shellPayload = try #require(invocation.arguments.last)
+        #expect(shellPayload != script)
+        #expect(shellPayload.contains("/dev/null"))
+        #expect(shellPayload.contains("2>&1"))
+        #expect(shellPayload.contains(script))
+        #expect(invocation.timeout == 300)
+    }
+
+    @Test func archiveScriptDiscardsOutputWithTheProductionCommandRunner() async throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let script = "printf 'cleanup output'\nprintf 'cleanup error' >&2"
+
+        let result = await RepositoryArchiveScriptRunner(commands: CommandRunner()).run(
+            script,
+            in: root.path
+        )
+
+        #expect(result.executionError == nil)
+        #expect(!result.timedOut)
+        #expect(result.exitStatus == 0)
+        #expect(result.stdout == "")
+        #expect(result.stderr == "")
+    }
+
     @MainActor
     @Test func savedCommandsJoinTheCommandPaletteModelAsTrustedGlobalCommands() throws {
         let root = try makeTemporaryDirectory()
@@ -165,5 +223,41 @@ struct RepositoryTerminalScriptsTests {
             withIntermediateDirectories: true
         )
         try Data(contents.utf8).write(to: url)
+    }
+}
+
+private actor RecordingRepositoryArchiveCommandRunner: CommandRunning {
+    struct Invocation: Sendable {
+        let directory: String
+        let executable: String
+        let arguments: [String]
+        let timeout: TimeInterval?
+    }
+
+    private var invocation: Invocation?
+
+    func lastInvocation() -> Invocation? {
+        invocation
+    }
+
+    func run(
+        directory: String,
+        executable: String,
+        arguments: [String],
+        timeout: TimeInterval?
+    ) async -> CommandResult {
+        invocation = Invocation(
+            directory: directory,
+            executable: executable,
+            arguments: arguments,
+            timeout: timeout
+        )
+        return CommandResult(
+            stdout: "ignored stdout",
+            stderr: "ignored stderr",
+            exitStatus: 0,
+            timedOut: false,
+            executionError: nil
+        )
     }
 }
