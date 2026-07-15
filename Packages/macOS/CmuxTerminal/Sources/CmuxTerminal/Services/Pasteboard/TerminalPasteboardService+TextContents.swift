@@ -66,6 +66,14 @@ extension TerminalPasteboardService: TerminalClipboardReading {
     public func fallbackPlainTextContents(from pasteboard: NSPasteboard) -> String? {
         plainTextContents(from: pasteboard)
     }
+
+    /// Rewrites the plain-text representation after the terminal has copied
+    /// its formatted clipboard payload.
+    @discardableResult
+    public func rewritePlainText(_ string: String, in pasteboard: NSPasteboard) -> Bool {
+        pasteboard.clearContents()
+        return pasteboard.setString(string, forType: .string)
+    }
 }
 
 extension TerminalPasteboardService {
