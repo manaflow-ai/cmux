@@ -5542,7 +5542,7 @@ struct ContentView: View {
             return .unsupported
         }
         switch snapshot.kind {
-        case .claude, .codex:
+        case .claude, .codex, .pi:
             return .supportedWithoutProbe
         case .opencode:
             return snapshot.launchCommand?.launcher == "omo" || isRemoteTerminal ? .supportedWithoutProbe : .requiresProbe
