@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxSettings
 import Foundation
 
@@ -134,6 +135,10 @@ public protocol SettingsHostActions: AnyObject {
     /// bound-port indicator and connection count stay live without polling.
     func mobilePairingStatusUpdates() -> AsyncStream<MobilePairingStatusSnapshot>
 
+    /// Cross-platform Iroh and private-network settings controller supplied by
+    /// the host app. `nil` in previews and hosts without the Iroh runtime.
+    func irohSettingsController() -> (any CmxIrohSettingsControlling)?
+
     /// The Mac's system name (e.g. `Host.current().localizedName`) used as the
     /// iOS pairing display name when the user sets no override. The Mobile
     /// section shows it as the display-name field placeholder. Empty when
@@ -210,6 +215,8 @@ public extension SettingsHostActions {
     func mobilePairingStatusUpdates() -> AsyncStream<MobilePairingStatusSnapshot> {
         AsyncStream { $0.finish() }
     }
+
+    func irohSettingsController() -> (any CmxIrohSettingsControlling)? { nil }
 
     /// Default: empty, for hosts that cannot resolve the Mac's system name.
     func mobilePairingDefaultDisplayName() -> String { "" }
