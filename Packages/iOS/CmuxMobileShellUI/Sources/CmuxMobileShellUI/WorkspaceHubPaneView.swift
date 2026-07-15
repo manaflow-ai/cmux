@@ -125,7 +125,11 @@ struct WorkspaceHubPaneView: View {
             browserFallback
             #endif
         } else {
+            // Inset the grid so glyphs clear the card's rounded corners and
+            // read as framed content instead of a raw crop.
             TerminalGridThumbnailView(snapshot: snapshot)
+                .padding(.top, 8)
+                .padding(.horizontal, 8)
         }
     }
 
