@@ -104,6 +104,45 @@ import Testing
         #expect(fullLoadCalls.withLock { $0 } == 1)
     }
 
+    @Test func processScopeFingerprintTracksSamePIDExecutableChanges() {
+        let workspaceID = UUID()
+        let panelID = UUID()
+
+        func snapshot(name: String, path: String) -> CmuxTopProcessSnapshot {
+            CmuxTopProcessSnapshot(
+                processes: [
+                    CmuxTopProcessInfo(
+                        pid: 42,
+                        parentPID: 1,
+                        name: name,
+                        path: path,
+                        ttyDevice: 7,
+                        cmuxWorkspaceID: workspaceID,
+                        cmuxSurfaceID: panelID,
+                        cmuxAttributionReason: "environment",
+                        processGroupID: 42,
+                        terminalProcessGroupID: 42,
+                        cpuPercent: 0,
+                        residentBytes: 0,
+                        virtualBytes: 0,
+                        threadCount: 1
+                    )
+                ],
+                sampledAt: Date(timeIntervalSince1970: 1),
+                includesProcessDetails: true
+            )
+        }
+
+        let shellFingerprint = SharedLiveAgentIndexLoader.processScopeFingerprint(
+            from: snapshot(name: "zsh", path: "/bin/zsh")
+        )
+        let agentFingerprint = SharedLiveAgentIndexLoader.processScopeFingerprint(
+            from: snapshot(name: "codex", path: "/opt/homebrew/bin/codex")
+        )
+
+        #expect(shellFingerprint != agentFingerprint)
+    }
+
     @Test func agentHookSurfaceResumeStartupInputPreservesCustomAbsoluteAgentExecutable() throws {
         let binding = SurfaceResumeBindingSnapshot(
             kind: "codex",
