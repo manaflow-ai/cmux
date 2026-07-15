@@ -231,7 +231,10 @@ extension RemoteTmuxMirrorTargetingTests {
         }
     }
 
-    @Test func timedOutMobileRemoteClosePreservesViewportAndTerminal() async throws {
+    @Test(arguments: [true, false])
+    func timedOutMobileRemoteCloseResolvesFromAuthoritativeSnapshot(
+        mutationApplied: Bool
+    ) async throws {
         let deadlines = CapturingActivityQueryDeadlineScheduler()
         try await withMobileRPCActivityHarness(deadlineScheduler: deadlines) { harness, windowID in
             let panelID = try harness.panelID(forWindow: 1)
@@ -244,26 +247,93 @@ extension RemoteTmuxMirrorTargetingTests {
                 columns: 92,
                 rows: 31
             )
+            var observedResult: TerminalController.V2CallResult?
             let close = Task { @MainActor in
-                await controller.v2MobileTerminalClose(params: mobileCloseParams(
+                let result = await controller.v2MobileTerminalClose(params: mobileCloseParams(
                     windowID: windowID,
                     workspaceID: harness.workspace.id,
                     panelID: panelID
                 ))
+                observedResult = result
+                return result
             }
             await waitForPendingCommand(on: harness.connection)
 
             #expect(deadlines.scheduledCount == 1)
             deadlines.fireAll()
-            guard case .err = await close.value else {
-                Issue.record("Expected timed-out remote close to fail")
+            #expect(observedResult == nil, "a written close remains pending until FIFO-following recovery")
+
+            harness.connection.handleMessageForTesting(.commandResult(
+                commandNumber: 102,
+                lines: [],
+                isError: false
+            ))
+            #expect(harness.connection.pendingCommandKindsForTesting.first == .listWindows(
+                reorderGeneration: 0,
+                retainedPaneIDs: []
+            ))
+            harness.connection.handleMessageForTesting(.commandResult(
+                commandNumber: 103,
+                lines: mobileRecoveryWindowLines(mutationApplied ? [2] : [1, 2]),
+                isError: false
+            ))
+
+            let result = await close.value
+            if mutationApplied {
+                guard case .ok = result else {
+                    Issue.record("Expected authoritative target absence to confirm the close")
+                    return
+                }
+                #expect(harness.workspace.terminalPanel(for: panelID) == nil)
+                #expect(controller.debugMobileViewportReportClientIDsForTesting(surfaceID: panelID) == nil)
+            } else {
+                guard case .err = result else {
+                    Issue.record("Expected authoritative target presence to reject the close")
+                    return
+                }
+                #expect(harness.workspace.terminalPanel(for: panelID) != nil)
+                #expect(
+                    controller.debugMobileViewportReportClientIDsForTesting(surfaceID: panelID)
+                        == ["ipad-timeout-close"]
+                )
+            }
+        }
+    }
+
+    @Test func timedOutMobileRemoteCloseReportsUnknownWhenRecoveryFails() async throws {
+        let deadlines = CapturingActivityQueryDeadlineScheduler()
+        try await withMobileRPCActivityHarness(deadlineScheduler: deadlines) { harness, windowID in
+            let panelID = try harness.panelID(forWindow: 1)
+            var observedResult: TerminalController.V2CallResult?
+            let close = Task { @MainActor in
+                let result = await TerminalController.shared.v2MobileTerminalClose(params: mobileCloseParams(
+                    windowID: windowID,
+                    workspaceID: harness.workspace.id,
+                    panelID: panelID
+                ))
+                observedResult = result
+                return result
+            }
+            await waitForPendingCommand(on: harness.connection)
+
+            deadlines.fireAll()
+            #expect(observedResult == nil)
+            harness.connection.handleMessageForTesting(.commandResult(
+                commandNumber: 104,
+                lines: [],
+                isError: false
+            ))
+            harness.connection.handleMessageForTesting(.commandResult(
+                commandNumber: 105,
+                lines: ["recovery rejected"],
+                isError: true
+            ))
+
+            guard case let .err(code, _, _) = await close.value else {
+                Issue.record("Expected failed close recovery to report an error")
                 return
             }
-            #expect(harness.workspace.terminalPanel(for: panelID) != nil)
-            #expect(
-                controller.debugMobileViewportReportClientIDsForTesting(surfaceID: panelID)
-                    == ["ipad-timeout-close"]
-            )
+            #expect(code == "result_unknown")
         }
     }
 
@@ -377,28 +447,98 @@ extension RemoteTmuxMirrorTargetingTests {
         }
     }
 
-    @Test func mobileRemoteReorderTimeoutReturnsFailure() async throws {
+    @Test(arguments: [true, false])
+    func mobileRemoteReorderTimeoutResolvesFromAuthoritativeSnapshot(
+        mutationApplied: Bool
+    ) async throws {
         let deadlines = CapturingActivityQueryDeadlineScheduler()
         try await withMobileRPCActivityHarness(deadlineScheduler: deadlines) { harness, windowID in
             let firstPanelID = try harness.panelID(forWindow: 1)
             let paneID = try #require(harness.workspace.paneId(forPanelId: firstPanelID))
+            var observedResult: TerminalController.V2CallResult?
             let reorder = Task { @MainActor in
-                await TerminalController.shared.v2MobileTerminalReorder(params: [
+                let result = await TerminalController.shared.v2MobileTerminalReorder(params: [
                     "window_id": windowID.uuidString,
                     "workspace_id": harness.workspace.id.uuidString,
                     "pane_id": paneID.id.uuidString,
                     "surface_id": firstPanelID.uuidString,
                     "index": 1,
                 ])
+                observedResult = result
+                return result
             }
             await waitForPendingCommand(on: harness.connection)
 
             #expect(deadlines.scheduledCount == 1)
             deadlines.fireAll()
-            guard case .err = await reorder.value else {
-                Issue.record("Expected timed-out remote reorder to fail")
+            #expect(observedResult == nil, "a written reorder remains pending until FIFO-following recovery")
+            harness.connection.handleMessageForTesting(.commandResult(
+                commandNumber: 112,
+                lines: [],
+                isError: false
+            ))
+            #expect(harness.connection.pendingCommandKindsForTesting.first == .listWindows(
+                reorderGeneration: 1,
+                retainedPaneIDs: []
+            ))
+            harness.connection.handleMessageForTesting(.commandResult(
+                commandNumber: 113,
+                lines: mobileRecoveryWindowLines(mutationApplied ? [2, 1] : [1, 2]),
+                isError: false
+            ))
+
+            let result = await reorder.value
+            if mutationApplied {
+                guard case .ok = result else {
+                    Issue.record("Expected authoritative desired order to confirm the reorder")
+                    return
+                }
+            } else {
+                guard case .err = result else {
+                    Issue.record("Expected authoritative original order to reject the reorder")
+                    return
+                }
+            }
+        }
+    }
+
+    @Test func mobileRemoteReorderTimeoutReportsUnknownWhenRecoveryFails() async throws {
+        let deadlines = CapturingActivityQueryDeadlineScheduler()
+        try await withMobileRPCActivityHarness(deadlineScheduler: deadlines) { harness, windowID in
+            let firstPanelID = try harness.panelID(forWindow: 1)
+            let paneID = try #require(harness.workspace.paneId(forPanelId: firstPanelID))
+            var observedResult: TerminalController.V2CallResult?
+            let reorder = Task { @MainActor in
+                let result = await TerminalController.shared.v2MobileTerminalReorder(params: [
+                    "window_id": windowID.uuidString,
+                    "workspace_id": harness.workspace.id.uuidString,
+                    "pane_id": paneID.id.uuidString,
+                    "surface_id": firstPanelID.uuidString,
+                    "index": 1,
+                ])
+                observedResult = result
+                return result
+            }
+            await waitForPendingCommand(on: harness.connection)
+
+            deadlines.fireAll()
+            #expect(observedResult == nil)
+            harness.connection.handleMessageForTesting(.commandResult(
+                commandNumber: 114,
+                lines: [],
+                isError: false
+            ))
+            harness.connection.handleMessageForTesting(.commandResult(
+                commandNumber: 115,
+                lines: ["recovery rejected"],
+                isError: true
+            ))
+
+            guard case let .err(code, _, _) = await reorder.value else {
+                Issue.record("Expected failed reorder recovery to report an error")
                 return
             }
+            #expect(code == "result_unknown")
         }
     }
 
@@ -462,6 +602,14 @@ extension RemoteTmuxMirrorTargetingTests {
             "terminal_id": panelID.uuidString,
             "confirmed": true,
         ]
+    }
+
+    private func mobileRecoveryWindowLines(_ order: [Int]) -> [String] {
+        order.map { windowID in
+            let paneID = windowID - 1
+            let layout = "f92f,80x24,0,0,\(paneID)"
+            return "@\(windowID) \(layout) \(layout) [] window-\(windowID)"
+        }
     }
 
     @MainActor

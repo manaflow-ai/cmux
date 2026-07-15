@@ -33,6 +33,9 @@ import Testing
         MobileShellConnectionError.rpcError("unavailable", "Unavailable")
     ) == .definiteDivergence)
     #expect(store.workspaceMutationErrorDisposition(
+        MobileShellConnectionError.rpcError("result_unknown", "Mutation result is unknown")
+    ) == .ambiguous)
+    #expect(store.workspaceMutationErrorDisposition(
         MobileShellConnectionError.rpcError("confirmation_required", "Confirm")
     ) == .immediateRejection)
     #expect(store.workspaceMutationErrorDisposition(
