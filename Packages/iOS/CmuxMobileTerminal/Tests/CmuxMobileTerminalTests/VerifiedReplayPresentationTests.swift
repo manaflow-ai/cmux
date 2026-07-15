@@ -7,6 +7,16 @@ import Testing
 
 @Suite("Verified replay presentation")
 struct VerifiedReplayPresentationTests {
+    @Test("a cold surface does not wait for an impossible presented-frame drain")
+    func coldSurfaceSkipsPresentedFrameDrain() {
+        #expect(!VerifiedReplayFreezeDrainPolicy.requiresPresentedDrain(
+            hasPresentedContents: false
+        ))
+        #expect(VerifiedReplayFreezeDrainPolicy.requiresPresentedDrain(
+            hasPresentedContents: true
+        ))
+    }
+
     @Test("the retained last-good frame owns immutable pixel bytes")
     func frozenFrameDoesNotAliasRendererIOSurface() throws {
         let source = try makeSurface(fill: 0x11)
