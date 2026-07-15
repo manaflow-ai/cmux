@@ -124,6 +124,32 @@ struct GhosttyTitleUpdateMailboxTests {
             sequence: 3
         ))
     }
+
+    @Test func workspaceMoveKeepsOneRetirableSurfaceLifetime() throws {
+        var mailbox = GhosttyTitleUpdateMailbox()
+        let originalTabId = UUID()
+        let destinationTabId = UUID()
+        let surfaceId = UUID()
+        let sourceIdentifier = ObjectIdentifier(NSObject())
+        #expect(mailbox.submit(
+            tabId: originalTabId, surfaceId: surfaceId,
+            sourceSurfaceIdentifier: sourceIdentifier, title: "stable"
+        ))
+        _ = mailbox.takePendingOperations()
+        #expect(mailbox.retire(
+            tabId: destinationTabId, surfaceId: surfaceId,
+            sourceSurfaceIdentifier: sourceIdentifier
+        ))
+        let operations = mailbox.takePendingOperations()
+        #expect(operations.count == 1)
+        let operation = try #require(operations.first)
+        #expect(operation.retirement?.surfaceId == surfaceId)
+        #expect(operation.retirement?.sourceSurfaceIdentifier == sourceIdentifier)
+        #expect(mailbox.submit(
+            tabId: destinationTabId, surfaceId: surfaceId,
+            sourceSurfaceIdentifier: sourceIdentifier, title: "stable"
+        ))
+    }
 }
 
 @Suite("Notification policy in-flight ordering")
@@ -378,6 +404,31 @@ struct GhosttyTitleUpdateDispatcherTests {
         await dispatcher.flushNow()
 
         #expect(published.map(\.title) == ["new"])
+    }
+
+    @Test func workspaceMoveKeepsOneSurfaceLifetimeAndLatestRoute() async {
+        var published: [GhosttyTitleUpdate] = []
+        let dispatcher = GhosttyTitleUpdateDispatcher(schedule: { _, _ in
+            {}
+        }) { updates in
+            published.append(contentsOf: updates)
+        }
+        let surfaceId = UUID()
+        let sourceIdentifier = ObjectIdentifier(NSObject())
+        let destinationTabId = UUID()
+        await dispatcher.receive(GhosttyTitleUpdate(
+            tabId: UUID(), surfaceId: surfaceId, title: "before move",
+            sourceSurfaceIdentifier: sourceIdentifier, sequence: 1
+        ))
+        await dispatcher.receive(GhosttyTitleUpdate(
+            tabId: destinationTabId, surfaceId: surfaceId, title: "after move",
+            sourceSurfaceIdentifier: sourceIdentifier, sequence: 2
+        ))
+        await dispatcher.flushNow()
+
+        #expect(published.count == 1)
+        #expect(published.first?.tabId == destinationTabId)
+        #expect(published.first?.title == "after move")
     }
 }
 
