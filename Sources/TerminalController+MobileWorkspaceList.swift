@@ -20,14 +20,16 @@ extension TerminalController {
         guard let app = AppDelegate.shared else { return [] }
         var seenWorkspaceIDs: Set<UUID> = []
         var sessions: [CmxLiveSession] = []
+        let agentSessionsByWorkspaceID = Dictionary(
+            grouping: agentChatTranscriptService?.sessionDescriptors(workspaceID: nil) ?? [],
+            by: \.workspaceID
+        )
 
         for window in app.listMainWindowSummaries() {
             guard let tabManager = app.tabManagerFor(windowId: window.windowId) else { continue }
             for workspace in tabManager.tabs where seenWorkspaceIDs.insert(workspace.id).inserted {
                 guard workspaceID == nil || workspace.id.uuidString == workspaceID else { continue }
-                let agentSessions = agentChatTranscriptService?.sessionDescriptors(
-                    workspaceID: workspace.id.uuidString
-                ) ?? []
+                let agentSessions = agentSessionsByWorkspaceID[workspace.id.uuidString] ?? []
                 let preferredAgent = ChatSessionDescriptor.openable(agentSessions).first
                 let status: CmxLiveSessionStatus
                 switch preferredAgent?.state {

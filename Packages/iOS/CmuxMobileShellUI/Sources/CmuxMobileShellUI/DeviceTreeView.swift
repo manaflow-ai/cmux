@@ -32,6 +32,10 @@ struct DeviceTreeView: View {
     /// The registry session currently attaching; row identity keeps repeated
     /// taps from launching competing destructive Mac switches.
     @State private var pendingHandoffID: String?
+    @State private var handoffTask: Task<Void, Never>?
+    @State private var handoffGeneration: UInt64 = 0
+    /// The advertised session that could not be resolved after attaching.
+    @State private var failedHandoffSessionTitle: String?
 
     /// The user's computers as immutable snapshots, sourced from the paired-Mac
     /// backup (`pairedMacs`) — this feature's source of truth, the same set that
@@ -101,6 +105,7 @@ struct DeviceTreeView: View {
                     Button(L10n.string("mobile.common.done", defaultValue: "Done")) {
                         dismiss()
                     }
+                    .disabled(pendingHandoffID != nil)
                     .accessibilityIdentifier("MobileDeviceTreeDone")
                 }
             }
@@ -121,6 +126,22 @@ struct DeviceTreeView: View {
                 }
             }
         }
+        .alert(
+            L10n.string("mobile.handoff.failure.title", defaultValue: "Couldn't Continue Session"),
+            isPresented: Binding(
+                get: { failedHandoffSessionTitle != nil },
+                set: { if !$0 { failedHandoffSessionTitle = nil } }
+            )
+        ) {
+            Button(L10n.string("mobile.common.ok", defaultValue: "OK"), role: .cancel) {}
+        } message: {
+            Text(L10n.string(
+                "mobile.handoff.failure.message",
+                defaultValue: "The session may have ended or its computer may be offline. Refresh and try again."
+            ))
+        }
+        .interactiveDismissDisabled(pendingHandoffID != nil)
+        .onDisappear(perform: cancelPendingHandoff)
         .accessibilityIdentifier("MobileDeviceTree")
     }
 
@@ -208,20 +229,41 @@ struct DeviceTreeView: View {
 
     private func continueSession(_ session: RegistryLiveSessionSnapshot) {
         guard pendingHandoffID == nil else { return }
+        handoffGeneration &+= 1
+        let generation = handoffGeneration
         pendingHandoffID = session.id
-        Task { @MainActor in
-            defer { pendingHandoffID = nil }
+        let task = Task { @MainActor in
+            defer {
+                if handoffGeneration == generation {
+                    pendingHandoffID = nil
+                    handoffTask = nil
+                }
+            }
+            guard !Task.isCancelled, handoffGeneration == generation else { return }
             guard let workspaceID = await store.prepareRegistrySessionHandoff(
                 deviceID: session.deviceID,
                 instanceTag: session.instanceTag,
-                sessionID: session.sessionID
+                sessionID: session.sessionID,
+                agentSessionID: session.agentSessionID
             ) else {
+                guard !Task.isCancelled, handoffGeneration == generation else { return }
                 await reload()
+                guard !Task.isCancelled, handoffGeneration == generation else { return }
+                failedHandoffSessionTitle = session.workspaceTitle
                 return
             }
+            guard !Task.isCancelled, handoffGeneration == generation else { return }
             selectWorkspace(workspaceID)
             dismiss()
         }
+        handoffTask = task
+    }
+
+    private func cancelPendingHandoff() {
+        handoffGeneration &+= 1
+        handoffTask?.cancel()
+        handoffTask = nil
+        pendingHandoffID = nil
     }
 
     private func reload() async {

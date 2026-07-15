@@ -8,6 +8,7 @@ struct RegistryLiveSessionSnapshot: Equatable, Identifiable {
     let deviceID: String
     let instanceTag: String
     let sessionID: String
+    let agentSessionID: String?
     let workspaceTitle: String
     let deviceTitle: String
     let agent: String?
@@ -15,12 +16,18 @@ struct RegistryLiveSessionSnapshot: Equatable, Identifiable {
     let lastActivityAt: Date
 
     /// Flatten attachable registry instances into newest-first handoff rows.
-    static func snapshots(from devices: [RegistryDevice]) -> [RegistryLiveSessionSnapshot] {
+    static func snapshots(
+        from devices: [RegistryDevice],
+        now: Date = Date()
+    ) -> [RegistryLiveSessionSnapshot] {
         devices
             .filter(\.isControllableHost)
             .flatMap { device in
                 device.instances
-                    .filter(\.hasRoutes)
+                    .filter { instance in
+                        let age = now.timeIntervalSince(instance.lastSeenAt)
+                        return instance.hasRoutes && age <= 120 && age >= -300
+                    }
                     .flatMap { instance in
                         instance.sessions.map { session in
                             RegistryLiveSessionSnapshot(
@@ -28,6 +35,7 @@ struct RegistryLiveSessionSnapshot: Equatable, Identifiable {
                                 deviceID: device.deviceId,
                                 instanceTag: instance.tag,
                                 sessionID: session.id,
+                                agentSessionID: session.agentSessionID,
                                 workspaceTitle: session.title,
                                 deviceTitle: device.title,
                                 agent: session.agent,

@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxAgentChat
 import CmuxMobileShellModel
 import Testing
 @testable import CmuxMobileShell
@@ -94,6 +95,76 @@ import Testing
         )
 
         #expect(resolved == advertisingMac.id)
+    }
+
+    @Test func resolvesOnlyTheExactAuthoritativeAgentSession() throws {
+        let advertisement = CmxLiveSession(
+            id: "runtime-workspace",
+            workspaceID: "runtime-workspace",
+            terminalID: "terminal-a",
+            agentSessionID: "agent-a",
+            title: "Handoff",
+            status: .working,
+            lastActivityAt: 100
+        )
+        let otherSession = ChatSessionDescriptor(
+            id: "agent-b",
+            agentKind: .codex,
+            workspaceID: "runtime-workspace",
+            terminalID: "terminal-a"
+        )
+        let exactSession = ChatSessionDescriptor(
+            id: "agent-a",
+            agentKind: .codex,
+            workspaceID: "runtime-workspace",
+            terminalID: "terminal-a"
+        )
+
+        let resolved = CMUXMobileShellStore.registryHandoffAgentSession(
+            advertisedSession: advertisement,
+            authoritativeSessions: [otherSession, exactSession]
+        )
+
+        #expect(resolved == exactSession)
+    }
+
+    @Test func rejectsAgentSessionWhoseAuthoritativeBindingChanged() throws {
+        let advertisement = CmxLiveSession(
+            id: "runtime-workspace",
+            workspaceID: "runtime-workspace",
+            terminalID: "terminal-a",
+            agentSessionID: "agent-a",
+            title: "Handoff",
+            status: .working,
+            lastActivityAt: 100
+        )
+        let reboundSession = ChatSessionDescriptor(
+            id: "agent-a",
+            agentKind: .codex,
+            workspaceID: "runtime-workspace",
+            terminalID: "terminal-b"
+        )
+
+        #expect(CMUXMobileShellStore.registryHandoffAgentSession(
+            advertisedSession: advertisement,
+            authoritativeSessions: [reboundSession]
+        ) == nil)
+    }
+
+    @Test func cachesAuthoritativeAgentSessionUnderResolvedRowIdentity() {
+        let store = CMUXMobileShellStore.preview()
+        let resolvedWorkspaceID = MobileWorkspacePreview.ID(rawValue: "mac-a-row")
+        let session = ChatSessionDescriptor(
+            id: "agent-a",
+            agentKind: .codex,
+            workspaceID: "runtime-workspace",
+            terminalID: "terminal-a"
+        )
+
+        store.rememberRegistryHandoffChatSessions([session], workspaceID: resolvedWorkspaceID)
+
+        #expect(store.cachedChatSessions(workspaceID: resolvedWorkspaceID.rawValue) == [session])
+        #expect(store.cachedChatSessions(workspaceID: session.workspaceID ?? "") == [])
     }
 
     @Test func failedHandoffPresentationSurvivesAConnectionTransition() async {

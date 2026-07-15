@@ -367,10 +367,13 @@ extension MobileShellComposite {
     /// - Parameters:
     ///   - device: The registry device the instance belongs to.
     ///   - instance: The tag/app-instance to connect to.
+    ///   - ifStillCurrent: Cancellation/generation predicate for the owning UI flow.
     public func connectToRegistryInstance(
         device: RegistryDevice,
-        instance: RegistryAppInstance
+        instance: RegistryAppInstance,
+        ifStillCurrent: (() -> Bool)? = nil
     ) async {
+        guard ifStillCurrent?() ?? true else { return }
         let scope = await currentScopeSnapshot()
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         let candidateRoutes = Self.storedReconnectRoutes(
@@ -399,11 +402,13 @@ extension MobileShellComposite {
             routes: candidateRoutes,
             pairedMacDeviceID: device.deviceId,
             instanceTagExpectation: .require(instance.tag),
-            recordsPairingAttempt: true
+            recordsPairingAttempt: true,
+            ifStillCurrent: ifStillCurrent
         )
-        guard connectedRoute else {
-            if previousActive != nil, connectionState != .connected {
-                _ = await reconnectActiveMacIfAvailable(stackUserID: identityProvider?.currentUserID)
+        guard connectedRoute, ifStillCurrent?() ?? true else {
+            if previousActive != nil,
+               (!hasActiveMacConnection || !(ifStillCurrent?() ?? true)) {
+                await restorePreviousMacAfterInterruptedFlow(previousActive)
             }
             return
         }

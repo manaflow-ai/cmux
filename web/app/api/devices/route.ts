@@ -30,7 +30,7 @@ import {
 } from "../../../services/account/deletionLock";
 import {
   labelsWithLiveSessions,
-  liveSessionsFromLabels,
+  liveSessionsFromFreshInstance,
   publicInstanceLabels,
 } from "./live-sessions";
 import { sanitizeServerPublishedRoutes } from "../../../services/iroh/publicationPolicy";
@@ -399,14 +399,16 @@ export async function GET(request: Request): Promise<Response> {
   const sessionVisibleDeviceIDs = new Set(
     deviceRows.filter((device) => device.userId === user.id).map((device) => device.id),
   );
-  const sessionsByInstance = new Map<(typeof instanceRows)[number], ReturnType<typeof liveSessionsFromLabels>>();
+  const sessionsByInstance = new Map<(typeof instanceRows)[number], ReturnType<typeof liveSessionsFromFreshInstance>>();
   let remainingLiveSessionBudget = MAX_LIVE_SESSIONS_PER_RESPONSE;
+  const sessionLeaseNow = new Date();
   for (const instance of instanceRows) {
     if (remainingLiveSessionBudget === 0 || !sessionVisibleDeviceIDs.has(instance.deviceId)) {
       sessionsByInstance.set(instance, []);
       continue;
     }
-    const sessions = liveSessionsFromLabels(instance.labels).slice(0, remainingLiveSessionBudget);
+    const sessions = liveSessionsFromFreshInstance(instance.labels, instance.lastSeenAt, sessionLeaseNow)
+      .slice(0, remainingLiveSessionBudget);
     sessionsByInstance.set(instance, sessions);
     remainingLiveSessionBudget -= sessions.length;
   }

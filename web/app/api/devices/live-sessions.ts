@@ -3,6 +3,8 @@ const MAX_ID_LENGTH = 128;
 const MAX_TITLE_LENGTH = 160;
 const MAX_AGENT_LENGTH = 32;
 const MAX_LAST_ACTIVITY_AT = 253_402_300_799; // 9999-12-31T23:59:59Z
+const LIVE_SESSION_LEASE_MS = 120_000;
+const MAX_FUTURE_CLOCK_SKEW_MS = 300_000;
 const LIVE_SESSION_STATUSES = new Set(["working", "needs_input", "idle", "ended"]);
 
 export type RegistryLiveSession = {
@@ -18,7 +20,7 @@ export type RegistryLiveSession = {
 
 function boundedString(value: unknown, maxLength: number): string | undefined {
   if (typeof value !== "string") return undefined;
-  const trimmed = value.trim();
+  const trimmed = value.toWellFormed().trim();
   if (!trimmed) return undefined;
   return Array.from(trimmed).slice(0, maxLength).join("");
 }
@@ -88,6 +90,19 @@ export function labelsWithLiveSessions(
 /** Read and re-sanitize the reserved live-session label before returning it. */
 export function liveSessionsFromLabels(labels: Record<string, unknown>): RegistryLiveSession[] {
   return sanitizeLiveSessions(labels.liveSessions);
+}
+
+/** Return advertised sessions only while the owning runtime's registration lease is fresh. */
+export function liveSessionsFromFreshInstance(
+  labels: Record<string, unknown>,
+  lastSeenAt: Date,
+  now: Date = new Date(),
+): RegistryLiveSession[] {
+  const age = now.getTime() - lastSeenAt.getTime();
+  if (!Number.isFinite(age) || age > LIVE_SESSION_LEASE_MS || age < -MAX_FUTURE_CLOCK_SKEW_MS) {
+    return [];
+  }
+  return liveSessionsFromLabels(labels);
 }
 
 /** Hide the reserved storage detail from the public instance-label bag. */
