@@ -257,7 +257,6 @@ final class MobileHostService {
             "theme": theme.mobileHostJSONObject,
         ]
     }
-
     /// `publicStatusPayload` plus the Mac's identity, for a caller that has
     /// proven same-account Stack ownership. The pairing QR no longer carries
     /// the display name or the device id, so this reply is where a freshly
