@@ -313,10 +313,14 @@ final class SharedLiveAgentIndex {
                     isRemoteContext: probeKey.isRemoteContext
                 )
                 if let command = snapshot.forkCommand {
+                    let isSupported = await forkSupportProvider(
+                        snapshot,
+                        probeKey.isRemoteContext
+                    )
                     validatedForkSupport[resolvedProbeKey] = ForkSupportValidation(
                         command: command,
-                        isSupported: await forkSupportProvider(snapshot, probeKey.isRemoteContext),
-                        completedAt: now
+                        isSupported: isSupported,
+                        completedAt: dateProvider()
                     )
                 } else {
                     validatedForkSupport.removeValue(forKey: resolvedProbeKey)

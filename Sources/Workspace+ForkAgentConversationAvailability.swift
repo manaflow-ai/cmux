@@ -54,7 +54,9 @@ extension Workspace {
         liveAgentIndex: SharedLiveAgentIndex
     ) -> WorkspaceForkAgentConversationAvailability {
         let candidateAvailability = forkAgentConversationContextMenuAvailability(forPanelId: panelId)
-        guard candidateAvailability == .requiresProbe || candidateAvailability == .noAgentSnapshot else {
+        guard candidateAvailability == .available
+            || candidateAvailability == .requiresProbe
+            || candidateAvailability == .noAgentSnapshot else {
             return candidateAvailability
         }
         return forkAgentConversationContextMenuOpenAvailability(

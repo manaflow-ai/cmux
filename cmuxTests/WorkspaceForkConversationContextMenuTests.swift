@@ -474,6 +474,7 @@ struct WorkspaceForkConversationContextMenuTests {
         )
 
         let forkSupported = OSAllocatedUnfairLock(initialState: false)
+        let now = OSAllocatedUnfairLock(initialState: Date(timeIntervalSince1970: 42))
         let liveAgentIndex = SharedLiveAgentIndex(
             indexLoader: {
                 SharedLiveAgentIndexLoader(
@@ -492,11 +493,14 @@ struct WorkspaceForkConversationContextMenuTests {
                 )
                 .loadResultSynchronously()
             },
-            forkSupportProvider: { _, _ in forkSupported.withLock { $0 } },
+            forkSupportProvider: { _, _ in
+                now.withLock { $0 = Date(timeIntervalSince1970: 100) }
+                return forkSupported.withLock { $0 }
+            },
             hookStoreDirectoryProvider: {
                 root.appendingPathComponent(".cmuxterm", isDirectory: true).path
             },
-            dateProvider: { Date(timeIntervalSince1970: 42) }
+            dateProvider: { now.withLock { $0 } }
         )
         #expect(
             workspace.forkAgentConversationContextMenuPresentationAvailability(
