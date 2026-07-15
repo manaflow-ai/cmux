@@ -7,12 +7,17 @@ import Testing
 @testable import cmux
 #endif
 
+@MainActor
 @Suite struct RemoteTmuxCapabilitiesTests {
-    private func advertisedMethods() throws -> Set<String> {
-        let request = #"{"jsonrpc":"2.0","id":1,"method":"system.capabilities","params":{}}"#
+    private func response(for method: String) throws -> [String: Any] {
+        let request = #"{"jsonrpc":"2.0","id":1,"method":"\#(method)","params":{}}"#
         let responseText = TerminalController.shared.handleSocketLine(request)
         let responseData = try #require(responseText.data(using: .utf8))
-        let response = try #require(JSONSerialization.jsonObject(with: responseData) as? [String: Any])
+        return try #require(JSONSerialization.jsonObject(with: responseData) as? [String: Any])
+    }
+
+    private func advertisedMethods() throws -> Set<String> {
+        let response = try response(for: "system.capabilities")
         let result = try #require(response["result"] as? [String: Any])
         return Set(try #require(result["methods"] as? [String]))
     }
@@ -30,15 +35,26 @@ import Testing
         ].allSatisfy { advertisedMethods.contains($0) })
     }
 
-    @Test func systemCapabilitiesAdvertisesTerminalHierarchyMutations() throws {
+    @Test func systemCapabilitiesAgreeWithDispatchForTerminalHierarchyMutations() throws {
         let advertisedMethods = try advertisedMethods()
 
-        #expect([
+        for method in [
             "mobile.terminal.close",
             "mobile.terminal.reorder",
             "terminal.close",
             "terminal.reorder",
-        ].allSatisfy { advertisedMethods.contains($0) })
+        ] {
+            let methodResponse = try response(for: method)
+            let error = methodResponse["error"] as? [String: Any]
+            let isDispatched = error?["code"] as? String != "method_not_found"
+            #expect(
+                advertisedMethods.contains(method) == isDispatched,
+                "system.capabilities must advertise \(method) exactly when the local control socket dispatches it"
+            )
+        }
+
+        #expect(MobileHostService.mobileHostCapabilities.contains("terminal.close.v1"))
+        #expect(MobileHostService.mobileHostCapabilities.contains("terminal.reorder.v1"))
     }
 
     /// Requests without a host must fail a network-free guard, never dispatch as
