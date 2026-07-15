@@ -33,6 +33,17 @@ struct ReflowParagraphTests {
         #expect(ReflowOptions.default.reflow(input, terminalWidth: 80) == input)
     }
 
+    @Test func fullWidthIndentedStructuredRowsStaySeparate() {
+        let lead = "Completed artifact generation for the release candidate output folder"
+        for row in ["/tmp/report.txt", "deadbeefdeadbeef", "readme.md"] {
+            let input = "\(lead)\n    \(row)\n"
+            #expect(
+                ReflowOptions.default.reflow(input, terminalWidth: lead.count) == input,
+                "indented structured row was joined: \(row)"
+            )
+        }
+    }
+
     @Test func adjacentPunctuatedLinesDoNotInventBlankSeparator() {
         let input =
             "The afternoon settled over the valley like a slow exhale and gold light pooled in the grass.\n"
