@@ -71,12 +71,12 @@ struct RemoteSessionCleanupLifecycleTests {
         workspace.configureRemoteConnection(configurationB, autoConnect: true)
         workspace.configureRemoteConnection(configurationA, autoConnect: true)
 
-        let cleanup = try #require(await Self.nextCleanupCommand(runner))
-        _ = try #require(await Self.nextBootstrapRequest(runner))
-        await workspace.remoteSessionTransitionTask?.value
+        let transition = try #require(workspace.remoteSessionTransitionTask)
+        await transition.value
+        let cleanup = try #require(runner.recordedCleanupCommands.first)
         #expect(!cleanup.contains("serve --persistent-stop --slot"))
         #expect(cleanup.contains("64007.slot"))
-        #expect(workspace.remoteConfiguration == configurationA)
+        #expect(workspace.remoteConfiguration == configurationA.scopedToOwnerWorkspace(workspace.id))
         #expect(workspace.remoteSessionController != nil)
     }
 
@@ -253,6 +253,7 @@ private final class CleanupLifecycleRecordingRunner: RemoteSessionProcessRunning
     }
 
     var nonCleanupRequestCount: Int { lock.withLock { nonCleanupCommands.count } }
+    var recordedCleanupCommands: [String] { lock.withLock { cleanupCommands } }
 
     func blockNextCleanup() {
         lock.withLock { shouldBlockNextCleanup = true }
@@ -267,7 +268,9 @@ private final class CleanupLifecycleRecordingRunner: RemoteSessionProcessRunning
         operation: (any RemoteTransferCancelling)?
     ) throws -> RemoteCommandResult {
         let command = request.arguments.last ?? ""
-        guard command.contains("relay_socket='127.0.0.1:") else {
+        let isCleanup = command.contains("relay_socket=") ||
+            command.contains("serve --persistent-stop --slot")
+        guard isCleanup else {
             lock.withLock { nonCleanupCommands.append(command) }
             nonCleanupObserved.signal()
             return RemoteCommandResult(status: 1, stdout: "", stderr: "intentional bootstrap stop")
