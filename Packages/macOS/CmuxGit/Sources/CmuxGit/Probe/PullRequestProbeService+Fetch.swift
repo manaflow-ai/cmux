@@ -27,11 +27,12 @@ extension PullRequestProbeService {
     ) async -> [String: WorkspacePullRequestRepoFetchResult] {
         guard !repoDirectoriesBySlug.isEmpty else { return [:] }
 
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = max(Self.probeTimeout, 8)
-        configuration.timeoutIntervalForResource = max(Self.probeTimeout, 8)
-        let session = URLSession(configuration: configuration)
-        let authHeader = await authHeaderValue()
+        guard let authHeader = await authHeaderValue() else {
+            debugLog("workspace.prRefresh.authUnavailable")
+            return Dictionary(
+                uniqueKeysWithValues: repoDirectoriesBySlug.keys.map { ($0, .transientFailure) }
+            )
+        }
         var results: [String: WorkspacePullRequestRepoFetchResult] = [:]
 
         let fetchedResults = await withTaskGroup(
@@ -48,7 +49,6 @@ extension PullRequestProbeService {
                             && (cacheBySlug[repoSlug].map {
                                 now.timeIntervalSince($0.fetchedAt) < Self.repoCacheLifetime
                             } ?? false),
-                        session: session,
                         authHeader: authHeader
                     )
                     return (repoSlug, result)
@@ -75,8 +75,7 @@ extension PullRequestProbeService {
         candidateBranches: Set<String>,
         cachedEntry: WorkspacePullRequestRepoCacheEntry?,
         useCachedRecentWindow: Bool,
-        session: URLSession,
-        authHeader: String?
+        authHeader: String
     ) async -> WorkspacePullRequestRepoFetchResult {
         let normalizedCandidateBranches = Set(
             candidateBranches.compactMap(GitMetadataService.normalizedBranchName)
@@ -101,7 +100,6 @@ extension PullRequestProbeService {
                 candidateBranches: unresolvedBranches,
                 baseEntry: cachedEntry,
                 refreshedAt: Date(),
-                session: session,
                 authHeader: authHeader
             )
             debugLog(
@@ -123,7 +121,6 @@ extension PullRequestProbeService {
         while page <= Self.repoPageLimit {
             let endpoint = "repos/\(repoSlug)/pulls?state=all&sort=updated&direction=desc&per_page=\(Self.repoPageSize)&page=\(page)"
             guard let response = await performRequest(
-                session: session,
                 endpoint: endpoint,
                 authHeader: authHeader
             ) else {
@@ -165,7 +162,6 @@ extension PullRequestProbeService {
                 candidateBranches: unresolvedBranches,
                 baseEntry: recentWindowEntry,
                 refreshedAt: fetchTimestamp,
-                session: session,
                 authHeader: authHeader
             )
         }
@@ -201,8 +197,7 @@ extension PullRequestProbeService {
         candidateBranches: [String],
         baseEntry: WorkspacePullRequestRepoCacheEntry,
         refreshedAt: Date,
-        session: URLSession,
-        authHeader: String?
+        authHeader: String
     ) async -> WorkspacePullRequestBranchLookupOutcome {
         guard !candidateBranches.isEmpty else {
             return WorkspacePullRequestBranchLookupOutcome(
@@ -220,7 +215,6 @@ extension PullRequestProbeService {
                     let result = await self.branchFetchResult(
                         repoSlug: repoSlug,
                         branch: branch,
-                        session: session,
                         authHeader: authHeader
                     )
                     return (branch, result)
@@ -264,8 +258,7 @@ extension PullRequestProbeService {
     nonisolated func branchFetchResult(
         repoSlug: String,
         branch: String,
-        session: URLSession,
-        authHeader: String?
+        authHeader: String
     ) async -> WorkspacePullRequestBranchFetchResult {
         guard let endpoint = Self.branchEndpoint(
             repoSlug: repoSlug,
@@ -275,7 +268,6 @@ extension PullRequestProbeService {
         }
 
         guard let response = await performRequest(
-            session: session,
             endpoint: endpoint,
             authHeader: authHeader
         ) else {
@@ -345,35 +337,31 @@ extension PullRequestProbeService {
         )
     }
 
-    /// One GET against the GitHub API; `nil` on any transport error.
+    /// One authenticated GET through the shared GitHub request coordinator.
+    nonisolated func performRequest(
+        endpoint: String,
+        authHeader: String?
+    ) async -> WorkspacePullRequestHTTPResponse? {
+        await requestCoordinator.response(endpoint: endpoint, authHeader: authHeader)
+    }
+
+    /// Injected-session overload used by transport behavior tests. It still
+    /// exercises the same shared auth, ETag, backoff, queue, and coalescing
+    /// policy as production.
     nonisolated func performRequest(
         session: URLSession,
         endpoint: String,
         authHeader: String?
     ) async -> WorkspacePullRequestHTTPResponse? {
-        guard let url = URL(string: "https://api.github.com/\(endpoint)") else {
-            return nil
-        }
+        await requestCoordinator.response(
+            endpoint: endpoint,
+            authHeader: authHeader,
+            sessionOverride: session
+        )
+    }
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        request.setValue("cmux-workspace-pr-poller", forHTTPHeaderField: "User-Agent")
-        if let authHeader, !authHeader.isEmpty {
-            request.setValue(authHeader, forHTTPHeaderField: "Authorization")
-        }
-
-        do {
-            let (data, response) = try await session.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse else {
-                return nil
-            }
-            return WorkspacePullRequestHTTPResponse(
-                statusCode: httpResponse.statusCode,
-                data: data
-            )
-        } catch {
-            return nil
-        }
+    /// The GitHub reset deadline currently suppressing transport, if any.
+    public nonisolated func rateLimitRetryDate() async -> Date? {
+        await requestCoordinator.retryDate()
     }
 }

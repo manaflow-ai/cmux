@@ -8630,7 +8630,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             initialWorkspaceTitle: initialWorkspaceTitle,
             initialWorkingDirectory: initialWorkingDirectory,
             initialTerminalInput: initialTerminalInput,
-            autoWelcomeIfNeeded: initialTerminalInput == nil
+            autoWelcomeIfNeeded: initialTerminalInput == nil,
+            pullRequestProbeService: self.tabManager?.pullRequestProbeService
         )
         tabManager.windowId = windowId
         if let sessionWindowSnapshot {

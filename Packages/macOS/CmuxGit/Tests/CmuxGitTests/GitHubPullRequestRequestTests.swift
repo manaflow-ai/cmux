@@ -208,19 +208,20 @@ struct GitHubPullRequestRequestTests {
         #expect(GitHubPullRequestStubURLProtocol.capturedRequests().count == 1)
     }
 
-    @Test func distinctEndpointsUseAtMostOneGitHubConnectionAtATime() async {
+    @Test func serviceCopiesUseAtMostOneGitHubConnectionAtATime() async {
         GitHubPullRequestStubURLProtocol.reset(stubs: [
             .init(statusCode: 200, data: Data("[]".utf8), delay: 0.05),
             .init(statusCode: 200, data: Data("[]".utf8), delay: 0.05),
         ])
         let service = PullRequestProbeService()
+        let secondWindowService = service
 
         async let recent = service.performRequest(
             session: makeSession(),
             endpoint: endpoint,
             authHeader: "Bearer test-token"
         )
-        async let branch = service.performRequest(
+        async let branch = secondWindowService.performRequest(
             session: makeSession(),
             endpoint: "repos/manaflow-ai/cmux/pulls?head=manaflow-ai:issue-8175",
             authHeader: "Bearer test-token"

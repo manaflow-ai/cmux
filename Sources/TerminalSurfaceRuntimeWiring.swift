@@ -55,8 +55,8 @@ final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProvidin
             kiroNotificationLevel: integrations.kiroNotificationLevel.rawValue,
             ampHooksEnabled: integrations.ampHooksEnabled,
             shellIntegrationEnabled: UserDefaults.standard.object(forKey: "sidebarShellIntegration") as? Bool ?? true,
-            watchGitStatusEnabled: SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard),
-            showPullRequestsEnabled: SidebarWorkspaceDetailDefaults.showPullRequestsValue(defaults: .standard)
+            watchGitStatusEnabled: SidebarWorkspaceDetailDefaults.gitMetadataPollingEnabled(defaults: .standard),
+            showPullRequestsEnabled: SidebarWorkspaceDetailDefaults.pullRequestPollingEnabled(defaults: .standard)
         )
     }
 

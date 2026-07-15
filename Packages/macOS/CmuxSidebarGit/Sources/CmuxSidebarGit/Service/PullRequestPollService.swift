@@ -266,6 +266,7 @@ public final class PullRequestPollService: PullRequestProbing {
                 candidates: candidateResolution.candidates,
                 repoResults: repoResults
             )
+            let rateLimitRetryDate = await probeService.rateLimitRetryDate()
             guard !Task.isCancelled else { return }
             await MainActor.run { [weak self] in
                 guard let self else { return }
@@ -276,7 +277,8 @@ public final class PullRequestPollService: PullRequestProbing {
                     repoResults: repoResults,
                     requestedKeys: keys,
                     now: Date(),
-                    reason: reason
+                    reason: reason,
+                    rateLimitRetryDate: rateLimitRetryDate
                 )
             }
         }
