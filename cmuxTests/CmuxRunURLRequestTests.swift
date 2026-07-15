@@ -137,6 +137,17 @@ struct CmuxRunURLRequestTests {
         #expect(try runInitialTerminalCommand(launchCommand) == 125)
     }
 
+    @Test func shellWrapperDoesNotExposeIdentityStateToReviewedCommand() throws {
+        let resolved = try CmuxRunWorkingDirectoryResolver().resolve("/tmp").get()
+        let launchCommand = CmuxRunShellCommandBuilder(
+            command: "[[ -z ${cmux_directory_identity+x} ]]",
+            workingDirectory: resolved.path,
+            approvedIdentity: resolved.identity
+        ).launchCommand
+
+        #expect(try runInitialTerminalCommand(launchCommand) == EXIT_SUCCESS)
+    }
+
     @Test(arguments: ["\u{0000}", "\r", "\u{202E}", "\u{2066}", "\u{2028}"])
     func rejectsHiddenCommandCharacters(_ hidden: String) throws {
         let result = parse([
