@@ -63,6 +63,62 @@ struct NotificationFeedScaleTests {
     }
 
     @Test
+    func liveAppendAtCapacityEvictsOldestRowIncrementally() {
+        let store = TerminalNotificationStore.shared
+        let eventBus = CmuxEventBus.shared
+        let tabId = UUID()
+        let surfaceId = UUID()
+        let limit = TerminalNotificationStore.maximumNotificationFeedCount
+
+        let notifications = (0..<limit).map { index in
+            TerminalNotification(
+                id: UUID(),
+                tabId: tabId,
+                surfaceId: surfaceId,
+                retargetsToLiveSurfaceOwner: false,
+                title: "History \(index)",
+                subtitle: "",
+                body: "",
+                createdAt: Date(timeIntervalSince1970: TimeInterval(index)),
+                isRead: false
+            )
+        }.sorted(by: TerminalNotificationStore.notificationSortPrecedes)
+
+        store.replaceNotificationsForTesting(notifications)
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        store.configureSuppressedNotificationFeedbackHandlerForTesting { _, _ in }
+        eventBus.resetForTesting()
+        TerminalNotificationStore.resetFullIndexRebuildCountForTesting()
+        defer {
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            store.resetSuppressedNotificationFeedbackHandlerForTesting()
+            eventBus.resetForTesting()
+        }
+
+        store.addNotification(
+            id: UUID(),
+            acceptedAt: Date(timeIntervalSince1970: TimeInterval(limit + 1)),
+            tabId: tabId,
+            surfaceId: surfaceId,
+            title: "Live at cap",
+            subtitle: "",
+            body: "",
+            retargetsToLiveSurfaceOwner: false
+        )
+
+        #expect(store.notifications.count == limit)
+        #expect(store.notifications.first?.title == "Live at cap")
+        #expect(store.notifications.last?.title == "History 1")
+        #expect(!store.notifications.contains { $0.title == "History 0" })
+        #expect(store.unreadNotificationCount == limit)
+        #expect(store.latestNotification(forTabId: tabId)?.title == "Live at cap")
+        #expect(TerminalNotificationStore.fullIndexRebuildCountForTesting == 0)
+        let lifecycleNames = eventBus.retainedSnapshot().compactMap { $0["name"] as? String }
+        #expect(lifecycleNames == ["notification.created"])
+    }
+
+    @Test
     func inconsistentIncrementalIndexesRebuildInsteadOfTrapping() {
         let tabId = UUID()
         let existing = TerminalNotification(

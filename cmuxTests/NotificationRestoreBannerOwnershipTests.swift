@@ -217,6 +217,33 @@ struct NotificationRestoreBannerOwnershipTests {
         #expect(!moved.retargetsToLiveSurfaceOwner)
     }
 
+    @Test func transferCollisionKeepsNewerMovedBannerOwner() throws {
+        let sourceTabId = UUID()
+        let destinationTabId = UUID()
+        let sourceSurfaceId = UUID()
+        let destinationSurfaceId = UUID()
+        let sourceOwner = notification(
+            id: UUID(), tabId: sourceTabId, surfaceId: sourceSurfaceId,
+            title: "Newer source owner", createdAt: Date(timeIntervalSince1970: 30)
+        )
+        let destinationOwner = notification(
+            id: UUID(), tabId: destinationTabId, surfaceId: destinationSurfaceId,
+            title: "Older destination owner", createdAt: Date(timeIntervalSince1970: 20)
+        )
+        var ownership = ExternalNotificationBannerOwnership()
+        ownership.setOwner(sourceOwner)
+        ownership.setOwner(destinationOwner)
+
+        let displaced = ownership.transfer(
+            fromTabId: sourceTabId,
+            toTabId: destinationTabId,
+            panelIdMap: [sourceSurfaceId: destinationSurfaceId]
+        )
+
+        #expect(ownership.owner(tabId: destinationTabId, surfaceId: destinationSurfaceId)?.id == sourceOwner.id)
+        #expect(displaced.map(\.id) == [destinationOwner.id])
+    }
+
     @Test func rebindKeepsSourceConfinedBannerOwnerAtSource() throws {
         let sourceTabId = UUID()
         let destinationTabId = UUID()
@@ -238,6 +265,32 @@ struct NotificationRestoreBannerOwnershipTests {
         let preserved = try #require(ownership.owner(tabId: sourceTabId, surfaceId: surfaceId))
         #expect(!preserved.retargetsToLiveSurfaceOwner)
         #expect(ownership.owner(tabId: destinationTabId, surfaceId: surfaceId) == nil)
+    }
+
+    @Test func rebindCollisionKeepsNewerMovedBannerOwner() throws {
+        let sourceTabId = UUID()
+        let destinationTabId = UUID()
+        let surfaceId = UUID()
+        let sourceOwner = notification(
+            id: UUID(), tabId: sourceTabId, surfaceId: surfaceId,
+            title: "Newer source owner", createdAt: Date(timeIntervalSince1970: 30)
+        )
+        let destinationOwner = notification(
+            id: UUID(), tabId: destinationTabId, surfaceId: surfaceId,
+            title: "Older destination owner", createdAt: Date(timeIntervalSince1970: 20)
+        )
+        var ownership = ExternalNotificationBannerOwnership()
+        ownership.setOwner(sourceOwner)
+        ownership.setOwner(destinationOwner)
+
+        let displaced = ownership.rebind(
+            surfaceId: surfaceId,
+            fromTabId: sourceTabId,
+            toTabId: destinationTabId
+        )
+
+        #expect(ownership.owner(tabId: destinationTabId, surfaceId: surfaceId)?.id == sourceOwner.id)
+        #expect(displaced?.id == destinationOwner.id)
     }
 
     @Test func sourceConfinedBannerOwnerStaysWithSourceWhenOtherRowsRebind() throws {

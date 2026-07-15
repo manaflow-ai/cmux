@@ -289,6 +289,58 @@ final class AgentNotificationReliableDeliveryTests: XCTestCase {
         XCTAssertEqual(results.filter { $0 == .cancelled }.count, 0)
     }
 
+    func testLiveOwnerRoutesAreBoundedAndRemovable() {
+        let bus = TerminalMutationBus.shared
+        let staleTabId = UUID()
+        let firstSurfaceId = UUID()
+        let firstOwnerTabId = UUID()
+        var installedSurfaceIds = [firstSurfaceId]
+        defer {
+            for surfaceId in installedSurfaceIds {
+                bus.removeNotificationLiveOwnerRoute(surfaceId: surfaceId)
+            }
+        }
+
+        bus.rebindPendingNotifications(
+            fromTabId: staleTabId,
+            toTabId: firstOwnerTabId,
+            surfaceId: firstSurfaceId
+        )
+        XCTAssertEqual(
+            bus.routedNotificationKey(tabId: staleTabId, surfaceId: firstSurfaceId).tabId,
+            firstOwnerTabId
+        )
+
+        let maxRoutes = TerminalMutationBus.maximumNotificationLiveOwnerRouteCount
+        let newestSurfaceIds = (0..<maxRoutes).map { _ in UUID() }
+        let newestOwnerTabIds = newestSurfaceIds.map { _ in UUID() }
+        installedSurfaceIds.append(contentsOf: newestSurfaceIds)
+        for (surfaceId, ownerTabId) in zip(newestSurfaceIds, newestOwnerTabIds) {
+            bus.rebindPendingNotifications(
+                fromTabId: staleTabId,
+                toTabId: ownerTabId,
+                surfaceId: surfaceId
+            )
+        }
+
+        XCTAssertEqual(
+            bus.routedNotificationKey(tabId: staleTabId, surfaceId: firstSurfaceId).tabId,
+            staleTabId
+        )
+        let newestSurfaceId = newestSurfaceIds[maxRoutes - 1]
+        let newestOwnerTabId = newestOwnerTabIds[maxRoutes - 1]
+        XCTAssertEqual(
+            bus.routedNotificationKey(tabId: staleTabId, surfaceId: newestSurfaceId).tabId,
+            newestOwnerTabId
+        )
+
+        bus.removeNotificationLiveOwnerRoute(surfaceId: newestSurfaceId)
+        XCTAssertEqual(
+            bus.routedNotificationKey(tabId: staleTabId, surfaceId: newestSurfaceId).tabId,
+            staleTabId
+        )
+    }
+
     private func waitForReliableAdmissionBlock(_ bus: TerminalMutationBus) async {
         for _ in 0..<10_000 {
             if bus.reliablyWaitingNotificationProducerCountForTesting() == 1 { return }

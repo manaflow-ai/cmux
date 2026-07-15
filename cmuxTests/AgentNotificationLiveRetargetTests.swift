@@ -439,6 +439,34 @@ extension AgentNotificationRegressionTests {
     }
 
     @Test
+    func testRebindRetargetsInFlightPolicyRequest() throws {
+        let sourceTabId = UUID()
+        let destinationTabId = UUID()
+        let surfaceId = UUID()
+        let store = TerminalNotificationPolicyInFlightStore()
+        let request = TerminalNotificationPolicyRequest(
+            tabId: sourceTabId,
+            surfaceId: surfaceId,
+            panelId: surfaceId,
+            retargetsToLiveSurfaceOwner: true,
+            title: "Claude Code",
+            subtitle: "Completed",
+            body: "Policy result",
+            cwd: nil,
+            isAppFocused: false,
+            isFocusedPanel: false
+        )
+        let requestId = store.register(request, generation: 0, onDiscard: {})
+
+        store.rebindSurface(fromTabId: sourceTabId, toTabId: destinationTabId, surfaceId: surfaceId)
+
+        let claimed = try #require(store.claim(requestId, applying: request))
+        #expect(claimed.tabId == destinationTabId)
+        #expect(claimed.surfaceId == surfaceId)
+        #expect(claimed.panelId == surfaceId)
+    }
+
+    @Test
     func pidSignalCombiningUsesExactProcessEnvironmentFallback() {
         let tty = AgentDeliveryTargetCandidate(workspaceId: UUID(), surfaceId: UUID())
         let otherEnv = AgentDeliveryTargetCandidate(workspaceId: UUID(), surfaceId: UUID())
