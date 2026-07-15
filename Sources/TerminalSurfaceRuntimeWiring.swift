@@ -42,6 +42,9 @@ struct TerminalSurfaceViewFactory: TerminalSurfaceViewProviding {
 final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProviding {
     func currentSpawnPolicy() -> TerminalSurfaceSpawnPolicy {
         let integrations = AgentIntegrationSettingsStore(defaults: .standard)
+        // Startup flags express the master shell capability. Row visibility
+        // remains a live app-side polling decision and may change later.
+        let watchGitStatusEnabled = SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard)
         return TerminalSurfaceSpawnPolicy(
             socketAuthenticationEnvironment: TerminalController.shared.socketClientCapabilityEnvironment(),
             claudeHooksEnabled: integrations.claudeCodeHooksEnabled,
@@ -55,8 +58,8 @@ final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProvidin
             kiroNotificationLevel: integrations.kiroNotificationLevel.rawValue,
             ampHooksEnabled: integrations.ampHooksEnabled,
             shellIntegrationEnabled: UserDefaults.standard.object(forKey: "sidebarShellIntegration") as? Bool ?? true,
-            watchGitStatusEnabled: SidebarWorkspaceDetailDefaults.gitMetadataPollingEnabled(defaults: .standard),
-            showPullRequestsEnabled: SidebarWorkspaceDetailDefaults.pullRequestPollingEnabled(defaults: .standard)
+            watchGitStatusEnabled: watchGitStatusEnabled,
+            showPullRequestsEnabled: watchGitStatusEnabled
         )
     }
 

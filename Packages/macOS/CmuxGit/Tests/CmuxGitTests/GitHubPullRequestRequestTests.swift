@@ -153,6 +153,47 @@ struct GitHubPullRequestRequestTests {
         #expect(try #require(requests.last).value(forHTTPHeaderField: "If-None-Match") == "\"issue-8175\"")
     }
 
+    @Test func responseCacheEvictsOldestEndpointAtCountLimit() async {
+        let firstEndpoint = "repos/manaflow-ai/cmux/pulls?head=manaflow-ai:first"
+        let secondEndpoint = "repos/manaflow-ai/cmux/pulls?head=manaflow-ai:second"
+        let thirdEndpoint = "repos/manaflow-ai/cmux/pulls?head=manaflow-ai:third"
+        let firstBody = Data("[{\"number\":1}]".utf8)
+        let secondBody = Data("[{\"number\":2}]".utf8)
+        GitHubPullRequestStubURLProtocol.reset(stubs: [
+            .init(statusCode: 200, headers: ["ETag": "\"first\""], data: firstBody),
+            .init(statusCode: 200, headers: ["ETag": "\"second\""], data: secondBody),
+            .init(statusCode: 200, headers: ["ETag": "\"third\""], data: Data("[]".utf8)),
+            .init(statusCode: 304),
+            .init(statusCode: 200, data: firstBody),
+        ])
+        let coordinator = GitHubPullRequestRequestCoordinator(maximumCachedResponseCount: 2)
+        let session = makeSession()
+
+        for endpoint in [firstEndpoint, secondEndpoint, thirdEndpoint] {
+            _ = await coordinator.response(
+                endpoint: endpoint,
+                authHeader: "Bearer test-token",
+                sessionOverride: session
+            )
+        }
+        let retained = await coordinator.response(
+            endpoint: secondEndpoint,
+            authHeader: "Bearer test-token",
+            sessionOverride: session
+        )
+        _ = await coordinator.response(
+            endpoint: firstEndpoint,
+            authHeader: "Bearer test-token",
+            sessionOverride: session
+        )
+
+        #expect(retained?.data == secondBody)
+        let requests = GitHubPullRequestStubURLProtocol.capturedRequests()
+        #expect(requests.count == 5)
+        #expect(requests[3].value(forHTTPHeaderField: "If-None-Match") == "\"second\"")
+        #expect(requests[4].value(forHTTPHeaderField: "If-None-Match") == nil)
+    }
+
     @Test func exhaustedRateLimitSuppressesRequestsUntilReset() async {
         let reset = Int(Date().addingTimeInterval(300).timeIntervalSince1970)
         GitHubPullRequestStubURLProtocol.reset(stubs: [
@@ -180,6 +221,68 @@ struct GitHubPullRequestRequestTests {
         )
 
         #expect(suppressed == nil)
+        #expect(GitHubPullRequestStubURLProtocol.capturedRequests().count == 1)
+    }
+
+    @Test func permissionDeniedResponseDoesNotTriggerPrimaryRateLimitBackoff() async {
+        let reset = Int(Date().addingTimeInterval(300).timeIntervalSince1970)
+        GitHubPullRequestStubURLProtocol.reset(stubs: [
+            .init(
+                statusCode: 403,
+                headers: [
+                    "X-RateLimit-Remaining": "4999",
+                    "X-RateLimit-Reset": String(reset),
+                ]
+            ),
+            .init(statusCode: 200, data: Data("[]".utf8)),
+        ])
+        let service = PullRequestProbeService()
+        let session = makeSession()
+
+        _ = await service.performRequest(
+            session: session,
+            endpoint: endpoint,
+            authHeader: "Bearer test-token"
+        )
+        let subsequent = await service.performRequest(
+            session: session,
+            endpoint: "repos/manaflow-ai/cmux/pulls?state=open",
+            authHeader: "Bearer test-token"
+        )
+
+        #expect(subsequent?.statusCode == 200)
+        #expect(GitHubPullRequestStubURLProtocol.capturedRequests().count == 2)
+    }
+
+    @Test(arguments: [403, 429])
+    func secondaryRateLimitRetryAfterSuppressesRequestsUntilDeadline(statusCode: Int) async {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        GitHubPullRequestStubURLProtocol.reset(stubs: [
+            .init(
+                statusCode: statusCode,
+                headers: [
+                    "X-RateLimit-Remaining": "4999",
+                    "Retry-After": "120",
+                ]
+            ),
+            .init(statusCode: 200, data: Data("[]".utf8)),
+        ])
+        let coordinator = GitHubPullRequestRequestCoordinator(now: { now })
+        let session = makeSession()
+
+        _ = await coordinator.response(
+            endpoint: endpoint,
+            authHeader: "Bearer test-token",
+            sessionOverride: session
+        )
+        let suppressed = await coordinator.response(
+            endpoint: "repos/manaflow-ai/cmux/pulls?state=open",
+            authHeader: "Bearer test-token",
+            sessionOverride: session
+        )
+
+        #expect(suppressed == nil)
+        #expect(await coordinator.retryDate() == now.addingTimeInterval(120))
         #expect(GitHubPullRequestStubURLProtocol.capturedRequests().count == 1)
     }
 

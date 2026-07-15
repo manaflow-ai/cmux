@@ -20,13 +20,19 @@ actor GitHubPullRequestRequestCoordinator {
 
     private let session: URLSession
     private let now: @Sendable () -> Date
+    private let maximumCachedResponseCount: Int
+    private let maximumCachedResponseBodyBytes: Int
     private var cachedResponseByEndpoint: [String: CachedResponse] = [:]
+    private var cachedResponseEndpointsInInsertionOrder: [String] = []
+    private var cachedResponseBodyByteCount = 0
     private var inFlightRequestByEndpoint: [String: InFlightRequest] = [:]
     private var transportTail: Task<Void, Never>?
     private var rateLimitRetryDate: Date?
 
     init(
         session: URLSession? = nil,
+        maximumCachedResponseCount: Int = 128,
+        maximumCachedResponseBodyBytes: Int = 4 * 1024 * 1024,
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         if let session {
@@ -37,6 +43,8 @@ actor GitHubPullRequestRequestCoordinator {
             configuration.timeoutIntervalForResource = max(PullRequestProbeService.probeTimeout, 8)
             self.session = URLSession(configuration: configuration)
         }
+        self.maximumCachedResponseCount = max(0, maximumCachedResponseCount)
+        self.maximumCachedResponseBodyBytes = max(0, maximumCachedResponseBodyBytes)
         self.now = now
     }
 
@@ -114,9 +122,9 @@ actor GitHubPullRequestRequestCoordinator {
 
             if httpResponse.statusCode == 200 {
                 if let etag = httpResponse.value(forHTTPHeaderField: "ETag"), !etag.isEmpty {
-                    cachedResponseByEndpoint[endpoint] = CachedResponse(etag: etag, data: data)
+                    storeCachedResponse(CachedResponse(etag: etag, data: data), for: endpoint)
                 } else {
-                    cachedResponseByEndpoint.removeValue(forKey: endpoint)
+                    removeCachedResponse(for: endpoint)
                 }
             }
             return WorkspacePullRequestHTTPResponse(statusCode: httpResponse.statusCode, data: data)
@@ -126,21 +134,52 @@ actor GitHubPullRequestRequestCoordinator {
     }
 
     private func updateRateLimit(from response: HTTPURLResponse) {
-        let remaining = response.value(forHTTPHeaderField: "X-RateLimit-Remaining")
-        let isExhausted = remaining == "0" || response.statusCode == 403 || response.statusCode == 429
-        guard isExhausted,
-              let rawReset = response.value(forHTTPHeaderField: "X-RateLimit-Reset"),
-              let resetSeconds = TimeInterval(rawReset) else {
+        if response.value(forHTTPHeaderField: "X-RateLimit-Remaining") == "0",
+           let rawReset = response.value(forHTTPHeaderField: "X-RateLimit-Reset"),
+           let resetSeconds = TimeInterval(rawReset) {
+            // GitHub reports whole epoch seconds. Waiting through the following
+            // second avoids racing the boundary and immediately receiving another
+            // exhausted response.
+            extendRateLimitRetryDate(to: Date(timeIntervalSince1970: resetSeconds + 1))
+        }
+
+        if response.statusCode == 403 || response.statusCode == 429,
+           let rawRetryAfter = response.value(forHTTPHeaderField: "Retry-After"),
+           let retryAfter = TimeInterval(rawRetryAfter),
+           retryAfter > 0 {
+            extendRateLimitRetryDate(to: now().addingTimeInterval(retryAfter))
+        }
+    }
+
+    private func extendRateLimitRetryDate(to retryDate: Date) {
+        guard retryDate > now() else { return }
+        rateLimitRetryDate = max(rateLimitRetryDate ?? .distantPast, retryDate)
+    }
+
+    private func storeCachedResponse(_ response: CachedResponse, for endpoint: String) {
+        removeCachedResponse(for: endpoint)
+        guard maximumCachedResponseCount > 0,
+              maximumCachedResponseBodyBytes > 0,
+              response.data.count <= maximumCachedResponseBodyBytes else {
             return
         }
 
-        // GitHub reports whole epoch seconds. Waiting through the following
-        // second avoids racing the boundary and immediately receiving another
-        // exhausted response.
-        let resetDate = Date(timeIntervalSince1970: resetSeconds + 1)
-        if resetDate > now() {
-            rateLimitRetryDate = max(rateLimitRetryDate ?? .distantPast, resetDate)
+        cachedResponseByEndpoint[endpoint] = response
+        cachedResponseEndpointsInInsertionOrder.append(endpoint)
+        cachedResponseBodyByteCount += response.data.count
+
+        while cachedResponseByEndpoint.count > maximumCachedResponseCount
+            || cachedResponseBodyByteCount > maximumCachedResponseBodyBytes {
+            guard let oldestEndpoint = cachedResponseEndpointsInInsertionOrder.first else { break }
+            removeCachedResponse(for: oldestEndpoint)
         }
+    }
+
+    private func removeCachedResponse(for endpoint: String) {
+        if let removedResponse = cachedResponseByEndpoint.removeValue(forKey: endpoint) {
+            cachedResponseBodyByteCount -= removedResponse.data.count
+        }
+        cachedResponseEndpointsInInsertionOrder.removeAll { $0 == endpoint }
     }
 
     private func activeRateLimitRetryDate() -> Date? {
