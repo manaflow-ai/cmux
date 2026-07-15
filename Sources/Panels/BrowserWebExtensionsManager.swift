@@ -209,7 +209,7 @@ final class BrowserWebExtensionsManager: NSObject {
     func performAction(uniqueIdentifier: String, in panel: BrowserPanel) -> Bool {
         guard let context = loadedContexts.first(where: { $0.uniqueIdentifier == uniqueIdentifier }),
               let tabAdapter = tabAdapters[panel.id],
-              context.action(for: tabAdapter) != nil else {
+              Self.definesAction(context.webExtension) else {
             return false
         }
         pendingActionAnchors[context.uniqueIdentifier] = panel.webView
@@ -237,8 +237,7 @@ final class BrowserWebExtensionsManager: NSObject {
                 BrowserWebExtensionsPresentationSnapshot.Item(
                     id: context.uniqueIdentifier,
                     name: context.webExtension.displayName ?? context.uniqueIdentifier,
-                    hasAction: context.action(for: nil) != nil
-                        || tabAdapters.values.contains { context.action(for: $0) != nil }
+                    hasAction: Self.definesAction(context.webExtension)
                 )
             },
             failures: loadErrors.map { failure in
@@ -259,6 +258,12 @@ final class BrowserWebExtensionsManager: NSObject {
         for pattern in webExtension.allRequestedMatchPatterns {
             context.setPermissionStatus(.grantedExplicitly, for: pattern)
         }
+    }
+
+    private static func definesAction(_ webExtension: WKWebExtension) -> Bool {
+        webExtension.manifest["action"] != nil
+            || webExtension.manifest["browser_action"] != nil
+            || webExtension.manifest["page_action"] != nil
     }
 }
 
