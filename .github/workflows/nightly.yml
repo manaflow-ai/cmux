@@ -129,8 +129,16 @@ jobs:
           set -euo pipefail
           echo "toolchain=$(xcodebuild -version | shasum -a 256 | awk '{print $1}')" >> "$GITHUB_OUTPUT"
 
+      - name: Look up Xcode compilation cache
+        id: compilation-cache-lookup
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: build-universal/CompilationCache.noindex
+          key: xcode-compilation-nightly-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-${{ needs.decide.outputs.head_sha }}
+          lookup-only: true
+
       - name: Cache Xcode compilation results
-        id: compilation-cache
+        if: steps.compilation-cache-lookup.outputs.cache-hit != 'true'
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: build-universal/CompilationCache.noindex
@@ -139,14 +147,14 @@ jobs:
             xcode-compilation-nightly-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-
 
       - name: Install compilation dependencies
-        if: steps.compilation-cache.outputs.cache-hit != 'true'
+        if: steps.compilation-cache-lookup.outputs.cache-hit != 'true'
         run: |
           ./scripts/install-rust-ci.sh
           ./scripts/install-zig-ci.sh
           ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Cache Swift packages
-        if: steps.compilation-cache.outputs.cache-hit != 'true'
+        if: steps.compilation-cache-lookup.outputs.cache-hit != 'true'
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .spm-cache
@@ -154,11 +162,11 @@ jobs:
           restore-keys: spm-
 
       - name: Sanitize Swift package cache
-        if: steps.compilation-cache.outputs.cache-hit != 'true'
+        if: steps.compilation-cache-lookup.outputs.cache-hit != 'true'
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .spm-cache
 
       - name: Refresh universal nightly compilation cache
-        if: steps.compilation-cache.outputs.cache-hit != 'true'
+        if: steps.compilation-cache-lookup.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
           CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
@@ -172,7 +180,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
 
       - name: Bound Xcode compilation cache size
-        if: steps.compilation-cache.outputs.cache-hit != 'true'
+        if: steps.compilation-cache-lookup.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
           cache_path="build-universal/CompilationCache.noindex"

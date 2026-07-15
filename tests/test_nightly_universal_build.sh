@@ -45,13 +45,15 @@ if ! awk '
   /^  refresh-compilation-cache:/ { in_refresh=1; next }
   in_refresh && /^  [a-zA-Z0-9_-]+:/ { in_refresh=0 }
   in_refresh && /if: github\.event_name == '\''schedule'\''/ { saw_schedule_gate=1 }
+  in_refresh && /^      - name: Look up Xcode compilation cache/ { saw_lookup=1 }
+  in_refresh && /uses: actions\/cache\/restore@/ { saw_restore_action=1 }
+  in_refresh && /lookup-only: true/ { saw_lookup_only=1 }
   in_refresh && /^      - name: Cache Xcode compilation results/ { saw_cache=1 }
-  in_refresh && /id: compilation-cache/ { saw_cache_id=1 }
   in_refresh && /^      - name: Refresh universal nightly compilation cache/ { saw_refresh=1 }
-  in_refresh && /if: steps\.compilation-cache\.outputs\.cache-hit != '\''true'\''/ { saw_change_gate=1 }
-  END { exit !(saw_schedule_gate && saw_cache && saw_cache_id && saw_refresh && saw_change_gate) }
+  in_refresh && /if: steps\.compilation-cache-lookup\.outputs\.cache-hit != '\''true'\''/ { saw_change_gate=1 }
+  END { exit !(saw_schedule_gate && saw_lookup && saw_restore_action && saw_lookup_only && saw_cache && saw_refresh && saw_change_gate) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: scheduled cache refreshes must skip compilation when main is unchanged"
+  echo "FAIL: scheduled cache refreshes must use a metadata lookup and skip cache downloads and compilation when main is unchanged"
   exit 1
 fi
 
