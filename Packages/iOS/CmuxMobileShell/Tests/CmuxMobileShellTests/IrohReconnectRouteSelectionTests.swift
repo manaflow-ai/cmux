@@ -121,5 +121,14 @@ extension ReconnectRouteSelectionTests {
         )
 
         #expect(routes.map(\.kind) == [.iroh])
+        guard case let .peer(identity, hints) = routes[0].endpoint else {
+            Issue.record("Expected pinned Iroh route")
+            return
+        }
+        #expect(identity.endpointID == String(repeating: "a", count: 64))
+        #expect(hints.count == 1)
+        #expect(hints[0].value == "100.82.214.112:50906")
+        #expect(hints[0].source == .tailscale)
+        #expect(hints[0].use == .fallbackOnly)
     }
 }

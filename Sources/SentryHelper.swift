@@ -93,10 +93,9 @@ private func sentryScheduleMemoryContextRefresh(
 func sentryRefreshMemoryContext(reason: String) async {
     guard TelemetrySettings.enabledForCurrentLaunch else { return }
 
-    let processSnapshot = await CmuxTopProcessSnapshotStore.shared.snapshot(
-        requirements: .basic,
-        maximumAge: 2,
-        consumer: .sentry
+    let processSnapshot = CmuxTopProcessSnapshot.captureCached(
+        includeProcessDetails: false,
+        maximumAge: 2
     )
     let pid = Int(Darwin.getpid())
     let appProcess = processSnapshot.process(pid: pid)

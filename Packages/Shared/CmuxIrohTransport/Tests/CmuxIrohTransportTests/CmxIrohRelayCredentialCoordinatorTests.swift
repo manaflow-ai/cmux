@@ -231,11 +231,9 @@ struct CmxIrohRelayCredentialCoordinatorTests {
             endpointIdentity: fixture.identity
         )
 
-        #expect(
-            await clockEvents.next()
-                == .sleep(fixture.now.addingTimeInterval(600))
-        )
+        let clockEvent = await clockEvents.next()
         #expect(await endpoint.observedRelayUpdates().isEmpty)
+        #expect(clockEvent == .sleep(fixture.now.addingTimeInterval(600)))
         await coordinator.deactivate()
     }
 

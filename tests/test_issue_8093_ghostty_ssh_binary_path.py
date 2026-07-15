@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 
@@ -16,10 +17,20 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 ZSH_INTEGRATION = ROOT / "ghostty/src/shell-integration/zsh/ghostty-integration"
 BASH_INTEGRATION = ROOT / "ghostty/src/shell-integration/bash/ghostty.bash"
-EXPECTED_ARGUMENTS = ["+ssh", "--", "user@example.com"]
+FISH_INTEGRATION = (
+    ROOT
+    / "ghostty/src/shell-integration/fish/vendor_conf.d/ghostty-shell-integration.fish"
+)
 
 
-def _run_wrapper(shell: str, integration: Path, helper: Path, log: Path) -> None:
+def _run_wrapper(
+    shell: str,
+    integration: Path,
+    helper: Path,
+    log: Path,
+    features: str,
+    expected_arguments: list[str],
+) -> None:
     env = os.environ.copy()
     env.update(
         {
@@ -27,7 +38,7 @@ def _run_wrapper(shell: str, integration: Path, helper: Path, log: Path) -> None
             # Reproduce cmux's GUI executable directory. No `ghostty` binary
             # exists here because cmux embeds GhosttyKit in its own executable.
             "GHOSTTY_BIN_DIR": str(helper.parents[2] / "MacOS"),
-            "GHOSTTY_SHELL_FEATURES": "ssh-env,ssh-terminfo",
+            "GHOSTTY_SHELL_FEATURES": features,
             "GHOSTTY_TEST_LOG": str(log),
         }
     )
@@ -45,7 +56,7 @@ def _run_wrapper(shell: str, integration: Path, helper: Path, log: Path) -> None
             "zsh",
             str(integration),
         ]
-    else:
+    elif shell == "bash":
         command = [
             "bash",
             "--noprofile",
@@ -53,6 +64,23 @@ def _run_wrapper(shell: str, integration: Path, helper: Path, log: Path) -> None
             "-ic",
             'source "$1"; ssh user@example.com',
             "bash",
+            str(integration),
+        ]
+    else:
+        command = [
+            "fish",
+            "--no-config",
+            "--interactive",
+            "--command",
+            (
+                'source "$argv[1]"; '
+                "emit fish_prompt >/dev/null; "
+                "functions -q ssh; or begin; "
+                'echo "fish SSH wrapper was not installed" >&2; '
+                "exit 97; "
+                "end; "
+                "ssh user@example.com"
+            ),
             str(integration),
         ]
 
@@ -64,10 +92,10 @@ def _run_wrapper(shell: str, integration: Path, helper: Path, log: Path) -> None
         )
 
     actual = log.read_text().splitlines() if log.exists() else []
-    if actual != EXPECTED_ARGUMENTS:
+    if actual != expected_arguments:
         raise AssertionError(
             f"{shell} SSH wrapper invoked the wrong executable or arguments: "
-            f"expected {EXPECTED_ARGUMENTS!r}, got {actual!r}"
+            f"expected {expected_arguments!r}, got {actual!r}"
         )
 
 
@@ -86,7 +114,32 @@ def main() -> None:
             ("bash", BASH_INTEGRATION),
         ):
             log = tmp / f"{shell}-argv.log"
-            _run_wrapper(shell, integration, helper, log)
+            _run_wrapper(
+                shell,
+                integration,
+                helper,
+                log,
+                "ssh-env,ssh-terminfo",
+                ["+ssh", "--", "user@example.com"],
+            )
+
+        if shutil.which("fish") is None:
+            print("SKIP: fish is not installed; fish SSH wrappers were not exercised")
+        else:
+            for features, expected_flags in (
+                ("ssh-env", ["--terminfo=false"]),
+                ("ssh-terminfo", ["--forward-env=false"]),
+                ("ssh-env,ssh-terminfo", []),
+            ):
+                log = tmp / f"fish-{features}.log"
+                _run_wrapper(
+                    "fish",
+                    FISH_INTEGRATION,
+                    helper,
+                    log,
+                    features,
+                    ["+ssh", *expected_flags, "--", "user@example.com"],
+                )
 
     print("PASS: Ghostty SSH wrappers invoke the host-provided executable path")
 
