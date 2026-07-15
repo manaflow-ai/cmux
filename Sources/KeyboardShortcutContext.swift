@@ -325,7 +325,7 @@ extension AppDelegate {
         return tabManager?.focusedBrowserPanel
     }
 
-    private func shortcutFocusedOmnibarPanel(in window: NSWindow?) -> (any OmnibarHostingPanel)? {
+    func shortcutFocusedOmnibarPanel(in window: NSWindow?) -> (any OmnibarHostingPanel)? {
         if cmuxOwningGhosttyView(for: window?.firstResponder) != nil { return nil }
         if let panel = shortcutActiveDockOmnibarPanel(in: window) { return panel }
         if let panelId = focusedBrowserAddressBarPanelId(),

@@ -99,3 +99,11 @@ func preferredOmnibarPanel(
 ) -> (any OmnibarHostingPanel)? {
     activeDockPanel ?? mainPanel
 }
+
+@MainActor
+func omnibarFocusOwnerMatches(
+    panelId: UUID,
+    focusedPanel: (any OmnibarHostingPanel)?
+) -> Bool {
+    focusedPanel?.id == panelId
+}

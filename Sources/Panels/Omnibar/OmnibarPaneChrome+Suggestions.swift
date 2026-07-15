@@ -353,7 +353,9 @@ extension OmnibarPaneChrome {
 
     func blurAddressBarToContent(reason: String) {
         setAddressBarFocused(false, reason: reason)
-        panel.performAddressBarExitFocusHandoff(isCurrentOwner: { isFocused }) { _ in
+        panel.performAddressBarExitFocusHandoff(isCurrentOwner: {
+            panel.isCurrentOmnibarFocusOwner()
+        }) { _ in
             NotificationCenter.default.post(name: .browserDidExitAddressBar, object: panel.id)
         }
     }

@@ -39,3 +39,13 @@ protocol OmnibarHostingPanel: AnyObject, ObservableObject {
     )
     var omnibarHostWindow: NSWindow? { get }
 }
+
+extension OmnibarHostingPanel {
+    func isCurrentOmnibarFocusOwner() -> Bool {
+        guard let app = AppDelegate.shared else { return false }
+        return omnibarFocusOwnerMatches(
+            panelId: id,
+            focusedPanel: app.shortcutFocusedOmnibarPanel(in: omnibarHostWindow)
+        )
+    }
+}
