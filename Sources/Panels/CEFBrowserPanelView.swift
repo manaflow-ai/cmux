@@ -63,7 +63,10 @@ struct CEFBrowserPanelView: View {
                     EmptyView()
                 },
                 trailingAccessories: { _ in
-                    CEFExtensionActionBar(panel: panel)
+                    CEFExtensionActionBar(
+                        panel: panel,
+                        isVisibleInUI: isVisibleInUI
+                    )
                 }
             )
 

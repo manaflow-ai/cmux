@@ -70,7 +70,12 @@ struct CEFClientImplOwnershipTests {
         let impl = CEFClientImpl()
         let clientPtr = impl.makeClientStruct()
         let lifeSpan = clientPtr.pointee.get_life_span_handler?(clientPtr)
-        #expect(lifeSpan?.pointee.on_before_popup != nil)
+        let disposition = cef_window_open_disposition_t(rawValue: CEF_WOD_UNKNOWN.rawValue)
+        let cancelled = lifeSpan?.pointee.on_before_popup?(
+            lifeSpan, nil, nil, 0, nil, nil, disposition, 0,
+            nil, nil, nil, nil, nil, nil
+        )
+        #expect(cancelled == 1)
         cefRelease(UnsafeMutableRawPointer(lifeSpan!))
         impl.releaseCachedSubHandlers()
         cefRelease(UnsafeMutableRawPointer(clientPtr))

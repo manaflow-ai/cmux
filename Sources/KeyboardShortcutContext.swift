@@ -353,17 +353,19 @@ extension AppDelegate {
         return dock.panels[panelId] as? any OmnibarHostingPanel
     }
 
-    private func shortcutOmnibarPanel(panelId: UUID, in window: NSWindow?) -> (any OmnibarHostingPanel)? {
-        if let context = shortcutMainWindowContext(in: window),
-           let panel = existingWindowDock(forWindowId: context.windowId)?.panels[panelId]
-                as? any OmnibarHostingPanel {
-            return panel
-        }
-        if let panel = windowDockContainingPanel(panelId)?.panels[panelId] as? any OmnibarHostingPanel {
-            return panel
-        }
-        guard let workspace = shortcutContextTabManager(in: window)?.selectedWorkspace else { return nil }
-        return workspace.omnibarPanelIncludingDock(for: panelId)
+    func shortcutOmnibarPanel(panelId: UUID, in window: NSWindow?) -> (any OmnibarHostingPanel)? {
+        let contextDockPanel = shortcutMainWindowContext(in: window)
+            .flatMap { existingWindowDock(forWindowId: $0.windowId)?.panels[panelId] }
+            as? any OmnibarHostingPanel
+        let windowDockPanel = contextDockPanel
+            ?? windowDockContainingPanel(panelId)?.panels[panelId] as? any OmnibarHostingPanel
+        let workspacePanel = shortcutContextTabManager(in: window)?
+            .selectedWorkspace?
+            .omnibarPanelIncludingDock(for: panelId)
+        return resolveFocusedOmnibarPanel(
+            windowDockPanel: windowDockPanel,
+            workspacePanel: workspacePanel
+        )
     }
 
     private func shortcutWebInspectorFocusedBrowserPanel(in window: NSWindow?) -> BrowserPanel? {

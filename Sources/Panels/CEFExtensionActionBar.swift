@@ -1,9 +1,14 @@
 import CEFKit
 import SwiftUI
 
+func shouldDismissCEFExtensionPopover(isVisibleInUI: Bool) -> Bool {
+    !isVisibleInUI
+}
+
 /// Displays popup-capable staged Chrome extensions in a CEF pane's omnibar.
 struct CEFExtensionActionBar: View {
     let panel: CEFBrowserPanel
+    let isVisibleInUI: Bool
     @State private var actions: [CEFExtensionAction] = []
     @State private var popoverController: CEFExtensionPopoverController?
 
@@ -23,8 +28,12 @@ struct CEFExtensionActionBar: View {
             }
         }
         .onDisappear {
-            popoverController?.close()
-            popoverController = nil
+            dismissPopover()
+        }
+        .onChange(of: isVisibleInUI) { _, visible in
+            if shouldDismissCEFExtensionPopover(isVisibleInUI: visible) {
+                dismissPopover()
+            }
         }
     }
 
@@ -38,7 +47,8 @@ struct CEFExtensionActionBar: View {
         for action: CEFExtensionAction,
         relativeTo anchorView: NSView
     ) {
-        popoverController?.close()
+        guard isVisibleInUI else { return }
+        dismissPopover()
         let controller = CEFExtensionPopoverController()
         popoverController = controller
         controller.show(
@@ -46,5 +56,10 @@ struct CEFExtensionActionBar: View {
             profile: panel.resolveCEFProfileForChildBrowser(),
             relativeTo: anchorView
         )
+    }
+
+    private func dismissPopover() {
+        popoverController?.close()
+        popoverController = nil
     }
 }

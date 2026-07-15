@@ -120,6 +120,13 @@ final class CEFClientImpl {
     private func ensureLifeSpanHandler() -> UnsafeMutablePointer<cef_life_span_handler_t> {
         if let existing = lifeSpanPtr { return existing }
         let ptr = CEFHandler.allocate(cef_life_span_handler_t.self, object: self)
+        // This client owns exactly one browser. Allowing CEF to create a
+        // secondary browser with the same client would bypass CEFBrowser's
+        // ownership and shutdown accounting, so popup entry points fail
+        // closed until cmux has an explicit owned-popup routing contract.
+        ptr.pointee.on_before_popup = { _, _, _, _, _, _, _, _, _, _, _, _, _, _ in
+            1
+        }
         ptr.pointee.on_after_created = { selfPtr, browserPtr in
             guard let selfPtr, let browserPtr else { return }
             let impl = CEFHandler.object(CEFClientImpl.self, from: selfPtr)

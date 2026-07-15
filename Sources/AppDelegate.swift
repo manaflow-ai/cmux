@@ -14421,7 +14421,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return nil
         }
 
-        guard let omnibarPanel = workspace.panels[panelId] as? any OmnibarHostingPanel else {
+        guard let omnibarPanel = shortcutOmnibarPanel(panelId: panelId, in: shortcutWindow) else {
 #if DEBUG
             cmuxDebugLog(
                 "browser.focus.addressBar.shortcutContext panel=\(panelId.uuidString.prefix(5)) " +
