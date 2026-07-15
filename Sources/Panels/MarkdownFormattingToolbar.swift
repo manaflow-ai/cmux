@@ -204,7 +204,15 @@ struct MarkdownFormattingToolbar: View {
         HStack(spacing: 2) {
             ForEach(Array(Self.groups.enumerated()), id: \.offset) { index, group in
                 if index > 0 {
-                    Divider().frame(height: 14).padding(.horizontal, 4)
+                    // A fixed-size rectangle, not Divider: unbounded height
+                    // proposals during split relayout have made 1px chrome in
+                    // this pane paint far outside its row (the phantom
+                    // vertical-line family), and a hard 1×14 frame plus the
+                    // row's clip makes that impossible here.
+                    RoundedRectangle(cornerRadius: 0.5)
+                        .fill(Color.secondary.opacity(0.35))
+                        .frame(width: 1, height: 14)
+                        .padding(.horizontal, 4)
                 }
                 ForEach(group, id: \.self) { action in
                     PanelHeaderIconButton(
@@ -219,5 +227,6 @@ struct MarkdownFormattingToolbar: View {
         }
         .padding(.horizontal, 10)
         .frame(height: 30)
+        .clipped()
     }
 }
