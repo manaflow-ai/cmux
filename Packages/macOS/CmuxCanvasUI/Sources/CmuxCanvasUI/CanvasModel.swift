@@ -148,15 +148,13 @@ public final class CanvasModel {
               let panelIds = layout.panelIds(in: paneID),
               let currentIndex = panelIds.firstIndex(of: panel),
               !panelIds.isEmpty else { return false }
-        let lowerBound = panelIds.startIndex
-        let upperBound = panelIds.index(before: panelIds.endIndex)
-        let (candidateIndex, overflowed) = currentIndex.addingReportingOverflow(offset)
-        let destinationIndex: Int
-        if overflowed {
-            destinationIndex = offset > 0 ? upperBound : lowerBound
-        } else {
-            destinationIndex = min(max(candidateIndex, lowerBound), upperBound)
-        }
+        // `offset` may be Int.min/Int.max; saturate instead of trapping.
+        let (sum, overflowed) = currentIndex.addingReportingOverflow(offset)
+        let target = overflowed ? (offset > 0 ? Int.max : Int.min) : sum
+        let destinationIndex = min(
+            max(target, panelIds.startIndex),
+            panelIds.index(before: panelIds.endIndex)
+        )
         guard destinationIndex != currentIndex else { return true }
 
         layout.removePanel(panel)
