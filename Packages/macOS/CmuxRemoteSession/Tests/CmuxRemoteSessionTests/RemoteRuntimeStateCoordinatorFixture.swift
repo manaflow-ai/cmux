@@ -7,13 +7,14 @@ import Foundation
 /// Owns one ready fake tunnel and coordinator for runtime-state tests.
 final class RemoteRuntimeStateCoordinatorFixture {
     let provider = IntentionalCleanupTestTunnelProvider()
-    let host = RuntimeStateRecordingHost()
+    let host: RuntimeStateRecordingHost
     let configuration: WorkspaceRemoteConfiguration
     let broker: RemoteProxyBroker
     let coordinator: RemoteSessionCoordinator
     let lease: RemoteProxyLease
 
-    init() {
+    init(host: RuntimeStateRecordingHost = RuntimeStateRecordingHost()) {
+        self.host = host
         configuration = WorkspaceRemoteConfiguration(
             destination: "user@example.test",
             port: nil,

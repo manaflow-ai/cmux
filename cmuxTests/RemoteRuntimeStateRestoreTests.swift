@@ -12,6 +12,28 @@ import Testing
 @Suite("Remote runtime state restore", .serialized)
 struct RemoteRuntimeStateRestoreTests {
     @MainActor
+    @Test("rejects malformed runtime state publication")
+    func rejectsMalformedRuntimeStatePublication() async {
+        let workspace = Workspace()
+        let controllerID = UUID()
+        workspace.activeRemoteSessionControllerID = controllerID
+        let host = WorkspaceRemoteSessionHostAdapter(
+            workspace: workspace,
+            controllerID: controllerID
+        )
+        let accepted = await host.publishRuntimeState(RemoteRuntimeStateDocument(
+            schemaVersion: SessionSnapshotSchema.currentVersion,
+            revision: 7,
+            updatedAtUnixMilliseconds: 1_750_000_000_000,
+            state: Data("not-json".utf8),
+            ptySessions: Data("[]".utf8)
+        ))
+
+        #expect(!accepted)
+        #expect(workspace.remoteRuntimeStateRevision == 0)
+    }
+
+    @MainActor
     @Test("serializes encoding and coalesces cancelled snapshots")
     func serializesEncodingAndCoalescesCancelledSnapshots() async {
         let pipeline = RemoteRuntimeStateEncodingPipeline()

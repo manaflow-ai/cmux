@@ -1,13 +1,51 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestPersistentDaemonServerIgnoresCorruptRuntimeState(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "slot", "runtime-state.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("create runtime state directory: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("not-json"), 0o600); err != nil {
+		t.Fatalf("write corrupt runtime state: %v", err)
+	}
+	socketDir, err := os.MkdirTemp("/tmp", "cmuxd-runtime-state-*")
+	if err != nil {
+		t.Fatalf("create socket directory: %v", err)
+	}
+	defer os.RemoveAll(socketDir)
+	socketPath := filepath.Join(socketDir, "rpc.sock")
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatalf("listen unix: %v", err)
+	}
+	if err := listener.Close(); err != nil {
+		t.Fatalf("close listener: %v", err)
+	}
+	var stderr bytes.Buffer
+	err = servePersistentDaemonWithVerifierConfig(
+		listener,
+		persistentDaemonFixedTokenVerifier("token"),
+		&stderr,
+		persistentDaemonServerConfig{runtimeStateFile: path},
+	)
+	if err != nil {
+		t.Fatalf("corrupt optional runtime state stopped persistent daemon: %v", err)
+	}
+	if !strings.Contains(stderr.String(), "runtime state") {
+		t.Fatalf("missing corrupt runtime state diagnostic: %q", stderr.String())
+	}
+}
 
 func TestPersistentDaemonRuntimeStateIsSharedRevisionedAndObservable(t *testing.T) {
 	socketPath, stop := startPersistentDaemonForTest(t, "runtime-state-token")
