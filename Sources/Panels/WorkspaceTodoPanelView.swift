@@ -3,7 +3,7 @@ import CmuxWorkspaces
 import SwiftUI
 
 /// Top-level SwiftUI view for a ``WorkspaceTodoPanel``: a header (clickable
-/// status glyph, workspace title, lane name, progress) over the full
+/// status glyph, pane title, lane name, progress) over the full
 /// unclamped checklist with a pinned add field.
 ///
 /// Unlike the sidebar rows, this pane is NOT under the sidebar lazy-list
@@ -27,6 +27,7 @@ struct WorkspaceTodoPanelView: View {
                     WorkspaceTodoPaneContent(
                         workspace: workspace,
                         todoState: workspace.todoState,
+                        paneTitle: panel.displayTitle,
                         isFocused: isFocused,
                         addFieldArmToken: panel.addFieldArmToken
                     )
@@ -45,6 +46,12 @@ struct WorkspaceTodoPanelView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .contentShape(Rectangle())
         .onTapGesture { onRequestPanelFocus() }
+    }
+}
+
+enum WorkspaceTodoPaneHeaderTitle {
+    nonisolated static func title(paneTitle: String) -> String {
+        paneTitle
     }
 }
 
@@ -68,11 +75,12 @@ private final class WorkspaceTodoPanelOpaqueBackgroundView: NSView {
 }
 
 /// The pane body once the workspace is resolved. Observes the workspace (for
-/// title and inferred-status recomputes) and its todo state (for override and
-/// checklist churn) directly.
+/// inferred-status recomputes) and its todo state (for override and checklist
+/// churn) directly.
 private struct WorkspaceTodoPaneContent: View {
     @ObservedObject var workspace: Workspace
     @ObservedObject var todoState: WorkspaceTodoState
+    let paneTitle: String
     let isFocused: Bool
     /// Open-or-focus bump; re-arms the add field when `isFocused` doesn't transition.
     let addFieldArmToken: Int
@@ -104,9 +112,11 @@ private struct WorkspaceTodoPaneContent: View {
         let todoControlsEnabled = WorkspaceTodoFeature.isEnabled
         let hasOverride = todoControlsEnabled && todoState.statusOverride != nil && !resolution.shouldClearOverride
         let progress = todoState.checklist.checklistProgressSummary
+        let headerTitle = WorkspaceTodoPaneHeaderTitle.title(paneTitle: paneTitle)
 
         VStack(alignment: .leading, spacing: 0) {
             header(
+                title: headerTitle,
                 effective: todoControlsEnabled ? resolution.effective : nil,
                 inferred: inferred,
                 hasOverride: hasOverride,
@@ -175,6 +185,7 @@ private struct WorkspaceTodoPaneContent: View {
     // MARK: Header
 
     private func header(
+        title: String,
         effective: WorkspaceTaskStatus?,
         inferred: WorkspaceTaskStatus,
         hasOverride: Bool,
@@ -221,7 +232,7 @@ private struct WorkspaceTodoPaneContent: View {
                 )
                 .accessibilityIdentifier("WorkspaceTodoPaneStatusGlyph")
             }
-            Text(workspace.title)
+            Text(title)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(.primary)
                 .lineLimit(1)
