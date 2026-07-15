@@ -50,24 +50,55 @@ same op sequence, so "seed 3, iteration 1" in a commit message is a
 complete repro recipe.
 
 Everything runs against a local fixture, on any machine, with no real
-network and no MFA. Stand it up once with
-`scripts/remote-tmux-fuzz-host.sh <alias>`: a loopback-only sshd whose
-logins land in an isolated tmux server (generated keys, isolated
-`TMUX_TMPDIR`, zero risk to your own tmux). Then either
+network and no MFA.
 
-- `CMUX_TAG=<tag> scripts/remote-tmux-fuzz-marathon.sh <alias> [seeds] [iters]`
-  for an unattended multi-seed run — one driver at a time; it prints a
-  private evidence directory where every failure leaves its seed and
-  iteration, the fuzz log, the app's debug-log tail, and a process sample
-  for hangs; or
-- `scripts/remote-tmux-live-fuzz.sh <alias> <seed> <iters>` to replay one
-  seed against a running tagged app, which is how you reproduce a specific
-  commit's failure.
+Use the dedicated fuzz alias `cmux-fuzzhost`, and stand it up first:
 
-Run fuzz on a quiet machine and treat load as part of the result: settle
-budgets are latency assertions, and a loaded box manufactures failures
-that read like code bugs. Both scripts refuse to run alongside another
-driver for the same reason.
+```
+scripts/remote-tmux-fuzz-host.sh cmux-fuzzhost   # loopback-only sshd, isolated tmux
+CMUX_TAG=<tag> scripts/remote-tmux-fuzz-marathon.sh cmux-fuzzhost [seeds] [iters]
+```
+
+The host script generates a loopback sshd whose logins land in an isolated
+`TMUX_TMPDIR` the harness owns, so it can create and kill that tmux lab
+freely. Use `cmux-fuzzhost` — **not** `cmux-srvA`/`cmux-srvB`. Those are the
+render-harness/interactive loopback aliases: their `/tmp/cmux-srv*` holds a
+live interactive tmux the fuzz harness refuses to clobber, and their tmux
+dir isn't where the app's `ssh-tmux` connects, so the mirror comes up empty.
+
+`scripts/remote-tmux-live-fuzz.sh cmux-fuzzhost <seed> <iters>` replays one
+seed against a running tagged app — the way to reproduce a specific
+commit's failure. Seeds are deterministic, so "seed 3, iteration 1" is a
+complete repro.
+
+Run it on a quiet machine and treat load as part of the result: settle
+budgets are latency assertions, and a loaded box manufactures failures that
+read like code bugs.
+
+**Run it once and let it finish.** Launch in the background (or a plain
+terminal) and wait — never inside a tmux session (the per-seed reset runs
+`tmux kill-server`, which inside tmux hits your default server), and don't
+kill the wrapper mid-run: that orphans the driver, which then blocks the
+next run. Both scripts allow only one driver at a time.
+
+Setup failures and their fixes (the message tells you which):
+
+- `no workspace mirroring session 'fuzz'` — wrong host. The fuzz session's
+  tmux dir isn't where `ssh-tmux <alias>` connects, so the app mirrored the
+  default shell instead. Use `cmux-fuzzhost`.
+- `refusing to kill an unowned lab` — a stale lab tmux from an aborted run
+  or a manual `ssh cmux-fuzzhost` probe. Kill it scoped to that dir:
+  `TMUX_TMPDIR=<host's fuzz tmux dir> tmux kill-server` (never a bare
+  `kill-server`).
+- `another fuzz driver (pid N) is running` — a prior or orphaned driver
+  still holds the lock. `pkill -9 -f remote-tmux-fuzz-marathon.sh;
+  pkill -9 -f remote-tmux-live-fuzz.sh`, then remove the
+  `cmux-fuzz-marathon.lock` directory under the temp root.
+- ssh to the alias shows `REMOTE HOST IDENTIFICATION HAS CHANGED` or
+  `no such identity` — the host script was re-run and regenerated the
+  sshd host key / relocated the client key. Clear the stale host key with
+  `ssh-keygen -R "[127.0.0.1]:<port>"`, and make sure the alias's
+  `IdentityFile` points at the key the script actually wrote.
 
 ## Detailed references
 
