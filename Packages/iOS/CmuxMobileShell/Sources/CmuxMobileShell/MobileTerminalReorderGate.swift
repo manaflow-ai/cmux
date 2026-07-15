@@ -19,6 +19,11 @@ public final class MobileTerminalReorderGate {
     private var lastPresentationWorkspaceIDByOwner: [
         MobileWorkspaceOwnerIdentity: MobileWorkspacePreview.ID
     ] = [:]
+    /// One-way aliases created when an anonymous foreground workspace adopts
+    /// its durable Mac identity without changing presentation rows.
+    private var canonicalOwnerIdentityByAlias: [
+        MobileWorkspaceOwnerIdentity: MobileWorkspaceOwnerIdentity
+    ] = [:]
 
     /// Workspaces whose acknowledged mutations still need authoritative recovery.
     /// IDs are current presentation payloads; lifecycle state is owner-keyed.
@@ -78,8 +83,9 @@ public final class MobileTerminalReorderGate {
 
     /// Releases the owner only for the matching reorder operation.
     public func finish(_ reservation: MobileTerminalReorderReservation) {
-        guard activeReservationsByOwner[reservation.ownerIdentity] == reservation else { return }
-        activeReservationsByOwner[reservation.ownerIdentity] = nil
+        let ownerIdentity = canonicalOwnerIdentity(for: reservation.ownerIdentity)
+        guard activeReservationsByOwner[ownerIdentity] == reservation else { return }
+        activeReservationsByOwner[ownerIdentity] = nil
         prunePresentationAliases()
     }
 
@@ -118,21 +124,38 @@ public final class MobileTerminalReorderGate {
     }
 
     func owns(_ reservation: MobileTerminalReorderReservation) -> Bool {
-        activeReservationsByOwner[reservation.ownerIdentity] == reservation
+        activeReservationsByOwner[canonicalOwnerIdentity(for: reservation.ownerIdentity)]
+            == reservation
     }
 
     /// Rebinds presentation rows after one-Mac/multi-Mac aggregation changes IDs.
     /// State remains keyed by owner identity; old row aliases survive only while
     /// that owner is still visible or has an active/fenced lifecycle.
     func updateWorkspacePresentationIdentities(_ workspaces: [MobileWorkspacePreview]) {
+        for workspace in workspaces {
+            let incomingOwnerIdentity = MobileWorkspaceOwnerIdentity(workspace: workspace)
+            guard let previousOwnerIdentity =
+                    ownerIdentityByPresentationWorkspaceID[workspace.id] else { continue }
+            migrateAnonymousOwnerIdentityIfNeeded(
+                from: previousOwnerIdentity,
+                to: incomingOwnerIdentity
+            )
+        }
         currentPresentationWorkspaceIDByOwner = Dictionary(
             workspaces.map { workspace in
-                (MobileWorkspaceOwnerIdentity(workspace: workspace), workspace.id)
+                (
+                    canonicalOwnerIdentity(
+                        for: MobileWorkspaceOwnerIdentity(workspace: workspace)
+                    ),
+                    workspace.id
+                )
             },
             uniquingKeysWith: { current, _ in current }
         )
         for workspace in workspaces {
-            let ownerIdentity = MobileWorkspaceOwnerIdentity(workspace: workspace)
+            let ownerIdentity = canonicalOwnerIdentity(
+                for: MobileWorkspaceOwnerIdentity(workspace: workspace)
+            )
             ownerIdentityByPresentationWorkspaceID[workspace.id] = ownerIdentity
             lastPresentationWorkspaceIDByOwner[ownerIdentity] = workspace.id
         }
@@ -142,8 +165,10 @@ public final class MobileTerminalReorderGate {
     private func workspaceOwnerIdentity(
         for workspaceID: MobileWorkspacePreview.ID
     ) -> MobileWorkspaceOwnerIdentity {
-        ownerIdentityByPresentationWorkspaceID[workspaceID]
-            ?? MobileWorkspaceOwnerIdentity(fallbackPresentationID: workspaceID)
+        canonicalOwnerIdentity(
+            for: ownerIdentityByPresentationWorkspaceID[workspaceID]
+                ?? MobileWorkspaceOwnerIdentity(fallbackPresentationID: workspaceID)
+        )
     }
 
     private func rememberWorkspaceOwnerIdentity(
@@ -157,6 +182,61 @@ public final class MobileTerminalReorderGate {
         return ownerIdentity
     }
 
+    private func canonicalOwnerIdentity(
+        for ownerIdentity: MobileWorkspaceOwnerIdentity
+    ) -> MobileWorkspaceOwnerIdentity {
+        canonicalOwnerIdentityByAlias[ownerIdentity] ?? ownerIdentity
+    }
+
+    /// Re-keys every lifecycle collection together when the same RPC workspace
+    /// moves from anonymous foreground ownership to a durable Mac. Reservations
+    /// retain their immutable original owner and finish through the alias.
+    private func migrateAnonymousOwnerIdentityIfNeeded(
+        from previousOwnerIdentity: MobileWorkspaceOwnerIdentity,
+        to incomingOwnerIdentity: MobileWorkspaceOwnerIdentity
+    ) {
+        let previousOwnerIdentity = canonicalOwnerIdentity(for: previousOwnerIdentity)
+        let incomingOwnerIdentity = canonicalOwnerIdentity(for: incomingOwnerIdentity)
+        guard previousOwnerIdentity != incomingOwnerIdentity,
+              previousOwnerIdentity.ownerMacID == nil,
+              incomingOwnerIdentity.ownerMacID != nil,
+              previousOwnerIdentity.rpcWorkspaceID == incomingOwnerIdentity.rpcWorkspaceID,
+              activeReservationsByOwner[previousOwnerIdentity] == nil
+                || activeReservationsByOwner[incomingOwnerIdentity] == nil else { return }
+
+        if let reservation = activeReservationsByOwner.removeValue(
+            forKey: previousOwnerIdentity
+        ) {
+            activeReservationsByOwner[incomingOwnerIdentity] = reservation
+        }
+        if recoveringOwnerIdentities.remove(previousOwnerIdentity) != nil {
+            recoveringOwnerIdentities.insert(incomingOwnerIdentity)
+        }
+        if refreshRequiredOwnerIdentities.remove(previousOwnerIdentity) != nil {
+            refreshRequiredOwnerIdentities.insert(incomingOwnerIdentity)
+        }
+        if let presentationWorkspaceID = currentPresentationWorkspaceIDByOwner.removeValue(
+            forKey: previousOwnerIdentity
+        ), currentPresentationWorkspaceIDByOwner[incomingOwnerIdentity] == nil {
+            currentPresentationWorkspaceIDByOwner[incomingOwnerIdentity] = presentationWorkspaceID
+        }
+        if let presentationWorkspaceID = lastPresentationWorkspaceIDByOwner.removeValue(
+            forKey: previousOwnerIdentity
+        ), lastPresentationWorkspaceIDByOwner[incomingOwnerIdentity] == nil {
+            lastPresentationWorkspaceIDByOwner[incomingOwnerIdentity] = presentationWorkspaceID
+        }
+
+        let aliasesToMigrate = canonicalOwnerIdentityByAlias.compactMap { alias, target in
+            target == previousOwnerIdentity ? alias : nil
+        }
+        for alias in aliasesToMigrate {
+            canonicalOwnerIdentityByAlias[alias] = incomingOwnerIdentity
+        }
+        canonicalOwnerIdentityByAlias[previousOwnerIdentity] = incomingOwnerIdentity
+        ownerIdentityByPresentationWorkspaceID =
+            ownerIdentityByPresentationWorkspaceID.mapValues(canonicalOwnerIdentity(for:))
+    }
+
     private func prunePresentationAliases() {
         let retainedOwnerIdentities = Set(currentPresentationWorkspaceIDByOwner.keys)
             .union(activeReservationsByOwner.keys)
@@ -167,6 +247,9 @@ public final class MobileTerminalReorderGate {
         }
         lastPresentationWorkspaceIDByOwner = lastPresentationWorkspaceIDByOwner.filter {
             retainedOwnerIdentities.contains($0.key)
+        }
+        canonicalOwnerIdentityByAlias = canonicalOwnerIdentityByAlias.filter {
+            retainedOwnerIdentities.contains($0.value)
         }
     }
 }
