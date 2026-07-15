@@ -10,17 +10,9 @@ public final class BrowserAutomationDocumentReadiness {
     private var observedInstanceID: UUID?
     private var committedInstanceID: UUID?
     private var waiters: [UUID: AsyncStream<BrowserAutomationDocumentReadinessOutcome>.Continuation] = [:]
-    private let onWaiterRegistered: (@MainActor @Sendable () -> Void)?
 
     /// Creates an empty document-readiness owner.
-    public init() {
-        onWaiterRegistered = nil
-    }
-
-    /// Creates document readiness with a deterministic waiter-registration test seam.
-    init(onWaiterRegistered: @escaping @MainActor @Sendable () -> Void) {
-        self.onWaiterRegistered = onWaiterRegistered
-    }
+    public init() {}
 
     /// Starts observing a browser instance and supersedes waits for any previous instance.
     /// - Parameters:
@@ -78,7 +70,6 @@ public final class BrowserAutomationDocumentReadiness {
             bufferingPolicy: .bufferingNewest(1)
         )
         waiters[waiterID] = continuation
-        onWaiterRegistered?()
         defer {
             waiters.removeValue(forKey: waiterID)
             continuation.finish()

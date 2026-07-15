@@ -67,14 +67,15 @@ struct BrowserAutomationDocumentReadinessTests {
     func cancellationReleasesWaiter() async {
         let (registrations, registrationContinuation) = AsyncStream.makeStream(of: Void.self)
         var registrationIterator = registrations.makeAsyncIterator()
-        let readiness = BrowserAutomationDocumentReadiness {
-            registrationContinuation.yield()
-        }
+        let readiness = BrowserAutomationDocumentReadiness()
         let instanceID = UUID()
         readiness.bind(to: instanceID, hasCommittedDocument: false)
 
         let wait = Task { @MainActor in
-            await readiness.waitForCommit(instanceID: instanceID)
+            // This synchronous signal and same-actor call form one run-to-suspension
+            // region: the test cannot resume until the readiness waiter is registered.
+            registrationContinuation.yield()
+            return await readiness.waitForCommit(instanceID: instanceID)
         }
         let registered: Void? = await registrationIterator.next()
         #expect(registered != nil)
@@ -89,14 +90,13 @@ struct BrowserAutomationDocumentReadinessTests {
     func invalidationCancelsWaiter() async {
         let (registrations, registrationContinuation) = AsyncStream.makeStream(of: Void.self)
         var registrationIterator = registrations.makeAsyncIterator()
-        let readiness = BrowserAutomationDocumentReadiness {
-            registrationContinuation.yield()
-        }
+        let readiness = BrowserAutomationDocumentReadiness()
         let instanceID = UUID()
         readiness.bind(to: instanceID, hasCommittedDocument: false)
 
         let wait = Task { @MainActor in
-            await readiness.waitForCommit(instanceID: instanceID)
+            registrationContinuation.yield()
+            return await readiness.waitForCommit(instanceID: instanceID)
         }
         let registered: Void? = await registrationIterator.next()
         #expect(registered != nil)
