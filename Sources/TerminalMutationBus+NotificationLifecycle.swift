@@ -148,15 +148,26 @@ extension TerminalMutationBus {
         // capture, and pending enqueue one atomic routing boundary.
         var tabId = original.tabId
         var surfaceId = original.surfaceId
-        var visited: Set<UUID> = []
-        while visited.insert(tabId).inserted,
-              let route = notificationReplacementRoutesByTabId[tabId] {
-            surfaceId = surfaceId.map { route.panelIdMap[$0] ?? $0 }
-            tabId = route.toTabId
-        }
-        if let surfaceId,
-           let liveOwnerTabId = notificationLiveOwnerTabIdBySurfaceId[surfaceId] {
-            tabId = liveOwnerTabId
+        var visitedReplacementTabIds: Set<UUID> = []
+        var visitedLiveOwnerKeys: Set<String> = []
+        while true {
+            var changed = false
+            while visitedReplacementTabIds.insert(tabId).inserted,
+                  let route = notificationReplacementRoutesByTabId[tabId] {
+                surfaceId = surfaceId.map { route.panelIdMap[$0] ?? $0 }
+                tabId = route.toTabId
+                changed = true
+            }
+            if let surfaceId,
+               let liveOwnerTabId = notificationLiveOwnerTabIdBySurfaceId[surfaceId],
+               liveOwnerTabId != tabId {
+                let liveOwnerKey = "\(surfaceId.uuidString):\(liveOwnerTabId.uuidString)"
+                guard visitedLiveOwnerKeys.insert(liveOwnerKey).inserted else { break }
+                tabId = liveOwnerTabId
+                changed = true
+                continue
+            }
+            if !changed { break }
         }
         return QueuedTerminalNotificationKey(tabId: tabId, surfaceId: surfaceId)
     }

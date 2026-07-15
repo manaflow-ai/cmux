@@ -1315,8 +1315,11 @@ final class TerminalNotificationStore: ObservableObject {
             ? []
             : bannerOwner.map { [$0.id.uuidString] } ?? []
         let suppressExternalDelivery = shouldSuppressExternalDelivery || externalBannerTransition.suppressIncoming
+        guard commitInsertion(notification, at: insertionIndex) else {
+            restoreCooldownReservation(cooldownReservation)
+            return
+        }
         setWorkspaceManualUnread(false, forTabId: notification.tabId)
-        commitInsertion(notification, at: insertionIndex)
         commitCooldownReservation(cooldownReservation, at: acceptedAt)
 #if DEBUG
         cmuxDebugLog(
@@ -1340,12 +1343,13 @@ final class TerminalNotificationStore: ObservableObject {
         )
     }
 
-    private func commitInsertion(_ notification: TerminalNotification, at index: Int) {
+    @discardableResult
+    private func commitInsertion(_ notification: TerminalNotification, at index: Int) -> Bool {
         if index == 0, notifications.count < Self.maximumNotificationFeedCount {
             notificationFeedRevision &+= 1
             notificationFeedStorage.appendNewest(notification)
             notificationFeedDidChange(oldValue: nil, mutation: .insertion(notification))
-            return
+            return true
         }
         if index == 0, notifications.count == Self.maximumNotificationFeedCount,
            let eviction = notificationFeedStorage.appendNewestEvictingOldest(
@@ -1361,11 +1365,12 @@ final class TerminalNotificationStore: ObservableObject {
                 mutation: .insertionEvicting(inserted: notification, evicted: eviction.evicted)
             )
             dismissEvictedExternalBannerOwner(eviction.evicted)
-            return
+            return true
         }
         var updated = Array(notifications)
         updated.insert(notification, at: index)
         replaceNotificationFeed(updated, mutation: .insertion(notification))
+        return indexes.ids.contains(notification.id)
     }
 
     private func dismissEvictedExternalBannerOwner(_ evicted: TerminalNotification) {
@@ -1410,15 +1415,15 @@ final class TerminalNotificationStore: ObservableObject {
     ) {
         let previous = Array(notifications)
         let retained = Self.retainedNotificationFeed(from: next)
-        if !retained.evicted.isEmpty {
-            externalBannerOwnership.clear(ids: retained.evicted.map { $0.id.uuidString })
-        }
         notificationFeedRevision &+= 1
         notificationFeedStorage = TerminalNotificationFeedStorage(newestFirst: retained.retained)
         notificationFeedDidChange(
             oldValue: previous,
             mutation: retained.evicted.isEmpty ? mutation : nil
         )
+        for evicted in retained.evicted {
+            dismissEvictedExternalBannerOwner(evicted)
+        }
     }
 
     private func notificationFeedDidChange(
@@ -1864,6 +1869,9 @@ final class TerminalNotificationStore: ObservableObject {
         let sourceOwnersByID = Dictionary(
             uniqueKeysWithValues: externalBannerOwnership.owners(tabId: fromTabId).map { ($0.id, $0) }
         )
+        let destinationOwnersByID = Dictionary(
+            uniqueKeysWithValues: externalBannerOwnership.owners(tabId: toTabId).map { ($0.id, $0) }
+        )
         let displacedOwners = externalBannerOwnership.transfer(
             fromTabId: fromTabId,
             toTabId: toTabId,
@@ -1874,12 +1882,19 @@ final class TerminalNotificationStore: ObservableObject {
             guard displacedOwnerIDs.contains(owner.id) else { return nil }
             return SupersededPhoneDismissBuffer.key(tabId: owner.tabId, surfaceId: owner.surfaceId)
         })
-        let displacedSuperseded = supersededPhoneDismissBuffer.transfer(
+        let displacedDestinationKeys = Set<String>(destinationOwnersByID.values.compactMap { owner in
+            guard displacedOwnerIDs.contains(owner.id) else { return nil }
+            return SupersededPhoneDismissBuffer.key(tabId: owner.tabId, surfaceId: owner.surfaceId)
+        })
+        var displacedSuperseded = displacedDestinationKeys.sorted().flatMap {
+            supersededPhoneDismissBuffer.flush(forKey: $0)
+        }
+        displacedSuperseded.append(contentsOf: supersededPhoneDismissBuffer.transfer(
             fromTabId: fromTabId,
             toTabId: toTabId,
             panelIdMap: panelIdMap,
             drainingSourceKeys: displacedSourceKeys
-        )
+        ))
         dismissDisplacedExternalBannerOwners(displacedOwners, drainedSuperseded: displacedSuperseded)
     }
 
@@ -2027,6 +2042,8 @@ final class TerminalNotificationStore: ObservableObject {
                 tabId: sourceTabId,
                 surfaceId: surfaceId
             )?.retargetsToLiveSurfaceOwner == true
+            let sourceOwner = externalBannerOwnership.owner(tabId: sourceTabId, surfaceId: surfaceId)
+            let destinationOwner = externalBannerOwnership.owner(tabId: destinationTabId, surfaceId: surfaceId)
             let displacedOwner: TerminalNotification?
             if bannerOwnerRetargets {
                 displacedOwner = externalBannerOwnership.rebind(
@@ -2034,12 +2051,21 @@ final class TerminalNotificationStore: ObservableObject {
                     fromTabId: sourceTabId,
                     toTabId: destinationTabId
                 )
-                let displacedSuperseded = supersededPhoneDismissBuffer.rebind(
+                let displacedOwnerId = displacedOwner?.id
+                let sourceWasDisplaced = displacedOwnerId == sourceOwner?.id
+                let destinationWasDisplaced = displacedOwnerId == destinationOwner?.id
+                var displacedSuperseded: [String] = []
+                if destinationWasDisplaced {
+                    displacedSuperseded.append(contentsOf: supersededPhoneDismissBuffer.flush(
+                        forKey: SupersededPhoneDismissBuffer.key(tabId: destinationTabId, surfaceId: surfaceId)
+                    ))
+                }
+                displacedSuperseded.append(contentsOf: supersededPhoneDismissBuffer.rebind(
                     surfaceId: surfaceId,
                     fromTabId: sourceTabId,
                     toTabId: destinationTabId,
-                    drainSource: displacedOwner != nil
-                )
+                    drainSource: sourceWasDisplaced
+                ))
                 dismissDisplacedExternalBannerOwners(
                     displacedOwner.map { [$0] } ?? [],
                     drainedSuperseded: displacedSuperseded

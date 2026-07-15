@@ -5543,12 +5543,29 @@ extension TabManager {
             let panelId: UUID
         }
 
-        private var notificationsByTabId: [UUID: [TerminalNotification]] = [:]
+        private struct AddressedNotification {
+            let surfaceId: UUID?
+            let panelId: UUID?
+            let notification: TerminalNotification
+        }
+
+        private var workspaceNotificationsByTabId: [UUID: [TerminalNotification]] = [:]
+        private var addressedNotificationsByTabId: [UUID: [AddressedNotification]] = [:]
         private var notificationsByPanelKey: [Key: [TerminalNotification]] = [:]
 
         init(notifications: TerminalNotificationFeed) {
             for notification in notifications {
-                notificationsByTabId[notification.tabId, default: []].append(notification)
+                if notification.surfaceId == nil, notification.panelId == nil {
+                    workspaceNotificationsByTabId[notification.tabId, default: []].append(notification)
+                } else {
+                    addressedNotificationsByTabId[notification.tabId, default: []].append(
+                        AddressedNotification(
+                            surfaceId: notification.surfaceId,
+                            panelId: notification.panelId,
+                            notification: notification
+                        )
+                    )
+                }
                 if let surfaceId = notification.surfaceId {
                     notificationsByPanelKey[
                         Key(tabId: notification.tabId, panelId: surfaceId),
@@ -5564,8 +5581,18 @@ extension TabManager {
             }
         }
 
-        func notifications(forTabId tabId: UUID) -> [TerminalNotification] {
-            notificationsByTabId[tabId] ?? []
+        func workspaceAndOrphanNotifications(forTabId tabId: UUID, panelIds: Set<UUID>) -> [TerminalNotification] {
+            var result = workspaceNotificationsByTabId[tabId] ?? []
+            for addressed in addressedNotificationsByTabId[tabId] ?? [] {
+                if let surfaceId = addressed.surfaceId, panelIds.contains(surfaceId) {
+                    continue
+                }
+                if let panelId = addressed.panelId, panelIds.contains(panelId) {
+                    continue
+                }
+                result.append(addressed.notification)
+            }
+            return result
         }
 
         func notifications(forTabId tabId: UUID, panelId: UUID) -> [TerminalNotification] {
@@ -5618,11 +5645,15 @@ extension TabManager {
             hasher.combine(workspace.surfaceListeningPorts.count); workspace.combineTodoStateIntoSessionAutosaveFingerprint(into: &hasher)
             hasher.combine(notificationStore?.hasManualUnread(forTabId: workspace.id) ?? false)
             hasher.combine(notificationStore?.workspaceIsUnread(forTabId: workspace.id) ?? false)
+            let panelIds = workspace.panels.keys.sorted { $0.uuidString < $1.uuidString }
+            let panelIdSet = Set(panelIds)
             Self.hashNotifications(
-                notificationIndex?.notifications(forTabId: workspace.id) ?? [],
+                notificationIndex?.workspaceAndOrphanNotifications(
+                    forTabId: workspace.id,
+                    panelIds: panelIdSet
+                ) ?? [],
                 into: &hasher
             )
-            let panelIds = workspace.panels.keys.sorted { $0.uuidString < $1.uuidString }
             hasher.combine(panelIds.count)
             for panelId in panelIds {
                 hasher.combine(panelId)

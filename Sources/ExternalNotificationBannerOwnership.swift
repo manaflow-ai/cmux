@@ -36,7 +36,9 @@ struct ExternalNotificationBannerOwnership {
     }
 
     mutating func clear(ids: [String]) {
-        for id in ids.compactMap(UUID.init(uuidString:)) { clear(id: id) }
+        let ids = Set(ids.compactMap(UUID.init(uuidString:)))
+        guard !ids.isEmpty else { return }
+        ownerByKey = ownerByKey.filter { !ids.contains($0.value.id) }
     }
 
     mutating func clearAll() {
