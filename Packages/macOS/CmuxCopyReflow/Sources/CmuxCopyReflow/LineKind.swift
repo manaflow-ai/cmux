@@ -167,9 +167,4 @@ extension Substring {
         }
         return count
     }
-
-    /// Terminal columns used for the "is this line full?" wrap heuristic.
-    var visibleLength: Int {
-        TerminalCellWidth.columns(in: self)
-    }
 }
