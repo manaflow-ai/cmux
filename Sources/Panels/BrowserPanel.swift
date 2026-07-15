@@ -4939,6 +4939,9 @@ final class BrowserPanel: Panel, ObservableObject {
                 guard let self, self.isCurrentWebView(webView, instanceID: observedWebViewInstanceID) else { return }
                 let didChangeFullscreenBlocker = self.isElementFullscreenActive != isElementFullscreenActive
                 self.isElementFullscreenActive = isElementFullscreenActive
+                let didChangeViewportOwnership = self.reconcileAutomationViewportForElementFullscreen(
+                    isActive: isElementFullscreenActive
+                )
                 if didChangeFullscreenBlocker {
                     self.reevaluateHiddenWebViewDiscardScheduling(reason: "fullscreen_changed")
                 }
@@ -4946,6 +4949,9 @@ final class BrowserPanel: Panel, ObservableObject {
                     webView: webView,
                     reason: "fullscreenStateChanged"
                 )
+                if didChangeViewportOwnership, !isElementFullscreenActive {
+                    self.reapplyAutomationViewportAfterPageZoom()
+                }
 #if DEBUG
                 cmuxDebugLog(
                     "browser.fullscreen.state panel=\(self.id.uuidString.prefix(5)) " +
@@ -7926,7 +7932,7 @@ private extension BrowserPanel {
         if abs(webView.pageZoom - clamped) < 0.0001 {
             return false
         }
-        if let viewport = viewportModel.viewport,
+        if let viewport = viewportModel.requestedViewport,
            !BrowserViewportRenderLimits.standard.supports(
                viewport: viewport,
                pageZoom: Double(clamped)

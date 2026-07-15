@@ -56,13 +56,10 @@ enum BrowserScreenshotWebViewSnapshotter {
         from webView: WKWebView,
         afterScreenUpdates: Bool = true
     ) async throws -> NSImage {
-        let configuration = WKSnapshotConfiguration()
-        configuration.afterScreenUpdates = afterScreenUpdates
         let renderer = viewportSnapshotRenderer(for: webView)
-        configuration.snapshotWidth = renderer?.snapshotWidth
-        return try await takeSnapshot(
+        return try await captureVisibleViewport(
             from: webView,
-            configuration: configuration,
+            afterScreenUpdates: afterScreenUpdates,
             renderer: renderer
         )
     }
@@ -117,6 +114,12 @@ enum BrowserScreenshotWebViewSnapshotter {
         ) else {
             throw BrowserScreenshotError.captureAreaTooLarge
         }
+        guard let tileRenderer = viewportSnapshotRenderer(
+            outputPixelSize: viewportSize,
+            for: webView
+        ) else {
+            throw BrowserScreenshotError.captureAreaTooLarge
+        }
         var captureError: Error?
         var didCaptureTile = false
         let output = blankImage(size: contentSize)
@@ -130,7 +133,8 @@ enum BrowserScreenshotWebViewSnapshotter {
                     try await scroll(webView, to: origin)
                     let tile = try await captureVisibleViewport(
                         from: webView,
-                        afterScreenUpdates: afterScreenUpdates
+                        afterScreenUpdates: afterScreenUpdates,
+                        renderer: tileRenderer
                     )
                     drawTile(
                         tile,
@@ -515,6 +519,21 @@ enum BrowserScreenshotWebViewSnapshotter {
         }
     }
 
+    private static func captureVisibleViewport(
+        from webView: WKWebView,
+        afterScreenUpdates: Bool,
+        renderer: BrowserViewportSnapshotRenderer?
+    ) async throws -> NSImage {
+        let configuration = WKSnapshotConfiguration()
+        configuration.afterScreenUpdates = afterScreenUpdates
+        configuration.snapshotWidth = renderer?.snapshotWidth
+        return try await takeSnapshot(
+            from: webView,
+            configuration: configuration,
+            renderer: renderer
+        )
+    }
+
     private static func takeSnapshot(
         from webView: WKWebView,
         configuration: WKSnapshotConfiguration,
@@ -650,14 +669,32 @@ enum BrowserScreenshotWebViewSnapshotter {
         guard let viewport = (webView as? CmuxWebView)?.browserViewportModel?.viewport else {
             return nil
         }
-        let backingScaleFactor = webView.window?.backingScaleFactor
-            ?? NSScreen.main?.backingScaleFactor
-            ?? 1
         return BrowserViewportSnapshotRenderer(
             plan: BrowserViewportSnapshotPlan(
                 viewport: viewport,
-                backingScaleFactor: Double(backingScaleFactor)
+                backingScaleFactor: snapshotBackingScaleFactor(for: webView)
             )
+        )
+    }
+
+    private static func viewportSnapshotRenderer(
+        outputPixelSize: NSSize,
+        for webView: WKWebView
+    ) -> BrowserViewportSnapshotRenderer? {
+        guard let plan = BrowserViewportSnapshotPlan(
+            outputPixelSize: outputPixelSize,
+            backingScaleFactor: snapshotBackingScaleFactor(for: webView)
+        ) else {
+            return nil
+        }
+        return BrowserViewportSnapshotRenderer(plan: plan)
+    }
+
+    private static func snapshotBackingScaleFactor(for webView: WKWebView) -> Double {
+        Double(
+            webView.window?.backingScaleFactor
+                ?? NSScreen.main?.backingScaleFactor
+                ?? 1
         )
     }
 

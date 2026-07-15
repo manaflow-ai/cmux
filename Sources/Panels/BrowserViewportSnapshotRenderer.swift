@@ -13,7 +13,24 @@ struct BrowserViewportSnapshotRenderer {
         let height = Int(plan.outputPixelSize.height.rounded())
         guard width > 0,
               height > 0,
-              plan.outputPixelCount <= BrowserViewportSnapshotPlan.maximumOutputPixelCount,
+              plan.outputPixelCount <= BrowserViewportSnapshotPlan.maximumOutputPixelCount else {
+            return nil
+        }
+
+        let outputSize = NSSize(width: width, height: height)
+        if let representation = image.representations.first(where: { representation in
+            plan.canReuseSourcePixels(CGSize(
+                width: representation.pixelsWide,
+                height: representation.pixelsHigh
+            ))
+        }) {
+            guard image.size != outputSize else { return image }
+            let output = NSImage(size: outputSize)
+            output.addRepresentation(representation)
+            return output
+        }
+
+        guard
               let bitmap = NSBitmapImageRep(
                   bitmapDataPlanes: nil,
                   pixelsWide: width,
@@ -30,7 +47,6 @@ struct BrowserViewportSnapshotRenderer {
             return nil
         }
 
-        let outputSize = NSSize(width: width, height: height)
         bitmap.size = outputSize
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = context

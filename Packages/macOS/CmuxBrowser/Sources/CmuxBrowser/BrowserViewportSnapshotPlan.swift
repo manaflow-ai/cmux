@@ -28,4 +28,53 @@ public struct BrowserViewportSnapshotPlan: Equatable, Sendable {
         outputPixelSize = viewport.size
         outputPixelCount = viewport.width * viewport.height
     }
+
+    /// Creates a bounded snapshot plan for a CSS-pixel output size.
+    ///
+    /// This initializer supports native page-zoom captures, whose CSS viewport can differ from
+    /// the WebView's AppKit bounds even when no emulated viewport is active.
+    ///
+    /// - Parameters:
+    ///   - outputPixelSize: Desired exported bitmap dimensions in CSS pixels.
+    ///   - backingScaleFactor: Pixels per AppKit point for the WebView's window.
+    public init?(outputPixelSize: CGSize, backingScaleFactor: Double) {
+        guard outputPixelSize.width.isFinite,
+              outputPixelSize.height.isFinite,
+              outputPixelSize.width > 0,
+              outputPixelSize.height > 0 else {
+            return nil
+        }
+
+        let pixelWidth = outputPixelSize.width.rounded(.up)
+        let pixelHeight = outputPixelSize.height.rounded(.up)
+        guard pixelWidth <= Double(Int.max),
+              pixelHeight <= Double(Int.max) else {
+            return nil
+        }
+        let width = Int(pixelWidth)
+        let height = Int(pixelHeight)
+        let (pixelCount, overflowed) = width.multipliedReportingOverflow(by: height)
+        guard !overflowed, pixelCount <= Self.maximumOutputPixelCount else {
+            return nil
+        }
+
+        let resolvedScale = backingScaleFactor.isFinite && backingScaleFactor > 0
+            ? backingScaleFactor
+            : 1
+        snapshotPointWidth = pixelWidth / resolvedScale
+        self.outputPixelSize = CGSize(width: width, height: height)
+        outputPixelCount = pixelCount
+    }
+
+    /// Returns whether an existing image representation already has the planned pixel dimensions.
+    public func canReuseSourcePixels(_ sourcePixelSize: CGSize, tolerance: Double = 0.5) -> Bool {
+        guard sourcePixelSize.width.isFinite,
+              sourcePixelSize.height.isFinite,
+              tolerance.isFinite,
+              tolerance >= 0 else {
+            return false
+        }
+        return abs(sourcePixelSize.width - outputPixelSize.width) <= tolerance
+            && abs(sourcePixelSize.height - outputPixelSize.height) <= tolerance
+    }
 }

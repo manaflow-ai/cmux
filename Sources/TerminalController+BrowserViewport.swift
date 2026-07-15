@@ -54,6 +54,18 @@ extension TerminalController {
                         "supported_modes": ["native", "emulated"],
                     ]
                 )
+            case .failure(.elementFullscreen):
+                return .err(
+                    code: "invalid_state",
+                    message: String(
+                        localized: "browser.viewport.error.elementFullscreen",
+                        defaultValue: "Exit browser element fullscreen before changing the browser viewport"
+                    ),
+                    data: [
+                        "reason": "element_fullscreen",
+                        "supported_modes": ["native", "emulated"],
+                    ]
+                )
             case let .failure(.renderGeometryTooLarge(
                 requestedPageZoom,
                 maximumPageZoom

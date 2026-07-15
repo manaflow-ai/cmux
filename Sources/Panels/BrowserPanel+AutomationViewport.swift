@@ -7,6 +7,9 @@ extension BrowserPanel {
         _ viewport: BrowserViewport?
     ) -> Result<BrowserViewportLayout, BrowserAutomationViewportError> {
         let webView = webView
+        guard !webView.cmuxIsElementFullscreenActiveOrTransitioning else {
+            return .failure(.elementFullscreen)
+        }
         if let host = webView.superview,
            host.browserPortalHasVisibleWebKitCompanionSubview(for: webView) {
             return .failure(.attachedBrowserInspector)
@@ -42,7 +45,8 @@ extension BrowserPanel {
     }
 
     func reapplyAutomationViewportAfterPageZoom() {
-        guard let viewport = viewportModel.viewport,
+        guard !webView.cmuxIsElementFullscreenActiveOrTransitioning,
+              let viewport = viewportModel.viewport,
               let host = webView.superview else {
             return
         }
@@ -59,6 +63,14 @@ extension BrowserPanel {
         } else {
             webView.cmuxApplyBrowserViewportLayout(in: host.bounds)
         }
+    }
+
+    @discardableResult
+    func reconcileAutomationViewportForElementFullscreen(isActive: Bool) -> Bool {
+        if isActive {
+            return viewportModel.suspendForExternalGeometry()
+        }
+        return viewportModel.resumeAfterExternalGeometry() != nil
     }
 
     @discardableResult
