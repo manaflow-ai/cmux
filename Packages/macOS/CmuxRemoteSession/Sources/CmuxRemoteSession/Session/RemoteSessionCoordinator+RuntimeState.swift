@@ -1,7 +1,19 @@
 internal import CmuxRemoteDaemon
 public import Foundation
 
+private enum RuntimeStateFetchResult: Sendable {
+    case success(RemoteRuntimeStateDocument?)
+    case failure(String)
+}
+
+private enum RuntimeStatePutResult: Sendable {
+    case success(RemoteRuntimeStateDocument)
+    case failure(String)
+}
+
 extension RemoteSessionCoordinator {
+    private static let maximumRuntimeStateRetryCount = 5
+
     /// Queues the latest workspace snapshot for the authoritative daemon slot.
     ///
     /// The initial ready transition always fetches first. An existing server
@@ -32,6 +44,9 @@ extension RemoteSessionCoordinator {
                 baseRevision: baseRevision ?? self.lastKnownRuntimeStateRevision
             )
             self.pendingRuntimeStateUpload = upload
+            if self.runtimeStateRetrySuspended {
+                self.cancelRuntimeStateRetryLocked(resetCount: true)
+            }
             guard self.runtimeStatePublicationTask == nil else {
                 self.debugLog("remote.runtimeState.defer reason=awaitingHostPublication")
                 return
@@ -44,45 +59,22 @@ extension RemoteSessionCoordinator {
     func synchronizeRuntimeStateLocked() {
         guard runtimeStateCapabilityAvailable,
               !runtimeStateSynchronized,
+              runtimeStateRPCTask == nil,
               runtimeStatePublicationTask == nil,
               proxyLease != nil else { return }
         cancelRuntimeStateRetryLocked(resetCount: false)
         let isInitialSynchronization = !hasCompletedInitialRuntimeStateSynchronization
         let previousRevision = lastKnownRuntimeStateRevision
-        do {
-            if let document = try proxyBroker.getRuntimeState(configuration: configuration) {
-                pendingAuthoritativeRuntimeStateDocument = nil
-                lastKnownRuntimeStateRevision = document.revision
-                if isInitialSynchronization {
-                    pendingRuntimeStateUpload = nil
-                    publishRuntimeStateToHostLocked(document)
-                } else if let pendingRuntimeStateUpload,
-                          pendingRuntimeStateUpload.baseRevision == previousRevision,
-                          document.revision == previousRevision {
-                    // The server has not advanced while this client was offline;
-                    // preserve and conditionally commit the local edit.
-                    completeRuntimeStateSynchronizationLocked()
-                } else {
-                    pendingRuntimeStateUpload = nil
-                    publishRuntimeStateToHostLocked(document)
-                }
-            } else {
-                lastKnownRuntimeStateRevision = 0
-                publishRuntimeStateRevisionToHostLocked(
-                    0,
-                    completesSynchronization: true
-                )
-            }
-        } catch {
-            runtimeStateSynchronized = false
-            debugLog("remote.runtimeState.fetchFailed error=\(error.localizedDescription)")
-            scheduleRuntimeStateRetryLocked(reason: "fetchFailed")
-        }
+        beginRuntimeStateFetchLocked(
+            isInitialSynchronization: isInitialSynchronization,
+            previousRevision: previousRevision
+        )
     }
 
     func flushPendingRuntimeStateUploadLocked() {
         guard runtimeStateCapabilityAvailable,
               runtimeStateSynchronized,
+              runtimeStateRPCTask == nil,
               runtimeStatePublicationTask == nil,
               proxyLease != nil,
               let upload = pendingRuntimeStateUpload else { return }
@@ -97,24 +89,143 @@ extension RemoteSessionCoordinator {
             )
             return
         }
-        do {
-            let document = try proxyBroker.putRuntimeState(
-                configuration: configuration,
-                schemaVersion: upload.schemaVersion,
-                state: upload.state,
-                expectedRevision: lastKnownRuntimeStateRevision
-            )
-            guard pendingRuntimeStateUpload?.state == upload.state else { return }
-            pendingRuntimeStateUpload = nil
-            lastKnownRuntimeStateRevision = document.revision
+        beginRuntimeStatePutLocked(upload)
+    }
+
+    private func beginRuntimeStateFetchLocked(
+        isInitialSynchronization: Bool,
+        previousRevision: UInt64
+    ) {
+        precondition(runtimeStateRPCTask == nil)
+        runtimeStateRPCGeneration &+= 1
+        let generation = runtimeStateRPCGeneration
+        let leaseGeneration = proxyLeaseGeneration
+        let proxyBroker = proxyBroker
+        let configuration = configuration
+        runtimeStateUploadInFlight = nil
+        runtimeStateRPCTask = Task { [weak self] in
+            let result: RuntimeStateFetchResult = await withCheckedContinuation { continuation in
+                DispatchQueue.global(qos: .utility).async {
+                    do {
+                        continuation.resume(returning: .success(
+                            try proxyBroker.getRuntimeState(configuration: configuration)
+                        ))
+                    } catch {
+                        continuation.resume(returning: .failure(error.localizedDescription))
+                    }
+                }
+            }
+            guard !Task.isCancelled else { return }
+            self?.queue.async { [weak self] in
+                guard let self,
+                      !self.isStopping,
+                      self.runtimeStateCapabilityAvailable,
+                      self.proxyLease != nil,
+                      self.proxyLeaseGeneration == leaseGeneration,
+                      self.runtimeStateRPCGeneration == generation else { return }
+                self.runtimeStateRPCTask = nil
+                self.runtimeStateUploadInFlight = nil
+                switch result {
+                case .success(let document):
+                    self.handleRuntimeStateFetchSuccessLocked(
+                        document,
+                        isInitialSynchronization: isInitialSynchronization,
+                        previousRevision: previousRevision
+                    )
+                case .failure(let detail):
+                    self.runtimeStateSynchronized = false
+                    self.debugLog("remote.runtimeState.fetchFailed error=\(detail)")
+                    self.scheduleRuntimeStateRetryLocked(reason: "fetchFailed")
+                }
+            }
+        }
+    }
+
+    private func handleRuntimeStateFetchSuccessLocked(
+        _ document: RemoteRuntimeStateDocument?,
+        isInitialSynchronization: Bool,
+        previousRevision: UInt64
+    ) {
+        guard let document else {
+            lastKnownRuntimeStateRevision = 0
             publishRuntimeStateRevisionToHostLocked(
-                document.revision,
-                rebasingPendingFrom: upload.baseRevision
+                0,
+                completesSynchronization: true
             )
-        } catch {
-            runtimeStateSynchronized = false
-            debugLog("remote.runtimeState.putFailed error=\(error.localizedDescription)")
-            scheduleRuntimeStateRetryLocked(reason: "putFailed")
+            return
+        }
+        pendingAuthoritativeRuntimeStateDocument = nil
+        lastKnownRuntimeStateRevision = document.revision
+        if isInitialSynchronization {
+            pendingRuntimeStateUpload = nil
+            publishRuntimeStateToHostLocked(document)
+        } else if let pendingRuntimeStateUpload,
+                  pendingRuntimeStateUpload.baseRevision == previousRevision,
+                  document.revision == previousRevision {
+            // The server has not advanced while this client was offline;
+            // preserve and conditionally commit the local edit.
+            completeRuntimeStateSynchronizationLocked()
+        } else {
+            pendingRuntimeStateUpload = nil
+            publishRuntimeStateToHostLocked(document)
+        }
+    }
+
+    private func beginRuntimeStatePutLocked(_ upload: RemoteRuntimeStateUpload) {
+        precondition(runtimeStateRPCTask == nil)
+        runtimeStateRPCGeneration &+= 1
+        let generation = runtimeStateRPCGeneration
+        let leaseGeneration = proxyLeaseGeneration
+        let expectedRevision = lastKnownRuntimeStateRevision
+        let proxyBroker = proxyBroker
+        let configuration = configuration
+        runtimeStateUploadInFlight = upload
+        runtimeStateRPCTask = Task { [weak self] in
+            let result: RuntimeStatePutResult = await withCheckedContinuation { continuation in
+                DispatchQueue.global(qos: .utility).async {
+                    do {
+                        continuation.resume(returning: .success(
+                            try proxyBroker.putRuntimeState(
+                                configuration: configuration,
+                                schemaVersion: upload.schemaVersion,
+                                state: upload.state,
+                                expectedRevision: expectedRevision
+                            )
+                        ))
+                    } catch {
+                        continuation.resume(returning: .failure(error.localizedDescription))
+                    }
+                }
+            }
+            guard !Task.isCancelled else { return }
+            self?.queue.async { [weak self] in
+                guard let self,
+                      !self.isStopping,
+                      self.runtimeStateCapabilityAvailable,
+                      self.proxyLease != nil,
+                      self.proxyLeaseGeneration == leaseGeneration,
+                      self.runtimeStateRPCGeneration == generation else { return }
+                self.runtimeStateRPCTask = nil
+                self.runtimeStateUploadInFlight = nil
+                switch result {
+                case .success(let document):
+                    if let pendingUpload = self.pendingRuntimeStateUpload,
+                       pendingUpload.schemaVersion == upload.schemaVersion,
+                       pendingUpload.state == upload.state,
+                       pendingUpload.baseRevision == upload.baseRevision {
+                        self.pendingRuntimeStateUpload = nil
+                    }
+                    self.lastKnownRuntimeStateRevision = document.revision
+                    self.publishRuntimeStateRevisionToHostLocked(
+                        document.revision,
+                        rebasingPendingFrom: upload.baseRevision
+                    )
+                case .failure(let detail):
+                    self.runtimeStateSynchronized = false
+                    self.debugLog("remote.runtimeState.putFailed error=\(detail)")
+                    self.scheduleRuntimeStateRetryLocked(reason: "putFailed")
+                }
+            }
         }
     }
 
@@ -127,6 +238,14 @@ extension RemoteSessionCoordinator {
               proxyLease != nil,
               proxyLeaseGeneration == leaseGeneration,
               document.revision > lastKnownRuntimeStateRevision else { return }
+        if let upload = runtimeStateUploadInFlight,
+           document.revision - lastKnownRuntimeStateRevision == 1,
+           document.schemaVersion == upload.schemaVersion,
+           document.state == upload.state {
+            debugLog("remote.runtimeState.ignore reason=localPutEcho revision=\(document.revision)")
+            return
+        }
+        cancelRuntimeStateRPCLocked()
         cancelRuntimeStateRetryLocked(resetCount: false)
         pendingRuntimeStateUpload = nil
         runtimeStateSynchronized = false
@@ -147,12 +266,20 @@ extension RemoteSessionCoordinator {
         runtimeStatePublicationTask = nil
     }
 
+    func cancelRuntimeStateRPCLocked() {
+        runtimeStateRPCGeneration &+= 1
+        runtimeStateRPCTask?.cancel()
+        runtimeStateRPCTask = nil
+        runtimeStateUploadInFlight = nil
+    }
+
     func cancelRuntimeStateRetryLocked(resetCount: Bool) {
         runtimeStateRetryTask?.cancel()
         runtimeStateRetryTask = nil
         runtimeStateRetryToken = nil
         if resetCount {
             runtimeStateRetryCount = 0
+            runtimeStateRetrySuspended = false
         }
     }
 
@@ -160,7 +287,16 @@ extension RemoteSessionCoordinator {
         guard !isStopping,
               runtimeStateCapabilityAvailable,
               proxyLease != nil,
-              runtimeStateRetryTask == nil else { return }
+              runtimeStateRetryTask == nil,
+              !runtimeStateRetrySuspended else { return }
+        guard runtimeStateRetryCount < Self.maximumRuntimeStateRetryCount else {
+            runtimeStateRetrySuspended = true
+            debugLog(
+                "remote.runtimeState.retrySuspended reason=\(reason) " +
+                    "attempts=\(runtimeStateRetryCount)"
+            )
+            return
+        }
         runtimeStateRetryCount += 1
         let delayMilliseconds = Self.runtimeStateRetryDelayMilliseconds(
             retry: runtimeStateRetryCount

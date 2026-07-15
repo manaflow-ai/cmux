@@ -74,6 +74,7 @@ extension RemoteSessionCoordinator {
 
     func releaseProxyLeaseLocked() {
         proxyLeaseGeneration &+= 1
+        cancelRuntimeStateRPCLocked()
         cancelRuntimeStatePublicationLocked()
         cancelRuntimeStateRetryLocked(resetCount: true)
         pendingAuthoritativeRuntimeStateDocument = nil

@@ -85,11 +85,14 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     var pendingRuntimeStateUpload: RemoteRuntimeStateUpload?
     var pendingAuthoritativeRuntimeStateDocument: RemoteRuntimeStateDocument?
     var runtimeStateRPCTask: Task<Void, Never>?
+    var runtimeStateRPCGeneration: UInt64 = 0
+    var runtimeStateUploadInFlight: RemoteRuntimeStateUpload?
     var runtimeStatePublicationTask: Task<Void, Never>?
     var runtimeStatePublicationGeneration: UInt64 = 0
     var runtimeStateRetryTask: Task<Void, Never>?
     var runtimeStateRetryToken: UUID?
     var runtimeStateRetryCount = 0
+    var runtimeStateRetrySuspended = false
     var reverseRelayProcess: Process?
     var reverseRelayControlMasterForwardSpec: String?
     var cliRelayServer: RemoteCLIRelayServer?
