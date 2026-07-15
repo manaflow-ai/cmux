@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Applies one bounded liveness deadline before asking a browser surface to replace an unresponsive WebView.
 ///
@@ -21,6 +21,8 @@ public final class BrowserAutomationWatchdog {
 
     private let probeTimeout: Duration
     private let sleep: Sleep
+    private var inFlightObservedInstanceID: UUID?
+    private var inFlightWaiters: [CheckedContinuation<BrowserAutomationRecoveryOutcome, Never>] = []
 
     /// Creates a browser automation watchdog.
     /// - Parameters:
@@ -35,17 +37,44 @@ public final class BrowserAutomationWatchdog {
     }
 
     /// Probes every relevant browser automation callback channel and recovers when any callback misses its deadline.
+    ///
+    /// Concurrent checks for the same browser instance join the first check and receive its outcome. A check for
+    /// a newer instance supersedes callers waiting on the old instance without starting duplicate recovery work.
     /// - Parameters:
+    ///   - observedInstanceID: Stable identity of the browser instance whose failed operation triggered the check.
     ///   - probes: Cheap, side-effect-free liveness operations. An empty collection is treated as responsive.
     ///   - recover: Replaces the WebView if it is still the instance observed by the failed operation.
     /// - Returns: The liveness or recovery outcome.
     public func recoverIfUnresponsive(
+        observedInstanceID: UUID,
         probes: [Probe],
         recover: Recovery
     ) async -> BrowserAutomationRecoveryOutcome {
         guard !Task.isCancelled else { return .cancelled }
         guard !probes.isEmpty else { return .responsive }
 
+        if inFlightObservedInstanceID == observedInstanceID {
+            return await withCheckedContinuation { continuation in
+                inFlightWaiters.append(continuation)
+            }
+        }
+
+        if inFlightObservedInstanceID != nil {
+            finishInFlightRecovery(with: .superseded)
+        }
+
+        inFlightObservedInstanceID = observedInstanceID
+        let outcome = await performRecovery(probes: probes, recover: recover)
+        guard inFlightObservedInstanceID == observedInstanceID else { return .superseded }
+
+        finishInFlightRecovery(with: outcome)
+        return outcome
+    }
+
+    private func performRecovery(
+        probes: [Probe],
+        recover: Recovery
+    ) async -> BrowserAutomationRecoveryOutcome {
         let (signals, continuation) = AsyncStream.makeStream(
             of: Int.self,
             bufferingPolicy: .bufferingOldest(probes.count)
@@ -95,6 +124,15 @@ public final class BrowserAutomationWatchdog {
             return recover() ? .recovered : .superseded
         case .cancelled:
             return .cancelled
+        }
+    }
+
+    private func finishInFlightRecovery(with outcome: BrowserAutomationRecoveryOutcome) {
+        let waiters = inFlightWaiters
+        inFlightWaiters.removeAll()
+        inFlightObservedInstanceID = nil
+        for waiter in waiters {
+            waiter.resume(returning: outcome)
         }
     }
 }

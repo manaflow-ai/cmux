@@ -2739,8 +2739,9 @@ final class BrowserPanel: Panel, ObservableObject {
     /// The underlying web view
     private(set) var webView: WKWebView
     private var websiteDataStore: WKWebsiteDataStore
-    private var browserAutomationInitScripts: [WKUserScript] = []
-    private var browserAutomationStyleScripts: [WKUserScript] = []
+    private var browserAutomationUserScripts: [WKUserScript] = []
+    private var browserAutomationInitScriptCount = 0
+    private var browserAutomationStyleScriptCount = 0
     var webViewDidRequestClose: (() -> Void)?
 
     /// Monotonic identity for the current WKWebView instance.
@@ -3568,15 +3569,23 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func registerBrowserAutomationInitScript(_ userScript: WKUserScript) -> Int {
-        browserAutomationInitScripts.append(userScript)
+        browserAutomationUserScripts.append(userScript)
+        browserAutomationInitScriptCount += 1
         webView.configuration.userContentController.addUserScript(userScript)
-        return browserAutomationInitScripts.count
+        return browserAutomationInitScriptCount
     }
 
     func registerBrowserAutomationStyleScript(_ userScript: WKUserScript) -> Int {
-        browserAutomationStyleScripts.append(userScript)
+        browserAutomationUserScripts.append(userScript)
+        browserAutomationStyleScriptCount += 1
         webView.configuration.userContentController.addUserScript(userScript)
-        return browserAutomationStyleScripts.count
+        return browserAutomationStyleScriptCount
+    }
+
+    private func clearBrowserAutomationUserScripts() {
+        browserAutomationUserScripts.removeAll()
+        browserAutomationInitScriptCount = 0
+        browserAutomationStyleScriptCount = 0
     }
 
     private func makeReplacementWebView(
@@ -3587,7 +3596,7 @@ final class BrowserPanel: Panel, ObservableObject {
             profileID: profileID,
             websiteDataStore: websiteDataStore
         )
-        for userScript in browserAutomationInitScripts + browserAutomationStyleScripts {
+        for userScript in browserAutomationUserScripts {
             replacement.configuration.userContentController.addUserScript(userScript)
         }
         return replacement
@@ -4597,6 +4606,7 @@ final class BrowserPanel: Panel, ObservableObject {
         remoteProxyEndpoint = bypassesRemoteWorkspaceProxy ? nil : proxyEndpoint
         remoteWorkspaceStatus = remoteStatus
         if needsStoreSwap {
+            clearBrowserAutomationUserScripts()
             replaceWebViewPreservingState(
                 from: webView,
                 websiteDataStore: targetStore,
@@ -4657,7 +4667,8 @@ final class BrowserPanel: Panel, ObservableObject {
             websiteDataStore = BrowserProfileStore.shared.websiteDataStore(for: resolvedProfileID)
         }
 
-        let replacement = makeReplacementWebView(
+        clearBrowserAutomationUserScripts()
+        let replacement = Self.makeWebView(
             profileID: resolvedProfileID,
             websiteDataStore: websiteDataStore
         )
@@ -6191,7 +6202,8 @@ extension BrowserPanel {
         oldWebView.uiDelegate = nil
         if let oldCmuxWebView = oldWebView as? CmuxWebView { oldCmuxWebView.clearBrowserDownloadCallbacks() }
 
-        let replacement = makeReplacementWebView(
+        clearBrowserAutomationUserScripts()
+        let replacement = Self.makeWebView(
             profileID: profileID,
             websiteDataStore: websiteDataStore
         )

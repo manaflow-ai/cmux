@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 @testable import CmuxBrowser
@@ -15,6 +16,7 @@ struct BrowserAutomationWatchdogTests {
         )
 
         let outcome = await watchdog.recoverIfUnresponsive(
+            observedInstanceID: UUID(),
             probes: [{ finish in finish() }],
             recover: {
                 recoveryCount += 1
@@ -32,6 +34,7 @@ struct BrowserAutomationWatchdogTests {
         let watchdog = BrowserAutomationWatchdog(sleep: { _ in })
 
         let outcome = await watchdog.recoverIfUnresponsive(
+            observedInstanceID: UUID(),
             probes: [{ _ in }],
             recover: {
                 recoveryCount += 1
@@ -49,6 +52,7 @@ struct BrowserAutomationWatchdogTests {
         let watchdog = BrowserAutomationWatchdog(sleep: { _ in })
 
         let outcome = await watchdog.recoverIfUnresponsive(
+            observedInstanceID: UUID(),
             probes: [{ _ in }],
             recover: {
                 recoveryCount += 1
@@ -66,6 +70,7 @@ struct BrowserAutomationWatchdogTests {
         let watchdog = BrowserAutomationWatchdog(sleep: { _ in })
 
         let outcome = await watchdog.recoverIfUnresponsive(
+            observedInstanceID: UUID(),
             probes: [
                 { _ in },
                 { finish in finish() },
@@ -86,6 +91,7 @@ struct BrowserAutomationWatchdogTests {
         let watchdog = BrowserAutomationWatchdog()
 
         let outcome = await watchdog.recoverIfUnresponsive(
+            observedInstanceID: UUID(),
             probes: [
                 { finish in finish() },
                 { finish in finish() },
@@ -111,6 +117,7 @@ struct BrowserAutomationWatchdogTests {
         )
         var probeStartsIterator = probeStarts.makeAsyncIterator()
         let watchdog = BrowserAutomationWatchdog()
+        let observedInstanceID = UUID()
         let probe: BrowserAutomationWatchdog.Probe = { finish in
             probeCount += 1
             pendingProbeCompletions.append(finish)
@@ -122,13 +129,21 @@ struct BrowserAutomationWatchdogTests {
         }
 
         let firstCheck = Task { @MainActor in
-            await watchdog.recoverIfUnresponsive(probes: [probe], recover: recover)
+            await watchdog.recoverIfUnresponsive(
+                observedInstanceID: observedInstanceID,
+                probes: [probe],
+                recover: recover
+            )
         }
         let firstProbeStarted: Void? = await probeStartsIterator.next()
         #expect(firstProbeStarted != nil)
 
         let secondCheck = Task { @MainActor in
-            await watchdog.recoverIfUnresponsive(probes: [probe], recover: recover)
+            await watchdog.recoverIfUnresponsive(
+                observedInstanceID: observedInstanceID,
+                probes: [probe],
+                recover: recover
+            )
         }
         await Task.yield()
 
@@ -156,6 +171,7 @@ struct BrowserAutomationWatchdogTests {
         )
         var probeStartsIterator = probeStarts.makeAsyncIterator()
         let watchdog = BrowserAutomationWatchdog()
+        let observedInstanceID = UUID()
         let probe: BrowserAutomationWatchdog.Probe = { _ in
             probeCount += 1
             probeStartsContinuation.yield()
@@ -163,13 +179,21 @@ struct BrowserAutomationWatchdogTests {
         let recover: BrowserAutomationWatchdog.Recovery = { true }
 
         let firstCheck = Task { @MainActor in
-            await watchdog.recoverIfUnresponsive(probes: [probe], recover: recover)
+            await watchdog.recoverIfUnresponsive(
+                observedInstanceID: observedInstanceID,
+                probes: [probe],
+                recover: recover
+            )
         }
         let firstProbeStarted: Void? = await probeStartsIterator.next()
         #expect(firstProbeStarted != nil)
 
         let secondCheck = Task { @MainActor in
-            await watchdog.recoverIfUnresponsive(probes: [probe], recover: recover)
+            await watchdog.recoverIfUnresponsive(
+                observedInstanceID: observedInstanceID,
+                probes: [probe],
+                recover: recover
+            )
         }
         await Task.yield()
         firstCheck.cancel()

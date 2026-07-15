@@ -8,10 +8,12 @@ extension BrowserPanel {
         channel: BrowserAutomationProbeChannel
     ) async -> BrowserAutomationRecoveryOutcome {
         guard ObjectIdentifier(webView) == expectedWebViewIdentifier else { return .superseded }
+        let observedWebViewInstanceID = webViewInstanceID
 
         let asyncJavaScriptProbe: BrowserAutomationWatchdog.Probe = { [weak self] finish in
             guard let self,
-                  ObjectIdentifier(webView) == expectedWebViewIdentifier else {
+                  ObjectIdentifier(webView) == expectedWebViewIdentifier,
+                  webViewInstanceID == observedWebViewInstanceID else {
                 finish()
                 return
             }
@@ -24,7 +26,8 @@ extension BrowserPanel {
         }
         let evaluationProbe: BrowserAutomationWatchdog.Probe = { [weak self] finish in
             guard let self,
-                  ObjectIdentifier(webView) == expectedWebViewIdentifier else {
+                  ObjectIdentifier(webView) == expectedWebViewIdentifier,
+                  webViewInstanceID == observedWebViewInstanceID else {
                 finish()
                 return
             }
@@ -32,7 +35,8 @@ extension BrowserPanel {
         }
         let snapshotProbe: BrowserAutomationWatchdog.Probe = { [weak self] finish in
             guard let self,
-                  ObjectIdentifier(webView) == expectedWebViewIdentifier else {
+                  ObjectIdentifier(webView) == expectedWebViewIdentifier,
+                  webViewInstanceID == observedWebViewInstanceID else {
                 finish()
                 return
             }
@@ -40,16 +44,11 @@ extension BrowserPanel {
             configuration.rect = NSRect(x: 0, y: 0, width: 1, height: 1)
             webView.takeSnapshot(with: configuration) { _, _ in finish() }
         }
-        let probes: [BrowserAutomationWatchdog.Probe]
-        switch channel {
-        case .javaScript:
-            probes = [asyncJavaScriptProbe]
-        case .screenshot:
-            probes = [evaluationProbe, snapshotProbe]
-        }
-
         let outcome = await automationWatchdog.recoverIfUnresponsive(
-            probes: probes,
+            observedInstanceID: observedWebViewInstanceID,
+            // One WebContent process services every automation API. Probing all callback channels
+            // lets JavaScript and screenshot callers safely share this single in-flight check.
+            probes: [asyncJavaScriptProbe, evaluationProbe, snapshotProbe],
             recover: { [weak self] in
                 self?.replaceWebViewAfterAutomationTimeout(
                     expectedWebViewIdentifier: expectedWebViewIdentifier,
@@ -59,7 +58,8 @@ extension BrowserPanel {
         )
 
         if outcome == .responsive,
-           ObjectIdentifier(webView) != expectedWebViewIdentifier {
+           (ObjectIdentifier(webView) != expectedWebViewIdentifier
+               || webViewInstanceID != observedWebViewInstanceID) {
             return .superseded
         }
         return outcome
