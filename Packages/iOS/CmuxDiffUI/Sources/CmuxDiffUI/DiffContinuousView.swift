@@ -1,3 +1,4 @@
+import CmuxMobileRPC
 import SwiftUI
 
 struct DiffContinuousView: View {
@@ -10,6 +11,8 @@ struct DiffContinuousView: View {
     let additions: Int
     let deletions: Int
     let baseLabel: String
+    let baseKind: MobileDiffBaseKind
+    let ignoreWhitespace: Bool
     let renderMode: DiffRenderMode
     let scrollTarget: String?
     let scrollRequestID: Int
@@ -23,6 +26,8 @@ struct DiffContinuousView: View {
         additions: Int,
         deletions: Int,
         baseLabel: String,
+        baseKind: MobileDiffBaseKind,
+        ignoreWhitespace: Bool,
         renderMode: DiffRenderMode,
         scrollTarget: String?,
         scrollRequestID: Int,
@@ -35,6 +40,8 @@ struct DiffContinuousView: View {
         self.additions = additions
         self.deletions = deletions
         self.baseLabel = baseLabel
+        self.baseKind = baseKind
+        self.ignoreWhitespace = ignoreWhitespace
         self.renderMode = renderMode
         self.scrollTarget = scrollTarget
         self.scrollRequestID = scrollRequestID
@@ -53,7 +60,11 @@ struct DiffContinuousView: View {
                         additions: additions,
                         deletions: deletions,
                         viewedCount: viewedCount,
-                        baseLabel: baseLabel
+                        baseLabel: baseLabel,
+                        baseKind: baseKind,
+                        ignoreWhitespace: ignoreWhitespace,
+                        selectBase: actions.selectBase,
+                        setIgnoreWhitespace: actions.setIgnoreWhitespace
                     )
                 }
                 .listRowSeparator(.hidden)
@@ -90,7 +101,10 @@ struct DiffContinuousView: View {
                             },
                             toggleViewed: { actions.toggleViewed(snapshot.state.file.summary.path) },
                             copyPath: { clipboard.copy(snapshot.state.file.summary.path) },
-                            collapseAll: actions.collapseAll
+                            collapseAll: actions.collapseAll,
+                            quickNoteTarget: DiffQuickNoteTargetFactory().fileTarget(state: snapshot.state),
+                            quickNoteAvailable: actions.quickNoteAvailable,
+                            openQuickNote: actions.openQuickNote
                         )
                         .id(DiffTreeScrollTargetResolver().sectionID(
                             path: snapshot.state.file.summary.path

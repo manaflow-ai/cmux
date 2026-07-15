@@ -159,6 +159,61 @@ import Testing
         #expect(store.fileStates.first?.isViewed == true)
     }
 
+    @Test func basePickerFallsBackFromMissingLastTurnAndPreservesViewedPatch() async throws {
+        let response = summary(files: [file(path: "App.swift", additions: 1, digest: "stable")])
+        let fake = FakeMobileDiffsService(summaries: [
+            .success(response),
+            .serviceFailure(.baselineMissing),
+            .success(response),
+        ])
+        let store = try makeStore(fake: fake, name: "base-fallback")
+        await store.loadInitial()
+        store.toggleViewed(path: "App.swift")
+
+        await store.selectBase(.lastTurn)
+
+        #expect(store.baseSpec.kind == .lastTurn)
+        #expect(store.phase == .loaded)
+        #expect(store.errorBanner == .baselineMissing)
+        #expect(store.viewedCount == 1)
+
+        await store.useWorkingTree()
+
+        #expect(store.baseSpec.kind == .workingTree)
+        #expect(store.errorBanner == nil)
+        #expect(store.viewedCount == 1)
+        #expect(await fake.requestedSummaryBases.map(\.kind) == [
+            .workingTree, .lastTurn, .workingTree,
+        ])
+    }
+
+    @Test func whitespaceSelectionPropagatesToSummaryFileAndContextRequests() async throws {
+        let loadedHunk = hunk(oldStart: 2, oldLines: 1, newStart: 2, newLines: 1, text: "line")
+        let response = summary(files: [file(path: "App.swift", additions: 1)])
+        let fake = FakeMobileDiffsService(
+            summaries: [.success(response), .success(response)],
+            files: [.success(MobileDiffFileResponse(
+                hunks: [loadedHunk], isBinary: false, tooLarge: false
+            ))],
+            contexts: [.success(MobileDiffContextResponse(rows: ["context"]))]
+        )
+        let store = try makeStore(fake: fake, name: "whitespace")
+        await store.loadInitial()
+
+        await store.setIgnoreWhitespace(true)
+        await store.loadFile(path: "App.swift")
+        await store.expandContext(DiffContextExpansionRequest(
+            path: "App.swift", hunkIndex: 0, direction: .up
+        ))
+
+        #expect(store.ignoreWhitespace)
+        #expect(await fake.requestedSummaryWhitespace == [false, true])
+        #expect(await fake.requestedFileWhitespace == [true])
+        #expect(await fake.requestedContextWhitespace == [true])
+        #expect(await fake.requestedFileBases.map(\.kind) == [.workingTree])
+        #expect(await fake.requestedContextBases.map(\.kind) == [.workingTree])
+    }
+
     @Test func layoutOverridePersistsAndAutomaticResolvesByOrientation() throws {
         let defaults = try defaults(name: "layout")
         let fake = FakeMobileDiffsService(summaries: [])

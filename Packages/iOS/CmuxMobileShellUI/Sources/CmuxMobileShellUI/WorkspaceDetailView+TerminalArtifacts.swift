@@ -6,6 +6,41 @@ import CmuxMobileTerminal
 import SwiftUI
 
 extension WorkspaceDetailView {
+    func terminalArtifactLoader(workspaceID: String, surfaceID: String) -> ChatArtifactLoader {
+        guard let source = store.makeChatEventSource() else {
+            return .unsupported(cache: terminalArtifactThumbnailCache)
+        }
+        return ChatArtifactLoader(
+            terminalWorkspaceID: workspaceID,
+            terminalSurfaceID: surfaceID,
+            supportsArtifacts: store.supportsTerminalArtifacts,
+            cache: terminalArtifactThumbnailCache,
+            stat: { path in
+                try await source.terminalArtifactStat(
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID,
+                    path: path
+                )
+            },
+            fetch: { path, progress in
+                try await source.terminalArtifactFetch(
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID,
+                    path: path,
+                    progress: progress
+                )
+            },
+            thumbnail: { path, maxDimension in
+                try await source.terminalArtifactThumbnail(
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID,
+                    path: path,
+                    maxDimension: maxDimension
+                )
+            }
+        )
+    }
+
     @ViewBuilder
     func terminalArtifactSurface(terminalID: String) -> some View {
     let shouldAutoFocus = activeSurface == .terminal

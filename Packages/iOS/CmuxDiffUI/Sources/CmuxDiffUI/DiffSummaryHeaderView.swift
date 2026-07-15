@@ -1,3 +1,4 @@
+import CmuxMobileRPC
 import SwiftUI
 
 struct DiffSummaryHeaderView: View {
@@ -6,6 +7,10 @@ struct DiffSummaryHeaderView: View {
     let deletions: Int
     let viewedCount: Int
     let baseLabel: String
+    let baseKind: MobileDiffBaseKind
+    let ignoreWhitespace: Bool
+    let selectBase: @MainActor (MobileDiffBaseKind) -> Void
+    let setIgnoreWhitespace: @MainActor (Bool) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -14,8 +19,9 @@ struct DiffSummaryHeaderView: View {
                     .font(.headline)
                 Spacer()
                 Menu {
-                    Button(stubMenuLabel) {}
-                        .disabled(true)
+                    Toggle(isOn: whitespaceBinding) {
+                        Label(ignoreWhitespaceLabel, systemImage: "textformat")
+                    }
                 } label: {
                     Image(systemName: "ellipsis")
                         .frame(width: 28, height: 28)
@@ -32,12 +38,22 @@ struct DiffSummaryHeaderView: View {
                 Spacer()
             }
             .font(.subheadline.monospacedDigit())
-            HStack(spacing: 6) {
-                Text(basePrefix)
-                    .foregroundStyle(.secondary)
-                Text(baseLabel)
-                    .fontWeight(.medium)
+            Menu {
+                Button(workingTreeLabel) { selectBase(.workingTree) }
+                Button(lastTurnLabel) { selectBase(.lastTurn) }
+                Button(branchBaseLabel) { selectBase(.branchBase) }
+            } label: {
+                HStack(spacing: 6) {
+                    Text(basePrefix)
+                        .foregroundStyle(.secondary)
+                    Text(displayedBaseLabel)
+                        .fontWeight(.medium)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
+            .accessibilityLabel(basePickerLabel)
             .font(.caption)
             ProgressView(value: fileCount == 0 ? 0 : Double(viewedCount), total: Double(max(fileCount, 1)))
                 .tint(.green)
@@ -69,7 +85,45 @@ struct DiffSummaryHeaderView: View {
         DiffLocalized().string("diff.action.more", defaultValue: "More options")
     }
 
-    private var stubMenuLabel: String {
-        DiffLocalized().string("diff.summary.optionsStub", defaultValue: "Diff options coming next")
+    private var whitespaceBinding: Binding<Bool> {
+        Binding(
+            get: { ignoreWhitespace },
+            set: { enabled in setIgnoreWhitespace(enabled) }
+        )
+    }
+
+    private var selectedBaseLabel: String {
+        switch baseKind {
+        case .workingTree: workingTreeLabel
+        case .lastTurn: lastTurnLabel
+        case .branchBase: branchBaseLabel
+        }
+    }
+
+    private var displayedBaseLabel: String {
+        guard !baseLabel.isEmpty, baseLabel != selectedBaseLabel else {
+            return selectedBaseLabel
+        }
+        return "\(selectedBaseLabel) · \(baseLabel)"
+    }
+
+    private var basePickerLabel: String {
+        DiffLocalized().string("diff.base.picker", defaultValue: "Comparison base")
+    }
+
+    private var workingTreeLabel: String {
+        DiffLocalized().string("diff.base.workingTree", defaultValue: "Working tree")
+    }
+
+    private var lastTurnLabel: String {
+        DiffLocalized().string("diff.base.lastTurn", defaultValue: "Last agent turn")
+    }
+
+    private var branchBaseLabel: String {
+        DiffLocalized().string("diff.base.branchBase", defaultValue: "Branch base")
+    }
+
+    private var ignoreWhitespaceLabel: String {
+        DiffLocalized().string("diff.option.ignoreWhitespace", defaultValue: "Ignore whitespace")
     }
 }

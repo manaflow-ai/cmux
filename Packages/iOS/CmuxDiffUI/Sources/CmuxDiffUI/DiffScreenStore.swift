@@ -13,6 +13,10 @@ public final class DiffScreenStore {
     public private(set) var summary: MobileDiffSummaryResponse?
     /// A typed transient failure displayed above existing content.
     public private(set) var errorBanner: DiffScreenErrorKind?
+    /// The baseline currently used by summary, file, and context requests.
+    public private(set) var baseSpec: MobileDiffBaseSpec
+    /// Whether whitespace-only changes are ignored for this screen session.
+    public private(set) var ignoreWhitespace: Bool
     /// The persisted layout override used by the screen's overflow menu.
     public var layoutOverride: DiffLayoutOverride {
         didSet { layoutPreferenceStore.save(layoutOverride) }
@@ -23,8 +27,6 @@ public final class DiffScreenStore {
     @ObservationIgnored private let layoutPreferenceStore: DiffLayoutPreferenceStore
     private let workspaceRef: String
     private let workspaceID: String
-    private let baseSpec: MobileDiffBaseSpec
-    private let ignoreWhitespace: Bool
     private(set) var fileStates: [DiffFilePresentationState] = []
     private var loadingPaths: Set<String> = []
     private var generation = 0
@@ -82,6 +84,33 @@ public final class DiffScreenStore {
     /// Refetches summary metadata while preserving viewed state through persistence.
     public func refresh() async {
         await fetchSummary(isRefresh: true)
+    }
+
+    /// Selects a new comparison baseline and refetches the summary.
+    /// - Parameter kind: The baseline strategy to use for subsequent requests.
+    public func selectBase(_ kind: MobileDiffBaseKind) async {
+        guard baseSpec.kind != kind else { return }
+        baseSpec = MobileDiffBaseSpec(kind: kind)
+        loadingPaths.removeAll()
+        await fetchSummary(isRefresh: true)
+    }
+
+    /// Updates whitespace filtering and refetches the summary.
+    /// - Parameter enabled: Whether Git should ignore whitespace-only changes.
+    public func setIgnoreWhitespace(_ enabled: Bool) async {
+        guard ignoreWhitespace != enabled else { return }
+        ignoreWhitespace = enabled
+        loadingPaths.removeAll()
+        await fetchSummary(isRefresh: true)
+    }
+
+    /// Recovers from an unavailable agent-turn baseline using the worktree comparison.
+    public func useWorkingTree() async {
+        if baseSpec.kind == .workingTree {
+            await refresh()
+        } else {
+            await selectBase(.workingTree)
+        }
     }
 
     /// Drains every cursor page for one file when it appears or is expanded.

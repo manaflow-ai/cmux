@@ -8,6 +8,12 @@ actor FakeMobileDiffsService: MobileDiffsServing {
     private(set) var requestedCursors: [Int?] = []
     private(set) var requestedForces: [Bool] = []
     private(set) var requestedContextRanges: [ClosedRange<Int>] = []
+    private(set) var requestedSummaryBases: [MobileDiffBaseSpec] = []
+    private(set) var requestedFileBases: [MobileDiffBaseSpec] = []
+    private(set) var requestedContextBases: [MobileDiffBaseSpec] = []
+    private(set) var requestedSummaryWhitespace: [Bool] = []
+    private(set) var requestedFileWhitespace: [Bool] = []
+    private(set) var requestedContextWhitespace: [Bool] = []
 
     init(
         summaries: [FakeDiffResponse<MobileDiffSummaryResponse>],
@@ -24,7 +30,9 @@ actor FakeMobileDiffsService: MobileDiffsServing {
         baseSpec: MobileDiffBaseSpec,
         ignoreWhitespace: Bool
     ) async throws -> MobileDiffSummaryResponse {
-        try resolve(summaries.removeFirst())
+        requestedSummaryBases.append(baseSpec)
+        requestedSummaryWhitespace.append(ignoreWhitespace)
+        return try resolve(summaries.removeFirst())
     }
 
     func fileHunks(
@@ -36,6 +44,8 @@ actor FakeMobileDiffsService: MobileDiffsServing {
         cursor: Int?,
         force: Bool
     ) async throws -> MobileDiffFileResponse {
+        requestedFileBases.append(baseSpec)
+        requestedFileWhitespace.append(ignoreWhitespace)
         requestedCursors.append(cursor)
         requestedForces.append(force)
         return try resolve(files.removeFirst())
@@ -49,6 +59,8 @@ actor FakeMobileDiffsService: MobileDiffsServing {
         baseSpec: MobileDiffBaseSpec,
         ignoreWhitespace: Bool
     ) async throws -> MobileDiffContextResponse {
+        requestedContextBases.append(baseSpec)
+        requestedContextWhitespace.append(ignoreWhitespace)
         requestedContextRanges.append(startLine...endLine)
         return try resolve(contexts.removeFirst())
     }

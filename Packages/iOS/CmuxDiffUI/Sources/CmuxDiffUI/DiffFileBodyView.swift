@@ -44,7 +44,15 @@ struct DiffFileBodyView: View {
                                     hunkIndex: row.hunkIndex,
                                     direction: direction
                                 ))
-                            }
+                            },
+                            quickNoteTarget: row.kind == .hunkHeader
+                                ? DiffQuickNoteTargetFactory().hunkTarget(
+                                    state: snapshot.state,
+                                    hunkIndex: row.hunkIndex
+                                )
+                                : nil,
+                            quickNoteAvailable: actions.quickNoteAvailable,
+                            openQuickNote: actions.openQuickNote
                         )
                     }
                 } else {
@@ -61,7 +69,15 @@ struct DiffFileBodyView: View {
                                         ?? 0,
                                     direction: direction
                                 ))
-                            }
+                            },
+                            quickNoteTarget: row.spanning?.kind == .hunkHeader
+                                ? DiffQuickNoteTargetFactory().hunkTarget(
+                                    state: snapshot.state,
+                                    hunkIndex: row.spanning?.hunkIndex ?? 0
+                                )
+                                : nil,
+                            quickNoteAvailable: actions.quickNoteAvailable,
+                            openQuickNote: actions.openQuickNote
                         )
                     }
                 }

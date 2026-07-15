@@ -15,7 +15,11 @@ import SwiftUI
         additions: 3215,
         deletions: 23,
         viewedCount: 3,
-        baseLabel: "main · working tree"
+        baseLabel: "main · working tree",
+        baseKind: .workingTree,
+        ignoreWhitespace: false,
+        selectBase: { _ in },
+        setIgnoreWhitespace: { _ in }
     )
     .padding()
 }
@@ -52,6 +56,20 @@ import SwiftUI
         text: "let greeting = \"Hello\"",
         hunkIndex: 0
     )
-    DiffUnifiedRowView(row: row, highlighted: nil, expand: { _ in })
+    DiffUnifiedRowView(
+        row: row,
+        highlighted: nil,
+        expand: { _ in },
+        quickNoteTarget: DiffQuickNoteTarget(
+            id: "preview",
+            path: "App.swift",
+            oldLineRange: nil,
+            newLineRange: 42...42,
+            hunkHeader: nil,
+            excerpt: "+let greeting = \"Hello\""
+        ),
+        quickNoteAvailable: false,
+        openQuickNote: { _ in }
+    )
 }
 #endif

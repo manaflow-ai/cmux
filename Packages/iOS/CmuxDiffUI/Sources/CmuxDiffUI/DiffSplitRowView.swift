@@ -4,11 +4,20 @@ struct DiffSplitRowView: View {
     let row: SplitDiffRow
     let highlights: [String: HighlightedCode]
     let expand: @MainActor (DiffContextExpansionRequest.Direction) -> Void
+    let quickNoteTarget: DiffQuickNoteTarget?
+    let quickNoteAvailable: Bool
+    let openQuickNote: @MainActor (DiffQuickNoteTarget) -> Void
 
     var body: some View {
         if let spanning = row.spanning {
-            if spanning.kind == .hunkHeader {
-                DiffHunkHeaderView(row: spanning, expand: expand)
+            if spanning.kind == .hunkHeader, let quickNoteTarget {
+                DiffHunkHeaderView(
+                    row: spanning,
+                    expand: expand,
+                    quickNoteTarget: quickNoteTarget,
+                    quickNoteAvailable: quickNoteAvailable,
+                    openQuickNote: openQuickNote
+                )
             } else {
                 Text(noNewlineLabel)
                     .font(.caption.monospaced())

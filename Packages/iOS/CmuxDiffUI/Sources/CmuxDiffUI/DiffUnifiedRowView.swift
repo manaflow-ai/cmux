@@ -5,10 +5,19 @@ struct DiffUnifiedRowView: View {
     let row: DiffRowSnapshot
     let highlighted: HighlightedCode?
     let expand: @MainActor (DiffContextExpansionRequest.Direction) -> Void
+    let quickNoteTarget: DiffQuickNoteTarget?
+    let quickNoteAvailable: Bool
+    let openQuickNote: @MainActor (DiffQuickNoteTarget) -> Void
 
     var body: some View {
-        if row.kind == .hunkHeader {
-            DiffHunkHeaderView(row: row, expand: expand)
+        if row.kind == .hunkHeader, let quickNoteTarget {
+            DiffHunkHeaderView(
+                row: row,
+                expand: expand,
+                quickNoteTarget: quickNoteTarget,
+                quickNoteAvailable: quickNoteAvailable,
+                openQuickNote: openQuickNote
+            )
         } else if row.kind == .noNewline {
             Text(noNewlineLabel)
                 .font(.caption.monospaced())

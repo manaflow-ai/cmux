@@ -41,8 +41,10 @@ public struct DiffScreen: View {
             fileStates: fileStates,
             totalFileCount: fileStates.count,
             additions: totalAdditions,
-            deletions: totalDeletions,
-            baseLabel: patchSet.baseLabel,
+                deletions: totalDeletions,
+                baseLabel: patchSet.baseLabel,
+                baseKind: .workingTree,
+                ignoreWhitespace: false,
             renderMode: renderMode,
             scrollTarget: nil,
             scrollRequestID: 0,
@@ -63,6 +65,10 @@ public struct DiffScreen: View {
                 toggleViewed: toggleViewed,
                 toggleCollapsed: toggleCollapsed,
                 collapseAll: collapseAll,
+                selectBase: { _ in },
+                setIgnoreWhitespace: { _ in },
+                openQuickNote: { _ in },
+                quickNoteAvailable: false,
                 refresh: {}
             )
         )

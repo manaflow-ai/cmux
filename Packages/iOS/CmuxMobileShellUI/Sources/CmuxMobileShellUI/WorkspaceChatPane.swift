@@ -19,6 +19,10 @@ struct WorkspaceChatPane: View {
     /// Composer draft, owned by the parent so it survives toggling back to
     /// the terminal and returning mid-thought.
     @Binding var draft: String
+    /// DEBUG placement shown when the transcript contains a file-edit card.
+    let showsDiffDebugEntry: Bool
+    /// Opens the workspace's shared diff presentation path.
+    let openDiff: () -> Void
     /// Flips chat mode off (the toggle's "back to terminal" path).
     let onExitChat: () -> Void
 
@@ -41,6 +45,25 @@ struct WorkspaceChatPane: View {
                 onOpenTerminal: openTerminal
             )
             .environment(\.chatArtifactLoader, artifactLoader)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if showsDiffDebugEntry, containsFileEdit {
+                    Button(action: openDiff) {
+                        Label(
+                            L10n.string(
+                                "mobile.workspace.fileEditChanges",
+                                defaultValue: "View workspace changes"
+                            ),
+                            systemImage: "doc.text.magnifyingglass"
+                        )
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                    }
+                    .buttonStyle(.plain)
+                    .background(.thinMaterial)
+                    .accessibilityIdentifier("MobileChatFileEditChangesButton")
+                }
+            }
         }
         .sheet(isPresented: $isShowingShortcutSettings) {
             TerminalShortcutsSettingsView(scope: .agentChat)
@@ -50,6 +73,14 @@ struct WorkspaceChatPane: View {
                 key: artifactLoaderKey,
                 loader: makeArtifactLoader(for: artifactLoaderKey)
             )
+        }
+    }
+
+    private var containsFileEdit: Bool {
+        conversation.rows.contains { row in
+            guard case let .message(snapshot) = row,
+                  case .fileEdit = snapshot.message.kind else { return false }
+            return true
         }
     }
 

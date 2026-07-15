@@ -3,6 +3,7 @@ import SwiftUI
 struct DiffErrorBannerView: View {
     let kind: DiffScreenErrorKind
     let retry: @MainActor () -> Void
+    let useWorkingTree: (@MainActor () -> Void)?
     let dismiss: (@MainActor () -> Void)?
 
     var body: some View {
@@ -17,8 +18,13 @@ struct DiffErrorBannerView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 4)
-            Button(retryLabel, action: retry)
-                .buttonStyle(.bordered)
+            if let useWorkingTree {
+                Button(useWorkingTreeLabel, action: useWorkingTree)
+                    .buttonStyle(.borderedProminent)
+            } else {
+                Button(retryLabel, action: retry)
+                    .buttonStyle(.bordered)
+            }
             if let dismiss {
                 Button(action: dismiss) {
                     Image(systemName: "xmark")
@@ -61,6 +67,10 @@ struct DiffErrorBannerView: View {
 
     private var retryLabel: String {
         DiffLocalized().string("diff.action.retry", defaultValue: "Retry")
+    }
+
+    private var useWorkingTreeLabel: String {
+        DiffLocalized().string("diff.error.baseline.fallback", defaultValue: "Use Working tree")
     }
 
     private var dismissLabel: String {

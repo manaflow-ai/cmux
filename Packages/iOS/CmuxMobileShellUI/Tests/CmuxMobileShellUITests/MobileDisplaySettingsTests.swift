@@ -118,4 +118,14 @@ import Testing
         defaults.set("invalid", forKey: "cmux.mobile.debug.diffNavigationModel.v1")
         #expect(MobileDisplaySettings(defaults: defaults).diffNavigationModel == .filesFirst)
     }
+
+    @Test func diffDebugEntryPointsDefaultOffAndPersist() throws {
+        let defaults = try makeDefaults("diffEntryPoints")
+        #expect(MobileDisplaySettings(defaults: defaults).showDiffEntryPoints == false)
+        #expect(defaults.object(forKey: "cmux.mobile.debug.showDiffEntryPoints.v1") == nil)
+
+        let settings = MobileDisplaySettings(defaults: defaults)
+        settings.showDiffEntryPoints = true
+        #expect(MobileDisplaySettings(defaults: defaults).showDiffEntryPoints)
+    }
 }

@@ -4,6 +4,9 @@ struct DiffHunkHeaderView: View {
     @Environment(\.diffTheme) private var theme
     let row: DiffRowSnapshot
     let expand: @MainActor (DiffContextExpansionRequest.Direction) -> Void
+    let quickNoteTarget: DiffQuickNoteTarget
+    let quickNoteAvailable: Bool
+    let openQuickNote: @MainActor (DiffQuickNoteTarget) -> Void
 
     var body: some View {
         HStack(spacing: 6) {
@@ -12,6 +15,15 @@ struct DiffHunkHeaderView: View {
                 .foregroundStyle(.blue)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            Button { openQuickNote(quickNoteTarget) } label: {
+                Image(systemName: "paperplane")
+                    .font(.caption)
+                    .frame(width: 24, height: 24)
+            }
+            .buttonStyle(.plain)
+            .disabled(!quickNoteAvailable)
+            .accessibilityLabel(sendToAgentLabel)
+            .accessibilityHint(quickNoteAvailable ? "" : unavailableHint)
             expansionButton(systemImage: "arrow.up.to.line", direction: .up, label: expandUpLabel)
             expansionButton(systemImage: "arrow.down.to.line", direction: .down, label: expandDownLabel)
             expansionButton(systemImage: "arrow.up.and.down", direction: .all, label: expandAllLabel)
@@ -45,5 +57,16 @@ struct DiffHunkHeaderView: View {
 
     private var expandAllLabel: String {
         DiffLocalized().string("diff.hunk.expandAll", defaultValue: "Expand all context")
+    }
+
+    private var sendToAgentLabel: String {
+        DiffLocalized().string("diff.quickNote.title", defaultValue: "Send to Agent")
+    }
+
+    private var unavailableHint: String {
+        DiffLocalized().string(
+            "diff.quickNote.unavailable",
+            defaultValue: "Start an agent chat session in this workspace to send a diff note."
+        )
     }
 }

@@ -6,6 +6,9 @@ struct DiffFileSectionHeader: View {
     let toggleViewed: @MainActor () -> Void
     let copyPath: @MainActor () -> Void
     let collapseAll: @MainActor () -> Void
+    let quickNoteTarget: DiffQuickNoteTarget
+    let quickNoteAvailable: Bool
+    let openQuickNote: @MainActor (DiffQuickNoteTarget) -> Void
 
     var body: some View {
         HStack(spacing: 8) {
@@ -31,6 +34,13 @@ struct DiffFileSectionHeader: View {
             DiffViewedButton(isViewed: state.isViewed, action: toggleViewed)
             Menu {
                 Button(copyPathLabel, systemImage: "doc.on.doc", action: copyPath)
+                Button(sendToAgentLabel, systemImage: "paperplane") {
+                    openQuickNote(quickNoteTarget)
+                }
+                .disabled(!quickNoteAvailable)
+                if !quickNoteAvailable {
+                    Text(quickNoteUnavailableHint)
+                }
                 Button(collapseAllLabel, systemImage: "rectangle.compress.vertical", action: collapseAll)
             } label: {
                 Image(systemName: "ellipsis")
@@ -49,6 +59,17 @@ struct DiffFileSectionHeader: View {
 
     private var collapseAllLabel: String {
         DiffLocalized().string("diff.action.collapseAll", defaultValue: "Collapse all")
+    }
+
+    private var sendToAgentLabel: String {
+        DiffLocalized().string("diff.quickNote.title", defaultValue: "Send to Agent")
+    }
+
+    private var quickNoteUnavailableHint: String {
+        DiffLocalized().string(
+            "diff.quickNote.unavailable",
+            defaultValue: "Start an agent chat session in this workspace to send a diff note."
+        )
     }
 
     private var moreLabel: String {

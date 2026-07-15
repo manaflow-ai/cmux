@@ -194,6 +194,15 @@ struct MobileSettingsView: View {
                     }
                     .accessibilityIdentifier("MobileSettingsDiffNavigation")
 
+                    Toggle(isOn: $displaySettings.showDiffEntryPoints) {
+                        Text(String(localized:
+                            "mobile.settings.diffEntryPoints",
+                            defaultValue: "Diff Debug Entry Points",
+                            bundle: .module
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsDiffEntryPoints")
+
                     NavigationLink {
                         DiffFixtureScreen(defaults: .standard)
                     } label: {

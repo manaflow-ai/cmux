@@ -11,23 +11,36 @@ public struct DiffLiveScreen: View {
     @State private var showingFilesFirstDiff = false
     @State private var showingTreeDrawer = false
     @State private var splitVisibility: NavigationSplitViewVisibility = .all
+    @State private var quickNoteTarget: DiffQuickNoteTarget?
 
     private let navigationModel: DiffNavigationModel
     private let highlighter: any CodeHighlighting
+    private let quickNoteActions: DiffQuickNoteActions
+    private let dismissViewer: @MainActor () -> Void
 
     /// Creates a live diff screen around an already-constructed observable store.
     /// - Parameters:
     ///   - store: The screen's service-backed reducer and persisted state.
     ///   - navigationModel: Files-first or diff-first navigation behavior.
     ///   - highlighter: The asynchronous syntax-highlighting implementation.
+    ///   - quickNoteActions: Host chat actions for hunk and file notes.
+    ///   - dismissViewer: Dismisses the enclosing viewer after composer prefill.
     public init(
         store: DiffScreenStore,
         navigationModel: DiffNavigationModel = .filesFirst,
-        highlighter: any CodeHighlighting = HighlighterSwiftCodeHighlighter()
+        highlighter: any CodeHighlighting = HighlighterSwiftCodeHighlighter(),
+        quickNoteActions: DiffQuickNoteActions = DiffQuickNoteActions(
+            isAvailable: false,
+            send: { _ in },
+            editInComposer: { _ in }
+        ),
+        dismissViewer: @escaping @MainActor () -> Void = {}
     ) {
         _store = State(initialValue: store)
         self.navigationModel = navigationModel
         self.highlighter = highlighter
+        self.quickNoteActions = quickNoteActions
+        self.dismissViewer = dismissViewer
     }
 
     /// The adaptive loading, failure, phone, and tablet screen hierarchy.
@@ -37,15 +50,36 @@ public struct DiffLiveScreen: View {
             case .idle, .loading:
                 DiffLoadingView()
             case let .failed(kind):
-                DiffFailureView(kind: kind) {
-                    Task { await store.retryBanner() }
-                }
+                failureView(kind: kind)
             case .loaded:
                 loadedNavigation
             }
         }
         .task {
             await store.loadInitial()
+        }
+        .sheet(item: $quickNoteTarget) { target in
+            DiffQuickNoteSheet(
+                target: target,
+                actions: quickNoteActions,
+                dismissViewer: dismissViewer
+            )
+        }
+    }
+
+    @ViewBuilder private func failureView(kind: DiffScreenErrorKind) -> some View {
+        if kind == .baselineMissing {
+            DiffFailureView(
+                kind: kind,
+                retry: { Task { await store.retryBanner() } },
+                useWorkingTree: { Task { await store.useWorkingTree() } }
+            )
+        } else {
+            DiffFailureView(
+                kind: kind,
+                retry: { Task { await store.retryBanner() } },
+                useWorkingTree: nil
+            )
         }
     }
 
@@ -59,7 +93,12 @@ public struct DiffLiveScreen: View {
                 diffDetail
             }
             .navigationSplitViewStyle(.balanced)
-            .banner(store.errorBanner, retry: retryBanner, dismiss: store.dismissBanner)
+            .banner(
+                store.errorBanner,
+                retry: retryBanner,
+                useWorkingTree: useWorkingTree,
+                dismiss: store.dismissBanner
+            )
         } else {
             switch navigationModel {
             case .filesFirst:
@@ -70,7 +109,12 @@ public struct DiffLiveScreen: View {
                             diffDetail
                         }
                 }
-                .banner(store.errorBanner, retry: retryBanner, dismiss: store.dismissBanner)
+                .banner(
+                    store.errorBanner,
+                    retry: retryBanner,
+                    useWorkingTree: useWorkingTree,
+                    dismiss: store.dismissBanner
+                )
             case .diffFirst:
                 NavigationStack {
                     diffDetail
@@ -88,7 +132,12 @@ public struct DiffLiveScreen: View {
                     .presentationDetents([.medium, .large])
                     .presentationDragIndicator(.visible)
                 }
-                .banner(store.errorBanner, retry: retryBanner, dismiss: store.dismissBanner)
+                .banner(
+                    store.errorBanner,
+                    retry: retryBanner,
+                    useWorkingTree: useWorkingTree,
+                    dismiss: store.dismissBanner
+                )
             }
         }
     }
@@ -113,6 +162,8 @@ public struct DiffLiveScreen: View {
                 additions: store.summary?.totals.additions ?? 0,
                 deletions: store.summary?.totals.deletions ?? 0,
                 baseLabel: store.summary?.baseInfo.describe ?? "",
+                baseKind: store.baseSpec.kind,
+                ignoreWhitespace: store.ignoreWhitespace,
                 renderMode: renderMode,
                 scrollTarget: scrollTarget,
                 scrollRequestID: scrollRequestID,
@@ -172,6 +223,16 @@ public struct DiffLiveScreen: View {
             toggleViewed: store.toggleViewed,
             toggleCollapsed: store.toggleCollapsed,
             collapseAll: store.collapseAll,
+            selectBase: { kind in
+                Task { await store.selectBase(kind) }
+            },
+            setIgnoreWhitespace: { enabled in
+                Task { await store.setIgnoreWhitespace(enabled) }
+            },
+            openQuickNote: { target in
+                quickNoteTarget = target
+            },
+            quickNoteAvailable: quickNoteActions.isAvailable,
             refresh: store.refresh
         )
     }
@@ -191,6 +252,10 @@ public struct DiffLiveScreen: View {
 
     @MainActor private func retryBanner() {
         Task { await store.retryBanner() }
+    }
+
+    @MainActor private func useWorkingTree() {
+        Task { await store.useWorkingTree() }
     }
 
     private var isPad: Bool {
@@ -239,11 +304,26 @@ private extension View {
     func banner(
         _ kind: DiffScreenErrorKind?,
         retry: @escaping @MainActor () -> Void,
+        useWorkingTree: @escaping @MainActor () -> Void,
         dismiss: @escaping @MainActor () -> Void
     ) -> some View {
         if let kind {
             safeAreaInset(edge: .top, spacing: 0) {
-                DiffErrorBannerView(kind: kind, retry: retry, dismiss: dismiss)
+                if kind == .baselineMissing {
+                    DiffErrorBannerView(
+                        kind: kind,
+                        retry: retry,
+                        useWorkingTree: useWorkingTree,
+                        dismiss: dismiss
+                    )
+                } else {
+                    DiffErrorBannerView(
+                        kind: kind,
+                        retry: retry,
+                        useWorkingTree: nil,
+                        dismiss: dismiss
+                    )
+                }
             }
         } else {
             self

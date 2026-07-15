@@ -1,6 +1,41 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "mobile.settings.diffEntryPoints" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Diff Debug Entry Points" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "差分デバッグ入口" } }
+      }
+    },
+    "mobile.workspace.changes" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Changes" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "変更" } }
+      }
+    },
+    "mobile.workspace.changesUnavailable.message" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Reconnect to a compatible Mac to view workspace changes." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ワークスペースの変更を表示するには、対応するMacに再接続してください。" } }
+      }
+    },
+    "mobile.workspace.changesUnavailable.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Changes unavailable" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "変更を表示できません" } }
+      }
+    },
+    "mobile.workspace.fileEditChanges" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "View workspace changes" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ワークスペースの変更を表示" } }
+      }
+    },
     "mobile.settings.diffNavigation" : {
       "extractionState" : "manual",
       "localizations" : {
