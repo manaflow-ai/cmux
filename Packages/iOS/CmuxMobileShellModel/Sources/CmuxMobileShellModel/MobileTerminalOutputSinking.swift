@@ -25,17 +25,20 @@ public struct MobileTerminalOutputOperation: Equatable, Sendable {
     public let data: Data
     public let viewportPolicy: MobileTerminalOutputViewportPolicy?
     public let scrollbackOffsetFromBottomRows: Int?
+    public let authoritativeReconstructedRowCount: Int?
     public let followingScrollRuns: [MobileTerminalScrollRun]
 
     public init(
         data: Data,
         viewportPolicy: MobileTerminalOutputViewportPolicy? = nil,
         scrollbackOffsetFromBottomRows: Int? = nil,
+        authoritativeReconstructedRowCount: Int? = nil,
         followingScrollRuns: [MobileTerminalScrollRun] = []
     ) {
         self.data = data
         self.viewportPolicy = viewportPolicy
         self.scrollbackOffsetFromBottomRows = scrollbackOffsetFromBottomRows.map { max(0, $0) }
+        self.authoritativeReconstructedRowCount = authoritativeReconstructedRowCount.map { max(0, $0) }
         self.followingScrollRuns = followingScrollRuns
     }
 }

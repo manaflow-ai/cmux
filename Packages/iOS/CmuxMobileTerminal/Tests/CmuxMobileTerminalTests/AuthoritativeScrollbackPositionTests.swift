@@ -46,6 +46,7 @@ struct AuthoritativeScrollbackPositionTests {
         let outputApplied = await harness.view.processOutputAndWait(
             Self.longOutput,
             scrollbackOffsetFromBottomRows: rowsFromBottom,
+            authoritativeReconstructedRowCount: 320,
             followingScrollRuns: [
                 MobileTerminalScrollRun(
                     primaryRows: -followingRowsTowardBottom,

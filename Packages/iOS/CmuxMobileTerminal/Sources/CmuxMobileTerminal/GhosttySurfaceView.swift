@@ -1870,6 +1870,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     public func processOutputAndWait(
         _ data: Data,
         scrollbackOffsetFromBottomRows: Int? = nil,
+        authoritativeReconstructedRowCount: Int? = nil,
         followingScrollRuns: [MobileTerminalScrollRun] = []
     ) async -> Bool {
         return await withCheckedContinuation { continuation in
@@ -1880,6 +1881,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             processOutput(
                 data,
                 scrollbackOffsetFromBottomRows: scrollbackOffsetFromBottomRows,
+                authoritativeReconstructedRowCount: authoritativeReconstructedRowCount,
                 followingScrollRuns: followingScrollRuns
             ) { [weak self] applied in
                 self?.completePendingOutputApply(id: operationID, returning: applied)
@@ -2013,6 +2015,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private func processOutput(
         _ data: Data,
         scrollbackOffsetFromBottomRows: Int? = nil,
+        authoritativeReconstructedRowCount: Int? = nil,
         followingScrollRuns: [MobileTerminalScrollRun] = [],
         completion: (@MainActor @Sendable (Bool) -> Void)?
     ) {
@@ -2061,17 +2064,20 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 let pointer = baseAddress.assumingMemoryBound(to: CChar.self)
                 ghostty_surface_process_output(surface, pointer, UInt(buffer.count))
             }
-            if let scrollbackOffsetFromBottomRows {
+            let authoritativePositionApplied = scrollbackOffsetFromBottomRows.map { rowsFromBottom in
                 Self.positionAuthoritativeScrollbackViewport(
                     surface,
-                    rowsFromBottom: scrollbackOffsetFromBottomRows
+                    rowsFromBottom: rowsFromBottom,
+                    expectedReconstructedRowCount: authoritativeReconstructedRowCount
+                )
+            } ?? true
+            if authoritativePositionApplied {
+                Self.applyLocalScrollbackRuns(
+                    followingScrollRuns,
+                    to: surface,
+                    scale: outputScale
                 )
             }
-            Self.applyLocalScrollbackRuns(
-                followingScrollRuns,
-                to: surface,
-                scale: outputScale
-            )
             #if DEBUG
             // `ghostty_surface_read_text` takes the same internal surface lock as
             // `process_output`. Reading it on the MAIN thread per-output (to feed
@@ -2111,7 +2117,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 if !self.surfaceHasReceivedOutput {
                     self.surfaceHasReceivedOutput = true
                     self.snapshotFallbackView.isHidden = true
-                    self.scrollInitialOutputToBottomIfNeeded()
+                    if scrollbackOffsetFromBottomRows == nil {
+                        self.scrollInitialOutputToBottomIfNeeded()
+                    } else {
+                        self.shouldScrollInitialOutputToBottom = false
+                    }
                 }
                 let now = CACurrentMediaTime()
                 if now - self.lastProcessOutputLogTime > 1.0 {
@@ -2126,7 +2136,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 }
                 self.onOutputProcessedForTesting?()
                 #endif
-                completion?(true)
+                completion?(authoritativePositionApplied)
             }
         }
     }

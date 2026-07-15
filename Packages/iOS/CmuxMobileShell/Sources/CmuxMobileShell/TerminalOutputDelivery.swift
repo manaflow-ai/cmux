@@ -68,6 +68,10 @@ struct TerminalOutputDelivery: Equatable, Sendable {
     /// An explicit authoritative viewport position. `nil` preserves the local
     /// position; `.some(0)` snaps to the bottom after a full history rebuild.
     var scrollbackOffsetFromBottomRows: Int?
+    /// Exact line count replayed into a full primary-screen reconstruction.
+    /// The consumer rejects the delivery when Ghostty exposes a different row
+    /// space instead of positioning against incomplete or reflowed content.
+    var authoritativeReconstructedRowCount: Int?
 
     var replaceable: Bool {
         replacementScope != nil
@@ -89,6 +93,7 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         self.scrollReconciliation = nil
         self.followingScrollRuns = []
         self.scrollbackOffsetFromBottomRows = scrollbackOffsetFromBottomRows.map { max(0, $0) }
+        self.authoritativeReconstructedRowCount = nil
     }
 
     init(
@@ -114,6 +119,9 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         self.scrollbackOffsetFromBottomRows = frame.full && frame.activeScreen == .primary
             ? frame.scrollForwardRows + frame.primaryActiveRows
             : nil
+        self.authoritativeReconstructedRowCount = frame.full && frame.activeScreen == .primary
+            ? frame.scrollbackRows + frame.rows + frame.scrollForwardRows + frame.primaryActiveRows
+            : nil
     }
 
     init(
@@ -129,6 +137,7 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         self.scrollReconciliation = nil
         self.followingScrollRuns = []
         self.scrollbackOffsetFromBottomRows = nil
+        self.authoritativeReconstructedRowCount = nil
     }
 
     init(
@@ -143,6 +152,7 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         self.scrollReconciliation = nil
         self.followingScrollRuns = []
         self.scrollbackOffsetFromBottomRows = nil
+        self.authoritativeReconstructedRowCount = nil
     }
 
     init(
@@ -157,6 +167,7 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         self.scrollReconciliation = nil
         self.followingScrollRuns = []
         self.scrollbackOffsetFromBottomRows = nil
+        self.authoritativeReconstructedRowCount = nil
     }
 
     static func == (lhs: Self, rhs: Self) -> Bool {
@@ -166,6 +177,7 @@ struct TerminalOutputDelivery: Equatable, Sendable {
             && lhs.scrollReconciliation == rhs.scrollReconciliation
             && lhs.followingScrollRuns == rhs.followingScrollRuns
             && lhs.scrollbackOffsetFromBottomRows == rhs.scrollbackOffsetFromBottomRows
+            && lhs.authoritativeReconstructedRowCount == rhs.authoritativeReconstructedRowCount
     }
 
     var renderGridFrame: MobileTerminalRenderGridFrame? {
@@ -191,6 +203,7 @@ struct TerminalOutputDelivery: Equatable, Sendable {
                 data: bytes,
                 viewportPolicy: viewportPolicy,
                 scrollbackOffsetFromBottomRows: scrollbackOffsetFromBottomRows,
+                authoritativeReconstructedRowCount: authoritativeReconstructedRowCount,
                 followingScrollRuns: followingScrollRuns
             ))
         case .localScroll(let runs):

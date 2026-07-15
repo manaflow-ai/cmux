@@ -369,6 +369,7 @@ import Testing
     let delivery = TerminalOutputDelivery(renderGrid: frame, replaceable: true)
 
     #expect(delivery.scrollbackOffsetFromBottomRows == 5)
+    #expect(delivery.authoritativeReconstructedRowCount == 8)
 }
 
 @MainActor

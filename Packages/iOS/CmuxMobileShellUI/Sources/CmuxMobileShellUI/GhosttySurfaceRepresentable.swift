@@ -327,6 +327,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                             applied = await surfaceView.processOutputAndWait(
                                 operation.data,
                                 scrollbackOffsetFromBottomRows: operation.scrollbackOffsetFromBottomRows,
+                                authoritativeReconstructedRowCount: operation.authoritativeReconstructedRowCount,
                                 followingScrollRuns: operation.followingScrollRuns
                             )
                         }

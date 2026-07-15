@@ -52,6 +52,7 @@ extension GhosttySurfaceView {
         }
         return await performLocalScrollbackOperation(state: state) {
             Self.applyLocalScrollbackRuns(runs, to: state.surface, scale: state.scale)
+            return true
         }
     }
 
@@ -86,7 +87,7 @@ extension GhosttySurfaceView {
     /// user's mouse-scroll multiplier, unlike synthesizing a wheel gesture.
     @discardableResult
     public func positionAuthoritativeScrollbackViewportAndWait(rowsFromBottom: Int) async -> Bool {
-        let rows = min(max(0, rowsFromBottom), Int(Int16.max))
+        let rows = max(0, rowsFromBottom)
         guard let state = localScrollbackScrollState() else { return false }
         return await performLocalScrollbackOperation(state: state) {
             Self.positionAuthoritativeScrollbackViewport(
@@ -105,30 +106,37 @@ extension GhosttySurfaceView {
     }
 
     /// Establishes an absolute local scrollback position after a full replay.
-    /// Resetting to bottom first prevents a pre-reconnect offset from surviving
-    /// after the bounded history has been cleared and rebuilt.
+    /// The row-space revision makes the read and update a compare-and-swap, so
+    /// concurrent destructive output cannot move this operation onto a newer
+    /// history incarnation.
     nonisolated static func positionAuthoritativeScrollbackViewport(
         _ surface: ghostty_surface_t,
-        rowsFromBottom: Int
-    ) {
-        let bottomAction = "scroll_to_bottom"
-        bottomAction.withCString { pointer in
-            _ = ghostty_surface_binding_action(
-                surface,
-                pointer,
-                UInt(bottomAction.utf8.count)
+        rowsFromBottom: Int,
+        expectedReconstructedRowCount: Int? = nil
+    ) -> Bool {
+        var current = ghostty_surface_scrollbar_s()
+        guard ghostty_surface_scrollbar(surface, &current) else { return false }
+
+        if let expectedReconstructedRowCount {
+            let expectedTotal = max(
+                UInt64(clamping: expectedReconstructedRowCount),
+                current.len
             )
+            guard current.total == expectedTotal else { return false }
         }
-        let rows = min(max(0, rowsFromBottom), Int(Int16.max))
-        guard rows > 0 else { return }
-        let offsetAction = "scroll_page_lines:-\(rows)"
-        offsetAction.withCString { pointer in
-            _ = ghostty_surface_binding_action(
-                surface,
-                pointer,
-                UInt(offsetAction.utf8.count)
-            )
-        }
+
+        let maximumOffset = current.total > current.len
+            ? current.total - current.len
+            : 0
+        let distance = min(UInt64(clamping: max(0, rowsFromBottom)), maximumOffset)
+        let target = maximumOffset - distance
+        var positioned = ghostty_surface_scrollbar_s()
+        return ghostty_surface_scroll_to_row_if_revision(
+            surface,
+            target,
+            current.row_space_revision,
+            &positioned
+        ) && positioned.offset == target
     }
 
     /// Stops UIKit drag/deceleration without mutating Ghostty. The shell then
@@ -140,12 +148,12 @@ extension GhosttySurfaceView {
 
     private func performLocalScrollbackOperation(
         state: GhosttySurfaceWorkSnapshot,
-        operation: @escaping @Sendable () -> Void
+        operation: @escaping @Sendable () -> Bool
     ) async -> Bool {
         await withCheckedContinuation { continuation in
             let operationID = registerPendingLocalScrollApply(continuation: continuation)
             state.queue.async { [weak self] in
-                operation()
+                let operationApplied = operation()
                 Task { @MainActor [weak self] in
                     guard let self else { return }
                     let isCurrent = self.surface == state.surface
@@ -155,7 +163,10 @@ extension GhosttySurfaceView {
                         self.requestDrawAfterLocalScrollbackScroll(generation: state.generation)
                         self.scheduleVisibleArtifactCountUpdate()
                     }
-                    self.completePendingLocalScrollApply(id: operationID, returning: isCurrent)
+                    self.completePendingLocalScrollApply(
+                        id: operationID,
+                        returning: operationApplied && isCurrent
+                    )
                 }
             }
         }

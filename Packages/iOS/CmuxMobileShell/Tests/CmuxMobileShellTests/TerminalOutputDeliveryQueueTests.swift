@@ -736,17 +736,23 @@ private func waitForReplayRequestCount(
         changedRows: [0, 1]
     )
 
-    #expect(TerminalOutputDelivery(
+    let fullDelivery = TerminalOutputDelivery(
         renderGrid: fullAtBottom,
         replaceable: false
-    ).scrollbackOffsetFromBottomRows == 0)
-    #expect(TerminalOutputDelivery(
+    )
+    #expect(fullDelivery.scrollbackOffsetFromBottomRows == 0)
+    #expect(fullDelivery.authoritativeReconstructedRowCount == 2)
+    let deltaDelivery = TerminalOutputDelivery(
         renderGrid: delta,
         replaceable: true
-    ).scrollbackOffsetFromBottomRows == nil)
-    #expect(TerminalOutputDelivery(
+    )
+    #expect(deltaDelivery.scrollbackOffsetFromBottomRows == nil)
+    #expect(deltaDelivery.authoritativeReconstructedRowCount == nil)
+    let rawDelivery = TerminalOutputDelivery(
         bytes: Data("snapshot".utf8),
         replaceable: false,
         scrollbackOffsetFromBottomRows: 0
-    ).scrollbackOffsetFromBottomRows == 0)
+    )
+    #expect(rawDelivery.scrollbackOffsetFromBottomRows == 0)
+    #expect(rawDelivery.authoritativeReconstructedRowCount == nil)
 }
