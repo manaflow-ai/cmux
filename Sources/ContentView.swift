@@ -12170,6 +12170,19 @@ struct VerticalTabsSidebar: View {
     ) -> some View {
         let signpost = SidebarProfilingSignposts.begin("sidebar-workspace-row", "index=\(renderContext.tabIndexById[tab.id] ?? -1) workspace=\(sidebarShortTabId(tab.id)) selected=\(tabManager.selectedTabId == tab.id)")
         let index = renderContext.tabIndexById[tab.id] ?? 0
+        let workspaceGroupColorHex: String? = {
+            guard let groupId = tab.groupId,
+                  let group = renderContext.workspaceGroupById[groupId] else {
+                return nil
+            }
+            let anchorCwd = renderContext.workspaceById[group.anchorWorkspaceId]?.currentDirectory
+            let configuredColor = cmuxConfigStore.resolveWorkspaceGroupConfig(forCwd: anchorCwd)?.color
+            return group.customColor ?? configuredColor
+        }()
+        let effectiveColorHex = sidebarWorkspaceEffectiveColorHex(
+            workspaceColorHex: tab.customColor,
+            workspaceGroupColorHex: workspaceGroupColorHex
+        )
         let usesSelectedContextMenuTargets = selectedTabIds.contains(tab.id)
         let contextMenuWorkspaceIds = usesSelectedContextMenuTargets
             ? renderContext.selectedContextTargetIds
@@ -12285,6 +12298,7 @@ struct VerticalTabsSidebar: View {
             notificationStore: notificationStore,
             tab: tab,
             index: index,
+            effectiveColorHex: effectiveColorHex,
             workspaceShortcutDigit: WorkspaceShortcutMapper.digitForWorkspace(
                 at: index,
                 workspaceCount: renderContext.workspaceCount
@@ -12883,6 +12897,7 @@ struct TabItemView: View, Equatable {
     nonisolated static func == (lhs: TabItemView, rhs: TabItemView) -> Bool {
         lhs.tab === rhs.tab &&
         lhs.index == rhs.index &&
+        lhs.effectiveColorHex == rhs.effectiveColorHex &&
         lhs.workspaceShortcutDigit == rhs.workspaceShortcutDigit &&
         lhs.workspaceShortcutModifierSymbol == rhs.workspaceShortcutModifierSymbol &&
         lhs.canCloseWorkspace == rhs.canCloseWorkspace &&
@@ -12931,6 +12946,7 @@ struct TabItemView: View, Equatable {
 #endif
     let tab: Tab
     let index: Int
+    let effectiveColorHex: String?
     let workspaceShortcutDigit: Int?
     let workspaceShortcutModifierSymbol: String
     let canCloseWorkspace: Bool
@@ -13334,6 +13350,7 @@ struct TabItemView: View, Equatable {
             showsGitBranch: sidebarShowGitBranch,
             usesViewportAwarePath: sidebarUsesLastSegmentPath,
             showsAgentActivity: showsAgentActivity,
+            effectiveColorHex: effectiveColorHex,
             visibleAuxiliaryDetails: visibleAuxiliaryDetails
         )
     }
@@ -14262,7 +14279,7 @@ struct TabItemView: View, Equatable {
             title: tab.title,
             customDescription: settings.showsWorkspaceDescription ? sidebarVisibleCustomDescription : nil,
             isPinned: tab.isPinned,
-            customColorHex: tab.customColor,
+            customColorHex: effectiveColorHex,
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: remoteStateHelpText,

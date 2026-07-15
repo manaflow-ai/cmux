@@ -75,6 +75,7 @@ extension VerticalTabsSidebar {
             name: group.name,
             iconSymbol: effectiveIcon,
             tintHex: effectiveColor,
+            hasCustomColor: group.customColor != nil,
             isCollapsed: group.isCollapsed,
             isPinned: group.isPinned,
             isAnchorActive: isAnchorActive,
@@ -137,6 +138,17 @@ extension VerticalTabsSidebar {
             },
             onTogglePinned: { [weak tabManager, groupId = group.id] in
                 tabManager?.toggleWorkspaceGroupPinned(groupId: groupId)
+            },
+            onSetColor: { [weak tabManager, groupId = group.id] hex in
+                tabManager?.setWorkspaceGroupColor(groupId: groupId, hex: hex)
+            },
+            onChooseCustomColor: { [weak tabManager, groupId = group.id, currentColor = effectiveColor] in
+                guard let tabManager else { return }
+                presentWorkspaceGroupColorPrompt(
+                    tabManager: tabManager,
+                    groupId: groupId,
+                    currentColor: currentColor
+                )
             },
             onMarkRead: { [weak notificationStore, anchorId = group.anchorWorkspaceId] in
                 notificationStore?.markRead(forTabId: anchorId)
@@ -204,5 +216,67 @@ extension VerticalTabsSidebar {
                 id: group.anchorWorkspaceId,
                 isEnabled: shouldCollectWorkspaceDropTargets
             )
+    }
+
+    private func presentWorkspaceGroupColorPrompt(
+        tabManager: TabManager,
+        groupId: UUID,
+        currentColor: String?
+    ) {
+        let alert = NSAlert()
+        alert.messageText = String(
+            localized: "workspaceGroup.contextMenu.color",
+            defaultValue: "Group Color"
+        )
+        alert.informativeText = String(
+            localized: "alert.customColor.message",
+            defaultValue: "Enter a hex color in the format #RRGGBB."
+        )
+
+        let seed = currentColor ?? WorkspaceTabColorSettings.customPaletteEntries().first?.hex ?? ""
+        let input = NSTextField(string: seed)
+        input.placeholderString = "#1565C0"
+        input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
+        alert.accessoryView = input
+        alert.addButton(
+            withTitle: String(localized: "alert.customColor.apply", defaultValue: "Apply")
+        )
+        alert.addButton(
+            withTitle: String(localized: "alert.customColor.cancel", defaultValue: "Cancel")
+        )
+        alert.window.initialFirstResponder = input
+        input.selectText(nil)
+
+        guard runCmuxModalAlert(alert) == .alertFirstButtonReturn else { return }
+        guard let normalized = WorkspaceTabColorSettings.addCustomColor(input.stringValue) else {
+            presentInvalidWorkspaceGroupColorAlert(input.stringValue)
+            return
+        }
+        tabManager.setWorkspaceGroupColor(groupId: groupId, hex: normalized)
+    }
+
+    private func presentInvalidWorkspaceGroupColorAlert(_ value: String) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(
+            localized: "alert.invalidColor.title",
+            defaultValue: "Invalid Color"
+        )
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            alert.informativeText = String(
+                localized: "alert.invalidColor.emptyMessage",
+                defaultValue: "Enter a hex color in the format #RRGGBB."
+            )
+        } else {
+            alert.informativeText = String(
+                localized: "alert.invalidColor.invalidMessage",
+                defaultValue: "\"\(trimmed)\" is not a valid hex color. Use #RRGGBB."
+            )
+        }
+        alert.addButton(
+            withTitle: String(localized: "alert.invalidColor.ok", defaultValue: "OK")
+        )
+        _ = runCmuxModalAlert(alert)
     }
 }
