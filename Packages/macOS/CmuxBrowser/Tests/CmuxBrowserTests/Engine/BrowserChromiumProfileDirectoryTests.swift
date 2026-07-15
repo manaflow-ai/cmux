@@ -4,70 +4,41 @@ import Testing
 
 @Suite struct BrowserChromiumProfileDirectoryTests {
     @Test func sameProfileUsesOnePersistentDirectory() {
-        let builder = BrowserChromiumProfileDirectory()
+        let builder = BrowserChromiumProfileDirectory(
+            applicationSupportDirectory: URL(fileURLWithPath: "/application-support"),
+            bundleIdentifier: "com.cmuxterm.app"
+        )
         let profileID = UUID()
 
-        let firstSession = builder.url(
-            profileID: profileID,
-            surfaceID: UUID(),
-            sessionID: UUID()
-        )
-        let secondSession = builder.url(
-            profileID: profileID,
-            surfaceID: UUID(),
-            sessionID: UUID()
-        )
+        let firstSession = builder.url(profileID: profileID)
+        let secondSession = builder.url(profileID: profileID)
 
         #expect(firstSession == secondSession)
     }
 
-    @Test func removesOnlyTheOwnedSession() throws {
-        let builder = BrowserChromiumProfileDirectory()
-        let profileID = UUID()
-        let surfaceID = UUID()
-        let firstSession = builder.url(
-            profileID: profileID,
-            surfaceID: surfaceID,
-            sessionID: UUID()
+    @Test func separatesProfileDirectories() {
+        let builder = BrowserChromiumProfileDirectory(
+            applicationSupportDirectory: URL(fileURLWithPath: "/application-support"),
+            bundleIdentifier: "com.cmuxterm.app"
         )
-        let secondSession = builder.url(
-            profileID: profileID,
-            surfaceID: surfaceID,
-            sessionID: UUID()
-        )
-        let profileDirectory = firstSession
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let surfaceDirectory = firstSession.deletingLastPathComponent()
-        try FileManager.default.createDirectory(at: firstSession, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: secondSession, withIntermediateDirectories: true)
-        defer {
-            try? builder.removeSessionDirectoryIfOwned(firstSession)
-            try? builder.removeSessionDirectoryIfOwned(secondSession)
-            try? FileManager.default.removeItem(at: profileDirectory)
-        }
+        let firstProfileID = UUID(uuidString: "7F71E21E-4F75-4FD7-B7F0-2DD8566A50CD")!
+        let secondProfileID = UUID(uuidString: "09BDB8FD-9B35-40F8-82C1-07D6FA4A5905")!
 
-        try builder.removeSessionDirectoryIfOwned(firstSession)
-
-        #expect(!FileManager.default.fileExists(atPath: firstSession.path))
-        #expect(FileManager.default.fileExists(atPath: secondSession.path))
-
-        try builder.removeSessionDirectoryIfOwned(secondSession)
-
-        #expect(!FileManager.default.fileExists(atPath: secondSession.path))
-        #expect(!FileManager.default.fileExists(atPath: surfaceDirectory.path))
-        #expect(!FileManager.default.fileExists(atPath: profileDirectory.path))
+        #expect(builder.url(profileID: firstProfileID) != builder.url(profileID: secondProfileID))
     }
 
-    @Test func refusesToRemoveDirectoryOutsideOwnedUUIDHierarchy() throws {
-        let builder = BrowserChromiumProfileDirectory()
-        let outsideDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-chromium-cleanup-test-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: outsideDirectory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: outsideDirectory) }
+    @Test func normalizesTaggedDebugStorage() {
+        let profileID = UUID()
+        let applicationSupport = URL(fileURLWithPath: "/application-support")
+        let first = BrowserChromiumProfileDirectory(
+            applicationSupportDirectory: applicationSupport,
+            bundleIdentifier: "com.cmuxterm.app.debug.first"
+        )
+        let second = BrowserChromiumProfileDirectory(
+            applicationSupportDirectory: applicationSupport,
+            bundleIdentifier: "com.cmuxterm.app.debug.second"
+        )
 
-        try builder.removeSessionDirectoryIfOwned(outsideDirectory)
-
-        #expect(FileManager.default.fileExists(atPath: outsideDirectory.path))
+        #expect(first.url(profileID: profileID) == second.url(profileID: profileID))
     }
 }

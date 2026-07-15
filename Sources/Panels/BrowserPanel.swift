@@ -349,14 +349,31 @@ final class BrowserProfileStore: ObservableObject {
     @Published private(set) var lastUsedProfileID: UUID = BrowserProfileRepository.builtInDefaultProfileID
 
     private let repository: BrowserProfileRepository
+    private let fileRemover: BrowserProfileFileRemover
+    private let chromiumProfileDirectory: BrowserChromiumProfileDirectory
+    private var chromiumRuntimes: [UUID: ChromiumProfileRuntime] = [:]
 
-    init(defaults: UserDefaults = .standard) {
+    init(
+        defaults: UserDefaults = .standard,
+        fileManager: FileManager = .default,
+        bundleIdentifier: String = Bundle.main.bundleIdentifier ?? "cmux"
+    ) {
+        let applicationSupportDirectory = fileManager.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first ?? fileManager.temporaryDirectory
+        chromiumProfileDirectory = BrowserChromiumProfileDirectory(
+            applicationSupportDirectory: applicationSupportDirectory,
+            bundleIdentifier: bundleIdentifier
+        )
+        let fileRemover = BrowserProfileFileRemover()
+        self.fileRemover = fileRemover
         repository = BrowserProfileRepository(
             defaults: defaults,
             historyProvider: BrowserProfileHistoryAdapter(),
             websiteDataStoreProvider: BrowserProfileWebsiteDataStoreAdapter(),
-            fileRemover: BrowserProfileFileRemover(),
-            bundleIdentifier: Bundle.main.bundleIdentifier ?? "cmux",
+            fileRemover: fileRemover,
+            bundleIdentifier: bundleIdentifier,
             defaultProfileDisplayName: String(localized: "browser.profile.default", defaultValue: "Default")
         )
         mirrorPublishedState()
@@ -401,11 +418,21 @@ final class BrowserProfileStore: ObservableObject {
 
     func deleteProfile(id: UUID) -> BrowserProfileDefinition? {
         let result = repository.deleteProfile(id: id)
+        if result != nil {
+            removeChromiumRuntimeAndData(for: id)
+        }
         mirrorPublishedState()
         return result
     }
 
     func clearProfileData(id: UUID) async -> BrowserProfileClearOutcome? {
+        guard repository.profileDefinition(id: id) != nil else { return nil }
+        let runtime = chromiumRuntimes[id]
+        if let runtime {
+            await runtime.close()
+        }
+        let directory = chromiumProfileDirectory.url(profileID: id)
+        await fileRemover.removeItemIfExists(at: directory)
         let result = await repository.clearProfileData(id: id)
         mirrorPublishedState()
         return result
@@ -428,6 +455,28 @@ final class BrowserProfileStore: ObservableObject {
 
     func historyFileURL(for profileID: UUID) -> URL? {
         repository.historyFileURL(for: profileID)
+    }
+
+    func chromiumRuntime(for profileID: UUID) -> ChromiumProfileRuntime {
+        if let runtime = chromiumRuntimes[profileID] {
+            return runtime
+        }
+        let runtime = ChromiumProfileRuntime(
+            userDataDirectory: chromiumProfileDirectory.url(profileID: profileID)
+        )
+        chromiumRuntimes[profileID] = runtime
+        return runtime
+    }
+
+    private func removeChromiumRuntimeAndData(for profileID: UUID) {
+        let runtime = chromiumRuntimes.removeValue(forKey: profileID)
+        let directory = chromiumProfileDirectory.url(profileID: profileID)
+        Task { [fileRemover] in
+            if let runtime {
+                await runtime.close()
+            }
+            await fileRemover.removeItemIfExists(at: directory)
+        }
     }
 
     func flushPendingSaves() {
@@ -2737,6 +2786,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// The engine-neutral owner of navigation, automation, and page capture.
     private let chromiumApplication: BrowserApplication?
+    private var chromiumProfileRuntime: ChromiumProfileRuntime
     private var engineSessionStorage: (any BrowserEngineSession)?
     private var engineStateTask: Task<Void, Never>?
     var engineInitializationScripts: [String] = []
@@ -3984,6 +4034,9 @@ final class BrowserPanel: Panel, ObservableObject {
         self.historyStore = BrowserProfileStore.shared.historyStore(for: resolvedProfileID)
         self.engineKind = effectiveEngineSelection.kind
         self.chromiumApplication = effectiveEngineSelection.chromiumApplication
+        self.chromiumProfileRuntime = BrowserProfileStore.shared.chromiumRuntime(
+            for: resolvedProfileID
+        )
         self.insecureHTTPBypassHostOnce = BrowserInsecureHTTPSettings.normalizeHost(bypassInsecureHTTPHostOnce ?? "")
         self.bypassesRemoteWorkspaceProxy = bypassRemoteProxy
         self.remoteProxyEndpoint = bypassRemoteProxy ? nil : proxyEndpoint
@@ -4018,9 +4071,8 @@ final class BrowserPanel: Panel, ObservableObject {
         self.engineSessionStorage = Self.makeEngineSession(
             kind: effectiveEngineSelection.kind,
             chromiumApplication: effectiveEngineSelection.chromiumApplication,
+            chromiumProfileRuntime: chromiumProfileRuntime,
             webView: webView,
-            profileID: resolvedProfileID,
-            surfaceID: panelID,
             initializationScripts: []
         )
         self.insecureHTTPAlertFactory = { NSAlert() }
@@ -4282,9 +4334,8 @@ final class BrowserPanel: Panel, ObservableObject {
     private static func makeEngineSession(
         kind: BrowserEngineKind,
         chromiumApplication: BrowserApplication?,
+        chromiumProfileRuntime: ChromiumProfileRuntime,
         webView: WKWebView,
-        profileID: UUID,
-        surfaceID: UUID,
         initializationScripts: [String]
     ) -> any BrowserEngineSession {
         switch kind {
@@ -4298,12 +4349,8 @@ final class BrowserPanel: Panel, ObservableObject {
         case .chromium:
             return ChromiumBrowserEngineSession(
                 viewportWebView: webView,
+                profileRuntime: chromiumProfileRuntime,
                 application: chromiumApplication,
-                userDataDirectory: BrowserChromiumProfileDirectory().url(
-                    profileID: profileID,
-                    surfaceID: surfaceID,
-                    sessionID: UUID()
-                ),
                 initializationScripts: initializationScripts
             )
         }
@@ -4320,9 +4367,8 @@ final class BrowserPanel: Panel, ObservableObject {
         engineSessionStorage = Self.makeEngineSession(
             kind: engineKind,
             chromiumApplication: chromiumApplication,
+            chromiumProfileRuntime: chromiumProfileRuntime,
             webView: webView,
-            profileID: profileID,
-            surfaceID: id,
             initializationScripts: engineInitializationScripts
         )
         syncEngineViewportVisibility()
@@ -4779,6 +4825,9 @@ final class BrowserPanel: Panel, ObservableObject {
         if let previousCmuxWebView = previousWebView as? CmuxWebView { previousCmuxWebView.clearBrowserDownloadCallbacks() }
 
         profileID = resolvedProfileID
+        chromiumProfileRuntime = BrowserProfileStore.shared.chromiumRuntime(
+            for: resolvedProfileID
+        )
         historyStore = BrowserProfileStore.shared.historyStore(for: resolvedProfileID)
         BrowserProfileStore.shared.noteUsed(resolvedProfileID)
 

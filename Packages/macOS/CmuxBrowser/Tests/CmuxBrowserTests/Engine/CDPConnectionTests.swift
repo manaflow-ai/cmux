@@ -32,6 +32,32 @@ import Testing
         }
         await connection.close()
     }
+
+    @Test func broadcastsBrowserEventsToEveryTargetSubscriber() async throws {
+        let transport = BufferedCDPWebSocketTransport()
+        let connection = CDPConnection(transport: transport)
+        await connection.connect()
+        let firstEvents = await connection.events(sessionID: "first-target")
+        let secondEvents = await connection.events(sessionID: "second-target")
+        let firstEvent = Task<CDPEvent?, Never> {
+            for await event in firstEvents { return event }
+            return nil
+        }
+        let secondEvent = Task<CDPEvent?, Never> {
+            for await event in secondEvents { return event }
+            return nil
+        }
+        let eventData = try JSONSerialization.data(withJSONObject: [
+            "method": "Target.targetInfoChanged",
+            "params": ["targetInfo": ["targetId": "browser"]],
+        ])
+
+        await transport.deliverAndWaitUntilConsumed(eventData)
+        await connection.close()
+
+        #expect(await firstEvent.value?.method == "Target.targetInfoChanged")
+        #expect(await secondEvent.value?.method == "Target.targetInfoChanged")
+    }
 }
 
 private final class NoResponseCDPWebSocketTransport: CDPWebSocketTransport, @unchecked Sendable {
@@ -45,4 +71,59 @@ private final class NoResponseCDPWebSocketTransport: CDPWebSocketTransport, @unc
     }
 
     func cancel() {}
+}
+
+private actor BufferedCDPWebSocketTransport: CDPWebSocketTransport {
+    private var bufferedData: [Data] = []
+    private var receiveContinuation: CheckedContinuation<Data, any Error>?
+    private var receiveCount = 0
+    private var receiveCountWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
+
+    nonisolated func resume() {}
+
+    func send(_: Data) async throws {}
+
+    func receive() async throws -> Data {
+        receiveCount += 1
+        resumeReceiveCountWaiters()
+        if !bufferedData.isEmpty {
+            return bufferedData.removeFirst()
+        }
+        return try await withCheckedThrowingContinuation { continuation in
+            receiveContinuation = continuation
+        }
+    }
+
+    nonisolated func cancel() {
+        Task {
+            await finish()
+        }
+    }
+
+    func deliverAndWaitUntilConsumed(_ data: Data) async {
+        let nextReceiveCount = receiveCount + 1
+        if let continuation = receiveContinuation {
+            receiveContinuation = nil
+            continuation.resume(returning: data)
+        } else {
+            bufferedData.append(data)
+        }
+        guard receiveCount < nextReceiveCount else { return }
+        await withCheckedContinuation { continuation in
+            receiveCountWaiters.append((nextReceiveCount, continuation))
+        }
+    }
+
+    private func finish() {
+        receiveContinuation?.resume(throwing: CancellationError())
+        receiveContinuation = nil
+    }
+
+    private func resumeReceiveCountWaiters() {
+        let ready = receiveCountWaiters.filter { $0.count <= receiveCount }
+        receiveCountWaiters.removeAll { $0.count <= receiveCount }
+        for waiter in ready {
+            waiter.continuation.resume()
+        }
+    }
 }

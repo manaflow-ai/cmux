@@ -28,7 +28,12 @@ public struct BrowserEngineResolver: Sendable {
         case .chromium:
             return .chromium
         case .automatic:
-            return defaultHandlerBundleIdentifiers.contains(where: isChromiumFamilyBundleIdentifier)
+            guard let preferredHandler = defaultHandlerBundleIdentifiers.first(where: {
+                !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }) else {
+                return .webKit
+            }
+            return isChromiumFamilyBundleIdentifier(preferredHandler)
                 ? .chromium
                 : .webKit
         }

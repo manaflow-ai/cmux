@@ -51,23 +51,24 @@ actor CDPConnection {
         let timeoutTask: Task<Void, Never>
     }
 
+    private struct EventSubscriber {
+        let sessionID: String
+        let continuation: AsyncStream<CDPEvent>.Continuation
+    }
+
     private let transport: any CDPWebSocketTransport
     private let requestTimeout: Duration
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
-    private let eventContinuation: AsyncStream<CDPEvent>.Continuation
-    private let eventStream: AsyncStream<CDPEvent>
     private var receiveTask: Task<Void, Never>?
     private var nextRequestID = 1
     private var pendingRequests: [Int: PendingRequest] = [:]
+    private var eventSubscribers: [UUID: EventSubscriber] = [:]
     private var isClosed = false
 
     init(url: URL, requestTimeout: Duration = .seconds(10)) {
         self.transport = URLSessionCDPWebSocketTransport(url: url)
         self.requestTimeout = requestTimeout
-        (eventStream, eventContinuation) = AsyncStream.makeStream(
-            bufferingPolicy: .bufferingNewest(256)
-        )
     }
 
     init(
@@ -76,9 +77,6 @@ actor CDPConnection {
     ) {
         self.transport = transport
         self.requestTimeout = requestTimeout
-        (eventStream, eventContinuation) = AsyncStream.makeStream(
-            bufferingPolicy: .bufferingNewest(256)
-        )
     }
 
     func connect() {
@@ -89,7 +87,29 @@ actor CDPConnection {
         }
     }
 
-    func events() -> AsyncStream<CDPEvent> { eventStream }
+    func events(sessionID: String) -> AsyncStream<CDPEvent> {
+        let subscriberID = UUID()
+        let (stream, continuation) = AsyncStream.makeStream(
+            of: CDPEvent.self,
+            bufferingPolicy: .bufferingNewest(256)
+        )
+        guard !isClosed else {
+            continuation.finish()
+            return stream
+        }
+        eventSubscribers[subscriberID] = EventSubscriber(
+            sessionID: sessionID,
+            continuation: continuation
+        )
+        continuation.onTermination = { [weak self] _ in
+            Task {
+                await self?.removeEventSubscriber(subscriberID)
+            }
+        }
+        return stream
+    }
+
+    func isOpen() -> Bool { !isClosed }
 
     func send(
         method: String,
@@ -179,7 +199,7 @@ actor CDPConnection {
         transport.cancel()
         let error = BrowserEngineSessionError.chromiumProtocol("DevTools connection closed.")
         failAllPendingRequests(error: error)
-        eventContinuation.finish()
+        finishEventSubscribers()
     }
 
     private func failPendingRequest(_ requestID: Int, error: any Error) {
@@ -210,7 +230,7 @@ actor CDPConnection {
             transport.cancel()
             receiveTask = nil
             failAllPendingRequests(error: error)
-            eventContinuation.finish()
+            finishEventSubscribers()
         }
     }
 
@@ -228,10 +248,26 @@ actor CDPConnection {
             return
         }
         guard let method = payload["method"]?.stringValue else { return }
-        eventContinuation.yield(CDPEvent(
+        let event = CDPEvent(
             method: method,
             parameters: payload["params"]?.objectValue ?? [:],
             sessionID: payload["sessionId"]?.stringValue
-        ))
+        )
+        for subscriber in eventSubscribers.values where
+            event.sessionID == nil || event.sessionID == subscriber.sessionID {
+            subscriber.continuation.yield(event)
+        }
+    }
+
+    private func removeEventSubscriber(_ subscriberID: UUID) {
+        eventSubscribers.removeValue(forKey: subscriberID)
+    }
+
+    private func finishEventSubscribers() {
+        let subscribers = Array(eventSubscribers.values)
+        eventSubscribers.removeAll()
+        for subscriber in subscribers {
+            subscriber.continuation.finish()
+        }
     }
 }

@@ -27,12 +27,12 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
     private let stateContinuation: AsyncStream<BrowserEngineState>.Continuation
     private let viewportWebView: WKWebView
     private let application: BrowserApplication?
-    private let userDataDirectory: URL
-    private let processController = ChromiumProcessController()
+    private let profileRuntime: ChromiumProfileRuntime
     private let viewportHandler = ChromiumViewportMessageHandler()
     private let cookieCodec = ChromiumBrowserCookieCodec()
     private let documentTitleObservation = ChromiumDocumentTitleObservation()
     var connection: CDPConnection?
+    private var targetID: String?
     var cdpSessionID: String?
     private var startupTask: Task<Void, Never>?
     private var eventTask: Task<Void, Never>?
@@ -55,22 +55,45 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
     var deviceScaleFactor = 1.0
     private var isClosed = false
 
-    /// Creates and starts a Chromium engine session.
+    /// Creates and starts a Chromium engine session with an independently owned runtime.
     ///
     /// - Parameters:
     ///   - viewportWebView: The local WebKit transport view used only for canvas presentation and input capture.
     ///   - application: The installed Chromium-family browser to launch, or `nil` to show an unavailable error.
     ///   - userDataDirectory: An isolated Chrome profile directory for this engine session.
     ///   - initializationScripts: Scripts to install before the first requested page loads.
-    public init(
+    public convenience init(
         viewportWebView: WKWebView,
         application: BrowserApplication?,
         userDataDirectory: URL,
         initializationScripts: [String] = []
     ) {
+        self.init(
+            viewportWebView: viewportWebView,
+            profileRuntime: ChromiumProfileRuntime(
+                userDataDirectory: userDataDirectory
+            ),
+            application: application,
+            initializationScripts: initializationScripts
+        )
+    }
+
+    /// Creates and starts a Chromium engine session on a profile-scoped runtime.
+    ///
+    /// - Parameters:
+    ///   - viewportWebView: The local WebKit transport view used only for canvas presentation and input capture.
+    ///   - profileRuntime: The process owner shared by every pane using the same cmux profile.
+    ///   - application: The installed Chromium-family browser to launch, or `nil` to show an unavailable error.
+    ///   - initializationScripts: Scripts to install before the first requested page loads.
+    public init(
+        viewportWebView: WKWebView,
+        profileRuntime: ChromiumProfileRuntime,
+        application: BrowserApplication?,
+        initializationScripts: [String] = []
+    ) {
         self.viewportWebView = viewportWebView
         self.application = application
-        self.userDataDirectory = userDataDirectory
+        self.profileRuntime = profileRuntime
         self.initializationScripts = initializationScripts
         (stateUpdates, stateContinuation) = AsyncStream.makeStream(
             bufferingPolicy: .bufferingNewest(1)
@@ -339,17 +362,19 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
             forName: "cmuxChromiumViewport"
         )
         stateContinuation.finish()
-        let connection = connection
-        Task { [processController] in
-            await processController.close()
-            await connection?.close()
+        let targetID = targetID
+        self.targetID = nil
+        Task { [profileRuntime] in
+            if let targetID {
+                await profileRuntime.releaseTarget(targetID)
+            }
         }
         self.connection = nil
         cdpSessionID = nil
     }
 
     private func start() {
-        guard let application else {
+        guard application != nil else {
             let message = String(
                 localized: "browser.chromium.error.notInstalled",
                 defaultValue: "Chromium is selected, but no supported Chromium browser is installed."
@@ -361,66 +386,63 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
         startupTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let endpoint = try await processController.start(
-                    application: application,
-                    userDataDirectory: userDataDirectory
-                )
-                contentProcessIdentifier = await processController.processIdentifier()
-                try await connect(to: endpoint)
+                try await connect()
             } catch is CancellationError {
                 return
             } catch {
                 contentProcessIdentifier = nil
-                await processController.close()
                 presentLaunchFailure()
             }
         }
     }
 
-    private func connect(to endpoint: URL) async throws {
-        let connection = CDPConnection(url: endpoint)
-        await connection.connect()
-        self.connection = connection
-        let created = try await connection.send(
-            method: "Target.createTarget",
-            parameters: [
-                "url": .string("about:blank"),
-                "width": .number(Double(viewportWidth)),
-                "height": .number(Double(viewportHeight)),
-            ]
-        )
-        guard let targetID = created.objectValue?["targetId"]?.stringValue else {
-            throw BrowserEngineSessionError.chromiumProtocol("Chromium did not create a page target.")
+    private func connect() async throws {
+        guard let application else {
+            throw BrowserEngineSessionError.chromiumUnavailable
         }
-        let attached = try await connection.send(
-            method: "Target.attachToTarget",
-            parameters: ["targetId": .string(targetID), "flatten": .bool(true)]
+        let lease = try await profileRuntime.acquireTarget(
+            application: application,
+            width: viewportWidth,
+            height: viewportHeight
         )
-        guard let sessionID = attached.objectValue?["sessionId"]?.stringValue else {
-            throw BrowserEngineSessionError.chromiumProtocol("Chromium did not attach to the page target.")
-        }
-        cdpSessionID = sessionID
-        startViewportInputDrainingIfNeeded()
-        beginEvents(connection: connection, sessionID: sessionID)
-        _ = try await connection.send(method: "Page.enable", sessionID: sessionID)
-        _ = try await connection.send(method: "Runtime.enable", sessionID: sessionID)
-        try await installDocumentTitleObservation(connection: connection, sessionID: sessionID)
-        let initialPageZoomFactor = pageZoomFactor
-        try await sendPageZoomFactor(
-            initialPageZoomFactor,
-            connection: connection,
-            sessionID: sessionID
-        )
-        appliedPageZoomFactor = initialPageZoomFactor
-        isPageZoomReady = true
-        startPageZoomUpdateIfNeeded()
-        try await sendDeviceMetrics(connection: connection, sessionID: sessionID)
-        startScreencastUpdateIfNeeded()
-        try await installAllInitializationScripts(connection: connection, sessionID: sessionID)
-        if let request = pendingRequest {
-            load(request)
-        } else {
-            updateState { $0.isLoading = false }
+        do {
+            try Task.checkCancellation()
+            guard !isClosed else { throw CancellationError() }
+            let connection = lease.connection
+            self.connection = connection
+            targetID = lease.targetID
+            contentProcessIdentifier = lease.processIdentifier
+            let sessionID = lease.sessionID
+            cdpSessionID = sessionID
+            startViewportInputDrainingIfNeeded()
+            beginEvents(connection: connection, sessionID: sessionID)
+            _ = try await connection.send(method: "Page.enable", sessionID: sessionID)
+            _ = try await connection.send(method: "Runtime.enable", sessionID: sessionID)
+            try await installDocumentTitleObservation(connection: connection, sessionID: sessionID)
+            let initialPageZoomFactor = pageZoomFactor
+            try await sendPageZoomFactor(
+                initialPageZoomFactor,
+                connection: connection,
+                sessionID: sessionID
+            )
+            appliedPageZoomFactor = initialPageZoomFactor
+            isPageZoomReady = true
+            startPageZoomUpdateIfNeeded()
+            try await sendDeviceMetrics(connection: connection, sessionID: sessionID)
+            startScreencastUpdateIfNeeded()
+            try await installAllInitializationScripts(connection: connection, sessionID: sessionID)
+            if let request = pendingRequest {
+                load(request)
+            } else {
+                updateState { $0.isLoading = false }
+            }
+        } catch {
+            self.connection = nil
+            self.targetID = nil
+            cdpSessionID = nil
+            contentProcessIdentifier = nil
+            await profileRuntime.releaseTarget(lease.targetID)
+            throw error
         }
     }
 
@@ -497,8 +519,8 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
 
     private func beginEvents(connection: CDPConnection, sessionID: String) {
         eventTask = Task { [weak self] in
-            let events = await connection.events()
-            for await event in events where event.sessionID == nil || event.sessionID == sessionID {
+            let events = await connection.events(sessionID: sessionID)
+            for await event in events {
                 guard let self, !Task.isCancelled else { return }
                 await self.handle(event, connection: connection, sessionID: sessionID)
             }
@@ -730,13 +752,15 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
         viewportInputTask?.cancel()
         viewportInputTask = nil
         viewportInputQueue.removeAll()
-        let connection = connection
+        let targetID = targetID
         self.connection = nil
+        self.targetID = nil
         cdpSessionID = nil
         contentProcessIdentifier = nil
-        Task { [processController] in
-            await processController.close()
-            await connection?.close()
+        Task { [profileRuntime] in
+            if let targetID {
+                await profileRuntime.releaseTarget(targetID)
+            }
         }
         presentOperationFailure()
     }

@@ -80,6 +80,22 @@ import Testing
         }.map { $0.parameters["type"] } == [.string("keyUp")])
     }
 
+    @Test func releaseDropsEveryQueuedRepeatOfTheSamePress() {
+        var queue = ChromiumViewportInputQueue()
+
+        for index in 0..<ChromiumViewportInputQueue.maximumPendingCommands {
+            let code = index < 2 ? "Key0" : "Key\(index)"
+            queue.enqueue(key(type: "keyDown", code: code))
+        }
+
+        let accepted = queue.enqueue(key(type: "keyUp", code: "Key0"))
+
+        #expect(accepted)
+        #expect(queue.commands.filter { command in
+            command.parameters["code"] == .string("Key0")
+        }.map { $0.parameters["type"] } == [.string("keyUp")])
+    }
+
     private func mouse(
         type: String,
         x: Double = 0,

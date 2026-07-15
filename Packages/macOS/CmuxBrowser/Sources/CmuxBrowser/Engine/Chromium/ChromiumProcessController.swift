@@ -7,6 +7,7 @@ actor ChromiumProcessController {
     private var stderrTask: Task<Void, Never>?
     private var timeoutTask: Task<Void, Never>?
     private var endpointContinuation: CheckedContinuation<URL, any Error>?
+    private var terminationContinuations: [CheckedContinuation<Void, Never>] = []
     private var didResolveEndpoint = false
 
     init(launchTimeout: Duration = .seconds(10)) {
@@ -23,6 +24,8 @@ actor ChromiumProcessController {
         guard process == nil else {
             throw BrowserEngineSessionError.chromiumLaunch("Chromium is already running for this session.")
         }
+        didResolveEndpoint = false
+        endpointContinuation = nil
         try FileManager.default.createDirectory(
             at: userDataDirectory,
             withIntermediateDirectories: true
@@ -45,13 +48,14 @@ actor ChromiumProcessController {
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
         process.standardError = stderrPipe
-        process.terminationHandler = { _ in
-            try? BrowserChromiumProfileDirectory().removeSessionDirectoryIfOwned(userDataDirectory)
+        process.terminationHandler = { [weak self] _ in
+            Task {
+                await self?.processDidTerminate()
+            }
         }
         do {
             try process.run()
         } catch {
-            try? BrowserChromiumProfileDirectory().removeSessionDirectoryIfOwned(userDataDirectory)
             throw error
         }
         self.process = process
@@ -72,7 +76,7 @@ actor ChromiumProcessController {
         }
     }
 
-    func close() {
+    func close() async {
         stderrTask?.cancel()
         stderrTask = nil
         timeoutTask?.cancel()
@@ -81,11 +85,20 @@ actor ChromiumProcessController {
             failUnresolvedEndpoint(BrowserEngineSessionError.chromiumLaunch(
                 "Chromium stopped before opening its DevTools endpoint."
             ))
-        } else if let process, process.isRunning {
-            process.terminate()
         }
-        process = nil
+        guard let process else {
+            endpointContinuation = nil
+            return
+        }
         endpointContinuation = nil
+        guard process.isRunning else {
+            self.process = nil
+            return
+        }
+        process.terminate()
+        await withCheckedContinuation { continuation in
+            terminationContinuations.append(continuation)
+        }
     }
 
     private func failUnresolvedEndpoint(_ error: any Error) {
@@ -112,6 +125,20 @@ actor ChromiumProcessController {
             }
         } catch {
             failUnresolvedEndpoint(error)
+        }
+    }
+
+    private func processDidTerminate() {
+        if !didResolveEndpoint {
+            failUnresolvedEndpoint(BrowserEngineSessionError.chromiumLaunch(
+                "Chromium stopped before opening its DevTools endpoint."
+            ))
+        }
+        process = nil
+        let continuations = terminationContinuations
+        terminationContinuations.removeAll()
+        for continuation in continuations {
+            continuation.resume()
         }
     }
 

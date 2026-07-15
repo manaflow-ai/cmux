@@ -120,6 +120,15 @@ struct ChromiumViewportInputQueue {
                 $0.coalescingKind != nil
             }) {
                 commands.remove(at: coalescibleIndex)
+            } else if case .ended(let gesture)? = command.gestureTransition,
+                      commands.contains(where: {
+                          $0.gestureTransition == .began(gesture)
+                      }) {
+                commands.removeAll(where: {
+                    $0.gestureTransition == .began(gesture)
+                })
+                commands.append(command)
+                return true
             } else if !discardOldestCompleteGesture() {
                 return false
             }
