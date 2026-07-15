@@ -41,6 +41,30 @@ import Testing
         #expect(queue.count == ChromiumViewportInputQueue.maximumPendingCommands)
     }
 
+    @Test func saturatedOrderedInputKeepsTheNewestCompleteKeyGesture() {
+        var queue = ChromiumViewportInputQueue()
+
+        for index in 0..<(ChromiumViewportInputQueue.maximumPendingCommands / 2) {
+            queue.enqueue(key(type: "keyDown", code: "Key\(index)"))
+            queue.enqueue(key(type: "keyUp", code: "Key\(index)"))
+        }
+
+        queue.enqueue(key(type: "keyDown", code: "NewestKey"))
+        queue.enqueue(key(type: "keyUp", code: "NewestKey"))
+
+        #expect(queue.count == ChromiumViewportInputQueue.maximumPendingCommands)
+        #expect(queue.commands.contains(where: { command in
+            command.parameters["code"] == .string("Key0")
+        }) == false)
+        #expect(queue.commands.suffix(2).map { $0.parameters["type"] } == [
+            .string("keyDown"),
+            .string("keyUp"),
+        ])
+        #expect(queue.commands.suffix(2).allSatisfy { command in
+            command.parameters["code"] == .string("NewestKey")
+        })
+    }
+
     private func mouse(
         type: String,
         x: Double = 0,
@@ -52,6 +76,13 @@ import Testing
             "x": .number(x),
             "deltaX": .number(deltaX),
             "deltaY": .number(deltaY),
+        ])
+    }
+
+    private func key(type: String, code: String) -> ChromiumViewportInputCommand {
+        .key(parameters: [
+            "type": .string(type),
+            "code": .string(code),
         ])
     }
 }
