@@ -95,6 +95,32 @@ struct RemoteRuntimeStateCoordinatorTests {
         #expect(!fixture.coordinator.hasCompletedInitialRuntimeStateSynchronization)
     }
 
+    @Test("does not remain synchronized when the host rejects a committed revision")
+    func rejectedRevisionRemainsUnsynchronized() async throws {
+        let fixture = Self.fixture(host: RuntimeStateRecordingHost(acceptsRevisions: false))
+        defer { fixture.stop() }
+        fixture.provider.tunnel.seedRuntimeState(RemoteRuntimeStateDocument(
+            schemaVersion: 1,
+            revision: 7,
+            updatedAtUnixMilliseconds: 1,
+            state: Data(#"{"title":"server"}"#.utf8),
+            ptySessions: Data("[]".utf8)
+        ))
+        await Self.synchronize(fixture)
+
+        fixture.coordinator.enqueueRuntimeState(
+            schemaVersion: 1,
+            state: Data(#"{"title":"local"}"#.utf8),
+            baseRevision: 7
+        )
+        await Self.drainRuntimeStatePublication(fixture)
+
+        #expect(!fixture.coordinator.runtimeStateSynchronized)
+        #expect(fixture.coordinator.hasCompletedInitialRuntimeStateSynchronization)
+        #expect(fixture.host.revisions == [8])
+        #expect(try fixture.provider.tunnel.getRuntimeState()?.revision == 8)
+    }
+
     @Test("server state wins over a snapshot queued before the initial fetch")
     func serverWinsInitialSynchronization() async throws {
         let fixture = Self.fixture()

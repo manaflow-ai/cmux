@@ -151,6 +151,37 @@ struct RemoteRuntimeStateRestoreTests {
     }
 
     @MainActor
+    @Test("replaces stale live panes with the authoritative layout")
+    func replacesStaleLivePanes() throws {
+        let workspace = Workspace(allowTextBoxFocusDefault: false)
+        let initialPanelID = try #require(workspace.focusedPanelId)
+        let authoritativeSnapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let stalePanel = try #require(workspace.newTerminalSplit(
+            from: initialPanelID,
+            orientation: .horizontal,
+            focus: false
+        ))
+        #expect(workspace.bonsplitController.allPaneIds.count == 2)
+
+        let attachingConfiguration = Self.configuration(terminalStartupCommand: nil)
+        workspace.configureRemoteConnection(attachingConfiguration, autoConnect: false)
+        let document = RemoteRuntimeStateDocument(
+            schemaVersion: SessionSnapshotSchema.currentVersion,
+            revision: 1,
+            updatedAtUnixMilliseconds: 1_750_000_000_000,
+            state: try JSONEncoder().encode(authoritativeSnapshot),
+            ptySessions: Data("[]".utf8)
+        )
+        try Self.apply(document, to: workspace)
+
+        #expect(workspace.bonsplitController.allPaneIds.count == 1)
+        #expect(workspace.panels.count == authoritativeSnapshot.panels.count)
+        #expect(workspace.panels[stalePanel.id] == nil)
+        #expect(workspace.remoteConfiguration == attachingConfiguration)
+        #expect(workspace.remoteRuntimeStateRevision == 1)
+    }
+
+    @MainActor
     @Test("accepts a lower revision after changing persistent daemon slots")
     func resetsRevisionForNewRuntimeIdentity() throws {
         let workspace = Workspace()
@@ -257,7 +288,10 @@ struct RemoteRuntimeStateRestoreTests {
         )
     }
 
-    private static func configuration(slot: String = "runtime-state-test") -> WorkspaceRemoteConfiguration {
+    private static func configuration(
+        slot: String = "runtime-state-test",
+        terminalStartupCommand: String? = "ssh developer@example.test"
+    ) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             destination: "developer@example.test",
             port: 2222,
@@ -268,7 +302,7 @@ struct RemoteRuntimeStateRestoreTests {
             relayID: "runtime-test-relay",
             relayToken: String(repeating: "a", count: 64),
             localSocketPath: "/tmp/cmux-runtime-test.sock",
-            terminalStartupCommand: "ssh developer@example.test",
+            terminalStartupCommand: terminalStartupCommand,
             preserveAfterTerminalExit: true,
             persistentDaemonSlot: slot
         )

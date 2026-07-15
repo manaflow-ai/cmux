@@ -241,6 +241,78 @@ func TestRuntimeStateStorePersistsAcrossRepositoryRecreation(t *testing.T) {
 	}
 }
 
+func TestPersistRuntimeStateDocumentSyncsParentDirectoryAfterRename(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "slot", "runtime-state.json")
+	events := []string{}
+	fileSystem := &recordingRuntimeStateFileSystem{events: &events}
+	document := runtimeStateDocument{
+		ProtocolVersion: runtimeStateProtocolVersion,
+		SchemaVersion:   1,
+		Revision:        1,
+		UpdatedAtUnixMS: 1,
+		State:           json.RawMessage(`{"title":"durable"}`),
+	}
+
+	if err := persistRuntimeStateDocumentWithFileSystem(path, document, fileSystem); err != nil {
+		t.Fatalf("persist runtime state: %v", err)
+	}
+	want := []string{"rename", "open-directory", "sync-directory", "close-directory"}
+	if strings.Join(events, ",") != strings.Join(want, ",") {
+		t.Fatalf("persistence events = %v, want %v", events, want)
+	}
+}
+
+type recordingRuntimeStateFileSystem struct {
+	events *[]string
+}
+
+func (*recordingRuntimeStateFileSystem) MkdirAll(path string, mode os.FileMode) error {
+	return os.MkdirAll(path, mode)
+}
+
+func (*recordingRuntimeStateFileSystem) CreateTemp(directory string, pattern string) (runtimeStateTemporaryFile, error) {
+	return os.CreateTemp(directory, pattern)
+}
+
+func (*recordingRuntimeStateFileSystem) Remove(path string) error {
+	return os.Remove(path)
+}
+
+func (fileSystem *recordingRuntimeStateFileSystem) Rename(oldPath string, newPath string) error {
+	if err := os.Rename(oldPath, newPath); err != nil {
+		return err
+	}
+	*fileSystem.events = append(*fileSystem.events, "rename")
+	return nil
+}
+
+func (fileSystem *recordingRuntimeStateFileSystem) OpenDirectory(path string) (runtimeStateDirectory, error) {
+	directory, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	*fileSystem.events = append(*fileSystem.events, "open-directory")
+	return &recordingRuntimeStateDirectory{
+		File:   directory,
+		events: fileSystem.events,
+	}, nil
+}
+
+type recordingRuntimeStateDirectory struct {
+	*os.File
+	events *[]string
+}
+
+func (directory *recordingRuntimeStateDirectory) Sync() error {
+	*directory.events = append(*directory.events, "sync-directory")
+	return directory.File.Sync()
+}
+
+func (directory *recordingRuntimeStateDirectory) Close() error {
+	*directory.events = append(*directory.events, "close-directory")
+	return directory.File.Close()
+}
+
 func TestRuntimeStateStoreRejectsOversizedPersistedPayload(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "slot", "runtime-state.json")
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
