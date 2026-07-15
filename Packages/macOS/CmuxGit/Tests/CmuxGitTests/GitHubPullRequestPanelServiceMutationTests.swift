@@ -310,13 +310,21 @@ import Testing
 
         let firstRefresh = Task { try await service.refresh(for: firstInput) }
         await runner.waitForBranchViewInvocationCount(1)
-        let secondRefresh = Task { try await service.refresh(for: secondInput) }
-        await Task.yield()
+        let secondContext = try await service.resolvedContext(for: secondInput)
+        let activeRequest = await service.inFlightRefreshByContext[secondContext]
+        let firstRequestIdentifier = try #require(activeRequest?.identifier)
+        let secondRequest = await service.coalescedRefreshRequest(for: secondContext)
+        #expect(secondRequest.identifier == firstRequestIdentifier)
         #expect(await runner.branchViewInvocationCount == 1)
         await runner.resumeFirstBranchView()
 
         let firstContent = try await firstRefresh.value
-        let secondContent = try await secondRefresh.value
+        let secondContent = try await secondRequest.task.value
+        await service.finishCoalescedRefreshWaiter(
+            secondRequest.waiterIdentifier,
+            requestIdentifier: secondRequest.identifier,
+            for: secondContext
+        )
         #expect(firstContent == secondContent)
         #expect(await runner.branchViewInvocationCount == 1)
     }
