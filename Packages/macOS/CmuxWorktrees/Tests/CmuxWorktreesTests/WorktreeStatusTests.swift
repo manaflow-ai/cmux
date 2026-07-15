@@ -53,6 +53,45 @@ struct WorktreeStatusTests {
     }
 
     @Test
+    func reportsGoneUpstreamWithoutFailing() async throws {
+        let fixture = try await GitTestRepository.make()
+        defer { fixture.cleanup() }
+        let upstreamBranch = "status-gone"
+        let remote = fixture.path("remote.git")
+        _ = try await fixture.git(["init", "--bare", remote.path])
+        _ = try await fixture.git(["remote", "add", "origin", remote.path])
+        _ = try await fixture.git(["push", "origin", "HEAD:refs/heads/\(upstreamBranch)"])
+        _ = try await fixture.git([
+            "fetch", "origin", "\(upstreamBranch):refs/remotes/origin/\(upstreamBranch)",
+        ])
+
+        let path = fixture.path("worktrees/gone-upstream")
+        let worktree = try await WorktreeService().create(
+            repoRoot: fixture.repository.path,
+            name: "gone-upstream",
+            baseRef: "HEAD",
+            options: WorktreeCreateOptions(worktreePath: path.path),
+            on: fixture.host
+        )
+        _ = try await fixture.git([
+            "branch", "--set-upstream-to=origin/\(upstreamBranch)", "gone-upstream",
+        ])
+        // Delete the remote branch and its tracking ref: the upstream stays
+        // configured, but its commit is no longer resolvable.
+        _ = try await fixture.git(["push", "origin", "--delete", upstreamBranch])
+        _ = try await fixture.git(["update-ref", "-d", "refs/remotes/origin/\(upstreamBranch)"])
+
+        let status = try await WorktreeService().status(
+            worktree: worktree.identity,
+            on: fixture.host
+        )
+        #expect(status.branch == "gone-upstream")
+        #expect(status.upstream == "origin/\(upstreamBranch)")
+        #expect(status.aheadCount == 0)
+        #expect(status.behindCount == 0)
+    }
+
+    @Test
     func detectsMergeAndRebaseAdministrativeState() async throws {
         let fixture = try await GitTestRepository.make()
         defer { fixture.cleanup() }
