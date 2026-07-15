@@ -13070,10 +13070,11 @@ struct CMUXCLI {
         let subArgs = Array(args.dropFirst())
         let browserValueTextFormatter = BrowserValueTextFormatter()
 
-        // Keep the transport alive through document preflight, the app-side JavaScript
-        // deadline, and a liveness recovery probe. Post-action snapshots need both JS budgets.
+        // A post-action snapshot can spend 3s in document readiness, 10s in the
+        // requested action, 10s in snapshot JavaScript, and 2.5s in recovery.
+        // Keep transport headroom beyond that 25.5s app-side maximum.
         func sendBrowserAutomationRequest(method: String, params: [String: Any]) throws -> [String: Any] {
-            let responseTimeout: TimeInterval = (params["snapshot_after"] as? Bool) == true ? 25 : 20
+            let responseTimeout: TimeInterval = (params["snapshot_after"] as? Bool) == true ? 30 : 20
             return try client.sendV2(method: method, params: params, responseTimeout: responseTimeout)
         }
 
