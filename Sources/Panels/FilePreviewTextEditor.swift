@@ -88,8 +88,9 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
     }
 
     static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
-        guard let textView = scrollView.documentView as? SavingTextView,
-              textView.delegate === coordinator else { return }
+        guard let textView = scrollView.documentView as? SavingTextView else { return }
+        textView.onPointerDown = nil
+        guard textView.delegate === coordinator else { return }
         textView.delegate = nil
         textView.panel = nil
     }
@@ -116,11 +117,6 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         textView.string = panel.textContent
         textView.invalidateFilePreviewLineNumberRuler()
         context.coordinator.isApplyingPanelUpdate = false
-    }
-
-    static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
-        guard let textView = scrollView.documentView as? SavingTextView else { return }
-        textView.onPointerDown = nil
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
