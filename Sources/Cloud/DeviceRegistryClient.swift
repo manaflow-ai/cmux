@@ -39,11 +39,14 @@ final class DeviceRegistryClient {
     private var registrationInFlight = false
     private var registrationPending = false
     private var forcedRegistrationPending = false
+    private var fullLiveSessionProjectionPending = false
+    private var pendingLiveSessionWorkspaceIDs: Set<String> = []
     /// The scope (team + tag + routes + sessions) most recently registered, used to skip
     /// redundant POSTs. Keyed on the full scope rather than routes alone so an
     /// account/team switch with unchanged routes still re-registers in the newly
     /// selected team instead of being deduped away.
     private var lastRegistration: Registration?
+    private var lastRegistrationUsedSessionFallback = false
 
     /// The identity of a registration POST, for deduplication.
     struct Registration: Equatable {
@@ -105,14 +108,23 @@ final class DeviceRegistryClient {
     }
 
     /// Re-register from the authoritative live-session projection after its existing observer batch settles.
-    func liveSessionsDidChange() {
+    func liveSessionsDidChange(workspaceIDs: Set<String>?) {
         guard !latestRoutes.isEmpty else { return }
+        if let workspaceIDs {
+            guard !workspaceIDs.isEmpty else { return }
+            if !fullLiveSessionProjectionPending {
+                pendingLiveSessionWorkspaceIDs.formUnion(workspaceIDs)
+            }
+        } else {
+            fullLiveSessionProjectionPending = true
+            pendingLiveSessionWorkspaceIDs.removeAll(keepingCapacity: true)
+        }
         registrationPending = true
         guard !registrationInFlight, liveSessionRegistrationTask == nil else { return }
         liveSessionRegistrationTask = Task { @MainActor [weak self] in
             guard let self else { return }
             defer { self.liveSessionRegistrationTask = nil }
-            await self.requestRegistration()
+            await self.requestRegistration(projectAllLiveSessions: false)
         }
     }
 
@@ -218,9 +230,13 @@ final class DeviceRegistryClient {
 
     /// Serialize route- and session-driven writes through one mutation path. If
     /// state changes during a POST, one trailing pass publishes the newest state.
-    private func requestRegistration(force: Bool = false) async {
+    private func requestRegistration(
+        force: Bool = false,
+        projectAllLiveSessions: Bool = true
+    ) async {
         registrationPending = true
         forcedRegistrationPending = forcedRegistrationPending || force
+        fullLiveSessionProjectionPending = fullLiveSessionProjectionPending || projectAllLiveSessions
         guard !registrationInFlight else { return }
         registrationInFlight = true
         defer { registrationInFlight = false }
@@ -228,11 +244,36 @@ final class DeviceRegistryClient {
             registrationPending = false
             let forceCurrentRegistration = forcedRegistrationPending
             forcedRegistrationPending = false
-            await registerCurrentState(force: forceCurrentRegistration)
+            let projectAllCurrentLiveSessions = fullLiveSessionProjectionPending
+                || lastRegistration == nil
+                || lastRegistrationUsedSessionFallback
+            let invalidatedWorkspaceIDs = pendingLiveSessionWorkspaceIDs
+            fullLiveSessionProjectionPending = false
+            pendingLiveSessionWorkspaceIDs.removeAll(keepingCapacity: true)
+            await registerCurrentState(
+                force: forceCurrentRegistration,
+                projectAllLiveSessions: projectAllCurrentLiveSessions,
+                invalidatedWorkspaceIDs: invalidatedWorkspaceIDs
+            )
         }
     }
 
-    private func registerCurrentState(force: Bool) async {
+    private func registerCurrentState(
+        force: Bool,
+        projectAllLiveSessions: Bool,
+        invalidatedWorkspaceIDs: Set<String>
+    ) async {
+        var projectionReconciled = false
+        defer {
+            if !projectionReconciled {
+                if projectAllLiveSessions {
+                    fullLiveSessionProjectionPending = true
+                    pendingLiveSessionWorkspaceIDs.removeAll(keepingCapacity: true)
+                } else if !fullLiveSessionProjectionPending {
+                    pendingLiveSessionWorkspaceIDs.formUnion(invalidatedWorkspaceIDs)
+                }
+            }
+        }
         guard let auth else { return }
         // Await tokens FIRST: this both gates on "signed in" and waits for launch
         // auth bootstrap. `resolvedTeamID` is derived from `availableTeams`, which
@@ -252,7 +293,18 @@ final class DeviceRegistryClient {
         // routes is detected and the POST targets the intended team.
         let teamID = auth.resolvedTeamID
         let tag = MobileHostIdentity.instanceTag()
-        let sessions = Self.advertisedSessions(routes: latestRoutes, sessions: liveSessions(nil))
+        let projectedSessions: [CmxLiveSession]
+        if projectAllLiveSessions {
+            projectedSessions = liveSessions(nil)
+        } else {
+            let replacements = invalidatedWorkspaceIDs.sorted().flatMap { liveSessions($0) }
+            projectedSessions = Self.replacingLiveSessions(
+                previous: lastRegistration?.sessions ?? [],
+                invalidatedWorkspaceIDs: invalidatedWorkspaceIDs,
+                replacements: replacements
+            )
+        }
+        let sessions = Self.advertisedSessions(routes: latestRoutes, sessions: projectedSessions)
         updateLiveSessionLeaseTask(isActive: !latestRoutes.isEmpty && !sessions.isEmpty)
         let registration = Registration(
             teamID: teamID,
@@ -264,7 +316,10 @@ final class DeviceRegistryClient {
             previous: lastRegistration,
             current: registration,
             force: force
-        ) else { return }
+        ) else {
+            projectionReconciled = true
+            return
+        }
 
         guard var comps = URLComponents(url: AuthEnvironment.vmAPIBaseURL, resolvingAgainstBaseURL: false) else {
             return
@@ -307,6 +362,8 @@ final class DeviceRegistryClient {
                         routes: registration.routes,
                         sessions: payload.transmittedSessions
                     )
+                    lastRegistrationUsedSessionFallback = payload.transmittedSessions != registration.sessions
+                    projectionReconciled = true
                 } else {
                     NSLog("cmux.deviceRegistry register failed status=%d", http.statusCode)
                 }
@@ -344,6 +401,16 @@ final class DeviceRegistryClient {
             disclosureDate: disclosureDate
         ) else { return nil }
         return (body, [])
+    }
+
+    /// Replace only invalidated workspace slices in the last accepted registration snapshot.
+    nonisolated static func replacingLiveSessions(
+        previous: [CmxLiveSession],
+        invalidatedWorkspaceIDs: Set<String>,
+        replacements: [CmxLiveSession]
+    ) -> [CmxLiveSession] {
+        previous.filter { !invalidatedWorkspaceIDs.contains($0.workspaceID) }
+            + replacements.filter { invalidatedWorkspaceIDs.contains($0.workspaceID) }
     }
 
     private nonisolated static func liveSessionSort(_ lhs: CmxLiveSession, _ rhs: CmxLiveSession) -> Bool {

@@ -137,7 +137,7 @@ extension MobileShellComposite {
         }
     }
 
-    /// Seed the destination row with the authoritative sessions fetched during handoff.
+    /// Cache authoritative handoff descriptors under the aggregate row identity used by workspace detail.
     func rememberRegistryHandoffChatSessions(
         _ sessions: [ChatSessionDescriptor],
         workspaceID: MobileWorkspacePreview.ID

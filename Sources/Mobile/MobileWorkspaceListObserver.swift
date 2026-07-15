@@ -63,9 +63,11 @@ final class MobileWorkspaceListObserver {
                 quietDelay: 0.05,
                 maximumDelay: 0.16
             ),
-            emitWorkspaceUpdated: { _ in
+            emitWorkspaceUpdated: { affectedWorkspaceIDs in
                 MobileHostService.shared.emitEvent(topic: "workspace.updated", payload: [:])
-                DeviceRegistryClient.shared.liveSessionsDidChange()
+                DeviceRegistryClient.shared.liveSessionsDidChange(
+                    workspaceIDs: affectedWorkspaceIDs.map { Set($0.map(\.uuidString)) }
+                )
             }
         )
     }
