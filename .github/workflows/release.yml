@@ -71,6 +71,9 @@ jobs:
     # Notarization wait times vary on Apple's side; v0.64.14 finished at 19m16s
     # and v0.64.15 attempt 1 was killed by a 20-minute budget mid-notarization.
     timeout-minutes: 40
+    env:
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -157,26 +160,53 @@ jobs:
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
           set -euo pipefail
-          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
-            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
-          else
-            XCODE_APP="$(
-              find /Applications -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null \
-                | sort \
-                | tail -n 1 \
-                || true
-            )"
-            if [ -n "$XCODE_APP" ]; then
-              XCODE_DIR="$XCODE_APP/Contents/Developer"
+          ./scripts/select-ci-xcode.sh
+
+      - name: Compute release compilation cache key
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        id: release-compilation-cache-key
+        run: |
+          set -euo pipefail
+          xcode_contents="${DEVELOPER_DIR%/Developer}"
+          swiftbuild_core="$xcode_contents/SharedFrameworks/SwiftBuild.framework/Versions/A/PlugIns/SWBBuildService.bundle/Contents/Frameworks/SWBCore.framework/Versions/A/SWBCore"
+          test -x "$swiftbuild_core"
+          /usr/bin/strings "$swiftbuild_core" | grep -Fx 'COMPILATION_CACHE_LIMIT_SIZE' >/dev/null
+          echo "utc_week=$(date -u +%Y-W%W)" >> "$GITHUB_OUTPUT"
+          echo "toolchain=$(xcodebuild -version | shasum -a 256 | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
+      # Release tags can restore caches created on trusted main. They never save
+      # tag-scoped copies, and only unsigned compiler results are restored.
+      - name: Restore release compilation cache
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        id: restore-release-compilation-cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: build-universal/CompilationCache.noindex
+          key: xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.release-compilation-cache-key.outputs.toolchain }}-${{ steps.release-compilation-cache-key.outputs.utc_week }}
+
+      - name: Reject oversized release compilation cache
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        id: validate-release-compilation-cache
+        run: |
+          set -euo pipefail
+          cache_path="build-universal/CompilationCache.noindex"
+          max_cache_kib=$((3 * 1024 * 1024))
+          cache_usable=false
+          if [ "${{ steps.restore-release-compilation-cache.outputs.cache-hit }}" = "true" ] && [ -d "$cache_path" ]; then
+            cache_kib=$(du -sk "$cache_path" | awk '{print $1}')
+            echo "Restored release compilation cache size: ${cache_kib} KiB (limit: ${max_cache_kib} KiB)"
+            if [ "$cache_kib" -gt "$max_cache_kib" ]; then
+              echo "Restored release compilation cache exceeds 3 GiB; rebuilding cold"
+              rm -rf "$cache_path"
             else
-              echo "No Xcode.app found under /Applications" >&2
-              exit 1
+              cache_usable=true
             fi
+          else
+            # A miss must be a cold build even if a reused workspace contains
+            # compiler data left by an interrupted prior job.
+            rm -rf "$cache_path"
           fi
-          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
-          export DEVELOPER_DIR="$XCODE_DIR"
-          xcodebuild -version
-          xcrun --sdk macosx --show-sdk-path
+          echo "cache_usable=$cache_usable" >> "$GITHUB_OUTPUT"
 
       # Same self-sufficiency as nightly: a self-hosted macOS runner may lack npm
       # on PATH, which breaks the pinned create-dmg install below. setup-node
@@ -256,12 +286,33 @@ jobs:
       - name: Build universal app (Release)
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
-          CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
+          compilation_cache_enabled=NO
+          if [ "${{ steps.validate-release-compilation-cache.outputs.cache_usable }}" = "true" ]; then
+            compilation_cache_enabled=YES
+          fi
+          echo "Release compilation cache enabled: $compilation_cache_enabled"
+          # SwiftBuild maps COMPILATION_CACHE_LIMIT_SIZE to its CAS maxSizeBytes strategy.
+          CMUX_SKIP_ZIG_BUILD=1 xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Release -derivedDataPath build-universal \
             -destination 'generic/platform=macOS' \
             -clonedSourcePackagesDirPath .spm-cache \
+            -showBuildTimingSummary \
             ARCHS="arm64 x86_64" \
             ONLY_ACTIVE_ARCH=NO \
+            COMPILATION_CACHE_ENABLE_CACHING="$compilation_cache_enabled" \
+            COMPILATION_CACHE_LIMIT_SIZE=3G \
+            COMPILER_INDEX_STORE_ENABLE=NO \
             CODE_SIGNING_ALLOWED=NO build
+
+      - name: Discard release compilation cache after build
+        if: steps.guard_release_assets.outputs.skip_all != 'true' && always()
+        run: |
+          set -euo pipefail
+          cache_path="build-universal/CompilationCache.noindex"
+          if [ -d "$cache_path" ]; then
+            cache_kib=$(du -sk "$cache_path" | awk '{print $1}')
+            echo "Discarding post-build release compilation cache (${cache_kib} KiB)"
+            rm -rf "$cache_path"
+          fi
 
       - name: Download universal Ghostty CLI helper
         if: steps.guard_release_assets.outputs.skip_all != 'true'
