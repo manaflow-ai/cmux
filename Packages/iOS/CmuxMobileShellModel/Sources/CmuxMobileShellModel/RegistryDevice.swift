@@ -26,6 +26,7 @@ public struct RegistryAppInstance: Equatable, Sendable, Identifiable {
     /// The tag is unique per device, so it doubles as the per-device row id.
     public var id: String { tag }
 
+    /// Creates one registry app-instance snapshot and its bounded discovery sessions.
     public init(
         tag: String,
         routes: [CmxAttachRoute],
