@@ -10692,11 +10692,6 @@ class TerminalController {
                 result = "ERROR: Failed to create CGEvent-backed key event"
                 return
             }
-            let keyUpEvent = self.syntheticKeyEvent(
-                parsed: parsed,
-                keyDown: false,
-                timestamp: requestTimestamp + 0.0001
-            )
             // Socket-driven shortcut simulation should reuse the exact same matching logic as the
             // app-level shortcut monitor (so tests are hermetic), while still falling back to the
             // normal responder chain for plain typing.
@@ -10704,10 +10699,15 @@ class TerminalController {
                 result = "OK"
                 return
             }
+            // Deliberately no synthetic keyUp: a synthetic keyUp through
+            // NSApp.sendEvent leaves the main run loop no longer draining the
+            // main dispatch queue (every later worker->main hop hangs while the
+            // main thread idles in its event wait). The unconsumed path also
+            // never functioned historically, so no caller can depend on keyUp:
+            // CGEvent-less keyDowns died in NSTextInputContext before reaching
+            // it. This verb simulates a key press for pipeline exercise, not a
+            // full press-release pair.
             NSApp.sendEvent(keyDownEvent)
-            if let keyUpEvent {
-                NSApp.sendEvent(keyUpEvent)
-            }
             result = "OK"
         }
         return result
