@@ -170,6 +170,8 @@ struct SettingsRowAnchorResolutionTests {
         "setting:keyboardShortcuts:reset-defaults",
         "setting:terminal:repository-scripts",
         "setting:terminal:saved-commands",
+        "setting:terminal:memory-guardrail",
+        "setting:terminal:memory-guardrail-threshold",
         "setting:settingsJSON:open-file",
         "setting:settingsJSON:documentation",
         "setting:reset:reset-all",

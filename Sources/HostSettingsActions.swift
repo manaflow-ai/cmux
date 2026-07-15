@@ -91,6 +91,11 @@ final class HostSettingsActions: SettingsHostActions {
         PaneChromeSettings.notifyDidChange()
     }
 
+    func notifyShortcutSettingsDidChange() {
+        KeyboardShortcutSettings.settingsFileStore.reload()
+        KeyboardShortcutSettings.notifySettingsFileDidChange()
+    }
+
     func applyLanguageOverride(_ language: AppLanguage) {
         LanguageSettingsStore(defaults: .standard).applyLanguageOverride(language)
     }

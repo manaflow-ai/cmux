@@ -5,7 +5,7 @@ import GhosttyKit
 
 private final class FakeSurfaceController: TerminalSurfaceControlling {
     let surfaceId: UUID
-    var owningTabId: UUID
+    let owningTabId: UUID
     var runtimeSurfacePointer: ghostty_surface_t?
 
     init(
@@ -42,24 +42,6 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
         )
         #expect(context.surfaceId == controller.surfaceId)
         #expect(context.tabId == controller.owningTabId)
-    }
-
-    @Test func rendererProfilingIdentitySurvivesOwnerChangesAndRelease() {
-        let surfaceId = UUID(uuidString: "11111111-2222-3333-4444-555555555555")!
-        let workspaceId = UUID(uuidString: "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE")!
-        var controller: FakeSurfaceController? = FakeSurfaceController(surfaceId: surfaceId, owningTabId: workspaceId)
-        var host: FakeSurfaceHost? = FakeSurfaceHost()
-        let context = GhosttySurfaceCallbackContext(
-            surfaceHost: host!,
-            surfaceController: controller!
-        )
-
-        controller?.owningTabId = UUID()
-        controller = nil
-        host = nil
-
-        #expect(context.rendererProfilingIdentity.surfaceId == surfaceId)
-        #expect(context.rendererProfilingIdentity.workspaceId == workspaceId)
     }
 
     @Test func tabIdFallsBackToHostWhenControllerReleased() {
