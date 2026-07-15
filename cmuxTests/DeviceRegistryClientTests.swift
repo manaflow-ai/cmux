@@ -105,6 +105,44 @@ import CMUXMobileCore
         #expect(advertised.allSatisfy { $0.title.unicodeScalars.count <= 160 })
     }
 
+    @Test func registrationUsesCloudRendezvousRouteDisclosure() throws {
+        let directAddress = "8.8.8.8:49152"
+        let route = try CmxAttachRoute(
+            id: "iroh",
+            kind: .iroh,
+            endpoint: .peer(
+                identity: CmxIrohPeerIdentity(
+                    endpointID: String(repeating: "a", count: 64)
+                ),
+                pathHints: [
+                    try CmxIrohPathHint(
+                        kind: .directAddress,
+                        value: directAddress,
+                        source: .native,
+                        privacyScope: .publicInternet
+                    ),
+                    try CmxIrohPathHint(
+                        kind: .relayURL,
+                        value: "https://relay.example.test/",
+                        source: .native,
+                        privacyScope: .publicInternet
+                    ),
+                ]
+            )
+        )
+        let body = try #require(DeviceRegistryClient.registrationBody(
+            deviceID: "00000000-0000-4000-8000-000000000000",
+            tag: "default",
+            routes: [route],
+            sessions: [liveSession()],
+            displayName: "Mac"
+        ))
+        let text = try #require(String(data: body, encoding: .utf8))
+
+        #expect(!text.contains(directAddress))
+        #expect(text.contains("relay.example.test"))
+    }
+
     @Test func teamSwitchReRegistersEvenWithUnchangedRoutes() throws {
         // Account/team switch with the same routes must register in the new team.
         let routes = [try route(host: "100.0.0.1", port: 51000)]

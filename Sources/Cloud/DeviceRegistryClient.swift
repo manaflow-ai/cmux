@@ -31,7 +31,7 @@ final class DeviceRegistryClient {
     /// Leaves half of the server's 64 KiB request limit for routes and envelope fields.
     nonisolated static let maximumLiveSessionPayloadBytes = 32 * 1024
 
-    private let session: URLSession = .shared
+    private let session = CmxCredentialedHTTPSession()
     /// Activity bursts settle after one second but sustained hooks flush at least every five seconds.
     private let liveSessionInvalidationBatcher: LatestWinsBatcher<String?, Bool>
     private var auth: AuthCoordinator?
@@ -134,13 +134,17 @@ final class DeviceRegistryClient {
         tag: String,
         routes: [CmxAttachRoute],
         sessions: [CmxLiveSession],
-        displayName: String?
+        displayName: String?,
+        disclosureDate: Date = Date()
     ) -> Data? {
         var body: [String: Any] = [
             "deviceId": deviceID,
             "platform": "mac",
             "tag": tag,
-            "routes": routes.map(\.mobileHostJSONObject),
+            "routes": routes.mobileHostJSONObjects(
+                for: .cloudRendezvous,
+                at: disclosureDate
+            ),
         ]
         if let encodedSessions = try? JSONEncoder().encode(sessions),
            let sessionObjects = try? JSONSerialization.jsonObject(with: encodedSessions) {
@@ -269,18 +273,21 @@ final class DeviceRegistryClient {
 
         let deviceID = MobileHostIdentity.deviceID()
         let displayName = MobileHostIdentity.baseDisplayName()
+        let disclosureDate = Date()
         guard let body = Self.registrationBody(
             deviceID: deviceID,
             tag: tag,
             routes: registration.routes,
             sessions: registration.sessions,
-            displayName: displayName
+            displayName: displayName,
+            disclosureDate: disclosureDate
         ) ?? Self.registrationBody(
             deviceID: deviceID,
             tag: tag,
             routes: registration.routes,
             sessions: [],
-            displayName: displayName
+            displayName: displayName,
+            disclosureDate: disclosureDate
         ) else {
             return
         }
