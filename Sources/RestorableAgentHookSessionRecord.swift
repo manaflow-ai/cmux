@@ -8,6 +8,8 @@ struct RestorableAgentHookSessionRecord: Codable, Sendable {
     var transcriptPath: String?
     var pid: Int?
     var launchCommand: AgentLaunchCommandSnapshot?
+    /// Last hook-observed agent permission mode (e.g. Claude's `permission_mode`).
+    var lastPermissionMode: String?
     var isRestorable: Bool?
     /// False for a session observed beneath another agent on the same surface.
     /// Child sessions remain visible in history but never become restoration candidates.

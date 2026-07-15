@@ -106,8 +106,16 @@ private extension MobilePairedMac {
               !displayName.isEmpty else {
             return nil
         }
-        guard let (host, port) = MobileShellComposite.firstReconnectHostPortRoute(
+        let reconnectRoutes = MobileShellComposite.storedReconnectRoutes(
             routes,
+            supportedKinds: supportedKinds,
+            preferNonLoopback: preferNonLoopback
+        )
+        if case let .peer(identity, _)? = reconnectRoutes.first?.endpoint {
+            return "iroh:\(identity.endpointID):name:\(displayName.lowercased())"
+        }
+        guard let (host, port) = MobileShellComposite.firstReconnectHostPortRoute(
+            reconnectRoutes,
             supportedKinds: supportedKinds,
             preferNonLoopback: preferNonLoopback
         ), let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) else {

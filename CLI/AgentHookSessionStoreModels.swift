@@ -25,6 +25,9 @@ struct ClaudeHookSessionRecord: Codable {
     var transcriptPath: String?
     var pid: Int?
     var launchCommand: AgentHookLaunchCommandRecord?
+    /// Last hook-observed `permission_mode`, re-applied as `--permission-mode`
+    /// on user-owned session restore.
+    var lastPermissionMode: String?
     var isRestorable: Bool?
     var agentLifecycle: AgentHibernationLifecycleState?
     var lastSubtitle: String?
