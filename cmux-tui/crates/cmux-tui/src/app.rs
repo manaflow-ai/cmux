@@ -1946,6 +1946,9 @@ pub fn run(
     let failure_ingress = pty_failures.clone();
     let pty_input = PtyInputDispatcher::spawn(move |failure| {
         if failure_ingress.push(failure) {
+            // This is a latency hint, not the ownership path. The event loop
+            // drains the ingress after every batch and timeout, including
+            // when this bounded app channel is currently full.
             let _ = failure_tx.try_send(AppEvent::PtyFailuresReady);
         }
     })?;
@@ -2168,6 +2171,8 @@ impl App {
                     Err(_) => break,
                 }
             }
+            // Always drain retained failures. PtyFailuresReady only shortens
+            // the idle wait, so a failed try_send cannot create a lost wakeup.
             action = action.merge(self.apply_pty_failures());
             if self.session.take_cancellation_pending() {
                 if self.session.has_pending_mutations() {
@@ -6871,7 +6876,7 @@ mod tests {
     }
 
     #[test]
-    fn pty_failure_ingress_stays_bounded_and_does_not_block_on_a_full_app_channel() {
+    fn pty_failure_ingress_rearms_after_a_full_app_channel_loses_its_wake() {
         let ingress = PtyFailureIngress::default();
         let (events, receiver) = std::sync::mpsc::sync_channel(1);
         events.send(AppEvent::MuxTitlesReady).unwrap();
@@ -6897,6 +6902,16 @@ mod tests {
         assert_eq!(failures.len(), 1);
         assert_eq!(failures.front().unwrap().error, "motion 999");
         assert!(matches!(receiver.try_recv(), Ok(AppEvent::MuxTitlesReady)));
+
+        assert!(ingress.push(PtyOperationFailure {
+            surface_id: Some(42),
+            kind: Some(PtyInputKind::Motion),
+            reservation_id: None,
+            label: "PTY input",
+            error: "motion after drain".into(),
+            lane_failed: false,
+            delivery: PtyOperationDelivery::KnownNotDelivered,
+        }));
     }
 
     #[test]
