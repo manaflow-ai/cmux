@@ -2,6 +2,16 @@ import AppKit
 import Bonsplit
 
 extension DockSplitStore {
+    /// Restores the semantic target for an explicit Dock focus action. Unlike
+    /// automatic selection reconciliation, this is allowed to replace the Dock
+    /// host responder with the selected terminal or browser control.
+    @discardableResult
+    func restoreExplicitFocus(to panel: any Panel) -> Bool {
+        let intent = panel.preferredFocusIntentForActivation()
+        panel.prepareFocusIntentForActivation(intent)
+        return panel.restoreFocusIntent(intent)
+    }
+
     func noteKeyboardFocusIntent(window: NSWindow?) {
         AppDelegate.shared?.noteRightSidebarKeyboardFocusIntent(mode: .dock, in: window)
     }
@@ -197,7 +207,9 @@ extension DockSplitStore {
         applyDockSelection(tabId: tab.id, inPane: destination)
         let movedPanel = panel(for: tab.id)
         (movedPanel as? TerminalPanel)?.recordPortalHostOwnershipChange()
-        movedPanel?.focus()
+        if let movedPanel {
+            _ = restoreExplicitFocus(to: movedPanel)
+        }
         scheduleDockPortalReconcile(reason: "dock.moveTab")
     }
 

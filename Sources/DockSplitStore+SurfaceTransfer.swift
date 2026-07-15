@@ -261,7 +261,7 @@ extension DockSplitStore {
                 bonsplitController.focusPane(paneId)
                 bonsplitController.selectTab(newTabId)
                 applyDockSelection(tabId: newTabId, inPane: paneId)
-                panel.focus()
+                _ = restoreExplicitFocus(to: panel)
             }
         }
         scheduleDockPortalReconcile(reason: "dock.attachDetachedSurface")
