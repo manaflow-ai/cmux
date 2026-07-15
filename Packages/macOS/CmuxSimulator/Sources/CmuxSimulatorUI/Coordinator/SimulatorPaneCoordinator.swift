@@ -119,12 +119,12 @@ public final class SimulatorPaneCoordinator {
     @ObservationIgnored var retiredWebInspectorRequestIDs: Set<SimulatorWebInspectorJSONRequestID> = []
     @ObservationIgnored var accessibilityRefreshTask: Task<Void, Never>?
     @ObservationIgnored var accessibilityRefreshGeneration: UInt64 = 0
-    @ObservationIgnored var accessibilityOverlayIsVisible = true
+    @ObservationIgnored var accessibilityOverlayIsVisible = false
     @ObservationIgnored var liveStatusTask: Task<Void, Never>?
     @ObservationIgnored var liveStatusGeneration: UInt64 = 0
-    @ObservationIgnored var liveStatusIsVisible = true
+    @ObservationIgnored var liveStatusIsVisible = false
     @ObservationIgnored var liveStatusPollingActive = false
-    @ObservationIgnored var frameIsVisible = true
+    @ObservationIgnored var frameIsVisible = false
     @ObservationIgnored var locationRouteDeviceID: String?
     @ObservationIgnored var locationRoute: SimulatorLocationRoute?
     @ObservationIgnored var locationRouteRemainingDuration: TimeInterval?

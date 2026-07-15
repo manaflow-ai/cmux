@@ -26,6 +26,7 @@ struct SimulatorPaneCoordinatorTests {
     func workerEventState() async {
         let client = SimulatorPaneClientSpy(devices: [Self.device(id: "phone", family: .iPhone, state: .booted)])
         let coordinator = SimulatorPaneCoordinator(client: client)
+        coordinator.setPaneVisibility(true)
         await coordinator.start()
 
         await client.emit(SimulatorWorkerEvent.message(.capabilities([.framebuffer, .touch])))
@@ -89,6 +90,7 @@ struct SimulatorPaneCoordinatorTests {
             Self.device(id: "phone", family: .iPhone, state: .booted),
         ])
         let coordinator = SimulatorPaneCoordinator(client: client)
+        coordinator.setFrameVisibility(true)
         await coordinator.start()
         await eventually { coordinator.status == .streaming }
         await client.emit(.message(.frameTransport(simulatorFrameTransportDescriptor(49))))
@@ -109,8 +111,6 @@ struct SimulatorPaneCoordinatorTests {
     @Test("Host visibility controls every occlusion-sensitive resource")
     func paneVisibility() {
         let coordinator = SimulatorPaneCoordinator(client: SimulatorPaneClientSpy(devices: []))
-
-        coordinator.setPaneVisibility(false)
 
         #expect(!coordinator.frameIsVisible)
         #expect(!coordinator.liveStatusIsVisible)
@@ -314,6 +314,7 @@ struct SimulatorPaneCoordinatorTests {
             Self.device(id: "two", family: .iPad, state: .shutdown),
         ])
         let coordinator = SimulatorPaneCoordinator(client: client)
+        coordinator.setPaneVisibility(true)
         await coordinator.start()
         await eventually { await client.activations().count == 1 }
 
@@ -419,6 +420,7 @@ struct SimulatorPaneCoordinatorTests {
             Self.device(id: "phone", family: .iPhone, state: .booted),
         ])
         let coordinator = SimulatorPaneCoordinator(client: client)
+        coordinator.setPaneVisibility(true)
         await coordinator.start()
         let frameTransport = simulatorFrameTransportDescriptor(42)
         await client.emit(.message(.frameTransport(frameTransport)))
