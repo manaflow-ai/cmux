@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-func TestPersistentDaemonServerIgnoresCorruptRuntimeState(t *testing.T) {
+func TestPersistentDaemonServerFailsClosedOnCorruptRuntimeState(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "slot", "runtime-state.json")
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatalf("create runtime state directory: %v", err)
@@ -47,50 +47,21 @@ func TestPersistentDaemonServerIgnoresCorruptRuntimeState(t *testing.T) {
 	}()
 	select {
 	case err := <-done:
-		t.Fatalf("corrupt optional runtime state stopped persistent daemon: %v", err)
+		if err == nil || !strings.Contains(err.Error(), "runtime state") {
+			t.Fatalf("corrupt runtime state error = %v", err)
+		}
 	case <-acceptingListener.started:
+		t.Fatal("persistent daemon accepted connections with corrupt runtime state")
 	case <-time.After(time.Second):
-		t.Fatal("persistent daemon did not begin accepting connections")
+		t.Fatal("persistent daemon did not reject corrupt runtime state")
 	}
 
-	conn, reader, writer := openPersistentTestClient(t, socketPath, "token")
-	get := persistentTestRPCCall(t, conn, reader, writer, rpcRequest{
-		ID:     "get-after-corruption",
-		Method: "runtime.state.get",
-		Params: map[string]any{},
-	})
-	getResult := requireRuntimeStateResult(t, get)
-	if present, _ := getResult["present"].(bool); present {
-		t.Fatalf("corrupt runtime state unexpectedly restored: %v", getResult)
-	}
-	put := persistentTestRPCCall(t, conn, reader, writer, rpcRequest{
-		ID:     "replace-corrupt-state",
-		Method: "runtime.state.put",
-		Params: map[string]any{
-			"schema_version": 1,
-			"state":          map[string]any{"title": "recovered"},
-		},
-	})
-	requireRuntimeStateResult(t, put)
-	_ = conn.Close()
-	_ = listener.Close()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("stop recovered persistent daemon: %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("recovered persistent daemon did not stop")
-	}
-	document, err := loadRuntimeStateDocument(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("reload replacement runtime state: %v", err)
+		t.Fatalf("read preserved corrupt runtime state: %v", err)
 	}
-	if document == nil || document.Revision != 1 || !strings.Contains(string(document.State), "recovered") {
-		t.Fatalf("replacement runtime state = %+v", document)
-	}
-	if !strings.Contains(stderr.String(), "runtime state") {
-		t.Fatalf("missing corrupt runtime state diagnostic: %q", stderr.String())
+	if string(data) != "not-json" {
+		t.Fatalf("corrupt runtime state changed to %q", data)
 	}
 }
 

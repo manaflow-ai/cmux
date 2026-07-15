@@ -331,6 +331,53 @@ struct RemoteRuntimeStateCoordinatorTests {
         await Self.drainRuntimeStatePublication(fixture)
     }
 
+    @Test("waits for the final runtime upload before finishing")
+    func finishWaitsForFinalRuntimeUpload() async throws {
+        let fixture = Self.fixture()
+        defer { fixture.stop() }
+        fixture.provider.tunnel.seedRuntimeState(RemoteRuntimeStateDocument(
+            schemaVersion: 1,
+            revision: 7,
+            updatedAtUnixMilliseconds: 1,
+            state: Data(#"{"title":"server"}"#.utf8),
+            ptySessions: Data("[]".utf8)
+        ))
+        await Self.synchronize(fixture)
+
+        let putStarted = DispatchSemaphore(value: 0)
+        let releasePut = DispatchSemaphore(value: 0)
+        defer { releasePut.signal() }
+        fixture.provider.tunnel.blockNextRuntimeStatePut(
+            started: putStarted,
+            release: releasePut
+        )
+        let finalState = Data(#"{"title":"final"}"#.utf8)
+        fixture.coordinator.enqueueRuntimeState(
+            schemaVersion: 1,
+            state: finalState,
+            baseRevision: 7
+        )
+        let started = await Self.wait(for: putStarted, timeout: 1)
+        #expect(started == .success)
+        guard started == .success else { return }
+
+        let finishCompleted = DispatchSemaphore(value: 0)
+        let coordinator = fixture.coordinator
+        let finish = Task {
+            let succeeded = await coordinator.finishPendingRuntimeStateWork()
+            finishCompleted.signal()
+            return succeeded
+        }
+        let completedBeforePut = await Self.wait(for: finishCompleted, timeout: 0.25)
+        #expect(completedBeforePut == .timedOut)
+
+        releasePut.signal()
+        let succeeded = await finish.value
+        await Self.drainRuntimeStatePublication(fixture)
+        #expect(succeeded)
+        #expect(try fixture.provider.tunnel.getRuntimeState()?.state == finalState)
+    }
+
     @Test("suspends retries after five failures until a new edit")
     func suspendsRetriesUntilNewEdit() async throws {
         let clock = RuntimeStateRetryClock()
