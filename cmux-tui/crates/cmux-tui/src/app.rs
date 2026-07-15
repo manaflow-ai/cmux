@@ -469,8 +469,9 @@ fn next_surface_sync_failure(
     let delay_seconds = 1_u64 << u32::from(attempts.saturating_sub(1));
     SurfaceSyncFailureState {
         attempts,
-        retry_after: Some(Instant::now() + Duration::from_secs(delay_seconds.min(30))),
-        sticky_until_reconnect,
+        retry_after: (attempts < 6)
+            .then(|| Instant::now() + Duration::from_secs(delay_seconds.min(30))),
+        sticky_until_reconnect: sticky_until_reconnect || attempts >= 6,
     }
 }
 
@@ -1053,7 +1054,7 @@ impl OrderedSession {
                             surface: surface_id,
                             operation: "resize",
                             error: error.to_string(),
-                            reconnect_required: false,
+                            reconnect_required: state.sticky_until_reconnect,
                         });
                         if transient { Err(error) } else { Ok(()) }
                     }
@@ -7443,7 +7444,7 @@ mod tests {
     }
 
     #[test]
-    fn transient_surface_sync_failures_retry_with_bounded_backoff() {
+    fn transient_surface_sync_failures_stop_after_bounded_backoff() {
         let first = super::next_surface_sync_failure(None, true, false);
         assert_eq!(first.attempts, 1);
         assert!(super::surface_sync_failure_blocks(first));
@@ -7457,7 +7458,9 @@ mod tests {
         let capped = (0..10)
             .fold(elapsed, |state, _| super::next_surface_sync_failure(Some(state), true, false));
         assert_eq!(capped.attempts, 6);
-        assert!(capped.retry_after.unwrap() <= Instant::now() + Duration::from_secs(30));
+        assert!(capped.retry_after.is_none());
+        assert!(capped.sticky_until_reconnect);
+        assert!(super::surface_sync_failure_blocks(capped));
     }
 
     #[test]

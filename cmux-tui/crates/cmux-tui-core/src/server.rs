@@ -33,6 +33,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tungstenite::protocol::CloseFrame;
+use tungstenite::protocol::Role;
 use tungstenite::protocol::frame::coding::CloseCode;
 use tungstenite::{Error as WebSocketError, Message, accept};
 
@@ -417,6 +418,7 @@ struct Response {
 
 const STREAM_DISCONNECT_POLL: Duration = Duration::from_millis(100);
 const STREAM_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
+const MAX_SERVER_CONNECTIONS: usize = 256;
 const OUTBOUND_CAPACITY: usize = 256;
 const OUTBOUND_CONTROL_RESERVE: usize = 256;
 const OUTBOUND_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
@@ -556,6 +558,23 @@ struct BoundedOutboundState {
 struct RegularOutbound {
     text: String,
     stream: OutboundStream,
+}
+
+struct ConnectionPermit(Arc<AtomicU64>);
+
+impl Drop for ConnectionPermit {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+fn claim_connection(active: &Arc<AtomicU64>) -> Option<ConnectionPermit> {
+    active
+        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+            (count < MAX_SERVER_CONNECTIONS as u64).then_some(count + 1)
+        })
+        .ok()
+        .map(|_| ConnectionPermit(active.clone()))
 }
 
 impl BoundedOutbound {
@@ -715,12 +734,12 @@ impl BoundedOutbound {
         Ok(())
     }
 
+    #[cfg(test)]
     fn try_pop(&self) -> Option<String> {
         let mut state = self.state.lock().unwrap();
         Self::pop_locked(&mut state)
     }
 
-    #[cfg(test)]
     fn recv(&self) -> Option<String> {
         let mut state = self.state.lock().unwrap();
         loop {
@@ -811,14 +830,17 @@ pub fn serve(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PathBuf> {
     }
     let listener = transport::listen(&path)?;
     platform::restrict_file(&path)?;
+    let active_connections = Arc::new(AtomicU64::new(0));
 
     std::thread::Builder::new().name("mux-server".into()).spawn(move || {
         loop {
             let Ok(stream) = listener.accept() else { continue };
+            let Some(permit) = claim_connection(&active_connections) else { continue };
             let mux = mux.clone();
-            let _ = std::thread::Builder::new()
-                .name("mux-conn".into())
-                .spawn(move || handle_connection(mux, stream));
+            let _ = std::thread::Builder::new().name("mux-conn".into()).spawn(move || {
+                let _permit = permit;
+                handle_connection(mux, stream);
+            });
         }
     })?;
     Ok(path)
@@ -868,6 +890,7 @@ pub fn serve_websocket(
     let shutdown = Arc::new(AtomicBool::new(false));
     let connections = Arc::new(Mutex::new(HashMap::new()));
     let next_connection = Arc::new(AtomicU64::new(1));
+    let active_connections = Arc::new(AtomicU64::new(0));
     let thread_shutdown = shutdown.clone();
     let thread_connections = connections.clone();
     let thread = std::thread::Builder::new().name("mux-ws-server".into()).spawn(move || {
@@ -887,6 +910,7 @@ pub fn serve_websocket(
             if thread_shutdown.load(Ordering::Acquire) {
                 break;
             }
+            let Some(permit) = claim_connection(&active_connections) else { continue };
             let id = next_connection.fetch_add(1, Ordering::Relaxed);
             if let Ok(tracked) = stream.try_clone() {
                 thread_connections.lock().unwrap().insert(id, tracked);
@@ -894,10 +918,18 @@ pub fn serve_websocket(
             let mux = mux.clone();
             let token = token.clone();
             let connections = thread_connections.clone();
-            let _ = std::thread::Builder::new().name("mux-ws-conn".into()).spawn(move || {
-                handle_websocket_connection(mux, stream, token.as_deref());
-                connections.lock().unwrap().remove(&id);
-            });
+            let cleanup_connections = thread_connections.clone();
+            if std::thread::Builder::new()
+                .name("mux-ws-conn".into())
+                .spawn(move || {
+                    let _permit = permit;
+                    handle_websocket_connection(mux, stream, token.as_deref());
+                    connections.lock().unwrap().remove(&id);
+                })
+                .is_err()
+            {
+                cleanup_connections.lock().unwrap().remove(&id);
+            }
         }
     })?;
     Ok(WebSocketServer { local_addr, shutdown, connections, thread: Some(thread) })
@@ -919,47 +951,40 @@ fn sanitize_window_title(title: &str) -> String {
 }
 
 fn handle_connection(mux: Arc<Mux>, stream: Box<dyn transport::Stream>) {
-    if stream.set_read_timeout(Some(STREAM_DISCONNECT_POLL)).is_err()
-        || stream.set_write_timeout(Some(STREAM_WRITE_TIMEOUT)).is_err()
-    {
+    let Ok(mut write_half) = stream.try_clone_box() else { return };
+    if write_half.set_write_timeout(Some(STREAM_WRITE_TIMEOUT)).is_err() {
         return;
     }
     let outbound = Arc::new(BoundedOutbound::default());
     let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone() });
-    let mut reader = BufReader::new(stream);
-    let mut pending = Vec::new();
-    'connection: loop {
-        while let Some(text) = outbound.try_pop() {
-            let stream = reader.get_mut();
-            if stream.write_all(text.as_bytes()).is_err() || stream.write_all(b"\n").is_err() {
-                break 'connection;
-            }
-        }
-        if !writer.is_open() {
-            break;
-        }
-
-        match reader.read_until(b'\n', &mut pending) {
-            Ok(0) => break,
-            Ok(_) => {
-                if !pending.ends_with(b"\n") {
-                    continue;
-                }
-                let Ok(line) = std::str::from_utf8(&pending) else { break };
-                if !line.trim().is_empty() && !handle_message(&mux, line, &writer) {
+    let writer_outbound = outbound;
+    let Ok(writer_thread) =
+        std::thread::Builder::new().name("mux-line-out".into()).spawn(move || {
+            while let Some(text) = writer_outbound.recv() {
+                if write_half.write_all(text.as_bytes()).is_err()
+                    || write_half.write_all(b"\n").is_err()
+                {
+                    writer_outbound.close();
                     break;
                 }
-                pending.clear();
             }
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                ) => {}
-            Err(_) => break,
+        })
+    else {
+        writer.close();
+        return;
+    };
+    let reader = BufReader::new(stream);
+    for line in reader.lines() {
+        let Ok(line) = line else { break };
+        if line.trim().is_empty() {
+            continue;
+        }
+        if !handle_message(&mux, &line, &writer) {
+            break;
         }
     }
     writer.close();
+    let _ = writer_thread.join();
 }
 
 fn handle_websocket_connection(mux: Arc<Mux>, stream: TcpStream, token: Option<&str>) {
@@ -980,15 +1005,31 @@ fn handle_websocket_connection(mux: Arc<Mux>, stream: TcpStream, token: Option<&
     }
     let _ = websocket.get_mut().set_read_timeout(Some(STREAM_DISCONNECT_POLL));
     let _ = websocket.get_mut().set_write_timeout(Some(STREAM_WRITE_TIMEOUT));
+    let Ok(writer_stream) = websocket.get_ref().try_clone() else { return };
+    let _ = writer_stream.set_write_timeout(Some(STREAM_WRITE_TIMEOUT));
     let outbound = Arc::new(BoundedOutbound::default());
     let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone() });
-
-    'connection: loop {
-        while let Some(text) = outbound.try_pop() {
-            if websocket.send(Message::Text(text.into())).is_err() {
-                break 'connection;
+    let writer_outbound = outbound;
+    let write_lock = Arc::new(Mutex::new(()));
+    let writer_lock = write_lock.clone();
+    let Ok(writer_thread) =
+        std::thread::Builder::new().name("mux-ws-out".into()).spawn(move || {
+            let mut websocket =
+                tungstenite::WebSocket::from_raw_socket(writer_stream, Role::Server, None);
+            while let Some(text) = writer_outbound.recv() {
+                let _guard = writer_lock.lock().unwrap();
+                if websocket.send(Message::Text(text.into())).is_err() {
+                    writer_outbound.close();
+                    break;
+                }
             }
-        }
+        })
+    else {
+        writer.close();
+        return;
+    };
+
+    loop {
         if !writer.is_open() {
             break;
         }
@@ -1000,6 +1041,7 @@ fn handle_websocket_connection(mux: Arc<Mux>, stream: TcpStream, token: Option<&
                 }
             }
             Ok(Message::Ping(_)) | Ok(Message::Pong(_)) => {
+                let _guard = write_lock.lock().unwrap();
                 let _ = websocket.flush();
             }
             Ok(Message::Close(_)) => break,
@@ -1013,6 +1055,8 @@ fn handle_websocket_connection(mux: Arc<Mux>, stream: TcpStream, token: Option<&
         }
     }
     writer.close();
+    let _ = writer_thread.join();
+    let _guard = write_lock.lock().unwrap();
     let _ = websocket.close(None);
 }
 
@@ -2242,6 +2286,17 @@ mod tests {
         assert_eq!(overflow["event"], "overflow");
         assert_eq!(overflow["surface"], 8);
         assert!(writer.is_open());
+    }
+
+    #[test]
+    fn server_connection_permits_enforce_and_release_the_cap() {
+        let active = Arc::new(AtomicU64::new(MAX_SERVER_CONNECTIONS as u64));
+        assert!(claim_connection(&active).is_none());
+        active.store(MAX_SERVER_CONNECTIONS as u64 - 1, Ordering::Release);
+        let permit = claim_connection(&active).expect("last connection slot");
+        assert_eq!(active.load(Ordering::Acquire), MAX_SERVER_CONNECTIONS as u64);
+        drop(permit);
+        assert_eq!(active.load(Ordering::Acquire), MAX_SERVER_CONNECTIONS as u64 - 1);
     }
 
     #[test]
