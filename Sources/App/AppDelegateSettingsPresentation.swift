@@ -136,8 +136,8 @@ extension AppDelegate {
         }
 
         workspace.clearSplitZoom()
-        guard workspace.openOrFocusAppUtilitySurface(
-            inPane: paneId,
+        guard workspace.openOrFocusAppUtilityPane(
+            fromPane: paneId,
             kind: kind,
             settingsNavigationTarget: settingsNavigationTarget,
             focus: true

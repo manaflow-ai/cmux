@@ -4,12 +4,12 @@ import Foundation
 
 extension Workspace {
     func openMobilePairingSurface(inPane paneId: PaneID) {
-        _ = openOrFocusAppUtilitySurface(inPane: paneId, kind: .mobilePairing, focus: true)
+        _ = openOrFocusAppUtilityPane(fromPane: paneId, kind: .mobilePairing, focus: true)
     }
 
     @discardableResult
-    func openOrFocusAppUtilitySurface(
-        inPane paneId: PaneID,
+    func openOrFocusAppUtilityPane(
+        fromPane sourcePaneId: PaneID,
         kind: AppUtilityPanelKind,
         settingsNavigationTarget: SettingsNavigationTarget? = nil,
         focus: Bool = true
@@ -25,8 +25,8 @@ extension Workspace {
             }
             return utilityPanel
         }
-        return newAppUtilitySurface(
-            inPane: paneId,
+        return splitPaneWithAppUtility(
+            targetPane: sourcePaneId,
             kind: kind,
             settingsNavigationTarget: settingsNavigationTarget,
             focus: focus
@@ -34,14 +34,12 @@ extension Workspace {
     }
 
     @discardableResult
-    func newAppUtilitySurface(
-        inPane paneId: PaneID,
+    private func splitPaneWithAppUtility(
+        targetPane paneId: PaneID,
         kind: AppUtilityPanelKind,
         settingsNavigationTarget: SettingsNavigationTarget? = nil,
-        focus: Bool? = nil,
-        targetIndex: Int? = nil
+        focus: Bool
     ) -> AppUtilityPanel? {
-        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalPanel?.hostedView
 
@@ -53,34 +51,37 @@ extension Workspace {
         panels[utilityPanel.id] = utilityPanel
         panelTitles[utilityPanel.id] = utilityPanel.displayTitle
 
-        guard let newTabId = bonsplitController.createTab(
+        let newTab = Bonsplit.Tab(
             title: utilityPanel.displayTitle,
             icon: utilityPanel.displayIcon,
             kind: SurfaceKind.appUtility.rawValue,
             isDirty: false,
             isLoading: false,
-            isPinned: false,
-            inPane: paneId
+            isPinned: false
+        )
+        bindSurface(newTab.id, toPanelId: utilityPanel.id)
+
+        isProgrammaticSplit = true
+        defer { isProgrammaticSplit = false }
+        guard let newPaneId = bonsplitController.splitPane(
+            paneId,
+            orientation: .horizontal,
+            withTab: newTab,
+            insertFirst: false
         ) else {
             panels.removeValue(forKey: utilityPanel.id)
             panelTitles.removeValue(forKey: utilityPanel.id)
+            removeSurfaceMapping(forSurfaceId: newTab.id)
             return nil
         }
 
-        bindSurface(newTabId, toPanelId: utilityPanel.id)
-        if let targetIndex {
-            _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
-        }
-        publishCmuxSurfaceCreated(
-            utilityPanel.id,
-            paneId: paneId,
-            kind: SurfaceKind.appUtility.rawValue,
-            origin: "app_utility_tab",
-            focused: shouldFocusNewTab
-        )
-
-        if shouldFocusNewTab {
-            focusPanel(utilityPanel.id)
+        bonsplitController.selectTab(newTab.id)
+        if focus {
+            suppressReparentFocusUntilLayoutFollowUp(
+                previousHostedView,
+                reason: "workspace.appUtilitySplitReparent"
+            )
+            focusPanel(utilityPanel.id, previousHostedView: previousHostedView)
         } else {
             preserveFocusAfterNonFocusSplit(
                 preferredPanelId: previousFocusedPanelId,
@@ -88,6 +89,15 @@ extension Workspace {
                 previousHostedView: previousHostedView
             )
         }
+        publishCmuxSplitCreated(
+            newPaneId,
+            sourcePaneId: paneId,
+            orientation: .horizontal,
+            surfaceId: utilityPanel.id,
+            kind: SurfaceKind.appUtility.rawValue,
+            origin: "app_utility_split",
+            focused: focus
+        )
 
         return utilityPanel
     }
