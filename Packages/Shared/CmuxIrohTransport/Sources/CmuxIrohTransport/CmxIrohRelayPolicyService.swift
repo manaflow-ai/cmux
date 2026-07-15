@@ -297,12 +297,11 @@ public actor CmxIrohRelayPolicyService {
         accountID: String
     ) async -> Set<String>? {
         do {
-            return Set(try await credentialStore.staticTokens(accountID: accountID).keys)
+            return try await credentialStore.configuredRelayIDs(accountID: accountID)
         } catch {
             return nil
         }
     }
-
     private func reconcileCommittedConfiguration(
         _ response: CmxIrohRelayPreferenceResponse,
         accountID: String,
@@ -361,11 +360,17 @@ public actor CmxIrohRelayPolicyService {
     public func setStaticCredential(
         _ token: String,
         relayID: String,
+        relayURL: String,
         accountID: String,
         trustRoot: CmxIrohRelayPolicyTrustRoot,
         now: Date = Date()
     ) async throws -> CmxIrohEffectiveRelayPolicy {
-        try await credentialStore.setStaticToken(token, relayID: relayID, accountID: accountID)
+        try await credentialStore.setStaticToken(
+            token,
+            relayID: relayID,
+            relayURL: relayURL,
+            accountID: accountID
+        )
         return await restore(accountID: accountID, trustRoot: trustRoot, now: now)
     }
 
@@ -407,8 +412,6 @@ public actor CmxIrohRelayPolicyService {
             }
         }
     }
-
-
     private func publishUnavailable(
         configuration: CmxIrohAccountRelayConfiguration?,
         revision: Int64?,

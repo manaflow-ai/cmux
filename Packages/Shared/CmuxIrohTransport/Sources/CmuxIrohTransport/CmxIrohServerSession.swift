@@ -286,6 +286,7 @@ public actor CmxIrohServerSession {
             group.addTask {
                 try await clock.sleep(until: deadline)
                 try Task.checkCancellation()
+                await receiveStream.stop(errorCode: 1)
                 throw CmxIrohServerSessionError.streamHeaderTimedOut
             }
             defer { group.cancelAll() }

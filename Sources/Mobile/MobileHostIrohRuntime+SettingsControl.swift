@@ -90,6 +90,7 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
             effective = try await context.service.setStaticCredential(
                 deviceSecret,
                 relayID: definition.id,
+                relayURL: definition.url,
                 accountID: context.accountID,
                 trustRoot: context.trustRoot,
                 now: Date()

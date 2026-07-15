@@ -181,10 +181,6 @@ public actor CmxIrohEndpointServer {
             await connection.close(errorCode: 1, reason: "admission_capacity")
             return
         }
-        guard pendingAdmissions.count + activeConnections.count < maximumConnections else {
-            await connection.close(errorCode: 1, reason: "connection_capacity")
-            return
-        }
         let pendingForIdentity = pendingAdmissions.values.lazy.filter {
             $0.remoteIdentity == remoteIdentity
         }.count
@@ -198,7 +194,14 @@ public actor CmxIrohEndpointServer {
         let activeForIdentity = activeConnections.values.lazy.filter {
             $0.remoteIdentity == remoteIdentity
         }.count
-        guard pendingForIdentity + activeForIdentity < maximumConnectionsPerIdentity else {
+        let isSameIdentityReplacement = pendingForIdentity == 0 && activeForIdentity > 0
+        guard pendingAdmissions.count + activeConnections.count < maximumConnections
+            || isSameIdentityReplacement else {
+            await connection.close(errorCode: 1, reason: "connection_capacity")
+            return
+        }
+        guard pendingForIdentity + activeForIdentity < maximumConnectionsPerIdentity
+            || isSameIdentityReplacement else {
             await connection.close(
                 errorCode: 1,
                 reason: "connection_identity_capacity"

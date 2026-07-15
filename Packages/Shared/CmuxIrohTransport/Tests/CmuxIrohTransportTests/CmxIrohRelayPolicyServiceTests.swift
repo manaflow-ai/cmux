@@ -86,6 +86,7 @@ struct CmxIrohRelayPolicyServiceTests {
         let active = try await stores.service.setStaticCredential(
             "private-secret-token",
             relayID: "private-home",
+            relayURL: definition.url,
             accountID: "account-a",
             trustRoot: fixture.firstTrustRoot,
             now: fixture.now

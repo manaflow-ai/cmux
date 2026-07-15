@@ -64,6 +64,7 @@ extension CmxIrohRelayPolicyServiceTests {
         try await credentialStore.setStaticToken(
             "device-only-token",
             relayID: relay.id,
+            relayURL: relay.url,
             accountID: "account-a"
         )
         let saved = try CmxIrohAccountRelayConfiguration(
@@ -82,7 +83,12 @@ extension CmxIrohRelayPolicyServiceTests {
             relayCredential: fixture.relayCredential(),
             now: fixture.now
         )
-        #expect(try await credentialStore.staticTokens(accountID: "account-a")[relay.id] != nil)
+        #expect(
+            try await credentialStore.staticTokens(
+                for: [relay],
+                accountID: "account-a"
+            )[relay.id] != nil
+        )
 
         let removed = try saved.replacingCustomRelays([])
         _ = try await service.install(
@@ -99,7 +105,12 @@ extension CmxIrohRelayPolicyServiceTests {
 
         #expect(removed.mode == .automatic)
         #expect(removed.selectedManagedRelayIDs == ["cmux-us"])
-        #expect(try await credentialStore.staticTokens(accountID: "account-a").isEmpty)
+        #expect(
+            try await credentialStore.staticTokens(
+                for: [relay],
+                accountID: "account-a"
+            ).isEmpty
+        )
     }
 
     @Test
@@ -244,6 +255,7 @@ extension CmxIrohRelayPolicyServiceTests {
         let oldActive = try await service.setStaticCredential(
             "old-provider-secret",
             relayID: oldRelay.id,
+            relayURL: oldRelay.url,
             accountID: "account-a",
             trustRoot: fixture.firstTrustRoot,
             now: fixture.now
@@ -266,6 +278,7 @@ extension CmxIrohRelayPolicyServiceTests {
         let reauthenticated = try await service.setStaticCredential(
             "new-provider-secret",
             relayID: newRelay.id,
+            relayURL: newRelay.url,
             accountID: "account-a",
             trustRoot: fixture.firstTrustRoot,
             now: fixture.now

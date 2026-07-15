@@ -2,12 +2,22 @@ public import Foundation
 
 /// Device-local secure storage for user-provided custom relay tokens.
 public actor CmxIrohCustomRelayCredentialStore {
-    private struct Record: Codable {
-        let version: Int
-        var staticTokens: [String: String]
+    private struct StaticCredential: Codable, Equatable {
+        let token: String
+        let relayURL: String
     }
 
-    private static let recordVersion = 1
+    private struct Record: Codable {
+        let version: Int
+        var staticCredentials: [String: StaticCredential]
+    }
+
+    private struct LegacyRecord: Codable {
+        let version: Int
+        let staticTokens: [String: String]
+    }
+
+    private static let recordVersion = 2
     private let secureStore: any CmxIrohSecureCredentialStoring
     private var busyAccounts: Set<String> = []
     private var accountWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
@@ -25,10 +35,12 @@ public actor CmxIrohCustomRelayCredentialStore {
     public func setStaticToken(
         _ token: String,
         relayID: String,
+        relayURL: String,
         accountID: String
     ) async throws {
         guard CmxIrohRelayStorageScope.isSafeRelayID(relayID),
-              CmxIrohRelayStorageScope.isSafeToken(token) else {
+              CmxIrohRelayStorageScope.isSafeToken(token),
+              (try? CmxIrohCustomRelay(url: relayURL)) != nil else {
             throw CmxIrohRelayPolicyError.invalidClaims
         }
         let account = try CmxIrohRelayStorageScope.account(
@@ -37,9 +49,9 @@ public actor CmxIrohCustomRelayCredentialStore {
         )
         await acquire(account)
         defer { release(account) }
-        var tokens = try await storedTokens(account: account)
-        tokens[relayID] = token
-        try await write(tokens, account: account)
+        var credentials = try await storedCredentials(account: account)
+        credentials[relayID] = StaticCredential(token: token, relayURL: relayURL)
+        try await write(credentials, account: account)
     }
 
     /// Removes one device-local relay token without changing the account preference.
@@ -53,12 +65,12 @@ public actor CmxIrohCustomRelayCredentialStore {
         )
         await acquire(account)
         defer { release(account) }
-        var tokens = try await storedTokens(account: account)
-        tokens.removeValue(forKey: relayID)
-        if tokens.isEmpty {
+        var credentials = try await storedCredentials(account: account)
+        credentials.removeValue(forKey: relayID)
+        if credentials.isEmpty {
             try await secureStore.delete(account: account)
         } else {
-            try await write(tokens, account: account)
+            try await write(credentials, account: account)
         }
     }
 
@@ -77,11 +89,11 @@ public actor CmxIrohCustomRelayCredentialStore {
     /// Calling this after every authoritative account update also retries cleanup
     /// after a previous transient Keychain failure.
     public func retainCredentials(
-        for relayIDs: Set<String>,
+        for relays: [CmxIrohCustomRelayDefinition],
         accountID: String
     ) async throws {
-        guard relayIDs.count <= CmxIrohRelayPolicyVerifier.maximumRelayCount,
-              relayIDs.allSatisfy(CmxIrohRelayStorageScope.isSafeRelayID) else {
+        guard relays.count <= CmxIrohRelayPolicyVerifier.maximumRelayCount,
+              Set(relays.map(\.id)).count == relays.count else {
             throw CmxIrohRelayPolicyError.invalidSelection
         }
         let account = try CmxIrohRelayStorageScope.account(
@@ -90,9 +102,13 @@ public actor CmxIrohCustomRelayCredentialStore {
         )
         await acquire(account)
         defer { release(account) }
-        let tokens = try await storedTokens(account: account)
-        let retained = tokens.filter { relayIDs.contains($0.key) }
-        guard retained != tokens else { return }
+        let credentials = try await storedCredentials(account: account)
+        let definitions = Dictionary(uniqueKeysWithValues: relays.map { ($0.id, $0) })
+        let retained = credentials.filter { id, credential in
+            guard let relay = definitions[id] else { return false }
+            return relay.authMode == .staticToken && relay.url == credential.relayURL
+        }
+        guard retained != credentials else { return }
         if retained.isEmpty {
             try await secureStore.delete(account: account)
         } else {
@@ -100,14 +116,38 @@ public actor CmxIrohCustomRelayCredentialStore {
         }
     }
 
-    func staticTokens(accountID: String) async throws -> [String: String] {
+    func staticTokens(
+        for relays: [CmxIrohCustomRelayDefinition],
+        accountID: String
+    ) async throws -> [String: String] {
+        guard relays.count <= CmxIrohRelayPolicyVerifier.maximumRelayCount,
+              Set(relays.map(\.id)).count == relays.count else {
+            throw CmxIrohRelayPolicyError.invalidSelection
+        }
         let account = try CmxIrohRelayStorageScope.account(
             accountID,
             prefix: "custom-relay-credentials"
         )
         await acquire(account)
         defer { release(account) }
-        return try await storedTokens(account: account)
+        let credentials = try await storedCredentials(account: account)
+        var tokens: [String: String] = [:]
+        for relay in relays where relay.authMode == .staticToken {
+            guard let credential = credentials[relay.id],
+                  credential.relayURL == relay.url else { continue }
+            tokens[relay.id] = credential.token
+        }
+        return tokens
+    }
+
+    func configuredRelayIDs(accountID: String) async throws -> Set<String> {
+        let account = try CmxIrohRelayStorageScope.account(
+            accountID,
+            prefix: "custom-relay-credentials"
+        )
+        await acquire(account)
+        defer { release(account) }
+        return Set(try await storedCredentials(account: account).keys)
     }
 
     private func acquire(_ account: String) async {
@@ -135,26 +175,37 @@ public actor CmxIrohCustomRelayCredentialStore {
         next.resume()
     }
 
-    private func storedTokens(account: String) async throws -> [String: String] {
+    private func storedCredentials(account: String) async throws -> [String: StaticCredential] {
         guard let data = try await secureStore.read(account: account) else { return [:] }
-        guard let record = try? JSONDecoder().decode(Record.self, from: data),
-              record.version == Self.recordVersion,
-              record.staticTokens.count <= CmxIrohRelayPolicyVerifier.maximumRelayCount,
-              record.staticTokens.allSatisfy({
-                  CmxIrohRelayStorageScope.isSafeRelayID($0.key)
-                      && CmxIrohRelayStorageScope.isSafeToken($0.value)
-              }) else {
-            throw CmxIrohRelayPolicyError.invalidClaims
+        if let record = try? JSONDecoder().decode(Record.self, from: data),
+           record.version == Self.recordVersion,
+           record.staticCredentials.count <= CmxIrohRelayPolicyVerifier.maximumRelayCount,
+           record.staticCredentials.allSatisfy({ id, credential in
+               CmxIrohRelayStorageScope.isSafeRelayID(id)
+                   && CmxIrohRelayStorageScope.isSafeToken(credential.token)
+                   && (try? CmxIrohCustomRelay(url: credential.relayURL)) != nil
+           }) {
+            return record.staticCredentials
         }
-        return record.staticTokens
+        if let legacy = try? JSONDecoder().decode(LegacyRecord.self, from: data),
+           legacy.version == 1 {
+            try await secureStore.delete(account: account)
+            return [:]
+        }
+        throw CmxIrohRelayPolicyError.invalidClaims
     }
 
-    private func write(_ tokens: [String: String], account: String) async throws {
-        guard tokens.count <= CmxIrohRelayPolicyVerifier.maximumRelayCount else {
+    private func write(
+        _ credentials: [String: StaticCredential],
+        account: String
+    ) async throws {
+        guard credentials.count <= CmxIrohRelayPolicyVerifier.maximumRelayCount else {
             throw CmxIrohRelayPolicyError.invalidSelection
         }
         try await secureStore.write(
-            JSONEncoder().encode(Record(version: Self.recordVersion, staticTokens: tokens)),
+            JSONEncoder().encode(
+                Record(version: Self.recordVersion, staticCredentials: credentials)
+            ),
             account: account,
             accessibility: .afterFirstUnlockThisDeviceOnly
         )

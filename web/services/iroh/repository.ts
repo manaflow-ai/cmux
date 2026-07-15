@@ -29,7 +29,6 @@ import {
   type IrohPathHint,
   type IrohRegistrationPayload,
 } from "./model";
-import { serverPublishedIrohPathHints } from "./publicationPolicy";
 
 export const IROH_RETENTION_BATCH_SIZE = 500;
 export const IROH_RETENTION_MAX_ROWS = 10_000;
@@ -250,7 +249,7 @@ function makeLiveRepository(): IrohRepositoryShape {
     consumeChallengeAndRegister: (input) => repositoryEffect("register_binding", async () => {
       const db = cloudDb();
       return await db.transaction(async (tx) => {
-        const publishedPathHints = serverPublishedIrohPathHints(input.payload.pathHints);
+        const accountPrivatePathHints = [...input.payload.pathHints];
         await assertIrohUserMutationAllowed(tx, input.userId);
         await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${input.userId}`}, 0))`);
         await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:endpoint:${input.payload.endpointId}`}, 0))`);
@@ -296,8 +295,8 @@ function makeLiveRepository(): IrohRepositoryShape {
               displayName: input.payload.displayName ?? null,
               pairingEnabled: input.payload.pairingEnabled,
               capabilities: [...input.payload.capabilities],
-              pathHints: publishedPathHints,
-              pathHintsNextExpiry: nextPathHintExpiry(publishedPathHints),
+              pathHints: accountPrivatePathHints,
+              pathHintsNextExpiry: nextPathHintExpiry(accountPrivatePathHints),
               lastSeenAt: input.now,
               updatedAt: input.now,
             })
@@ -358,8 +357,8 @@ function makeLiveRepository(): IrohRepositoryShape {
             identityGeneration: input.payload.identityGeneration,
             pairingEnabled: input.payload.pairingEnabled,
             capabilities: [...input.payload.capabilities],
-            pathHints: publishedPathHints,
-            pathHintsNextExpiry: nextPathHintExpiry(publishedPathHints),
+            pathHints: accountPrivatePathHints,
+            pathHintsNextExpiry: nextPathHintExpiry(accountPrivatePathHints),
             deviceLimitOverrideUsed: usesDeviceOverride,
             lastSeenAt: input.now,
             registeredAt: input.now,

@@ -78,7 +78,10 @@ enum CmxIrohRelayPolicyResolution {
         case let .custom(definitions):
             let tokens: [String: String]
             do {
-                tokens = try await credentialStore.staticTokens(accountID: accountID)
+                tokens = try await credentialStore.staticTokens(
+                    for: definitions,
+                    accountID: accountID
+                )
             } catch {
                 return unavailableResolution(
                     configuration: configuration,
@@ -255,12 +258,9 @@ enum CmxIrohRelayPolicyResolution {
         accountID: String,
         credentialStore: CmxIrohCustomRelayCredentialStore
     ) async -> CmxIrohRelayPolicyFailure? {
-        let credentialRelayIDs = Set(configuration.customRelays.compactMap { relay in
-            relay.authMode == .staticToken ? relay.id : nil
-        })
         do {
             try await credentialStore.retainCredentials(
-                for: credentialRelayIDs,
+                for: configuration.customRelays,
                 accountID: accountID
             )
             return nil
