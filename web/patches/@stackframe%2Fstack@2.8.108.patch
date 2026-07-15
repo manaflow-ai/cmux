@@ -1,8 +1,8 @@
 diff --git a/dist/components/elements/ssr-layout-effect.js b/dist/components/elements/ssr-layout-effect.js
-index 99773f6ee51f305b7497b78a55eaca0a4c09d899..57cba1f2eb143fdcd225e5ee6392633e210de390 100644
+index 99773f6ee51f305b7497b78a55eaca0a4c09d899..eb72a6c324ca831cb144f916f5da5fd38e1eb291 100644
 --- a/dist/components/elements/ssr-layout-effect.js
 +++ b/dist/components/elements/ssr-layout-effect.js
-@@ -3,20 +3,22 @@
+@@ -3,18 +3,21 @@
  Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' });
  const require_chunk = require('../../chunk-BE-pF4vm.js');
  let react = require("react");
@@ -29,14 +29,11 @@ index 99773f6ee51f305b7497b78a55eaca0a4c09d899..57cba1f2eb143fdcd225e5ee6392633e
  }
  
  //#endregion
- exports.SsrScript = SsrScript;
--//# sourceMappingURL=ssr-layout-effect.js.map
-\ No newline at end of file
 diff --git a/dist/esm/components/elements/ssr-layout-effect.js b/dist/esm/components/elements/ssr-layout-effect.js
-index 1233d79c915fc5b7214fbf3a56570cd9f9f04950..79c8f22b1e5c19d50c52f502f8aa715b4497f7de 100644
+index 1233d79c915fc5b7214fbf3a56570cd9f9f04950..285fc2586e605f3645aaebcc8cbc4062adf7760f 100644
 --- a/dist/esm/components/elements/ssr-layout-effect.js
 +++ b/dist/esm/components/elements/ssr-layout-effect.js
-@@ -1,20 +1,26 @@
+@@ -1,18 +1,25 @@
  "use client";
  
  import { useLayoutEffect } from "react";
@@ -67,6 +64,3 @@ index 1233d79c915fc5b7214fbf3a56570cd9f9f04950..79c8f22b1e5c19d50c52f502f8aa715b
  }
  
  //#endregion
- export { SsrScript };
--//# sourceMappingURL=ssr-layout-effect.js.map
-\ No newline at end of file
