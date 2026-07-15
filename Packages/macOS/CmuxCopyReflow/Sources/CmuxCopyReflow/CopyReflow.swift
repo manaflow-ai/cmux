@@ -12,10 +12,10 @@ extension ReflowOptions {
     /// wrapping.
     ///
     /// The transform is intentionally conservative: when there is no clear
-    /// wrap signal it leaves lines alone. A wrap signal is either a
-    /// continuation indent (a line indented past its paragraph's first line)
-    /// or a "full" previous line (one whose length reached the block's wrap
-    /// width). It never joins across a line ending in sentence punctuation,
+    /// wrap signal it leaves lines alone. A wrap signal is either a continuation
+    /// indent paired with evidence that the previous row reached a wrap width,
+    /// or a "full" previous line (one whose length reached the block's inferred
+    /// wrap width). It never joins across a line ending in sentence punctuation,
     /// and never width-joins a block narrower than
     /// ``ReflowOptions/minWrapWidth``.
     /// - Parameters:
@@ -170,17 +170,17 @@ private extension ReflowOptions {
                         content,
                         after: p.prevContent
                     )
-                    let shortIndentContinuation = indentationDelta <= 2
-                        && p.prevHasSpace
-                        && startsLowercaseLetter(content)
-                    let s1 = indentationDelta > 0
-                        && (p.prevVisibleLength >= minWrapWidth || shortIndentContinuation)
-                        && !endsIndentedBlock(p.prevContent)
-                        && !structuredCode
                     let previousLineReachedTerminalWidth = reachesTerminalWidth(
                         lineLength: p.prevVisibleLength,
                         terminalWidth: terminalWidth
                     )
+                    let indentationHasWrapEvidence = terminalWidth == nil
+                        ? p.prevVisibleLength >= minWrapWidth
+                        : previousLineReachedTerminalWidth
+                    let s1 = indentationDelta > 0
+                        && indentationHasWrapEvidence
+                        && !endsIndentedBlock(p.prevContent)
+                        && !structuredCode
                     // s3: a wrapped bare URL continues as a spaceless path
                     //     fragment only with indentation or terminal-width
                     //     evidence. A standalone following path stays separate.
