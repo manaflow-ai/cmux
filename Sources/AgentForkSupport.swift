@@ -466,13 +466,10 @@ enum AgentForkSupport {
         discriminator: String
     ) -> String {
         let processEnvironment = processEnvironmentForOpenCodeProbe(environment: environment)
-        let relevantEnvironmentKeys = [
-            "PATH",
-            "OPENCODE_BIN",
-            "OPENCODE_CONFIG_DIR"
-        ]
-        let environmentParts = relevantEnvironmentKeys.map { key in
-            "\(key)=\(processEnvironment[key] ?? "")"
+        let environmentParts = processEnvironment.keys.sorted().compactMap { key in
+            processEnvironment[key].map { value in
+                "\(key)=\(value)"
+            }
         }
         return ([discriminator, probe.executable] + probe.arguments + environmentParts + ["cwd=\(workingDirectory ?? "")"])
             .joined(separator: "\u{1f}")
