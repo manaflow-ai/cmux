@@ -2561,146 +2561,6 @@ struct TerminalKeyboardCopyModeCursorSwiftTests {
 }
 
 
-final class GhosttyBackgroundThemeTests: XCTestCase {
-    func testColorClampsOpacity() {
-        let base = NSColor(srgbRed: 0.10, green: 0.20, blue: 0.30, alpha: 1.0)
-
-        let lowerClamped = GhosttyBackgroundTheme.color(backgroundColor: base, opacity: -2.0)
-        XCTAssertEqual(lowerClamped.alphaComponent, 0.0, accuracy: 0.0001)
-
-        let upperClamped = GhosttyBackgroundTheme.color(backgroundColor: base, opacity: 5.0)
-        XCTAssertEqual(upperClamped.alphaComponent, 1.0, accuracy: 0.0001)
-    }
-
-    func testColorFromNotificationUsesBackgroundAndOpacity() {
-        let fallbackColor = NSColor.black
-        let fallbackOpacity = 1.0
-        let notification = Notification(
-            name: .ghosttyDefaultBackgroundDidChange,
-            object: nil,
-            userInfo: [
-                GhosttyNotificationKey.backgroundColor: NSColor(srgbRed: 0.18, green: 0.29, blue: 0.44, alpha: 1.0),
-                GhosttyNotificationKey.backgroundOpacity: NSNumber(value: 0.57),
-            ]
-        )
-
-        let actual = GhosttyBackgroundTheme.color(
-            from: notification,
-            fallbackColor: fallbackColor,
-            fallbackOpacity: fallbackOpacity
-        )
-        guard let srgb = actual.usingColorSpace(.sRGB) else {
-            XCTFail("Expected sRGB-convertible color")
-            return
-        }
-
-        XCTAssertEqual(srgb.redComponent, 0.18, accuracy: 0.005)
-        XCTAssertEqual(srgb.greenComponent, 0.29, accuracy: 0.005)
-        XCTAssertEqual(srgb.blueComponent, 0.44, accuracy: 0.005)
-        XCTAssertEqual(srgb.alphaComponent, 0.57, accuracy: 0.005)
-    }
-
-    func testColorFromNotificationFallsBackWhenPayloadMissing() {
-        let fallbackColor = NSColor(srgbRed: 0.12, green: 0.34, blue: 0.56, alpha: 1.0)
-        let fallbackOpacity = 0.42
-        let notification = Notification(name: .ghosttyDefaultBackgroundDidChange)
-
-        let actual = GhosttyBackgroundTheme.color(
-            from: notification,
-            fallbackColor: fallbackColor,
-            fallbackOpacity: fallbackOpacity
-        )
-        guard let srgb = actual.usingColorSpace(.sRGB) else {
-            XCTFail("Expected sRGB-convertible color")
-            return
-        }
-
-        XCTAssertEqual(srgb.redComponent, 0.12, accuracy: 0.005)
-        XCTAssertEqual(srgb.greenComponent, 0.34, accuracy: 0.005)
-        XCTAssertEqual(srgb.blueComponent, 0.56, accuracy: 0.005)
-        XCTAssertEqual(srgb.alphaComponent, 0.42, accuracy: 0.005)
-    }
-}
-
-final class PanelAppearanceBackgroundTests: XCTestCase {
-    func testTransparentGhosttyOpacityUsesClearContentBackground() {
-        var config = GhosttyConfig()
-        config.backgroundColor = NSColor(srgbRed: 0.10, green: 0.20, blue: 0.30, alpha: 1.0)
-        config.backgroundOpacity = 0.42
-        config.backgroundBlur = .disabled
-
-        let appearance = PanelAppearance.fromConfig(config, usesTransparentWindow: false)
-
-        XCTAssertTrue(appearance.usesClearContentBackground)
-        XCTAssertFalse(appearance.drawsContentBackground)
-        XCTAssertEqual(appearance.backgroundColor.alphaComponent, 0.42, accuracy: 0.0001)
-        XCTAssertEqual(appearance.contentBackgroundColor.alphaComponent, 0.0, accuracy: 0.0001)
-    }
-
-    func testOpaqueGhosttyBackgroundKeepsPanelFill() {
-        var config = GhosttyConfig()
-        config.backgroundColor = NSColor(srgbRed: 0.10, green: 0.20, blue: 0.30, alpha: 1.0)
-        config.backgroundOpacity = 1.0
-        config.backgroundBlur = .disabled
-
-        let appearance = PanelAppearance.fromConfig(config, usesTransparentWindow: false)
-
-        XCTAssertFalse(appearance.usesClearContentBackground)
-        XCTAssertTrue(appearance.drawsContentBackground)
-        XCTAssertEqual(appearance.backgroundColor.alphaComponent, 1.0, accuracy: 0.0001)
-        XCTAssertEqual(appearance.contentBackgroundColor.alphaComponent, 1.0, accuracy: 0.0001)
-    }
-
-    func testLowContrastPanelForegroundFallsBackToReadableColor() {
-        var config = GhosttyConfig()
-        config.backgroundColor = NSColor(hex: "#FFFFFF")!
-        config.backgroundOpacity = 1.0
-        config.foregroundColor = NSColor(hex: "#FFFFFF")!
-
-        let appearance = PanelAppearance.fromConfig(config, usesTransparentWindow: false)
-
-        XCTAssertEqual(appearance.foregroundColor.hexString(), "#000000")
-    }
-
-    func testReadablePanelForegroundPreservesThemeColor() {
-        var config = GhosttyConfig()
-        config.backgroundColor = NSColor(hex: "#000000")!
-        config.backgroundOpacity = 1.0
-        config.foregroundColor = NSColor(hex: "#FDF6E3")!
-
-        let appearance = PanelAppearance.fromConfig(config, usesTransparentWindow: false)
-
-        XCTAssertEqual(appearance.foregroundColor.hexString(), "#FDF6E3")
-    }
-
-    func testGhosttyGlassBackgroundUsesClearContentBackground() {
-        var config = GhosttyConfig()
-        config.backgroundOpacity = 1.0
-        config.backgroundBlur = .macosGlassRegular
-
-        let appearance = PanelAppearance.fromConfig(config, usesTransparentWindow: false)
-
-        XCTAssertTrue(appearance.usesClearContentBackground)
-        XCTAssertFalse(appearance.drawsContentBackground)
-        XCTAssertEqual(appearance.backgroundColor.alphaComponent, 1.0, accuracy: 0.0001)
-        XCTAssertEqual(appearance.contentBackgroundColor.alphaComponent, 0.0, accuracy: 0.0001)
-    }
-
-    func testTransparentWindowSettingUsesClearContentBackground() {
-        var config = GhosttyConfig()
-        config.backgroundOpacity = 1.0
-        config.backgroundBlur = .disabled
-
-        let appearance = PanelAppearance.fromConfig(config, usesTransparentWindow: true)
-
-        XCTAssertTrue(appearance.usesClearContentBackground)
-        XCTAssertFalse(appearance.drawsContentBackground)
-        XCTAssertEqual(appearance.backgroundColor.alphaComponent, 1.0, accuracy: 0.0001)
-        XCTAssertEqual(appearance.contentBackgroundColor.alphaComponent, 0.0, accuracy: 0.0001)
-    }
-}
-
-
 final class GhosttyResponderResolutionTests: XCTestCase {
     private final class FocusProbeView: NSView {
         override var acceptsFirstResponder: Bool { true }
@@ -3116,7 +2976,10 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             XCTFail("Expected terminal surface view")
             return
         }
-        XCTAssertNotNil(surface.surface, "Expected runtime surface before simulating the detach race")
+        guard waitUntil(timeout: 15, condition: { surface.surface != nil }) else {
+            XCTFail("Expected runtime surface before simulating the detach race")
+            return
+        }
 
         surface.releaseSurfaceForTesting()
         XCTAssertNil(surface.surface, "Expected runtime surface to be released for the regression setup")
@@ -3132,6 +2995,86 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         XCTAssertNotNil(
             surface.surface,
             "Missing-surface keyDown should request background surface recreation instead of leaving terminal input dead"
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+
+    func testKeyDownRecoveryReplaysTriggeringEventExactlyOnce() throws {
+#if DEBUG
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let surfaceView = surfaceView(in: hostedView) as? GhosttyNSView else {
+            XCTFail("Expected terminal surface view")
+            return
+        }
+        guard waitUntil(timeout: 15, condition: { surface.surface != nil }) else {
+            XCTFail("Expected runtime surface before simulating the detach race")
+            return
+        }
+
+        let previousTextInputEventHandler = GhosttyNSView.debugTextInputEventHandler
+        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+        defer {
+            GhosttyNSView.debugTextInputEventHandler = previousTextInputEventHandler
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
+            withExtendedLifetime(surface) {}
+        }
+
+        GhosttyNSView.debugTextInputEventHandler = { view, event in
+            view.insertText(
+                event.characters ?? "",
+                replacementRange: NSRange(location: NSNotFound, length: 0)
+            )
+            return true
+        }
+        var forwardedTexts: [String] = []
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            previousKeyEventObserver?(keyEvent)
+            guard keyEvent.action == GHOSTTY_ACTION_PRESS,
+                  keyEvent.keycode == 0,
+                  let text = keyEvent.text else {
+                return
+            }
+            forwardedTexts.append(String(cString: text))
+        }
+
+        surface.releaseSurfaceForTesting()
+        hostedView.removeFromSuperview()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertNil(surfaceView.window, "Expected hosted terminal view to be detached from any window")
+
+        let event = makeKeyEvent(characters: "a", keyCode: 0, window: window)
+        surfaceView.keyDown(with: event)
+        waitForRuntimeSurface(surface)
+
+        XCTAssertTrue(
+            waitUntil(timeout: 5) { forwardedTexts == ["a"] },
+            "The keyDown that demanded runtime recreation must reach Ghostty exactly once after the surface is ready"
         )
 #else
         throw XCTSkip("Debug-only regression test")
@@ -4687,7 +4630,6 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
     }
 }
 
-
 @MainActor
 final class TerminalWindowPortalLifecycleTests: XCTestCase {
     private final class ContentViewCountingWindow: NSWindow {
@@ -4704,7 +4646,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         }
     }
 
-    private func realizeWindowLayout(_ window: NSWindow) {
+    func realizeWindowLayout(_ window: NSWindow) {
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
         window.contentView?.layoutSubtreeIfNeeded()
@@ -4712,7 +4654,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         window.contentView?.layoutSubtreeIfNeeded()
     }
 
-    private func drainMainQueue() {
+    func drainMainQueue() {
         let expectation = XCTestExpectation(description: "drain main queue")
         DispatchQueue.main.async {
             expectation.fulfill()

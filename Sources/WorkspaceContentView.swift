@@ -217,15 +217,14 @@ struct WorkspaceContentView: View {
                     // Multi-pane tmux window: render its pane layout as splits
                     // inside this single tab. Single-pane windows keep the
                     // standard PanelContentView path below.
-                    RemoteTmuxWindowMirrorView(
+                    RemoteTmuxWindowMirrorSplitView(
                         mirror: windowMirror,
                         appearance: appearance,
+                        isOuterFocused: isFocused,
                         isVisibleInUI: isVisibleInUI,
                         portalPriority: workspacePortalPriority,
-                        onClosePane: { tmuxPaneId in
-                            workspace.requestRemoteTmuxPaneClose(
-                                windowMirror: windowMirror, tmuxPaneId: tmuxPaneId
-                            )
+                        onOuterFocus: {
+                            workspace.bonsplitController.focusPane(paneId)
                         }
                     )
                     .onTapGesture {
@@ -343,9 +342,7 @@ struct WorkspaceContentView: View {
             logTheme(
                 "theme notification workspace=\(workspace.id.uuidString) event=\(eventId.map(String.init) ?? "nil") source=\(source) payload=\(payloadHex) payloadFg=\(foregroundHex) appBg=\(GhosttyApp.shared.defaultBackgroundColor.hexString()) appFg=\(GhosttyApp.shared.defaultForegroundColor.hexString()) appOpacity=\(String(format: "%.3f", GhosttyApp.shared.defaultBackgroundOpacity))"
             )
-            // Payload ordering can lag across rapid config/theme updates.
-            // Resolve from GhosttyApp.shared.defaultBackgroundColor to keep tabs aligned
-            // with Ghostty's current runtime theme.
+            // Resolve from Ghostty's runtime state because notification payload ordering can lag.
             refreshGhosttyAppearanceConfig(
                 reason: "ghosttyDefaultBackgroundDidChange",
                 backgroundEventId: eventId,
@@ -368,6 +365,9 @@ struct WorkspaceContentView: View {
             }
         }
         .modifier(WorkspaceContentMinimalModeSafeAreaModifier(isFullScreen: isFullScreen))
+        // A workspace is a page: accept the parent proposal instead of
+        // contributing a hidden child's content-derived ideal to its ZStack.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func syncBonsplitNotificationBadges() {
@@ -663,7 +663,7 @@ extension WorkspaceContentView {
                 parts.append("textBoxPendingLaunchCommand:\(pendingLaunchCommand)")
             }
         }
-        if let restoredAgent = workspace.restoredAgentSnapshotsByPanelId[panel.id] {
+        if let restoredAgent = workspace.restoredAgentSnapshotForContinuation(panelId: panel.id) {
             parts.append("restoredAgent:\(restoredAgent.kind.rawValue)")
         }
         if let agentPIDKeys = workspace.agentPIDKeysByPanelId[panel.id], !agentPIDKeys.isEmpty {

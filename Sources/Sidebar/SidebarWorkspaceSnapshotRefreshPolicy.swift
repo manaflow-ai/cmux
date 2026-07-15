@@ -1,3 +1,5 @@
+import CmuxWorkspaces
+
 extension SidebarWorkspaceSnapshotBuilder.Snapshot {
     struct ContextMenuImmediateFields: Equatable {
         let title: String
@@ -6,6 +8,12 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
         let customColorHex: String?
         let finderDirectoryPath: String?
         let mediaActivity: BrowserMediaActivity
+        let taskStatus: WorkspaceTaskStatus?
+        let checklistItems: [WorkspaceChecklistItem]
+        let checklistCompletedCount: Int
+        let checklistTotalCount: Int
+        let checklistFirstUncheckedText: String?
+        let activeCodingAgentCount: Int
     }
 
     var contextMenuImmediateFields: ContextMenuImmediateFields {
@@ -15,7 +23,13 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             isPinned: isPinned,
             customColorHex: customColorHex,
             finderDirectoryPath: finderDirectoryPath,
-            mediaActivity: mediaActivity
+            mediaActivity: mediaActivity,
+            taskStatus: taskStatus,
+            checklistItems: checklistItems,
+            checklistCompletedCount: checklistCompletedCount,
+            checklistTotalCount: checklistTotalCount,
+            checklistFirstUncheckedText: checklistFirstUncheckedText,
+            activeCodingAgentCount: activeCodingAgentCount
         )
     }
 
@@ -37,6 +51,9 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             metadataBlocks: metadataBlocks,
             latestLog: latestLog,
             progress: progress,
+            // The loading spinner is a leading row glyph like mediaActivity, so
+            // it also updates immediately while the context menu is open.
+            activeCodingAgentCount: snapshot.activeCodingAgentCount,
             compactGitBranchSummaryText: compactGitBranchSummaryText,
             compactDirectoryCandidates: compactDirectoryCandidates,
             compactBranchDirectoryCandidates: compactBranchDirectoryCandidates,
@@ -47,7 +64,15 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             finderDirectoryPath: snapshot.finderDirectoryPath,
             // Media activity drives a leading row glyph, so stale values are
             // visually worse than ordinary telemetry text while the menu is open.
-            mediaActivity: snapshot.mediaActivity
+            mediaActivity: snapshot.mediaActivity,
+            // Todo status/checklist are mutated FROM this context menu (Status
+            // submenu, Mark as Done, checkbox clicks), so the done-row dim and
+            // checklist must reflect the change immediately, not on menu close.
+            taskStatus: snapshot.taskStatus,
+            checklistItems: snapshot.checklistItems,
+            checklistCompletedCount: snapshot.checklistCompletedCount,
+            checklistTotalCount: snapshot.checklistTotalCount,
+            checklistFirstUncheckedText: snapshot.checklistFirstUncheckedText
         )
     }
 }
@@ -99,6 +124,9 @@ struct SidebarWorkspaceRowInteractionState: Equatable {
                 deferredPointerHoveringWhileContextMenu = hovering
             }
             isPointerHovering = false
+            return
+        }
+        if deferredPointerHoveringWhileContextMenu == nil, isPointerHovering == hovering {
             return
         }
         deferredPointerHoveringWhileContextMenu = nil

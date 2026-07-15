@@ -1,3 +1,5 @@
+import CMUXMobileCore
+import CmuxSettings
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -9,6 +11,112 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct MobileHostIdentityTests {
+    @Test func authenticatedStatusIncludesAuthoritativeInstanceTag() {
+        let previousTag = ProcessInfo.processInfo.environment["CMUX_TAG"]
+        setenv("CMUX_TAG", "future-one", 1)
+        defer {
+            if let previousTag {
+                setenv("CMUX_TAG", previousTag, 1)
+            } else {
+                unsetenv("CMUX_TAG")
+            }
+        }
+
+        let payload = MobileHostService.identityStatusPayload(routes: [])
+        #expect(payload["mac_instance_tag"] as? String == "future-one")
+    }
+
+    @Test func publicStatusOmitsInstanceTag() {
+        let payload = MobileHostService.publicStatusPayload(routes: [])
+        #expect(payload["mac_instance_tag"] == nil)
+    }
+
+    @Test func taggedDebugBuildSuffixesPairingDisplayName() throws {
+        let suiteName = "mobile-host-display-name-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let key = SettingCatalog().mobile.iOSPairingDisplayName.userDefaultsKey
+        defaults.set("Desk Mac", forKey: key)
+
+        let previousTag = ProcessInfo.processInfo.environment["CMUX_TAG"]
+        setenv("CMUX_TAG", "future-one", 1)
+        defer {
+            if let previousTag {
+                setenv("CMUX_TAG", previousTag, 1)
+            } else {
+                unsetenv("CMUX_TAG")
+            }
+        }
+
+        #expect(MobileHostIdentity.baseDisplayName(defaults: defaults) == "Desk Mac")
+        #if DEBUG
+        #expect(MobileHostIdentity.instanceDisplayName(defaults: defaults) == "Desk Mac (future-one)")
+        #else
+        #expect(MobileHostIdentity.instanceDisplayName(defaults: defaults) == "Desk Mac")
+        #endif
+    }
+
+    @Test func taggedDisplayNameUsesOverrideWithoutDuplicatingSuffix() throws {
+        let suiteName = "mobile-host-display-name-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let key = SettingCatalog().mobile.iOSPairingDisplayName.userDefaultsKey
+        defaults.set("Desk Mac (future-one)", forKey: key)
+
+        #expect(MobileHostIdentity.instanceDisplayName(
+            defaults: defaults,
+            hostName: "System Mac",
+            buildTag: " future-one "
+        ) == "Desk Mac (future-one)")
+    }
+
+    @Test func untaggedDisplayNameFallsBackToSystemName() throws {
+        let suiteName = "mobile-host-display-name-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        #expect(MobileHostIdentity.instanceDisplayName(
+            defaults: defaults,
+            hostName: " System Mac ",
+            buildTag: "default"
+        ) == "System Mac")
+    }
+
+    @Test func taggedDisplayNamePreservesSuffixWithinCloudLimit() throws {
+        let suiteName = "mobile-host-display-name-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let key = SettingCatalog().mobile.iOSPairingDisplayName.userDefaultsKey
+        defaults.set(String(repeating: "A", count: 128), forKey: key)
+
+        let displayName = try #require(MobileHostIdentity.instanceDisplayName(
+            defaults: defaults,
+            hostName: nil,
+            buildTag: "future-one"
+        ))
+
+        #expect(displayName.utf16.count == 128)
+        #expect(displayName.hasSuffix(" (future-one)"))
+    }
+
+    @Test func taggedDisplayNameDoesNotSplitExtendedCharactersAtCloudLimit() throws {
+        let suiteName = "mobile-host-display-name-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let key = SettingCatalog().mobile.iOSPairingDisplayName.userDefaultsKey
+        defaults.set(String(repeating: "👩🏽‍💻", count: 40), forKey: key)
+
+        let displayName = try #require(MobileHostIdentity.instanceDisplayName(
+            defaults: defaults,
+            hostName: nil,
+            buildTag: "future-one"
+        ))
+
+        #expect(displayName.utf16.count <= 128)
+        #expect(displayName.hasSuffix(" (future-one)"))
+        #expect(displayName.hasPrefix("👩🏽‍💻"))
+    }
+
     @Test func prefersSharedIDAcrossBundleDefaults() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -108,5 +216,77 @@ struct MobileHostIdentityTests {
         #expect(MobileHostIdentity.deviceID(defaults: defaults, sharedIDURL: sharedIDURL) == fallbackID)
         #expect(defaults.string(forKey: "mobileHost.deviceID") == fallbackID)
         #expect(try String(contentsOf: sharedIDURL, encoding: .utf8) == fallbackID)
+    }
+
+    @Test func testMobileHostRouteDisclosureSeparatesAuthenticatedAndPublicHints() throws {
+        let now = Date()
+        let privateAddress = "100.64.1.2:49152"
+        let endpointID = String(repeating: "a", count: 64)
+        let iroh = try CmxAttachRoute(
+            id: "iroh",
+            kind: .iroh,
+            endpoint: .peer(
+                identity: CmxIrohPeerIdentity(
+                    endpointID: endpointID
+                ),
+                pathHints: [
+                    try CmxIrohPathHint(
+                        kind: .directAddress,
+                        value: privateAddress,
+                        source: .tailscale,
+                        privacyScope: .privateNetwork,
+                        observedAt: now,
+                        expiresAt: now.addingTimeInterval(300),
+                        networkProfile: CmxIrohNetworkProfileKey(
+                            source: .tailscale,
+                            profileID: String(repeating: "a", count: 64)
+                        )
+                    ),
+                    try CmxIrohPathHint(
+                        kind: .relayURL,
+                        value: "https://relay.example.test/",
+                        source: .native,
+                        privacyScope: .publicInternet
+                    ),
+                ]
+            )
+        )
+        let tailscale = try CmxAttachRoute(
+            id: "tailscale",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.1.2", port: 49152)
+        )
+        let websocketURL = "wss://private.example.test/connect?token=secret"
+        let websocket = try CmxAttachRoute(
+            id: "websocket",
+            kind: .websocket,
+            endpoint: .url(websocketURL)
+        )
+
+        let authenticatedPayload = MobileHostService.identityStatusPayload(
+            routes: [iroh, tailscale, websocket],
+            now: now
+        )
+        let authenticated = try #require(authenticatedPayload["routes"] as? [[String: Any]])
+        #expect(authenticated.count == 3)
+        let authenticatedEndpoint = try #require(
+            authenticated.first?["endpoint"] as? [String: Any]
+        )
+        let authenticatedHints = try #require(
+            authenticatedEndpoint["path_hints"] as? [[String: Any]]
+        )
+        #expect(authenticatedHints.count == 2)
+        #expect(authenticatedHints.contains { $0["value"] as? String == privateAddress })
+        #expect(authenticatedHints.contains { $0["network_profile"] != nil })
+
+        let publicPayload = MobileHostService.publicStatusPayload(
+            routes: [iroh, tailscale, websocket],
+            now: now
+        )
+        let publicRoutes = try #require(publicPayload["routes"] as? [[String: Any]])
+        #expect(publicRoutes.isEmpty)
+        #expect(!String(describing: publicPayload).contains(endpointID))
+        #expect(!String(describing: publicRoutes).contains(privateAddress))
+        #expect(!String(describing: publicRoutes).contains(websocketURL))
     }
 }

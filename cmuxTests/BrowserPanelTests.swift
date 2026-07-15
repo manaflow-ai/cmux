@@ -16,14 +16,6 @@ import CmuxBrowser
 @testable import cmux
 #endif
 
-private func drainBrowserPanelMainQueue() {
-    let expectation = XCTestExpectation(description: "drain main queue")
-    DispatchQueue.main.async {
-        expectation.fulfill()
-    }
-    XCTWaiter().wait(for: [expectation], timeout: 1.0)
-}
-
 private final class BrowserPanelTestNavigationDelegate: NSObject, WKNavigationDelegate {
     let expectation: XCTestExpectation
     var error: Error?
@@ -337,15 +329,6 @@ final class BrowserPanelVisualAutomationRestoreHostTests: XCTestCase {
         XCTAssertNotNil(panel.webView.window)
         XCTAssertFalse(panel.ensureVisualAutomationRestoreHostIfNeeded(reason: "test.visualAutomation.alreadyAttached"))
     }
-}
-
-@MainActor
-private func makeTemporaryBrowserPanelProfile(named prefix: String) throws -> BrowserProfileDefinition {
-    try XCTUnwrap(
-        BrowserProfileStore.shared.createProfile(
-            named: "\(prefix)-\(UUID().uuidString)"
-        )
-    )
 }
 
 final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
@@ -680,8 +663,6 @@ final class BrowserPanelInitialNavigationTests: XCTestCase {
         XCTAssertEqual(store.entries.map(\.url), [normalURL.absoluteString])
     }
 }
-
-
 @MainActor
 final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
     private func trustedDiffViewerTestRoot() -> URL {
@@ -718,12 +699,14 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         try FileManager.default.createDirectory(at: assetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: rootURL) }
 
-        try """
+        let deflatedAssetURL = assetURL.appendingPathExtension("deflate")
+        let deflatedWorkerAssetURL = workerAssetURL.appendingPathExtension("deflate")
+        try DeflatedAssetTestSupport.writeText("""
         export const marker = "module-ok";
-        """.write(to: assetURL, atomically: true, encoding: .utf8)
-        try """
+        """, to: deflatedAssetURL)
+        try DeflatedAssetTestSupport.writeText("""
         export const workerMarker = "js-ok";
-        """.write(to: workerAssetURL, atomically: true, encoding: .utf8)
+        """, to: deflatedWorkerAssetURL)
         try """
         <!doctype html>
         <html>
@@ -753,8 +736,8 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
             token: token,
             files: [
                 .init(requestPath: "/index.html", fileURL: indexURL, mimeType: "text/html"),
-                .init(requestPath: "/assets/mod.mjs", fileURL: assetURL, mimeType: "text/javascript"),
-                .init(requestPath: "/assets/worker.js", fileURL: workerAssetURL, mimeType: "text/javascript"),
+                .init(requestPath: "/assets/mod.mjs", fileURL: deflatedAssetURL, mimeType: "text/javascript"),
+                .init(requestPath: "/assets/worker.js", fileURL: deflatedWorkerAssetURL, mimeType: "text/javascript"),
                 .init(requestPath: "/index.patch", fileURL: patchURL, mimeType: "text/x-diff"),
             ]
         )
@@ -790,7 +773,6 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         XCTAssertNil(delegate.error)
         wait(for: [moduleLoaded], timeout: 10)
         XCTAssertEqual(moduleHandler.body as? String, "module-ok:js-ok:wasm-ok")
-
         let evaluated = expectation(description: "module evaluated")
         webView.evaluateJavaScript("document.body.dataset.loaded || ''") { value, error in
             XCTAssertNil(error)
@@ -840,167 +822,6 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
                 .init(requestPath: "/diff.patch", fileURL: patchURL, mimeType: "text/html"),
             ]
         ))
-    }
-}
-
-
-final class BrowserPanelOmnibarPillBackgroundColorTests: XCTestCase {
-    func testLightModeSlightlyDarkensThemeBackground() {
-        assertResolvedColorMatchesExpectedBlend(for: .light, darkenMix: 0.04)
-    }
-
-    func testDarkModeSlightlyDarkensThemeBackground() {
-        assertResolvedColorMatchesExpectedBlend(for: .dark, darkenMix: 0.05)
-    }
-
-    func testTransparentGhosttyBackgroundUsesCompositedOmnibarPill() {
-        let baseColor = NSColor(srgbRed: 0.94, green: 0.93, blue: 0.91, alpha: 1.0)
-        let themeBackground = GhosttyBackgroundTheme.color(backgroundColor: baseColor, opacity: 0.42)
-
-        guard let actual = resolvedBrowserOmnibarPillBackgroundColor(
-            for: .light,
-            themeBackgroundColor: themeBackground
-        ).usingColorSpace(.sRGB) else {
-            XCTFail("Expected sRGB-convertible color")
-            return
-        }
-
-        XCTAssertEqual(actual.alphaComponent, 1.0, accuracy: 0.001)
-    }
-
-    private func assertResolvedColorMatchesExpectedBlend(
-        for colorScheme: ColorScheme,
-        darkenMix: CGFloat,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) {
-        let themeBackground = NSColor(srgbRed: 0.94, green: 0.93, blue: 0.91, alpha: 1.0)
-        let expected = themeBackground.blended(withFraction: darkenMix, of: .black) ?? themeBackground
-
-        guard
-            let actual = resolvedBrowserOmnibarPillBackgroundColor(
-                for: colorScheme,
-                themeBackgroundColor: themeBackground
-            ).usingColorSpace(.sRGB),
-            let expectedSRGB = expected.usingColorSpace(.sRGB),
-            let themeSRGB = themeBackground.usingColorSpace(.sRGB)
-        else {
-            XCTFail("Expected sRGB-convertible colors", file: file, line: line)
-            return
-        }
-
-        XCTAssertEqual(actual.redComponent, expectedSRGB.redComponent, accuracy: 0.001, file: file, line: line)
-        XCTAssertEqual(actual.greenComponent, expectedSRGB.greenComponent, accuracy: 0.001, file: file, line: line)
-        XCTAssertEqual(actual.blueComponent, expectedSRGB.blueComponent, accuracy: 0.001, file: file, line: line)
-        XCTAssertEqual(actual.alphaComponent, expectedSRGB.alphaComponent, accuracy: 0.001, file: file, line: line)
-        XCTAssertNotEqual(actual.redComponent, themeSRGB.redComponent, file: file, line: line)
-    }
-}
-
-
-@MainActor
-final class BrowserPanelProfileIsolationTests: XCTestCase {
-    func testStaleDidFinishDoesNotRecordVisitIntoSwitchedProfileHistory() throws {
-        let alternateProfile = try makeTemporaryBrowserPanelProfile(named: "Switched")
-        let defaultStore = BrowserHistoryStore.shared
-        let alternateStore = BrowserProfileStore.shared.historyStore(for: alternateProfile.id)
-        defaultStore.clearHistory()
-        alternateStore.clearHistory()
-        defer {
-            defaultStore.clearHistory()
-            alternateStore.clearHistory()
-        }
-
-        let panel = BrowserPanel(
-            workspaceId: UUID(),
-            profileID: BrowserProfileStore.shared.builtInDefaultProfileID
-        )
-        let staleWebView = panel.webView
-        let staleDelegate = try XCTUnwrap(staleWebView.navigationDelegate)
-        let staleURL = try XCTUnwrap(URL(string: "https://example.com/stale-finish"))
-        staleWebView.loadHTMLString(
-            "<html><head><title>Stale</title></head><body>stale</body></html>",
-            baseURL: staleURL
-        )
-
-        XCTAssertTrue(
-            panel.switchToProfile(alternateProfile.id),
-            "Expected profile switch to succeed, current=\(panel.profileID) requested=\(alternateProfile.id) exists=\(BrowserProfileStore.shared.profileDefinition(id: alternateProfile.id) != nil)"
-        )
-        defaultStore.clearHistory()
-        alternateStore.clearHistory()
-
-        staleDelegate.webView?(staleWebView, didFinish: nil)
-        drainBrowserPanelMainQueue()
-
-        XCTAssertTrue(
-            defaultStore.entries.isEmpty,
-            "Expected stale completion callbacks to avoid writing into the old profile history store, found \(defaultStore.entries.map { $0.url })"
-        )
-        XCTAssertTrue(
-            alternateStore.entries.isEmpty,
-            "Expected stale completion callbacks to avoid writing into the newly selected profile history store, found \(alternateStore.entries.map { $0.url })"
-        )
-    }
-}
-
-
-@MainActor
-final class BrowserPanelAddressBarFocusRequestTests: XCTestCase {
-    func testRequestPersistsUntilAcknowledged() {
-        let panel = BrowserPanel(workspaceId: UUID())
-        XCTAssertNil(panel.pendingAddressBarFocusRequestId)
-
-        let requestId = panel.requestAddressBarFocus()
-        XCTAssertEqual(panel.pendingAddressBarFocusRequestId, requestId)
-        XCTAssertEqual(panel.pendingAddressBarFocusSelectionIntent, .preserveFieldEditorSelection)
-        XCTAssertTrue(panel.shouldSuppressWebViewFocus())
-
-        panel.acknowledgeAddressBarFocusRequest(requestId)
-        XCTAssertNil(panel.pendingAddressBarFocusRequestId)
-        XCTAssertEqual(panel.pendingAddressBarFocusSelectionIntent, .preserveFieldEditorSelection)
-
-        // Acknowledgement only clears the durable request; focus suppression follows
-        // explicit blur state transitions.
-        XCTAssertTrue(panel.shouldSuppressWebViewFocus())
-        panel.endSuppressWebViewFocusForAddressBar()
-        XCTAssertFalse(panel.shouldSuppressWebViewFocus())
-    }
-
-    func testRequestCoalescesWhilePending() {
-        let panel = BrowserPanel(workspaceId: UUID())
-        let firstRequest = panel.requestAddressBarFocus(selectionIntent: .preserveFieldEditorSelection)
-        let secondRequest = panel.requestAddressBarFocus()
-
-        XCTAssertEqual(firstRequest, secondRequest)
-        XCTAssertEqual(panel.pendingAddressBarFocusRequestId, firstRequest)
-        XCTAssertEqual(panel.pendingAddressBarFocusSelectionIntent, .preserveFieldEditorSelection)
-    }
-
-    func testExplicitSelectAllRequestUpgradesPendingPreserveRequest() {
-        let panel = BrowserPanel(workspaceId: UUID())
-        let firstRequest = panel.requestAddressBarFocus(selectionIntent: .preserveFieldEditorSelection)
-        let secondRequest = panel.requestAddressBarFocus(selectionIntent: .selectAll)
-
-        XCTAssertNotEqual(firstRequest, secondRequest)
-        XCTAssertEqual(panel.pendingAddressBarFocusRequestId, secondRequest)
-        XCTAssertEqual(panel.pendingAddressBarFocusSelectionIntent, .selectAll)
-    }
-
-    func testStaleAcknowledgementDoesNotClearNewestRequest() {
-        let panel = BrowserPanel(workspaceId: UUID())
-        let firstRequest = panel.requestAddressBarFocus()
-        panel.acknowledgeAddressBarFocusRequest(firstRequest)
-        let secondRequest = panel.requestAddressBarFocus()
-
-        XCTAssertNotEqual(firstRequest, secondRequest)
-        XCTAssertEqual(panel.pendingAddressBarFocusRequestId, secondRequest)
-
-        panel.acknowledgeAddressBarFocusRequest(firstRequest)
-        XCTAssertEqual(panel.pendingAddressBarFocusRequestId, secondRequest)
-
-        panel.acknowledgeAddressBarFocusRequest(secondRequest)
-        XCTAssertNil(panel.pendingAddressBarFocusRequestId)
     }
 }
 
@@ -2913,6 +2734,14 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
 
     private func advanceAnimations() {
         RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+    }
+
+    private func drainMainQueue() {
+        let expectation = XCTestExpectation(description: "drain main queue")
+        DispatchQueue.main.async {
+            expectation.fulfill()
+        }
+        XCTWaiter().wait(for: [expectation], timeout: 1.0)
     }
 
     private func dropZoneOverlay(in slot: WindowBrowserSlotView, excluding webView: WKWebView) -> NSView? {

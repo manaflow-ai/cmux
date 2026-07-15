@@ -24,6 +24,7 @@ internal import CmuxFoundation
 /// every probe/watcher state transition.
 @MainActor
 public final class SidebarGitMetadataService: SidebarGitMetadataServing {
+    static let runtimeMetrics = CmuxSidebarGitRuntimeMetrics()
     // MARK: Tuning constants (legacy TabManager values, preserved exactly)
 
     nonisolated static let initialWorkspaceGitProbeDelays: [TimeInterval] = [0, 0.5, 1.5, 3.0, 6.0, 10.0]
@@ -42,12 +43,18 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     // Process-wide cap on concurrent snapshot probes (injected, shared
     // across windows by the composition root).
     let probeLimiter: WorkspaceGitMetadataProbeLimiter
-    // Drives the retry gaps and fallback interval.
+    // Drives per-window retry gaps.
     let clock: any GitPollClock
+    // Owns the single process-wide fallback timer and round broadcast.
+    let fallbackCoordinator: WorkspaceGitFallbackCoordinator
+    private let fallbackRegistrationID = UUID()
     // Mobile-host background-work deferral intervals.
     let mobileHostDeferral: MobileHostDeferralPolicy
     // Debug diagnostics sink (the app injects its debug logger in DEBUG).
     let debugLog: @Sendable (String) -> Void
+    // Defaults to the process-wide opt-in recorder. Focused tests replace it
+    // with an isolated enabled instance so causal counts stay deterministic.
+    var runtimeMetricsRecorder = SidebarGitMetadataService.runtimeMetrics
     // The window-side seam; set once via attach(host:). Weak: the host owns
     // this service.
     private(set) weak var host: (any SidebarGitHosting)?
@@ -71,11 +78,22 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     var workspaceGitMetadataFilesystemEventGeneration: UInt64 = 0
     let workspaceGitSnapshotCacheNamespace = UUID()
     var workspaceGitSnapshotCacheGenerationByDirectory: [String: UInt64] = [:]
+    var workspaceGitSnapshotRepositoryIdentityByDirectory: [
+        String: GitTrackedChangesRepositoryIdentity
+    ] = [:]
     var workspaceGitSnapshotRequestsByDirectory: [String: [WorkspaceGitProbeKey: WorkspaceGitSnapshotProbeRequest]] = [:]
     var workspaceGitSnapshotTasksByDirectory: [String: Task<Void, Never>] = [:]
     var workspaceGitSnapshotTaskContextByDirectory: [String: WorkspaceGitSnapshotTaskContext] = [:]
+    var workspaceGitSnapshotPendingContextByDirectory: [String: WorkspaceGitSnapshotTaskContext] = [:]
+    var workspaceGitSupersededSnapshotTaskIDs: Set<UUID> = []
+    var workspaceGitSnapshotTaskIDByDirectory: [String: UUID] = [:]
+    var workspaceGitSnapshotCompletionAuthorityByDirectory: [String: DetachedCompletionAuthority] = [:]
+    var workspaceGitSnapshotCompletionGeneration: UInt64 = 0
     var workspaceGitSnapshotDirectoryByProbeKey: [WorkspaceGitProbeKey: String] = [:]
-    var workspaceGitMetadataFallbackTask: Task<Void, Never>?
+    let workspaceGitSnapshotApplyBatcher = LatestWinsBatcher<String, WorkspaceGitSnapshotApply>(
+        quietDelay: 0.016,
+        maximumDelay: 0.05
+    )
     private var lastSidebarGitMetadataWatchEnabled = false
 
     /// Creates the metadata service.
@@ -95,6 +113,7 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
         pullRequestProbing: any PullRequestProbing,
         probeLimiter: WorkspaceGitMetadataProbeLimiter,
         clock: any GitPollClock = SystemGitPollClock(),
+        fallbackCoordinator: WorkspaceGitFallbackCoordinator? = nil,
         mobileHostDeferral: MobileHostDeferralPolicy = .standard,
         debugLog: @escaping @Sendable (String) -> Void = { _ in }
     ) {
@@ -103,17 +122,29 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
         self.pullRequestProbing = pullRequestProbing
         self.probeLimiter = probeLimiter
         self.clock = clock
+        self.fallbackCoordinator = fallbackCoordinator ?? WorkspaceGitFallbackCoordinator(
+            clock: clock,
+            interval: Self.workspaceGitMetadataFallbackRefreshInterval
+        )
         self.mobileHostDeferral = mobileHostDeferral
         self.debugLog = debugLog
+        self.fallbackCoordinator.register(
+            self,
+            registrationID: fallbackRegistrationID
+        )
     }
 
     deinit {
-        workspaceGitMetadataFallbackTask?.cancel()
         for task in workspaceGitProbeTasksByKey.values {
             task.cancel()
         }
         for task in workspaceGitSnapshotTasksByDirectory.values {
             task.cancel()
+        }
+        let fallbackCoordinator = fallbackCoordinator
+        let fallbackRegistrationID = fallbackRegistrationID
+        Task { @MainActor in
+            fallbackCoordinator.unregister(fallbackRegistrationID)
         }
     }
 
@@ -134,38 +165,87 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
         host?.isPullRequestPollingEnabled ?? false
     }
 
-    // MARK: Fallback timer
+    // MARK: Process-wide fallback rounds
+
+    var requiresWorkspaceGitFallback: Bool {
+        sidebarGitMetadataWatchEnabled && !workspaceGitTrackedDirectoryByKey.isEmpty
+    }
 
     func updateWorkspaceGitMetadataFallbackTimer() {
-        guard sidebarGitMetadataWatchEnabled,
-              !workspaceGitTrackedDirectoryByKey.isEmpty else {
-            workspaceGitMetadataFallbackTask?.cancel()
-            workspaceGitMetadataFallbackTask = nil
+        fallbackCoordinator.serviceStateDidChange()
+    }
+
+    public func refreshTrackedWorkspaceGitMetadata(reason: String) {
+        if reason == "fallbackTimer" {
+            fallbackCoordinator.fireFallbackRound()
             return
         }
+        refreshTrackedWorkspaceGitMetadata(reason: reason, snapshotRequest: nil)
+    }
 
-        guard workspaceGitMetadataFallbackTask == nil else {
-            return
+    func receiveWorkspaceGitFallbackRound(_ round: GitFallbackRoundID) {
+        Task { @MainActor [weak self] in
+            await self?.refreshTrackedWorkspaceGitMetadata(fallbackRound: round)
         }
+    }
 
-        let clock = clock
-        let interval = Self.workspaceGitMetadataFallbackRefreshInterval
-        workspaceGitMetadataFallbackTask = Task { @MainActor [weak self] in
-            while !Task.isCancelled {
-                // Bounded, cancellable fallback interval on the injected clock
-                // (replaces the repeating DispatchSource timer).
-                do {
-                    try await clock.sleep(for: .seconds(interval))
-                } catch {
-                    return
+    private func refreshTrackedWorkspaceGitMetadata(
+        fallbackRound: GitFallbackRoundID
+    ) async {
+        guard let host else { return }
+        let activeProbeKeys = activeWorkspaceGitProbeKeys
+        var requestByDirectory: [String: GitTrackedChangesSnapshotRequest] = [:]
+
+        for workspaceId in host.orderedWorkspaceIds() {
+            for panelId in trackedWorkspaceGitMetadataPollCandidatePanelIds(
+                workspaceId: workspaceId,
+                activeProbeKeys: activeProbeKeys
+            ) {
+                guard let directory = host.gitProbeDirectory(
+                    workspaceId: workspaceId,
+                    panelId: panelId
+                ) else { continue }
+                let normalizedDirectory = directory.normalizedGitProbeDirectory
+                let request: GitTrackedChangesSnapshotRequest
+                if let cached = requestByDirectory[normalizedDirectory] {
+                    request = cached
+                } else {
+                    let identity: GitTrackedChangesRepositoryIdentity?
+                    if let cachedIdentity = workspaceGitSnapshotRepositoryIdentityByDirectory[
+                        normalizedDirectory
+                    ] {
+                        identity = cachedIdentity
+                    } else {
+                        identity = await gitMetadataService.trackedChangesRepositoryIdentity(
+                            for: normalizedDirectory
+                        )
+                    }
+                    if let identity {
+                        workspaceGitSnapshotRepositoryIdentityByDirectory[normalizedDirectory] = identity
+                        let authority = await gitMetadataService.trackedChangesSnapshotAuthority(
+                            for: identity,
+                            fallbackRoundID: fallbackRound
+                        )
+                        request = .fallbackRound(id: fallbackRound, authority: authority)
+                    } else {
+                        request = .fallbackRound(id: fallbackRound, authority: nil)
+                    }
+                    requestByDirectory[normalizedDirectory] = request
                 }
-                guard let self, !Task.isCancelled else { return }
-                self.refreshTrackedWorkspaceGitMetadata(reason: "fallbackTimer")
+                scheduleWorkspaceGitMetadataRefreshIfPossible(
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    reason: "fallbackTimer",
+                    snapshotRequest: request
+                )
             }
         }
     }
 
-    public func refreshTrackedWorkspaceGitMetadata(reason: String) {
+    private func refreshTrackedWorkspaceGitMetadata(
+        reason: String,
+        snapshotRequest: GitTrackedChangesSnapshotRequest?
+    ) {
         guard let host else { return }
         let activeProbeKeys = activeWorkspaceGitProbeKeys
 
@@ -177,7 +257,8 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
                 scheduleWorkspaceGitMetadataRefreshIfPossible(
                     workspaceId: workspaceId,
                     panelId: panelId,
-                    reason: reason
+                    reason: reason,
+                    snapshotRequest: snapshotRequest
                 )
             }
         }
@@ -194,8 +275,6 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
 
         guard isEnabled else {
             stopAllWorkspaceGitMetadataWatchers()
-            workspaceGitMetadataFallbackTask?.cancel()
-            workspaceGitMetadataFallbackTask = nil
             workspaceGitProbeStateByKey.removeAll()
             for task in workspaceGitProbeTasksByKey.values {
                 task.cancel()
@@ -217,8 +296,9 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
 
     private func restartWorkspaceGitMetadataWatching(reason: String) {
         guard let host else { return }
-        for workspaceId in host.orderedWorkspaceIds() where host.isRemoteWorkspace(workspaceId) == false {
+        for workspaceId in host.orderedWorkspaceIds() {
             for panelId in host.panelIds(in: workspaceId) {
+                guard !host.shouldSkipLocalGitMetadata(workspaceId: workspaceId, panelId: panelId) else { continue }
                 guard host.hasTerminalPanel(workspaceId: workspaceId, panelId: panelId) else {
                     continue
                 }
@@ -293,7 +373,8 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
 
         return Set(candidatePanelIds.filter { panelId in
             let probeKey = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
-            return !activeProbeKeys.contains(probeKey)
+            return !host.shouldSkipLocalGitMetadata(workspaceId: workspaceId, panelId: panelId) &&
+                !activeProbeKeys.contains(probeKey)
         })
     }
 
@@ -316,6 +397,15 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     }
 
     func clearWorkspaceGitMetadata(for key: WorkspaceGitProbeKey) {
+        clearWorkspaceGitProbeTracking(for: key)
+        guard let host, host.workspaceExists(key.workspaceId) else {
+            return
+        }
+        host.clearPanelGitBranch(workspaceId: key.workspaceId, panelId: key.panelId)
+        host.clearPanelPullRequest(workspaceId: key.workspaceId, panelId: key.panelId)
+    }
+
+    func clearWorkspaceGitProbeTracking(for key: WorkspaceGitProbeKey) {
         clearWorkspaceGitProbe(key)
         workspaceGitTrackedDirectoryByKey.removeValue(forKey: key)
         updateWorkspaceGitMetadataFallbackTimer()
@@ -323,11 +413,6 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
             workspaceId: key.workspaceId,
             panelId: key.panelId
         )
-        guard let host, host.workspaceExists(key.workspaceId) else {
-            return
-        }
-        host.clearPanelGitBranch(workspaceId: key.workspaceId, panelId: key.panelId)
-        host.clearPanelPullRequest(workspaceId: key.workspaceId, panelId: key.panelId)
     }
 
     public func clearWorkspaceGitProbes(workspaceId: UUID) {

@@ -31,8 +31,12 @@ struct AttemptUpdateCoordinator {
     private enum Phase: Equatable {
         /// Not coordinating an install.
         case inactive
-        /// A fresh check was requested. The prompt that was on screen when the user asked may be
-        /// stale, so ignore any lingering `.updateAvailable` until the check actually restarts.
+        /// A fresh check was requested but has not started running yet. The prompt that was on
+        /// screen when the user asked may be stale, and the restart deliberately passes through
+        /// `.idle` one or more times (once when ``UpdateController`` cancels the active prompt, and
+        /// again when Sparkle's `dismissUpdateInstallation` callback fires in response to the
+        /// dismissed prompt), so ignore every state here until the fresh check actually starts —
+        /// signalled unambiguously by `.checking`.
         case awaitingCheckRestart
         /// The stale prompt has been dismissed, but Sparkle has not yet surfaced the fresh
         /// `.checking` state. Duplicate idle notifications in this window are still part of the

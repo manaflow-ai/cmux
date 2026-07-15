@@ -42,7 +42,7 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     private let deviceID: String
     private let tokenSource: TokenSource
     private let teamIDProvider: @Sendable () async -> String?
-    private let session: URLSession
+    private let session: CmxCredentialedHTTPSession
     private let requestTimeout: TimeInterval
 
     /// - Parameters:
@@ -51,7 +51,8 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     ///   - tokenSource: Supplies the Stack access/refresh tokens.
     ///   - teamIDProvider: Supplies the team id to scope to, or `nil` to let the
     ///     server use the Stack-selected team.
-    ///   - session: The URLSession used for API calls.
+    ///   - sessionConfiguration: URL loading configuration. Redirect rejection,
+    ///     cookie isolation, and cache isolation are enforced by the service.
     ///   - requestTimeout: Per-request deadline, bounding the worst-case latency
     ///     of a registry call so it never stalls the reconnect refresh.
     public init(
@@ -59,14 +60,14 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         deviceID: String,
         tokenSource: TokenSource,
         teamIDProvider: @escaping @Sendable () async -> String? = { nil },
-        session: sending URLSession = .shared,
+        sessionConfiguration: sending URLSessionConfiguration = .ephemeral,
         requestTimeout: TimeInterval = 5
     ) {
         self.apiBaseURL = apiBaseURL
         self.deviceID = deviceID
         self.tokenSource = tokenSource
         self.teamIDProvider = teamIDProvider
-        self.session = session
+        self.session = CmxCredentialedHTTPSession(configuration: sessionConfiguration)
         self.requestTimeout = requestTimeout
     }
 
@@ -128,16 +129,21 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         capturedUserID: String?,
         currentUserID: String?,
         activeMacID: String?,
-        targetMacID: String
+        activeMacInstanceTag: String? = nil,
+        targetMacID: String,
+        targetInstanceTag: String? = nil
     ) -> Bool {
         guard isSignedIn else { return false }
         guard capturedUserID == currentUserID else { return false }
-        return activeMacID == targetMacID
+        return activeMacID == targetMacID && activeMacInstanceTag == targetInstanceTag
     }
 
     // MARK: - DeviceRegistryRefreshing
 
-    public func freshRoutes(forMacDeviceID macDeviceID: String) async -> [CmxAttachRoute]? {
+    public func freshRoutes(
+        forMacDeviceID macDeviceID: String,
+        instanceTag: String?
+    ) async -> [CmxAttachRoute]? {
         guard let request = await makeRequest(method: "GET", path: "/api/devices", body: nil) else {
             return nil
         }
@@ -152,7 +158,11 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
             deviceRegistryLog.debug("freshRoutes request failed: \(String(describing: error), privacy: .public)")
             return nil
         }
-        return Self.routes(forMacDeviceID: macDeviceID, in: data)
+        return Self.routes(
+            forMacDeviceID: macDeviceID,
+            pairedMacInstanceTag: instanceTag,
+            in: data
+        )
     }
 
     public func listDevices() async -> DeviceRegistryListOutcome {
@@ -269,10 +279,10 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         return .distantPast
     }
 
-    /// Decode the `/api/devices` list response and return the routes for the
-    /// device whose id matches `macDeviceID`, preferring its most recently seen
-    /// app instance. Returns `nil` when the device or routes are absent so the
-    /// caller falls back to local routes.
+    /// Decode the `/api/devices` list response and return authoritative routes
+    /// for the matching device. A scoped client selects its resolved Mac
+    /// app-instance tag; unscoped builds require one sole route-advertising
+    /// instance. Returns `nil` when that ownership cannot be proven.
     ///
     /// Each route is decoded *failably* and individually: a malformed or
     /// unknown-kind route from any instance (even another Mac's) is skipped
@@ -280,7 +290,11 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     /// from disabling registry refresh for every Mac, and makes old clients
     /// forward-compatible when a newer build advertises a route kind they cannot
     /// decode.
-    static func routes(forMacDeviceID macDeviceID: String, in data: Data) -> [CmxAttachRoute]? {
+    static func routes(
+        forMacDeviceID macDeviceID: String,
+        pairedMacInstanceTag: String? = nil,
+        in data: Data
+    ) -> [CmxAttachRoute]? {
         // Decode each route element through an optional wrapper so a single bad
         // element decodes to `nil` and is dropped, never throwing for the array.
         struct FailableRoute: Decodable {
@@ -290,6 +304,7 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
             }
         }
         struct Instance: Decodable {
+            let tag: String?
             let routes: [FailableRoute]
         }
         struct Device: Decodable {
@@ -306,14 +321,21 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         guard let device = decoded.devices.first(where: { $0.deviceId.lowercased() == target }) else {
             return nil
         }
-        // A Mac may run multiple tagged app instances (stable + a debug build).
-        // The phone's stored routes have no tag to match against in P1, so only
-        // substitute routes when exactly one instance is advertising any (the
-        // single-build common case). With zero or 2+ candidate instances, return
-        // nil and let reconnect fall back to the locally persisted routes, rather
-        // than risk connecting a stable phone to a different tagged build's
-        // workspaces. Tag-aware matching is a follow-up (see key-pinning phase).
-        let nonEmpty = device.instances
+        let candidates: [Instance]
+        if let pairedMacInstanceTag {
+            // Route authority is an exact Mac-instance identity resolved at app
+            // composition. Another tag becoming the device's sole live instance
+            // must not redirect this build's persisted reconnect route.
+            candidates = device.instances.filter {
+                $0.tag?.trimmingCharacters(in: .whitespacesAndNewlines) == pairedMacInstanceTag
+            }
+        } else {
+            // Stable/unscoped storage has no tag ownership to prove. Keep the
+            // existing safe fallback: accept routes only when one instance on
+            // the physical Mac advertises any.
+            candidates = device.instances
+        }
+        let nonEmpty = candidates
             .map { $0.routes.compactMap(\.value) }
             .filter { !$0.isEmpty }
         return nonEmpty.count == 1 ? nonEmpty[0] : nil

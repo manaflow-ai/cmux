@@ -3652,13 +3652,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
 
-        // No env-only CODEX_HOME record may be persisted for the rejected non-restorable argv.
-        let storeURL = root.appendingPathComponent("codex-hook-sessions.json")
-        if let data = try? Data(contentsOf: storeURL),
+        // Persist the rejection marker so reload cannot treat it as a plain default Codex hook.
+        if let data = try? Data(contentsOf: root.appendingPathComponent("codex-hook-sessions.json")),
            let storeJSON = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let sessions = storeJSON["sessions"] as? [String: Any],
            let persisted = sessions[sessionId] as? [String: Any] {
-            let env = (persisted["launchCommand"] as? [String: Any])?["environment"] as? [String: String]
+            let launchCommand = try XCTUnwrap(persisted["launchCommand"] as? [String: Any]); XCTAssertEqual(launchCommand["source"] as? String, "rejected")
+            let env = launchCommand["environment"] as? [String: String]
             XCTAssertNil(
                 env?["CODEX_HOME"],
                 "non-restorable codex exec must not persist an env-only CODEX_HOME record; launchCommand=\(persisted["launchCommand"] ?? "nil")"

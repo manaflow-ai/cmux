@@ -1,3 +1,5 @@
+import Foundation
+
 /// `{ macDeviceID, deleted?, record? }` matching the server's parse.
 struct PairedMacBackupOpWire: Encodable {
     let macDeviceID: String
@@ -5,28 +7,48 @@ struct PairedMacBackupOpWire: Encodable {
     let reviveDeleted: Bool?
     let record: PairedMacBackupRecordWire?
 
-    init(op: PairedMacBackupOp) {
+    init(op: PairedMacBackupOp, routeDisclosureDate: Date = Date()) {
         switch op {
-        case .upsert(let record):
+        case .upsert(let record, let instanceAuthority):
             self.macDeviceID = record.macDeviceID
             self.deleted = nil
             self.reviveDeleted = nil
-            self.record = PairedMacBackupRecordWire(record: record, includesCustomizations: true)
-        case .upsertPreservingCustomizations(let record):
+            self.record = PairedMacBackupRecordWire(
+                record: record,
+                includesCustomizations: true,
+                routeDisclosureDate: routeDisclosureDate,
+                instanceAuthority: instanceAuthority
+            )
+        case .upsertPreservingCustomizations(let record, let instanceAuthority):
             self.macDeviceID = record.macDeviceID
             self.deleted = nil
             self.reviveDeleted = nil
-            self.record = PairedMacBackupRecordWire(record: record, includesCustomizations: false)
-        case .revive(let record):
+            self.record = PairedMacBackupRecordWire(
+                record: record,
+                includesCustomizations: false,
+                routeDisclosureDate: routeDisclosureDate,
+                instanceAuthority: instanceAuthority
+            )
+        case .revive(let record, let instanceAuthority):
             self.macDeviceID = record.macDeviceID
             self.deleted = nil
             self.reviveDeleted = true
-            self.record = PairedMacBackupRecordWire(record: record, includesCustomizations: true)
-        case .revivePreservingCustomizations(let record):
+            self.record = PairedMacBackupRecordWire(
+                record: record,
+                includesCustomizations: true,
+                routeDisclosureDate: routeDisclosureDate,
+                instanceAuthority: instanceAuthority
+            )
+        case .revivePreservingCustomizations(let record, let instanceAuthority):
             self.macDeviceID = record.macDeviceID
             self.deleted = nil
             self.reviveDeleted = true
-            self.record = PairedMacBackupRecordWire(record: record, includesCustomizations: false)
+            self.record = PairedMacBackupRecordWire(
+                record: record,
+                includesCustomizations: false,
+                routeDisclosureDate: routeDisclosureDate,
+                instanceAuthority: instanceAuthority
+            )
         case .delete(let macDeviceID):
             self.macDeviceID = macDeviceID
             self.deleted = true

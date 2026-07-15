@@ -1,0 +1,53 @@
+{
+  "name": "cmux",
+  "version": "0.1.2",
+  "description": "Typed TypeScript client for cmux-tui frontends",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/manaflow-ai/cmux.git",
+    "directory": "cmux-tui/bindings/typescript"
+  },
+  "homepage": "https://github.com/manaflow-ai/cmux/tree/main/cmux-tui/bindings/typescript",
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "browser": {
+        "types": "./dist/src/browser.d.ts",
+        "import": "./dist/src/browser.js",
+        "default": "./dist/src/browser.js"
+      },
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js",
+      "default": "./dist/src/index.js"
+    },
+    "./browser": {
+      "types": "./dist/src/browser.d.ts",
+      "import": "./dist/src/browser.js",
+      "default": "./dist/src/browser.js"
+    },
+    "./node": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "sideEffects": false,
+  "files": [
+    "dist/src",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "npm run build && node --test dist/test/*.test.js",
+    "e2e": "npm run build && node dist/e2e/e2e.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/node": "20.19.25",
+    "typescript": "5.9.3"
+  }
+}

@@ -17,6 +17,24 @@ import CmuxRemoteWorkspace
 // returns immediately, so `runCount` and the timer/coalesce state are exact.
 @Suite("Remote port scan settings gating")
 struct RemotePortScanGatingTests {
+    @Test("Ready update for an existing proxy endpoint republishes connected")
+    func readyForExistingProxyEndpointRepublishesConnected() {
+        let runner = SpyProcessRunner()
+        let host = RecordingRemoteSessionHost()
+        let coordinator = Self.makeCoordinator(runner: runner, host: host, terminalStartupCommand: "true")
+        let endpoint = BrowserProxyEndpoint(host: "127.0.0.1", port: 49152)
+
+        coordinator.queue.sync {
+            coordinator.proxyEndpoint = endpoint
+            coordinator.handleProxyBrokerUpdateLocked(
+                .ready(endpoint), leaseGeneration: coordinator.proxyLeaseGeneration)
+        }
+
+        #expect(host.connectionStates.map(\.state).contains(.connected))
+        #expect(host.connectionStates.last?.detail?.contains("shared local proxy 127.0.0.1:49152") == true)
+        coordinator.stop()
+    }
+
     @Test("Disabling stops the host-wide poll timer and spawns no ssh")
     func disablingStopsPollTimer() {
         let runner = SpyProcessRunner()
@@ -82,6 +100,54 @@ struct RemotePortScanGatingTests {
         coordinator.stop()
     }
 
+    @Test("A transient empty TTY scan keeps the published port")
+    func transientEmptyTTYScanKeepsPublishedPort() {
+        let runner = SpyProcessRunner(results: [
+            RemoteCommandResult(status: 0, stdout: "ttys010\t4200\n\(RemoteSessionCoordinator.remoteTTYPortScanCompleteMarker)\tttys010\n", stderr: ""),
+            RemoteCommandResult(
+                status: 0,
+                stdout: "\(RemoteSessionCoordinator.remoteTTYPortScanCompleteMarker)\tttys010\n",
+                stderr: ""
+            ),
+        ])
+        let host = RecordingRemoteSessionHost()
+        let coordinator = Self.makeCoordinator(runner: runner, host: host)
+        let panelId = UUID()
+
+        coordinator.queue.sync {
+            coordinator.daemonReady = true
+            coordinator.updateRemotePortScanTTYsLocked([panelId: "ttys010"])
+            coordinator.performRemotePortScanLocked()
+            coordinator.performRemotePortScanLocked()
+        }
+
+        #expect(host.detectedPorts == [4200])
+        #expect(host.detectedPortsByPanel[panelId] == [4200])
+        coordinator.stop()
+    }
+
+    @Test("Repeated incomplete TTY scans fail closed only for fallback retention")
+    func repeatedIncompleteTTYScansExpireFallbackOnly() {
+        let runner = SpyProcessRunner(results: [
+            RemoteCommandResult(status: 0, stdout: "ttys010\t4200\n\(RemoteSessionCoordinator.remoteTTYPortScanCompleteMarker)\tttys010\n", stderr: ""),
+            RemoteCommandResult(status: 0, stdout: "", stderr: ""),
+        ])
+        let host = RecordingRemoteSessionHost()
+        let coordinator = Self.makeCoordinator(runner: runner, host: host)
+        let panelId = UUID()
+        coordinator.queue.sync {
+            coordinator.daemonReady = true
+            coordinator.updateRemotePortScanTTYsLocked([panelId: "ttys010"])
+            coordinator.performRemotePortScanLocked()
+            coordinator.remotePortPollState.apply(observedPorts: [8080], mode: .hostWide, completeness: .complete)
+            coordinator.keepPolledRemotePortsUntilTTYScan = true
+            for _ in 0..<3 { coordinator.performRemotePortScanLocked() }
+        }
+        #expect(host.detectedPortsByPanel[panelId] == [4200])
+        #expect(host.detectedPorts == [4200])
+        coordinator.stop()
+    }
+
     @Test("Disabling makes a scan kick schedule no burst")
     func disablingDropsScanKick() {
         let runner = SpyProcessRunner()
@@ -112,7 +178,7 @@ struct RemotePortScanGatingTests {
 
         coordinator.queue.sync {
             coordinator.daemonReady = true
-            coordinator.polledRemotePorts = [4321]
+            coordinator.remotePortPollState.apply(observedPorts: [4321], mode: .hostWide, completeness: .complete)
             coordinator.updateRemotePortPollingStateLocked()
         }
         #expect(coordinator.queue.sync { coordinator.remotePortPollTimer != nil } == true)
@@ -122,7 +188,7 @@ struct RemotePortScanGatingTests {
         }
 
         let tornDown = coordinator.queue.sync {
-            coordinator.remotePortPollTimer == nil && coordinator.polledRemotePorts.isEmpty
+            coordinator.remotePortPollTimer == nil && coordinator.remotePortPollState.publishedPorts.isEmpty
         }
         #expect(tornDown)
         coordinator.stop()
@@ -138,13 +204,15 @@ struct RemotePortScanGatingTests {
             // Simulate state accumulated before the user hides ports: a
             // host-wide-delta baseline and an exhausted bootstrap TTY retry
             // budget.
-            coordinator.remotePortPollBaselinePorts = [3000, 4000]
+            coordinator.remotePortPollState.apply(
+                observedPorts: [3000, 4000], mode: .hostWideDelta, completeness: .complete
+            )
             coordinator.bootstrapRemoteTTYRetryCount = RemoteSessionCoordinator.bootstrapRemoteTTYRetryLimit
             coordinator.updateRemotePortScanningEnabledLocked(false)
         }
 
         let reset = coordinator.queue.sync {
-            coordinator.remotePortPollBaselinePorts == nil
+            coordinator.remotePortPollState.baselinePorts == nil
                 && coordinator.bootstrapRemoteTTYRetryCount == 0
         }
         #expect(reset)
@@ -207,12 +275,38 @@ struct RemotePortScanGatingTests {
         coordinator.stop()
     }
 
+    @Test("Baked VM preflight ignores persistent PTY capabilities")
+    func bakedVMPreflightIgnoresPersistentPTYCapabilities() {
+        let runner = SpyProcessRunner()
+        let coordinator = Self.makeCoordinator(
+            runner: runner,
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "cmux-default-freestyle-sshd-v1",
+            skipDaemonBootstrap: true
+        )
+
+        #expect(coordinator.requiredDaemonCapabilities == [
+            "proxy.stream.push",
+            "pty.session",
+            "pty.session.token",
+            "pty.write.notification",
+            "pty.resize.notification",
+            "pty.session.persistent_daemon",
+        ])
+        #expect(coordinator.bakedDaemonPreflightRequiredCapabilities == ["proxy.stream.push"])
+        coordinator.stop()
+    }
+
     // MARK: - Harness
 
-    private static func makeCoordinator(
+    static func makeCoordinator(
         runner: SpyProcessRunner,
+        host: any RemoteSessionHosting = PortScanNoopRemoteSessionHost(),
         terminalStartupCommand: String? = nil,
-        relayPort: Int? = nil
+        relayPort: Int? = nil,
+        preserveAfterTerminalExit: Bool = false,
+        persistentDaemonSlot: String? = nil,
+        skipDaemonBootstrap: Bool = false
     ) -> RemoteSessionCoordinator {
         let configuration = WorkspaceRemoteConfiguration(
             destination: "user@example.test",
@@ -225,11 +319,12 @@ struct RemotePortScanGatingTests {
             relayToken: nil,
             localSocketPath: nil,
             terminalStartupCommand: terminalStartupCommand,
-            preserveAfterTerminalExit: false,
-            persistentDaemonSlot: nil
+            preserveAfterTerminalExit: preserveAfterTerminalExit,
+            persistentDaemonSlot: persistentDaemonSlot,
+            skipDaemonBootstrap: skipDaemonBootstrap
         )
         return RemoteSessionCoordinator(
-            host: NoopRemoteSessionHost(),
+            host: host,
             configuration: configuration,
             proxyBroker: UnusedRemoteProxyBroker(),
             manifestRepository: RemoteDaemonManifestRepository(
@@ -253,33 +348,72 @@ struct RemotePortScanGatingTests {
 
 // MARK: - Stubs
 
-/// Records how many subprocesses the coordinator tried to spawn; returns a
-/// canned successful result so port scans complete without touching ssh.
-private final class SpyProcessRunner: RemoteSessionProcessRunning, @unchecked Sendable {
+final class SpyProcessRunner: RemoteSessionProcessRunning, @unchecked Sendable {
     private let lock = NSLock()
     private var _runCount = 0
-    private let result: RemoteCommandResult
+    private var _requests: [RemoteProcessRequest] = []
+    private let results: [RemoteCommandResult]
 
     init(result: RemoteCommandResult = RemoteCommandResult(status: 0, stdout: "", stderr: "")) {
-        self.result = result
+        results = [result]
+    }
+
+    init(results: [RemoteCommandResult]) {
+        precondition(!results.isEmpty)
+        self.results = results
     }
 
     var runCount: Int { lock.withLock { _runCount } }
+    var requests: [RemoteProcessRequest] { lock.withLock { _requests } }
 
     func run(
         _ request: RemoteProcessRequest,
         operation: (any RemoteTransferCancelling)?
     ) throws -> RemoteCommandResult {
-        lock.withLock { _runCount += 1 }
-        return result
+        lock.withLock {
+            _requests.append(request)
+            let result = results[min(_runCount, results.count - 1)]
+            _runCount += 1
+            return result
+        }
     }
 }
 
-private struct NoopRemoteSessionHost: RemoteSessionHosting {
+struct PortScanNoopRemoteSessionHost: RemoteSessionHosting {
     func publishConnectionState(_ state: WorkspaceRemoteConnectionState, detail: String?) {}
     func publishDaemonStatus(_ status: WorkspaceRemoteDaemonStatus) {}
     func publishProxyEndpoint(_ endpoint: BrowserProxyEndpoint?) {}
     func publishPortsSnapshot(detectedByPanel: [UUID: [Int]], detected: [Int]) {}
+    func publishHeartbeat(count: Int, lastSeenAt: Date?) {}
+    func publishBootstrapRemoteTTY(_ ttyName: String) {}
+}
+
+final class RecordingRemoteSessionHost: RemoteSessionHosting, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _connectionStates: [(state: WorkspaceRemoteConnectionState, detail: String?)] = []
+    private var _detectedPortsByPanel: [UUID: [Int]] = [:]
+    private var _detectedPorts: [Int] = []
+
+    var connectionStates: [(state: WorkspaceRemoteConnectionState, detail: String?)] {
+        lock.withLock { _connectionStates }
+    }
+    var detectedPortsByPanel: [UUID: [Int]] { lock.withLock { _detectedPortsByPanel } }
+    var detectedPorts: [Int] { lock.withLock { _detectedPorts } }
+
+    func publishConnectionState(_ state: WorkspaceRemoteConnectionState, detail: String?) {
+        lock.withLock {
+            _connectionStates.append((state, detail))
+        }
+    }
+
+    func publishDaemonStatus(_ status: WorkspaceRemoteDaemonStatus) {}
+    func publishProxyEndpoint(_ endpoint: BrowserProxyEndpoint?) {}
+    func publishPortsSnapshot(detectedByPanel: [UUID: [Int]], detected: [Int]) {
+        lock.withLock {
+            _detectedPortsByPanel = detectedByPanel
+            _detectedPorts = detected
+        }
+    }
     func publishHeartbeat(count: Int, lastSeenAt: Date?) {}
     func publishBootstrapRemoteTTY(_ ttyName: String) {}
 }
@@ -296,7 +430,22 @@ private final class UnusedRemoteProxyBroker: RemoteProxyBrokering, @unchecked Se
     }
 
     func listPTY(configuration: WorkspaceRemoteConfiguration) throws -> [[String: Any]] { [] }
-    func closePTY(configuration: WorkspaceRemoteConfiguration, sessionID: String) throws {}
+    func closePTY(
+        configuration: WorkspaceRemoteConfiguration,
+        sessionID: String,
+        deadline: DispatchTime
+    ) throws {}
+    func ptySessionLifecycle(
+        configuration: WorkspaceRemoteConfiguration,
+        sessionID: String,
+        lifecycleID: String
+    ) throws -> RemotePTYSessionLifecycle { .active }
+    func acknowledgePTYLifecycle(
+        configuration: WorkspaceRemoteConfiguration,
+        sessionID: String,
+        lifecycleID: String
+    ) throws {}
+    func acknowledgePTYLifecycleAfterWrapperEnd(sessionID: String, lifecycleID: String) -> Bool { false }
     func resizePTY(
         configuration: WorkspaceRemoteConfiguration,
         sessionID: String,
@@ -314,6 +463,7 @@ private final class UnusedRemoteProxyBroker: RemoteProxyBrokering, @unchecked Se
     func startPTYBridge(
         configuration: WorkspaceRemoteConfiguration,
         sessionID: String,
+        lifecycleID: String,
         attachmentID: String,
         command: String?,
         requireExisting: Bool

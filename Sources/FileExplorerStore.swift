@@ -654,7 +654,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
     }
 
     private static func sshArguments(connection: SSHFileExplorerConnection, command: String) -> [String] {
-        var args: [String] = []
+        var args: [String] = SSHHostConfiguredRemoteCommand().overrideArguments
         if let port = connection.port {
             args += ["-p", String(port)]
         }

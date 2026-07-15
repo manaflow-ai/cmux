@@ -14,6 +14,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     let model: UpdateStateModel
     let log: any UpdateLogging
     private let clock: any UpdateClock
+    let infoFeedURLProvider: () -> String?
     /// Whether the running build is a cmux DEV/staging build that is not on the public release
     /// train. When `true`, the driver must never surface the public appcast's update pill (see
     /// ``UpdateController/isDevLikeBundleIdentifier(_:)``).
@@ -27,11 +28,21 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     private var pendingCheckTransitionTask: Task<Void, Never>?
     private var checkTimeoutTask: Task<Void, Never>?
     private(set) var lastFeedURLString: String?
+    private var pendingPromptDismissCallbacks: [UUID] = []
 
-    init(model: UpdateStateModel, log: any UpdateLogging, clock: any UpdateClock, isDevLikeBundle: Bool = false) {
+    init(
+        model: UpdateStateModel,
+        log: any UpdateLogging,
+        clock: any UpdateClock,
+        isDevLikeBundle: Bool = false,
+        infoFeedURLProvider: @escaping () -> String? = {
+            Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String
+        }
+    ) {
         self.model = model
         self.log = log
         self.clock = clock
+        self.infoFeedURLProvider = infoFeedURLProvider
         self.isDevLikeBundle = isDevLikeBundle
         super.init()
     }
@@ -66,7 +77,11 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
                          state: SPUUserUpdateState,
                          reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
         log.append("show update found: \(appcastItem.displayVersionString)")
-        setStateAfterMinimumCheckDelay(.updateAvailable(.init(appcastItem: appcastItem, reply: reply)))
+        let available = UpdateState.UpdateAvailable(appcastItem: appcastItem) { choice in reply(choice) }
+        available.reply.onDismissConsumed = { [weak self] reply in
+            self?.recordPromptDismissCallbackExpected(for: reply)
+        }
+        setStateAfterMinimumCheckDelay(.updateAvailable(available))
     }
 
     func showUpdateReleaseNotes(with downloadData: SPUDownloadData) {
@@ -105,7 +120,12 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     func showDownloadInitiated(cancellation: @escaping () -> Void) {
         log.append("show download initiated")
         setState(.downloading(.init(
-            cancel: cancellation,
+            cancel: { [weak self] in
+                cancellation()
+                if case .downloading = self?.model.state {
+                    self?.model.setState(.idle)
+                }
+            },
             expectedLength: nil,
             progress: 0)))
     }
@@ -169,6 +189,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
 
     func dismissUpdateInstallation() {
         log.append("dismiss update installation")
+        let promptDismissCallback = takePromptDismissCallbackForCurrentState()
         if case .error = model.state {
             log.append("dismiss update installation ignored (error visible)")
             return
@@ -181,7 +202,39 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
             log.append("dismiss update installation ignored (checking)")
             return
         }
+        if promptDismissCallback.expected && !promptDismissCallback.currentPrompt {
+            switch model.state {
+            case .updateAvailable(let available)
+                where !available.reply.isConsumed || available.reply.consumedChoice == .install:
+                // Sparkle can deliver a dismissed old prompt's teardown after a fresh check has
+                // already resolved or auto-confirmed a new prompt. Only this tracked callback may
+                // leave the new prompt alive; unexpected dismissals still clear it below.
+                log.append("dismiss update installation ignored (superseded prompt dismissal)")
+                return
+            case .downloading, .extracting, .installing:
+                log.append("dismiss update installation ignored (superseded prompt dismissal)")
+                return
+            default:
+                break
+            }
+        }
         setState(.idle)
+    }
+
+    func recordPromptDismissCallbackExpected(for reply: UpdatePromptReply) {
+        pendingPromptDismissCallbacks.append(reply.id)
+    }
+
+    private func takePromptDismissCallbackForCurrentState() -> (expected: Bool, currentPrompt: Bool) {
+        guard !pendingPromptDismissCallbacks.isEmpty else { return (false, false) }
+        if case .updateAvailable(let available) = model.state {
+            if let index = pendingPromptDismissCallbacks.firstIndex(of: available.reply.id) {
+                pendingPromptDismissCallbacks.remove(at: index)
+                return (true, true)
+            }
+        }
+        pendingPromptDismissCallbacks.removeFirst()
+        return (true, false)
     }
 
     // MARK: - State transition helpers
@@ -255,8 +308,13 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
 
     // MARK: - Feed URL tracking
 
+    /// Returns the last feed URL reported through Sparkle, or resolves the build-time feed URL
+    /// without logging or registering test URL protocols when no delegate callback has run yet.
     func resolvedFeedURLString() -> String? {
-        lastFeedURLString
+        if let lastFeedURLString {
+            return lastFeedURLString
+        }
+        return UpdateFeedResolver().resolve(infoFeedURL: infoFeedURLProvider()).url
     }
 
     func recordFeedURLString(_ feedURLString: String, usedFallback: Bool) {

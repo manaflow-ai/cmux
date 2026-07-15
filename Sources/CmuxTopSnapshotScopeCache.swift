@@ -2,13 +2,13 @@ import Foundation
 import Darwin
 import os
 
-nonisolated struct CmuxTopProcessScopeCacheKey: Hashable {
+struct CmuxTopProcessScopeCacheKey: Hashable {
     let pid: Int
     let startSeconds: Int
     let startMicroseconds: Int
 }
 
-private nonisolated struct CmuxTopProcessScopeCacheValue {
+private struct CmuxTopProcessScopeCacheValue {
     // nil means "this process was probed and has no cmux scope". A negative entry
     // is honored as a hit only until `negativeExpiresAtNanos`, so a non-cmux
     // process is re-probed at most once per TTL window instead of on every
@@ -24,28 +24,30 @@ private nonisolated struct CmuxTopProcessScopeCacheValue {
 // without changing the pid or process start time (the cache key), so a process
 // first sampled in its fork-before-exec window, or one that execs into a
 // `cmux hooks … monitor` later, must be re-probed eventually or it would never
-// be attributed. The TTL bounds that attribution latency while still collapsing
-// the per-poll sysctl storm for the steady-state majority of non-cmux processes.
-private nonisolated let cmuxTopNegativeScopeTTLNanoseconds: UInt64 = 15 * 1_000_000_000
+// be attributed. A newly spawned process has a new cache key and is probed
+// immediately; this TTL only bounds attribution latency for same-pid execs while
+// collapsing the steady-state re-probe storm for non-cmux processes.
+// Internal (not private) so tests can read the TTL via @testable import.
+nonisolated let cmuxTopNegativeScopeTTLNanoseconds: UInt64 = 60 * 1_000_000_000
 
 // Result of probing a single process for its cmux scope. `resolved` means the
 // probe completed (the scope may legitimately be absent) and is safe to cache.
 // `unavailable` means a transient failure (process exited mid-probe, pid reuse,
 // or a failed sysctl) and must NOT be cached so the next poll retries.
-nonisolated enum CmuxTopProcessScopeProbeResult: Equatable {
+enum CmuxTopProcessScopeProbeResult: Equatable {
     case resolved(CmuxTopProcessScope?)
     case unavailable
 }
 
-// CmuxTopProcessSnapshot.capture is intentionally synchronous because it backs
-// both async task-manager sampling and sync v2 system.top socket handling. Keep
-// this tiny lock isolated to dictionary reads/writes; procargs/sysctl work must
-// happen outside the critical section.
+// The raw enumerator is synchronous underneath the actor-owned process snapshot
+// store and the measured lifecycle compatibility seam. Keep this tiny lock
+// isolated to dictionary reads/writes; procargs/sysctl work must happen outside
+// the critical section.
 private nonisolated let cmuxTopScopeCache = OSAllocatedUnfairLock(
     initialState: [CmuxTopProcessScopeCacheKey: CmuxTopProcessScopeCacheValue]()
 )
 
-nonisolated extension CmuxTopProcessSnapshot {
+extension CmuxTopProcessSnapshot {
     static func scopeCacheKey(from kinfo: kinfo_proc) -> CmuxTopProcessScopeCacheKey {
         let startTime = kinfo.kp_proc.p_un.__p_starttime
         return CmuxTopProcessScopeCacheKey(
@@ -89,12 +91,11 @@ nonisolated extension CmuxTopProcessSnapshot {
             // is eventually attributed. The key is pruned to live pids each
             // capture, so a recycled pid gets a fresh key.
             //
-            // capture() runs concurrently (async task-manager sampling and sync
-            // system.top socket handling), and the probe happened outside the
-            // lock. Never let a stale negative from an older capture clobber a
-            // positive scope a newer capture already discovered for the same
-            // process: if we probed nil but a positive entry now exists, keep and
-            // return it.
+            // A measured lifecycle fallback can overlap the actor-owned capture,
+            // and the probe happened outside the lock. Never let a stale negative
+            // from an older capture clobber a positive scope a newer capture already
+            // discovered for the same process: if we probed nil but a positive entry
+            // now exists, keep and return it.
             return cmuxTopScopeCache.withLock { cache -> CmuxTopProcessScope? in
                 if scope == nil, let existing = cache[cacheKey], let existingScope = existing.scope {
                     return existingScope
@@ -132,13 +133,15 @@ nonisolated extension CmuxTopProcessSnapshot {
     // The discriminator is liveness: if a procargs read fails but the process is
     // still alive with the same start time, the failure is a permanent denial and
     // resolves to nil; otherwise it raced with exit/reuse and is `.unavailable`.
+    // Callers derive `expectedCacheKey` from a `proc_bsdinfo` snapshot of this pid
+    // in the same enumeration pass, so a pre-read `kinfoProc` check would only
+    // repeat work. The post-read guard still catches pid reuse during the
+    // `KERN_PROCARGS2` probe window.
     static func cmuxScopeProbe(
         for pid: Int,
         expectedCacheKey: CmuxTopProcessScopeCacheKey
     ) -> CmuxTopProcessScopeProbeResult {
-        guard processMatchesKey(pid, expectedCacheKey) else {
-            return .unavailable
-        }
+        guard pid > 0, pid <= Int(Int32.max) else { return .unavailable }
 
         var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, Int32(pid)]
         var size: size_t = 0
@@ -261,7 +264,7 @@ nonisolated extension CmuxTopProcessSnapshot {
         return nil
     }
 
-    private static func kinfoProc(for pid: Int) -> kinfo_proc? {
+    static func kinfoProc(for pid: Int) -> kinfo_proc? {
         guard pid > 0, pid <= Int(Int32.max) else { return nil }
 
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, Int32(pid)]
@@ -277,7 +280,7 @@ nonisolated extension CmuxTopProcessSnapshot {
     }
 }
 
-nonisolated extension CmuxTopProcessArguments {
+extension CmuxTopProcessArguments {
     func matchesCMUXScope(workspaceId: UUID, surfaceId: UUID) -> Bool {
         guard let scope = CmuxTopProcessSnapshot.cmuxScope(arguments: arguments, environment: environment) else {
             return false

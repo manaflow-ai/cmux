@@ -1768,7 +1768,7 @@ final class SessionPersistenceTests: XCTestCase {
                 resolvedEnvironment = ["PI_CODING_AGENT_DIR": "/tmp/pi"]
             case .amp:
                 resolvedEnvironment = ["AMP_SETTINGS_FILE": "/tmp/amp-settings.json"]
-            case .cursor, .rovodev, .factory, .custom:
+            case .cursor, .rovodev, .factory, .ollama, .custom:
                 resolvedEnvironment = [:]
             case .gemini:
                 resolvedEnvironment = ["GEMINI_CLI_HOME": "/tmp/gemini"]
@@ -4039,7 +4039,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                 RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId): (
                     snapshot: detectedSnapshot,
                     updatedAt: 999,
-                    processIDs: Set([123]),
+                    processIDs: Set([123]), agentProcessIDs: Set([123]),
                     sessionIDSource: .explicit
                 ),
             ]
@@ -4107,7 +4107,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                 RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId): (
                     snapshot: detectedSnapshot,
                     updatedAt: 999,
-                    processIDs: Set([456]),
+                    processIDs: Set([456]), agentProcessIDs: Set([456]),
                     sessionIDSource: .explicit
                 ),
             ]
