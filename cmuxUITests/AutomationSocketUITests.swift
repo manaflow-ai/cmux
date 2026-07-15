@@ -99,6 +99,19 @@ final class AutomationSocketUITests: XCTestCase {
         // give the reply a generous timeout; ping is not a main-hop and stays fast.
         app.activate()
 
+        // First launch on a clean runner can wedge the main thread for a long
+        // time (session restore, network timeouts). Prove a main-hop round trip
+        // completes before measuring the interesting command.
+        var mainHopReady = false
+        for _ in 0..<12 {
+            if ControlSocketClient(path: socketPath, responseTimeout: 10.0)
+                .sendLine("activate_app") == "OK" {
+                mainHopReady = true
+                break
+            }
+        }
+        XCTAssertTrue(mainHopReady, "Main thread never serviced a socket hop; runner cannot host main-hop tests")
+
         // A modifier-less key is not consumed as a shortcut, so it runs the full
         // keyDown -> interpretKeyEvents pipeline. Synthetic events built without
         // CGEvent backing make NSTextInputContext raise there, which terminated
