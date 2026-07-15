@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxCanvasUI
 import CmuxWorkspaces
 import Foundation
 import Testing
@@ -9,6 +10,21 @@ import Testing
 #elseif canImport(cmux)
 @testable import cmux
 #endif
+
+@MainActor
+private final class AppUtilityCanvasViewportSpy: CanvasViewportControlling {
+    var revealedPanelIds: [UUID] = []
+    var modelDidChangeCount = 0
+    var currentMagnification: CGFloat = 1
+    var currentCenterInCanvas: CGPoint = .zero
+
+    func revealPane(_ panelId: UUID, animated: Bool) { revealedPanelIds.append(panelId) }
+    func toggleOverview() {}
+    func zoom(by factor: CGFloat) {}
+    func resetZoom() {}
+    func setViewport(center: CGPoint, magnification: CGFloat?) {}
+    func modelDidChangeExternally(animated: Bool) { modelDidChangeCount += 1 }
+}
 
 @MainActor
 @Suite
@@ -142,6 +158,60 @@ struct AppUtilityPanelTests {
 
         #expect(workspace.bonsplitController.zoomedPaneId == nil)
         #expect(workspace.focusedPanelId == utilityPanel.id)
+    }
+
+    @Test(arguments: [AppUtilityPanelKind.settings, .mobilePairing])
+    func appUtilityPaneRegistersPlacesAndRevealsInCanvas(kind: AppUtilityPanelKind) throws {
+        let workspace = Workspace()
+        let sourcePaneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let anchorPanelId = try #require(workspace.focusedPanelId)
+        workspace.setLayoutMode(.canvas)
+        let anchorFrame = try #require(workspace.canvasModel.frame(of: anchorPanelId))
+        let viewport = AppUtilityCanvasViewportSpy()
+        workspace.canvasModel.viewport = viewport
+
+        let utilityPanel = try #require(workspace.openOrFocusAppUtilityPane(
+            fromPane: sourcePaneId,
+            kind: kind,
+            focus: true
+        ))
+
+        let utilityFrame = try #require(workspace.canvasModel.frame(of: utilityPanel.id))
+        #expect(workspace.canvasModel.paneID(containing: utilityPanel.id) != nil)
+        #expect(utilityFrame.minX >= anchorFrame.maxX)
+        #expect(workspace.focusedPanelId == utilityPanel.id)
+        #expect(viewport.modelDidChangeCount == 1)
+        #expect(viewport.revealedPanelIds == [utilityPanel.id])
+        #expect(workspace.paneId(forPanelId: utilityPanel.id) != nil)
+    }
+
+    @Test func reopeningExistingCanvasUtilityPaneSelectsAndRevealsIt() throws {
+        let workspace = Workspace()
+        let sourcePaneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let terminalPanelId = try #require(workspace.focusedPanelId)
+        workspace.setLayoutMode(.canvas)
+        let utilityPanel = try #require(workspace.openOrFocusAppUtilityPane(
+            fromPane: sourcePaneId,
+            kind: .settings,
+            focus: true
+        ))
+        workspace.focusPanel(terminalPanelId)
+        let viewport = AppUtilityCanvasViewportSpy()
+        workspace.canvasModel.viewport = viewport
+
+        let reopened = try #require(workspace.openOrFocusAppUtilityPane(
+            fromPane: sourcePaneId,
+            kind: .settings,
+            focus: true
+        ))
+
+        #expect(reopened === utilityPanel)
+        #expect(workspace.focusedPanelId == utilityPanel.id)
+        #expect(workspace.canvasModel.layout.panes.first {
+            $0.panelIds.contains(where: { $0.rawValue == utilityPanel.id })
+        }?.selectedPanelId.rawValue == utilityPanel.id)
+        #expect(viewport.modelDidChangeCount == 1)
+        #expect(viewport.revealedPanelIds == [utilityPanel.id])
     }
 
     @Test func remoteTmuxMirrorDoesNotRequestSplitForAppUtilityPane() throws {

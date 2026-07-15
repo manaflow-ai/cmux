@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxCanvas
 import CmuxWorkspaces
 import Foundation
 
@@ -25,7 +26,13 @@ extension Workspace {
                 continue
             }
             utilityPanel.requestSettingsNavigation(settingsNavigationTarget)
-            if focus {
+            if layoutMode == .canvas {
+                placeAppUtilityPaneInCanvas(
+                    existingId,
+                    anchorPanelId: focusedPanelId,
+                    focus: focus
+                )
+            } else if focus {
                 clearSplitZoom()
                 focusPanel(existingId)
             }
@@ -48,6 +55,8 @@ extension Workspace {
     ) -> AppUtilityPanel? {
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalPanel?.hostedView
+        let canvasPreferredSize = previousFocusedPanelId
+            .flatMap { canvasModel.frame(of: $0) }
 
         let utilityPanel = AppUtilityPanel(
             workspaceId: id,
@@ -82,7 +91,27 @@ extension Workspace {
         }
 
         bonsplitController.selectTab(newTab.id)
-        if focus {
+        if layoutMode == .canvas {
+            if focus {
+                suppressReparentFocusUntilLayoutFollowUp(
+                    previousHostedView,
+                    reason: "workspace.appUtilitySplitReparent"
+                )
+            }
+            placeAppUtilityPaneInCanvas(
+                utilityPanel.id,
+                anchorPanelId: previousFocusedPanelId,
+                preferredSize: canvasPreferredSize,
+                focus: focus
+            )
+            if !focus {
+                preserveFocusAfterNonFocusSplit(
+                    preferredPanelId: previousFocusedPanelId,
+                    splitPanelId: utilityPanel.id,
+                    previousHostedView: previousHostedView
+                )
+            }
+        } else if focus {
             suppressReparentFocusUntilLayoutFollowUp(
                 previousHostedView,
                 reason: "workspace.appUtilitySplitReparent"
@@ -106,5 +135,29 @@ extension Workspace {
         )
 
         return utilityPanel
+    }
+
+    private func placeAppUtilityPaneInCanvas(
+        _ panelId: UUID,
+        anchorPanelId: UUID?,
+        preferredSize: CGRect? = nil,
+        focus: Bool
+    ) {
+        guard layoutMode == .canvas else { return }
+        canvasModel.syncPanes(
+            panelIds: orderedPanelIds,
+            focusedPanelId: anchorPanelId,
+            preferredDirection: .right,
+            preferredNewPaneSize: preferredSize.map {
+                CanvasSize(width: Double($0.width), height: Double($0.height))
+            }
+        )
+        if focus {
+            focusPanel(panelId)
+        }
+        canvasModel.viewport?.modelDidChangeExternally(animated: false)
+        if focus {
+            canvasModel.viewport?.revealPane(panelId, animated: true)
+        }
     }
 }
