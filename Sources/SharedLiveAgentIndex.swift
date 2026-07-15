@@ -367,11 +367,11 @@ final class SharedLiveAgentIndex {
     }
 
     func handleHookStoreDirectoryEvent(_ currentStamp: [HookStoreFileStamp]) {
-        guard let hookStoreInputStamp else {
+        guard let baselineStamp = hookStoreInputStamp else {
             hookStoreInputStampObservedDuringInitialLoad = currentStamp
             return
         }
-        guard currentStamp != hookStoreInputStamp else { return }
+        guard currentStamp != baselineStamp else { return }
         hookStoreInputStamp = currentStamp
         handleHookStoreChange()
     }
