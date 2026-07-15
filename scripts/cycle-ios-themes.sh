@@ -64,6 +64,16 @@ custom_theme_existed=0
 restored=0
 
 mkdir -p "$config_dir" "$themes_dir"
+if [[ -L "$config_file" ]]; then
+  config_file="$(/usr/bin/python3 - "$config_file" <<'PY'
+import pathlib
+import sys
+
+print(pathlib.Path(sys.argv[1]).resolve(strict=False))
+PY
+)"
+  mkdir -p "$(dirname "$config_file")"
+fi
 if [[ -f "$config_file" ]]; then
   cp -p "$config_file" "$backup_dir/config"
   config_existed=1
