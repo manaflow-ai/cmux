@@ -322,6 +322,50 @@ describe("device registry route", () => {
     ]);
   });
 
+  dbTest("live-session polling omits unrelated labels and bounds the encoded response", async () => {
+    if (!sql) throw new Error("test database not initialized");
+
+    const padding = "x".repeat(24 * 1024);
+    for (let tagIndex = 0; tagIndex < 25; tagIndex++) {
+      const response = await POST(registerRequest({
+        deviceId: DEVICE_A,
+        platform: "mac",
+        displayName: "Reviewer Mac",
+        labels: { padding },
+        tag: `poll-${tagIndex}`,
+        routes: [{ id: `iroh-${tagIndex}`, kind: "iroh", endpoint: publicIrohRoute.endpoint }],
+        instanceLabels: { padding },
+        sessions: [{
+          id: `workspace-${tagIndex}`,
+          workspaceID: `workspace-${tagIndex}`,
+          title: `Review workspace ${tagIndex}`,
+          status: "idle",
+          lastActivityAt: 1_800_000_000 + tagIndex,
+        }],
+      }));
+      expect(response.status).toBe(200);
+    }
+
+    const response = await GET(new Request(
+      "https://cmux.test/api/devices?view=live-sessions",
+      { method: "GET", headers: authHeaders() },
+    ));
+    expect(response.status).toBe(200);
+    const body = await response.text();
+    expect(new TextEncoder().encode(body).byteLength).toBeLessThanOrEqual(512 * 1024);
+
+    const list = JSON.parse(body) as {
+      devices: Array<Record<string, unknown> & { instances: Array<Record<string, unknown>> }>;
+    };
+    expect(list.devices).toHaveLength(1);
+    expect(list.devices[0]).not.toHaveProperty("displayName");
+    expect(list.devices[0]).not.toHaveProperty("labels");
+    expect(list.devices[0].instances).toHaveLength(25);
+    for (const instance of list.devices[0].instances) {
+      expect(instance).not.toHaveProperty("labels");
+    }
+  });
+
   dbTest("clears submitted sessions when an instance has no attach routes", async () => {
     if (!sql) throw new Error("test database not initialized");
 

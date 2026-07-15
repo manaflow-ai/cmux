@@ -139,6 +139,27 @@ import Testing
         attachApproval.presentAutomaticallyIfUnowned()
         #expect(attachApproval.origin == .attachTicketApproval)
     }
+
+    @Test func meaningfulInteractionClaimsAnAutomaticPairingPresentation() {
+        var presentation = MobileAddDevicePresentationState(origin: .automaticFirstConnection)
+
+        presentation.claimAutomaticForUserInteraction()
+        presentation.dismissAutomaticForAvailableSession()
+
+        #expect(presentation.origin == .userInitiated)
+        #expect(presentation.isPresented)
+    }
+
+    @Test func disappearingFirstConnectionScopeRejectsStaleRetryCompletion() {
+        var scope = MobileFirstConnectionDiscoveryScope()
+        let staleRequest = scope.activate("account-a")
+        #expect(scope.isCurrent(staleRequest))
+
+        scope.invalidate()
+        _ = scope.activate("account-a")
+
+        #expect(!scope.isCurrent(staleRequest))
+    }
 }
 
 private actor RegistryRefreshRecorder {
