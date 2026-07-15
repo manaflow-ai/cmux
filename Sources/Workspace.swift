@@ -3088,7 +3088,7 @@ final class Workspace: Identifiable, ObservableObject {
             switch source {
             case .closeButton:
                 self?.markTabCloseButtonClose(surfaceId: tabId)
-            case .middleClick:
+            case .middleClick, .contextMenu:
                 self?.markTabStripMiddleClickClose(surfaceId: tabId)
             }
         }
@@ -9662,6 +9662,7 @@ final class Workspace: Identifiable, ObservableObject {
         var shortcuts: [TabContextAction: KeyboardShortcut] = [:]
         let mappings: [(TabContextAction, KeyboardShortcutSettings.Action)] = [
             (.rename, .renameTab),
+            (.close, .closeTab),
             (.toggleZoom, .toggleSplitZoom),
             (.newTerminalToRight, .newSurface),
         ]
@@ -12611,6 +12612,9 @@ extension Workspace: BonsplitDelegate {
         case .clearName:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             setPanelCustomTitle(panelId: panelId, title: nil)
+        case .close:
+            // Bonsplit handles this through its shared tab-close request path.
+            break
         case .copyIdentifiers:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             copyIdentifiersToPasteboard(surfaceId: panelId)
@@ -12651,6 +12655,8 @@ extension Workspace: BonsplitDelegate {
         case .duplicate:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             _ = duplicateBrowserToRight(panelId: panelId)
+        case .disconnectRemote:
+            disconnectRemoteConnection(clearConfiguration: false)
         case .togglePin:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             let shouldPin = !pinnedPanelIds.contains(panelId)
