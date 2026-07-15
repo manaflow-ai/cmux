@@ -56,10 +56,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// Title shown in the tab bar (filename).
     @Published var displayTitle: String = ""
 
-    /// SF Symbol icon for the tab bar. Matches the "New Note" toolbar action
-    /// (`doc.text`) and text-file previews so notes read as plain documents
-    /// rather than rich-text files.
-    var displayIcon: String? { "doc.text" }
+    var displayIcon: String? { "doc.richtext" }
 
     /// Whether the file has been deleted or is unreadable.
     @Published var isFileUnavailable: Bool = false
