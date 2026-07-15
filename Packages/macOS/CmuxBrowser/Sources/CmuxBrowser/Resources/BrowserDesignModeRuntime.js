@@ -868,9 +868,9 @@
       position: "fixed",
       pointerEvents: "none",
       boxSizing: "border-box",
-      border: "1.5px dashed rgb(10, 132, 255)",
+      border: "1px dashed rgba(10, 132, 255, 0.6)",
       borderRadius: "3px",
-      background: "rgba(10, 132, 255, 0.10)",
+      background: "rgba(10, 132, 255, 0.06)",
     });
 
     // Freehand pen stroke rendered while dragging a capture region,
@@ -926,7 +926,7 @@
       position: "fixed",
       pointerEvents: "none",
       boxSizing: "border-box",
-      border: "2px solid rgb(10, 132, 255)",
+      border: "1.5px solid rgb(10, 132, 255)",
       borderRadius: "2px",
       background: "transparent",
     });
@@ -962,7 +962,7 @@
     if (!overlay) return;
     while (overlay.regionOutlines.length < regionReferences.length) {
       const outline = selectedOutline();
-      outline.style.borderStyle = "dashed";
+      outline.style.border = "1px dashed rgba(10, 132, 255, 0.65)";
       overlay.regionOutlines.push(outline);
       overlay.selectionLayer.append(outline);
     }
@@ -1385,15 +1385,23 @@
       marqueePoints.push({ x: event.clientX, y: event.clientY });
       const bounds = marqueeBounds();
       marqueePoints = [];
-      finalizeRegion(bounds);
+      finalizeRegion(bounds, armed.shift);
       return;
     }
     const candidate = elementUnderPoint(armed.x, armed.y);
     if (candidate) selectElement(candidate, armed.shift);
   };
 
-  const finalizeRegion = (rect) => {
+  const finalizeRegion = (rect, stack = false) => {
     if (rect.width < 8 || rect.height < 8) return;
+    if (!stack) {
+      // Plain draws replace the whole selection set, matching plain clicks;
+      // Shift stacks the new region onto it.
+      if (edits.size) restoreAll();
+      selectedReferences.length = 0;
+      setActiveReference(null);
+      regionReferences.length = 0;
+    }
     if (regionReferences.length >= maxRegionReferences) return;
     regionReferences.push({
       pageX: rect.x + (globalThis.scrollX || 0),

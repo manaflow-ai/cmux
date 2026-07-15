@@ -679,6 +679,22 @@ describe("browser design-mode runtime", () => {
     at("click", 110, 140);
     expect(runtime.composerState().selection_count).toBe(1);
 
+    // A second plain draw replaces the region; Shift+draw stacks.
+    at("pointerdown", 300, 300);
+    at("pointermove", 360, 360);
+    at("pointerup", 360, 360);
+    let regions = runtime.snapshot().selections ?? [];
+    expect(regions).toHaveLength(1);
+    expect(regions[0]?.bounds?.x).toBe(300);
+
+    dom.window.document.dispatchEvent(
+      new dom.window.MouseEvent("pointerdown", { bubbles: true, cancelable: true, button: 0, clientX: 500, clientY: 500, shiftKey: true }),
+    );
+    at("pointermove", 560, 560);
+    at("pointerup", 560, 560);
+    regions = runtime.snapshot().selections ?? [];
+    expect(regions).toHaveLength(2);
+
     // Escape clears regions before exiting design mode.
     doc.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
     expect(runtime.composerState().selection_count).toBe(0);
