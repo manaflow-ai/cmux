@@ -1,17 +1,15 @@
 import Foundation
 
-/// A shell command rendered for one preferred-editor file open.
+/// A preferred-editor command with shell-aware executable recognition.
 ///
 /// Source locations are emitted only for editor CLIs whose argument contract
 /// is known. Unknown commands receive the plain file path so cmux never asks
 /// an editor to open a nonexistent colon-suffixed filename.
 nonisolated struct PreferredEditorLaunchCommand: Equatable, Sendable {
     let command: String
-    private let executableName: String?
 
     init(command: String) {
         self.command = command
-        executableName = preferredEditorExecutableName(command: command)
     }
 
     var supportsSourceLocation: Bool {
@@ -27,9 +25,7 @@ nonisolated struct PreferredEditorLaunchCommand: Equatable, Sendable {
         if let line, supportsSourceLocation {
             let location = column.map { "\(path):\(line):\($0)" } ?? "\(path):\(line)"
             if usesGotoFlag {
-                arguments = hasGotoFlag
-                    ? [location]
-                    : ["--goto", location]
+                arguments = hasGotoFlag ? [location] : ["--goto", location]
             } else {
                 arguments = [location]
             }
@@ -47,21 +43,81 @@ nonisolated struct PreferredEditorLaunchCommand: Equatable, Sendable {
     }
 
     private var hasGotoFlag: Bool {
-        command.split(whereSeparator: \Character.isWhitespace).contains { token in
+        shellWords.contains { token in
             token == "-g" || token == "--goto"
         }
     }
-}
 
-private func preferredEditorExecutableName(command: String) -> String? {
-    for rawToken in command.split(whereSeparator: \Character.isWhitespace) {
-        let token = rawToken.trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
-        guard !token.isEmpty else { continue }
-        let name = (token as NSString).lastPathComponent.lowercased()
-        if name == "env" || (!token.contains("/") && token.contains("=")) {
-            continue
+    private var executableName: String? {
+        let words = shellWords
+        var index = 0
+        while index < words.count, isEnvironmentAssignment(words[index]) {
+            index += 1
         }
-        return name
+        guard index < words.count else { return nil }
+
+        if (words[index] as NSString).lastPathComponent.lowercased() == "env" {
+            index += 1
+            while index < words.count {
+                let word = words[index]
+                if word == "-u" || word == "--unset" {
+                    index += 2
+                } else if word.hasPrefix("--unset=") ||
+                            word.hasPrefix("-") ||
+                            isEnvironmentAssignment(word) {
+                    index += 1
+                } else {
+                    break
+                }
+            }
+        }
+
+        guard index < words.count else { return nil }
+        return (words[index] as NSString).lastPathComponent.lowercased()
     }
-    return nil
+
+    private var shellWords: [String] {
+        var words: [String] = []
+        var current = ""
+        var quote: Character?
+        var escaping = false
+
+        func finishWord() {
+            guard !current.isEmpty else { return }
+            words.append(current)
+            current.removeAll(keepingCapacity: true)
+        }
+
+        for character in command {
+            if escaping {
+                current.append(character)
+                escaping = false
+            } else if character == "\\", quote != "'" {
+                escaping = true
+            } else if let activeQuote = quote {
+                if character == activeQuote {
+                    quote = nil
+                } else {
+                    current.append(character)
+                }
+            } else if character == "'" || character == "\"" {
+                quote = character
+            } else if character.isWhitespace {
+                finishWord()
+            } else {
+                current.append(character)
+            }
+        }
+
+        if escaping { current.append("\\") }
+        finishWord()
+        return words
+    }
+
+    private func isEnvironmentAssignment(_ word: String) -> Bool {
+        guard let equals = word.firstIndex(of: "="), equals != word.startIndex else { return false }
+        return word[..<equals].allSatisfy { character in
+            character.isLetter || character.isNumber || character == "_"
+        }
+    }
 }

@@ -230,6 +230,7 @@ public nonisolated struct TerminalPathResolver: Sendable {
     }
 
     private func shouldBypassPathResolutionForURL(_ rawText: String) -> Bool {
+        if isHostPortReference(rawText) { return true }
         guard let scheme = URL(string: rawText)?.scheme?.lowercased() else { return false }
         guard !hasExplicitURLScheme(rawText, parsedScheme: scheme) else { return true }
 
@@ -238,6 +239,24 @@ public nonisolated struct TerminalPathResolver: Sendable {
         // resolver still requires the stripped path to exist; an arbitrary
         // `scheme:value` stays on the URL route.
         return !rawText.terminalPathReferenceCandidates().contains { $0.line != nil }
+    }
+
+    private func isHostPortReference(_ rawText: String) -> Bool {
+        guard let separator = rawText.lastIndex(of: ":"),
+              let port = Int(rawText[rawText.index(after: separator)...]),
+              (0...65_535).contains(port) else {
+            return false
+        }
+        let host = String(rawText[..<separator]).lowercased()
+        if host == "localhost" { return true }
+        if host.hasPrefix("["), host.hasSuffix("]") {
+            return URLComponents(string: "http://\(rawText)")?.host != nil
+        }
+        let octets = host.split(separator: ".", omittingEmptySubsequences: false)
+        return octets.count == 4 && octets.allSatisfy { octet in
+            guard let value = UInt8(octet) else { return false }
+            return String(value) == String(octet)
+        }
     }
 
     private func hasExplicitURLScheme(_ rawText: String) -> Bool {

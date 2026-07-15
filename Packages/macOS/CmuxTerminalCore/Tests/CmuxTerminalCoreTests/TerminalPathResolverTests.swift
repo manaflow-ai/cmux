@@ -283,6 +283,20 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
     }
 
     @Test(arguments: [
+        "localhost:3000", "127.0.0.1:3000", "192.168.1.20:8080",
+        "0.0.0.0:0", "[::1]:3000",
+    ])
+    func hostPortReferencesBypassExistenceProbing(rawText: String) {
+        let resolution = TerminalPathResolver(fileExists: { _ in true })
+            .resolveOpenURLFileReference(
+                rawText,
+                context: TerminalPathResolutionContext(workingDirectory: "/Users/dev/project")
+            )
+        #expect(resolution == nil)
+        #expect(!TerminalPathResolver().isRelativePathReferenceCandidate(rawText))
+    }
+
+    @Test(arguments: [
         "./scripts/reload.sh",
         "../Sources/App.swift:4",
         "Sources/App/SettingsWindowFactory.swift:12:7",

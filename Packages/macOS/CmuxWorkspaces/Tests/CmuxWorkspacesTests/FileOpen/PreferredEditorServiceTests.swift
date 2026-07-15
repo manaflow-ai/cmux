@@ -140,6 +140,15 @@ struct PreferredEditorServiceTests {
         )
     }
 
+    @Test(arguments: [
+        "env -u ELECTRON_RUN_AS_NODE code -w",
+        #"/Applications/Visual\ Studio\ Code.app/Contents/Resources/app/bin/code -w"#,
+        "\"/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code\" -w",
+    ])
+    func shellWrappedVisualStudioCodeCommandsSupportSourceLocations(command: String) {
+        #expect(PreferredEditorLaunchCommand(command: command).supportsSourceLocation)
+    }
+
     @Test func colonLocationEditorsReceiveLocationWithoutGotoFlag() {
         let command = PreferredEditorLaunchCommand(command: "zed")
 
