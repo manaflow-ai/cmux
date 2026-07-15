@@ -258,49 +258,6 @@ struct TerminalNotificationPolicyInFlightStoreTests {
     }
 }
 
-@Suite("Ghostty desktop notification ingress")
-@MainActor
-struct GhosttyDesktopNotificationIngressTests {
-    @Test func overflowDropsOldestBufferedRequest() async throws {
-        let (deliveries, deliveryContinuation) = AsyncStream<GhosttyDesktopNotificationRequest>.makeStream()
-        let (releaseFirstDelivery, releaseContinuation) = AsyncStream<Void>.makeStream(
-            bufferingPolicy: .bufferingNewest(1)
-        )
-        let first = request(title: "first")
-        let second = request(title: "second")
-        let third = request(title: "third")
-        let fourth = request(title: "fourth")
-        let ingress = GhosttyDesktopNotificationIngress(maxBufferedRequests: 2) { request in
-            deliveryContinuation.yield(request)
-            if request == first {
-                for await _ in releaseFirstDelivery.prefix(1) {}
-            }
-        }
-        var iterator = deliveries.makeAsyncIterator()
-
-        #expect(ingress.submit(first))
-        #expect(await iterator.next() == first)
-        #expect(ingress.submit(second))
-        #expect(ingress.submit(third))
-        #expect(!ingress.submit(fourth))
-        releaseContinuation.yield()
-
-        #expect(await iterator.next() == third)
-        #expect(await iterator.next() == fourth)
-        deliveryContinuation.finish()
-        releaseContinuation.finish()
-    }
-
-    private func request(title: String) -> GhosttyDesktopNotificationRequest {
-        GhosttyDesktopNotificationRequest(
-            tabId: UUID(),
-            surfaceId: UUID(),
-            title: title,
-            body: "body"
-        )
-    }
-}
-
 @Suite("Synchronous generic notification delivery", .serialized)
 @MainActor
 struct SynchronousGenericNotificationDeliveryTests {
