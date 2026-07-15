@@ -1,16 +1,15 @@
 import Foundation
-import os
 
 /// Synchronous callback ingress: duplicate titles are rejected before an
-/// asynchronous message is allocated, and the mailbox preserves per-surface
-/// callback order through the single long-lived stream consumer.
-final class GhosttyTitleUpdateIngress: Sendable {
-    // Ghostty's synchronous C callback cannot await; this O(1) lock owns a
-    // latest-value mailbox per surface. The stream carries only a bounded
-    // wake-up token, never one retained String per title callback.
-    private let mailbox: OSAllocatedUnfairLock<GhosttyTitleUpdateMailbox>
-    private let wakeupContinuation: AsyncStream<Void>.Continuation
+/// asynchronous message is enqueued. Each ingress belongs to one Ghostty view,
+/// so its newest-value stream preserves that view's final title without a
+/// process-global mailbox or cross-surface contention.
+final class GhosttyTitleUpdateIngress {
+    private let continuation: AsyncStream<GhosttyTitleUpdateEvent>.Continuation
     private let consumerTask: Task<Void, Never>
+    /// Ghostty serializes action callbacks for a view; no other context reads
+    /// or writes this duplicate-rejection snapshot.
+    private var lastSubmittedUpdate: GhosttyTitleUpdate?
 
     init(center: NotificationCenter = .default) {
         let dispatcher = GhosttyTitleUpdateDispatcher { updates in
@@ -34,51 +33,50 @@ final class GhosttyTitleUpdateIngress: Sendable {
             )
 #endif
         }
-        let mailbox = OSAllocatedUnfairLock(initialState: GhosttyTitleUpdateMailbox())
-        let (wakeups, wakeupContinuation) = AsyncStream<Void>.makeStream(
+        let (events, continuation) = AsyncStream<GhosttyTitleUpdateEvent>.makeStream(
             bufferingPolicy: .bufferingNewest(1)
         )
-        self.mailbox = mailbox
-        self.wakeupContinuation = wakeupContinuation
+        self.continuation = continuation
         consumerTask = Task {
-            for await _ in wakeups {
-                let operations = mailbox.withLock { $0.takePendingOperations() }
-                for operation in operations {
-                    if let retirement = operation.retirement {
-                        await dispatcher.retire(retirement)
-                    }
-                    if let update = operation.update {
-                        await dispatcher.receive(update)
-                    }
+            for await event in events {
+                switch event {
+                case .update(let update):
+                    await dispatcher.receive(update)
+                case .retire(let surfaceKey):
+                    await dispatcher.retire(surfaceKey)
                 }
             }
         }
     }
 
     deinit {
-        wakeupContinuation.finish()
+        continuation.finish()
         consumerTask.cancel()
     }
 
-    func submit(tabId: UUID, surfaceId: UUID, sourceSurface: AnyObject, title: String) {
-        let sourceSurfaceIdentifier = ObjectIdentifier(sourceSurface)
-        let shouldWake = mailbox.withLock {
-            $0.submit(
-                tabId: tabId,
-                surfaceId: surfaceId,
-                sourceSurfaceIdentifier: sourceSurfaceIdentifier,
-                title: title,
-            )
-        }
-        if shouldWake {
-            _ = wakeupContinuation.yield(())
+    /// Returns false only when the update duplicates the callback-local
+    /// snapshot or the ingress has already terminated.
+    @discardableResult
+    func submit(tabId: UUID, surfaceId: UUID, sourceSurface: AnyObject, title: String) -> Bool {
+        let update = GhosttyTitleUpdate(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            title: title,
+            sourceSurfaceIdentifier: ObjectIdentifier(sourceSurface)
+        )
+        guard update != lastSubmittedUpdate else { return false }
+        lastSubmittedUpdate = update
+        switch continuation.yield(.update(update)) {
+        case .enqueued, .dropped:
+            return true
+        case .terminated:
+            return false
+        @unknown default:
+            return false
         }
     }
 
     func retire(_ surfaceKey: GhosttyTitleUpdateSurfaceKey) {
-        let shouldWake = mailbox.withLock { $0.retire(surfaceKey) }
-        if shouldWake {
-            _ = wakeupContinuation.yield(())
-        }
+        _ = continuation.yield(.retire(surfaceKey))
     }
 }

@@ -16,8 +16,8 @@ actor GhosttyTitleUpdateDispatcher {
     private let coalescingInterval: Duration
     private let schedule: Scheduler
     private let publish: Publisher
-    private var states: [GhosttyTitleUpdateSurfaceKey: GhosttyTitleUpdateSurfaceState] = [:]
-    private var pendingKeys = Set<GhosttyTitleUpdateSurfaceKey>()
+    private var activeSurfaceKey: GhosttyTitleUpdateSurfaceKey?
+    private var state = GhosttyTitleUpdateSurfaceState()
     private var cancelScheduledFlush: Cancellation?
 
     init(
@@ -43,21 +43,13 @@ actor GhosttyTitleUpdateDispatcher {
             surfaceId: update.surfaceId,
             sourceSurfaceIdentifier: update.sourceSurfaceIdentifier
         )
-        var state = states[key] ?? GhosttyTitleUpdateSurfaceState()
-        guard update.sequence > state.lastSequence else { return }
-        state.lastSequence = update.sequence
-        guard update.title != state.lastReceivedTitle else {
-            states[key] = state
-            return
+        if activeSurfaceKey != key {
+            reset(for: key)
         }
-        state.lastReceivedTitle = update.title
-        state.pendingUpdate = update.title == state.lastPublishedTitle ? nil : update
-        states[key] = state
-        if state.pendingUpdate == nil {
-            pendingKeys.remove(key)
-        } else {
-            pendingKeys.insert(key)
-        }
+        guard update != state.lastReceivedUpdate else { return }
+        state.lastReceivedUpdate = update
+        state.pendingUpdate = update == state.lastPublishedUpdate ? nil : update
+        guard state.pendingUpdate != nil else { return }
         scheduleFlushIfNeeded()
     }
 
@@ -68,8 +60,8 @@ actor GhosttyTitleUpdateDispatcher {
     }
 
     func retire(_ surfaceKey: GhosttyTitleUpdateSurfaceKey) {
-        states.removeValue(forKey: surfaceKey)
-        pendingKeys.remove(surfaceKey)
+        guard activeSurfaceKey == surfaceKey else { return }
+        reset(for: nil)
     }
 
     private func scheduleFlushIfNeeded() {
@@ -85,17 +77,16 @@ actor GhosttyTitleUpdateDispatcher {
     }
 
     private func flush() async {
-        var updates: [GhosttyTitleUpdate] = []
-        updates.reserveCapacity(pendingKeys.count)
-        for key in pendingKeys {
-            guard var state = states[key], let update = state.pendingUpdate else { continue }
-            state.pendingUpdate = nil
-            state.lastPublishedTitle = update.title
-            states[key] = state
-            updates.append(update)
-        }
-        pendingKeys.removeAll(keepingCapacity: true)
-        guard !updates.isEmpty else { return }
-        await publish(updates)
+        guard let update = state.pendingUpdate else { return }
+        state.pendingUpdate = nil
+        state.lastPublishedUpdate = update
+        await publish([update])
+    }
+
+    private func reset(for surfaceKey: GhosttyTitleUpdateSurfaceKey?) {
+        cancelScheduledFlush?()
+        cancelScheduledFlush = nil
+        activeSurfaceKey = surfaceKey
+        state = GhosttyTitleUpdateSurfaceState()
     }
 }

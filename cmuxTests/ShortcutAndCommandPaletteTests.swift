@@ -1178,7 +1178,7 @@ final class ShortcutHintModifierPolicyTests: XCTestCase {
 }
 
 
-@MainActor final class RightSidebarModeShortcutHintTests: XCTestCase {
+final class RightSidebarModeShortcutHintTests: XCTestCase {
     private let touchedShortcutActions: [KeyboardShortcutSettings.Action] = [
         .focusRightSidebar,
         .switchRightSidebarToFiles,

@@ -52,101 +52,6 @@ private final class TitleScheduleRecorder: @unchecked Sendable {
     }
 }
 
-@Suite("Ghostty title update mailbox")
-struct GhosttyTitleUpdateMailboxTests {
-    @Test func updateThenRetireDropsPendingUpdate() throws {
-        var mailbox = GhosttyTitleUpdateMailbox()
-        let tabId = UUID()
-        let surfaceId = UUID()
-        let sourceIdentifier = ObjectIdentifier(NSObject())
-        let surfaceKey = GhosttyTitleUpdateSurfaceKey(
-            surfaceId: surfaceId, sourceSurfaceIdentifier: sourceIdentifier
-        )
-
-        #expect(mailbox.submit(
-            tabId: tabId,
-            surfaceId: surfaceId,
-            sourceSurfaceIdentifier: sourceIdentifier,
-            title: "pending"
-        ))
-        _ = mailbox.retire(surfaceKey)
-
-        let operations = mailbox.takePendingOperations()
-        #expect(operations.count == 1)
-        let operation = try #require(operations.first)
-        #expect(operation.retirement == surfaceKey)
-        #expect(operation.update == nil)
-    }
-
-    @Test func retireThenUpdateResetsBeforeLatestValue() throws {
-        var mailbox = GhosttyTitleUpdateMailbox()
-        let tabId = UUID()
-        let surfaceId = UUID()
-        let sourceIdentifier = ObjectIdentifier(NSObject())
-        let surfaceKey = GhosttyTitleUpdateSurfaceKey(
-            surfaceId: surfaceId, sourceSurfaceIdentifier: sourceIdentifier
-        )
-        _ = mailbox.submit(
-            tabId: tabId,
-            surfaceId: surfaceId,
-            sourceSurfaceIdentifier: sourceIdentifier,
-            title: "old"
-        )
-        _ = mailbox.takePendingOperations()
-        #expect(mailbox.retire(surfaceKey))
-        _ = mailbox.submit(
-            tabId: tabId,
-            surfaceId: surfaceId,
-            sourceSurfaceIdentifier: sourceIdentifier,
-            title: "new-1"
-        )
-        _ = mailbox.submit(
-            tabId: tabId,
-            surfaceId: surfaceId,
-            sourceSurfaceIdentifier: sourceIdentifier,
-            title: "new-2"
-        )
-
-        let operations = mailbox.takePendingOperations()
-        #expect(operations.count == 1)
-        let operation = try #require(operations.first)
-        #expect(operation.retirement == surfaceKey)
-        #expect(operation.update == GhosttyTitleUpdate(
-            tabId: tabId,
-            surfaceId: surfaceId,
-            title: "new-2",
-            sourceSurfaceIdentifier: sourceIdentifier,
-            sequence: 3
-        ))
-    }
-
-    @Test func workspaceMoveKeepsOneRetirableSurfaceLifetime() throws {
-        var mailbox = GhosttyTitleUpdateMailbox()
-        let originalTabId = UUID()
-        let destinationTabId = UUID()
-        let surfaceId = UUID()
-        let sourceIdentifier = ObjectIdentifier(NSObject())
-        let surfaceKey = GhosttyTitleUpdateSurfaceKey(
-            surfaceId: surfaceId, sourceSurfaceIdentifier: sourceIdentifier
-        )
-        #expect(mailbox.submit(
-            tabId: originalTabId, surfaceId: surfaceId,
-            sourceSurfaceIdentifier: sourceIdentifier, title: "stable"
-        ))
-        _ = mailbox.takePendingOperations()
-        #expect(mailbox.retire(surfaceKey))
-        let operations = mailbox.takePendingOperations()
-        #expect(operations.count == 1)
-        let operation = try #require(operations.first)
-        #expect(operation.retirement?.surfaceId == surfaceId)
-        #expect(operation.retirement?.sourceSurfaceIdentifier == sourceIdentifier)
-        #expect(mailbox.submit(
-            tabId: destinationTabId, surfaceId: surfaceId,
-            sourceSurfaceIdentifier: sourceIdentifier, title: "stable"
-        ))
-    }
-}
-
 @Suite("Notification policy in-flight ordering")
 @MainActor
 struct TerminalNotificationPolicyInFlightStoreTests {
@@ -328,8 +233,7 @@ struct GhosttyTitleUpdateDispatcherTests {
                 tabId: tabId,
                 surfaceId: surfaceId,
                 title: "spinner-\(sequence)",
-                sourceSurfaceIdentifier: sourceIdentifier,
-                sequence: UInt64(sequence)
+                sourceSurfaceIdentifier: sourceIdentifier
             ))
         }
         #expect(scheduler.scheduleCount == 1)
@@ -352,8 +256,7 @@ struct GhosttyTitleUpdateDispatcherTests {
             tabId: UUID(),
             surfaceId: UUID(),
             title: "unchanged",
-            sourceSurfaceIdentifier: sourceIdentifier,
-            sequence: 1
+            sourceSurfaceIdentifier: sourceIdentifier
         )
 
         await dispatcher.receive(first)
@@ -362,43 +265,36 @@ struct GhosttyTitleUpdateDispatcherTests {
             tabId: first.tabId,
             surfaceId: first.surfaceId,
             title: first.title,
-            sourceSurfaceIdentifier: sourceIdentifier,
-            sequence: 2
+            sourceSurfaceIdentifier: sourceIdentifier
         ))
         await dispatcher.flushNow()
 
         #expect(published.map(\.title) == ["unchanged"])
     }
 
-    @Test func outOfOrderSubmissionCannotRestoreStaleTitle() async {
+    @Test func retirementDropsPendingTitle() async {
         var published: [GhosttyTitleUpdate] = []
         let dispatcher = GhosttyTitleUpdateDispatcher(schedule: { _, _ in
             {}
         }) { updates in
             published.append(contentsOf: updates)
         }
-        let tabId = UUID()
         let surfaceId = UUID()
-        let source = NSObject()
-        let sourceIdentifier = ObjectIdentifier(source)
+        let sourceIdentifier = ObjectIdentifier(NSObject())
 
         await dispatcher.receive(GhosttyTitleUpdate(
-            tabId: tabId,
+            tabId: UUID(),
             surfaceId: surfaceId,
-            title: "new",
-            sourceSurfaceIdentifier: sourceIdentifier,
-            sequence: 2
+            title: "pending",
+            sourceSurfaceIdentifier: sourceIdentifier
         ))
-        await dispatcher.receive(GhosttyTitleUpdate(
-            tabId: tabId,
+        await dispatcher.retire(GhosttyTitleUpdateSurfaceKey(
             surfaceId: surfaceId,
-            title: "stale",
-            sourceSurfaceIdentifier: sourceIdentifier,
-            sequence: 1
+            sourceSurfaceIdentifier: sourceIdentifier
         ))
         await dispatcher.flushNow()
 
-        #expect(published.map(\.title) == ["new"])
+        #expect(published.isEmpty)
     }
 
     @Test func workspaceMoveKeepsOneSurfaceLifetimeAndLatestRoute() async {
@@ -412,18 +308,48 @@ struct GhosttyTitleUpdateDispatcherTests {
         let sourceIdentifier = ObjectIdentifier(NSObject())
         let destinationTabId = UUID()
         await dispatcher.receive(GhosttyTitleUpdate(
-            tabId: UUID(), surfaceId: surfaceId, title: "before move",
-            sourceSurfaceIdentifier: sourceIdentifier, sequence: 1
+            tabId: UUID(), surfaceId: surfaceId, title: "stable",
+            sourceSurfaceIdentifier: sourceIdentifier
         ))
         await dispatcher.receive(GhosttyTitleUpdate(
-            tabId: destinationTabId, surfaceId: surfaceId, title: "after move",
-            sourceSurfaceIdentifier: sourceIdentifier, sequence: 2
+            tabId: destinationTabId, surfaceId: surfaceId, title: "stable",
+            sourceSurfaceIdentifier: sourceIdentifier
         ))
         await dispatcher.flushNow()
 
         #expect(published.count == 1)
         #expect(published.first?.tabId == destinationTabId)
-        #expect(published.first?.title == "after move")
+        #expect(published.first?.title == "stable")
+    }
+}
+
+@Suite("Ghostty title update ingress")
+@MainActor
+struct GhosttyTitleUpdateIngressTests {
+    @Test func duplicateCallbackTitleIsRejectedBeforeEnqueue() {
+        let ingress = GhosttyTitleUpdateIngress()
+        let tabId = UUID()
+        let surfaceId = UUID()
+        let source = NSObject()
+
+        #expect(ingress.submit(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            sourceSurface: source,
+            title: "stable"
+        ))
+        #expect(!ingress.submit(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            sourceSurface: source,
+            title: "stable"
+        ))
+        #expect(ingress.submit(
+            tabId: UUID(),
+            surfaceId: surfaceId,
+            sourceSurface: source,
+            title: "stable"
+        ))
     }
 }
 

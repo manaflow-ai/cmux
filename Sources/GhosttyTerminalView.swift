@@ -342,7 +342,6 @@ class GhosttyApp {
     }
 
     static let shared = GhosttyApp()
-    fileprivate let titleUpdateIngress = GhosttyTitleUpdateIngress()
     fileprivate let desktopNotificationIngress = GhosttyDesktopNotificationIngress()
 
     // MARK: Transitional terminal engine/services composition
@@ -2874,7 +2873,7 @@ class GhosttyApp {
                 .flatMap { String(cString: $0) } ?? ""
             if let tabId = surfaceView.tabId,
                let sourceSurface = surfaceView.terminalSurface {
-                titleUpdateIngress.submit(
+                surfaceView.titleUpdateIngress.submit(
                     tabId: tabId, surfaceId: sourceSurface.id, sourceSurface: sourceSurface, title: title
                 )
             }
@@ -3390,6 +3389,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     weak var terminalSurface: TerminalSurface?
+    /// View-scoped ingress keeps title churn independent across terminal surfaces.
+    fileprivate let titleUpdateIngress = GhosttyTitleUpdateIngress()
     /// Retained independently because the weak surface can clear before view teardown.
     private var titleUpdateSurfaceKey: GhosttyTitleUpdateSurfaceKey?
     // SAFETY: replay setup replaces this before runtime attachment; callbacks only read it.
@@ -3829,7 +3830,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
         if titleUpdateSurfaceKey != nextTitleUpdateSurfaceKey {
             if let titleUpdateSurfaceKey {
-                GhosttyApp.shared.titleUpdateIngress.retire(titleUpdateSurfaceKey)
+                titleUpdateIngress.retire(titleUpdateSurfaceKey)
             }
             titleUpdateSurfaceKey = nextTitleUpdateSurfaceKey
         }
@@ -7535,7 +7536,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     deinit {
         selectionAccessibilitySignal.finish()
         if let titleUpdateSurfaceKey {
-            GhosttyApp.shared.titleUpdateIngress.retire(titleUpdateSurfaceKey)
+            titleUpdateIngress.retire(titleUpdateSurfaceKey)
         }
 #if DEBUG
         cmuxDebugLog(

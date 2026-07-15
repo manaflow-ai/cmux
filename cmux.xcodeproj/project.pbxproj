@@ -869,8 +869,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D7C6F5010000000000000000 /* GhosttyTitleChangeSubscription.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7C6F5010000000000000001 /* GhosttyTitleChangeSubscription.swift */; };
 		468110000000000000000009 /* GhosttyTitleUpdate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46811000000000000000000A /* GhosttyTitleUpdate.swift */; };
 		468110000000000000000003 /* GhosttyTitleUpdateDispatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468110000000000000000004 /* GhosttyTitleUpdateDispatcher.swift */; };
+		46811000000000000000000D /* GhosttyTitleUpdateEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46811000000000000000000E /* GhosttyTitleUpdateEvent.swift */; };
 		46811000000000000000000B /* GhosttyTitleUpdateIngress.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46811000000000000000000C /* GhosttyTitleUpdateIngress.swift */; };
-		46811000000000000000000D /* GhosttyTitleUpdateMailbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46811000000000000000000E /* GhosttyTitleUpdateMailbox.swift */; };
 		468140000000000000000009 /* GhosttyTitleUpdateSurfaceKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46814000000000000000000A /* GhosttyTitleUpdateSurfaceKey.swift */; };
 		46814000000000000000000B /* GhosttyTitleUpdateSurfaceState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46814000000000000000000C /* GhosttyTitleUpdateSurfaceState.swift */; };
 		FE001107 /* GitFileStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE001007 /* GitFileStatus.swift */; };
@@ -2801,8 +2801,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D7C6F5010000000000000001 /* GhosttyTitleChangeSubscription.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTitleChangeSubscription.swift; sourceTree = "<group>"; };
 		46811000000000000000000A /* GhosttyTitleUpdate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTitleUpdate.swift; sourceTree = "<group>"; };
 		468110000000000000000004 /* GhosttyTitleUpdateDispatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTitleUpdateDispatcher.swift; sourceTree = "<group>"; };
+		46811000000000000000000E /* GhosttyTitleUpdateEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTitleUpdateEvent.swift; sourceTree = "<group>"; };
 		46811000000000000000000C /* GhosttyTitleUpdateIngress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTitleUpdateIngress.swift; sourceTree = "<group>"; };
-		46811000000000000000000E /* GhosttyTitleUpdateMailbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTitleUpdateMailbox.swift; sourceTree = "<group>"; };
 		46814000000000000000000A /* GhosttyTitleUpdateSurfaceKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTitleUpdateSurfaceKey.swift; sourceTree = "<group>"; };
 		46814000000000000000000C /* GhosttyTitleUpdateSurfaceState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTitleUpdateSurfaceState.swift; sourceTree = "<group>"; };
 		FE001007 /* GitFileStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitFileStatus.swift; sourceTree = "<group>"; };
@@ -4168,7 +4168,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				46811000000000000000000A /* GhosttyTitleUpdate.swift */,
 				468110000000000000000004 /* GhosttyTitleUpdateDispatcher.swift */,
 				46811000000000000000000C /* GhosttyTitleUpdateIngress.swift */,
-				46811000000000000000000E /* GhosttyTitleUpdateMailbox.swift */,
+				46811000000000000000000E /* GhosttyTitleUpdateEvent.swift */,
 				46814000000000000000000A /* GhosttyTitleUpdateSurfaceKey.swift */,
 				46814000000000000000000C /* GhosttyTitleUpdateSurfaceState.swift */,
 				D7C6F5010000000000000001 /* GhosttyTitleChangeSubscription.swift */,
@@ -6795,8 +6795,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D7C6F5010000000000000000 /* GhosttyTitleChangeSubscription.swift in Sources */,
 				468110000000000000000009 /* GhosttyTitleUpdate.swift in Sources */,
 				468110000000000000000003 /* GhosttyTitleUpdateDispatcher.swift in Sources */,
+				46811000000000000000000D /* GhosttyTitleUpdateEvent.swift in Sources */,
 				46811000000000000000000B /* GhosttyTitleUpdateIngress.swift in Sources */,
-				46811000000000000000000D /* GhosttyTitleUpdateMailbox.swift in Sources */,
 				468140000000000000000009 /* GhosttyTitleUpdateSurfaceKey.swift in Sources */,
 				46814000000000000000000B /* GhosttyTitleUpdateSurfaceState.swift in Sources */,
 				FE001107 /* GitFileStatus.swift in Sources */,

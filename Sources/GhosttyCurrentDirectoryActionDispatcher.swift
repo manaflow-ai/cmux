@@ -1,20 +1,17 @@
 import CmuxTerminal
 import Foundation
-import os
 
 /// Nonblocking ordered handoff from Ghostty's serialized PTY callback to the
-/// main actor. Delivery state lives in `AsyncStream`; one tiny locked snapshot
-/// preserves the latest callback-ordered cwd for later OSC notifications.
-final class GhosttyCurrentDirectoryActionDispatcher: Sendable {
+/// main actor. The latest-directory snapshot is confined to that serialized
+/// callback and preserves callback order for later OSC notifications.
+final class GhosttyCurrentDirectoryActionDispatcher {
     typealias Delivery = @MainActor @Sendable (GhosttyCurrentDirectoryAction) -> Void
 
     private let startBoundaryHash: UInt64?
     private let endBoundaryHash: UInt64?
     private let replayBoundaryContinuation: AsyncStream<GhosttyCurrentDirectoryAction>.Continuation
     private let ordinaryContinuation: AsyncStream<GhosttyCurrentDirectoryAction>.Continuation
-    // Ghostty's synchronous callback needs an O(1) cwd snapshot for later OSC
-    // notifications; the lock is never held across I/O or suspension.
-    private let latestDirectory = OSAllocatedUnfairLock<String?>(initialState: nil)
+    private var latestDirectory: String?
 
     init(
         startBoundary: String? = nil,
@@ -59,7 +56,7 @@ final class GhosttyCurrentDirectoryActionDispatcher: Sendable {
         surfaceView: GhosttyNSView,
         terminalSurface: TerminalSurface?
     ) {
-        latestDirectory.withLock { $0 = directory.isEmpty ? nil : directory }
+        latestDirectory = directory.isEmpty ? nil : directory
         let directoryHash = Self.stableHash(directory)
         let isStartBoundary = directoryHash == startBoundaryHash
         let isEndBoundary = directoryHash == endBoundaryHash
@@ -80,7 +77,7 @@ final class GhosttyCurrentDirectoryActionDispatcher: Sendable {
     /// The last PWD value observed before the current callback in Ghostty's
     /// serialized surface action stream.
     func directorySnapshot() -> String? {
-        latestDirectory.withLock { $0 }
+        latestDirectory
     }
 
     @MainActor

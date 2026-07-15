@@ -6,5 +6,4 @@ struct GhosttyTitleUpdate: Equatable, Sendable {
     let surfaceId: UUID
     let title: String
     let sourceSurfaceIdentifier: ObjectIdentifier
-    let sequence: UInt64
 }
