@@ -3,15 +3,29 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::browser::{self, BrowserBootstrap, BrowserRuntime};
+use crate::event_bus::{MuxEventBroadcaster, MuxEventReceiver};
 use crate::layout::{Rect, layout_screen};
 use crate::model::{Node, Pane, Screen, State, Workspace};
 use crate::surface::{DefaultColors, Surface, SurfaceOptions};
 use crate::{PaneId, ScreenId, SplitDir, SurfaceId, WorkspaceId};
+
+pub type SurfaceResizeReporter = Arc<dyn Fn(SurfaceId, (u16, u16), Option<u64>) + Send + Sync>;
+
+#[derive(Debug, Default)]
+pub struct CellPixelUpdate {
+    pub resizes: Vec<(SurfaceId, (u16, u16), u64)>,
+    pub failures: Vec<CellPixelUpdateFailure>,
+}
+
+#[derive(Debug)]
+pub struct CellPixelUpdateFailure {
+    pub surface: SurfaceId,
+    pub error: String,
+}
 
 /// Events pushed to subscribed frontends.
 #[derive(Debug, Clone)]
@@ -23,11 +37,24 @@ pub enum MuxEvent {
         surface: SurfaceId,
         cols: u16,
         rows: u16,
+        reservation_id: Option<u64>,
+    },
+    /// An asynchronous browser resize failed after queue acceptance.
+    SurfaceResizeFailed {
+        surface: SurfaceId,
+        cols: u16,
+        rows: u16,
+        error: Arc<str>,
+        retry_after_ms: Option<u64>,
+        reservation_id: Option<u64>,
     },
     /// A surface's child exited. The mux has already reaped it from the
     /// tree (a tree-changed follows) by the time this arrives.
     SurfaceExited(SurfaceId),
-    TitleChanged(SurfaceId),
+    TitleChanged {
+        surface: SurfaceId,
+        title: Arc<str>,
+    },
     Bell(SurfaceId),
     Notification(NotificationEvent),
     Status(String),
@@ -46,6 +73,21 @@ pub enum MuxEvent {
     TreeChanged,
     /// A screen's pane geometry changed. Clients should re-fetch layout.
     LayoutChanged(ScreenId),
+    /// A control connection attached its first surface.
+    ClientAttached {
+        client: u64,
+        transport: String,
+        name: Option<String>,
+        kind: Option<String>,
+    },
+    /// A control connection updated its display metadata.
+    ClientChanged {
+        client: u64,
+        name: Option<String>,
+        kind: Option<String>,
+    },
+    /// A control connection ended.
+    ClientDetached(u64),
     /// Every workspace is gone.
     Empty,
 }
@@ -220,17 +262,19 @@ struct SidebarPluginRuntime {
 /// The multiplexer. Shared by frontends and the control socket server.
 pub struct Mux {
     state: Mutex<State>,
-    subscribers: Mutex<Vec<Sender<MuxEvent>>>,
+    subscribers: MuxEventBroadcaster,
     next_id: AtomicU64,
     next_notification_id: AtomicU64,
     next_active_at: AtomicU64,
     surface_options: Mutex<SurfaceOptions>,
+    latest_client_size: Mutex<Option<(u16, u16)>>,
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
     cell_pixels: Mutex<(u16, u16)>,
     default_colors: Mutex<DefaultColors>,
     sidebar_plugin: Mutex<SidebarPluginRuntime>,
     agent_records: Mutex<HashMap<SurfaceId, AgentRecord>>,
     surface_notifications: Mutex<HashMap<SurfaceId, SurfaceNotification>>,
+    pub(crate) control_clients: crate::server::ClientRegistry,
     #[cfg(test)]
     test_surface_runtime: bool,
     pub session: String,
@@ -256,17 +300,19 @@ impl Mux {
                 panes: HashMap::new(),
                 surfaces: HashMap::new(),
             }),
-            subscribers: Mutex::new(Vec::new()),
+            subscribers: MuxEventBroadcaster::default(),
             next_id: AtomicU64::new(1),
             next_notification_id: AtomicU64::new(1),
             next_active_at: AtomicU64::new(1),
             surface_options: Mutex::new(surface_options),
+            latest_client_size: Mutex::new(None),
             browser_runtime: Mutex::new(None),
             cell_pixels: Mutex::new((8, 16)),
             default_colors: Mutex::new(DefaultColors::default()),
             sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
             agent_records: Mutex::new(HashMap::new()),
             surface_notifications: Mutex::new(HashMap::new()),
+            control_clients: crate::server::ClientRegistry::new(),
             #[cfg(test)]
             test_surface_runtime,
             session,
@@ -293,15 +339,16 @@ impl Mux {
         self.next_notification_id.fetch_add(1, Ordering::Relaxed)
     }
 
-    pub fn subscribe(&self) -> Receiver<MuxEvent> {
-        let (tx, rx) = channel();
-        self.subscribers.lock().unwrap().push(tx);
-        rx
+    pub fn subscribe(&self) -> MuxEventReceiver {
+        self.subscribers.subscribe()
+    }
+
+    pub fn subscribe_attached_surface(&self, surface: SurfaceId) -> MuxEventReceiver {
+        self.subscribers.subscribe_attached_surface(surface)
     }
 
     pub fn emit(&self, event: MuxEvent) {
-        let mut subs = self.subscribers.lock().unwrap();
-        subs.retain(|tx| tx.send(event.clone()).is_ok());
+        self.subscribers.emit(event);
     }
 
     fn spawn_surface_with_command(
@@ -327,13 +374,12 @@ impl Mux {
         if command.is_some() {
             opts.command = command;
         }
-        // Spawn at the final size when the frontend knows it: starting at
-        // the default 80x24 and resizing a frame later makes shells emit
-        // artifacts (e.g. zsh's reverse-video %% partial-line marker).
-        if let Some((cols, rows)) = size {
-            opts.cols = cols.max(1);
-            opts.rows = rows.max(1);
-        }
+        // Spawn at the latest client-owned size: starting at the default
+        // 80x24 and resizing a frame later makes shells emit artifacts
+        // (e.g. zsh's reverse-video %% partial-line marker).
+        let (cols, rows) = self.resolve_client_size(size, (opts.cols, opts.rows));
+        opts.cols = cols;
+        opts.rows = rows;
         #[cfg(test)]
         let surface = if self.test_surface_runtime {
             Surface::spawn_for_test(id, opts, Arc::downgrade(self))?
@@ -388,13 +434,36 @@ impl Mux {
     ) -> Arc<Surface> {
         let id = self.next_id();
         let opts = self.surface_options.lock().unwrap().clone();
-        let size = size.unwrap_or((opts.cols, opts.rows));
+        let size = self.resolve_client_size(size, (opts.cols, opts.rows));
         let cell_pixels = *self.cell_pixels.lock().unwrap();
         let surface =
             browser::new_surface(id, url.clone(), size, cell_pixels, &opts, Arc::downgrade(self));
         self.state.lock().unwrap().surfaces.insert(id, surface.clone());
         self.start_browser_bootstrap(surface.clone(), BrowserBootstrap::Create { url }, None);
         surface
+    }
+
+    fn resolve_client_size(
+        &self,
+        requested: Option<(u16, u16)>,
+        default: (u16, u16),
+    ) -> (u16, u16) {
+        let mut latest = self.latest_client_size.lock().unwrap();
+        if let Some((cols, rows)) = requested {
+            let size = (cols.max(1), rows.max(1));
+            *latest = Some(size);
+            return size;
+        }
+        latest.unwrap_or((default.0.max(1), default.1.max(1)))
+    }
+
+    /// Record a genuine client-chosen size (protocol resize-surface, sized
+    /// creation, or the local TUI sizing a pane) as the default for future
+    /// unsized surface creation.
+    pub fn record_client_size(&self, cols: u16, rows: u16) -> (u16, u16) {
+        let size = (cols.max(1), rows.max(1));
+        *self.latest_client_size.lock().unwrap() = Some(size);
+        size
     }
 
     fn browser_runtime(&self) -> anyhow::Result<Arc<BrowserRuntime>> {
@@ -430,7 +499,7 @@ impl Mux {
                         browser.mark_failed(err.to_string());
                     }
                     mux.emit(MuxEvent::Status(format!("browser failed: {err}")));
-                    mux.emit(MuxEvent::TitleChanged(id));
+                    mux.emit(MuxEvent::TitleChanged { surface: id, title: surface.title().into() });
                     mux.emit(MuxEvent::SurfaceOutput(id));
                 }
             },
@@ -677,19 +746,40 @@ impl Mux {
         }
     }
 
-    pub fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) {
+    pub fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) -> CellPixelUpdate {
+        self.set_cell_pixel_size_reporting(width_px, height_px, Arc::new(|_, _, _| {}))
+    }
+
+    pub fn set_cell_pixel_size_reporting(
+        &self,
+        width_px: u16,
+        height_px: u16,
+        report: SurfaceResizeReporter,
+    ) -> CellPixelUpdate {
         let next = (width_px.max(1), height_px.max(1));
-        {
-            let mut cell = self.cell_pixels.lock().unwrap();
-            if *cell == next {
-                return;
-            }
-            *cell = next;
-        }
+        // This is the desired global metric used for new browser surfaces.
+        // Existing surfaces still check their settled geometry on every call,
+        // so a rejected queue submission can be retried with the same value.
+        *self.cell_pixels.lock().unwrap() = next;
         let surfaces = self.state.lock().unwrap().surfaces.values().cloned().collect::<Vec<_>>();
+        let mut update = CellPixelUpdate::default();
         for surface in surfaces {
-            surface.set_cell_pixel_size(next.0, next.1);
+            let id = surface.id;
+            let size = surface.size();
+            let callback = report.clone();
+            match surface.set_cell_pixel_size_reporting(
+                next.0,
+                next.1,
+                Box::new(move |accepted| callback(id, size, accepted)),
+            ) {
+                Ok(Some(reservation_id)) => update.resizes.push((id, size, reservation_id)),
+                Ok(None) => {}
+                Err(error) => update
+                    .failures
+                    .push(CellPixelUpdateFailure { surface: id, error: error.to_string() }),
+            }
         }
+        update
     }
 
     pub fn default_colors(&self) -> DefaultColors {
@@ -697,7 +787,13 @@ impl Mux {
     }
 
     pub fn set_default_colors(&self, colors: DefaultColors) {
-        *self.default_colors.lock().unwrap() = colors;
+        {
+            let mut current = self.default_colors.lock().unwrap();
+            if *current == colors {
+                return;
+            }
+            *current = colors;
+        }
         let surfaces = self.state.lock().unwrap().surfaces.values().cloned().collect::<Vec<_>>();
         for surface in surfaces {
             surface.set_default_colors(colors);
@@ -705,18 +801,37 @@ impl Mux {
         }
     }
 
-    /// Resize a surface and broadcast the final clamped size when it
-    /// actually changes.
+    /// Resize a surface and broadcast the final clamped size when it actually
+    /// changes. Browser workers broadcast after their asynchronous CDP work.
     pub fn resize_surface(&self, id: SurfaceId, cols: u16, rows: u16) -> anyhow::Result<bool> {
+        self.resize_surface_with_reservation(id, cols, rows).map(|(accepted, _)| accepted)
+    }
+
+    pub fn resize_surface_with_reservation(
+        &self,
+        id: SurfaceId,
+        cols: u16,
+        rows: u16,
+    ) -> anyhow::Result<(bool, Option<u64>)> {
         let Some(surface) = self.surface(id) else {
             anyhow::bail!("unknown surface {id}");
         };
-        if !surface.resize(cols, rows) {
-            return Ok(false);
+        // Not recorded as a client size here: internal resizes (e.g. the
+        // sidebar plugin surface tracking the TUI rect every frame) also land
+        // in this method and must not become the default for new surfaces.
+        // Client interactions record explicitly at the protocol/TUI layers.
+        let (cols, rows) = (cols.max(1), rows.max(1));
+        if surface.as_browser().is_some() {
+            let reservation_id =
+                surface.resize_reporting_acceptance(cols, rows, Box::new(|_| {}))?;
+            return Ok((reservation_id.is_some(), reservation_id));
+        }
+        if !surface.resize(cols, rows)? {
+            return Ok((false, None));
         }
         let (cols, rows) = surface.size();
-        self.emit(MuxEvent::SurfaceResized { surface: id, cols, rows });
-        Ok(true)
+        self.emit(MuxEvent::SurfaceResized { surface: id, cols, rows, reservation_id: None });
+        Ok((true, None))
     }
 
     /// Create a workspace with one screen holding one pane with one tab.
@@ -818,7 +933,6 @@ impl Mux {
         };
 
         let cwd = cwd.or_else(|| self.pane_cwd(target));
-        let size = size.or_else(|| self.pane_size(target));
         let surface = self.spawn_surface_with_command(cwd, size, Some(argv))?;
         if let Some(name) = name {
             surface.set_name(Some(name));
@@ -937,8 +1051,6 @@ impl Mux {
         };
 
         let cwd = cwd.or_else(|| self.pane_cwd(target));
-        // A sibling tab renders at the size the pane already has.
-        let size = size.or_else(|| self.pane_size(target));
         let surface = self.spawn_surface(cwd, size)?;
         let active_at = self.next_active_at();
         let attached = {
@@ -1015,7 +1127,6 @@ impl Mux {
             return Ok(surface);
         };
 
-        let size = size.or_else(|| self.pane_size(target));
         let surface = self.spawn_browser_surface(url, size);
         let active_at = self.next_active_at();
         let attached = {
@@ -1111,13 +1222,6 @@ impl Mux {
         surface.and_then(|s| s.pwd())
     }
 
-    /// Current cell size of a pane's active surface.
-    fn pane_size(&self, pane: PaneId) -> Option<(u16, u16)> {
-        let state = self.state.lock().unwrap();
-        let active = state.panes.get(&pane)?.active_surface()?;
-        state.surfaces.get(&active).map(|s| s.size())
-    }
-
     /// Split the screen containing `target`, putting a new single-tab
     /// pane after it. Returns the new pane's surface. `size` is the
     /// expected content size of the new pane, when the caller knows it.
@@ -1128,14 +1232,6 @@ impl Mux {
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
         let cwd = self.pane_cwd(target);
-        // Halve the split axis as a fallback estimate; the frontend sends
-        // the exact size on its next layout pass.
-        let size = size.or_else(|| {
-            self.pane_size(target).map(|(cols, rows)| match dir {
-                SplitDir::Right => ((cols.saturating_sub(1) / 2).max(1), rows),
-                SplitDir::Down => (cols, (rows.saturating_sub(1) / 2).max(1)),
-            })
-        });
         let surface = self.spawn_surface(cwd, size)?;
         let pane_id = self.next_id();
         let active_at = self.next_active_at();
@@ -1508,6 +1604,7 @@ impl Mux {
         workspace: Option<WorkspaceId>,
         name: Option<String>,
         layout: &LayoutSpec,
+        size: Option<(u16, u16)>,
     ) -> anyhow::Result<AppliedLayout> {
         {
             let state = self.state.lock().unwrap();
@@ -1521,13 +1618,14 @@ impl Mux {
         let mut created = Vec::new();
         let mut panes = Vec::new();
         let mut spawned = Vec::new();
-        let root = match self.instantiate_layout(layout, &mut panes, &mut created, &mut spawned) {
-            Ok(root) => root,
-            Err(err) => {
-                self.discard_spawned(spawned);
-                return Err(err);
-            }
-        };
+        let root =
+            match self.instantiate_layout(layout, size, &mut panes, &mut created, &mut spawned) {
+                Ok(root) => root,
+                Err(err) => {
+                    self.discard_spawned(spawned);
+                    return Err(err);
+                }
+            };
         let Some(active_pane) = created.first().map(|pane| pane.pane) else {
             self.discard_spawned(spawned);
             anyhow::bail!("layout must contain at least one leaf");
@@ -1577,6 +1675,7 @@ impl Mux {
     fn instantiate_layout(
         self: &Arc<Self>,
         layout: &LayoutSpec,
+        size: Option<(u16, u16)>,
         panes: &mut Vec<(PaneId, Pane)>,
         created: &mut Vec<AppliedPane>,
         spawned: &mut Vec<Arc<Surface>>,
@@ -1587,7 +1686,7 @@ impl Mux {
                     anyhow::bail!("leaf command must not be empty");
                 }
                 let surface =
-                    self.spawn_surface_with(spec.cwd.clone(), spec.command.clone(), None)?;
+                    self.spawn_surface_with(spec.cwd.clone(), spec.command.clone(), size)?;
                 let (pane_id, pane) = self.make_pane(surface.id);
                 created.push(AppliedPane { pane: pane_id, surface: surface.id });
                 panes.push((pane_id, pane));
@@ -1597,8 +1696,8 @@ impl Mux {
             LayoutSpec::Split { dir, ratio, a, b } => Ok(Node::Split {
                 dir: *dir,
                 ratio: clamp_split_ratio(*ratio),
-                a: Box::new(self.instantiate_layout(a, panes, created, spawned)?),
-                b: Box::new(self.instantiate_layout(b, panes, created, spawned)?),
+                a: Box::new(self.instantiate_layout(a, size, panes, created, spawned)?),
+                b: Box::new(self.instantiate_layout(b, size, panes, created, spawned)?),
             }),
         }
     }
@@ -2246,7 +2345,7 @@ mod tests {
             leaf_spec(),
             split_spec(SplitDir::Down, 0.67, leaf_spec(), leaf_spec()),
         );
-        let first = mux.apply_layout(None, Some("round-trip".into()), &spec).unwrap();
+        let first = mux.apply_layout(None, Some("round-trip".into()), &spec, None).unwrap();
         let exported_shape = node_shape(&screen_root(&mux, first.screen));
 
         let round_trip_spec = mux.with_state(|s| {
@@ -2260,7 +2359,8 @@ mod tests {
             }
             from_node(&s.workspaces[0].screens[0].root)
         });
-        let second = mux.apply_layout(None, Some("round-trip-2".into()), &round_trip_spec).unwrap();
+        let second =
+            mux.apply_layout(None, Some("round-trip-2".into()), &round_trip_spec, None).unwrap();
         let applied_shape = node_shape(&screen_root(&mux, second.screen));
 
         assert_eq!(exported_shape, spec_shape(&spec));
@@ -2282,6 +2382,7 @@ mod tests {
                     leaf_spec(),
                     split_spec(SplitDir::Down, 0.5, leaf_spec(), leaf_spec()),
                 ),
+                None,
             )
             .unwrap();
         let p1 = applied.panes[0].pane;
@@ -2297,7 +2398,12 @@ mod tests {
     fn focus_direction_moves_active_pane() {
         let mux = test_mux();
         let applied = mux
-            .apply_layout(None, None, &split_spec(SplitDir::Right, 0.5, leaf_spec(), leaf_spec()))
+            .apply_layout(
+                None,
+                None,
+                &split_spec(SplitDir::Right, 0.5, leaf_spec(), leaf_spec()),
+                None,
+            )
             .unwrap();
         let p1 = applied.panes[0].pane;
         let p2 = applied.panes[1].pane;
@@ -2312,7 +2418,12 @@ mod tests {
     fn swap_pane_exchanges_leaf_positions_and_preserves_surfaces() {
         let mux = test_mux();
         let applied = mux
-            .apply_layout(None, None, &split_spec(SplitDir::Right, 0.5, leaf_spec(), leaf_spec()))
+            .apply_layout(
+                None,
+                None,
+                &split_spec(SplitDir::Right, 0.5, leaf_spec(), leaf_spec()),
+                None,
+            )
             .unwrap();
         let p1 = applied.panes[0].pane;
         let s1 = applied.panes[0].surface;
@@ -2332,7 +2443,12 @@ mod tests {
     fn zoom_pane_toggles_screen_zoom_state() {
         let mux = test_mux();
         let applied = mux
-            .apply_layout(None, None, &split_spec(SplitDir::Right, 0.5, leaf_spec(), leaf_spec()))
+            .apply_layout(
+                None,
+                None,
+                &split_spec(SplitDir::Right, 0.5, leaf_spec(), leaf_spec()),
+                None,
+            )
             .unwrap();
         let p2 = applied.panes[1].pane;
 
@@ -2357,6 +2473,7 @@ mod tests {
                     cwd: Some(cwd.clone()),
                     command: Some(vec!["echo".into(), "ok".into()]),
                 }),
+                None,
             )
             .unwrap();
         let surface = mux.surface(applied.panes[0].surface).unwrap();

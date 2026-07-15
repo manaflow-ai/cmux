@@ -432,13 +432,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enter a Tailscale, LAN, or local host and port. QR/link pairing from that computer is still the safest setup path."
+            "value": "Scan the Mac's Iroh QR. Manual host and port is only for loopback development in the simulator."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale、LAN、またはローカルのホストとポートを入力してください。そのコンピュータからの QR/リンクでのペアリングが最も安全な設定方法です。"
+            "value": "MacのIroh QRをスキャンしてください。ホストとポートの手入力は、シミュレータのループバック開発専用です。"
           }
         }
       }
@@ -466,13 +466,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "your-mac.tailnet.ts.net"
+            "value": "127.0.0.1 (simulator only)"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "your-mac.tailnet.ts.net"
+            "value": "127.0.0.1（シミュレータのみ）"
           }
         }
       }
@@ -517,13 +517,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This will connect directly to that address. Use this only on a trusted LAN, VPN, or device you control."
+            "value": "Manual host and port bypasses Iroh. Account credentials are allowed only over simulator loopback; use the Mac's Iroh QR for physical devices."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "そのアドレスへ直接接続します。信頼できる LAN、VPN、または管理しているデバイスでのみ使用してください。"
+            "value": "ホストとポートの手入力はIrohを経由しません。アカウント認証情報はシミュレータのループバックでのみ送信できます。実機ではMacのIroh QRを使用してください。"
           }
         }
       }
@@ -2756,13 +2756,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your phone has to reach your Mac over the network. The simplest private path is Tailscale: both devices join the same tailnet and connect directly, with no cloud relay. On the same Wi-Fi you can instead type the Mac's local address by hand, but that link is unencrypted, so Tailscale is recommended."
+            "value": "cmux uses Iroh by default. It connects directly to your Mac when possible and uses a cmux relay when needed. Your Mac's identity and cmux account are verified end to end, so the relay cannot read terminal traffic."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhoneはネットワーク経由でMacに届く必要があります。最もシンプルでプライベートな方法はTailscaleです。両方の端末を同じtailnetに参加させると、クラウド中継なしで直接つながります。同じWi-Fiなら、Macのローカルアドレスを手入力して接続することもできますが、その接続は暗号化されないため、Tailscaleをおすすめします。"
+            "value": "cmuxはデフォルトでIrohを使用します。可能な場合はMacへ直接接続し、必要な場合のみcmuxリレーを使用します。MacのIDとcmuxアカウントはエンドツーエンドで検証されるため、リレーはターミナル通信を読み取れません。"
           }
         }
       }
@@ -2773,13 +2773,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A private link to your Mac"
+            "value": "Encrypted wherever you connect"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Macへのプライベートな接続"
+            "value": "どこからでも暗号化接続"
           }
         }
       }
@@ -2824,13 +2824,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Make sure cmux on your Mac is signed in to the same account, then scan the pairing QR code it shows (or enter its address by hand). You only do this once per Mac."
+            "value": "Open Pair iPhone in cmux on your Mac and scan its Iroh code. cmux saves the verified Mac identity and reconnects automatically. Tailscale, another VPN, or the same LAN may speed up the authenticated Iroh connection."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac版cmuxが同じアカウントでサインインしていることを確認し、表示されるペアリングQRコードを読み取ってください（またはアドレスを手入力します）。これはMacごとに一度だけ行います。"
+            "value": "Macのcmuxで「iPhoneをペアリング」を開き、Irohコードをスキャンします。cmuxは検証済みのMac IDを保存して自動的に再接続します。Tailscale、別のVPN、または同じLANにより、認証済みのIroh接続が高速になる場合があります。"
           }
         }
       }
@@ -2848,6 +2848,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "Macとペアリング"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.privateNetworkBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After cmux admits both devices over Iroh, Tailscale, WireGuard, another VPN, or the same LAN may become a faster direct path. They are optional, and Iroh keeps its encryption and identity checks."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxがIroh上で両方の端末を認証した後、Tailscale、WireGuard、別のVPN、または同じLANが、より高速な直接経路になる場合があります。これらは任意で、Irohの暗号化とID検証は維持されます。"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.privateNetworkStep1": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign this phone and the Mac in to the same cmux account."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このiPhoneとMacを同じcmuxアカウントでサインインします。"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.privateNetworkStep2": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leave cmux running on the Mac so Iroh can reconnect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Irohが再接続できるよう、Macでcmuxを起動したままにします。"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.privateNetworkStep3": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optional: connect both devices to the same private network so an admitted Iroh session can migrate to it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "任意：認証済みのIrohセッションが移行できるよう、両方の端末を同じプライベートネットワークに接続します。"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.privateNetworkTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Private networks stay available"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プライベートネットワークも利用可能"
           }
         }
       }
@@ -2875,13 +2960,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Get Tailscale for iPhone"
+            "value": "Optional: Tailscale for iPhone"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhone版Tailscaleを入手"
+            "value": "任意：iPhone版Tailscale"
           }
         }
       }
@@ -2909,13 +2994,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Set up Tailscale on the Mac"
+            "value": "Optional: Tailscale for Mac"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "MacにTailscaleを設定"
+            "value": "任意：Mac版Tailscale"
           }
         }
       }
@@ -3284,13 +3369,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No response from %@:%d. Your Mac may be asleep or off Tailscale. Make sure it's awake and on the same Tailscale network."
+            "value": "No response from %@:%d. Make sure the Mac is awake, cmux is running, and the private route is active."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@:%d から応答がありません。Macがスリープしているか、Tailscaleに接続されていない可能性があります。Macがスリープしておらず、同じTailscaleネットワーク上にあることを確認してください。"
+            "value": "%@:%d から応答がありません。Macが起動していてcmuxが実行中であり、プライベート経路が有効か確認してください。"
           }
         }
       }
@@ -3318,13 +3403,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Could not reach %@:%d. Check that the host is reachable over Tailscale or LAN and that the port is correct."
+            "value": "Could not reach %@:%d. Check that the saved private network or LAN route is active and that the port is correct."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@:%d に到達できませんでした。ホストが Tailscale または LAN 経由で到達可能で、ポートが正しいことを確認してください。"
+            "value": "%@:%d に到達できませんでした。保存済みのプライベートネットワークまたはLAN経路が有効で、ポートが正しいか確認してください。"
           }
         }
       }
@@ -3352,13 +3437,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couldn't resolve %@. Check that Tailscale is connected on both devices."
+            "value": "Couldn't resolve %@. Check the DNS or private network that provides this saved route."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ を解決できませんでした。両方の端末でTailscaleが接続されていることを確認してください。"
+            "value": "%@ を解決できませんでした。この保存済み経路を提供するDNSまたはプライベートネットワークを確認してください。"
           }
         }
       }
@@ -3488,13 +3573,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Check that this phone and your Mac are on the same Wi-Fi or both running Tailscale, that the Mac is awake, and that cmux is open on it."
+            "value": "Iroh reconnects automatically. For a saved private-network fallback, connect both devices to that network, wake the Mac, and open cmux."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このスマートフォンとMacが同じWi-Fi上にあるか、両方でTailscaleが動作していること、Macがスリープしていないこと、Macでcmuxが開いていることを確認してください。"
+            "value": "Irohは自動的に再接続します。保存済みのプライベートネットワークをフォールバックに使う場合は、両方の端末をそのネットワークに接続し、Macを起こしてcmuxを開いてください。"
           }
         }
       }
@@ -3556,13 +3641,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Can't reach %@:%d. Make sure your Mac is awake and on the same Tailscale network as this device."
+            "value": "Can't reach %@:%d. Make sure your Mac is awake and the private network or LAN for this saved route is active."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@:%d に接続できません。Macがスリープしておらず、この端末と同じTailscaleネットワーク上にあることを確認してください。"
+            "value": "%@:%d に接続できません。Macが起動していて、この保存済み経路のプライベートネットワークまたはLANが有効か確認してください。"
           }
         }
       }
@@ -3607,13 +3692,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This code points at the Mac itself (localhost), so your iPhone can't use it. Set up Tailscale on the Mac, then scan a fresh code."
+            "value": "This code points at the Mac itself (localhost), so your iPhone can't use it. Update cmux on the Mac and scan its Iroh code."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このコードは Mac 自身（localhost）を指しているため、iPhone からは使えません。Mac に Tailscale を設定してから、新しいコードをスキャンしてください。"
+            "value": "このコードはMac自身（localhost）を指しているため、iPhoneからは使えません。Macのcmuxを更新し、Irohコードをスキャンしてください。"
           }
         }
       }
@@ -3958,19 +4043,19 @@
         }
       }
     },
-    "mobile.macUpdateHint.bodyFormatUnknownVersion" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Updating %1$@ to cmux %2$@ or later adds: %3$@."
+    "mobile.macUpdateHint.bodyFormatUnknownVersion": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updating %1$@ to cmux %2$@ or later adds: %3$@."
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%1$@をcmux %2$@以降に更新すると次の機能が使えます：%3$@。"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@をcmux %2$@以降に更新すると次の機能が使えます：%3$@。"
           }
         }
       }
@@ -5188,13 +5273,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No Tailscale? On the same Wi-Fi you can still connect by typing the computer's local address and port by hand in Add Computer. That link is unencrypted, so only use it on a network you trust."
+            "value": "After cmux admits both devices over Iroh, Tailscale, another VPN, or the same LAN may become a faster direct path. The Iroh session keeps peer identity and application traffic authenticated on every path."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscaleがない場合でも、同じWi-Fiなら、「コンピュータを追加」でコンピュータのローカルアドレスとポートを手入力して接続できます。その接続は暗号化されないため、信頼できるネットワークでのみ使用してください。"
+            "value": "cmuxがIroh上で両方の端末を認証した後、Tailscale、別のVPN、または同じLANが、より高速な直接経路になる場合があります。Irohセッションは、どの経路でもピアIDとアプリ通信を認証します。"
           }
         }
       }
@@ -5290,13 +5375,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Scanning the computer's QR code needs Tailscale: the computer only shows a code when it has a Tailscale address your phone can reach. Install Tailscale on both, sign both in to the same tailnet, and the code appears."
+            "value": "Scan the Iroh code shown by cmux on the Mac. Iroh connects directly when possible and uses a cmux relay when needed, while verifying the Mac identity and your cmux account end to end. Tailscale is not required."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コンピュータのQRコードをスキャンするにはTailscaleが必要です。コンピュータは、iPhoneから届くTailscaleアドレスを持っているときだけコードを表示します。両方にTailscaleをインストールし、同じtailnetでサインインすると、コードが表示されます。"
+            "value": "Macのcmuxに表示されるIrohコードをスキャンします。Irohは可能な場合は直接接続し、必要な場合はcmuxリレーを使いながら、MacのIDとcmuxアカウントをエンドツーエンドで検証します。Tailscaleは必須ではありません。"
           }
         }
       }
@@ -5307,13 +5392,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Get them on the same network"
+            "value": "Connect with Iroh"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "同じネットワークに入れる"
+            "value": "Irohで接続"
           }
         }
       }
@@ -5324,13 +5409,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The computer and this phone must be signed in to the same cmux account, and on the same tailnet (or the same Wi-Fi for a manual local connection)."
+            "value": "The computer and this phone must be signed in to the same cmux account. Any private network changes reachability only; it never replaces Iroh's identity and authorization checks."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コンピュータとこの端末は、同じcmuxアカウントでサインインし、同じtailnet（手動でローカル接続する場合は同じWi-Fi）にある必要があります。"
+            "value": "コンピュータとこの端末は同じcmuxアカウントでサインインする必要があります。プライベートネットワークは到達経路を変えるだけで、IrohのID検証と認可を置き換えることはありません。"
           }
         }
       }
@@ -5375,13 +5460,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Get Tailscale for iPhone"
+            "value": "Optional: Tailscale for iPhone"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhone版Tailscaleを入手"
+            "value": "任意：iPhone版Tailscale"
           }
         }
       }
@@ -5392,13 +5477,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Set up Tailscale on the computer"
+            "value": "Optional: Tailscale for the computer"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コンピュータにTailscaleを設定"
+            "value": "任意：コンピュータ版Tailscale"
           }
         }
       }
@@ -5426,13 +5511,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "You have paired this computer before but it is not reachable now. Wake it, make sure cmux is running, and confirm both devices are on the same tailnet or Wi-Fi. Then reconnect."
+            "value": "You paired this computer before, but it is not reachable now. Wake it and make sure cmux is running. Iroh will retry direct and relay paths; if you rely on a private network, connect both devices to it, then reconnect."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このコンピュータは以前ペアリング済みですが、今は届きません。コンピュータを起こし、cmuxが起動していることを確認し、両方の端末が同じtailnetまたはWi-Fiにあることを確かめてから再接続してください。"
+            "value": "このコンピュータは以前ペアリング済みですが、今は到達できません。コンピュータを起こしてcmuxが実行中か確認してください。Irohは直接経路とリレー経路を再試行します。プライベートネットワークを使っている場合は両方の端末を接続してから再接続してください。"
           }
         }
       }
@@ -9699,192 +9784,558 @@
     "mobile.workspaceAction.failure.action.createWorkspace": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "create workspace" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースを作成" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "create workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを作成"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.action.createWorkspaceInGroup": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "create workspace in group" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "グループ内にワークスペースを作成" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "create workspace in group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループ内にワークスペースを作成"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.action.createWorkspaceGroup": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "create workspace group" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースグループを作成" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "create workspace group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースグループを作成"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.action.moveWorkspace": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "move workspace" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースを移動" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "move workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを移動"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.action.renameWorkspace": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "rename workspace" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペース名を変更" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "rename workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース名を変更"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.action.pinWorkspace": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "pin workspace" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースをピン留め" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pin workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースをピン留め"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.action.unpinWorkspace": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "unpin workspace" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースのピン留めを外す" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "unpin workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースのピン留めを外す"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.action.markWorkspaceRead": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "mark workspace as read" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースを既読にする" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mark workspace as read"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを既読にする"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.action.markWorkspaceUnread": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "mark workspace as unread" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースを未読にする" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mark workspace as unread"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを未読にする"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.action.closeWorkspace": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "close workspace" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースを閉じる" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "close workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを閉じる"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.action.renameGroup": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "rename group" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "グループ名を変更" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "rename group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループ名を変更"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.action.pinGroup": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "pin group" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "グループをピン留め" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pin group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループをピン留め"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.action.unpinGroup": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "unpin group" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "グループのピン留めを外す" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "unpin group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループのピン留めを外す"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.action.ungroupGroup": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "ungroup" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "グループ解除" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ungroup"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループ解除"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.action.deleteGroup": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "delete group" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "グループを削除" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "delete group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループを削除"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.reason.notConnected.host": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "not connected to %@" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%@ に接続されていません" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "not connected to %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に接続されていません"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.reason.notConnected.generic": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "not connected to your Mac" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Mac に接続されていません" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "not connected to your Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac に接続されていません"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.reason.timedOut.host": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "timed out talking to %@" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%@ との通信がタイムアウトしました" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "timed out talking to %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ との通信がタイムアウトしました"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.reason.timedOut.generic": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "timed out talking to your Mac" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Mac との通信がタイムアウトしました" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "timed out talking to your Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac との通信がタイムアウトしました"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.reason.authorization.host": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "was not authorized by %@" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%@ で認証されませんでした" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "was not authorized by %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ で認証されませんでした"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.reason.authorization.generic": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "was not authorized by your Mac" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Mac で認証されませんでした" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "was not authorized by your Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac で認証されませんでした"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.reason.busy.host": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "%@ is finishing another workspace action" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%@ が別のワークスペース操作を完了しています" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is finishing another workspace action"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ が別のワークスペース操作を完了しています"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.reason.busy.generic": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "another workspace action is still finishing" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "別のワークスペース操作がまだ完了中です" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "another workspace action is still finishing"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のワークスペース操作がまだ完了中です"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.reason.rejected.host": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "was rejected by %@" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%@ に拒否されました" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "was rejected by %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に拒否されました"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.reason.rejected.generic": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "was rejected by your Mac" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Mac に拒否されました" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "was rejected by your Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac に拒否されました"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.reason.unsupported.host": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "%@ doesn't support that action" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%@ はその操作に対応していません" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ doesn't support that action"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ はその操作に対応していません"
+          }
+        }
       }
     },
     "mobile.workspaceAction.failure.reason.unsupported.generic": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "your Mac doesn't support that action" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Mac はその操作に対応していません" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "your Mac doesn't support that action"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac はその操作に対応していません"
+          }
+        }
       }
-    }
+    },
+    "mobile.screenshot.notification.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude is asking: which database should I use, Postgres or SQLite?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude が質問しています: どのデータベースを使いますか、Postgres それとも SQLite?"
+          }
+        }
+      }
+    },
+    "mobile.screenshot.notification.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent needs your input"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントが入力を求めています"
+          }
+        }
+      }
+    },
+    "mobile.common.actions": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Actions"}},"ja":{"stringUnit":{"state":"translated","value":"操作"}}}},
+    "mobile.common.remove": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Remove"}},"ja":{"stringUnit":{"state":"translated","value":"削除"}}}},
+    "mobile.settings.iroh": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Iroh and Relays"}},"ja":{"stringUnit":{"state":"translated","value":"Iroh とリレー"}}}},
+    "mobile.settings.networking": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Networking"}},"ja":{"stringUnit":{"state":"translated","value":"ネットワーク"}}}},
+    "mobile.iroh.attention": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Your relay preference needs attention. cmux is keeping an unselected provider disabled."}},"ja":{"stringUnit":{"state":"translated","value":"リレー設定を確認してください。cmux は未選択のプロバイダーを無効のまま維持しています。"}}}},
+    "mobile.iroh.custom": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Custom Relays"}},"ja":{"stringUnit":{"state":"translated","value":"カスタムリレー"}}}},
+    "mobile.iroh.custom.add": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Add Custom Relay"}},"ja":{"stringUnit":{"state":"translated","value":"カスタムリレーを追加"}}}},
+    "mobile.iroh.custom.authentication": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Authentication"}},"ja":{"stringUnit":{"state":"translated","value":"認証"}}}},
+    "mobile.iroh.custom.authentication.none": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"None"}},"ja":{"stringUnit":{"state":"translated","value":"なし"}}}},
+    "mobile.iroh.custom.authentication.secret": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Device Secret"}},"ja":{"stringUnit":{"state":"translated","value":"デバイスシークレット"}}}},
+    "mobile.iroh.custom.edit": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Edit Custom Relay"}},"ja":{"stringUnit":{"state":"translated","value":"カスタムリレーを編集"}}}},
+    "mobile.iroh.custom.footer": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Addresses sync with your account. Provider secrets stay in this device's Keychain. A missing secret never enables another relay provider."}},"ja":{"stringUnit":{"state":"translated","value":"アドレスはアカウントと同期されます。プロバイダーのシークレットはこのデバイスのキーチェーンに保存されます。シークレットがない場合に別のリレープロバイダーが有効になることはありません。"}}}},
+    "mobile.iroh.custom.name": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Name"}},"ja":{"stringUnit":{"state":"translated","value":"名前"}}}},
+    "mobile.iroh.custom.provider": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Provider"}},"ja":{"stringUnit":{"state":"translated","value":"プロバイダー"}}}},
+    "mobile.iroh.custom.region": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Region"}},"ja":{"stringUnit":{"state":"translated","value":"リージョン"}}}},
+    "mobile.iroh.custom.remove.confirm": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Remove this custom relay?"}},"ja":{"stringUnit":{"state":"translated","value":"このカスタムリレーを削除しますか？"}}}},
+    "mobile.iroh.custom.secret": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Relay Secret"}},"ja":{"stringUnit":{"state":"translated","value":"リレーシークレット"}}}},
+    "mobile.iroh.custom.secret.keep": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"New Secret (optional)"}},"ja":{"stringUnit":{"state":"translated","value":"新しいシークレット（任意）"}}}},
+    "mobile.iroh.custom.secret.note": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Relay secrets stay in this device's Keychain and do not sync with your account."}},"ja":{"stringUnit":{"state":"translated","value":"リレーシークレットはこのデバイスのキーチェーンに保存され、アカウントとは同期されません。"}}}},
+    "mobile.iroh.custom.summary": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"%1$@ · %2$@"}},"ja":{"stringUnit":{"state":"translated","value":"%1$@ · %2$@"}}}},
+    "mobile.iroh.custom.url": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Relay URL"}},"ja":{"stringUnit":{"state":"translated","value":"リレー URL"}}}},
+    "mobile.iroh.diagnostics": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Diagnostics"}},"ja":{"stringUnit":{"state":"translated","value":"診断"}}}},
+    "mobile.iroh.policy": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Relay Policy"}},"ja":{"stringUnit":{"state":"translated","value":"リレーポリシー"}}}},
+    "mobile.iroh.policy.cached": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Last Verified Catalog"}},"ja":{"stringUnit":{"state":"translated","value":"最後に検証済みのカタログ"}}}},
+    "mobile.iroh.policy.server": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Verified from cmux"}},"ja":{"stringUnit":{"state":"translated","value":"cmux から検証済み"}}}},
+    "mobile.iroh.policy.unavailable": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Unavailable"}},"ja":{"stringUnit":{"state":"translated","value":"利用不可"}}}},
+    "mobile.iroh.preference": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Relay Preference"}},"ja":{"stringUnit":{"state":"translated","value":"リレー設定"}}}},
+    "mobile.iroh.preference.automatic": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Automatic"}},"ja":{"stringUnit":{"state":"translated","value":"自動"}}}},
+    "mobile.iroh.preference.custom": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Custom Relays"}},"ja":{"stringUnit":{"state":"translated","value":"カスタムリレー"}}}},
+    "mobile.iroh.preference.managed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Selected cmux Relays"}},"ja":{"stringUnit":{"state":"translated","value":"選択した cmux リレー"}}}},
+    "mobile.iroh.private": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Private Networks"}},"ja":{"stringUnit":{"state":"translated","value":"プライベートネットワーク"}}}},
+    "mobile.iroh.private.add": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Add Private Network"}},"ja":{"stringUnit":{"state":"translated","value":"プライベートネットワークを追加"}}}},
+    "mobile.iroh.private.automatic": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Automatic"}},"ja":{"stringUnit":{"state":"translated","value":"自動"}}}},
+    "mobile.iroh.private.edit": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Edit Private Network"}},"ja":{"stringUnit":{"state":"translated","value":"プライベートネットワークを編集"}}}},
+    "mobile.iroh.private.enabled": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Enabled"}},"ja":{"stringUnit":{"state":"translated","value":"有効"}}}},
+    "mobile.iroh.private.footer": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Iroh discovers LAN and VPN paths after authenticating the Mac. Custom raw TCP routes are not accepted because they cannot prove the remote Mac."}},"ja":{"stringUnit":{"state":"translated","value":"Iroh は Mac を認証した後、LAN および VPN 経路を検出します。カスタムの生 TCP ルートはリモート Mac を証明できないため受け付けません。"}}}},
+    "mobile.iroh.private.iroh": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Iroh Private Paths"}},"ja":{"stringUnit":{"state":"translated","value":"Iroh プライベート経路"}}}},
+    "mobile.iroh.private.host": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Host or IP Address"}},"ja":{"stringUnit":{"state":"translated","value":"ホストまたは IP アドレス"}}}},
+    "mobile.iroh.private.name": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Name"}},"ja":{"stringUnit":{"state":"translated","value":"名前"}}}},
+    "mobile.iroh.private.note": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Use a private route for Tailscale alternatives, a company VPN, or a network you operate. cmux still authenticates the Mac before use."}},"ja":{"stringUnit":{"state":"translated","value":"Tailscale の代替、会社の VPN、または自分で運用するネットワークにプライベートルートを使用します。使用前に cmux が Mac を認証します。"}}}},
+    "mobile.iroh.private.port": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Port"}},"ja":{"stringUnit":{"state":"translated","value":"ポート"}}}},
+    "mobile.iroh.private.provider": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Provider"}},"ja":{"stringUnit":{"state":"translated","value":"プロバイダー"}}}},
+    "mobile.iroh.private.remove.confirm": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Remove this private network?"}},"ja":{"stringUnit":{"state":"translated","value":"このプライベートネットワークを削除しますか？"}}}},
+    "mobile.iroh.private.tailscale": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Tailscale Compatibility"}},"ja":{"stringUnit":{"state":"translated","value":"Tailscale 互換"}}}},
+    "mobile.iroh.refresh": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Refresh Relay Policy"}},"ja":{"stringUnit":{"state":"translated","value":"リレーポリシーを更新"}}}},
+    "mobile.iroh.relays": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Iroh Relays"}},"ja":{"stringUnit":{"state":"translated","value":"Iroh リレー"}}}},
+    "mobile.iroh.relays.footer": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Direct peer-to-peer stays enabled. cmux verifies a signed relay catalog, so fleet changes do not require an app update."}},"ja":{"stringUnit":{"state":"translated","value":"ピアツーピアの直接接続は有効なままです。cmux は署名済みリレーカタログを検証するため、フリート変更にアプリ更新は不要です。"}}}},
+    "mobile.iroh.saveFailed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Could Not Save Networking Settings"}},"ja":{"stringUnit":{"state":"translated","value":"ネットワーク設定を保存できませんでした"}}}},
+    "mobile.iroh.saveFailed.message": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Your previous networking configuration is still active. Check your account connection and values, then try again."}},"ja":{"stringUnit":{"state":"translated","value":"以前のネットワーク設定が引き続き有効です。アカウント接続と値を確認して、もう一度お試しください。"}}}},
+    "mobile.iroh.status": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Connection"}},"ja":{"stringUnit":{"state":"translated","value":"接続"}}}},
+    "mobile.iroh.status.active": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Iroh Active"}},"ja":{"stringUnit":{"state":"translated","value":"Iroh 稼働中"}}}},
+    "mobile.iroh.status.degraded": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Direct-Only"}},"ja":{"stringUnit":{"state":"translated","value":"直接接続のみ"}}}},
+    "mobile.iroh.status.direct": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Direct Peer-to-Peer"}},"ja":{"stringUnit":{"state":"translated","value":"ピアツーピア直接接続"}}}},
+    "mobile.iroh.status.inactive": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Inactive"}},"ja":{"stringUnit":{"state":"translated","value":"停止中"}}}},
+    "mobile.iroh.status.private": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Private Network"}},"ja":{"stringUnit":{"state":"translated","value":"プライベートネットワーク"}}}},
+    "mobile.iroh.status.relayed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Relayed"}},"ja":{"stringUnit":{"state":"translated","value":"リレー経由"}}}},
+    "mobile.iroh.status.starting": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Starting"}},"ja":{"stringUnit":{"state":"translated","value":"起動中"}}}},
+    "mobile.iroh.test": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Test Connection"}},"ja":{"stringUnit":{"state":"translated","value":"接続をテスト"}}}},
+    "mobile.iroh.test.failed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Unreachable"}},"ja":{"stringUnit":{"state":"translated","value":"到達不可"}}}},
+    "mobile.iroh.test.incomplete": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Test Unavailable"}},"ja":{"stringUnit":{"state":"translated","value":"テスト利用不可"}}}},
+    "mobile.iroh.test.reachable": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Reachable"}},"ja":{"stringUnit":{"state":"translated","value":"到達可能"}}}},
+    "mobile.iroh.title": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Iroh and Relays"}},"ja":{"stringUnit":{"state":"translated","value":"Iroh とリレー"}}}}
   },
   "version": "1.0"
 }

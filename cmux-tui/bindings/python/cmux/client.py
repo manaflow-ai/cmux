@@ -39,6 +39,12 @@ class EmptyResult:
 
 
 @dataclass(frozen=True)
+class ResizeSurfaceResult:
+    accepted: bool
+    reservation_id: Optional[int] = None
+
+
+@dataclass(frozen=True)
 class IdentifyResult:
     app: str
     version: str
@@ -151,6 +157,11 @@ class Event:
     replay: Optional[str] = None
     offset: Optional[int] = None
     at_bottom: Optional[bool] = None
+    title: Optional[str] = None
+    scope: Optional[str] = None
+    error: Optional[str] = None
+    retry_after_ms: Optional[int] = None
+    reservation_id: Optional[int] = None
 
     @property
     def bytes_data(self) -> Optional[bytes]:
@@ -232,12 +243,15 @@ class _Stream:
         if self._closed:
             raise StopIteration
         if self._queue:
-            return self._queue.pop(0)
+            event = self._queue.pop(0)
+            if event.event in ("detached", "overflow"):
+                self.close()
+            return event
         value = self._conn.recv()
         if "event" not in value:
             return self.__next__()
         event = _parse_event(value)
-        if event.event == "detached":
+        if event.event in ("detached", "overflow"):
             self.close()
         return event
 
@@ -480,9 +494,12 @@ class CmuxClient:
         self._request("rename-workspace", workspace=workspace, name=name)
         return EmptyResult()
 
-    def resize_surface(self, surface: int, cols: int, rows: int) -> EmptyResult:
-        self._request("resize-surface", surface=surface, cols=cols, rows=rows)
-        return EmptyResult()
+    def resize_surface(self, surface: int, cols: int, rows: int) -> ResizeSurfaceResult:
+        data = self._request("resize-surface", surface=surface, cols=cols, rows=rows)
+        return ResizeSurfaceResult(
+            accepted=bool(data.get("accepted", True)),
+            reservation_id=data.get("reservation_id"),
+        )
 
     def focus_pane(self, pane: int) -> EmptyResult:
         self._request("focus-pane", pane=pane)
@@ -525,6 +542,8 @@ class CmuxClient:
 
     def attach_surface(self, surface: int) -> AttachStream:
         protocol = self._protocol if self._protocol is not None else self.identify().protocol
+        if protocol > 7:
+            raise ProtocolError(f"unsupported protocol {protocol}; maximum supported is 7")
         if protocol > 5 and not self.allow_protocol_v6_attach:
             raise ProtocolError("protocol v6 attach streams require resized replay handling")
         return AttachStream(self, {"cmd": "attach-surface", "surface": surface})
@@ -614,4 +633,9 @@ def _parse_event(value: Dict[str, Any]) -> Event:
         replay=value.get("replay"),
         offset=value.get("offset"),
         at_bottom=value.get("at_bottom"),
+        title=value.get("title"),
+        scope=value.get("scope"),
+        error=value.get("error"),
+        retry_after_ms=value.get("retry_after_ms"),
+        reservation_id=value.get("reservation_id"),
     )
