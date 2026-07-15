@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-func TestPersistentDaemonServerFailsClosedOnCorruptRuntimeState(t *testing.T) {
+func TestPersistentDaemonServerKeepsPTYAvailableAndFailsRuntimeStateClosedOnCorruption(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "slot", "runtime-state.json")
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatalf("create runtime state directory: %v", err)
@@ -47,13 +47,61 @@ func TestPersistentDaemonServerFailsClosedOnCorruptRuntimeState(t *testing.T) {
 	}()
 	select {
 	case err := <-done:
-		if err == nil || !strings.Contains(err.Error(), "runtime state") {
-			t.Fatalf("corrupt runtime state error = %v", err)
-		}
+		t.Fatalf("corrupt optional runtime state stopped persistent daemon: %v", err)
 	case <-acceptingListener.started:
-		t.Fatal("persistent daemon accepted connections with corrupt runtime state")
 	case <-time.After(time.Second):
-		t.Fatal("persistent daemon did not reject corrupt runtime state")
+		t.Fatal("persistent daemon did not begin accepting connections")
+	}
+
+	conn, reader, writer := openPersistentTestClient(t, socketPath, "token")
+	ping := persistentTestRPCCall(t, conn, reader, writer, rpcRequest{
+		ID:     "ping-after-corruption",
+		Method: "ping",
+		Params: map[string]any{},
+	})
+	if ok, _ := ping["ok"].(bool); !ok {
+		t.Fatalf("persistent daemon ping failed with corrupt runtime state: %v", ping)
+	}
+	ptyList := persistentTestRPCCall(t, conn, reader, writer, rpcRequest{
+		ID:     "pty-list-after-corruption",
+		Method: "pty.list",
+		Params: map[string]any{},
+	})
+	if ok, _ := ptyList["ok"].(bool); !ok {
+		t.Fatalf("PTY service failed with corrupt runtime state: %v", ptyList)
+	}
+
+	runtimeStateRequests := []rpcRequest{
+		{ID: "get-after-corruption", Method: "runtime.state.get", Params: map[string]any{}},
+		{ID: "subscribe-after-corruption", Method: "runtime.state.subscribe", Params: map[string]any{}},
+		{
+			ID:     "put-after-corruption",
+			Method: "runtime.state.put",
+			Params: map[string]any{
+				"schema_version": 1,
+				"state":          map[string]any{"title": "must-not-overwrite"},
+			},
+		},
+	}
+	for _, request := range runtimeStateRequests {
+		response := persistentTestRPCCall(t, conn, reader, writer, request)
+		if ok, _ := response["ok"].(bool); ok {
+			t.Fatalf("%s unexpectedly succeeded with corrupt runtime state: %v", request.Method, response)
+		}
+		errorObject, _ := response["error"].(map[string]any)
+		if errorObject["code"] != "runtime_state_unavailable" {
+			t.Fatalf("%s error = %v, want runtime_state_unavailable", request.Method, errorObject)
+		}
+	}
+	_ = conn.Close()
+	_ = listener.Close()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("stop persistent daemon: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("persistent daemon did not stop")
 	}
 
 	data, err := os.ReadFile(path)
@@ -62,6 +110,9 @@ func TestPersistentDaemonServerFailsClosedOnCorruptRuntimeState(t *testing.T) {
 	}
 	if string(data) != "not-json" {
 		t.Fatalf("corrupt runtime state changed to %q", data)
+	}
+	if !strings.Contains(stderr.String(), "runtime state") {
+		t.Fatalf("missing corrupt runtime state diagnostic: %q", stderr.String())
 	}
 }
 
