@@ -17,13 +17,6 @@ private final class FakeDebugV1ControlCommandContext: ControlCommandContext {
     var rightSidebarResolution: ControlDebugRightSidebarFocusResolution = .windowNotFound
     var remoteTmuxSizingPayload: JSONValue?
 
-    var processMetrics = JSONValue.object([
-        "process_snapshots": .object(["capture_started": .int(3)])
-    ])
-    var processMetricsReadCount = 0
-    var processMetricsResetCount = 0
-    var typedTexts: [String] = []
-
     func controlDebugSetShortcut(arguments: String) -> String {
         setShortcutArguments = arguments
         return setShortcutResponse
@@ -37,24 +30,6 @@ private final class FakeDebugV1ControlCommandContext: ControlCommandContext {
         rightSidebarMode = modeName
         rightSidebarFocusFirstItem = focusFirstItem
         return rightSidebarResolution
-    }
-
-    func controlDebugReadProcessPerformanceMetrics() -> JSONValue? {
-        processMetricsReadCount += 1
-        return processMetrics
-    }
-
-    func controlDebugResetProcessPerformanceMetrics() -> JSONValue? {
-        processMetricsResetCount += 1
-        processMetrics = .object([
-            "process_snapshots": .object(["capture_started": .int(0)])
-        ])
-        return processMetrics
-    }
-
-    func controlDebugTypeText(_ text: String) -> ControlDebugTypeResolution {
-        typedTexts.append(text)
-        return .inserted
     }
 
     func controlDebugRemoteTmuxSizingSettled() -> JSONValue? {
@@ -145,43 +120,6 @@ struct ControlCommandCoordinatorDebugV1Tests {
         ))
         let reply = coordinator.handleDebugV1(command: "debug_right_sidebar_focus", args: "split")
         #expect(reply == "ERROR: mode=split active= visible=0 context=0 state=0 focus=0")
-    }
-
-    @Test func processMetricsReadAndResetUseSharedDebugDomain() {
-        let (coordinator, context) = makeCoordinator()
-        let read = coordinator.handle(ControlRequest(
-            id: .int(1),
-            method: "debug.process_metrics.read",
-            params: [:]
-        ))
-        #expect(read == .ok(.object([
-            "process_snapshots": .object(["capture_started": .int(3)])
-        ])))
-        #expect(context.processMetricsReadCount == 1)
-
-        let reset = coordinator.handle(ControlRequest(
-            id: .int(2),
-            method: "debug.process_metrics.reset",
-            params: [:]
-        ))
-        #expect(reset == .ok(.object([
-            "process_snapshots": .object(["capture_started": .int(0)])
-        ])))
-        #expect(context.processMetricsResetCount == 1)
-    }
-
-    @Test func typingDoesNotReadOrResetProcessMetrics() {
-        let (coordinator, context) = makeCoordinator()
-        let result = coordinator.handle(ControlRequest(
-            id: .int(1),
-            method: "debug.type",
-            params: ["text": .string("typing workload")]
-        ))
-
-        #expect(result == .ok(.object([:])))
-        #expect(context.typedTexts == ["typing workload"])
-        #expect(context.processMetricsReadCount == 0)
-        #expect(context.processMetricsResetCount == 0)
     }
 }
 #endif
