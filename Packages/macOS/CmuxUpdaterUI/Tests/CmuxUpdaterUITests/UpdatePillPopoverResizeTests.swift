@@ -15,11 +15,12 @@ struct UpdatePillPopoverResizeTests {
             isPresented: Binding(
                 get: { isPresented },
                 set: { isPresented = $0 }
-            ),
-            popover: popover
+            )
         )
+        coordinator.popover = popover
 
         coordinator.updateRootView(popoverContent(width: 180, height: 80))
+        await Task.yield()
         #expect(popover.isShown)
         #expect(popover.animates)
         popover.resetRecordedAssignments()

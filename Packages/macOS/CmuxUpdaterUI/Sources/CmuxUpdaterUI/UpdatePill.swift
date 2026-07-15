@@ -147,11 +147,10 @@ struct UpdatePillPopoverAnchor: NSViewRepresentable {
         weak var anchorView: NSView?
         private let hostingController = NSHostingController(rootView: AnyView(EmptyView()))
         private var visibleUpdateTask: Task<Void, Never>?
-        private var popover: NSPopover?
+        var popover: NSPopover?
 
-        init(isPresented: Binding<Bool>, popover: NSPopover? = nil) {
+        init(isPresented: Binding<Bool>) {
             _isPresented = isPresented
-            self.popover = popover
         }
 
         func updateRootView(_ rootView: AnyView) {
