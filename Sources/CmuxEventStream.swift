@@ -114,8 +114,15 @@ extension TerminalController {
         _ signal: SocketAuthorizationRevocationSignal,
         subscription: CmuxEventSubscription
     ) -> (any DispatchSourceRead)? {
-        let descriptor = signal.readFileDescriptor
+        let signalDescriptor = signal.readFileDescriptor
+        guard signalDescriptor >= 0 else { return nil }
+
+        // Dispatch source cancellation is asynchronous. Give the source its
+        // own descriptor so the signal may release its copy without racing a
+        // pending event handler, then close this copy in the cancel handler.
+        let descriptor = dup(signalDescriptor)
         guard descriptor >= 0 else { return nil }
+        _ = fcntl(descriptor, F_SETFD, FD_CLOEXEC)
 
         // DispatchSource bridges the pollable revocation pipe into the
         // subscription's existing wake signal without a timer or polling loop.
@@ -125,6 +132,9 @@ extension TerminalController {
         )
         source.setEventHandler {
             subscription.close()
+        }
+        source.setCancelHandler {
+            close(descriptor)
         }
         source.activate()
         return source
