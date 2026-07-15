@@ -58,4 +58,32 @@ import Testing
         #expect(await firstEvent.value?.method == "Target.targetInfoChanged")
         #expect(await secondEvent.value?.method == "Target.targetInfoChanged")
     }
+
+    @Test func screencastPressureDoesNotEvictControlEvents() async throws {
+        let transport = BufferedCDPWebSocketTransport()
+        let connection = CDPConnection(transport: transport)
+        await connection.connect()
+        let events = await connection.events(sessionID: "target")
+        let controlEvent = try JSONSerialization.data(withJSONObject: [
+            "method": "Fetch.requestPaused",
+            "sessionId": "target",
+            "params": ["requestId": "request-1"],
+        ])
+        await transport.deliverAndWaitUntilConsumed(controlEvent)
+
+        for frameIndex in 0..<300 {
+            let frame = try JSONSerialization.data(withJSONObject: [
+                "method": "Page.screencastFrame",
+                "sessionId": "target",
+                "params": ["sessionId": frameIndex, "data": "frame"],
+            ])
+            await transport.deliverAndWaitUntilConsumed(frame)
+        }
+
+        var iterator = events.makeAsyncIterator()
+        let retainedEvent = await iterator.next()
+        await connection.close()
+
+        #expect(retainedEvent?.method == "Fetch.requestPaused")
+    }
 }
