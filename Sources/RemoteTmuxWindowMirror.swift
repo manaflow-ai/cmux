@@ -44,6 +44,14 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     /// Creates a configured manual-I/O pane panel whose input goes to `tmuxPaneId`.
     @ObservationIgnored let makePanel: (_ tmuxPaneId: Int) -> TerminalPanel?
     @ObservationIgnored var onClosePaneRequest: ((Int) -> Void)?
+    /// Establishes keyboard (first-responder) focus for a pane the mirror just
+    /// created and made active. A freshly split pane is born active and visible
+    /// inside an already-visible tab, so neither the surface's active nor its
+    /// visibility false→true edge fires — the pane shows the selection highlight
+    /// but owns no key focus until clicked. This drives the same first-responder
+    /// establishment a click does, on the creation event edge. `nil` in headless
+    /// and direct-construction callers.
+    @ObservationIgnored let onEstablishPaneKeyFocus: ((_ tmuxPaneId: Int, _ panel: TerminalPanel) -> Void)?
     /// Session-owned control identity lookup. Render nodes are replaceable.
     @ObservationIgnored private let controlPaneID: (Int) -> PaneID?
     @ObservationIgnored private let onControlSurfaceChanged: ((Int, UUID?) -> Void)?
@@ -293,12 +301,14 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         controlPaneID: @escaping (Int) -> PaneID? = { _ in nil },
         onControlSurfaceChanged: ((Int, UUID?) -> Void)? = nil,
         adoptedPanes: [AdoptedPane] = [],
+        onEstablishPaneKeyFocus: ((_ tmuxPaneId: Int, _ panel: TerminalPanel) -> Void)? = nil,
         makePanel: @escaping (_ tmuxPaneId: Int) -> TerminalPanel?
     ) {
         self.windowId = windowId
         self.panelId = panelId
         self.connection = connection
         self.workspaceBonsplitController = workspaceBonsplitController
+        self.onEstablishPaneKeyFocus = onEstablishPaneKeyFocus
         self.makePanel = makePanel
         self.geometrySource = geometrySource
         self.hostingContentSizeSource = hostingContentSizeSource
