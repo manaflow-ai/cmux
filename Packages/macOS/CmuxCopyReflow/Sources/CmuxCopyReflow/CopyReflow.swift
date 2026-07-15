@@ -18,13 +18,18 @@ extension ReflowOptions {
     /// width). It never joins across a line ending in sentence punctuation,
     /// and never width-joins a block narrower than
     /// ``ReflowOptions/minWrapWidth``.
-    public func reflow(_ text: String) -> String {
-        reflowCopiedText(text)
+    /// - Parameters:
+    ///   - text: The copied terminal text to transform.
+    ///   - terminalWidth: The current terminal width in columns. Ambiguous
+    ///     command-token continuations are joined only when the preceding row
+    ///     reaches this width. Pass `nil` when the width is unavailable.
+    public func reflow(_ text: String, terminalWidth: Int? = nil) -> String {
+        reflowCopiedText(text, terminalWidth: terminalWidth)
     }
 }
 
 private extension ReflowOptions {
-    func reflowCopiedText(_ text: String) -> String {
+    func reflowCopiedText(_ text: String, terminalWidth: Int?) -> String {
         if text.isEmpty { return text }
 
         let hadTrailingNewline = text.hasSuffix("\n")
@@ -177,9 +182,10 @@ private extension ReflowOptions {
                     // s4: mid-sentence continuation. The previous line is full
                     //     enough to have wrapped (prose-like, within widthTolerance
                     //     of the candidate paragraph's widest line) and this line
-                    //     resumes lowercase or with a command continuation token.
-                    //     Uppercase starts, list markers, and digits still do not
-                    //     trigger it, which keeps line-oriented output unjoined.
+                    //     resumes lowercase. Ambiguous command continuation
+                    //     tokens additionally require the actual terminal width.
+                    //     Uppercase starts, list markers, and digits still do
+                    //     not trigger it, which keeps line-oriented output unjoined.
                     let candidateMaxVisibleLength = max(p.maxVisibleLength, visLen)
                     let previousLineWasFull = p.prevVisibleLength >= minWrapWidth
                         && p.prevVisibleLength + max(0, widthTolerance) >= candidateMaxVisibleLength
@@ -191,7 +197,14 @@ private extension ReflowOptions {
                             alreadyJoined: p.hasJoined
                         )
                         && !startsIndependentRecord(content, after: p.prevContent)
+                    let nonnegativeWidthTolerance = max(0, widthTolerance)
+                    let reachedTerminalWidth = terminalWidth.map { width in
+                        width >= minWrapWidth
+                            && p.prevVisibleLength >= width - nonnegativeWidthTolerance
+                            && p.prevVisibleLength <= width + nonnegativeWidthTolerance
+                    } ?? false
                     let commandContinuation = startsCommandContinuationToken(content)
+                        && reachedTerminalWidth
                         && !startsCommandContinuationToken(p.prevContent)
                         && !startsOptionLikeRow(p.prevContent)
                     let s4 = p.prevHasSpace

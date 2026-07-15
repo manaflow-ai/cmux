@@ -4831,6 +4831,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         let text = reflowedCopyTextIfEligible(
             selectedText,
+            terminalWidth: Int(ghostty_surface_size(surface).columns),
             reflowRequested: reflow,
             selectionMayBeRectangular: bypassReflowForRectangularSelection
         ) ?? selectedText
@@ -4863,6 +4864,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
               let original = pasteboard.string(forType: .string),
               let reflowed = reflowedCopyTextIfEligible(
                   original,
+                  terminalWidth: Int(ghostty_surface_size(surface).columns),
                   reflowRequested: reflowRequested,
                   selectionMayBeRectangular: selectionMayBeRectangular
               ) else { return }
@@ -4911,6 +4913,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func reflowedCopyTextIfEligible(
         _ text: String,
+        terminalWidth: Int,
         reflowRequested: Bool,
         selectionMayBeRectangular: Bool
     ) -> String? {
@@ -4919,7 +4922,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
               reflowCopySettings.value(for: reflowCopyKey),
               !text.isEmpty,
               shouldReflowCopiedText(text) else { return nil }
-        let reflowed = ReflowOptions.default.reflow(text)
+        let reflowed = ReflowOptions.default.reflow(text, terminalWidth: terminalWidth)
         return reflowed == text ? nil : reflowed
     }
 
@@ -4930,6 +4933,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // become seam gaps.
             let text = reflowedCopyTextIfEligible(
                 selectedText,
+                terminalWidth: Int(ghostty_surface_size(surface).columns),
                 reflowRequested: true,
                 selectionMayBeRectangular: false
             ) ?? selectedText

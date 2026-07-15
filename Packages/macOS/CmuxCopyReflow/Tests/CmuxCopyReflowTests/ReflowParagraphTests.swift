@@ -134,7 +134,7 @@ struct ReflowParagraphTests {
             "swift run cmux-tool generate-report --workspace current --output\n"
             + "--another-option /tmp/cmux-report.json\n"
         #expect(
-            reflow(input)
+            ReflowOptions.default.reflow(input, terminalWidth: 64)
                 == "swift run cmux-tool generate-report --workspace current --output --another-option /tmp/cmux-report.json\n"
         )
     }
@@ -144,7 +144,7 @@ struct ReflowParagraphTests {
             "rsync -avz --delete --exclude DerivedData --exclude .build source\n"
             + "/Volumes/External Backups/cmux source mirror\n"
         #expect(
-            reflow(input)
+            ReflowOptions.default.reflow(input, terminalWidth: 65)
                 == "rsync -avz --delete --exclude DerivedData --exclude .build source /Volumes/External Backups/cmux source mirror\n"
         )
     }
@@ -154,6 +154,7 @@ struct ReflowParagraphTests {
             "echo completed artifact generation for release candidate output\n"
             + "/tmp/report.txt\n"
         #expect(reflow(input) == input)
+        #expect(ReflowOptions.default.reflow(input, terminalWidth: 80) == input)
     }
 
     @Test func shellPipelineCommandRejoinsWrappedContinuation() {
@@ -161,7 +162,7 @@ struct ReflowParagraphTests {
             "find . -name \"*.log\" -mtime +7 -delete | tee /tmp/deleted-log-files.txt\n"
             + "--verbose /tmp/cmux-cleanup-report.txt\n"
         #expect(
-            reflow(input)
+            ReflowOptions.default.reflow(input, terminalWidth: 71)
                 == "find . -name \"*.log\" -mtime +7 -delete | tee /tmp/deleted-log-files.txt --verbose /tmp/cmux-cleanup-report.txt\n"
         )
     }
