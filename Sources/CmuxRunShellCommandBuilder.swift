@@ -7,8 +7,8 @@ struct CmuxRunShellCommandBuilder {
 
     var launchCommand: String {
         let script = """
-        builtin cd -- \(shellQuote(workingDirectory)) || exit $?
-        [[ "$(command /usr/bin/stat -f '%d:%i' .)" == \(shellQuote(approvedIdentity.shellToken)) ]] || exit 125
+        builtin cd -- \(shellQuote(workingDirectory)) || builtin exit -- $?
+        [[ "$(command /usr/bin/stat -f '%d:%i' .)" == \(shellQuote(approvedIdentity.shellToken)) ]] || builtin exit 125
         \(command)
         """
         return "/bin/zsh -lc \(shellQuote(script))"
