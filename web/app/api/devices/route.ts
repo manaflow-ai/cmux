@@ -49,6 +49,7 @@ const MAX_TAG_LENGTH = 64;
 const MAX_LIVE_SESSIONS_PER_RESPONSE = 500;
 const MAX_LIVE_SESSION_INSTANCE_ROWS = 64;
 const MAX_LIVE_SESSION_RESPONSE_BYTES = 512 * 1024;
+const MAX_DISPLAY_NAME_LENGTH = 128;
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -344,6 +345,77 @@ type DeviceListRow = {
   lastSeenAt: Date;
 };
 
+type LiveSessionWireInstance = {
+  tag: string;
+  routes: Record<string, unknown>[];
+  sessions: ReturnType<typeof liveSessionsFromFreshInstance>;
+  lastSeenAt: string;
+};
+
+type LiveSessionWireDevice = {
+  deviceId: string;
+  displayName: string | null;
+  platform: string;
+  instances: LiveSessionWireInstance[];
+};
+
+type EncodedLiveSessionDevice = Omit<LiveSessionWireDevice, "instances"> & {
+  prefix: string;
+  encodedInstances: string[];
+};
+
+function boundedDisplayName(value: string | null): string | null {
+  if (!value) return null;
+  return Array.from(value.toWellFormed()).slice(0, MAX_DISPLAY_NAME_LENGTH).join("");
+}
+
+class LiveSessionResponseBuilder {
+  private readonly encoder = new TextEncoder();
+  private readonly devices: EncodedLiveSessionDevice[] = [];
+  private readonly devicesByID = new Map<string, EncodedLiveSessionDevice>();
+  private encodedByteLength = this.encoder.encode('{"devices":[]}').byteLength;
+
+  append(device: Omit<LiveSessionWireDevice, "instances">, instance: LiveSessionWireInstance): boolean {
+    const encodedInstance = JSON.stringify(instance);
+    const instanceByteLength = this.encoder.encode(encodedInstance).byteLength;
+    const existing = this.devicesByID.get(device.deviceId);
+    if (existing) {
+      const addedByteLength = instanceByteLength + (existing.encodedInstances.length > 0 ? 1 : 0);
+      if (this.encodedByteLength + addedByteLength > MAX_LIVE_SESSION_RESPONSE_BYTES) return false;
+      existing.encodedInstances.push(encodedInstance);
+      this.encodedByteLength += addedByteLength;
+      return true;
+    }
+
+    const prefix = `{"deviceId":${JSON.stringify(device.deviceId)},"displayName":${JSON.stringify(device.displayName)},"platform":${JSON.stringify(device.platform)},"instances":[`;
+    const deviceSyntaxByteLength = this.encoder.encode(prefix).byteLength + 2;
+    const addedByteLength = deviceSyntaxByteLength
+      + instanceByteLength
+      + (this.devices.length > 0 ? 1 : 0);
+    if (this.encodedByteLength + addedByteLength > MAX_LIVE_SESSION_RESPONSE_BYTES) return false;
+
+    const encodedDevice: EncodedLiveSessionDevice = {
+      ...device,
+      prefix,
+      encodedInstances: [encodedInstance],
+    };
+    this.devices.push(encodedDevice);
+    this.devicesByID.set(device.deviceId, encodedDevice);
+    this.encodedByteLength += addedByteLength;
+    return true;
+  }
+
+  response(): Response {
+    const encodedDevices = this.devices.map((device) => (
+      `${device.prefix}${device.encodedInstances.join(",")}]}`
+    ));
+    return new Response(`{"devices":[${encodedDevices.join(",")}]}`, {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }
+}
+
 /**
  * List the team's registered devices and their app instances, so a phone can
  * find the Mac it last paired with and refresh routes on reload.
@@ -366,6 +438,7 @@ export async function GET(request: Request): Promise<Response> {
       .select({
         id: devices.id,
         deviceUuid: devices.deviceUuid,
+        displayName: devices.displayName,
         platform: devices.platform,
       })
       .from(devices)
@@ -401,19 +474,9 @@ export async function GET(request: Request): Promise<Response> {
         .limit(MAX_LIVE_SESSION_INSTANCE_ROWS);
 
     const devicesByID = new Map(liveDeviceRows.map((device) => [device.id, device]));
-    const liveDevicesPayload: Array<{
-      deviceId: string;
-      platform: string;
-      instances: Array<{
-        tag: string;
-        routes: Record<string, unknown>[];
-        sessions: ReturnType<typeof liveSessionsFromFreshInstance>;
-        lastSeenAt: string;
-      }>;
-    }> = [];
+    const responseBuilder = new LiveSessionResponseBuilder();
     let remainingSessionBudget = MAX_LIVE_SESSIONS_PER_RESPONSE;
     const sessionLeaseNow = new Date();
-    const encoder = new TextEncoder();
 
     for (const instance of liveInstanceRows) {
       if (remainingSessionBudget === 0) break;
@@ -434,29 +497,21 @@ export async function GET(request: Request): Promise<Response> {
         sessions,
         lastSeenAt: instance.lastSeenAt.toISOString(),
       };
-      const deviceIndex = liveDevicesPayload.findIndex((entry) => entry.deviceId === device.deviceUuid);
-      const candidateDevices = liveDevicesPayload.map((entry) => ({
-        ...entry,
-        instances: [...entry.instances],
-      }));
-      if (deviceIndex >= 0) {
-        candidateDevices[deviceIndex].instances.push(wireInstance);
-      } else {
-        candidateDevices.push({
+      if (responseBuilder.append(
+        {
           deviceId: device.deviceUuid,
+          displayName: boundedDisplayName(device.displayName),
           platform: device.platform,
-          instances: [wireInstance],
-        });
-      }
-      const candidateBody = { devices: candidateDevices };
-      if (encoder.encode(JSON.stringify(candidateBody)).byteLength > MAX_LIVE_SESSION_RESPONSE_BYTES) {
+        },
+        wireInstance,
+      )) {
+        remainingSessionBudget -= sessions.length;
+      } else {
         continue;
       }
-      liveDevicesPayload.splice(0, liveDevicesPayload.length, ...candidateDevices);
-      remainingSessionBudget -= sessions.length;
     }
 
-    return jsonResponse({ devices: liveDevicesPayload });
+    return responseBuilder.response();
   }
 
   const deviceRows = (await db

@@ -358,8 +358,8 @@ describe("device registry route", () => {
     const NativeTextEncoder = globalThis.TextEncoder;
     let encodedInputBytes = 0;
     class TrackingTextEncoder extends NativeTextEncoder {
-      override encode(input?: string): Uint8Array {
-        const encoded = super.encode(input);
+      override encode(input?: string): Uint8Array<ArrayBuffer> {
+        const encoded = super.encode(input) as Uint8Array<ArrayBuffer>;
         encodedInputBytes += encoded.byteLength;
         return encoded;
       }

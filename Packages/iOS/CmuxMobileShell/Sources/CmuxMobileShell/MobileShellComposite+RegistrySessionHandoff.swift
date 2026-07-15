@@ -42,17 +42,24 @@ extension MobileShellComposite {
         }
         let previousActive = pairedMacs.first(where: \.isActive)
 
+        let connectionMutationID = beginConnectionMutation()
         await connectToRegistryInstance(
             device: device,
             instance: instance,
             ifStillCurrent: canContinue,
-            ifRollbackStillOwned: ownsAttempt
+            owningConnectionMutation: connectionMutationID
         )
+        func restorePreviousConnection() async {
+            await restorePreviousMacAfterInterruptedFlow(
+                previousActive,
+                replacingConnectionMutationID: connectionMutationID
+            )
+        }
         guard canContinue(),
               connectionState == .connected,
               connectedMacDeviceID == device.deviceId,
               activeMacInstanceTag == instance.tag else {
-            await restorePreviousMacAfterInterruptedFlow(previousActive, ifStillCurrent: ownsAttempt)
+            await restorePreviousConnection()
             return nil
         }
 
@@ -64,7 +71,7 @@ extension MobileShellComposite {
                   workspaces: workspaces,
                   authoritativeRefreshSucceeded: authoritativeRefreshSucceeded
               ) else {
-            await restorePreviousMacAfterInterruptedFlow(previousActive, ifStillCurrent: ownsAttempt)
+            await restorePreviousConnection()
             if canContinue() { await loadRegistryDevices() }
             return nil
         }
@@ -78,12 +85,12 @@ extension MobileShellComposite {
                       advertisedSession: session,
                       authoritativeSessions: authoritativeSessions
                   ) else {
-                await restorePreviousMacAfterInterruptedFlow(previousActive, ifStillCurrent: ownsAttempt)
+                await restorePreviousConnection()
                 if canContinue() { await loadRegistryDevices() }
                 return nil
             }
             guard canContinue() else {
-                await restorePreviousMacAfterInterruptedFlow(previousActive, ifStillCurrent: ownsAttempt)
+                await restorePreviousConnection()
                 return nil
             }
             rememberRegistryHandoffChatSessions(authoritativeSessions, workspaceID: workspaceID)
@@ -92,24 +99,24 @@ extension MobileShellComposite {
         }
 
         guard canContinue() else {
-            await restorePreviousMacAfterInterruptedFlow(previousActive, ifStillCurrent: ownsAttempt)
+            await restorePreviousConnection()
             return nil
         }
         if let terminalID,
            let workspace = workspaces.first(where: { $0.id == workspaceID }),
            let terminal = workspace.terminals.first(where: { $0.id.rawValue == terminalID }) {
             guard canContinue() else {
-                await restorePreviousMacAfterInterruptedFlow(previousActive, ifStillCurrent: ownsAttempt)
+                await restorePreviousConnection()
                 return nil
             }
             selectTerminal(terminal.id)
         } else if authoritativeAgentSessionID != nil {
-            await restorePreviousMacAfterInterruptedFlow(previousActive, ifStillCurrent: ownsAttempt)
+            await restorePreviousConnection()
             if canContinue() { await loadRegistryDevices() }
             return nil
         }
         guard canContinue() else {
-            await restorePreviousMacAfterInterruptedFlow(previousActive, ifStillCurrent: ownsAttempt)
+            await restorePreviousConnection()
             return nil
         }
         if let authoritativeAgentSessionID {
@@ -125,22 +132,22 @@ extension MobileShellComposite {
     static func registryHandoffShouldRestorePreviousMac(
         hasPreviousActive: Bool,
         canContinue: Bool,
-        stillOwnsAttempt: Bool
+        connectionMutationIsCurrent: Bool
     ) -> Bool {
-        hasPreviousActive && !canContinue && stillOwnsAttempt
+        hasPreviousActive && !canContinue && connectionMutationIsCurrent
     }
 
     /// Restore outside a cancelled caller so an interrupted destructive switch can still complete.
     func restorePreviousMacAfterInterruptedFlow(
         _ previousActive: MobilePairedMac?,
-        ifStillCurrent: @escaping () -> Bool = { true }
+        replacingConnectionMutationID: UUID?
     ) async {
-        guard previousActive != nil, ifStillCurrent() else { return }
+        guard previousActive != nil else { return }
         let restoration = Task { @MainActor [weak self] in
-            guard let self, ifStillCurrent() else { return false }
+            guard let self else { return false }
             return await self.restorePreviousMacIfNeeded(
                 previousActive,
-                ifStillCurrent: ifStillCurrent
+                replacingConnectionMutationID: replacingConnectionMutationID
             )
         }
         _ = await restoration.value

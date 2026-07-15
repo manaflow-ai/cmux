@@ -393,18 +393,33 @@ import Testing
         #expect(CMUXMobileShellStore.registryHandoffShouldRestorePreviousMac(
             hasPreviousActive: true,
             canContinue: false,
-            stillOwnsAttempt: true
+            connectionMutationIsCurrent: true
         ))
-        #expect(CMUXMobileShellStore.registryHandoffShouldRestorePreviousMac(
+        #expect(!CMUXMobileShellStore.registryHandoffShouldRestorePreviousMac(
             hasPreviousActive: true,
             canContinue: false,
-            stillOwnsAttempt: false
+            connectionMutationIsCurrent: false
         ))
         #expect(!CMUXMobileShellStore.registryHandoffShouldRestorePreviousMac(
             hasPreviousActive: false,
             canContinue: false,
-            stillOwnsAttempt: true
+            connectionMutationIsCurrent: true
         ))
+    }
+
+    @Test func navigationInvalidationDoesNotSupersedeConnectionMutationOwnership() {
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            identityProvider: StaticIdentityProvider(userID: "user-1")
+        )
+        let handoffMutation = store.beginConnectionMutation()
+        _ = store.beginRegistrySessionHandoffAttempt()
+
+        store.invalidateRegistrySessionHandoffAttempt()
+
+        #expect(store.isCurrentConnectionMutation(handoffMutation))
+        _ = store.beginConnectionMutation()
+        #expect(!store.isCurrentConnectionMutation(handoffMutation))
     }
 }
 

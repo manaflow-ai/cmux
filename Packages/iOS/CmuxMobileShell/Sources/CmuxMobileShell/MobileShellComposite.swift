@@ -731,6 +731,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var createTerminalTaskID: UUID?
     var connectionGeneration: UUID
     var connectionAttemptGeneration: UUID
+    /// Owns destructive connection replacement independently from UI navigation.
+    var connectionMutationGeneration: UUID
     @ObservationIgnored var macSwitchAttemptID: UUID?
     @ObservationIgnored private var macSwitchAttemptSignInGeneration: Int?
     @ObservationIgnored private var macSwitchRestorePreviousOnCancelAttemptIDs: Set<UUID> = []
@@ -982,6 +984,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.createTerminalTaskID = nil
         self.connectionGeneration = UUID()
         self.connectionAttemptGeneration = UUID()
+        self.connectionMutationGeneration = UUID()
         self.chatEventSourceGeneration = UUID()
         self.reportedViewportSizesByTerminalKey = [:]
         self.effectiveViewportSizesBySurfaceID = [:]; self.reportedTerminalViewportSizesBySurfaceID = [:]
@@ -1092,6 +1095,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         invalidateRegistrySessionHandoffAttempt()
         invalidatePairingAttempt()
         clearMacSwitchAttemptState()
+        beginConnectionMutation()
         connectionGeneration = UUID()
         connectionAttemptGeneration = UUID()
         isSignedIn = false
@@ -1528,7 +1532,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pairedMacDeviceID: String? = nil,
         instanceTagExpectation: MobileMacInstanceTagExpectation = .adopt,
         recordsPairingAttempt: Bool,
-        ifStillCurrent: (() -> Bool)? = nil
+        ifStillCurrent: (() -> Bool)? = nil,
+        connectionMutationID: UUID? = nil
     ) async {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) else {
@@ -1565,7 +1570,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let attemptID = recordsPairingAttempt
             ? beginPairingAttempt(
                 method: "manual",
-                invalidatesRegistryHandoff: ifStillCurrent == nil
+                invalidatesRegistryHandoff: ifStillCurrent == nil,
+                connectionMutationID: connectionMutationID
             )
             : beginPairingValidationAttempt()
         // Fast offline preflight: fail immediately instead of stacking
@@ -1585,7 +1591,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 allowsStackAuthFallback: true,
                 pairedMacDeviceID: pairedMacDeviceID,
                 instanceTagExpectation: instanceTagExpectation,
-                ifStillCurrent: ifStillCurrent
+                ifStillCurrent: ifStillCurrent,
+                connectionMutationID: connectionMutationID
             )
             guard isCurrentPairingAttempt(attemptID) else { return }
             if connectionState == .connected {
@@ -2175,10 +2182,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         _ previousActive: MobilePairedMac?,
         switchAttemptID: UUID? = nil,
         cancelRestoreGeneration: UInt64? = nil,
-        ifStillCurrent: (() -> Bool)? = nil
+        ifStillCurrent: (() -> Bool)? = nil,
+        replacingConnectionMutationID: UUID? = nil
     ) async -> Bool {
+        let restoreConnectionMutationID: UUID?
+        if let replacingConnectionMutationID {
+            guard isCurrentConnectionMutation(replacingConnectionMutationID) else { return false }
+            restoreConnectionMutationID = beginConnectionMutation()
+        } else {
+            restoreConnectionMutationID = nil
+        }
         func isRestoreCurrent() -> Bool {
             guard isSignedIn, ifStillCurrent?() ?? true else { return false }
+            if let restoreConnectionMutationID,
+               !isCurrentConnectionMutation(restoreConnectionMutationID) {
+                return false
+            }
             if let switchAttemptID {
                 return isCurrentMacSwitchAttempt(switchAttemptID)
             }
@@ -2211,7 +2230,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             routes: candidateRoutes,
             pairedMacDeviceID: previousActive.macDeviceID,
             instanceTag: previousActive.instanceTag,
-            ifStillCurrent: isRestoreCurrent
+            ifStillCurrent: isRestoreCurrent,
+            connectionMutationID: restoreConnectionMutationID
         )
         let restoreScopeIsCurrent = await isScopeCurrent(restoreScope)
         guard restoreScopeIsCurrent, isRestoreCurrent() else {
@@ -2661,6 +2681,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     public func cancelPairing() {
         invalidatePairingAttempt()
+        beginConnectionMutation()
         clearPairingError()
         if pairingVersionWarning != nil || pendingPairingVersionWarningURL != nil {
             clearPairingVersionWarning()
@@ -2678,6 +2699,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @discardableResult
     public func cancelPendingMacSwitch(restorePreviousOnCancel: Bool = false) -> Task<Bool, Never>? {
         guard let attemptID = macSwitchAttemptID else { return nil }
+        beginConnectionMutation()
         let restoreTarget = restorePreviousOnCancel ? macSwitchRestoreBaseline : nil
         let restoreSignInGeneration = signInGeneration
         let restoreScopeGeneration = secondaryAggregationScopeGeneration
@@ -2736,6 +2758,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// forget-active path below).
     func disconnectLiveConnection(preservingOtherMacWorkspaceState: Bool = false) {
         suppressNextConnectionOutageEdge = true
+        beginConnectionMutation()
         invalidatePairingAttempt()
         clearMacSwitchAttemptState()
         clearPairingError()
@@ -4458,12 +4481,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         allowsStackAuthFallback: Bool? = nil,
         pairedMacDeviceID: String? = nil,
         instanceTagExpectation: MobileMacInstanceTagExpectation = .adopt,
-        ifStillCurrent: (() -> Bool)? = nil
+        ifStillCurrent: (() -> Bool)? = nil,
+        connectionMutationID: UUID? = nil
     ) async throws -> MobilePairingFailureCategory? {
-        guard ifStillCurrent?() ?? true else { return nil }
+        let mutationID = connectionMutationID ?? beginConnectionMutation()
+        guard isCurrentConnectionMutation(mutationID), ifStillCurrent?() ?? true else { return nil }
         let generation = UUID()
         func isConnectCurrent() -> Bool {
-            isCurrentConnectionAttempt(generation) && (ifStillCurrent?() ?? true)
+            isCurrentConnectionAttempt(generation)
+                && isCurrentConnectionMutation(mutationID)
+                && (ifStillCurrent?() ?? true)
         }
         connectionAttemptGeneration = generation
         connectionGeneration = generation
@@ -5055,13 +5082,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// `attach_url`; pass `nil` for non-instrumented internal flows (preview).
     private func beginPairingAttempt(
         method: String? = nil,
-        invalidatesRegistryHandoff: Bool = true
+        invalidatesRegistryHandoff: Bool = true,
+        connectionMutationID: UUID? = nil
     ) -> UUID {
         // Any explicit connect supersedes launch/network recovery, including a
         // recovery suspended in a registry refresh for the same device id.
         storedMacReconnectGeneration &+= 1
         if invalidatesRegistryHandoff {
             invalidateRegistrySessionHandoffAttempt()
+        }
+        if connectionMutationID == nil {
+            beginConnectionMutation()
         }
         let attemptID = beginPairingValidationAttempt(method: method)
         connectionGeneration = UUID()
@@ -5143,8 +5174,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         generation == connectionAttemptGeneration && isSignedIn
     }
 
+    @discardableResult
+    func beginConnectionMutation() -> UUID {
+        let generation = UUID()
+        connectionMutationGeneration = generation
+        return generation
+    }
+
+    func isCurrentConnectionMutation(_ generation: UUID) -> Bool {
+        generation == connectionMutationGeneration && isSignedIn
+    }
+
     private func beginMacSwitchAttempt() -> UUID {
         let attemptID = UUID()
+        beginConnectionMutation()
         macSwitchCancelRestoreGeneration &+= 1
         macSwitchRestorePreviousOnCancelAttemptIDs.removeAll(keepingCapacity: true)
         macSwitchAttemptID = attemptID

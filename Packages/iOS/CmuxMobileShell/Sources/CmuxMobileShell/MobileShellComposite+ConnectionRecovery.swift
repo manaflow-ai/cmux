@@ -263,7 +263,8 @@ extension MobileShellComposite {
         pairedMacDeviceID: String,
         instanceTag: String?,
         recordsPairingAttempt: Bool = false,
-        ifStillCurrent: (() -> Bool)? = nil
+        ifStillCurrent: (() -> Bool)? = nil,
+        connectionMutationID: UUID? = nil
     ) async -> Bool {
         await connectStoredMac(
             name: name,
@@ -273,7 +274,8 @@ extension MobileShellComposite {
                 storedInstanceTag: instanceTag
             ),
             recordsPairingAttempt: recordsPairingAttempt,
-            ifStillCurrent: ifStillCurrent
+            ifStillCurrent: ifStillCurrent,
+            connectionMutationID: connectionMutationID
         )
     }
 
@@ -286,7 +288,8 @@ extension MobileShellComposite {
         pairedMacDeviceID: String,
         instanceTagExpectation: MobileMacInstanceTagExpectation,
         recordsPairingAttempt: Bool = false,
-        ifStillCurrent: (() -> Bool)? = nil
+        ifStillCurrent: (() -> Bool)? = nil,
+        connectionMutationID: UUID? = nil
     ) async -> Bool {
         guard ifStillCurrent?() ?? true else { return false }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
@@ -308,7 +311,8 @@ extension MobileShellComposite {
                     ticket: ticket,
                     pairedMacDeviceID: pairedMacDeviceID,
                     instanceTagExpectation: instanceTagExpectation,
-                    ifStillCurrent: ifStillCurrent
+                    ifStillCurrent: ifStillCurrent,
+                    connectionMutationID: connectionMutationID
                 )
             } catch {
                 guard ifStillCurrent?() ?? true else { return false }
@@ -333,7 +337,8 @@ extension MobileShellComposite {
                     pairedMacDeviceID: pairedMacDeviceID,
                     instanceTagExpectation: instanceTagExpectation,
                     recordsPairingAttempt: recordsPairingAttempt,
-                    ifStillCurrent: ifStillCurrent
+                    ifStillCurrent: ifStillCurrent,
+                    connectionMutationID: connectionMutationID
                 )
                 if connectionState == .connected,
                    remoteClient != nil,
@@ -368,16 +373,32 @@ extension MobileShellComposite {
     ///   - device: The registry device the instance belongs to.
     ///   - instance: The tag/app-instance to connect to.
     ///   - ifStillCurrent: Cancellation/generation predicate for the owning UI flow.
-    ///   - ifRollbackStillOwned: Ownership predicate used to restore a replaced connection.
     public func connectToRegistryInstance(
         device: RegistryDevice,
         instance: RegistryAppInstance,
-        ifStillCurrent: (() -> Bool)? = nil,
-        ifRollbackStillOwned: (() -> Bool)? = nil
+        ifStillCurrent: (() -> Bool)? = nil
     ) async {
         guard ifStillCurrent?() ?? true else { return }
+        let connectionMutationID = beginConnectionMutation()
+        await connectToRegistryInstance(
+            device: device,
+            instance: instance,
+            ifStillCurrent: ifStillCurrent,
+            owningConnectionMutation: connectionMutationID
+        )
+    }
+
+    func connectToRegistryInstance(
+        device: RegistryDevice,
+        instance: RegistryAppInstance,
+        ifStillCurrent: (() -> Bool)?,
+        owningConnectionMutation connectionMutationID: UUID
+    ) async {
+        guard isCurrentConnectionMutation(connectionMutationID),
+              ifStillCurrent?() ?? true else { return }
         let scope = await currentScopeSnapshot()
-        guard ifStillCurrent?() ?? true else { return }
+        guard isCurrentConnectionMutation(connectionMutationID),
+              ifStillCurrent?() ?? true else { return }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         let candidateRoutes = Self.storedReconnectRoutes(
             instance.routes,
@@ -406,24 +427,25 @@ extension MobileShellComposite {
             pairedMacDeviceID: device.deviceId,
             instanceTagExpectation: .require(instance.tag),
             recordsPairingAttempt: true,
-            ifStillCurrent: ifStillCurrent
+            ifStillCurrent: ifStillCurrent,
+            connectionMutationID: connectionMutationID
         )
         let canContinue = ifStillCurrent?() ?? true
-        let stillOwnsAttempt = ifRollbackStillOwned?() ?? canContinue
+        let connectionMutationIsCurrent = isCurrentConnectionMutation(connectionMutationID)
         guard connectedRoute, canContinue else {
             let shouldRestoreCancelledSwitch = Self.registryHandoffShouldRestorePreviousMac(
                 hasPreviousActive: previousActive != nil,
                 canContinue: canContinue,
-                stillOwnsAttempt: stillOwnsAttempt
+                connectionMutationIsCurrent: connectionMutationIsCurrent
             )
             let shouldRestoreFailedSwitch = previousActive != nil
                 && !connectedRoute
                 && !hasActiveMacConnection
-                && stillOwnsAttempt
+                && connectionMutationIsCurrent
             if shouldRestoreCancelledSwitch || shouldRestoreFailedSwitch {
                 await restorePreviousMacAfterInterruptedFlow(
                     previousActive,
-                    ifStillCurrent: ifRollbackStillOwned ?? ifStillCurrent ?? { true }
+                    replacingConnectionMutationID: connectionMutationID
                 )
             }
             return
