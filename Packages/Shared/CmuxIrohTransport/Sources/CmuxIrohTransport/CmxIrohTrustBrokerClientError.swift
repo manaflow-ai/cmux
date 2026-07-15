@@ -39,7 +39,12 @@ public enum CmxIrohTrustBrokerClientError: Error, Equatable, Sendable {
         case .connectivity, .rateLimited:
             return true
         case let .rejected(statusCode, _):
-            return statusCode == 408 || statusCode == 425 || statusCode == 429
+            // A server failure cannot establish trust, so retrying the request
+            // is safe while the lifecycle-owned start task remains current.
+            return statusCode == 408
+                || statusCode == 425
+                || statusCode == 429
+                || (500...599).contains(statusCode)
         case .invalidBaseURL,
              .missingAuthentication,
              .invalidAuthentication,
