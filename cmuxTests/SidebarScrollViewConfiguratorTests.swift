@@ -51,6 +51,7 @@ struct SidebarScrollViewConfiguratorTests {
 
     @Test func firstApplyDisablesNativeScrollers() {
         let scrollView = SetterCountingScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 400))
+        scrollView.hasHorizontalScroller = true
         scrollView.hasVerticalScroller = true
 
         scrollView.applySidebarScrollIndicatorConfiguration()
