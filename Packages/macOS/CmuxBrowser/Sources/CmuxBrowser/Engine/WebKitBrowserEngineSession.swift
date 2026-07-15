@@ -78,7 +78,7 @@ public final class WebKitBrowserEngineSession: BrowserEngineSession {
     /// Keeps WebKit active because its native view owns offscreen presentation throttling.
     public func setViewportVisible(_: Bool) {}
 
-    /// Evaluates JavaScript in a WebKit content world.
+    /// Evaluates a JavaScript expression in a WebKit content world and awaits any returned promise.
     public func evaluateJavaScript(
         _ script: String,
         in world: BrowserJavaScriptWorld
@@ -87,8 +87,14 @@ public final class WebKitBrowserEngineSession: BrowserEngineSession {
         case .page: .page
         case .isolated: .defaultClient
         }
+        let functionBody = "return await (\n\(script)\n);"
         return try await withCheckedThrowingContinuation { continuation in
-            webView.evaluateJavaScript(script, in: nil, in: contentWorld) { result in
+            webView.callAsyncJavaScript(
+                functionBody,
+                arguments: [:],
+                in: nil,
+                in: contentWorld
+            ) { result in
                 switch result {
                 case .success(let value):
                     do {

@@ -58,7 +58,7 @@ public protocol BrowserEngineSession: AnyObject {
     /// Evaluates JavaScript in an engine-defined content world.
     ///
     /// - Parameters:
-    ///   - script: The JavaScript expression or program to evaluate.
+    ///   - script: The JavaScript expression to evaluate.
     ///   - world: The page or isolated world that should execute the script.
     /// - Returns: A Sendable value copied from the page.
     /// - Throws: An engine or JavaScript evaluation error.
