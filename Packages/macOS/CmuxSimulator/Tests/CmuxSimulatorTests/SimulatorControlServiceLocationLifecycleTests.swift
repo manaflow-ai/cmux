@@ -5,6 +5,33 @@ import Testing
 
 @Suite("Simulator location route lifecycle")
 struct SimulatorControlServiceLocationLifecycleTests {
+    @Test("Same-device location mutations remain serialized")
+    func sameDeviceMutationsAreSerialized() async throws {
+        let commands = BlockingLocationCommandRunner()
+        let service = SimulatorControlService(commands: commands)
+        let deviceID = UUID().uuidString
+        let first = Task {
+            try await service.setLocation(
+                deviceID: deviceID,
+                coordinate: SimulatorLocationCoordinate(latitude: 1, longitude: 2)
+            )
+        }
+        await commands.waitForInvocationCount(1)
+        let second = Task { try await service.clearLocation(deviceID: deviceID) }
+
+        for _ in 0..<100 { await Task.yield() }
+        #expect(await commands.arguments().count == 1)
+
+        await commands.releaseFirstCommand()
+        try await first.value
+        try await second.value
+
+        #expect(await commands.arguments() == [
+            ["simctl", "location", deviceID, "set", "1.0,2.0"],
+            ["simctl", "location", deviceID, "clear"],
+        ])
+    }
+
     @Test("A non-loop route completes, replays, and restores its first waypoint")
     func completionReplayAndRestore() async throws {
         let commands = LocationLifecycleCommandRunner()

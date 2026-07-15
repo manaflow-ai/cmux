@@ -54,11 +54,11 @@ struct SimulatorRemoteSurfaceLifecycleTests {
             chrome: nil
         )
         view.renderLatestFrame()
-        try await waitUntil { source.hasStarted() }
+        try await waitUntil { await source.hasStarted() }
 
         let heartbeat = await Task { @MainActor in true }.value
         #expect(heartbeat)
-        source.update(snapshot: simulatorFrameSnapshot(
+        await source.update(snapshot: simulatorFrameSnapshot(
             pixel: 0xFF_44_55_66,
             sequence: 1_001
         ))
@@ -66,16 +66,16 @@ struct SimulatorRemoteSurfaceLifecycleTests {
             view.renderLatestFrame()
             await Task.yield()
         }
-        #expect(source.copyCount() == 1)
+        #expect(await source.copyCount() == 1)
 
-        source.release()
+        await source.release()
         try await waitUntil {
             view.renderLatestFrame()
             return simulatorFrameImageFirstPixel(
                 view.frameLayer?.contents
             ) == 0xFF_44_55_66
         }
-        #expect(source.copyCount() == 2)
+        #expect(await source.copyCount() == 2)
     }
 
     @Test("A released stale copy cannot replace a newer transport frame")
@@ -101,7 +101,7 @@ struct SimulatorRemoteSurfaceLifecycleTests {
             chrome: nil
         )
         view.renderLatestFrame()
-        try await waitUntil { oldSource.hasStarted() }
+        try await waitUntil { await oldSource.hasStarted() }
 
         view.update(
             frameTransport: newDescriptor,
@@ -114,7 +114,7 @@ struct SimulatorRemoteSurfaceLifecycleTests {
                 view.frameLayer?.contents
             ) == 0xFF_00_BB_00
         }
-        oldSource.release()
+        await oldSource.release()
         for _ in 0..<100 {
             view.renderLatestFrame()
             await Task.yield()
@@ -137,10 +137,10 @@ struct SimulatorRemoteSurfaceLifecycleTests {
             chrome: nil
         )
         view.renderLatestFrame()
-        try await waitUntil { source.hasStarted() }
+        try await waitUntil { await source.hasStarted() }
 
         view.teardown()
-        source.release()
+        await source.release()
         for _ in 0..<100 { await Task.yield() }
 
         #expect(view.frameLayer == nil)
@@ -332,12 +332,12 @@ struct SimulatorRemoteSurfaceLifecycleTests {
     }
 
     private func waitUntil(
-        _ condition: @escaping @MainActor () -> Bool
+        _ condition: @escaping @MainActor () async -> Bool
     ) async throws {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(2))
         while clock.now < deadline {
-            if condition() { return }
+            if await condition() { return }
             try await clock.sleep(for: .milliseconds(1))
         }
         Issue.record("Condition did not become true before the deadline")

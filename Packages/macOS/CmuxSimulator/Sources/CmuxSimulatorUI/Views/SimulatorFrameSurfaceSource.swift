@@ -77,7 +77,7 @@ final class SimulatorFrameSurfaceSource: SimulatorFrameSurfaceReading, @unchecke
         close(descriptorHandle)
     }
 
-    func copyLatestFrame(after sequence: UInt64?) -> SimulatorFrameSnapshot? {
+    func copyLatestFrame(after sequence: UInt64?) async -> SimulatorFrameSnapshot? {
         let publicationPointer = layout.publishedWordPointer(in: mapping)
         let firstWord = Int64(bitPattern: cmux_simulator_atomic_load_u64_acquire(
             publicationPointer
@@ -102,7 +102,10 @@ final class SimulatorFrameSurfaceSource: SimulatorFrameSurfaceReading, @unchecke
             return nil
         }
 
-        let pixels = byteCopier.copyBytes(from: slotBytes, count: layout.slotByteCount)
+        guard let pixels = await byteCopier.copyBytes(
+            from: slotBytes,
+            count: layout.slotByteCount
+        ) else { return nil }
         // A trailing acquire load does not order the pixel reads that precede
         // it. Keep the complete copy before both seqlock retry loads.
         cmux_simulator_atomic_thread_fence_seq_cst()

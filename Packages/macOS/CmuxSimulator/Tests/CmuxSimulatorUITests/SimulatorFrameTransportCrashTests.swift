@@ -11,16 +11,16 @@ import Testing
 @Suite("Simulator frame transport crash containment")
 struct SimulatorFrameTransportCrashTests {
     @Test("The host resolves unaligned phone-sized frame surfaces")
-    func hostResolvesPhoneSizedSurfaces() throws {
+    func hostResolvesPhoneSizedSurfaces() async throws {
         let producer = try SimulatorFramebufferSurfaceRing(width: 390, height: 844)
 
         let source = try SimulatorFrameSurfaceSource(descriptor: producer.descriptor)
 
-        #expect(source.copyLatestFrame(after: nil) == nil)
+        #expect(await source.copyLatestFrame(after: nil) == nil)
     }
 
     @Test("The host retains the last frame after its worker-owned producer disappears")
-    func hostRetainsFrameAfterProducerRelease() throws {
+    func hostRetainsFrameAfterProducerRelease() async throws {
         var producer: SimulatorFramebufferSurfaceRing? = try SimulatorFramebufferSurfaceRing(
             width: 2,
             height: 2
@@ -31,15 +31,15 @@ struct SimulatorFrameTransportCrashTests {
         let input = try makeInputSurface(pixel: 0xFF_33_22_11)
 
         try #require(producer).publish(input)
-        #expect(readFirstPixel(try #require(source.copyLatestFrame(after: nil))) == 0xFF_33_22_11)
+        #expect(readFirstPixel(try #require(await source.copyLatestFrame(after: nil))) == 0xFF_33_22_11)
 
         producer = nil
 
-        #expect(readFirstPixel(try #require(source.copyLatestFrame(after: nil))) == 0xFF_33_22_11)
+        #expect(readFirstPixel(try #require(await source.copyLatestFrame(after: nil))) == 0xFF_33_22_11)
     }
 
     @Test("Frame sequences advance and unchanged frames are not recopied")
-    func frameSequencesAdvance() throws {
+    func frameSequencesAdvance() async throws {
         let producer = try SimulatorFramebufferSurfaceRing(width: 2, height: 2)
         let source = try SimulatorFrameSurfaceSource(descriptor: producer.descriptor)
         var previousSequence: UInt64?
@@ -47,13 +47,13 @@ struct SimulatorFrameTransportCrashTests {
         for expectedSequence in UInt64(1)...4 {
             let pixel = UInt32(0xFF_00_00_00) | UInt32(expectedSequence)
             try producer.publish(makeInputSurface(pixel: pixel))
-            let snapshot = try #require(source.copyLatestFrame(after: previousSequence))
+            let snapshot = try #require(await source.copyLatestFrame(after: previousSequence))
             #expect(snapshot.sequence == expectedSequence)
             #expect(readFirstPixel(snapshot) == pixel)
             previousSequence = snapshot.sequence
         }
 
-        #expect(source.copyLatestFrame(after: previousSequence) == nil)
+        #expect(await source.copyLatestFrame(after: previousSequence) == nil)
     }
 
     @Test("Concurrent slot reuse never publishes torn pixels")
@@ -75,7 +75,7 @@ struct SimulatorFrameTransportCrashTests {
         let deadline = clock.now.advanced(by: .seconds(10))
 
         while lastSequence != finalSequence, clock.now < deadline {
-            if let snapshot = source.copyLatestFrame(after: lastSequence) {
+            if let snapshot = await source.copyLatestFrame(after: lastSequence) {
                 #expect(snapshotHasUniformPixels(
                     snapshot,
                     expected: concurrentFramePixel(snapshot.sequence)
@@ -87,7 +87,7 @@ struct SimulatorFrameTransportCrashTests {
         }
         try await writer.value
         if lastSequence != finalSequence,
-           let snapshot = source.copyLatestFrame(after: lastSequence) {
+           let snapshot = await source.copyLatestFrame(after: lastSequence) {
             #expect(snapshotHasUniformPixels(
                 snapshot,
                 expected: concurrentFramePixel(snapshot.sequence)
@@ -123,7 +123,7 @@ struct SimulatorFrameTransportCrashTests {
     }
 
     @Test("Odd, invalid, and mid-copy frame publications are discarded")
-    func unstableFramesAreDiscarded() throws {
+    func unstableFramesAreDiscarded() async throws {
         let producer = try SimulatorFramebufferSurfaceRing(width: 2, height: 2)
         try producer.publish(makeInputSurface(pixel: 0xFF_11_22_33))
         let descriptor = producer.descriptor
@@ -153,14 +153,14 @@ struct SimulatorFrameTransportCrashTests {
 
         cmux_simulator_atomic_store_u64_release(version, stableVersion | 1)
         let source = try SimulatorFrameSurfaceSource(descriptor: descriptor)
-        #expect(source.copyLatestFrame(after: nil) == nil)
+        #expect(await source.copyLatestFrame(after: nil) == nil)
         cmux_simulator_atomic_store_u64_release(version, stableVersion)
 
         cmux_simulator_atomic_store_u64_release(
             publication,
             (decoded.sequence << 2) | 3
         )
-        #expect(source.copyLatestFrame(after: nil) == nil)
+        #expect(await source.copyLatestFrame(after: nil) == nil)
         cmux_simulator_atomic_store_u64_release(publication, stableWord)
 
         let mutatingSource = try SimulatorFrameSurfaceSource(
@@ -169,7 +169,7 @@ struct SimulatorFrameTransportCrashTests {
                 cmux_simulator_atomic_store_u64_release(version, stableVersion | 1)
             }
         )
-        #expect(mutatingSource.copyLatestFrame(after: nil) == nil)
+        #expect(await mutatingSource.copyLatestFrame(after: nil) == nil)
         cmux_simulator_atomic_store_u64_release(version, stableVersion)
         withExtendedLifetime(producer) {}
     }

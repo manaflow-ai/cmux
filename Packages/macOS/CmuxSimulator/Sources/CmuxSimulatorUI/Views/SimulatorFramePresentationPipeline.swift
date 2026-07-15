@@ -37,7 +37,7 @@ actor SimulatorFramePresentationPipeline {
         let source = self.source
         let sequence = lastCopiedSequence
         Task.detached(priority: .userInitiated) { [weak self] in
-            let snapshot = source.copyLatestFrame(after: sequence)
+            let snapshot = await source.copyLatestFrame(after: sequence)
             let presentation = snapshot.flatMap(SimulatorFramePresentation.init(snapshot:))
             await self?.copyDidComplete(
                 presentation: presentation,

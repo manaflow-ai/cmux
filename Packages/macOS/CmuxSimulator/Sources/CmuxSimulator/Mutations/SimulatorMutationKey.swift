@@ -10,6 +10,8 @@ package struct SimulatorMutationKey: Hashable, Sendable {
     package static let store = SimulatorMutationKeyFactory(namespace: "store")
     /// Factory for private interface mutation keys.
     package static let interface = SimulatorMutationKeyFactory(namespace: "interface")
+    /// Factory for simulated-location mutation keys.
+    package static let location = SimulatorMutationKeyFactory(namespace: "location")
 
     /// Canonical value used for ordering and lock-file identity.
     package let value: String

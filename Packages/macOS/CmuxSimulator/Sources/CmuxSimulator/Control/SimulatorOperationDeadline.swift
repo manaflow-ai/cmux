@@ -24,8 +24,8 @@ public struct SimulatorOperationDeadlines: Sendable {
 
     /// Creates an operation deadline policy.
     public init(
-        selectDevice: TimeInterval = 430,
-        recover: TimeInterval = 370,
+        selectDevice: TimeInterval = 550,
+        recover: TimeInterval = 490,
         interfaceRead: TimeInterval = 130,
         interfaceMutation: TimeInterval = 250,
         permissionRead: TimeInterval = 35,

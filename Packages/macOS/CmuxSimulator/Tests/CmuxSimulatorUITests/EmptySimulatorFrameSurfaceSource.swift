@@ -42,7 +42,7 @@ final class EmptySimulatorFrameSurfaceSource: SimulatorFrameSurfaceReading, Send
         self.snapshot = snapshot
     }
 
-    func copyLatestFrame(after sequence: UInt64?) -> SimulatorFrameSnapshot? {
+    func copyLatestFrame(after sequence: UInt64?) async -> SimulatorFrameSnapshot? {
         guard let snapshot,
               sequence.map({ snapshot.sequence > $0 }) ?? true else { return nil }
         return snapshot

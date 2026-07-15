@@ -9,7 +9,7 @@ final class MutatingSimulatorFrameByteCopier: SimulatorFrameByteCopying, @unchec
         self.mutation = mutation
     }
 
-    func copyBytes(from address: UnsafeRawPointer, count: Int) -> Data {
+    func copyBytes(from address: UnsafeRawPointer, count: Int) async -> Data? {
         let data = Data(bytes: address, count: count)
         mutation()
         return data

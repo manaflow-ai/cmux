@@ -5,6 +5,15 @@ import Testing
 
 @Suite("Simulator control service")
 struct SimulatorControlServiceTests {
+    @Test("Outer operation deadlines cover their nested command budgets")
+    func outerOperationDeadlinesCoverNestedBudgets() {
+        let deadlines = SimulatorOperationDeadlines()
+
+        #expect(deadlines.selectDevice >= 543)
+        #expect(deadlines.recover >= 483)
+        #expect(deadlines.clientTimeout(for: deadlines.inspectionRead) == 40)
+    }
+
     @Test("Device discovery maps runtime names, state, family, and boot date")
     func discoversDevices() async throws {
         let commands = RecordingCommandRunner(results: [
@@ -67,6 +76,20 @@ struct SimulatorControlServiceTests {
         let devices = try await service.discoverDevices()
 
         #expect(devices.first?.runtimeName == "iOS 26.4.1")
+        #expect(devices.first?.family == .unknown)
+    }
+
+    @Test("Missing structured family metadata never trusts the device name")
+    func missingFamilyMetadataFailsClosed() async throws {
+        let commands = RecordingCommandRunner(results: [
+            .success(#"{"devices":{"com.apple.CoreSimulator.SimRuntime.tvOS-26-0":[{"udid":"TV","name":"iPhone Test","state":"Booted","isAvailable":true,"deviceTypeIdentifier":"com.apple.CoreSimulator.SimDeviceType.Apple-TV"}]}}"#),
+            .success(#"{"runtimes":[{"identifier":"com.apple.CoreSimulator.SimRuntime.tvOS-26-0","name":"tvOS 26.0"}]}"#),
+        ])
+        let service = SimulatorControlService(commands: commands)
+
+        let devices = try await service.discoverDevices()
+
+        #expect(devices.first?.family == .unknown)
     }
 
     @Test("Routes project validated speed, cadence, and waypoints without shell interpolation")
