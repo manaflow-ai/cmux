@@ -1,9 +1,10 @@
 import CmuxTerminal
 import Foundation
+import os
 
 /// Nonblocking ordered handoff from Ghostty's serialized PTY callback to the
-/// main actor. Mutable delivery state lives in `AsyncStream`; atomics only tag
-/// the two replay markers that must survive ordinary PWD coalescing.
+/// main actor. Delivery state lives in `AsyncStream`; one tiny locked snapshot
+/// preserves the latest callback-ordered cwd for later OSC notifications.
 final class GhosttyCurrentDirectoryActionDispatcher: Sendable {
     typealias Delivery = @MainActor @Sendable (GhosttyCurrentDirectoryAction) -> Void
 
@@ -11,6 +12,9 @@ final class GhosttyCurrentDirectoryActionDispatcher: Sendable {
     private let endBoundaryHash: UInt64?
     private let replayBoundaryContinuation: AsyncStream<GhosttyCurrentDirectoryAction>.Continuation
     private let ordinaryContinuation: AsyncStream<GhosttyCurrentDirectoryAction>.Continuation
+    // Ghostty's synchronous callback needs an O(1) cwd snapshot for later OSC
+    // notifications; the lock is never held across I/O or suspension.
+    private let latestDirectory = OSAllocatedUnfairLock<String?>(initialState: nil)
 
     init(
         startBoundary: String? = nil,
@@ -55,6 +59,7 @@ final class GhosttyCurrentDirectoryActionDispatcher: Sendable {
         surfaceView: GhosttyNSView,
         terminalSurface: TerminalSurface?
     ) {
+        latestDirectory.withLock { $0 = directory.isEmpty ? nil : directory }
         let directoryHash = Self.stableHash(directory)
         let isStartBoundary = directoryHash == startBoundaryHash
         let isEndBoundary = directoryHash == endBoundaryHash
@@ -70,6 +75,12 @@ final class GhosttyCurrentDirectoryActionDispatcher: Sendable {
         } else {
             replayBoundaryContinuation.yield(action)
         }
+    }
+
+    /// The last PWD value observed before the current callback in Ghostty's
+    /// serialized surface action stream.
+    func directorySnapshot() -> String? {
+        latestDirectory.withLock { $0 }
     }
 
     @MainActor

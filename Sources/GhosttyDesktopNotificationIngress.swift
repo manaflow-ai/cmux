@@ -48,23 +48,26 @@ final class GhosttyDesktopNotificationIngress: Sendable {
     @MainActor
     private static func deliver(_ request: GhosttyDesktopNotificationRequest) async {
         guard let appDelegate = AppDelegate.shared,
-              let defaultManager = appDelegate.tabManager,
-              let tabId = request.tabId ?? defaultManager.selectedTabId else {
+              let target = appDelegate.agentNotificationDeliveryTarget(
+                claimedTabId: request.tabId,
+                surfaceId: request.surfaceId
+              ),
+              let owningManager = appDelegate.tabManagerFor(tabId: target.tabId) ?? appDelegate.tabManager else {
             return
         }
-        let owningManager = appDelegate.tabManagerFor(tabId: tabId) ?? defaultManager
-        let surfaceId = request.tabId == nil ? defaultManager.focusedSurfaceId(for: tabId) : request.surfaceId
-        if let workspace = owningManager.workspacesById[tabId],
-           workspace.suppressesRawTerminalNotification(panelId: surfaceId) {
+        let workspace = owningManager.workspacesById[target.tabId]
+        if workspace?.suppressesRawTerminalNotification(panelId: target.surfaceId) == true {
             return
         }
-        let tabTitle = owningManager.titleForTab(tabId) ?? String(
+        let tabTitle = owningManager.titleForTab(target.tabId) ?? String(
             localized: "notification.desktop.defaultTerminalTitle",
             defaultValue: "Terminal"
         )
         await TerminalNotificationStore.shared.addDesktopNotificationResolvingHooks(
-            tabId: tabId,
-            surfaceId: surfaceId,
+            tabId: target.tabId,
+            surfaceId: target.surfaceId,
+            hookDirectory: workspace?.isRemoteWorkspace == true ? nil : request.hookDirectory,
+            globalConfigPath: request.globalConfigPath,
             title: request.title.isEmpty ? tabTitle : request.title,
             body: request.body
         )

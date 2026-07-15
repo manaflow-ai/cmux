@@ -8,19 +8,14 @@ extension TerminalNotificationStore {
     func addDesktopNotificationResolvingHooks(
         tabId: UUID,
         surfaceId: UUID?,
+        hookDirectory: String?,
+        globalConfigPath: String,
         title: String,
         body: String
     ) async {
         let appDelegate = AppDelegate.shared
-        let context = appDelegate?.contextContainingTabId(tabId)
-        let tabManager = context?.tabManager ?? appDelegate?.tabManagerFor(tabId: tabId) ?? appDelegate?.tabManager
-        let workspace = tabManager?.workspacesById[tabId]
-        let cwd = workspace?.surfaceTabBarDirectory
-            ?? workspace?.currentDirectory
-            ?? FileManager.default.homeDirectoryForCurrentUser.path
-        let globalConfigPath = context?.cmuxConfigStore?.globalConfigPath
         let hooks = await notificationHookCache.hooks(
-            startingFrom: workspace?.isRemoteWorkspace == true ? nil : cwd,
+            startingFrom: hookDirectory,
             globalConfigPath: globalConfigPath
         )
         guard !Task.isCancelled else { return }

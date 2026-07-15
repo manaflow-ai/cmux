@@ -344,6 +344,7 @@ class GhosttyApp {
     static let shared = GhosttyApp()
     fileprivate let titleUpdateIngress = GhosttyTitleUpdateIngress()
     fileprivate let desktopNotificationIngress = GhosttyDesktopNotificationIngress()
+    private let desktopNotificationGlobalConfigPath = CmuxConfigStore.defaultGlobalConfigPath()
 
     // MARK: Transitional terminal engine/services composition
     //
@@ -2641,16 +2642,8 @@ class GhosttyApp {
             }
 
             if action.tag == GHOSTTY_ACTION_DESKTOP_NOTIFICATION {
-                let actionTitle = action.action.desktop_notification.title
-                    .flatMap { String(cString: $0) } ?? ""
-                let actionBody = action.action.desktop_notification.body
-                    .flatMap { String(cString: $0) } ?? ""
-                desktopNotificationIngress.submit(GhosttyDesktopNotificationRequest(
-                    tabId: nil,
-                    surfaceId: nil,
-                    title: actionTitle,
-                    body: actionBody
-                ))
+                // Ghostty's desktop-notification action is surface-originated;
+                // its native macOS host deliberately treats an app target as a no-op.
                 return true
             }
 
@@ -2902,8 +2895,8 @@ class GhosttyApp {
             )
             return true
         case GHOSTTY_ACTION_DESKTOP_NOTIFICATION:
-            guard let tabId = surfaceView.tabId else { return true }
-            let surfaceId = surfaceView.terminalSurface?.id
+            guard let tabId = callbackTabId ?? surfaceView.tabId,
+                  let surfaceId = callbackSurfaceId ?? surfaceView.terminalSurface?.id else { return true }
             let actionTitle = action.action.desktop_notification.title
                 .flatMap { String(cString: $0) } ?? ""
             let actionBody = action.action.desktop_notification.body
@@ -2911,6 +2904,9 @@ class GhosttyApp {
             desktopNotificationIngress.submit(GhosttyDesktopNotificationRequest(
                 tabId: tabId,
                 surfaceId: surfaceId,
+                hookDirectory: surfaceView.currentDirectoryActionDispatcher.directorySnapshot()
+                    ?? surfaceView.terminalSurface?.requestedWorkingDirectory,
+                globalConfigPath: desktopNotificationGlobalConfigPath,
                 title: actionTitle,
                 body: actionBody
             ))
