@@ -145,6 +145,8 @@ interface GeneratedTitle {
   title: string;
 }
 
+type SurfaceLocation = readonly [workspace: number, screen: number, pane: number, tab: number];
+
 export interface TreeRefreshCommit {
   tree: Tree;
   applied: boolean;
@@ -156,6 +158,7 @@ export class SurfaceTitleReconciler {
   private appliedRequestSequence = 0;
   private latestTree: Tree | null = null;
   private readonly titles = new Map<Id, GeneratedTitle>();
+  private readonly surfaceLocations = new Map<Id, SurfaceLocation>();
 
   record(surface: Id, title: string): void {
     this.titleGeneration += 1;
@@ -171,10 +174,14 @@ export class SurfaceTitleReconciler {
   }
 
   apply(tree: Tree): Tree {
-    return applySurfaceTitles(
-      tree,
-      new Map([...this.titles].map(([surface, update]) => [surface, update.title])),
-    );
+    if (tree !== this.latestTree) this.rebuildSurfaceLocations(tree);
+    let updated = tree;
+    for (const [surface, update] of this.titles) {
+      const location = this.surfaceLocations.get(surface);
+      if (location) updated = this.applyTitleAt(updated, location, update.title);
+    }
+    this.latestTree = updated;
+    return updated;
   }
 
   commit(tree: Tree, token: TreeRefreshToken): TreeRefreshCommit {
@@ -187,5 +194,39 @@ export class SurfaceTitleReconciler {
     }
     this.latestTree = this.apply(tree);
     return { tree: this.latestTree, applied: true };
+  }
+
+  private rebuildSurfaceLocations(tree: Tree): void {
+    this.surfaceLocations.clear();
+    tree.workspaces.forEach((workspace, workspaceIndex) => {
+      workspace.screens.forEach((screen, screenIndex) => {
+        screen.panes.forEach((pane, paneIndex) => {
+          if (!("tabs" in pane)) return;
+          pane.tabs.forEach((tab, tabIndex) => {
+            this.surfaceLocations.set(tab.surface, [workspaceIndex, screenIndex, paneIndex, tabIndex]);
+          });
+        });
+      });
+    });
+  }
+
+  private applyTitleAt(tree: Tree, location: SurfaceLocation, title: string): Tree {
+    const [workspaceIndex, screenIndex, paneIndex, tabIndex] = location;
+    const workspace = tree.workspaces[workspaceIndex];
+    const screen = workspace?.screens[screenIndex];
+    const pane = screen?.panes[paneIndex];
+    if (!pane || !("tabs" in pane)) return tree;
+    const tab = pane.tabs[tabIndex];
+    if (!tab || tab.title === title) return tree;
+
+    const tabs = [...pane.tabs];
+    tabs[tabIndex] = { ...tab, title };
+    const panes = [...screen.panes];
+    panes[paneIndex] = { ...pane, tabs };
+    const screens = [...workspace.screens];
+    screens[screenIndex] = { ...screen, panes };
+    const workspaces = [...tree.workspaces];
+    workspaces[workspaceIndex] = { ...workspace, screens };
+    return { workspaces };
   }
 }

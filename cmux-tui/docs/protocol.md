@@ -100,8 +100,8 @@ Subscribed event lines are:
 
 ```json
 {"event":"surface-output","surface":4}
-{"event":"surface-resized","surface":4,"cols":120,"rows":40}
-{"event":"surface-resize-failed","surface":4,"cols":120,"rows":40,"error":"browser is not responding","retry_after_ms":250}
+{"event":"surface-resized","surface":4,"cols":120,"rows":40,"reservation_id":7}
+{"event":"surface-resize-failed","surface":4,"cols":120,"rows":40,"error":"browser is not responding","retry_after_ms":250,"reservation_id":7}
 {"event":"surface-exited","surface":4}
 {"event":"title-changed","surface":4,"title":"build logs"}
 {"event":"bell","surface":4}
@@ -109,11 +109,11 @@ Subscribed event lines are:
 {"event":"empty"}
 ```
 
-`surface-resized` reports the final clamped cell size and is emitted only when the surface size actually changes. `surface-resize-failed` reports an asynchronous browser resize failure and the delay before an automatic retry, or `null` after retries are exhausted.
+`surface-resized` reports the final clamped cell size and is emitted only when the surface size actually changes. `surface-resize-failed` reports an asynchronous browser resize failure and the delay before an automatic retry, or `null` after retries are exhausted. Browser resize completions repeat the numeric `reservation_id` returned by the accepted request so clients can ignore stale completions.
 
 Protocol v7 `title-changed` carries the authoritative current `title`. Slow subscribers coalesce repeated pending title changes per surface to the latest value.
 
-Browser input, navigation, activation, and browser reconfigure work from `resize-surface` enqueue per-surface CDP work. Protocol v7 `resize-surface` responses include `data.accepted`; `true` means the resize was applied or queued, and `false` means it was already satisfied, pending, or waiting for its retry backoff. Completion arrives as `surface-resized`, and asynchronous failure arrives as `surface-resize-failed`. Two consecutive CDP call timeouts mark only that browser surface failed with `browser is not responding`.
+Browser input, navigation, activation, and browser reconfigure work from `resize-surface` enqueue per-surface CDP work. Protocol v7 `resize-surface` responses include `data.accepted` and `data.reservation_id`; `true` means the resize was applied or queued, and `false` means it was already satisfied, pending, or waiting for its retry backoff. Completion arrives as `surface-resized`, and asynchronous failure arrives as `surface-resize-failed`. Two consecutive CDP call timeouts mark only that browser surface failed with `browser is not responding`.
 
 ## Attach Surface
 

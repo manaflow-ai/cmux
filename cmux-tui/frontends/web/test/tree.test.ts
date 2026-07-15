@@ -130,6 +130,25 @@ describe("applySurfaceTitles", () => {
       ? recovered.workspaces[0]!.screens[0]!.panes[0]!.tabs[0]!.title
       : null).toBe("newest");
   });
+
+  it("updates only the indexed title path", () => {
+    const reconciler = new SurfaceTitleReconciler();
+    const withSibling = structuredClone(tree);
+    withSibling.workspaces.push({
+      id: 9,
+      name: "untouched",
+      active: false,
+      screens: [],
+    });
+    const untouched = withSibling.workspaces[1];
+    reconciler.apply(withSibling);
+    reconciler.record(4, "indexed");
+
+    const updated = reconciler.apply(withSibling);
+
+    expect(updated.workspaces[1]).toBe(untouched);
+    expect(updated.workspaces[0]).not.toBe(withSibling.workspaces[0]);
+  });
 });
 
 import { locateSurface } from "../src/lib/tree";

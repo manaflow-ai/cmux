@@ -404,8 +404,10 @@ impl Session {
                 Ok(())
             }
             Session::Remote(remote) => {
-                for (surface, desired) in remote.set_cell_pixel_size(width_px, height_px)? {
-                    report(surface, desired, true);
+                for (surface, desired, reservation_id) in
+                    remote.set_cell_pixel_size(width_px, height_px)?
+                {
+                    report(surface, desired, reservation_id.or(Some(0)));
                 }
                 Ok(())
             }
@@ -705,32 +707,7 @@ impl SurfaceHandle {
     }
 
     pub fn resize(&self, cols: u16, rows: u16) -> anyhow::Result<bool> {
-        let desired = (cols.max(1), rows.max(1));
-        match self {
-            SurfaceHandle::Local(surface) => surface.resize(desired.0, desired.1),
-            SurfaceHandle::Remote(surface, session) => {
-                if resize_action(desired, surface.asserted_size(), surface.server_size(), false) {
-                    let response = session.request(json!({
-                        "cmd": "resize-surface",
-                        "surface": surface.id,
-                        "cols": desired.0,
-                        "rows": desired.1,
-                    }))?;
-                    let accepted = response
-                        .get("accepted")
-                        .and_then(serde_json::Value::as_bool)
-                        .unwrap_or(true);
-                    if accepted {
-                        surface.set_asserted_size(desired);
-                    }
-                    return Ok(accepted);
-                }
-                Ok(false)
-            }
-            SurfaceHandle::RemoteBrowserUnsupported => {
-                anyhow::bail!("browser surface is unavailable")
-            }
-        }
+        self.resize_reporting_acceptance(cols, rows, false, Box::new(|_| {}))
     }
 
     pub fn resize_reporting_acceptance(
@@ -738,19 +715,49 @@ impl SurfaceHandle {
         cols: u16,
         rows: u16,
         reassert: bool,
-        report: Box<dyn FnOnce(bool) + Send>,
+        report: Box<dyn FnOnce(Option<u64>) + Send>,
     ) -> anyhow::Result<bool> {
-        match self {
+        let desired = (cols.max(1), rows.max(1));
+        let reservation_id = match self {
             SurfaceHandle::Local(surface) => {
-                surface.resize_reporting_acceptance(cols, rows, report)
+                return surface
+                    .resize_reporting_acceptance(desired.0, desired.1, report)
+                    .map(|reservation_id| reservation_id.is_some());
             }
-            _ => {
-                let result =
-                    if reassert { self.reassert_size(cols, rows) } else { self.resize(cols, rows) };
-                report(result.as_ref().copied().unwrap_or(false));
-                result
+            SurfaceHandle::Remote(surface, session) => {
+                if !resize_action(desired, surface.asserted_size(), surface.server_size(), reassert)
+                {
+                    report(None);
+                    return Ok(false);
+                }
+                let response = match session.request(json!({
+                    "cmd": "resize-surface",
+                    "surface": surface.id,
+                    "cols": desired.0,
+                    "rows": desired.1,
+                })) {
+                    Ok(response) => response,
+                    Err(error) => {
+                        report(None);
+                        return Err(error);
+                    }
+                };
+                let accepted =
+                    response.get("accepted").and_then(serde_json::Value::as_bool).unwrap_or(true);
+                if !accepted {
+                    report(None);
+                    return Ok(false);
+                }
+                surface.set_asserted_size(desired);
+                response.get("reservation_id").and_then(serde_json::Value::as_u64).or(Some(0))
             }
-        }
+            SurfaceHandle::RemoteBrowserUnsupported => {
+                report(None);
+                anyhow::bail!("browser surface is unavailable")
+            }
+        };
+        report(reservation_id);
+        Ok(true)
     }
 
     pub fn resize_needed(&self, cols: u16, rows: u16, user_interaction: bool) -> bool {
@@ -768,32 +775,7 @@ impl SurfaceHandle {
     }
 
     pub fn reassert_size(&self, cols: u16, rows: u16) -> anyhow::Result<bool> {
-        let desired = (cols.max(1), rows.max(1));
-        match self {
-            SurfaceHandle::Local(surface) => surface.resize(desired.0, desired.1),
-            SurfaceHandle::Remote(surface, session) => {
-                if resize_action(desired, surface.asserted_size(), surface.server_size(), true) {
-                    let response = session.request(json!({
-                        "cmd": "resize-surface",
-                        "surface": surface.id,
-                        "cols": desired.0,
-                        "rows": desired.1,
-                    }))?;
-                    let accepted = response
-                        .get("accepted")
-                        .and_then(serde_json::Value::as_bool)
-                        .unwrap_or(true);
-                    if accepted {
-                        surface.set_asserted_size(desired);
-                    }
-                    return Ok(accepted);
-                }
-                Ok(false)
-            }
-            SurfaceHandle::RemoteBrowserUnsupported => {
-                anyhow::bail!("browser surface is unavailable")
-            }
-        }
+        self.resize_reporting_acceptance(cols, rows, true, Box::new(|_| {}))
     }
 
     pub fn take_dirty(&self) -> bool {

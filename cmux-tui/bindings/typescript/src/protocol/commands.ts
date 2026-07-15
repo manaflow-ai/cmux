@@ -193,7 +193,7 @@ export interface ResizeSurfaceRequest extends CmuxRequestBase {
   cols: number;
   rows: number;
 }
-export interface ResizeSurfaceResult { accepted: boolean }
+export interface ResizeSurfaceResult { accepted: boolean; reservation_id?: number | null }
 
 export interface FocusPaneRequest extends CmuxRequestBase { cmd: "focus-pane"; pane: Id }
 

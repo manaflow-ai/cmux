@@ -25,7 +25,8 @@ type VtStateResult struct {
 }
 
 type ResizeSurfaceResult struct {
-	Accepted bool `json:"accepted"`
+	Accepted      bool    `json:"accepted"`
+	ReservationID *uint64 `json:"reservation_id"`
 }
 
 func (r *ResizeSurfaceResult) UnmarshalJSON(data []byte) error {
@@ -163,19 +164,21 @@ type TitleChangedEvent struct {
 func (TitleChangedEvent) EventName() string { return "title-changed" }
 
 type SurfaceResizedEvent struct {
-	Surface uint64 `json:"surface"`
-	Cols    uint16 `json:"cols"`
-	Rows    uint16 `json:"rows"`
+	Surface       uint64  `json:"surface"`
+	Cols          uint16  `json:"cols"`
+	Rows          uint16  `json:"rows"`
+	ReservationID *uint64 `json:"reservation_id"`
 }
 
 func (SurfaceResizedEvent) EventName() string { return "surface-resized" }
 
 type SurfaceResizeFailedEvent struct {
-	Surface      uint64  `json:"surface"`
-	Cols         uint16  `json:"cols"`
-	Rows         uint16  `json:"rows"`
-	Error        string  `json:"error"`
-	RetryAfterMS *uint64 `json:"retry_after_ms"`
+	Surface       uint64  `json:"surface"`
+	Cols          uint16  `json:"cols"`
+	Rows          uint16  `json:"rows"`
+	Error         string  `json:"error"`
+	RetryAfterMS  *uint64 `json:"retry_after_ms"`
+	ReservationID *uint64 `json:"reservation_id"`
 }
 
 func (SurfaceResizeFailedEvent) EventName() string { return "surface-resize-failed" }

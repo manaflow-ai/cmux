@@ -1499,7 +1499,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Resizes a surface to a cell grid. PTY surfaces resize both the PTY and VT terminal state. Browser surfaces update their cell grid and CDP device metrics asynchronously. `cols` and `rows` are clamped to at least 1 by the surface runtime. In protocol v6, the final pair becomes the session's latest client size even when the target was already at that size, so later creation requests without a size use the most recent client interaction; internal server resizes (such as the sidebar plugin surface tracking the TUI) never update it. Protocol v7 adds `accepted`: `true` means the resize was applied or queued, while `false` means the surface already has that size, the same browser resize is pending, or its retry backoff has not elapsed. A browser resize completes with `surface-resized`; asynchronous failure is reported by `surface-resize-failed`.
+Resizes a surface to a cell grid. PTY surfaces resize both the PTY and VT terminal state. Browser surfaces update their cell grid and CDP device metrics asynchronously. `cols` and `rows` are clamped to at least 1 by the surface runtime. In protocol v6, the final pair becomes the session's latest client size even when the target was already at that size, so later creation requests without a size use the most recent client interaction; internal server resizes (such as the sidebar plugin surface tracking the TUI) never update it. Protocol v7 adds `accepted`: `true` means the resize was applied or queued, while `false` means the surface already has that size, the same browser resize is pending, or its retry backoff has not elapsed. An accepted browser resize returns a numeric `reservation_id`, which is repeated by its `surface-resized` or `surface-resize-failed` completion. PTY resizes and rejected browser resizes return `null` because their completion does not need asynchronous ownership matching.
 
 Params:
 
@@ -1512,7 +1512,7 @@ Params:
 Result:
 
 ```text
-object{accepted:bool}
+object{accepted:bool,reservation_id:uint64|null}
 ```
 
 Errors:
@@ -1536,7 +1536,7 @@ Example:
 
 ```json
 {"id":21,"cmd":"resize-surface","surface":1,"cols":120,"rows":40}
-{"id":21,"ok":true,"data":{"accepted":true}}
+{"id":21,"ok":true,"data":{"accepted":true,"reservation_id":7}}
 ```
 
 ### focus-pane

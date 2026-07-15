@@ -58,11 +58,13 @@ class EventTests(unittest.TestCase):
                 "rows": 40,
                 "error": "browser is not responding",
                 "retry_after_ms": 250,
+                "reservation_id": 41,
             }
         )
 
         self.assertEqual(event.event, "surface-resize-failed")
         self.assertEqual(event.retry_after_ms, 250)
+        self.assertEqual(event.reservation_id, 41)
 
     def test_stream_yields_buffered_overflow_once_then_stops(self) -> None:
         connection = _FakeConnection()

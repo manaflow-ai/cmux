@@ -208,9 +208,14 @@ fn forward_mux_event(
         _ => {}
     }
     let terminal = matches!(event, MuxEvent::Empty);
-    if terminal {
-        let _ = tx.send(AppEvent::Mux(event));
-        return ForwardMuxOutcome::Stop;
+    let resize_completion =
+        matches!(event, MuxEvent::SurfaceResized { .. } | MuxEvent::SurfaceResizeFailed { .. });
+    if terminal || resize_completion {
+        return match tx.send(AppEvent::Mux(event)) {
+            Ok(()) if terminal => ForwardMuxOutcome::Stop,
+            Ok(()) => ForwardMuxOutcome::Continue,
+            Err(_) => ForwardMuxOutcome::Stop,
+        };
     }
     match tx.try_send(AppEvent::Mux(event)) {
         Ok(()) => ForwardMuxOutcome::Continue,
@@ -501,6 +506,12 @@ struct SurfaceResizeFailure {
     state: SurfaceSyncFailureState,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct SurfaceResizeOwnership {
+    desired: (u16, u16),
+    reservation_id: Option<u64>,
+}
+
 fn next_surface_sync_failure(
     previous: Option<SurfaceSyncFailureState>,
     transient: bool,
@@ -584,16 +595,16 @@ impl Drop for SurfaceResizeClaim {
 }
 
 fn record_surface_resize_dispatch_result(
-    ownership: &Mutex<HashMap<SurfaceId, (u16, u16)>>,
+    ownership: &Mutex<HashMap<SurfaceId, SurfaceResizeOwnership>>,
     surface: SurfaceId,
     desired: (u16, u16),
-    accepted: bool,
+    reservation_id: Option<u64>,
 ) {
-    let mut ownership = ownership.lock().unwrap();
-    if accepted {
-        ownership.insert(surface, desired);
-    } else if ownership.get(&surface).is_some_and(|owned| *owned == desired) {
-        ownership.remove(&surface);
+    if let Some(reservation_id) = reservation_id {
+        ownership.lock().unwrap().insert(
+            surface,
+            SurfaceResizeOwnership { desired, reservation_id: Some(reservation_id) },
+        );
     }
 }
 
@@ -617,7 +628,7 @@ pub struct OrderedSession {
     remote_refresh_sequence: Arc<AtomicU64>,
     surface_resize_claims: Arc<Mutex<HashMap<SurfaceId, SurfaceResizeClaimState>>>,
     surface_resize_claim_sequence: Arc<AtomicU64>,
-    surface_resize_ownership: Arc<Mutex<HashMap<SurfaceId, (u16, u16)>>>,
+    surface_resize_ownership: Arc<Mutex<HashMap<SurfaceId, SurfaceResizeOwnership>>>,
     surface_attach_claims: Arc<Mutex<HashSet<SurfaceId>>>,
     surface_attach_failures: Arc<Mutex<HashMap<SurfaceId, SurfaceSyncFailureState>>>,
     surface_resize_failures: Arc<Mutex<HashMap<SurfaceId, SurfaceResizeFailure>>>,
@@ -1136,9 +1147,17 @@ impl OrderedSession {
         }
     }
 
-    fn confirm_surface_resize(&self, surface: SurfaceId, size: (u16, u16)) {
+    fn confirm_surface_resize(
+        &self,
+        surface: SurfaceId,
+        size: (u16, u16),
+        reservation_id: Option<u64>,
+    ) {
         let mut ownership = self.surface_resize_ownership.lock().unwrap();
-        if ownership.get(&surface).is_some_and(|desired| *desired == size) {
+        if ownership.get(&surface).is_some_and(|ownership| {
+            ownership.desired == size
+                && reservation_id.is_none_or(|id| ownership.reservation_id == Some(id))
+        }) {
             ownership.remove(&surface);
         }
         drop(ownership);
@@ -1148,26 +1167,17 @@ impl OrderedSession {
         }
     }
 
-    fn release_surface_resize_ownership(&self, surface: SurfaceId, desired: (u16, u16)) {
-        let mut ownership = self.surface_resize_ownership.lock().unwrap();
-        if ownership.get(&surface).is_some_and(|owned| *owned == desired) {
-            ownership.remove(&surface);
-        }
-    }
-
     fn note_surface_resize_failure(
         &self,
         surface: SurfaceId,
         desired: (u16, u16),
         retry_after_ms: Option<u64>,
+        reservation_id: Option<u64>,
     ) -> bool {
-        if self
-            .surface_resize_ownership
-            .lock()
-            .unwrap()
-            .get(&surface)
-            .is_none_or(|owned| *owned != desired)
-        {
+        if self.surface_resize_ownership.lock().unwrap().get(&surface).is_none_or(|ownership| {
+            ownership.desired != desired
+                || reservation_id.is_some_and(|id| ownership.reservation_id != Some(id))
+        }) {
             return false;
         }
         let mut failures = self.surface_resize_failures.lock().unwrap();
@@ -3151,8 +3161,8 @@ impl App {
                 self.remove_surface_from_tree(id);
                 Ok(RenderAction::Draw)
             }
-            AppEvent::Mux(MuxEvent::SurfaceResized { surface, cols, rows }) => {
-                self.session.confirm_surface_resize(surface, (cols, rows));
+            AppEvent::Mux(MuxEvent::SurfaceResized { surface, cols, rows, reservation_id }) => {
+                self.session.confirm_surface_resize(surface, (cols, rows), reservation_id);
                 Ok(RenderAction::Draw)
             }
             AppEvent::Mux(MuxEvent::SurfaceResizeFailed {
@@ -3161,8 +3171,14 @@ impl App {
                 rows,
                 error,
                 retry_after_ms,
+                reservation_id,
             }) => {
-                if self.session.note_surface_resize_failure(surface, (cols, rows), retry_after_ms) {
+                if self.session.note_surface_resize_failure(
+                    surface,
+                    (cols, rows),
+                    retry_after_ms,
+                    reservation_id,
+                ) {
                     self.status_message = Some(format!(
                         "browser surface {surface} resize to {cols}x{rows} failed: {error}"
                     ));
@@ -3195,10 +3211,6 @@ impl App {
             }
             AppEvent::Mux(_) => Ok(RenderAction::Draw),
             AppEvent::BrowserResizeFailed(failure) => {
-                self.session.release_surface_resize_ownership(
-                    failure.surface_id,
-                    (failure.cols, failure.rows),
-                );
                 self.status_message = Some(format!(
                     "browser surface {} resize to {}x{} failed: {}",
                     failure.surface_id, failure.cols, failure.rows, failure.error
@@ -5159,7 +5171,8 @@ impl App {
         };
         let (surface, handle, reservation_id, fallback, content, button) =
             (*surface, handle.clone(), *reservation_id, release_bytes.clone(), *content, *button);
-        if reported_button != button && self.ignored_pty_mouse_buttons.remove(&reported_button) {
+        if reported_button != button {
+            self.ignored_pty_mouse_buttons.remove(&reported_button);
             return true;
         }
         let content = self.current_pty_content(surface).unwrap_or(content);
@@ -6583,8 +6596,8 @@ mod tests {
         MuxTitleIngress, OrderedSession, PaneArea, PendingSessionMutation,
         PendingSessionMutationState, PtyFailureIngress, RenderAction, Selection, SessionCompletion,
         SessionCompletionAction, SidebarPluginSyncClaim, SidebarPluginSyncState,
-        SurfaceResizeDecision, browser_content_size_for_rect, browser_hover_forward_allowed,
-        forward_mux_event, forward_mux_events, pane_parts_for_rect,
+        SurfaceResizeDecision, SurfaceResizeOwnership, browser_content_size_for_rect,
+        browser_hover_forward_allowed, forward_mux_event, forward_mux_events, pane_parts_for_rect,
         record_surface_resize_dispatch_result, sidebar_plugin_status_settles_passive_claim,
     };
     use std::collections::{HashMap, HashSet, VecDeque};
@@ -6750,6 +6763,10 @@ mod tests {
             .unwrap();
         assert_eq!(app.encode_buf, b"\x1b[<2;5;3M");
         app.handle_mouse(event(MouseEventKind::Up(MouseButton::Left), KeyModifiers::NONE)).unwrap();
+        assert_eq!(app.encode_buf, b"\x1b[<2;5;3M");
+        assert!(matches!(app.drag, Some(Drag::PtyMouse { button: MouseButton::Right, .. })));
+        app.handle_mouse(event(MouseEventKind::Up(MouseButton::Right), KeyModifiers::NONE))
+            .unwrap();
         assert_eq!(app.encode_buf, b"\x1b[<2;5;3m");
         assert!(app.drag.is_none());
 
@@ -6891,6 +6908,25 @@ mod tests {
             app.status_message.as_deref(),
             Some("PTY input queue is full; input was not sent")
         );
+    }
+
+    #[test]
+    fn mismatched_release_preserves_the_active_pty_drag() {
+        let mux = Mux::new("mismatched-release-drag-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.drag = Some(Drag::PtyMouse {
+            surface: 42,
+            handle: None,
+            reservation_id: 41,
+            release_bytes: PtyInputBytes::from_slice(b"fallback-release"),
+            content: Rect { x: 1, y: 1, width: 20, height: 8 },
+            button: MouseButton::Left,
+            position: (4, 3),
+            modifiers: KeyModifiers::NONE,
+        });
+
+        assert!(app.finish_pty_mouse_drag(4, 3, MouseButton::Right, KeyModifiers::NONE));
+        assert!(matches!(app.drag, Some(Drag::PtyMouse { button: MouseButton::Left, .. })));
     }
 
     #[test]
@@ -7501,6 +7537,32 @@ mod tests {
     }
 
     #[test]
+    fn mux_forwarder_preserves_resize_completion_while_app_channel_is_full() {
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        tx.send(AppEvent::Mux(MuxEvent::Bell(1))).unwrap();
+        let titles = MuxTitleIngress::default();
+        let forwarder = std::thread::spawn(move || {
+            forward_mux_event(
+                MuxEvent::SurfaceResized {
+                    surface: 41,
+                    cols: 90,
+                    rows: 31,
+                    reservation_id: Some(7),
+                },
+                &tx,
+                &titles,
+            )
+        });
+
+        assert!(matches!(rx.recv().unwrap(), AppEvent::Mux(MuxEvent::Bell(1))));
+        assert!(matches!(
+            rx.recv().unwrap(),
+            AppEvent::Mux(MuxEvent::SurfaceResized { surface: 41, reservation_id: Some(7), .. })
+        ));
+        assert!(matches!(forwarder.join().unwrap(), ForwardMuxOutcome::Continue));
+    }
+
+    #[test]
     fn mux_recovery_barrier_defers_input_until_authoritative_tree_is_applied() {
         let mux = Mux::new("mux-recovery-barrier-test", SurfaceOptions::default());
         mux.new_workspace(None, None).unwrap();
@@ -7673,14 +7735,17 @@ mod tests {
     fn browser_resize_ownership_tracks_only_accepted_dispatches() {
         let ownership = Mutex::new(HashMap::new());
 
-        record_surface_resize_dispatch_result(&ownership, 7, (100, 30), false);
+        record_surface_resize_dispatch_result(&ownership, 7, (100, 30), None);
         assert!(ownership.lock().unwrap().is_empty());
 
-        record_surface_resize_dispatch_result(&ownership, 7, (100, 30), true);
-        assert_eq!(ownership.lock().unwrap().get(&7), Some(&(100, 30)));
+        record_surface_resize_dispatch_result(&ownership, 7, (100, 30), Some(41));
+        assert_eq!(
+            ownership.lock().unwrap().get(&7),
+            Some(&SurfaceResizeOwnership { desired: (100, 30), reservation_id: Some(41) })
+        );
 
-        record_surface_resize_dispatch_result(&ownership, 7, (100, 30), false);
-        assert!(ownership.lock().unwrap().is_empty());
+        record_surface_resize_dispatch_result(&ownership, 7, (100, 30), None);
+        assert!(ownership.lock().unwrap().contains_key(&7));
     }
 
     #[test]
@@ -7868,15 +7933,40 @@ mod tests {
         let mux = Mux::new("session-resize-retry-due-test", SurfaceOptions::default());
         let app = test_app(Session::Local(mux));
 
-        assert!(!app.session.note_surface_resize_failure(41, (90, 31), Some(0)));
+        assert!(!app.session.note_surface_resize_failure(41, (90, 31), Some(0), Some(7)));
         assert!(!app.session.surface_resize_retry_due());
 
-        app.session.surface_resize_ownership.lock().unwrap().insert(41, (90, 31));
-        assert!(app.session.note_surface_resize_failure(41, (90, 31), Some(0)));
+        app.session
+            .surface_resize_ownership
+            .lock()
+            .unwrap()
+            .insert(41, SurfaceResizeOwnership { desired: (90, 31), reservation_id: Some(7) });
+        assert!(app.session.note_surface_resize_failure(41, (90, 31), Some(0), Some(7)));
         assert!(app.session.surface_resize_retry_due());
 
-        app.session.confirm_surface_resize(41, (90, 31));
+        app.session.confirm_surface_resize(41, (90, 31), Some(7));
         assert!(!app.session.surface_resize_retry_due());
+        assert!(!app.session.surface_resize_ownership.lock().unwrap().contains_key(&41));
+    }
+
+    #[test]
+    fn stale_same_geometry_completion_does_not_release_newer_resize_owner() {
+        let mux = Mux::new("resize-owner-identity-test", SurfaceOptions::default());
+        let app = test_app(Session::Local(mux));
+        app.session
+            .surface_resize_ownership
+            .lock()
+            .unwrap()
+            .insert(41, SurfaceResizeOwnership { desired: (90, 31), reservation_id: Some(9) });
+
+        app.session.confirm_surface_resize(41, (90, 31), Some(7));
+        assert_eq!(
+            app.session.surface_resize_ownership.lock().unwrap().get(&41).copied(),
+            Some(SurfaceResizeOwnership { desired: (90, 31), reservation_id: Some(9) })
+        );
+        assert!(!app.session.note_surface_resize_failure(41, (90, 31), Some(0), Some(7)));
+
+        app.session.confirm_surface_resize(41, (90, 31), Some(9));
         assert!(!app.session.surface_resize_ownership.lock().unwrap().contains_key(&41));
     }
 

@@ -223,15 +223,15 @@ Example:
 Payload:
 
 ```text
-object{event:"surface-resized",surface:Id,cols:uint16,rows:uint16}
+object{event:"surface-resized",surface:Id,cols:uint16,rows:uint16,reservation_id:uint64|null}
 ```
 
-Meaning: A surface's final clamped cell size changed. A same-size `resize-surface` command returns success but emits no `surface-resized` event.
+Meaning: A surface's final clamped cell size changed. `reservation_id` identifies the accepted asynchronous browser resize that completed, and is `null` for PTY resizes. A same-size `resize-surface` command returns success but emits no `surface-resized` event.
 
 Example:
 
 ```json
-{"event":"surface-resized","surface":1,"cols":120,"rows":40}
+{"event":"surface-resized","surface":1,"cols":120,"rows":40,"reservation_id":7}
 ```
 
 ### surface-resize-failed
@@ -245,15 +245,15 @@ Example:
 Payload:
 
 ```text
-object{event:"surface-resize-failed",surface:Id,cols:uint16,rows:uint16,error:string,retry_after_ms:uint64|null}
+object{event:"surface-resize-failed",surface:Id,cols:uint16,rows:uint16,error:string,retry_after_ms:uint64|null,reservation_id:uint64}
 ```
 
-Meaning: An accepted asynchronous browser resize failed. A numeric `retry_after_ms` is the delay before the requesting client retries the same geometry. `null` means automatic retries are exhausted; a new geometry request or browser reconnection may retry it. The event is broadcast, so subscribers that did not request this geometry must not echo it.
+Meaning: An accepted asynchronous browser resize failed. `reservation_id` matches the accepted request. A numeric `retry_after_ms` is the delay before the requesting client retries the same geometry. `null` means automatic retries are exhausted; a new geometry request or browser reconnection may retry it. The event is broadcast, so subscribers that did not request this geometry must not echo it.
 
 Example:
 
 ```json
-{"event":"surface-resize-failed","surface":1,"cols":120,"rows":40,"error":"browser is not responding","retry_after_ms":250}
+{"event":"surface-resize-failed","surface":1,"cols":120,"rows":40,"error":"browser is not responding","retry_after_ms":250,"reservation_id":7}
 ```
 
 ### surface-exited

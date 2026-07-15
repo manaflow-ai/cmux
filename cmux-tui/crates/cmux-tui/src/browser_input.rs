@@ -79,7 +79,7 @@ pub enum BrowserInputKind {
         rows: u16,
         reassert: bool,
         _claim: Option<Box<dyn Send>>,
-        on_result: Option<Box<dyn FnOnce(bool) + Send>>,
+        on_result: Option<Box<dyn FnOnce(Option<u64>) + Send>>,
     },
     Navigate(String),
     Back,
@@ -766,8 +766,8 @@ mod tests {
         if let BrowserInputKind::Resize { on_result, .. } = &mut first.kind {
             let callback_called = callback_called.clone();
             let accepted_result = accepted.clone();
-            *on_result = Some(Box::new(move |was_accepted| {
-                accepted_result.store(was_accepted, Ordering::Release);
+            *on_result = Some(Box::new(move |reservation_id| {
+                accepted_result.store(reservation_id.is_some(), Ordering::Release);
                 callback_called.store(true, Ordering::Release);
             }));
         }

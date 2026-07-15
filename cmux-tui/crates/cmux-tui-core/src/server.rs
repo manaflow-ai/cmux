@@ -476,9 +476,6 @@ trait MessageSink: Send + Sync {
     fn send_stream(&self, value: &Value, stream: &OutboundStream) -> std::io::Result<()>;
     fn send_control(&self, value: &Value) -> std::io::Result<()>;
     fn send_terminal(&self, value: &Value, stream: &OutboundStream) -> std::io::Result<()>;
-    fn try_send(&self, value: &Value) -> std::io::Result<()> {
-        self.send_control(value)
-    }
     fn set_write_timeout(&self, _timeout: Option<Duration>) -> std::io::Result<()> {
         Ok(())
     }
@@ -552,13 +549,6 @@ impl MessageWriter {
             self.close();
         }
         result
-    }
-
-    fn try_send(&self, value: &Value) -> std::io::Result<()> {
-        if !self.is_open() {
-            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
-        }
-        self.sink.try_send(value)
     }
 
     fn is_open(&self) -> bool {
@@ -936,7 +926,7 @@ impl ClientTransport {
 
 #[derive(Default)]
 struct AttachedSurface {
-    streams: usize,
+    streams: BTreeMap<u64, OutboundStream>,
     size: Option<(u16, u16)>,
 }
 
@@ -1033,11 +1023,12 @@ impl ClientRegistry {
         &self,
         client: u64,
         surface: SurfaceId,
+        stream: OutboundStream,
     ) -> anyhow::Result<Option<ClientAnnouncement>> {
         let mut clients = self.clients.lock().unwrap();
         let record =
             clients.get_mut(&client).ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
-        record.attached.entry(surface).or_default().streams += 1;
+        record.attached.entry(surface).or_default().streams.insert(stream.id, stream);
         if record.announced_attached {
             return Ok(None);
         }
@@ -1045,12 +1036,12 @@ impl ClientRegistry {
         Ok(Some((record.transport.as_str().to_string(), record.name.clone(), record.kind.clone())))
     }
 
-    fn detach_surface(&self, client: u64, surface: SurfaceId) {
+    fn detach_surface(&self, client: u64, surface: SurfaceId, stream: u64) {
         let mut clients = self.clients.lock().unwrap();
         let Some(record) = clients.get_mut(&client) else { return };
         let Some(attached) = record.attached.get_mut(&surface) else { return };
-        attached.streams = attached.streams.saturating_sub(1);
-        if attached.streams == 0 {
+        attached.streams.remove(&stream);
+        if attached.streams.is_empty() {
             record.attached.remove(&surface);
         }
     }
@@ -1343,8 +1334,12 @@ fn disconnect_client(mux: &Mux, client: u64, send_detached: bool) -> bool {
     let Some(record) = mux.control_clients.remove(client) else { return false };
     if send_detached {
         let _ = record.writer.set_write_timeout(Some(CLIENT_DETACH_WRITE_TIMEOUT));
-        for surface in record.attached.keys() {
-            let _ = record.writer.try_send(&json!({"event": "detached", "surface": surface}));
+        for (surface, attached) in &record.attached {
+            for stream in attached.streams.values() {
+                let _ = record
+                    .writer
+                    .send_terminal(&json!({"event": "detached", "surface": surface}), stream);
+            }
         }
     }
     record.writer.close();
@@ -1829,8 +1824,15 @@ fn handle_attach_send_error(lifecycle: &AttachLifecycle, error: &std::io::Error)
     }
 }
 
-fn mark_client_attached(mux: &Mux, client: u64, surface: SurfaceId) -> anyhow::Result<()> {
-    if let Some((transport, name, kind)) = mux.control_clients.attach_surface(client, surface)? {
+fn mark_client_attached(
+    mux: &Mux,
+    client: u64,
+    surface: SurfaceId,
+    stream: OutboundStream,
+) -> anyhow::Result<()> {
+    if let Some((transport, name, kind)) =
+        mux.control_clients.attach_surface(client, surface, stream)?
+    {
         mux.emit(MuxEvent::ClientAttached { client, transport, name, kind });
     }
     Ok(())
@@ -2103,11 +2105,12 @@ fn handle_command(
             let resizes = mux
                 .set_cell_pixel_size(width_px, height_px)
                 .into_iter()
-                .map(|(surface, (cols, rows))| {
+                .map(|(surface, (cols, rows), reservation_id)| {
                     json!({
                         "surface": surface,
                         "cols": cols,
                         "rows": rows,
+                        "reservation_id": reservation_id,
                     })
                 })
                 .collect::<Vec<_>>();
@@ -2341,10 +2344,11 @@ fn handle_command(
             Ok(json!({}))
         }
         Command::ResizeSurface { surface, cols, rows } => {
-            let accepted = mux.resize_surface(surface, cols, rows)?;
+            let (accepted, reservation_id) =
+                mux.resize_surface_with_reservation(surface, cols, rows)?;
             mux.record_client_size(cols, rows);
             mux.control_clients.record_size(client, surface, cols.max(1), rows.max(1));
-            Ok(json!({"accepted": accepted}))
+            Ok(json!({"accepted": accepted, "reservation_id": reservation_id}))
         }
         Command::FocusPane { pane } => {
             if !mux.focus_pane(pane) {
@@ -2412,7 +2416,7 @@ fn handle_command(
                     handle_attach_send_error(&lifecycle, &error);
                     return Err(error.into());
                 }
-                mark_client_attached(mux, client, surface_id)?;
+                mark_client_attached(mux, client, surface_id, outbound_stream.clone())?;
                 spawn_attach_notification_stream(
                     mux.clone(),
                     surface_id,
@@ -2463,7 +2467,7 @@ fn handle_command(
                         }
                     }
                     report_attach_overflow(&writer, surface_id, &lifecycle, &outbound_stream);
-                    mux.control_clients.detach_surface(client, surface_id);
+                    mux.control_clients.detach_surface(client, surface_id, outbound_stream.id);
                 })?;
                 return Ok(json!({}));
             }
@@ -2488,7 +2492,7 @@ fn handle_command(
                 handle_attach_send_error(&lifecycle, &error);
                 return Err(error.into());
             }
-            mark_client_attached(mux, client, surface_id)?;
+            mark_client_attached(mux, client, surface_id, outbound_stream.clone())?;
             spawn_attach_notification_stream(
                 mux.clone(),
                 surface_id,
@@ -2542,7 +2546,7 @@ fn handle_command(
                     }
                 }
                 report_attach_overflow(&writer, surface_id, &attach.lifecycle, &outbound_stream);
-                mux.control_clients.detach_surface(client, surface_id);
+                mux.control_clients.detach_surface(client, surface_id, outbound_stream.id);
             })?;
             Ok(json!({}))
         }
@@ -2552,19 +2556,28 @@ fn handle_command(
 fn subscribed_event_json(event: &MuxEvent) -> Value {
     match event {
         MuxEvent::SurfaceOutput(id) => json!({"event": "surface-output", "surface": id}),
-        MuxEvent::SurfaceResized { surface, cols, rows } => json!({
+        MuxEvent::SurfaceResized { surface, cols, rows, reservation_id } => json!({
             "event": "surface-resized",
             "surface": surface,
             "cols": cols,
             "rows": rows,
+            "reservation_id": reservation_id,
         }),
-        MuxEvent::SurfaceResizeFailed { surface, cols, rows, error, retry_after_ms } => json!({
+        MuxEvent::SurfaceResizeFailed {
+            surface,
+            cols,
+            rows,
+            error,
+            retry_after_ms,
+            reservation_id,
+        } => json!({
             "event": "surface-resize-failed",
             "surface": surface,
             "cols": cols,
             "rows": rows,
             "error": error.as_ref(),
             "retry_after_ms": retry_after_ms,
+            "reservation_id": reservation_id,
         }),
         MuxEvent::SurfaceExited(id) => json!({"event": "surface-exited", "surface": id}),
         MuxEvent::TitleChanged { surface, title } => {
@@ -2836,6 +2849,24 @@ mod tests {
         assert_eq!(remaining["stream"], "unrelated");
         assert_eq!(outbound.try_pop(), None);
         assert!(writer.is_open());
+    }
+
+    #[test]
+    fn client_detach_purges_attach_backlog_before_terminal_event() {
+        let mux = Mux::new("detach-order-test", SurfaceOptions::default());
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+        let stream = writer.start_stream(&attach_overflow_json(41)).unwrap();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        mux.control_clients.attach_surface(client, 41, stream.clone()).unwrap();
+        writer.send_initial(&json!({"event": "vt-state", "surface": 41}), &stream).unwrap();
+        writer.send_stream(&json!({"event": "output", "surface": 41}), &stream).unwrap();
+
+        assert!(disconnect_client(&mux, client, true));
+
+        let terminal: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(terminal, json!({"event": "detached", "surface": 41}));
+        assert_eq!(outbound.try_pop(), None);
     }
 
     #[test]

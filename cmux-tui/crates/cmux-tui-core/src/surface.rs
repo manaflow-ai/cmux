@@ -715,13 +715,13 @@ impl Surface {
         &self,
         cols: u16,
         rows: u16,
-        report: Box<dyn FnOnce(bool) + Send>,
-    ) -> anyhow::Result<bool> {
+        report: Box<dyn FnOnce(Option<u64>) + Send>,
+    ) -> anyhow::Result<Option<u64>> {
         match self {
             Surface::Pty(pty) => {
                 let accepted = pty.resize(cols, rows);
-                report(accepted);
-                Ok(accepted)
+                report(accepted.then_some(0));
+                Ok(accepted.then_some(0))
             }
             Surface::Browser(browser) => browser.resize_reporting_acceptance(cols, rows, report),
         }
@@ -737,19 +737,20 @@ impl Surface {
 
     pub fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) -> anyhow::Result<bool> {
         self.set_cell_pixel_size_reporting(width_px, height_px, Box::new(|_| {}))
+            .map(|reservation_id| reservation_id.is_some())
     }
 
     pub fn set_cell_pixel_size_reporting(
         &self,
         width_px: u16,
         height_px: u16,
-        report: Box<dyn FnOnce(bool) + Send>,
-    ) -> anyhow::Result<bool> {
+        report: Box<dyn FnOnce(Option<u64>) + Send>,
+    ) -> anyhow::Result<Option<u64>> {
         if let Some(browser) = self.as_browser() {
             browser.set_cell_pixel_size_reporting(width_px, height_px, report)
         } else {
-            report(false);
-            Ok(false)
+            report(None);
+            Ok(None)
         }
     }
 

@@ -41,6 +41,7 @@ class EmptyResult:
 @dataclass(frozen=True)
 class ResizeSurfaceResult:
     accepted: bool
+    reservation_id: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -160,6 +161,7 @@ class Event:
     scope: Optional[str] = None
     error: Optional[str] = None
     retry_after_ms: Optional[int] = None
+    reservation_id: Optional[int] = None
 
     @property
     def bytes_data(self) -> Optional[bytes]:
@@ -494,7 +496,10 @@ class CmuxClient:
 
     def resize_surface(self, surface: int, cols: int, rows: int) -> ResizeSurfaceResult:
         data = self._request("resize-surface", surface=surface, cols=cols, rows=rows)
-        return ResizeSurfaceResult(accepted=bool(data.get("accepted", True)))
+        return ResizeSurfaceResult(
+            accepted=bool(data.get("accepted", True)),
+            reservation_id=data.get("reservation_id"),
+        )
 
     def focus_pane(self, pane: int) -> EmptyResult:
         self._request("focus-pane", pane=pane)
@@ -632,4 +637,5 @@ def _parse_event(value: Dict[str, Any]) -> Event:
         scope=value.get("scope"),
         error=value.get("error"),
         retry_after_ms=value.get("retry_after_ms"),
+        reservation_id=value.get("reservation_id"),
     )

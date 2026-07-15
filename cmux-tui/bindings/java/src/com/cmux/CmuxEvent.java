@@ -24,14 +24,16 @@ public sealed interface CmuxEvent permits TreeChangedEvent, EmptyEvent, SurfaceE
             case "surface-resized" -> new SurfaceResizedEvent(
                 CmuxClient.asLong(raw.get("surface")),
                 (int) CmuxClient.asLong(raw.get("cols")),
-                (int) CmuxClient.asLong(raw.get("rows"))
+                (int) CmuxClient.asLong(raw.get("rows")),
+                raw.get("reservation_id") instanceof Number ? CmuxClient.asLong(raw.get("reservation_id")) : null
             );
             case "surface-resize-failed" -> new SurfaceResizeFailedEvent(
                 CmuxClient.asLong(raw.get("surface")),
                 (int) CmuxClient.asLong(raw.get("cols")),
                 (int) CmuxClient.asLong(raw.get("rows")),
                 CmuxClient.asString(raw.get("error")),
-                raw.get("retry_after_ms") instanceof Number ? CmuxClient.asLong(raw.get("retry_after_ms")) : null
+                raw.get("retry_after_ms") instanceof Number ? CmuxClient.asLong(raw.get("retry_after_ms")) : null,
+                raw.get("reservation_id") instanceof Number ? CmuxClient.asLong(raw.get("reservation_id")) : null
             );
             case "vt-state" -> new VtStateEvent(
                 CmuxClient.asLong(raw.get("surface")),

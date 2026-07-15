@@ -28,6 +28,15 @@ test("legacy resize response defaults to accepted", async () => {
   await client.close();
 });
 
+test("resize response preserves reservation identity", async () => {
+  const transport = new ScriptedTransport((request, connection) => {
+    connection.emit({ id: request.id, ok: true, data: { accepted: true, reservation_id: 41 } });
+  });
+  const client = new CmuxClient({ transport, timeoutMs: 100 });
+  assert.deepEqual(await client.resizeSurface(7, 80, 24), { accepted: true, reservation_id: 41 });
+  await client.close();
+});
+
 test("attachSurface decodes VT colors, output, and resized payloads", async () => {
   const main = new ScriptedTransport((request, transport) => {
     assert.equal(request.cmd, "identify");

@@ -173,6 +173,8 @@ pub struct Size {
 pub struct ResizeSurfaceResult {
     #[serde(default = "default_true")]
     pub accepted: bool,
+    #[serde(default)]
+    pub reservation_id: Option<u64>,
 }
 
 fn default_true() -> bool {
@@ -195,6 +197,8 @@ pub struct SurfaceResizedEvent {
     pub surface: u64,
     pub cols: u16,
     pub rows: u16,
+    #[serde(default)]
+    pub reservation_id: Option<u64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -204,6 +208,8 @@ pub struct SurfaceResizeFailedEvent {
     pub rows: u16,
     pub error: String,
     pub retry_after_ms: Option<u64>,
+    #[serde(default)]
+    pub reservation_id: Option<u64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -846,6 +852,7 @@ mod tests {
                 rows: 40,
                 error,
                 retry_after_ms: Some(250),
+                reservation_id: None,
             }) if error == "browser is not responding"
         ));
     }
@@ -854,6 +861,11 @@ mod tests {
     fn legacy_resize_response_defaults_to_accepted() {
         let result: ResizeSurfaceResult = serde_json::from_value(serde_json::json!({})).unwrap();
         assert!(result.accepted);
+        assert_eq!(result.reservation_id, None);
+        let reserved: ResizeSurfaceResult =
+            serde_json::from_value(serde_json::json!({"accepted": true, "reservation_id": 41}))
+                .unwrap();
+        assert_eq!(reserved.reservation_id, Some(41));
     }
 
     #[test]

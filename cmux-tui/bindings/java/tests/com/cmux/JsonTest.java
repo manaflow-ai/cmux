@@ -65,6 +65,8 @@ public final class JsonTest {
         );
         assertEquals("browser is not responding", resizeFailed.error(), "resize failure error");
         assertEquals(250L, resizeFailed.retryAfterMs(), "resize failure retry schedule");
+        ResizeSurfaceResult reserved = ResizeSurfaceResult.from(Map.of("accepted", true, "reservation_id", 41));
+        assertEquals(41L, reserved.reservationId(), "resize reservation identity");
         assertTrue(ResizeSurfaceResult.from(Map.of()).accepted(), "legacy resize accepted");
     }
 

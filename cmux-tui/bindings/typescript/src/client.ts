@@ -382,7 +382,7 @@ export class CmuxClient {
   renameWorkspace(workspace: Id, name: string): Promise<EmptyResult> { return this.request("rename-workspace", { workspace, name }); }
   async resizeSurface(surface: Id, cols: number, rows: number): Promise<ResizeSurfaceResult> {
     const result = await this.request("resize-surface", { surface, cols, rows });
-    return { accepted: result.accepted ?? true };
+    return { ...result, accepted: result.accepted ?? true };
   }
   focusPane(pane: Id): Promise<EmptyResult> { return this.request("focus-pane", { pane }); }
   selectTab(options: SelectTabOptions = {}): Promise<EmptyResult> { return this.request("select-tab", options); }

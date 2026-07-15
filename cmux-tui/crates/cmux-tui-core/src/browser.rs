@@ -171,7 +171,7 @@ enum BrowserCommand {
     Activate,
     Reconfigure {
         queued: QueuedBrowserGeometry,
-        report: Option<Box<dyn FnOnce(bool) + Send>>,
+        report: Option<Box<dyn FnOnce(Option<u64>) + Send>>,
     },
     #[cfg(test)]
     Hold {
@@ -200,7 +200,7 @@ fn reject_reconfigure(mut command: BrowserCommand) -> Option<QueuedBrowserGeomet
     if let BrowserCommand::Reconfigure { report, .. } = &mut command
         && let Some(report) = report.take()
     {
-        report(false);
+        report(None);
     }
     match command {
         BrowserCommand::Reconfigure { queued, .. } => Some(queued),
@@ -793,10 +793,10 @@ fn run_browser_worker_command(
     id: SurfaceId,
     failures: &mut BrowserWorkerErrorState,
 ) {
-    if let BrowserCommand::Reconfigure { report, .. } = &mut command
+    if let BrowserCommand::Reconfigure { queued, report } = &mut command
         && let Some(report) = report.take()
     {
-        report(true);
+        report(Some(queued.id));
     }
     let is_input = command.is_input();
     let is_reconfigure = matches!(command, BrowserCommand::Reconfigure { .. });
@@ -851,7 +851,12 @@ fn run_browser_worker_command(
         && let Some(queued) = reconfigure
     {
         let (cols, rows) = queued.geometry.size;
-        mux.emit(MuxEvent::SurfaceResized { surface: id, cols, rows });
+        mux.emit(MuxEvent::SurfaceResized {
+            surface: id,
+            cols,
+            rows,
+            reservation_id: Some(queued.id),
+        });
     }
     if let Some(queued) = reconfigure
         && let Err(error) = &result
@@ -866,6 +871,7 @@ fn run_browser_worker_command(
             rows,
             error: Arc::<str>::from(error.to_string()),
             retry_after_ms: retry_delay.map(|delay| delay.as_millis() as u64),
+            reservation_id: Some(queued.id),
         });
     }
     record_browser_worker_result(surface, mux, id, is_input, result, failures);
@@ -1004,21 +1010,22 @@ impl BrowserSurface {
 
     pub fn resize(&self, cols: u16, rows: u16) -> anyhow::Result<bool> {
         self.resize_reporting_acceptance(cols, rows, Box::new(|_| {}))
+            .map(|reservation_id| reservation_id.is_some())
     }
 
     pub fn resize_reporting_acceptance(
         &self,
         cols: u16,
         rows: u16,
-        report: Box<dyn FnOnce(bool) + Send>,
-    ) -> anyhow::Result<bool> {
+        report: Box<dyn FnOnce(Option<u64>) + Send>,
+    ) -> anyhow::Result<Option<u64>> {
         let (cols, rows) = (cols.max(1), rows.max(1));
         let Some(queued) = self.reserve_reconfigure(cols, rows) else {
-            report(false);
-            return Ok(false);
+            report(None);
+            return Ok(None);
         };
         self.enqueue_reconfigure(BrowserCommand::Reconfigure { queued, report: Some(report) })?;
-        Ok(true)
+        Ok(Some(queued.id))
     }
 
     fn reconfigure_reserved_blocking(&self, queued: QueuedBrowserGeometry) -> anyhow::Result<()> {
@@ -1032,20 +1039,21 @@ impl BrowserSurface {
 
     pub fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) -> anyhow::Result<bool> {
         self.set_cell_pixel_size_reporting(width_px, height_px, Box::new(|_| {}))
+            .map(|reservation_id| reservation_id.is_some())
     }
 
     pub fn set_cell_pixel_size_reporting(
         &self,
         width_px: u16,
         height_px: u16,
-        report: Box<dyn FnOnce(bool) + Send>,
-    ) -> anyhow::Result<bool> {
+        report: Box<dyn FnOnce(Option<u64>) + Send>,
+    ) -> anyhow::Result<Option<u64>> {
         {
             let mut cell = self.cell_pixels.lock().unwrap();
             let next = (width_px.max(1), height_px.max(1));
             if *cell == next {
-                report(false);
-                return Ok(false);
+                report(None);
+                return Ok(None);
             }
             *cell = next;
         }
@@ -2601,25 +2609,27 @@ mod tests {
                 .resize_reporting_acceptance(
                     11,
                     5,
-                    Box::new(move |accepted| {
-                        assert!(accepted);
+                    Box::new(move |reservation_id| {
+                        assert!(reservation_id.is_some());
                         reported.store(true, Ordering::Release);
                     }),
                 )
                 .unwrap()
+                .is_some()
         );
         assert!(!accepted.load(Ordering::Acquire));
         let (duplicate_tx, duplicate_rx) = mpsc::channel();
         assert!(
-            !browser
+            browser
                 .resize_reporting_acceptance(
                     11,
                     5,
                     Box::new(move |accepted| duplicate_tx.send(accepted).unwrap()),
                 )
                 .unwrap()
+                .is_none()
         );
-        assert!(!duplicate_rx.recv_timeout(Duration::from_secs(1)).unwrap());
+        assert!(duplicate_rx.recv_timeout(Duration::from_secs(1)).unwrap().is_none());
 
         release.send(()).unwrap();
         let deadline = Instant::now() + Duration::from_secs(1);

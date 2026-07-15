@@ -13,7 +13,7 @@ use crate::model::{Node, Pane, Screen, State, Workspace};
 use crate::surface::{DefaultColors, Surface, SurfaceOptions};
 use crate::{PaneId, ScreenId, SplitDir, SurfaceId, WorkspaceId};
 
-pub type SurfaceResizeReporter = Arc<dyn Fn(SurfaceId, (u16, u16), bool) + Send + Sync>;
+pub type SurfaceResizeReporter = Arc<dyn Fn(SurfaceId, (u16, u16), Option<u64>) + Send + Sync>;
 
 /// Events pushed to subscribed frontends.
 #[derive(Debug, Clone)]
@@ -25,6 +25,7 @@ pub enum MuxEvent {
         surface: SurfaceId,
         cols: u16,
         rows: u16,
+        reservation_id: Option<u64>,
     },
     /// An asynchronous browser resize failed after queue acceptance.
     SurfaceResizeFailed {
@@ -33,6 +34,7 @@ pub enum MuxEvent {
         rows: u16,
         error: Arc<str>,
         retry_after_ms: Option<u64>,
+        reservation_id: Option<u64>,
     },
     /// A surface's child exited. The mux has already reaped it from the
     /// tree (a tree-changed follows) by the time this arrives.
@@ -736,7 +738,7 @@ impl Mux {
         &self,
         width_px: u16,
         height_px: u16,
-    ) -> Vec<(SurfaceId, (u16, u16))> {
+    ) -> Vec<(SurfaceId, (u16, u16), u64)> {
         self.set_cell_pixel_size_reporting(width_px, height_px, Arc::new(|_, _, _| {}))
     }
 
@@ -745,7 +747,7 @@ impl Mux {
         width_px: u16,
         height_px: u16,
         report: SurfaceResizeReporter,
-    ) -> Vec<(SurfaceId, (u16, u16))> {
+    ) -> Vec<(SurfaceId, (u16, u16), u64)> {
         let next = (width_px.max(1), height_px.max(1));
         {
             let mut cell = self.cell_pixels.lock().unwrap();
@@ -760,15 +762,15 @@ impl Mux {
             let id = surface.id;
             let size = surface.size();
             let callback = report.clone();
-            if surface
+            if let Some(reservation_id) = surface
                 .set_cell_pixel_size_reporting(
                     next.0,
                     next.1,
                     Box::new(move |accepted| callback(id, size, accepted)),
                 )
-                .unwrap_or(false)
+                .unwrap_or(None)
             {
-                accepted.push((id, size));
+                accepted.push((id, size, reservation_id));
             }
         }
         accepted
@@ -796,6 +798,15 @@ impl Mux {
     /// Resize a surface and broadcast the final clamped size when it actually
     /// changes. Browser workers broadcast after their asynchronous CDP work.
     pub fn resize_surface(&self, id: SurfaceId, cols: u16, rows: u16) -> anyhow::Result<bool> {
+        self.resize_surface_with_reservation(id, cols, rows).map(|(accepted, _)| accepted)
+    }
+
+    pub fn resize_surface_with_reservation(
+        &self,
+        id: SurfaceId,
+        cols: u16,
+        rows: u16,
+    ) -> anyhow::Result<(bool, Option<u64>)> {
         let Some(surface) = self.surface(id) else {
             anyhow::bail!("unknown surface {id}");
         };
@@ -804,15 +815,17 @@ impl Mux {
         // in this method and must not become the default for new surfaces.
         // Client interactions record explicitly at the protocol/TUI layers.
         let (cols, rows) = (cols.max(1), rows.max(1));
-        if !surface.resize(cols, rows)? {
-            return Ok(false);
-        }
         if surface.as_browser().is_some() {
-            return Ok(true);
+            let reservation_id =
+                surface.resize_reporting_acceptance(cols, rows, Box::new(|_| {}))?;
+            return Ok((reservation_id.is_some(), reservation_id));
+        }
+        if !surface.resize(cols, rows)? {
+            return Ok((false, None));
         }
         let (cols, rows) = surface.size();
-        self.emit(MuxEvent::SurfaceResized { surface: id, cols, rows });
-        Ok(true)
+        self.emit(MuxEvent::SurfaceResized { surface: id, cols, rows, reservation_id: None });
+        Ok((true, None))
     }
 
     /// Create a workspace with one screen holding one pane with one tab.

@@ -31,6 +31,8 @@ const REMOTE_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 #[cfg(test)]
 const REMOTE_WRITE_TIMEOUT: Duration = Duration::from_millis(100);
 
+pub(crate) type RemoteResizeReservation = (SurfaceId, (u16, u16), Option<u64>);
+
 #[derive(Debug)]
 pub(crate) enum RemoteRequestError {
     Encode(serde_json::Error),
@@ -443,7 +445,12 @@ impl RemoteSession {
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
                     surface.set_server_size(cols, rows);
                 }
-                self.emit(MuxEvent::SurfaceResized { surface: id, cols, rows });
+                self.emit(MuxEvent::SurfaceResized {
+                    surface: id,
+                    cols,
+                    rows,
+                    reservation_id: value.get("reservation_id").and_then(Value::as_u64),
+                });
             }
             Some("surface-resize-failed") => {
                 let Some(id) = surface_id() else { return };
@@ -452,6 +459,7 @@ impl RemoteSession {
                 let error =
                     value.get("error").and_then(Value::as_str).unwrap_or("browser resize failed");
                 let retry_after_ms = value.get("retry_after_ms").and_then(Value::as_u64);
+                let reservation_id = value.get("reservation_id").and_then(Value::as_u64);
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
                     surface.clear_asserted_size((cols.max(1), rows.max(1)));
                 }
@@ -461,6 +469,7 @@ impl RemoteSession {
                     rows,
                     error: Arc::<str>::from(error),
                     retry_after_ms,
+                    reservation_id,
                 });
             }
             Some("output") => {
@@ -496,7 +505,12 @@ impl RemoteSession {
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
                     surface.apply_stream_resize(cols, rows, replay.as_deref());
                     surface.dirty.store(true, Ordering::Release);
-                    self.emit(MuxEvent::SurfaceResized { surface: id, cols, rows });
+                    self.emit(MuxEvent::SurfaceResized {
+                        surface: id,
+                        cols,
+                        rows,
+                        reservation_id: None,
+                    });
                     self.emit(MuxEvent::SurfaceOutput(id));
                 }
             }
@@ -756,7 +770,7 @@ impl RemoteSession {
         &self,
         width_px: u16,
         height_px: u16,
-    ) -> anyhow::Result<Vec<(SurfaceId, (u16, u16))>> {
+    ) -> anyhow::Result<Vec<RemoteResizeReservation>> {
         let response = self.request(json!({
             "cmd": "set-cell-pixels",
             "width_px": width_px,
@@ -774,6 +788,7 @@ impl RemoteSession {
                         u16::try_from(resize.get("cols")?.as_u64()?).ok()?,
                         u16::try_from(resize.get("rows")?.as_u64()?).ok()?,
                     ),
+                    resize.get("reservation_id").and_then(Value::as_u64),
                 ))
             })
             .collect())
@@ -1484,7 +1499,7 @@ mod tests {
         assert_eq!(surface.server_size(), (90, 31));
         assert!(events.try_iter().any(|event| matches!(
             event,
-            MuxEvent::SurfaceResized { surface: 7, cols: 90, rows: 31 }
+            MuxEvent::SurfaceResized { surface: 7, cols: 90, rows: 31, .. }
         )));
     }
 

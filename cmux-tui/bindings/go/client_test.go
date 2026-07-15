@@ -21,6 +21,16 @@ func TestLegacyResizeResponseDefaultsToAccepted(t *testing.T) {
 	}
 }
 
+func TestResizeResponsePreservesReservationIdentity(t *testing.T) {
+	var result ResizeSurfaceResult
+	if err := json.Unmarshal([]byte(`{"accepted":true,"reservation_id":41}`), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.ReservationID == nil || *result.ReservationID != 41 {
+		t.Fatalf("reservation id = %v, want 41", result.ReservationID)
+	}
+}
+
 func TestStreamYieldsBufferedOverflowOnceThenStops(t *testing.T) {
 	client, server := net.Pipe()
 	defer server.Close()

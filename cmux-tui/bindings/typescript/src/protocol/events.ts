@@ -20,7 +20,7 @@ export interface ScrollChangedEvent {
   at_bottom: boolean;
 }
 
-export interface SurfaceResizedEvent { event: "surface-resized"; surface: Id; cols: number; rows: number }
+export interface SurfaceResizedEvent { event: "surface-resized"; surface: Id; cols: number; rows: number; reservation_id?: number | null }
 export interface SurfaceResizeFailedEvent {
   event: "surface-resize-failed";
   surface: Id;
@@ -28,6 +28,7 @@ export interface SurfaceResizeFailedEvent {
   rows: number;
   error: string;
   retry_after_ms: number | null;
+  reservation_id?: number | null;
 }
 export interface SurfaceExitedEvent { event: "surface-exited"; surface: Id }
 export interface TitleChangedEvent { event: "title-changed"; surface: Id; title?: string }
