@@ -3688,6 +3688,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             let started = terminalCreationRequestOwner.startIfIdle(
                 claim: mutationClaim,
                 gate: terminalReorderGate,
+                ambiguousCreateWorkspaceID: targetWorkspaceID,
                 cancellationOutcome: cancellationOutcome,
                 completion: completion
             ) { @MainActor [weak self] in

@@ -14,6 +14,7 @@ final class MobileTerminalCreationRequestOwner {
     private var task: Task<Void, Never>?
     private var taskID: UUID?
     private var claim: MobileTerminalCreationMutationClaim?
+    private var ambiguousCreateWorkspaceID: MobileWorkspacePreview.ID?
     private var cancellationOutcome: Outcome?
     private var outcomeCompletion: (@MainActor (Outcome) -> Void)?
 
@@ -34,6 +35,7 @@ final class MobileTerminalCreationRequestOwner {
         let id = UUID()
         taskID = id
         self.claim = claim
+        ambiguousCreateWorkspaceID = nil
         cancellationOutcome = nil
         outcomeCompletion = nil
         task = Task { @MainActor [weak self] in
@@ -47,6 +49,7 @@ final class MobileTerminalCreationRequestOwner {
     func startIfIdle(
         claim: MobileTerminalCreationMutationClaim,
         gate: MobileTerminalReorderGate,
+        ambiguousCreateWorkspaceID: MobileWorkspacePreview.ID?,
         cancellationOutcome: Result<Void, MobileWorkspaceMutationFailure>,
         completion: @escaping @MainActor (Result<Void, MobileWorkspaceMutationFailure>) -> Void,
         operation: @escaping @MainActor () async -> Result<Void, MobileWorkspaceMutationFailure>
@@ -60,6 +63,7 @@ final class MobileTerminalCreationRequestOwner {
         let id = UUID()
         taskID = id
         self.claim = claim
+        self.ambiguousCreateWorkspaceID = ambiguousCreateWorkspaceID
         self.cancellationOutcome = cancellationOutcome
         outcomeCompletion = completion
         task = Task { @MainActor [weak self] in
@@ -73,10 +77,17 @@ final class MobileTerminalCreationRequestOwner {
         task?.cancel()
         guard let taskID else {
             task = nil
+            ambiguousCreateWorkspaceID = nil
             return
         }
+        let refreshWorkspaceID: MobileWorkspacePreview.ID?
         if case let .reserved(reservation) = claim {
-            gate.requireRefresh(workspaceID: reservation.workspaceID)
+            refreshWorkspaceID = reservation.workspaceID
+        } else {
+            refreshWorkspaceID = ambiguousCreateWorkspaceID
+        }
+        if let refreshWorkspaceID {
+            gate.requireRefresh(workspaceID: refreshWorkspaceID)
         }
         if let cancellationOutcome {
             complete(cancellationOutcome, id: taskID, gate: gate)
@@ -91,6 +102,7 @@ final class MobileTerminalCreationRequestOwner {
         task = nil
         taskID = nil
         claim = nil
+        ambiguousCreateWorkspaceID = nil
         cancellationOutcome = nil
         outcomeCompletion = nil
         if let finishedClaim, case let .reserved(reservation) = finishedClaim {

@@ -317,6 +317,7 @@ extension MobileShellComposite {
         let started = terminalCreationRequestOwner.startIfIdle(
             claim: .unreserved,
             gate: gate,
+            ambiguousCreateWorkspaceID: nil,
             cancellationOutcome: .failure(recoveryFailure),
             completion: { result in
                 let succeeded: Bool
