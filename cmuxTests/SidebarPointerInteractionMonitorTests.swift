@@ -125,6 +125,45 @@ import Testing
         #expect(monitor.hoveredRowId == nil)
     }
 
+    @Test func geometryReconciliationDoesNotPublishDuringTheLayoutCallback() async {
+        let monitor = SidebarPointerInteractionMonitor()
+        let firstWorkspaceId = UUID()
+        let secondWorkspaceId = UUID()
+        let firstRowId = SidebarWorkspaceRenderItemID.workspace(firstWorkspaceId)
+        let secondRowId = SidebarWorkspaceRenderItemID.workspace(secondWorkspaceId)
+
+        monitor.updateFrame(
+            CGRect(x: 0, y: 0, width: 200, height: 30),
+            for: firstRowId,
+            workspaceId: firstWorkspaceId
+        )
+        monitor.updateFrame(
+            CGRect(x: 0, y: 32, width: 200, height: 30),
+            for: secondRowId,
+            workspaceId: secondWorkspaceId
+        )
+        monitor.recordPointerLocation(CGPoint(x: 100, y: 15))
+        #expect(monitor.hoveredRowId == firstRowId)
+
+        monitor.updateFrame(
+            CGRect(x: 0, y: 32, width: 200, height: 30),
+            for: firstRowId,
+            workspaceId: firstWorkspaceId
+        )
+        monitor.updateFrame(
+            CGRect(x: 0, y: 0, width: 200, height: 30),
+            for: secondRowId,
+            workspaceId: secondWorkspaceId
+        )
+
+        #expect(
+            monitor.hoveredRowId == firstRowId,
+            "Geometry callbacks must not publish observable hover state while SwiftUI is laying out."
+        )
+        await Task.yield()
+        #expect(monitor.hoveredRowId == secondRowId)
+    }
+
     @Test func convertsAppKitBottomLeftPointToSwiftUITopLeftPoint() {
         let point = SidebarPointerInteractionMonitor.swiftUIPoint(
             fromAppKitPoint: CGPoint(x: 45, y: 170),
