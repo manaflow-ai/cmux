@@ -17,6 +17,10 @@ struct SidebarPointerFrameReportingModifier: ViewModifier {
 }
 
 extension View {
+    func sidebarPointerEventHost(_ monitor: SidebarPointerInteractionMonitor) -> some View {
+        background(SidebarPointerEventHost { monitor.attach(to: $0) })
+    }
+
     func sidebarPointerFrameReporting(
         onFrameChange: @escaping (CGRect) -> Void,
         onDisappear: @escaping () -> Void
