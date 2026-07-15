@@ -12,17 +12,55 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `e215e78bf`. It combines the previous cmux pin
-`dd726a9a6`, current fork `main` (`8495e581a`), and upstream
-`ghostty-org/ghostty` `main` through `7e02af879` (2026-07-09), followed by the
-render-grid preserved-page OOM fix, lock-free selection notifications, and
-compressed-storage-preserving full scrollback reads.
-Published via
+Current cmux pinned fork head: `b4b6d69c8`. It advances the previous cmux pin
+`a6305908a` with an exact Ghostty CLI executable-path contract for embedded
+hosts. The commit is reachable from fork `main` through `67b388b73` and was
+published via https://github.com/manaflow-ai/ghostty/pull/115.
+The corresponding universal ReleaseFast GhosttyKit archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-b4b6d69c82033e16137266a04b364dc53d16c350-crashsubdir-cmux-crash-v1
+and pinned in `scripts/ghosttykit-checksums.txt`.
+
+### Embedded Ghostty CLI path ownership
+
+- `src/termio/Exec.zig` exports `GHOSTTY_BIN` as the exact CLI executable.
+  Native Ghostty resolves to its running binary; an embedded host can supply a
+  separate helper without assuming the host GUI executable is named `ghostty`.
+- The zsh, bash, fish, nushell, and elvish SSH integrations invoke
+  `GHOSTTY_BIN` directly. They install no SSH wrapper when an embedded host has
+  not supplied a helper, so missing optional CLI support cannot break ordinary
+  `ssh`.
+- `GHOSTTY_BIN_DIR` remains the directory contract for the independent `path`
+  shell-integration feature; it is no longer used to reconstruct a CLI filename.
+- Conflict note: future upstream merges must preserve the distinction between
+  the exact CLI path (`GHOSTTY_BIN`) and its PATH directory
+  (`GHOSTTY_BIN_DIR`) across `src/termio/Exec.zig` and every shell integration.
+
+The earlier fork history below includes terminal-owned scrollbar snapshots,
+absolute row-space identity, OSC-boundary geometry, and compare-and-set
+absolute-row restoration for notification scrollback replay.
+
+The underlying compression, selection, and full-scrollback changes were
+published via
 https://github.com/manaflow-ai/ghostty/pull/96 and
 https://github.com/manaflow-ai/ghostty/pull/99 and
 https://github.com/manaflow-ai/ghostty/pull/104 and
 https://github.com/manaflow-ai/ghostty/pull/105 and
 https://github.com/manaflow-ai/ghostty/pull/106.
+
+### Notification replay viewport authority
+
+- OSC PWD actions carry the terminal scrollbar snapshot and row-space revision
+  from the exact byte position where the replay boundary was parsed.
+- `ghostty_surface_scrollbar` reads live terminal geometry without waiting for
+  renderer publication.
+- `ghostty_surface_scroll_to_row_if_revision` validates the row-space identity,
+  scrolls, and returns the resulting geometry under one terminal lock. A reset,
+  reflow, screen replacement, surface replacement, or scrollback eviction makes
+  a stale request fail closed instead of scrolling the wrong rows.
+- Conflict note: keep the PWD snapshot fields ABI-stable in
+  `src/apprt/action.zig` / `include/ghostty.h`, preserve the PageList revision
+  increments around row renumbering, and keep the embedded compare-and-set API
+  adjacent to `ghostty_surface_scrollbar` during future fork merges.
 
 ### Upstream TLDR (`d560c645..7e02af879`)
 
@@ -92,11 +130,13 @@ build, a clean universal GhosttyKit build, tagged cmux reloads `gcmp` and
 `gsel2`, and live accessibility reads across select-all, endpoint adjustment,
 and clearing.
 Prebuilt archive:
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-5ae712a89479f16d47d9a75e1a802a22415a3033-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-eb500e9f45c8b6ffa6043350ec1488a42d195406-crashsubdir-cmux-crash-v1
 
 ### Previous pin
 
-The previous cmux pin was `1ae98c991`. It was superseded by `e215e78bf` after
+The previous cmux pin was `5ae712a89`, which added the bounded VT screen-tail
+export on top of `e215e78bf`. Before that, `1ae98c991` was superseded by
+`e215e78bf` after
 full scrollback formatting was changed to preserve compressed storage and
 selection notifications moved to a lock-free terminal-wide epoch. The initial
 compression merge for this update was `870ed36f9`; it was superseded by

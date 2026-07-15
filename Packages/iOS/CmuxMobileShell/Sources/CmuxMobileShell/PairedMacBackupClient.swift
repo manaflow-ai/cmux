@@ -69,9 +69,32 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
 
     /// Upload backup mutations only if auth still belongs to the captured account.
     @discardableResult
-    public func upload(ops: [PairedMacBackupOp], teamID: String?, expectedUserID: String?) async -> Bool {
+    public func upload(
+        ops: [PairedMacBackupOp],
+        teamID: String?,
+        expectedUserID: String?
+    ) async -> Bool {
+        await upload(
+            ops: ops,
+            teamID: teamID,
+            expectedUserID: expectedUserID,
+            routeDisclosureDate: Date()
+        )
+    }
+
+    func upload(
+        ops: [PairedMacBackupOp],
+        teamID: String?,
+        expectedUserID: String?,
+        routeDisclosureDate: Date
+    ) async -> Bool {
         guard !ops.isEmpty else { return true }
-        let body = PairedMacBackupRequestBody(ops: ops.map(PairedMacBackupOpWire.init(op:)))
+        let body = PairedMacBackupRequestBody(ops: ops.map {
+            PairedMacBackupOpWire(
+                op: $0,
+                routeDisclosureDate: routeDisclosureDate
+            )
+        })
         guard let data = try? JSONEncoder().encode(body),
               let request = await makeRequest(
                 method: "POST",
