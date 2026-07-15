@@ -37,6 +37,13 @@ final class GitProcessCancellationSignal: @unchecked Sendable {
             write(writeDescriptor, $0, MemoryLayout<UInt8>.size)
         }
     }
+
+    var isCancelled: Bool {
+        guard readDescriptor >= 0 else { return false }
+        var descriptor = pollfd(fd: readDescriptor, events: Int16(POLLIN), revents: 0)
+        return poll(&descriptor, 1, 0) > 0
+            && (descriptor.revents & Int16(POLLIN)) != 0
+    }
 }
 
 private func gitProcessConfigureCancellationDescriptor(_ descriptor: Int32) -> Bool {

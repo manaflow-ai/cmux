@@ -162,7 +162,10 @@ import Testing
             processDeadlineSeconds: 3
         )
         let task = Task {
-            await service.runCancellable { service in
+            await service.runCancellable(
+                cancelledResult: { nil },
+                timedOutResult: { nil }
+            ) { service in
                 service.repositoryRoot(for: repo.path)
             }
         }
@@ -174,6 +177,53 @@ import Testing
         _ = await task.value
 
         #expect(cancellationStart.duration(to: clock.now) < .seconds(1))
+    }
+
+    @Test func queuedCancellableWorkReturnsWithoutWaitingForBlockingLane() async throws {
+        let service = GitDiffService()
+        let blockerCount = 4
+        let started = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        var blockers: [Task<Void, Never>] = []
+        for _ in 0..<blockerCount {
+            blockers.append(Task {
+                await service.runCancellable(
+                    cancelledResult: {},
+                    timedOutResult: {}
+                ) { _ in
+                    started.signal()
+                    _ = release.wait(timeout: .now() + 5)
+                }
+            })
+        }
+        defer {
+            for _ in 0..<blockerCount { release.signal() }
+        }
+        for _ in 0..<blockerCount {
+            let startedResult = await waitForSemaphore(started, timeout: .now() + 2)
+            try #require(startedResult == .success)
+        }
+
+        let queuedTask = Task {
+            await service.runCancellable(
+                cancelledResult: { "cancelled" },
+                timedOutResult: { "timedOut" }
+            ) { _ in
+                "ran"
+            }
+        }
+        await Task.yield()
+        let clock = ContinuousClock()
+        let cancellationStart = clock.now
+        queuedTask.cancel()
+        let value = await queuedTask.value
+
+        #expect(value == "cancelled")
+        #expect(cancellationStart.duration(to: clock.now) < .seconds(1))
+        for _ in 0..<blockerCount { release.signal() }
+        for blocker in blockers {
+            await blocker.value
+        }
     }
 
     @Test func failureWinsWhenSupervisedResultIsAlsoCapped() {
@@ -383,5 +433,16 @@ import Testing
             encoding: .utf8
         )?.trimmingCharacters(in: .whitespacesAndNewlines)
         return state?.hasPrefix("Z") == false
+    }
+}
+
+private func waitForSemaphore(
+    _ semaphore: DispatchSemaphore,
+    timeout: DispatchTime
+) async -> DispatchTimeoutResult {
+    await withCheckedContinuation { continuation in
+        DispatchQueue.global(qos: .utility).async {
+            continuation.resume(returning: semaphore.wait(timeout: timeout))
+        }
     }
 }

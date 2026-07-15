@@ -178,7 +178,10 @@ extension TerminalController {
         processLifecycle: GitProcessLifecycleService
     ) async -> MobileWorkspaceDiffStatusResult {
         let service = GitDiffService(processLifecycle: processLifecycle)
-        return await service.runCancellable { service in
+        return await service.runCancellable(
+            cancelledResult: { .gitFailed },
+            timedOutResult: { .gitTimedOut }
+        ) { service in
             mobileWorkspaceDiffStatusResultSync(
                 directory: directory,
                 service: service
@@ -198,7 +201,10 @@ extension TerminalController {
         processLifecycle: GitProcessLifecycleService
     ) async -> MobileWorkspaceDiffFileResult {
         let service = GitDiffService(processLifecycle: processLifecycle)
-        return await service.runCancellable { service in
+        return await service.runCancellable(
+            cancelledResult: { .gitFailed },
+            timedOutResult: { .gitTimedOut }
+        ) { service in
             mobileWorkspaceDiffFileResultSync(
                 directory: directory,
                 path: path,

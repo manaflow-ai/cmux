@@ -32,6 +32,24 @@ XCODE_PACKAGE_REFERENCE_TOKENS = (
 PACKAGE_DEPENDENCY_RE = re.compile(r"\.package\(([^)]*)\)", re.DOTALL)
 PACKAGE_PATH_ARGUMENT_RE = re.compile(r'\bpath\s*:\s*"([^"]+)"')
 PACKAGE_URL_ARGUMENT_RE = re.compile(r'\burl\s*:\s*"[^"]+"')
+PACKAGE_ARGUMENT_RE = re.compile(
+    r'\b([A-Za-z_][A-Za-z0-9_]*)\s*:\s*("(?:[^"\\]|\\.)*"|[^,]+)'
+)
+STRING_LITERAL_RE = re.compile(r'"(?:[^"\\]|\\.)*"')
+REMOTE_LITERAL_ARGUMENTS = {
+    "name",
+    "url",
+    "from",
+    "exact",
+    "branch",
+    "revision",
+}
+REMOTE_REQUIREMENT_ARGUMENTS = {
+    "from",
+    "exact",
+    "branch",
+    "revision",
+}
 
 SKIPPED_DIRS = {
     ".build",
@@ -135,6 +153,34 @@ def package_dependency_calls(text: str) -> list[str]:
 
 def dependency_calls_include_url(calls: list[str]) -> bool:
     return any(PACKAGE_URL_ARGUMENT_RE.search(call) for call in calls)
+
+
+def remote_dependency_call_is_literal(call: str) -> bool:
+    """Return true only when a remote .package call is fully literal."""
+    if not PACKAGE_URL_ARGUMENT_RE.search(call):
+        return False
+    matched_spans: list[tuple[int, int]] = []
+    saw_url = False
+    saw_requirement = False
+    for match in PACKAGE_ARGUMENT_RE.finditer(call):
+        label = match.group(1)
+        value = match.group(2).strip()
+        matched_spans.append(match.span())
+        if label not in REMOTE_LITERAL_ARGUMENTS:
+            return False
+        if not STRING_LITERAL_RE.fullmatch(value):
+            return False
+        if label == "url":
+            saw_url = True
+        if label in REMOTE_REQUIREMENT_ARGUMENTS:
+            saw_requirement = True
+
+    unmatched = call
+    for start, end in reversed(matched_spans):
+        unmatched = unmatched[:start] + unmatched[end:]
+    if re.sub(r"[\s,]", "", unmatched):
+        return False
+    return saw_url and saw_requirement
 
 
 def has_remote_dependency(
@@ -251,6 +297,8 @@ def transitive_remote_dependency_calls(
         )
         for call in package_dependency_calls(text):
             if PACKAGE_URL_ARGUMENT_RE.search(call):
+                if not remote_dependency_call_is_literal(call):
+                    return None
                 remote_calls.add(call)
                 continue
             path_match = PACKAGE_PATH_ARGUMENT_RE.search(call)

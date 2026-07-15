@@ -50,6 +50,31 @@ class PackageResolvedPolicyTests(unittest.TestCase):
                 )
             )
 
+    def test_nonliteral_remote_requirement_stays_strict(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            current = self.make_package_tree(
+                root / "current",
+                wrapper="WrapperB",
+                wrapper_b_version="2.0.0",
+                nonliteral_remote_requirement=True,
+            )
+            previous = self.make_package_tree(
+                root / "previous",
+                wrapper="WrapperA",
+                nonliteral_remote_requirement=True,
+            )
+
+            self.assertTrue(
+                policy.dependency_call_delta_affects_pins(
+                    "Consumer",
+                    current,
+                    policy.package_graph(current),
+                    previous,
+                    policy.package_graph(previous),
+                )
+            )
+
     def test_unknown_dependency_form_stays_strict(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
@@ -79,20 +104,29 @@ class PackageResolvedPolicyTests(unittest.TestCase):
         *,
         wrapper: str,
         wrapper_b_version: str = "1.2.3",
+        nonliteral_remote_requirement: bool = False,
     ) -> dict[str, Path]:
         manifests: dict[str, Path] = {}
         for package in ("Consumer", "WrapperA", "WrapperB"):
             manifest = root / package / "Package.swift"
             manifest.parent.mkdir(parents=True, exist_ok=True)
             version = wrapper_b_version if package == "WrapperB" else "1.2.3"
-            dependency = (
-                f'.package(path: "../{wrapper}")'
-                if package == "Consumer"
-                else f'.package(url: "https://example.com/remote.git", exact: "{version}")'
-            )
+            variable_declaration = ""
+            if package == "Consumer":
+                dependency = f'.package(path: "../{wrapper}")'
+            elif nonliteral_remote_requirement:
+                variable_declaration = f"let version = \"{version}\"\n"
+                dependency = (
+                    '.package(url: "https://example.com/remote.git", exact: version)'
+                )
+            else:
+                dependency = (
+                    f'.package(url: "https://example.com/remote.git", exact: "{version}")'
+                )
             manifest.write_text(
                 f"// swift-tools-version: 6.0\n"
                 f"import PackageDescription\n"
+                f"{variable_declaration}"
                 f"let package = Package(name: \"{package}\", dependencies: [{dependency}])\n",
                 encoding="utf-8",
             )
