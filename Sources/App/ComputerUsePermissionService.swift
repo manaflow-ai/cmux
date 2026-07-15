@@ -142,8 +142,16 @@ final class ComputerUsePermissionService {
     ) -> (accessibility: Bool, screenRecording: Bool)? {
         let process = Process()
         process.executableURL = binary
+        // Point --socket at a unique, non-existent path so `call` never proxies to
+        // a listening daemon on the default socket (e.g. a third-party
+        // CuaDriver.app at /Applications, which would answer for ITS identity, not
+        // ours). With no daemon on this path the tool runs in-process, so the
+        // disclaimed helper answers for its own "cmux Computer Use" TCC identity.
+        let noProxySocket = NSTemporaryDirectory()
+            + "cmux-cua-inprocess-\(UUID().uuidString).sock"
         process.arguments = [
             "call", "check_permissions", "{\"prompt\":\(prompt ? "true" : "false")}",
+            "--socket", noProxySocket,
         ]
         // Disclaim so the driver answers for its OWN bundle identity, and strip
         // any inherited driver env that would change that identity.
