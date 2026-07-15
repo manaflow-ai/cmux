@@ -147,6 +147,30 @@
     return parts.join(" > ");
   };
 
+  // Guaranteed-unique fallback: an nth-child path from the nearest #id
+  // ancestor (or the root) down to the element. Unlike structuralSelector's
+  // bounded walk, this always resolves to exactly one element, so deeply
+  // nested elements with repeated class patterns stay selectable.
+  const pathSelector = (element) => {
+    const parts = [];
+    let current = element;
+    while (current && current.nodeType === 1) {
+      if (current.id && current.id.length <= maxSelectorValueCharacters) {
+        parts.unshift(`#${cssEscape(current.id)}`);
+        break;
+      }
+      const parent = current.parentElement;
+      if (!parent) {
+        parts.unshift(current.localName || "*");
+        break;
+      }
+      const index = Array.prototype.indexOf.call(parent.children, current) + 1;
+      parts.unshift(`${current.localName || "*"}:nth-child(${index})`);
+      current = parent;
+    }
+    return parts.join(" > ");
+  };
+
   const selectorsFor = (element) => {
     // Redaction boundary: every form control is classified sensitive, and
     // selection recovery depends on unique selectors, so developer-assigned
@@ -169,6 +193,7 @@
     const classes = classSelector(element);
     if (classes) candidates.push(classes);
     candidates.push(structuralSelector(element));
+    candidates.push(pathSelector(element));
 
     const unique = [];
     for (const candidate of candidates) {

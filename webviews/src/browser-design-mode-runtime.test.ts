@@ -217,10 +217,17 @@ describe("browser design-mode runtime", () => {
     expect(replacement.style.getPropertyValue("font-size")).toBe("");
   });
 
-  test("fails closed when selection or SPA rebinding is ambiguous", async () => {
+  test("selects deep twins via a unique path but fails closed on ambiguous SPA rebinding", async () => {
+    // Twin subtrees deeper than the structural walk: selection still succeeds
+    // because the nth-child path fallback uniquely names one of them.
     const nested = (label: string) => `<section><div><div><div><div><div><div><div><span class="target">${label}</span></div></div></div></div></div></div></div></section>`;
     const ambiguous = fixture(`<main>${nested("First")}${nested("Second")}</main>`);
-    expect(ambiguous.runtime.select(".target").selection).toBeNull();
+    const picked = ambiguous.runtime.select(".target");
+    expect(picked.selection).not.toBeNull();
+    const pickedSelector = picked.selection?.selector ?? "";
+    const matches = ambiguous.dom.window.document.querySelectorAll(pickedSelector);
+    expect(matches.length).toBe(1);
+    expect((matches[0] as HTMLElement).textContent).toBe("First");
 
     const { dom, runtime } = fixture(`<main><h1 id="hero">Original</h1></main>`);
     runtime.select("#hero");
@@ -240,14 +247,13 @@ describe("browser design-mode runtime", () => {
     expect(replacements.every((element) => element.style.getPropertyValue("font-size") === "")).toBe(true);
   });
 
-  test("keeps accumulated edits when a new element cannot be selected uniquely", () => {
-    const nested = (label: string) => `<section><div><div><div><div><div><div><div><span class="target">${label}</span></div></div></div></div></div></div></div></section>`;
-    const { dom, runtime } = fixture(`<main><h1 id="hero">Hero</h1>${nested("First")}${nested("Second")}</main>`);
+  test("keeps accumulated edits when a select targets nothing", () => {
+    const { dom, runtime } = fixture(`<main><h1 id="hero">Hero</h1></main>`);
     const hero = dom.window.document.querySelector("#hero") as HTMLElement;
     runtime.select("#hero");
     runtime.applyStyle("font-size", "44px");
 
-    const rejected = runtime.select(".target:first-of-type");
+    const rejected = runtime.select(".does-not-exist");
 
     expect(rejected.selection?.selector).toBe("#hero");
     expect(rejected.edits).toHaveLength(1);
