@@ -66,6 +66,42 @@ extension Workspace {
         }
     }
 
+    /// Moves the selected surface within its focused split or Canvas pane
+    /// without wrapping.
+    @discardableResult
+    func moveSelectedSurface(by offset: Int) -> Bool {
+        if layoutMode == .canvas {
+            guard let focusedPanelId else { return false }
+            return reorderSurface(panelId: focusedPanelId, by: offset)
+        }
+        guard let paneId = bonsplitController.focusedPaneId,
+              let selectedTab = bonsplitController.selectedTab(inPane: paneId),
+              let panelId = panelIdFromSurfaceId(selectedTab.id) else { return false }
+        return reorderSurface(panelId: panelId, by: offset)
+    }
+
+    /// Reorders one surface by a relative final-position offset in the
+    /// current layout's authoritative tab model.
+    @discardableResult
+    func reorderSurface(panelId: UUID, by offset: Int) -> Bool {
+        if layoutMode == .canvas {
+            let previousRevision = canvasModel.revision
+            guard canvasModel.reorderPanel(panelId, by: offset) else { return false }
+            if canvasModel.revision != previousRevision {
+                canvasModel.viewport?.modelDidChangeExternally(animated: false)
+            }
+            return true
+        }
+        guard let paneId = paneId(forPanelId: panelId),
+              let tabId = surfaceIdFromPanelId(panelId) else { return false }
+        let tabs = bonsplitController.tabs(inPane: paneId)
+        guard let currentIndex = tabs.firstIndex(where: { $0.id == tabId }), !tabs.isEmpty else { return false }
+        let finalIndex = min(max(currentIndex + offset, tabs.startIndex), tabs.index(before: tabs.endIndex))
+        guard finalIndex != currentIndex else { return true }
+        let insertionIndex = finalIndex > currentIndex ? finalIndex + 1 : finalIndex
+        return reorderSurface(panelId: panelId, toIndex: insertionIndex)
+    }
+
     /// Select a surface by index in the currently focused split pane, or in
     /// workspace Canvas order when Canvas layout is active.
     func selectSurface(at index: Int) {
