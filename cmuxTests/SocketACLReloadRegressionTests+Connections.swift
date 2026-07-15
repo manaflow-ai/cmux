@@ -77,11 +77,13 @@ extension SocketACLReloadRegressionTests {
             to: sockets.client
         )
 
+        let authorization = controller.socketServer.acceptedConnectionAuthorization()
         let yieldResult = controller.socketServer.connectionsContinuation.yield(
             ControlConnection(
                 socket: sockets.server,
                 peerProcessID: getpid(),
-                authorizationGeneration: controller.socketServer.connectionAuthorizationGeneration
+                authorizationGeneration: authorization.generation,
+                authorizationRevocationSignal: authorization.revocationSignal
             )
         )
         if case .enqueued = yieldResult {
