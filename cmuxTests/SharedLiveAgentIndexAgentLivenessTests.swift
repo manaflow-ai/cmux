@@ -71,21 +71,34 @@ struct SharedLiveAgentIndexAgentLivenessTests {
     @Test
     func hookStoreReloadCadenceScalesWithIndexedHistory() async throws {
         let index = Self.index(entryCount: 270)
-        try await Self.expectNoHookStoreReload(
+        let reloadStarted = try await Self.hookStoreReloadStarted(
             within: 10,
             for: index,
             fixtureName: "indexed-history"
         )
+        #expect(!reloadStarted, "The measured 270-session workload must use the 30-second cadence.")
+    }
+
+    @Test
+    func hookStoreReloadCadenceKeepsModestHistoryResponsive() async throws {
+        let index = Self.index(entryCount: 41)
+        let reloadStarted = try await Self.hookStoreReloadStarted(
+            within: 10,
+            for: index,
+            fixtureName: "modest-indexed-history"
+        )
+        #expect(reloadStarted, "A 41-session history must retain the five-second reload cadence.")
     }
 
     @Test
     func hookStoreReloadCadenceScalesWithDistinctLiveAgentProcesses() async throws {
         let index = Self.index(liveAgentProcessIDs: Set(1...64))
-        try await Self.expectNoHookStoreReload(
+        let reloadStarted = try await Self.hookStoreReloadStarted(
             within: 10,
             for: index,
             fixtureName: "live-processes"
         )
+        #expect(!reloadStarted, "The measured 64-process workload must use the 30-second cadence.")
     }
 
     @Test
@@ -448,11 +461,11 @@ struct SharedLiveAgentIndexAgentLivenessTests {
         )
     }
 
-    private static func expectNoHookStoreReload(
+    private static func hookStoreReloadStarted(
         within elapsed: TimeInterval,
         for index: RestorableAgentSessionIndex,
         fixtureName: String
-    ) async throws {
+    ) async throws -> Bool {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
             .appendingPathComponent("cmux-hook-cadence-\(fixtureName)-\(UUID().uuidString)", isDirectory: true)
@@ -492,10 +505,7 @@ struct SharedLiveAgentIndexAgentLivenessTests {
             options: .atomic
         )
 
-        #expect(
-            !(await Self.wait(for: loadStarted, timeout: 0.5)),
-            "Large hook-store workloads must use the 30-second reload cadence."
-        )
+        return await Self.wait(for: loadStarted, timeout: 0.5)
     }
 
     nonisolated private static func loadResult(
