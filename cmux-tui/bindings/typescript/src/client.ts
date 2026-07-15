@@ -379,8 +379,9 @@ export class CmuxClient {
   renameSurface(surface: Id, name: string): Promise<EmptyResult> { return this.request("rename-surface", { surface, name }); }
   renameScreen(screen: Id, name: string): Promise<EmptyResult> { return this.request("rename-screen", { screen, name }); }
   renameWorkspace(workspace: Id, name: string): Promise<EmptyResult> { return this.request("rename-workspace", { workspace, name }); }
-  resizeSurface(surface: Id, cols: number, rows: number): Promise<ResizeSurfaceResult> {
-    return this.request("resize-surface", { surface, cols, rows });
+  async resizeSurface(surface: Id, cols: number, rows: number): Promise<ResizeSurfaceResult> {
+    const result = await this.request("resize-surface", { surface, cols, rows });
+    return { accepted: result.accepted ?? true };
   }
   focusPane(pane: Id): Promise<EmptyResult> { return this.request("focus-pane", { pane }); }
   selectTab(options: SelectTabOptions = {}): Promise<EmptyResult> { return this.request("select-tab", options); }

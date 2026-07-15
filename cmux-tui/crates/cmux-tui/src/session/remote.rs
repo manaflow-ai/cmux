@@ -36,7 +36,6 @@ pub(crate) enum RemoteRequestError {
     Encode(serde_json::Error),
     Transport(std::io::Error),
     Timeout,
-    Retryable(String),
     Rejected(String),
     Shutdown,
 }
@@ -50,9 +49,6 @@ impl RemoteRequestError {
         matches!(self, Self::Timeout)
     }
 
-    pub(crate) fn is_retryable(&self) -> bool {
-        matches!(self, Self::Retryable(_))
-    }
 }
 
 impl std::fmt::Display for RemoteRequestError {
@@ -61,7 +57,6 @@ impl std::fmt::Display for RemoteRequestError {
             Self::Encode(error) => write!(formatter, "could not encode remote request: {error}"),
             Self::Transport(error) => write!(formatter, "remote transport write failed: {error}"),
             Self::Timeout => write!(formatter, "remote session did not respond"),
-            Self::Retryable(error) => write!(formatter, "{error}"),
             Self::Rejected(error) => write!(formatter, "remote command rejected: {error}"),
             Self::Shutdown => write!(formatter, "remote response wait canceled for shutdown"),
         }
@@ -758,13 +753,31 @@ impl RemoteSession {
         }
     }
 
-    pub fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) -> anyhow::Result<()> {
-        self.request(json!({
+    pub fn set_cell_pixel_size(
+        &self,
+        width_px: u16,
+        height_px: u16,
+    ) -> anyhow::Result<Vec<(SurfaceId, (u16, u16))>> {
+        let response = self.request(json!({
             "cmd": "set-cell-pixels",
             "width_px": width_px,
             "height_px": height_px,
-        }))
-        .map(|_| ())
+        }))?;
+        Ok(response
+            .get("resizes")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|resize| {
+                Some((
+                    resize.get("surface")?.as_u64()?,
+                    (
+                        u16::try_from(resize.get("cols")?.as_u64()?).ok()?,
+                        u16::try_from(resize.get("rows")?.as_u64()?).ok()?,
+                    ),
+                ))
+            })
+            .collect())
     }
 
     pub fn set_default_colors(&self, colors: DefaultColors) -> anyhow::Result<()> {

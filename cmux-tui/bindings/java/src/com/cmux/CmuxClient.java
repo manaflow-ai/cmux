@@ -224,7 +224,7 @@ public final class CmuxClient implements AutoCloseable {
         Map<String, Object> params = surfaceParams(surface);
         params.put("cols", cols);
         params.put("rows", rows);
-        return new ResizeSurfaceResult(Boolean.TRUE.equals(request("resize-surface", params).get("accepted")));
+        return ResizeSurfaceResult.from(request("resize-surface", params));
     }
 
     public void closeWorkspace(long workspace) throws CmuxException {

@@ -65,6 +65,7 @@ public final class JsonTest {
         );
         assertEquals("browser is not responding", resizeFailed.error(), "resize failure error");
         assertEquals(250L, resizeFailed.retryAfterMs(), "resize failure retry schedule");
+        assertTrue(ResizeSurfaceResult.from(Map.of()).accepted(), "legacy resize accepted");
     }
 
     private static void assertReject(String input) {

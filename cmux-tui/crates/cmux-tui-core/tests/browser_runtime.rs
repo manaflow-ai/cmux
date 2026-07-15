@@ -442,6 +442,11 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
         json!({"id": 5, "cmd": "set-cell-pixels", "width_px": 11, "height_px": 17}),
     );
     assert_eq!(metrics["ok"], true);
+    assert!(metrics["data"]["resizes"].as_array().is_some_and(|resizes| {
+        resizes.iter().any(|resize| {
+            resize == &json!({"surface": surface, "cols": 10, "rows": 5})
+        })
+    }));
     let metrics_request =
         recv_method_where(&seen_rx, "Emulation.setDeviceMetricsOverride", |value| {
             value["params"]["width"] == 110 && value["params"]["height"] == 85

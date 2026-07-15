@@ -494,7 +494,7 @@ class CmuxClient:
 
     def resize_surface(self, surface: int, cols: int, rows: int) -> ResizeSurfaceResult:
         data = self._request("resize-surface", surface=surface, cols=cols, rows=rows)
-        return ResizeSurfaceResult(accepted=bool(data["accepted"]))
+        return ResizeSurfaceResult(accepted=bool(data.get("accepted", True)))
 
     def focus_pane(self, pane: int) -> EmptyResult:
         self._request("focus-pane", pane=pane)

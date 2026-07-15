@@ -19,6 +19,15 @@ class ScriptedTransport implements Transport {
   }
 }
 
+test("legacy resize response defaults to accepted", async () => {
+  const transport = new ScriptedTransport((request, connection) => {
+    connection.emit({ id: request.id, ok: true, data: {} });
+  });
+  const client = new CmuxClient({ transport, timeoutMs: 100 });
+  assert.deepEqual(await client.resizeSurface(7, 80, 24), { accepted: true });
+  await client.close();
+});
+
 test("attachSurface decodes VT colors, output, and resized payloads", async () => {
   const main = new ScriptedTransport((request, transport) => {
     assert.equal(request.cmd, "identify");

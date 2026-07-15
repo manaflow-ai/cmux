@@ -3,12 +3,23 @@ package cmux
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net"
 	"sync"
 	"testing"
 )
+
+func TestLegacyResizeResponseDefaultsToAccepted(t *testing.T) {
+	var result ResizeSurfaceResult
+	if err := json.Unmarshal([]byte(`{}`), &result); err != nil {
+		t.Fatal(err)
+	}
+	if !result.Accepted {
+		t.Fatal("legacy resize response must be treated as accepted")
+	}
+}
 
 func TestStreamYieldsBufferedOverflowOnceThenStops(t *testing.T) {
 	client, server := net.Pipe()

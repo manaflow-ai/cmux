@@ -79,7 +79,7 @@ pub enum BrowserInputKind {
         rows: u16,
         reassert: bool,
         _claim: Option<Box<dyn Send>>,
-        on_dispatch: Option<Box<dyn FnOnce() + Send>>,
+        on_result: Option<Box<dyn FnOnce(bool) + Send>>,
     },
     Navigate(String),
     Back,
@@ -340,12 +340,12 @@ fn worker(
             }) {
                 continue;
             }
-            if let BrowserInputKind::Resize { on_dispatch, .. } = &mut event.event.kind
-                && let Some(mark_dispatched) = on_dispatch.take()
-            {
-                mark_dispatched();
-            }
             let result = dispatch(&event.event);
+            if let BrowserInputKind::Resize { on_result, .. } = &mut event.event.kind
+                && let Some(report_result) = on_result.take()
+            {
+                report_result(result.as_ref().copied().unwrap_or(false));
+            }
             let Some((cols, rows)) = desired else {
                 if event.event.kind.is_control()
                     && let Err(error) = result
@@ -358,7 +358,7 @@ fn worker(
                 continue;
             }
             match result {
-                Ok(()) => {
+                Ok(_) => {
                     failed_resizes.lock().unwrap().remove(&event.event.surface_id);
                 }
                 Err(error) => {
@@ -446,13 +446,15 @@ fn coalesce_sequenced_browser_events(batch: &mut Vec<SequencedBrowserInputEvent>
     }
 }
 
-fn dispatch(event: &BrowserInputEvent) -> anyhow::Result<()> {
+fn dispatch(event: &BrowserInputEvent) -> anyhow::Result<bool> {
     let surface = &event.surface;
     match &event.kind {
         BrowserInputKind::Mouse { event_type, x, y, button, click_count } => {
-            surface.browser_mouse_event(event_type, *x, *y, *button, *click_count)
+            surface.browser_mouse_event(event_type, *x, *y, *button, *click_count).map(|()| true)
         }
-        BrowserInputKind::Wheel { x, y, delta_y } => surface.browser_wheel(*x, *y, *delta_y),
+        BrowserInputKind::Wheel { x, y, delta_y } => {
+            surface.browser_wheel(*x, *y, *delta_y).map(|()| true)
+        }
         BrowserInputKind::Key {
             event_type,
             key,
@@ -460,15 +462,10 @@ fn dispatch(event: &BrowserInputEvent) -> anyhow::Result<()> {
             windows_virtual_key_code,
             modifiers,
             text,
-        } => surface.browser_key_event(
-            event_type,
-            key,
-            code,
-            *windows_virtual_key_code,
-            *modifiers,
-            *text,
-        ),
-        BrowserInputKind::InsertText(text) => surface.browser_insert_text(text),
+        } => surface
+            .browser_key_event(event_type, key, code, *windows_virtual_key_code, *modifiers, *text)
+            .map(|()| true),
+        BrowserInputKind::InsertText(text) => surface.browser_insert_text(text).map(|()| true),
         BrowserInputKind::Resize { cols, rows, reassert, .. } => {
             if *reassert {
                 surface.reassert_size(*cols, *rows)
@@ -476,11 +473,11 @@ fn dispatch(event: &BrowserInputEvent) -> anyhow::Result<()> {
                 surface.resize(*cols, *rows)
             }
         }
-        BrowserInputKind::Navigate(url) => surface.browser_navigate(url),
-        BrowserInputKind::Back => surface.browser_back(),
-        BrowserInputKind::Forward => surface.browser_forward(),
-        BrowserInputKind::Reload => surface.browser_reload(),
-        BrowserInputKind::Activate => surface.browser_activate(),
+        BrowserInputKind::Navigate(url) => surface.browser_navigate(url).map(|()| true),
+        BrowserInputKind::Back => surface.browser_back().map(|()| true),
+        BrowserInputKind::Forward => surface.browser_forward().map(|()| true),
+        BrowserInputKind::Reload => surface.browser_reload().map(|()| true),
+        BrowserInputKind::Activate => surface.browser_activate().map(|()| true),
     }
 }
 
@@ -534,7 +531,7 @@ mod tests {
                 rows: 24,
                 reassert: false,
                 _claim: None,
-                on_dispatch: None,
+                on_result: None,
             },
         }
     }
@@ -552,7 +549,7 @@ mod tests {
                 rows: 24,
                 reassert: false,
                 _claim: Some(Box::new(DropProbe(dropped))),
-                on_dispatch: None,
+                on_result: None,
             },
         }
     }
@@ -762,15 +759,21 @@ mod tests {
         )
         .unwrap();
 
-        let dispatched = Arc::new(AtomicBool::new(false));
+        let callback_called = Arc::new(AtomicBool::new(false));
+        let accepted = Arc::new(AtomicBool::new(true));
         let mut first = resize_event(7, 100);
-        if let BrowserInputKind::Resize { on_dispatch, .. } = &mut first.kind {
-            let dispatched = dispatched.clone();
-            *on_dispatch = Some(Box::new(move || dispatched.store(true, Ordering::Release)));
+        if let BrowserInputKind::Resize { on_result, .. } = &mut first.kind {
+            let callback_called = callback_called.clone();
+            let accepted_result = accepted.clone();
+            *on_result = Some(Box::new(move |was_accepted| {
+                accepted_result.store(was_accepted, Ordering::Release);
+                callback_called.store(true, Ordering::Release);
+            }));
         }
         let _ = dispatcher.enqueue(first);
         let failure = failure_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-        assert!(dispatched.load(Ordering::Acquire));
+        assert!(callback_called.load(Ordering::Acquire));
+        assert!(!accepted.load(Ordering::Acquire));
         assert_eq!((failure.surface_id, failure.cols, failure.rows), (7, 100, 24));
         assert!(dispatcher.resize_failed(7, (100, 24)));
 

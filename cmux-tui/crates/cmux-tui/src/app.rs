@@ -45,7 +45,7 @@ use crate::pty_input::{
     PtyInputSender, PtyOperationDelivery, PtyOperationFailure,
 };
 use crate::session::{
-    Session, SidebarPluginSurface, SurfaceHandle, TreeView, is_remote_retryable, is_remote_timeout,
+    Session, SidebarPluginSurface, SurfaceHandle, TreeView, is_remote_timeout,
     is_remote_transport_failure,
 };
 use crate::sidebar_files::{FileBrowser, FileCommand, file_url, shell_single_quote};
@@ -580,6 +580,20 @@ impl Drop for SurfaceResizeClaim {
     }
 }
 
+fn record_surface_resize_dispatch_result(
+    ownership: &Mutex<HashMap<SurfaceId, (u16, u16)>>,
+    surface: SurfaceId,
+    desired: (u16, u16),
+    accepted: bool,
+) {
+    let mut ownership = ownership.lock().unwrap();
+    if accepted {
+        ownership.insert(surface, desired);
+    } else if ownership.get(&surface).is_some_and(|owned| *owned == desired) {
+        ownership.remove(&surface);
+    }
+}
+
 /// Read access stays synchronous, while every UI-originated session mutation
 /// enters the same ordered worker as PTY input. Accepted keys, mouse releases,
 /// resizes, and closes therefore have one execution order without blocking the
@@ -1082,16 +1096,15 @@ impl OrderedSession {
                     surface.resize(cols, rows)
                 };
                 match result {
-                    Ok(()) => {
+                    Ok(_) => {
                         failures.lock().unwrap().remove(&surface_id);
                         committed_mutation_generation.fetch_add(1, Ordering::AcqRel);
                         pending.settle(SessionMutationOutcome::Success { tree: None });
                         Ok(())
                     }
                     Err(error) => {
-                        let transient = is_remote_timeout(&error)
-                            || is_remote_transport_failure(&error)
-                            || is_remote_retryable(&error);
+                        let transient =
+                            is_remote_timeout(&error) || is_remote_transport_failure(&error);
                         let mut failures = failures.lock().unwrap();
                         let previous = failures.get(&surface_id).map(|failure| failure.state);
                         let state = next_surface_sync_failure(previous, transient, false);
@@ -1327,8 +1340,14 @@ impl OrderedSession {
     }
 
     pub fn set_cell_pixel_size(&self, width: u16, height: u16) {
+        let ownership = self.surface_resize_ownership.clone();
         self.enqueue("set cell pixel size", move |session| {
-            session.set_cell_pixel_size(width, height)
+            let accepted = session.set_cell_pixel_size(width, height)?;
+            let mut ownership = ownership.lock().unwrap();
+            for (surface, desired) in accepted {
+                ownership.insert(surface, desired);
+            }
+            Ok(())
         });
     }
 
@@ -3705,8 +3724,13 @@ impl App {
                     rows,
                     reassert,
                     _claim: Some(Box::new(claim)),
-                    on_dispatch: Some(Box::new(move || {
-                        ownership.lock().unwrap().insert(surface_id, (cols, rows));
+                    on_result: Some(Box::new(move |accepted| {
+                        record_surface_resize_dispatch_result(
+                            &ownership,
+                            surface_id,
+                            (cols, rows),
+                            accepted,
+                        );
                     })),
                 },
             });
@@ -6556,7 +6580,8 @@ mod tests {
         PtyFailureIngress, RenderAction, Selection, SessionCompletion, SessionCompletionAction,
         SidebarPluginSyncClaim, SidebarPluginSyncState, SurfaceResizeDecision,
         browser_content_size_for_rect, browser_hover_forward_allowed, forward_mux_events,
-        pane_parts_for_rect, sidebar_plugin_status_settles_passive_claim,
+        pane_parts_for_rect, record_surface_resize_dispatch_result,
+        sidebar_plugin_status_settles_passive_claim,
     };
     use std::collections::{HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
@@ -7625,6 +7650,20 @@ mod tests {
             app.session.surface_resize_decision(7, (100, 30), true),
             SurfaceResizeDecision::NeedsQueue(_)
         ));
+    }
+
+    #[test]
+    fn browser_resize_ownership_tracks_only_accepted_dispatches() {
+        let ownership = Mutex::new(HashMap::new());
+
+        record_surface_resize_dispatch_result(&ownership, 7, (100, 30), false);
+        assert!(ownership.lock().unwrap().is_empty());
+
+        record_surface_resize_dispatch_result(&ownership, 7, (100, 30), true);
+        assert_eq!(ownership.lock().unwrap().get(&7), Some(&(100, 30)));
+
+        record_surface_resize_dispatch_result(&ownership, 7, (100, 30), false);
+        assert!(ownership.lock().unwrap().is_empty());
     }
 
     #[test]

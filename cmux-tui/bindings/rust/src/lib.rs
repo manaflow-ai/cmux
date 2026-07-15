@@ -171,7 +171,12 @@ pub struct Size {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ResizeSurfaceResult {
+    #[serde(default = "default_true")]
     pub accepted: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -843,6 +848,12 @@ mod tests {
                 retry_after_ms: Some(250),
             }) if error == "browser is not responding"
         ));
+    }
+
+    #[test]
+    fn legacy_resize_response_defaults_to_accepted() {
+        let result: ResizeSurfaceResult = serde_json::from_value(serde_json::json!({})).unwrap();
+        assert!(result.accepted);
     }
 
     #[test]

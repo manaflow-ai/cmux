@@ -1,5 +1,7 @@
 package cmux
 
+import "encoding/json"
+
 type IdentifyResult struct {
 	App      string `json:"app"`
 	Version  string `json:"version"`
@@ -24,6 +26,16 @@ type VtStateResult struct {
 
 type ResizeSurfaceResult struct {
 	Accepted bool `json:"accepted"`
+}
+
+func (r *ResizeSurfaceResult) UnmarshalJSON(data []byte) error {
+	type wireResult ResizeSurfaceResult
+	decoded := wireResult{Accepted: true}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*r = ResizeSurfaceResult(decoded)
+	return nil
 }
 
 type Tree struct {

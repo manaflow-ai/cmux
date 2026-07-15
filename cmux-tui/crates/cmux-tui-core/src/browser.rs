@@ -1013,17 +1013,17 @@ impl BrowserSurface {
         Ok(needed)
     }
 
-    pub fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) {
+    pub fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) -> anyhow::Result<bool> {
         {
             let mut cell = self.cell_pixels.lock().unwrap();
             let next = (width_px.max(1), height_px.max(1));
             if *cell == next {
-                return;
+                return Ok(false);
             }
             *cell = next;
         }
         let (cols, rows) = self.size();
-        let _ = self.resize(cols, rows);
+        self.resize(cols, rows)
     }
 
     fn update_resize_state(&self, cols: u16, rows: u16) -> Option<(u32, u32)> {
@@ -2486,6 +2486,17 @@ mod tests {
 
         *browser.cell_pixels.lock().unwrap() = (9, 16);
         assert!(browser.resize_needed(10, 5));
+    }
+
+    #[test]
+    fn cell_pixel_change_reports_only_accepted_reconfigure() {
+        let opts = SurfaceOptions::default();
+        let surface =
+            new_surface(1, "https://example.test".into(), (10, 5), (8, 16), &opts, Weak::new());
+        let browser = surface.as_browser().expect("browser surface");
+
+        assert!(browser.set_cell_pixel_size(9, 16).unwrap());
+        assert!(!browser.set_cell_pixel_size(9, 16).unwrap());
     }
 
     #[test]
