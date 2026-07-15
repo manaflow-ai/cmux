@@ -434,6 +434,19 @@
         "cmuxP1": "cmux trenger ikke en innebygd universell worktree-manager. Det gir deg <customCommands>egendefinerte kommandoer</customCommands>, en programmerbar <api>CLI og socket API</api>, og gjenbrukbare <skills>skills</skills>. Plussknappen kan starte din egen worktree-kommando, multi-repo setup, no-git sandbox eller eksternt miljø.",
         "cmuxP2": "Derfor betyr <home>cmux home</home> noe. Den beste worktree-manageren er den agentene dine kan endre når workflowen endrer seg, og den beste terminalen for den løkken holder varsler, Cmd+Shift+U og Cmd+Control+U koblet inn i flaten."
       },
+      "cmuxFork": {
+        "title": "Vi introduserer cmux Fork",
+        "summary": "Forgren en agentsamtale til en ny deling, fane eller et nytt arbeidsområde uten å miste konteksten.",
+        "date": "14. juli 2026",
+        "p1": "Samtaler med kodeagenter når punkter der en forgrening er nyttig. Du kan beholde én tilnærming mens en annen agent prøver en annen implementasjon, undersøker et sidespor eller vurderer det samme problemet fra en ny vinkel.",
+        "p2": "Fork Conversation oppretter en ny agentøkt fra den gjeldende samtalen og beholder samtalehistorikken og arbeidsmappen. Funksjonen støtter Codex, Claude Code, OpenCode, Pi, Hermes og andre agenter med økter som kan forgrenes.",
+        "destinationsTitle": "Forgren dit du vil arbeide",
+        "destinationsP": "Høyreklikk på en terminal eller fane og velg Fork Conversation, eller trykk <code>Cmd+Shift+P</code> og søk etter Fork Conversation. Send forgreningen til en deling på valgfri side, en ny fane eller et nytt arbeidsområde.",
+        "parallelTitle": "Utforsk flere retninger samtidig",
+        "parallelP1": "Forgren den samme samtalen flere ganger for å sammenligne implementasjoner eller la flere agenter dele et problem med den samme startkonteksten. Hver forgrening fortsetter uavhengig, mens den opprinnelige samtalen forblir tilgjengelig.",
+        "parallelP2": "Forgreninger kan arbeide i den samme mappen. Gi dem separate oppgaver eller filer når samtidige endringer kan overlappe.",
+        "release": "cmux Fork er tilgjengelig i v0.64.19."
+      },
       "showHnLaunch": {
         "title": "Lansering av cmux på Show HN",
         "summary": "cmux nådde #2 på Hacker News, ble delt av Mitchell Hashimoto og gikk viralt i Japan.",
@@ -597,6 +610,10 @@
         "terminalarbeidsflyt",
         "agentisk utvikling"
       ]
+    },
+    "cmuxFork": {
+      "metaTitle": "Vi introduserer cmux Fork",
+      "metaDescription": "Forgren en samtale i Codex, Claude Code, OpenCode, Pi, Hermes eller en annen støttet agent til en ny deling, fane eller et nytt arbeidsområde uten å miste konteksten."
     },
     "cmdShiftU": {
       "metaTitle": "Cmd+Shift+U",
