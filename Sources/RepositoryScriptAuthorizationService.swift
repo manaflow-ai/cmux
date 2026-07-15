@@ -2,6 +2,8 @@ import Foundation
 
 @MainActor
 struct RepositoryScriptAuthorizationService: RepositoryScriptAuthorizing {
+    nonisolated init() {}
+
     func isTrusted(_ descriptor: CmuxActionTrustDescriptor) -> Bool {
         CmuxActionTrust.shared.isTrusted(descriptor)
     }
