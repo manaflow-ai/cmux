@@ -546,7 +546,6 @@ jobs:
             -only-testing:cmuxTests/ClaudeHookPIDAuthenticationTests \
             -only-testing:cmuxTests/HostSettingsShortcutNotificationTests \
             -only-testing:cmuxTests/PhonePushPresenceGateTests \
-            -only-testing:cmuxTests/SessionPersistenceTests/testPortableRemoteRuntimeStateOmitsTransientHistoryBeforeSizeLimit \
             test
 
       - name: Run remote tmux mirror detach and placement regressions

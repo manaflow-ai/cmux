@@ -6,10 +6,19 @@ extension SessionWorkspaceSnapshot {
     func portableRemoteRuntimeStateSnapshot() -> SessionWorkspaceSnapshot {
         var snapshot = self
         snapshot.remote = nil
+        snapshot.notifications = nil
+        snapshot.logEntries.removeAll(keepingCapacity: false)
         for index in snapshot.panels.indices {
-            guard var terminal = snapshot.panels[index].terminal else { continue }
-            terminal.scrollback = nil
-            snapshot.panels[index].terminal = terminal
+            snapshot.panels[index].notifications = nil
+            if var terminal = snapshot.panels[index].terminal {
+                terminal.scrollback = nil
+                snapshot.panels[index].terminal = terminal
+            }
+            if var browser = snapshot.panels[index].browser {
+                browser.backHistoryURLStrings = nil
+                browser.forwardHistoryURLStrings = nil
+                snapshot.panels[index].browser = browser
+            }
         }
         return snapshot
     }
