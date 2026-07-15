@@ -13,11 +13,24 @@ import Testing
 struct SharedLiveAgentIndexAgentLivenessTests {
     @Test
     func hookEventReloadCadenceScalesWithLiveAgentCount() {
-        #expect(SharedLiveAgentIndex.hookEventReloadInterval(liveAgentCount: 0) == 5)
-        #expect(SharedLiveAgentIndex.hookEventReloadInterval(liveAgentCount: 8) == 5)
-        #expect(SharedLiveAgentIndex.hookEventReloadInterval(liveAgentCount: 16) == 10)
-        #expect(SharedLiveAgentIndex.hookEventReloadInterval(liveAgentCount: 32) == 20)
-        #expect(SharedLiveAgentIndex.hookEventReloadInterval(liveAgentCount: 64) == 30)
+        #expect(
+            SharedLiveAgentIndex.hookEventReloadInterval(liveAgentCount: 0, indexedSessionCount: 0) == 5
+        )
+        #expect(
+            SharedLiveAgentIndex.hookEventReloadInterval(liveAgentCount: 8, indexedSessionCount: 0) == 5
+        )
+        #expect(
+            SharedLiveAgentIndex.hookEventReloadInterval(liveAgentCount: 16, indexedSessionCount: 0) == 10
+        )
+        #expect(
+            SharedLiveAgentIndex.hookEventReloadInterval(liveAgentCount: 32, indexedSessionCount: 0) == 20
+        )
+        #expect(
+            SharedLiveAgentIndex.hookEventReloadInterval(liveAgentCount: 64, indexedSessionCount: 0) == 30
+        )
+        #expect(
+            SharedLiveAgentIndex.hookEventReloadInterval(liveAgentCount: 0, indexedSessionCount: 64) == 30
+        )
     }
 
     @Test
