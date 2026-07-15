@@ -31,8 +31,9 @@ struct DisconnectedWorkspaceShellView: View {
     /// The account-private registry session currently attaching.
     @State private var pendingHandoffID: String?
     @State private var registryState: MobileFirstConnectionRegistryState = .loading
-    @State private var registryRefreshScopeID: String?
-    @State private var activeDiscoveryScopeID: String?
+    @State private var registryRefreshRequest: MobileFirstConnectionDiscoveryScope.Token?
+    @State private var discoveryScope = MobileFirstConnectionDiscoveryScope()
+    @State private var manualRegistryRefreshTask: Task<Void, Never>?
     @State private var didPresentManualPairing = false
     #endif
 
@@ -62,11 +63,11 @@ struct DisconnectedWorkspaceShellView: View {
                 .task(id: discoveryScopeID) {
                     let scopeID = discoveryScopeID
                     #if os(iOS)
-                    resetFirstConnectionState(for: scopeID)
+                    let request = resetFirstConnectionState(for: scopeID)
                     #endif
                     await store?.loadPairedMacs()
                     #if os(iOS)
-                    guard !Task.isCancelled, activeDiscoveryScopeID == scopeID else { return }
+                    guard !Task.isCancelled, discoveryScope.isCurrent(request) else { return }
                     await refreshRegistryAndPresentation(scopeID: scopeID)
                     // Presence polling remains independent from registry lease renewal.
                     while !Task.isCancelled {
@@ -86,12 +87,17 @@ struct DisconnectedWorkspaceShellView: View {
                     await registryRefreshLoop.run(
                         clock: registryRefreshClock,
                         whileCurrent: {
-                            activeDiscoveryScopeID == scopeID
+                            discoveryScope.isActive(scopeID)
                         },
                         refresh: {
                             await refreshRegistryAndPresentation(scopeID: scopeID)
                         }
                     )
+                    #endif
+                }
+                .onDisappear {
+                    #if os(iOS)
+                    invalidateFirstConnectionState()
                     #endif
                 }
         }
@@ -266,25 +272,41 @@ struct DisconnectedWorkspaceShellView: View {
         }
     }
 
-    private func resetFirstConnectionState(for scopeID: String) {
+    private func resetFirstConnectionState(
+        for scopeID: String
+    ) -> MobileFirstConnectionDiscoveryScope.Token {
+        manualRegistryRefreshTask?.cancel()
+        manualRegistryRefreshTask = nil
         if didPresentManualPairing {
             updateAutomaticAddDevicePresentation(false)
         }
-        activeDiscoveryScopeID = scopeID
+        let request = discoveryScope.activate(scopeID)
         registryState = .loading
-        registryRefreshScopeID = nil
+        registryRefreshRequest = nil
         didPresentManualPairing = false
+        return request
+    }
+
+    private func invalidateFirstConnectionState() {
+        discoveryScope.invalidate()
+        registryRefreshRequest = nil
+        manualRegistryRefreshTask?.cancel()
+        manualRegistryRefreshTask = nil
+        if didPresentManualPairing {
+            didPresentManualPairing = false
+            updateAutomaticAddDevicePresentation(false)
+        }
     }
 
     private func refreshRegistryAndPresentation(scopeID: String) async {
-        guard activeDiscoveryScopeID == scopeID,
-              registryRefreshScopeID == nil else { return }
-        registryRefreshScopeID = scopeID
+        guard let request = discoveryScope.token(for: scopeID),
+              registryRefreshRequest == nil else { return }
+        registryRefreshRequest = request
         defer {
-            if registryRefreshScopeID == scopeID { registryRefreshScopeID = nil }
+            if registryRefreshRequest == request { registryRefreshRequest = nil }
         }
         let loadResult = await store?.loadRegistryLiveSessionDevices() ?? .unavailable
-        guard !Task.isCancelled, activeDiscoveryScopeID == scopeID else { return }
+        guard !Task.isCancelled, discoveryScope.isCurrent(request) else { return }
         let nextState: MobileFirstConnectionRegistryState = switch loadResult {
         case .loaded:
             .loaded(hasAccountSession: !handoffSessions.isEmpty)
@@ -317,8 +339,7 @@ struct DisconnectedWorkspaceShellView: View {
         DisconnectedRegistryUnavailableView(
             isRefreshing: registryRefreshInFlight,
             retry: {
-                registryState = .loading
-                Task { await refreshRegistryAndPresentation(scopeID: discoveryScopeID) }
+                retryRegistryRefresh(showLoading: true)
             },
             addComputer: showAddDevice
         )
@@ -328,8 +349,7 @@ struct DisconnectedWorkspaceShellView: View {
         DisconnectedRegistryAuthenticationRequiredView(
             isRefreshing: registryRefreshInFlight,
             retry: {
-                registryState = .loading
-                Task { await refreshRegistryAndPresentation(scopeID: discoveryScopeID) }
+                retryRegistryRefresh(showLoading: true)
             },
             switchAccount: signOut
         )
@@ -344,12 +364,24 @@ struct DisconnectedWorkspaceShellView: View {
                 isShowingSetupHelp = true
             },
             retry: {
-                Task { await refreshRegistryAndPresentation(scopeID: discoveryScopeID) }
+                retryRegistryRefresh(showLoading: false)
             }
         )
     }
 
-    private var registryRefreshInFlight: Bool { registryRefreshScopeID != nil }
+    private func retryRegistryRefresh(showLoading: Bool) {
+        let scopeID = discoveryScopeID
+        guard discoveryScope.isActive(scopeID) else { return }
+        if showLoading { registryState = .loading }
+        manualRegistryRefreshTask?.cancel()
+        manualRegistryRefreshTask = Task { @MainActor in
+            await refreshRegistryAndPresentation(scopeID: scopeID)
+            guard !Task.isCancelled else { return }
+            manualRegistryRefreshTask = nil
+        }
+    }
+
+    private var registryRefreshInFlight: Bool { registryRefreshRequest != nil }
 
     /// Reconnect this row's computer. `switchToMac` promotes a live secondary
     /// connection or re-dials the Mac after refreshing its routes from the

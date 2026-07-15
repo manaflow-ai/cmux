@@ -25,6 +25,12 @@ public struct MobileAddDevicePresentationState: Equatable, Sendable {
         origin = .automaticFirstConnection
     }
 
+    /// Promotes automatic presentation to user ownership after meaningful input.
+    public mutating func claimAutomaticForUserInteraction() {
+        guard origin == .automaticFirstConnection else { return }
+        origin = .userInitiated
+    }
+
     /// Dismisses the sheet regardless of its current owner.
     public mutating func dismiss() {
         origin = nil

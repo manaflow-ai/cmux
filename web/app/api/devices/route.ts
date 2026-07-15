@@ -47,6 +47,8 @@ const MAX_INSTANCES_PER_DEVICE = 25;
 const MAX_ROUTES = 16;
 const MAX_TAG_LENGTH = 64;
 const MAX_LIVE_SESSIONS_PER_RESPONSE = 500;
+const MAX_LIVE_SESSION_INSTANCE_ROWS = 64;
+const MAX_LIVE_SESSION_RESPONSE_BYTES = 512 * 1024;
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -359,6 +361,102 @@ export async function GET(request: Request): Promise<Response> {
   const db = cloudDb();
   const liveSessionsOnly = new URL(request.url).searchParams.get("view") === "live-sessions";
 
+  if (liveSessionsOnly) {
+    const liveDeviceRows = await db
+      .select({
+        id: devices.id,
+        deviceUuid: devices.deviceUuid,
+        platform: devices.platform,
+      })
+      .from(devices)
+      .where(and(eq(devices.teamId, team.teamId), eq(devices.userId, user.id)))
+      .orderBy(desc(devices.lastSeenAt));
+
+    const liveInstanceRows = liveDeviceRows.length === 0
+      ? []
+      : await db
+        .select({
+          deviceId: deviceAppInstances.deviceId,
+          tag: deviceAppInstances.tag,
+          routes: deviceAppInstances.routes,
+          labels: sql<Record<string, unknown>>`
+            jsonb_build_object(
+              'liveSessions',
+              ${deviceAppInstances.labels} -> 'liveSessions'
+            )
+          `,
+          lastSeenAt: deviceAppInstances.lastSeenAt,
+        })
+        .from(deviceAppInstances)
+        .where(and(
+          eq(deviceAppInstances.teamId, team.teamId),
+          inArray(deviceAppInstances.deviceId, liveDeviceRows.map((device) => device.id)),
+          sql<boolean>`case
+            when jsonb_typeof(${deviceAppInstances.labels} -> 'liveSessions') = 'array'
+            then jsonb_array_length(${deviceAppInstances.labels} -> 'liveSessions') > 0
+            else false
+          end`,
+        ))
+        .orderBy(desc(deviceAppInstances.lastSeenAt))
+        .limit(MAX_LIVE_SESSION_INSTANCE_ROWS);
+
+    const devicesByID = new Map(liveDeviceRows.map((device) => [device.id, device]));
+    const liveDevicesPayload: Array<{
+      deviceId: string;
+      platform: string;
+      instances: Array<{
+        tag: string;
+        routes: Record<string, unknown>[];
+        sessions: ReturnType<typeof liveSessionsFromFreshInstance>;
+      }>;
+    }> = [];
+    let remainingSessionBudget = MAX_LIVE_SESSIONS_PER_RESPONSE;
+    const sessionLeaseNow = new Date();
+    const encoder = new TextEncoder();
+
+    for (const instance of liveInstanceRows) {
+      if (remainingSessionBudget === 0) break;
+      const device = devicesByID.get(instance.deviceId);
+      if (!device) continue;
+      const sessions = liveSessionsFromFreshInstance(
+        instance.labels,
+        instance.lastSeenAt,
+        sessionLeaseNow,
+      ).slice(0, remainingSessionBudget);
+      if (sessions.length === 0) continue;
+
+      const wireInstance = {
+        tag: instance.tag,
+        routes: sanitizeServerPublishedRoutes(
+          Array.isArray(instance.routes) ? instance.routes : [],
+        ),
+        sessions,
+      };
+      const deviceIndex = liveDevicesPayload.findIndex((entry) => entry.deviceId === device.deviceUuid);
+      const candidateDevices = liveDevicesPayload.map((entry) => ({
+        ...entry,
+        instances: [...entry.instances],
+      }));
+      if (deviceIndex >= 0) {
+        candidateDevices[deviceIndex].instances.push(wireInstance);
+      } else {
+        candidateDevices.push({
+          deviceId: device.deviceUuid,
+          platform: device.platform,
+          instances: [wireInstance],
+        });
+      }
+      const candidateBody = { devices: candidateDevices };
+      if (encoder.encode(JSON.stringify(candidateBody)).byteLength > MAX_LIVE_SESSION_RESPONSE_BYTES) {
+        continue;
+      }
+      liveDevicesPayload.splice(0, liveDevicesPayload.length, ...candidateDevices);
+      remainingSessionBudget -= sessions.length;
+    }
+
+    return jsonResponse({ devices: liveDevicesPayload });
+  }
+
   const deviceRows = (await db
     .select({
       id: devices.id,
@@ -370,9 +468,7 @@ export async function GET(request: Request): Promise<Response> {
       lastSeenAt: devices.lastSeenAt,
     })
     .from(devices)
-    .where(liveSessionsOnly
-      ? and(eq(devices.teamId, team.teamId), eq(devices.userId, user.id))
-      : eq(devices.teamId, team.teamId))
+    .where(eq(devices.teamId, team.teamId))
     .orderBy(desc(devices.lastSeenAt))) as DeviceListRow[];
 
   const instanceRows = deviceRows.length === 0
@@ -386,12 +482,7 @@ export async function GET(request: Request): Promise<Response> {
         lastSeenAt: deviceAppInstances.lastSeenAt,
       })
       .from(deviceAppInstances)
-      .where(liveSessionsOnly
-        ? and(
-          eq(deviceAppInstances.teamId, team.teamId),
-          inArray(deviceAppInstances.deviceId, deviceRows.map((device) => device.id)),
-        )
-        : eq(deviceAppInstances.teamId, team.teamId))
+      .where(eq(deviceAppInstances.teamId, team.teamId))
       .orderBy(desc(deviceAppInstances.lastSeenAt));
 
   const instancesByDevice = new Map<string, typeof instanceRows>();
@@ -425,7 +516,6 @@ export async function GET(request: Request): Promise<Response> {
 
   const devicesPayload = deviceRows.flatMap((device) => {
     const instances = (instancesByDevice.get(device.id) ?? [])
-      .filter((instance) => !liveSessionsOnly || (sessionsByInstance.get(instance)?.length ?? 0) > 0)
       .map((instance) => ({
         tag: instance.tag,
         routes: sanitizeServerPublishedRoutes(
@@ -435,7 +525,6 @@ export async function GET(request: Request): Promise<Response> {
         sessions: sessionsByInstance.get(instance) ?? [],
         lastSeenAt: instance.lastSeenAt.toISOString(),
       }));
-    if (liveSessionsOnly && instances.length === 0) return [];
     return [{
       // The phone matches its stored `macDeviceID` (the cmux device UUID) against
       // this, so expose `deviceUuid`, not the internal surrogate row id.

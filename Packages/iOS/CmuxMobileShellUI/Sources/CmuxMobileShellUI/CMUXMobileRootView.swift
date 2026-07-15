@@ -304,7 +304,8 @@ struct CMUXMobileRootView: View {
                 await store.connectManualHost(name: name, host: host, port: port)
             },
             cancelPairing: cancelPairing,
-            cancel: dismissAddDeviceSheet
+            cancel: dismissAddDeviceSheet,
+            userInteractionBegan: claimAutomaticAddDevicePresentationForUserInteraction
         )
         #if os(iOS)
         .presentationDetents([.medium, .large], selection: $addDeviceSheetDetent)
@@ -426,6 +427,10 @@ struct CMUXMobileRootView: View {
         } else {
             addDevicePresentation.dismissAutomaticForAvailableSession()
         }
+    }
+
+    private func claimAutomaticAddDevicePresentationForUserInteraction() {
+        addDevicePresentation.claimAutomaticForUserInteraction()
     }
 
     private func connectAttachURL(_ rawURL: String) {

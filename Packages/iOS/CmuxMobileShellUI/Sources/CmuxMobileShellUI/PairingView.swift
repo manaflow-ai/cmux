@@ -24,6 +24,7 @@ struct PairingView: View {
     let connectManualHost: (String, String, Int) async -> Void
     let cancelPairing: () -> Void
     let cancel: () -> Void
+    let userInteractionBegan: () -> Void
 
     @State private var isShowingScanner = false
     @State private var deviceName = UITestConfig.addDeviceName
@@ -44,7 +45,7 @@ struct PairingView: View {
                 Section {
                     TextField(
                         L10n.string("mobile.addDevice.namePlaceholder", defaultValue: "Work Mac"),
-                        text: $deviceName
+                        text: userOwnedBinding($deviceName)
                     )
                     .focused($focusedField, equals: .name)
                     .submitLabel(.next)
@@ -53,7 +54,7 @@ struct PairingView: View {
 
                     TextField(
                         L10n.string("mobile.addDevice.hostPlaceholder", defaultValue: "127.0.0.1 (simulator only)"),
-                        text: $host
+                        text: userOwnedBinding($host)
                     )
                     .focused($focusedField, equals: .host)
                     .submitLabel(.next)
@@ -62,7 +63,7 @@ struct PairingView: View {
 
                     TextField(
                         L10n.string("mobile.addDevice.portPlaceholder", defaultValue: "58465"),
-                        text: $port
+                        text: userOwnedBinding($port)
                     )
                     .focused($focusedField, equals: .port)
                     .submitLabel(.done)
@@ -117,6 +118,7 @@ struct PairingView: View {
                 #if os(iOS)
                 Section {
                     Button {
+                        userInteractionBegan()
                         isShowingScanner = true
                     } label: {
                         Label(L10n.string("mobile.pairing.scan", defaultValue: "Scan QR Code"), systemImage: "qrcode.viewfinder")
@@ -155,6 +157,7 @@ struct PairingView: View {
                                 .accessibilityIdentifier("MobilePairingVersionWarning")
 
                             Button(role: .destructive) {
+                                userInteractionBegan()
                                 startPairingTask {
                                     await acceptVersionWarning()
                                 }
@@ -232,6 +235,7 @@ struct PairingView: View {
         #if os(iOS)
         .sheet(isPresented: $isShowingScanner) {
             MobilePairingScannerSheet { scannedCode in
+                userInteractionBegan()
                 pairingCode = scannedCode
                 isShowingScanner = false
                 startPairingTask {
@@ -305,6 +309,7 @@ struct PairingView: View {
     }
 
     private func pair() {
+        userInteractionBegan()
         validationError = nil
         let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedHost.isEmpty else {
@@ -349,6 +354,16 @@ struct PairingView: View {
             await operation()
         }
         pairingTask = task
+    }
+
+    private func userOwnedBinding(_ binding: Binding<String>) -> Binding<String> {
+        Binding(
+            get: { binding.wrappedValue },
+            set: { value in
+                userInteractionBegan()
+                binding.wrappedValue = value
+            }
+        )
     }
 }
 
