@@ -135,7 +135,7 @@ struct VerifiedReplayPresentationTests {
             modelGeometry: geometry,
             presentationGeometry: geometry
         ))
-        #expect(!fence.isSatisfied(
+        #expect(fence.isSatisfied(
             modelIdentity: presented,
             presentationIdentity: divergent,
             geometryRevision: 7,
