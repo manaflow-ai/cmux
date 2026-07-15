@@ -14,7 +14,7 @@ import Testing
 /// dials the phone's own loopback and silently fails to connect.
 @MainActor
 @Suite struct ReconnectRouteSelectionTests {
-    private func loopback(_ port: Int = 50906) throws -> CmxAttachRoute {
+    func loopback(_ port: Int = 50906) throws -> CmxAttachRoute {
         try CmxAttachRoute(
             id: "debug_loopback",
             kind: .debugLoopback,
@@ -23,7 +23,7 @@ import Testing
         )
     }
 
-    private func tailscale(_ port: Int = 50906) throws -> CmxAttachRoute {
+    func tailscale(_ port: Int = 50906) throws -> CmxAttachRoute {
         try CmxAttachRoute(
             id: "tailscale",
             kind: .tailscale,
@@ -32,21 +32,26 @@ import Testing
         )
     }
 
-    private func manualHost(_ port: Int = 50906) throws -> CmxAttachRoute {
-        try CmxAttachRoute(
-            id: "manual_host",
-            kind: .manualHost,
-            endpoint: .hostPort(host: "192.168.1.77", port: port),
-            priority: 2
-        )
-    }
-
-    private func legacyLANStoredAsTailscale(_ port: Int = 50906) throws -> CmxAttachRoute {
+    func legacyLANStoredAsTailscale(_ port: Int = 50906) throws -> CmxAttachRoute {
         try CmxAttachRoute(
             id: "legacy_lan",
             kind: .tailscale,
             endpoint: .hostPort(host: "192.168.1.77", port: port),
             priority: 1
+        )
+    }
+
+    func iroh(priority: Int = -10_000) throws -> CmxAttachRoute {
+        try CmxAttachRoute(
+            id: "iroh-personal",
+            kind: .iroh,
+            endpoint: .peer(
+                identity: CmxIrohPeerIdentity(
+                    endpointID: String(repeating: "a", count: 64)
+                ),
+                pathHints: []
+            ),
+            priority: priority
         )
     }
 
@@ -177,75 +182,14 @@ import Testing
         #expect(candidates.first?.routeID == "duplicate")
     }
 
-    private func magicDNS(_ port: Int = 50906) throws -> CmxAttachRoute {
-        // A MagicDNS hostname route, advertised BEFORE the IP route by priority.
-        try CmxAttachRoute(
-            id: "tailscale",
-            kind: .tailscale,
-            endpoint: .hostPort(host: "lawrences-macbook-pro-2.tail137216.ts.net", port: port),
-            priority: 5
-        )
-    }
-
-    @Test func physicalDevicePrefersIPLiteralOverMagicDNSHostname() throws {
-        // The exact dogfood failure: a Mac advertises loopback, a MagicDNS
-        // hostname (higher priority), and the raw tailscale IP. MagicDNS doesn't
-        // resolve on the phone, so dialing the hostname times out; selection must
-        // pick the IP literal so the secondary fetch / reconnect actually connects.
-        let ip = try CmxAttachRoute(
-            id: "tailscale_2",
-            kind: .tailscale,
-            endpoint: .hostPort(host: "100.82.214.112", port: 50922),
-            priority: 10
-        )
-        let pick = MobileShellRouteSelection().firstReconnectHostPortRoute(
-            [try loopback(50922), try magicDNS(50922), ip],
-            supportedKinds: [.debugLoopback, .tailscale],
+    @Test func rawReconnectCandidatesAreUnavailableForIrohCapablePairing() throws {
+        let candidates = MobileShellComposite.reconnectHostPortRoutes(
+            [try tailscale(), try iroh()],
+            supportedKinds: [.iroh, .tailscale],
             preferNonLoopback: true
         )
-        #expect(pick?.0 == "100.82.214.112")
-    }
 
-    @Test func magicDNSHostnameStillUsedWhenNoIPRouteExists() throws {
-        // If the only non-loopback route is a hostname, still prefer it over
-        // loopback on device (better than dialing the phone's own 127.0.0.1).
-        let pick = MobileShellRouteSelection().firstReconnectHostPortRoute(
-            [try loopback(50922), try magicDNS(50922)],
-            supportedKinds: [.debugLoopback, .tailscale],
-            preferNonLoopback: true
-        )
-        #expect(pick?.0 == "lawrences-macbook-pro-2.tail137216.ts.net")
-    }
-
-    @Test func tailscaleDNSBeatsManualHostIPFallback() throws {
-        let pick = MobileShellRouteSelection().firstReconnectHostPortRoute(
-            [try loopback(50922), try manualHost(50922), try magicDNS(50922)],
-            supportedKinds: [.debugLoopback, .manualHost, .tailscale],
-            preferNonLoopback: true
-        )
-        #expect(pick?.0 == "lawrences-macbook-pro-2.tail137216.ts.net")
-    }
-
-    @Test func tailscaleDNSBeatsLegacyLANRouteStoredAsTailscale() throws {
-        let pick = MobileShellRouteSelection().firstReconnectHostPortRoute(
-            [try loopback(50922), try legacyLANStoredAsTailscale(50922), try magicDNS(50922)],
-            supportedKinds: [.debugLoopback, .manualHost, .tailscale],
-            preferNonLoopback: true
-        )
-        #expect(pick?.0 == "lawrences-macbook-pro-2.tail137216.ts.net")
-    }
-
-    @Test func ipLiteralHostClassification() {
-        #expect(MobileShellRouteSelection().isIPLiteralHost("100.82.214.112"))
-        #expect(MobileShellRouteSelection().isIPLiteralHost("127.0.0.1"))
-        #expect(MobileShellRouteSelection().isIPLiteralHost("fd7a:115c:a1e0::4b36:d670"))
-        #expect(MobileShellRouteSelection().isIPLiteralHost("::ffff:192.168.0.1"))
-        #expect(MobileShellRouteSelection().isIPLiteralHost("[fd7a:115c:a1e0::4b36:d670]"))
-        #expect(!MobileShellRouteSelection().isIPLiteralHost("lawrences-macbook-pro-2.tail137216.ts.net"))
-        #expect(!MobileShellRouteSelection().isIPLiteralHost("example.com"))
-        #expect(!MobileShellRouteSelection().isIPLiteralHost("my:host"))
-        #expect(!MobileShellRouteSelection().isIPLiteralHost("100.82.214")) // too few octets
-        #expect(!MobileShellRouteSelection().isIPLiteralHost("256.1.1.1")) // out of range
+        #expect(candidates.isEmpty)
     }
 
     @Test func constrainedReconnectTicketMergesWithStoredRoutes() throws {
@@ -254,7 +198,8 @@ import Testing
 
         let merged = MobileShellComposite.mergedReconnectRoutes(
             ticketRoutes: [connected],
-            storedRoutes: [stale, connected]
+            storedRoutes: [stale, connected],
+            at: .distantPast
         )
 
         #expect(merged.map { $0.id }.contains(stale.id))
@@ -288,6 +233,46 @@ import Testing
         #expect(connected)
         #expect(store.connectionState == .connected)
         #expect(factory.attemptedPorts() == [51000, 51001, 51001])
+    }
+
+    @Test func connectionPoolRecordsFallbackRouteThatActuallyConnected() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let factory = RouteRecordingTransportFactory(
+            router: router,
+            box: box,
+            failingPorts: [51000]
+        )
+        let runtime = LivenessTestRuntime(
+            transportFactory: factory,
+            now: { clock.now },
+            supportedRouteKinds: [.debugLoopback]
+        )
+        let store = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            reachability: AlwaysOnlineReachability(),
+            pairingHintDefaults: UserDefaults(suiteName: "pairing-pool-route-\(UUID().uuidString)")!
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "live-workspace",
+            terminalID: "live-terminal",
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
+            routes: [
+                try loopbackRoute(id: "stale", port: 51000),
+                try loopbackRoute(id: "good", port: 51001),
+            ],
+            expiresAt: clock.now.addingTimeInterval(3600)
+        )
+
+        let result = await store.connectPairingURLResult(try attachURL(for: ticket))
+
+        #expect(result == .connected)
+        #expect(store.activeRoute?.id == "good")
+        #expect(store.pooledRouteForTesting(macDeviceID: "test-mac")?.id == "good")
     }
 
     @Test func supersededReconnectGenerationAbortsRouteIteration() async throws {
@@ -330,6 +315,57 @@ import Testing
         #expect(!firstConnected)
         #expect(secondConnected)
         #expect(factory.attemptedPorts() == [51000, 51001, 51001])
+    }
+
+    @Test func supersededSuccessfulRouteClosesItsUnadoptedTransport() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        await router.holdWorkspaceListRequest(number: 1)
+        let factory = SupersededTransportFactory(router: router)
+        let runtime = LivenessTestRuntime(
+            transportFactory: factory,
+            now: { clock.now },
+            supportedRouteKinds: [.debugLoopback]
+        )
+        let store = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            reachability: AlwaysOnlineReachability(),
+            pairingHintDefaults: UserDefaults(
+                suiteName: "pairing-superseded-close-\(UUID().uuidString)"
+            )!
+        )
+        let route = try loopbackRoute(id: "live", port: 51001)
+        let ticket = try CmxAttachTicket(
+            workspaceID: "live-workspace",
+            terminalID: "live-terminal",
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            macPairingCompatibilityVersion: CmxMobileDefaults
+                .pairingCompatibilityVersion,
+            routes: [route],
+            expiresAt: clock.now.addingTimeInterval(3_600)
+        )
+        let authContext = store.currentRPCAuthContext()
+
+        let first = Task { @MainActor in
+            try? await store.connect(ticket: ticket, authContext: authContext)
+        }
+        #expect(await router.waitForCount(of: "workspace.list", atLeast: 1))
+
+        let second = Task { @MainActor in
+            try? await store.connect(ticket: ticket, authContext: authContext)
+        }
+        #expect(await router.waitForCount(of: "workspace.list", atLeast: 2))
+        _ = await second.value
+        await router.releaseAllHeld()
+        _ = await first.value
+
+        let transports = factory.createdTransports()
+        #expect(transports.count == 2)
+        #expect(await transports.first?.observedCloseCount() == 1)
+        #expect(await transports.last?.observedCloseCount() == 0)
+        await store.remoteClient?.disconnect()
     }
 
     @Test func sameDeviceTagSwitchFailureRestoresLiveInstanceRoute() async throws {
@@ -446,13 +482,4 @@ import Testing
         return store
     }
 
-    private func makePairedMacStore() throws -> (MobilePairedMacStore, URL) {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let store = try MobilePairedMacStore(
-            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
-        )
-        return (store, directory)
-    }
 }

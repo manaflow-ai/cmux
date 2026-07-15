@@ -59,14 +59,19 @@ public struct CmxPairingQRCode: Sendable {
     public init() {}
 
     /// Encode `ticket` as a minimal pairing URL, or `nil` when the ticket does not
-    /// qualify (see ``canEncode(_:)``); callers fall back to the compact v1
-    /// payload so every ticket still has an attach URL.
+    /// qualify (see ``canEncode(_:routeDisclosureMode:)``); callers fall back
+    /// to the compact v1 payload so every ticket still has an attach URL.
     ///
     /// Only the ticket's Tailscale and explicit manual-host routes are encoded:
     /// a DEBUG Mac's dev loopback route is dropped, never written into a
-    /// scannable code.
-    public func encode(_ ticket: CmxAttachTicket) -> String? {
-        guard let routes = encodableRoutes(of: ticket) else {
+    /// scannable code. The caller must explicitly allow legacy private-network
+    /// disclosure; Iroh identity-only payloads use the compact coder instead.
+    public func encode(
+        _ ticket: CmxAttachTicket,
+        routeDisclosureMode: CmxPairingRouteDisclosureMode
+    ) -> String? {
+        guard routeDisclosureMode == .legacyPrivateNetworkCompatibility,
+              let routes = encodableRoutes(of: ticket) else {
             return nil
         }
         var items: [String] = ["v=\(grammarVersion(for: routes))"]
@@ -97,10 +102,28 @@ public struct CmxPairingQRCode: Sendable {
         return "\(CmxPairingURLScheme.current)://attach?" + items.joined(separator: "&")
     }
 
-    /// Whether `ticket` is expressible in the minimal grammar; see
-    /// ``encodableRoutes(of:)`` for the rules.
+    /// Encodes using the legacy private-network disclosure mode.
+    ///
+    /// Kept for source compatibility with callers that predate explicit route
+    /// disclosure. New call sites should select a disclosure mode explicitly.
+    public func encode(_ ticket: CmxAttachTicket) -> String? {
+        encode(ticket, routeDisclosureMode: .legacyPrivateNetworkCompatibility)
+    }
+
+    /// Whether `ticket` is expressible in the minimal grammar under the
+    /// explicitly selected disclosure mode; see ``encodableRoutes(of:)`` for
+    /// the rules.
+    public func canEncode(
+        _ ticket: CmxAttachTicket,
+        routeDisclosureMode: CmxPairingRouteDisclosureMode
+    ) -> Bool {
+        routeDisclosureMode == .legacyPrivateNetworkCompatibility
+            && encodableRoutes(of: ticket) != nil
+    }
+
+    /// Checks expressibility using the legacy private-network disclosure mode.
     public func canEncode(_ ticket: CmxAttachTicket) -> Bool {
-        encodableRoutes(of: ticket) != nil
+        canEncode(ticket, routeDisclosureMode: .legacyPrivateNetworkCompatibility)
     }
 
     /// The route subsequence a minimal pairing URL would carry for `ticket`, or

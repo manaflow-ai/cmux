@@ -112,6 +112,13 @@ private extension MobilePairedMac {
               !displayName.isEmpty else {
             return nil
         }
+        let supportedRoutes = MobileShellComposite.storedReconnectRoutes(
+            routes,
+            supportedKinds: supportedKinds
+        )
+        if case let .peer(identity, _)? = supportedRoutes.first(where: { $0.kind == .iroh })?.endpoint {
+            return "iroh:\(identity.endpointID):name:\(displayName.lowercased())"
+        }
         guard let (host, port) = routeSelection.firstReconnectHostPortRoute(
             routes,
             supportedKinds: supportedKinds,

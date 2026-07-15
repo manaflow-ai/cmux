@@ -9,10 +9,10 @@ import Foundation
 /// connection.
 ///
 /// The Stack-bearer-token gate (``routeAllowsStackAuth(_:manualHostTrusted:)``)
-/// is intentionally restricted to encrypted/loopback channels plus an explicit
-/// per-host manual approval: the Tailscale tunnel (WireGuard-encrypted), iroh
-/// peer connections (encrypted), loopback (never leaves the machine), and a
-/// manual-host route only after the user accepts the plaintext-LAN warning.
+/// is intentionally restricted to loopback plus an explicit per-host manual
+/// approval. Iroh sessions authenticate RPC out of band and never carry a Stack
+/// bearer token; a generic packet-tunnel interface does not prove Tailscale
+/// provenance, so `.tailscale` host routes also cannot carry that credential.
 /// Plain private-LAN and `.local`/Bonjour hosts remain excluded by default even
 /// though they may still be reachable as attach routes.
 public struct MobileShellRouteAuthPolicy: Sendable {
@@ -66,15 +66,9 @@ public struct MobileShellRouteAuthPolicy: Sendable {
     /// Whether the given route is trusted enough to carry the Stack bearer token.
     ///
     /// The Stack `stack_access_token` is the owner's account credential, so it must
-    /// only ever traverse an encrypted/loopback channel or an explicitly trusted
-    /// manual-host route. This predicate gates every Stack-token-send site and
-    /// returns `true` only for:
-    ///
-    /// - `.tailscale` to a Tailscale host (a `100.64.0.0/10` CGNAT address or a
-    ///   `*.ts.net` MagicDNS host), which rides the WireGuard-encrypted tunnel.
-    /// - `.iroh` to a peer, which is an encrypted QUIC connection.
-    /// - `.debugLoopback` to a loopback host, which never leaves the machine.
-    /// - `.manualHost` to a non-loopback host/port that has a persisted user approval.
+    /// only ever traverse loopback or an explicitly approved manual-host route.
+    /// Iroh authorizes RPC through its admitted session, while raw `.tailscale`
+    /// text lacks structural transport proof and therefore remains fail-closed.
     ///
     /// Plain private-LAN (`192.168/16`, `10/8`, `172.16/12`, link-local) and
     /// `.local`/Bonjour hosts are deliberately **excluded**: they are dialed over
@@ -85,8 +79,8 @@ public struct MobileShellRouteAuthPolicy: Sendable {
     ///   - route: The candidate attach route.
     ///   - manualHostTrusted: Whether this exact `.manualHost` route has an
     ///     explicit persisted trust approval.
-    /// - Returns: `true` only for Tailscale-tunnel, iroh peer, loopback, and
-    ///   explicitly approved manual-host routes.
+    /// - Returns: `true` only for loopback and explicitly approved manual-host
+    ///   routes.
     public func routeAllowsStackAuth(
         _ route: CmxAttachRoute,
         manualHostTrusted: Bool = false
@@ -94,12 +88,10 @@ public struct MobileShellRouteAuthPolicy: Sendable {
         switch (route.kind, route.endpoint) {
         case (.debugLoopback, let .hostPort(host, _)):
             return isLoopbackHost(host)
-        case (.tailscale, let .hostPort(host, _)):
-            return isTailscaleHost(host)
         case (.manualHost, let .hostPort(host, _)):
             return manualHostTrusted && !isLoopbackHost(host)
-        case (.iroh, .peer):
-            return true
+        case (.tailscale, .hostPort), (.iroh, .peer):
+            return false
         default:
             return false
         }
@@ -190,41 +182,4 @@ public struct MobileShellRouteAuthPolicy: Sendable {
         loopbackHost.matches(host)
     }
 
-    private func isTailscaleHost(_ host: String) -> Bool {
-        let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return isTailscaleDNSHost(normalizedHost) || isTailscaleIPv4Host(normalizedHost)
-    }
-
-    private func isTailscaleIPv4Host(_ host: String) -> Bool {
-        guard let octets = ipv4Octets(host) else {
-            return false
-        }
-        return octets[0] == 100 && (64...127).contains(octets[1])
-    }
-
-    private func ipv4Octets(_ host: String) -> [Int]? {
-        let parts = host.split(separator: ".", omittingEmptySubsequences: false)
-        guard parts.count == 4 else {
-            return nil
-        }
-        let octets = parts.compactMap { part -> Int? in
-            guard !part.isEmpty,
-                  part.utf8.allSatisfy({ (48...57).contains($0) }),
-                  let value = Int(part),
-                  (0...255).contains(value) else {
-                return nil
-            }
-            return value
-        }
-        guard octets.count == 4 else {
-            return nil
-        }
-        return octets
-    }
-
-    private func isTailscaleDNSHost(_ host: String) -> Bool {
-        host.trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-            .hasSuffix(".ts.net")
-    }
 }

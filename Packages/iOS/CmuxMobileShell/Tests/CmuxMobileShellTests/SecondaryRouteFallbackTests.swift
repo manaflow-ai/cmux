@@ -7,7 +7,7 @@ import Testing
 
 @MainActor
 @Suite struct SecondaryRouteFallbackTests {
-    @Test func secondaryAggregationFallsBackFromTailscaleToApprovedManualHost() async throws {
+    @Test func secondaryAggregationSkipsTailscaleAndUsesApprovedManualHost() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -66,7 +66,7 @@ import Testing
 
         await store.refreshSecondaryMacWorkspaces()
 
-        #expect(attempts.count(.tailscale) == 1)
+        #expect(attempts.count(.tailscale) == 0)
         #expect(attempts.count(.manualHost) >= 1)
         #expect(store.secondaryMacSubscriptions["secondary-mac"]?.route.kind == .manualHost)
     }

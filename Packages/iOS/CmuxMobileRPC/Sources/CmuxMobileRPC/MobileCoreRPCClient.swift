@@ -9,9 +9,11 @@ internal import os
 /// All stored properties are immutable `let`s of `Sendable` types (the session
 /// is an actor), so this is genuinely `Sendable` without opting out of checking.
 public final class MobileCoreRPCClient: MobileSyncing, Sendable {
+    private static let independentEventPreparationTimeoutNanoseconds: UInt64 = 3_000_000_000
     private let runtime: any MobileSyncRuntime
     private let route: CmxAttachRoute
     private let ticket: CmxAttachTicket
+    private let transportRequest: CmxByteTransportRequest
     /// The attach ticket this client uses to authorize RPC requests.
     public var attachTicket: CmxAttachTicket { ticket }
     private let allowsStackAuthFallback: Bool
@@ -55,6 +57,12 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         self.runtime = runtime
         self.route = route
         self.ticket = ticket
+        let transportRequest = CmxByteTransportRequest(
+            route: route,
+            expectedPeerDeviceID: ticket.macDeviceID,
+            authorizationMode: route.kind == .iroh ? .transportAdmission : .stackBearer
+        )
+        self.transportRequest = transportRequest
         self.allowsStackAuthFallback = allowsStackAuthFallback
         self.manualHostStackAuthTrustProvider = manualHostStackAuthTrustProvider
         self.authScope = authScope
@@ -63,14 +71,24 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             ?? RPCStackTokenGate(timedOutResetNanoseconds: stackTokenGateResetNanoseconds)
         self.stackTokenForceRefreshGate = stackTokenForceRefreshGate
             ?? RPCStackTokenGate(timedOutResetNanoseconds: stackTokenGateResetNanoseconds)
+        let independentEventFactory: MobileCoreRPCSession.IndependentEventByteStreamFactory?
+        if route.kind == .iroh,
+           let provider = runtime.independentEventByteStreamProvider {
+            independentEventFactory = {
+                try await provider(transportRequest)
+            }
+        } else {
+            independentEventFactory = nil
+        }
         self.session = MobileCoreRPCSession(
             connectAttemptKey: route.mobileRPCConnectAttemptKey,
             connectAttemptRegistry: connectAttemptRegistry,
             abandonedConnectCleanupTimeoutNanoseconds: abandonedConnectCleanupTimeoutNanoseconds,
             lateAbandonedConnectCloseTimeoutNanoseconds: lateAbandonedConnectCloseTimeoutNanoseconds,
-            makeTransport: { [route, runtime] in
-                try runtime.transportFactory.makeTransport(for: route)
-            }
+            makeTransport: { [runtime, transportRequest] in
+                try runtime.transportFactory.makeTransport(for: transportRequest)
+            },
+            makeIndependentEventByteStream: independentEventFactory
         )
     }
 
@@ -84,6 +102,13 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     /// matching any of the requested topics. Cancel by terminating iteration.
     public func subscribe(to topics: Set<String>) async -> AsyncStream<MobileEventEnvelope> {
         await session.addEventListener(topics: topics).stream
+    }
+
+    /// Starts the optional Iroh server-event lane before advertising support to
+    /// the host. Returns `false` on unsupported routes or setup failure so the
+    /// caller can retain control-stream event delivery.
+    public func prepareIndependentServerEvents() async -> Bool {
+        await session.prepareIndependentServerEvents()
     }
 
     /// Build a JSON-RPC request frame with the given method and params.
@@ -114,9 +139,13 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         let deadline = RPCRequestDeadline(
             timeoutNanoseconds: timeoutNanoseconds ?? runtime.rpcRequestTimeoutNanoseconds
         )
+        let preparedRequest = await requestAdvertisingIndependentEvents(
+            requestData,
+            deadline: deadline
+        )
         do {
             return try await sendAuthenticatedRequest(
-                requestData,
+                preparedRequest,
                 deadline: deadline,
                 allowAuthRetry: true
             )
@@ -131,16 +160,44 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             // account, so retrying with a fresh token of THIS account cannot
             // help and would only weaken the same-account gate; it surfaces as
             // `.rpcError("account_mismatch", _)`, not `.authorizationFailed`.
-            guard case .authorizationFailed = error else { throw error }
+            guard transportRequest.authorizationMode == .stackBearer,
+                  case .authorizationFailed = error else { throw error }
             try await forceRefreshStackTokenForRetry(deadline: deadline)
             // Re-run with retry disabled so a fresh token that is still rejected
             // surfaces as a definitive auth failure instead of looping.
             return try await sendAuthenticatedRequest(
-                requestData,
+                preparedRequest,
                 deadline: deadline,
                 allowAuthRetry: false
             )
         }
+    }
+
+    /// Adds the rolling-compatible opt-in only after the Iroh accept owner is
+    /// installed. Older hosts ignore the field and continue control delivery.
+    private func requestAdvertisingIndependentEvents(
+        _ requestData: Data,
+        deadline: RPCRequestDeadline
+    ) async -> Data {
+        guard var request = try? JSONSerialization.jsonObject(with: requestData) as? [String: Any],
+              request["method"] as? String == "mobile.events.subscribe",
+              var params = request["params"] as? [String: Any],
+              params["event_transport"] == nil,
+              let remaining = try? deadline.remainingNanoseconds() else {
+            return requestData
+        }
+        let preparationTimeout = min(
+            remaining,
+            Self.independentEventPreparationTimeoutNanoseconds
+        )
+        guard await session.prepareIndependentServerEvents(
+            timeoutNanoseconds: preparationTimeout
+        ) else {
+            return requestData
+        }
+        params["event_transport"] = "iroh_server_events_v1"
+        request["params"] = params
+        return (try? JSONSerialization.data(withJSONObject: request)) ?? requestData
     }
 
     /// Force a single Stack token refresh ahead of a retry.
@@ -245,6 +302,13 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     ) async throws -> (data: Data, containsStackAccessToken: Bool) {
         guard var request = try JSONSerialization.jsonObject(with: requestData) as? [String: Any] else {
             return (requestData, false)
+        }
+        if transportRequest.authorizationMode == .transportAdmission {
+            request.removeValue(forKey: "auth")
+            return (
+                try JSONSerialization.data(withJSONObject: request),
+                false
+            )
         }
         let requestNeedsAuth = Self.requestRequiresAuth(request)
         let requestIsCoveredByAttachTicket = !Self.requestNeedsStackAuthFallback(request, ticket: ticket)
@@ -384,91 +448,6 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             throw CancellationError()
         }
         return lease
-    }
-
-    private static func requestNeedsStackAuthFallback(_ request: [String: Any], ticket: CmxAttachTicket) -> Bool {
-        guard requestRequiresAuth(request) else {
-            return false
-        }
-        let method = (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let params = request["params"] as? [String: Any] ?? [:]
-        let workspaceSelection = stringParamSelection(params, keys: ["workspace_id"])
-        let terminalSelection = stringParamSelection(params, keys: ["surface_id", "terminal_id", "tab_id"])
-        let ticketCoverage = MobileCoreRPCAttachTicketCoverage()
-        if workspaceSelection.hasConflict ||
-            terminalSelection.hasConflict ||
-            ticketCoverage.containsIgnoredAliasParameters(params) {
-            return true
-        }
-
-        switch method {
-        case "mobile.workspace.list", "workspace.list":
-            return false
-        case "workspace.create":
-            return false
-        case "workspace.action", "workspace.close":
-            return !ticketCoverage.ticketCoversWorkspaceRequest(
-                ticket: ticket,
-                workspaceSelection: workspaceSelection.value
-            )
-        case "workspace.move", "workspace.group.action", "workspace.group.create":
-            // These mutations are Mac-scoped. Always preserve the attach-ticket
-            // context when one exists so the host can reject workspace-scoped
-            // tickets instead of receiving a Stack-only request.
-            return false
-        case "mobile.terminal.create", "terminal.create":
-            return false
-        case "mobile.terminal.input", "terminal.input",
-             "mobile.terminal.paste", "terminal.paste",
-             "mobile.terminal.paste_image", "terminal.paste_image",
-             "mobile.terminal.replay", "terminal.replay",
-             "mobile.terminal.viewport", "terminal.viewport",
-             "mobile.terminal.artifact.scan",
-             "mobile.terminal.artifact.stat",
-             "mobile.terminal.artifact.fetch",
-             "mobile.terminal.artifact.thumbnail":
-            return !ticketCoverage.ticketCoversTerminalRequest(
-                ticket: ticket,
-                workspaceSelection: workspaceSelection.value,
-                terminalSelection: terminalSelection.value
-            )
-        case "mobile.events.subscribe", "mobile.events.unsubscribe":
-            return false
-        default:
-            return true
-        }
-    }
-
-    private static func requestRequiresAuth(_ request: [String: Any]) -> Bool {
-        let method = (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Only the unauthenticated host probe is exempt. attach_ticket.create has no
-        // attach token yet (it mints the ticket), so requiring auth routes it through
-        // the Stack Auth account token: a ticket can only be created by a signed-in user.
-        return method != "mobile.host.status"
-    }
-
-    private static func stringParamSelection(
-        _ params: [String: Any],
-        keys: [String]
-    ) -> StringParamSelection {
-        var selected: String?
-        for key in keys {
-            if let value = params[key] as? String {
-                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty {
-                    if let selected, selected != trimmed {
-                        return StringParamSelection(value: selected, hasConflict: true)
-                    }
-                    selected = selected ?? trimmed
-                }
-            }
-        }
-        return StringParamSelection(value: selected, hasConflict: false)
-    }
-
-    private struct StringParamSelection {
-        let value: String?
-        let hasConflict: Bool
     }
 
 }

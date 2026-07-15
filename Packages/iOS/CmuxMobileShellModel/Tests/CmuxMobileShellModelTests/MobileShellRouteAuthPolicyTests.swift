@@ -31,7 +31,12 @@ import Testing
         let irohPeer = try CmxAttachRoute(
             id: CmxAttachTransportKind.iroh.rawValue,
             kind: .iroh,
-            endpoint: .peer(id: "peer-1", relayHint: nil, directAddrs: [], relayURL: nil),
+            endpoint: .peer(
+                id: String(repeating: "f", count: 64),
+                relayHint: nil,
+                directAddrs: [],
+                relayURL: nil
+            ),
             priority: 0
         )
 
@@ -44,9 +49,14 @@ import Testing
         #expect(!MobileShellRouteAuthPolicy().routeIsLoopback(irohPeer))
     }
 
-    @Test func allowsStackAuthOnlyForEncryptedLoopbackOrApprovedManualHostRoutes() throws {
+    @Test func allowsStackAuthOnlyForLoopbackOrApprovedManualHostRoutes() throws {
         let loopback = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
         let tailscaleIP = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
+        let tailscaleIPv6 = try hostPortRoute(
+            kind: .tailscale,
+            host: "fd7a:115c:a1e0::1234",
+            port: CmxMobileDefaults.defaultHostPort
+        )
         let lanIP = try hostPortRoute(kind: .tailscale, host: "192.168.1.77", port: CmxMobileDefaults.defaultHostPort)
         let localDNS = try hostPortRoute(kind: .tailscale, host: "devbox.local", port: CmxMobileDefaults.defaultHostPort)
         let tailscaleMagicDNS = try hostPortRoute(kind: .tailscale, host: "work-mac.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
@@ -54,7 +64,25 @@ import Testing
         let irohPeer = try CmxAttachRoute(
             id: CmxAttachTransportKind.iroh.rawValue,
             kind: .iroh,
-            endpoint: .peer(id: "peer-1", relayHint: nil, directAddrs: [], relayURL: nil),
+            endpoint: .peer(
+                identity: try CmxIrohPeerIdentity(
+                    endpointID: String(repeating: "f", count: 64)
+                ),
+                pathHints: [
+                    try CmxIrohPathHint(
+                        kind: .directAddress,
+                        value: "100.71.210.41:49152",
+                        source: .tailscale,
+                        privacyScope: .privateNetwork,
+                        observedAt: Date(timeIntervalSince1970: 1_999_999_940),
+                        expiresAt: Date(timeIntervalSince1970: 2_000_000_000),
+                        networkProfile: CmxIrohNetworkProfileKey(
+                            source: .tailscale,
+                            profileID: String(repeating: "a", count: 64)
+                        )
+                    ),
+                ]
+            ),
             priority: 0
         )
 
@@ -92,9 +120,10 @@ import Testing
         // Encrypted / loopback channels and explicitly approved manual hosts may
         // carry the Stack bearer token.
         #expect(MobileShellRouteAuthPolicy().routeAllowsStackAuth(loopback))
-        #expect(MobileShellRouteAuthPolicy().routeAllowsStackAuth(tailscaleMagicDNS))
-        #expect(MobileShellRouteAuthPolicy().routeAllowsStackAuth(tailscaleIP))
-        #expect(MobileShellRouteAuthPolicy().routeAllowsStackAuth(irohPeer))
+        #expect(!MobileShellRouteAuthPolicy().routeAllowsStackAuth(tailscaleMagicDNS))
+        #expect(!MobileShellRouteAuthPolicy().routeAllowsStackAuth(tailscaleIP))
+        #expect(!MobileShellRouteAuthPolicy().routeAllowsStackAuth(tailscaleIPv6))
+        #expect(!MobileShellRouteAuthPolicy().routeAllowsStackAuth(irohPeer))
         #expect(!MobileShellRouteAuthPolicy().routeAllowsStackAuth(manualHostRoute))
         #expect(MobileShellRouteAuthPolicy().routeAllowsStackAuth(manualHostRoute, manualHostTrusted: true))
         #expect(!MobileShellRouteAuthPolicy().routeAllowsStackAuth(manualLoopbackAlias, manualHostTrusted: true))

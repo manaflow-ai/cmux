@@ -360,13 +360,13 @@ import Testing
         )
         let oldRoute = try CmxAttachRoute(
             id: "old-route",
-            kind: .tailscale,
-            endpoint: .hostPort(host: "100.64.0.5", port: CmxMobileDefaults.defaultHostPort)
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
         )
         let targetRoute = try CmxAttachRoute(
             id: "target-route",
-            kind: .tailscale,
-            endpoint: .hostPort(host: "100.64.0.5", port: CmxMobileDefaults.defaultHostPort)
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
         )
         try await pairedMacStore.upsert(
             macDeviceID: "old-mac",
@@ -395,7 +395,7 @@ import Testing
                 box: TransportBox()
             ),
             now: { Date() },
-            supportedRouteKinds: [.tailscale],
+            supportedRouteKinds: [.debugLoopback],
             supportsServerPushEvents: false
         )
         let store = MobileShellComposite(

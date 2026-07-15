@@ -88,13 +88,11 @@ struct MobileShellRouteSelection: Sendable {
             // explicit plaintext manual-host fallbacks even when the manual
             // host is also a numeric IP.
             appendCandidates(where: { route in
-                guard route.kind == .tailscale,
+                guard routeHasVerifiedTailscaleProvenance(route),
                       case let .hostPort(host, _) = route.endpoint else { return false }
-                return routeAuthPolicy.routeAllowsStackAuth(route) && isIPLiteralHost(host)
+                return CmxTailscalePeerAddress(host) != nil
             }, to: &candidates)
-            appendCandidates(where: {
-                $0.kind == .tailscale && routeAuthPolicy.routeAllowsStackAuth($0)
-            }, to: &candidates)
+            appendCandidates(where: routeHasVerifiedTailscaleProvenance, to: &candidates)
             appendCandidates(where: { $0.kind != .debugLoopback }, to: &candidates)
             guard candidates.isEmpty else { return candidates }
         }
@@ -167,8 +165,7 @@ struct MobileShellRouteSelection: Sendable {
         }
         if sourceRoute.kind == .manualHost
             || sourceRoute.kind == inferredRoute.kind
-            || (sourceRoute.kind == .tailscale
-                && routeAuthPolicy.routeAllowsStackAuth(sourceRoute)) {
+            || routeHasVerifiedTailscaleProvenance(sourceRoute) {
             return sourceRoute
         }
         return inferredRoute
@@ -197,5 +194,36 @@ struct MobileShellRouteSelection: Sendable {
             return left.id < right.id
         }
         return left.priority < right.priority
+    }
+
+    /// Whether a structured route still carries a recognizable Tailscale endpoint.
+    /// This is a provenance/ordering decision only; Tailscale routes remain
+    /// ineligible for Stack bearer auth under ``MobileShellRouteAuthPolicy``.
+    private func routeHasVerifiedTailscaleProvenance(_ route: CmxAttachRoute) -> Bool {
+        guard route.kind == .tailscale,
+              case let .hostPort(host, _) = route.endpoint else {
+            return false
+        }
+        if CmxTailscalePeerAddress(host) != nil {
+            return true
+        }
+
+        let normalized = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let name = normalized.hasSuffix(".") ? String(normalized.dropLast()) : normalized
+        let labels = name.split(separator: ".", omittingEmptySubsequences: false)
+        guard name.hasSuffix(".ts.net"), labels.count >= 3, name.count <= 253 else {
+            return false
+        }
+        return labels.allSatisfy { label in
+            !label.isEmpty
+                && label.count <= 63
+                && label.first != "-"
+                && label.last != "-"
+                && label.utf8.allSatisfy { byte in
+                    (byte >= 0x61 && byte <= 0x7A)
+                        || (byte >= 0x30 && byte <= 0x39)
+                        || byte == 0x2D
+                }
+        }
     }
 }

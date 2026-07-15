@@ -55,7 +55,7 @@ import Testing
         let result = await store.connectPairingURLResult(try attachURL(for: ticket))
 
         #expect(result == .failed)
-        #expect(attempts.count(.tailscale) == 2)
+        #expect(attempts.count(.tailscale) == 0)
         #expect(attempts.count(.manualHost) == 0)
         #expect(store.remoteClient == nil)
         #expect(store.manualHostTrustWarning == nil)

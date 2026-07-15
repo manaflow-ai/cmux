@@ -2,34 +2,52 @@ internal import CMUXMobileCore
 import Foundation
 actor MobileCoreRPCSession {
     typealias TransportFactory = @Sendable () throws -> any CmxByteTransport
+    typealias IndependentEventByteStreamFactory = @Sendable () async throws -> CmxIndependentEventByteStream
     typealias ConnectedCandidateHook = @Sendable (_ candidate: any CmxByteTransport) async -> Void
     typealias PreEnqueueValidator = @Sendable () async throws -> Void
     typealias SendAuthorizer = @Sendable () async throws -> MobileRPCSendLease
-    typealias PendingContinuation = CheckedContinuation<Result<Data, any Error>, Never>
+    typealias PendingContinuation = CheckedContinuation<Result<Data, MobileCoreRPCPendingFailure>, Never>
     typealias ConnectingTask = (id: UUID, lease: MobileRPCConnectAttemptLease?, task: Task<any CmxByteTransport, any Error>, waiters: Set<UUID>, completed: Bool)
     static let defaultAbandonedConnectCleanupTimeoutNanoseconds: UInt64 = 1_000_000_000
     static let defaultLateAbandonedConnectCloseTimeoutNanoseconds: UInt64 = 5_000_000_000
+    static let maximumReceiveBufferByteCount =
+        MobileSyncFrameCodec.defaultMaximumFrameByteCount
+        + MobileSyncFrameCodec.headerByteCount
+    static let maximumDecodedFrameCountPerRead = 256
 
-    private let taskTimeout = RPCTaskTimeout()
+    struct IndependentEventPreparation: Sendable {
+        let id: UUID
+        let task: Task<CmxIndependentEventByteStream, any Error>
+    }
+
+    struct IndependentEventReader: Sendable {
+        let id: UUID
+        let task: Task<Void, Never>
+    }
+
+    let taskTimeout = RPCTaskTimeout()
     private let connectAttemptKey: String?
     let connectAttemptRegistry: MobileRPCConnectAttemptRegistry
     let abandonedConnectCleanupTimeoutNanoseconds: UInt64
     let lateAbandonedConnectCloseTimeoutNanoseconds: UInt64
     private let makeTransport: TransportFactory
+    let makeIndependentEventByteStream: IndependentEventByteStreamFactory?
     private let didReceiveConnectedCandidate: ConnectedCandidateHook?
     private var transport: (any CmxByteTransport)?
     private var connectionTask: ConnectingTask?
     private var installedConnectionID: UUID?
     private var readerTask: Task<Void, Never>?
-    private var pending: [String: PendingContinuation] = [:]
-    private var requestTimeoutTasks: [String: Task<Void, Never>] = [:]
+    var independentEventPreparation: IndependentEventPreparation?
+    var independentEventReader: IndependentEventReader?
+    var pending: [String: PendingContinuation] = [:]
+    var requestTimeoutTasks: [String: Task<Void, Never>] = [:]
     private var queuedWriteIDs: [String: UUID] = [:]
     private var cancelledQueuedWriteIDs: Set<UUID> = []
     // `internal` so cancellation tests can observe the writer-queue gate via
     // `@testable import` without adding a production debug hook.
     var queuedRequestIDs: Set<String> { Set(queuedWriteIDs.keys) }
-    private var listeners: [UUID: MobileCoreRPCEventListener] = [:]
-    private var isTearingDown: Bool = false
+    var listeners: [UUID: MobileCoreRPCEventListener] = [:]
+    var isTearingDown: Bool = false
     private var writeQueue: AsyncStream<MobileCoreRPCPendingWrite>.Continuation?
     private var writerTask: Task<Void, Never>?
 
@@ -39,6 +57,7 @@ actor MobileCoreRPCSession {
         abandonedConnectCleanupTimeoutNanoseconds: UInt64 = 1_000_000_000,
         lateAbandonedConnectCloseTimeoutNanoseconds: UInt64 = 5_000_000_000,
         makeTransport: @escaping TransportFactory,
+        makeIndependentEventByteStream: IndependentEventByteStreamFactory? = nil,
         didReceiveConnectedCandidate: ConnectedCandidateHook? = nil
     ) {
         self.connectAttemptKey = connectAttemptKey
@@ -46,12 +65,15 @@ actor MobileCoreRPCSession {
         self.abandonedConnectCleanupTimeoutNanoseconds = abandonedConnectCleanupTimeoutNanoseconds
         self.lateAbandonedConnectCloseTimeoutNanoseconds = lateAbandonedConnectCloseTimeoutNanoseconds
         self.makeTransport = makeTransport
+        self.makeIndependentEventByteStream = makeIndependentEventByteStream
         self.didReceiveConnectedCandidate = didReceiveConnectedCandidate
     }
 
     deinit {
         connectionTask?.task.cancel()
         readerTask?.cancel()
+        independentEventPreparation?.task.cancel()
+        independentEventReader?.task.cancel()
         writerTask?.cancel()
         writeQueue?.finish()
     }
@@ -73,10 +95,10 @@ actor MobileCoreRPCSession {
         let frame = try MobileSyncFrameCodec.encodeFrame(payload)
         let responseTimeoutNanoseconds = try taskTimeout.remainingNanoseconds(until: deadlineUptimeNanoseconds)
 
-        let result: Result<Data, any Error> = await withTaskCancellationHandler {
+        let result: Result<Data, MobileCoreRPCPendingFailure> = await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 guard pending[requestID] == nil, queuedWriteIDs[requestID] == nil else {
-                    continuation.resume(returning: .failure(MobileShellConnectionError.invalidResponse))
+                    continuation.resume(returning: .failure(.invalidResponse))
                     return
                 }
                 let queuedWriteID = UUID()
@@ -90,7 +112,7 @@ actor MobileCoreRPCSession {
                 guard let queue = writeQueue else {
                     requestTimeoutTasks.removeValue(forKey: requestID)?.cancel()
                     pending.removeValue(forKey: requestID)
-                    continuation.resume(returning: .failure(MobileShellConnectionError.connectionClosed))
+                    continuation.resume(returning: .failure(.connectionClosed))
                     return
                 }
                 queuedWriteIDs[requestID] = queuedWriteID
@@ -104,7 +126,10 @@ actor MobileCoreRPCSession {
         if Task.isCancelled {
             throw CancellationError()
         }
-        return try result.get()
+        switch result {
+        case .success(let data): return data
+        case .failure(let failure): throw failure.underlying
+        }
     }
 
     func addEventListener(topics: Set<String>) -> MobileCoreRPCEventSubscription {
@@ -114,7 +139,7 @@ actor MobileCoreRPCSession {
             continuation = cont
         }
         listeners[id] = MobileCoreRPCEventListener(topics: topics, continuation: continuation)
-        continuation.onTermination = { [weak self] _ in
+        continuation.onTermination = { @Sendable [weak self] _ in
             guard let self else { return }
             Task { await self.removeListener(id: id) }
         }
@@ -140,7 +165,7 @@ actor MobileCoreRPCSession {
             task.cancel()
         }
         for (_, cont) in pendingSnapshot {
-            cont.resume(returning: .failure(error))
+            cont.resume(returning: .failure(MobileCoreRPCPendingFailure(underlying: error)))
         }
         let listenerSnapshot = listeners
         listeners.removeAll()
@@ -161,6 +186,10 @@ actor MobileCoreRPCSession {
         transport = nil
         readerTask?.cancel()
         readerTask = nil
+        independentEventPreparation?.task.cancel()
+        independentEventPreparation = nil
+        independentEventReader?.task.cancel()
+        independentEventReader = nil
         if let connecting { await abandonConnectionTask(connecting) }
         isTearingDown = false
     }
@@ -403,10 +432,17 @@ actor MobileCoreRPCSession {
                 }
                 continue
             }
+            guard chunk.count <= Self.maximumReceiveBufferByteCount - buffer.count else {
+                await tearDown(error: .invalidResponse)
+                return
+            }
             buffer.append(chunk)
             let frames: [Data]
             do {
-                frames = try MobileSyncFrameCodec.decodeFrames(from: &buffer)
+                frames = try MobileSyncFrameCodec.decodeFrames(
+                    from: &buffer,
+                    maximumDecodedFrameCount: Self.maximumDecodedFrameCountPerRead
+                )
             } catch {
                 await tearDown(error: .invalidResponse)
                 return
@@ -417,56 +453,10 @@ actor MobileCoreRPCSession {
         }
     }
 
-    private func dispatch(frame: Data) {
-        let parsed = try? JSONSerialization.jsonObject(with: frame) as? [String: Any]
-        guard let envelope = parsed else { return }
-        if (envelope["kind"] as? String) == "event" {
-            guard let topic = envelope["topic"] as? String else { return }
-            let payloadData: Data?
-            if let payload = envelope["payload"] {
-                payloadData = try? JSONSerialization.data(withJSONObject: payload)
-            } else {
-                payloadData = nil
-            }
-            let streamID = envelope["stream_id"] as? String
-            let event = MobileEventEnvelope(topic: topic, payloadJSON: payloadData, streamID: streamID)
-            for (_, listener) in listeners where listener.topics.contains(topic) {
-                listener.continuation.yield(event)
-            }
-            return
-        }
-        guard let id = envelope["id"] as? String else { return }
-        guard let cont = pending.removeValue(forKey: id) else { return }
-        requestTimeoutTasks.removeValue(forKey: id)?.cancel()
-        if (envelope["ok"] as? Bool) == true {
-            let result = envelope["result"] ?? [:]
-            if let data = try? JSONSerialization.data(withJSONObject: result) {
-                cont.resume(returning: .success(data))
-            } else {
-                cont.resume(returning: .failure(MobileShellConnectionError.invalidResponse))
-            }
-            return
-        }
-        let errorPayload = envelope["error"] as? [String: Any]
-        let message = (errorPayload?["message"] as? String) ?? "RPC error"
-        let code = errorPayload?["code"] as? String
-        switch code {
-        case "unauthorized":
-            cont.resume(returning: .failure(MobileShellConnectionError.authorizationFailed(message)))
-        case "account_mismatch":
-            // The Mac is signed in to a different cmux account. Surface a
-            // distinct error so the shell drives a re-auth flow into the owner's
-            // account rather than retrying with this account's fresh token.
-            cont.resume(returning: .failure(MobileShellConnectionError.accountMismatch(message)))
-        default:
-            cont.resume(returning: .failure(MobileShellConnectionError.rpcError(code, message)))
-        }
-    }
-
     private func failPending(requestID: String, error: any Error) {
         guard let cont = pending.removeValue(forKey: requestID) else { return }
         requestTimeoutTasks.removeValue(forKey: requestID)?.cancel()
-        cont.resume(returning: .failure(error))
+        cont.resume(returning: .failure(MobileCoreRPCPendingFailure(underlying: error)))
     }
     private func cancelPendingRequest(requestID: String) {
         guard let cont = pending.removeValue(forKey: requestID) else { return }
@@ -474,7 +464,7 @@ actor MobileCoreRPCSession {
         if let queuedWriteID = queuedWriteIDs.removeValue(forKey: requestID) {
             cancelledQueuedWriteIDs.insert(queuedWriteID)
         }
-        cont.resume(returning: .failure(MobileShellConnectionError.requestTimedOut))
+        cont.resume(returning: .failure(.requestTimedOut))
     }
 
     private func timeoutPendingRequest(requestID: String) {
@@ -483,7 +473,7 @@ actor MobileCoreRPCSession {
         if let queuedWriteID = queuedWriteIDs.removeValue(forKey: requestID) {
             cancelledQueuedWriteIDs.insert(queuedWriteID)
         }
-        cont.resume(returning: .failure(MobileShellConnectionError.requestTimedOut))
+        cont.resume(returning: .failure(.requestTimedOut))
     }
 
     private func shouldSendQueuedWrite(_ write: MobileCoreRPCPendingWrite, claim: Bool) -> Bool {

@@ -9,7 +9,7 @@ extension MobileShellComposite {
         _ error: any Error,
         owner: MobileShellAuthorizationFailureOwner
     ) -> Bool {
-        guard shouldDisconnectForAuthorizationFailure(error) else {
+        guard requiresAuthorizationFailureHandling(error) else {
             return false
         }
         if case let .foreground(client, generation, _) = owner,
@@ -93,7 +93,7 @@ extension MobileShellComposite {
         }
     }
 
-    private func shouldDisconnectForAuthorizationFailure(_ error: any Error) -> Bool {
+    func requiresAuthorizationFailureHandling(_ error: any Error) -> Bool {
         guard let connectionError = error as? MobileShellConnectionError else {
             return false
         }

@@ -27,8 +27,9 @@ import Testing
         try installFreshLivenessRemoteClient(on: store, router: oldRouter, box: oldBox, clock: clock)
         let originalClient = try #require(store.remoteClient)
 
+        let pairingURL = try attachURL(for: makeTicket(clock: clock))
         let pairing = Task { @MainActor in
-            await store.connectPairingURLResult("cmux-ios://attach?v=2&pc=1&r=100.64.0.5:58465")
+            await store.connectPairingURLResult(pairingURL)
         }
         await transport.waitUntilConnectStarted()
         store.cancelPairing()
@@ -50,15 +51,16 @@ import Testing
             transportFactory: LivenessTransportFactory(router: newRouter, box: newBox),
             stackAccessTokenProvider: { try await tokenProvider.tokenIgnoringCancellation() },
             now: { clock.now },
-            supportedRouteKinds: [.tailscale],
+            supportedRouteKinds: [.debugLoopback],
             supportsServerPushEvents: false
         )
         let store = makeConnectedStore(runtime: runtime)
         try installFreshLivenessRemoteClient(on: store, router: oldRouter, box: oldBox, clock: clock)
         let originalClient = try #require(store.remoteClient)
 
+        let pairingURL = try attachURL(for: makeTicket(clock: clock))
         let pairing = Task { @MainActor in
-            await store.connectPairingURLResult("cmux-ios://attach?v=2&pc=1&r=100.64.0.5:58465")
+            await store.connectPairingURLResult(pairingURL)
         }
         await tokenProvider.waitUntilRequested()
         store.cancelPairing()

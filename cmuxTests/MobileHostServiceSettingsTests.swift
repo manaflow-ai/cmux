@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxIrohTransport
 import CmuxSettings
 import Foundation
 import Testing
@@ -116,6 +117,17 @@ struct MobileHostServiceSettingsTests {
         #expect(!routes.contains { $0.kind == .manualHost })
     }
 
+    @Test func routeResolverUsesManualHostWhenTailscaleIsUnavailable() throws {
+        let snapshot = MobileRouteResolver().routes(
+            port: 61_234,
+            tailscaleHosts: [],
+            manualHost: " studio-mac.corp.example "
+        )
+        let route = try #require(snapshot.routes.first { $0.kind == .manualHost })
+        #expect(snapshot.routes.filter { $0.kind == .tailscale }.isEmpty)
+        #expect(route.endpoint == .hostPort(host: "studio-mac.corp.example", port: 61_234))
+    }
+
     @Test func routeResolverAdvertisesConfiguredIPv6ManualHost() throws {
         let suiteName = "MobileHostServiceSettingsTests.ManualHost.IPv6.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
@@ -173,6 +185,67 @@ struct MobileHostServiceSettingsTests {
 }
 
 #if DEBUG
+@Suite(.serialized)
+struct MobileHostTransportRouteCompositionTests {
+    @Test func tcpRouteRefreshDoesNotRemoveTheActiveIrohRoute() throws {
+        defer { MobileHostPublicStatusCache.removeAll() }
+        MobileHostPublicStatusCache.removeAll()
+        let binding = try JSONDecoder().decode(
+            CmxIrohBrokerBinding.self,
+            from: Data(
+                """
+                {
+                  "binding_id":"123e4567-e89b-42d3-a456-426614174010",
+                  "device_id":"123e4567-e89b-42d3-a456-426614174011",
+                  "app_instance_id":"123e4567-e89b-42d3-a456-426614174012",
+                  "tag":"dev",
+                  "platform":"mac",
+                  "display_name":"Test Mac",
+                  "endpoint_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "identity_generation":1,
+                  "pairing_enabled":true,
+                  "capabilities":["mobile-rpc-v1","multistream-v1"],
+                  "path_hints":[],
+                  "last_seen_at":"2026-07-09T12:00:00.000Z"
+                }
+                """.utf8
+            )
+        )
+        let tailscale = try CmxAttachRoute(
+            id: "tailscale",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.1", port: 58_465),
+            priority: 10
+        )
+
+        MobileHostPublicStatusCache.update(irohBinding: binding)
+        MobileHostPublicStatusCache.update(routes: [tailscale])
+        #expect(MobileHostPublicStatusCache.snapshot().map(\.kind) == [.iroh, .tailscale])
+
+        MobileHostPublicStatusCache.update(routes: [])
+        #expect(MobileHostPublicStatusCache.snapshot().map(\.kind) == [.iroh])
+    }
+
+    @MainActor
+    @Test func tcpListenerRestartDoesNotEraseIrohClientState() {
+        let service = MobileHostService.shared
+        let irohConnectionID = UUID()
+        service.debugResetMobileLifecycleStateForTesting()
+        defer { service.debugResetMobileLifecycleStateForTesting() }
+        service.debugRecordClientIDForTesting(
+            "iroh-client",
+            connectionID: irohConnectionID
+        )
+
+        service.debugStopLegacyListenerForTesting()
+
+        #expect(
+            service.debugTrackedClientIDsForTesting(connectionID: irohConnectionID)
+                == ["iroh-client"]
+        )
+    }
+}
+
 @Suite(.serialized)
 @MainActor
 struct MobileHostMacScopedMutationAuthorizationTests {
