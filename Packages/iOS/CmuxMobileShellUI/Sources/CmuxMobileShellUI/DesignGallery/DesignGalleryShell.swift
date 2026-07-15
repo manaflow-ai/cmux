@@ -31,8 +31,11 @@ struct DesignGalleryShell: View {
         ZStack {
             system.content(page: page)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .environment(\.colorScheme, colorSchemeOverride)
         }
+        // The whole presentation (candidate content, page chips, navigation
+        // chrome, status bar) follows the forced scheme so scheme-specific
+        // review sees one coherent appearance.
+        .preferredColorScheme(colorSchemeOverride)
         .navigationTitle("\(system.number) \(system.displayName)")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
