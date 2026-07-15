@@ -16,6 +16,9 @@ Current cmux pinned fork head: `366c801e0`. It advances the previous cmux pin
 `b4b6d69c8` with wrap-aware URL matching across semantic soft wraps. The commit
 is reachable from fork `main` through the merged
 https://github.com/manaflow-ai/ghostty/pull/118.
+The corresponding universal ReleaseFast GhosttyKit archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-366c801e066c37695c2d9be4a6567662bd763ad0-crashsubdir-cmux-crash-v1
+and pinned in `scripts/ghosttykit-checksums.txt`.
 
 The previous `b4b6d69c8` pin introduced an exact Ghostty CLI executable-path
 contract for embedded hosts. That commit is reachable from fork `main` through
