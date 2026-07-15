@@ -7496,7 +7496,7 @@ struct CMUXCLI {
             params["template_params"] = templateParameterOptions.values
         }
         if layoutOpt == nil, let commandOpt {
-            params["initial_command"] = commandOpt
+            params["initial_input"] = unescapeSendText(commandOpt + "\\n")
         }
         if let layoutOpt {
             guard let layoutData = layoutOpt.data(using: .utf8),

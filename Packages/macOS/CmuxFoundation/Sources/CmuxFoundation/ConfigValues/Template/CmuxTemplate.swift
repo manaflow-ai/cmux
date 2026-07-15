@@ -97,9 +97,16 @@ public struct CmuxTemplate: Sendable {
             }
 
             let innerStart = openingIndex + 2
-            guard let close = Self.closeBraces(in: characters, from: innerStart) else {
+            guard let boundary = Self.candidateBoundary(in: characters, from: innerStart) else {
                 break
             }
+            if characters[boundary] == "{" {
+                // Include the preceding character so escapes and overlapping
+                // opening braces keep their normal recognition semantics.
+                index = boundary - 1
+                continue
+            }
+            let close = boundary
             let inner = characters[innerStart..<close]
             let hasIllegalCharacter = inner.contains { character in
                 character == "{" || character == "}" || character == "\n" || character == "\r"
@@ -118,9 +125,13 @@ public struct CmuxTemplate: Sendable {
         return result
     }
 
-    private static func closeBraces(in characters: [Character], from start: Int) -> Int? {
+    /// Returns the next candidate-closing braces or a nested opening brace.
+    private static func candidateBoundary(in characters: [Character], from start: Int) -> Int? {
         var index = start
         while index + 1 < characters.count {
+            if characters[index] == "{" {
+                return index
+            }
             if characters[index] == "}", characters[index + 1] == "}" {
                 return index
             }

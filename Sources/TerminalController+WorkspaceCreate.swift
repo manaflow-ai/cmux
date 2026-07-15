@@ -19,6 +19,8 @@ extension TerminalController {
 
         let requestedInitialCommand = v2RawString(params, "initial_command")?.trimmingCharacters(in: .whitespacesAndNewlines)
         let initialCommandTemplate = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
+        let requestedInitialInput = v2RawString(params, "initial_input")
+        let initialInputTemplate = (requestedInitialInput?.isEmpty == false) ? requestedInitialInput : nil
 
         let rawInitialEnv = v2StringMap(params, "initial_env") ?? [:]
         let initialEnvTemplate = rawInitialEnv.reduce(into: [String: String]()) { result, pair in
@@ -125,7 +127,7 @@ extension TerminalController {
             explicitParameters: templateParameters,
             processEnvironment: ProcessInfo.processInfo.environment
         )
-        var additionalTemplates = [initialCommandTemplate, descriptionTemplate]
+        var additionalTemplates = [initialCommandTemplate, initialInputTemplate, descriptionTemplate]
             .compactMap { $0 }
             .map(CmuxTemplate.init)
         additionalTemplates.append(contentsOf: initialEnvTemplate.keys.sorted().compactMap { key in
@@ -134,11 +136,13 @@ extension TerminalController {
 
         let resolvedDefinition: CmuxWorkspaceDefinition
         let initialCommand: String?
+        let initialInput: String?
         let initialEnv: [String: String]
         let description: String?
         if templateParameters.isEmpty {
             resolvedDefinition = templateDefinition
             initialCommand = initialCommandTemplate
+            initialInput = initialInputTemplate
             initialEnv = initialEnvTemplate
             description = descriptionTemplate
         } else {
@@ -148,6 +152,7 @@ extension TerminalController {
                 )
                 resolvedDefinition = templateDefinition.substitutingTemplateValues(values)
                 initialCommand = initialCommandTemplate.map { CmuxTemplate($0).substituting(values) }
+                initialInput = initialInputTemplate.map { CmuxTemplate($0).substituting(values) }
                 initialEnv = initialEnvTemplate.mapValues { CmuxTemplate($0).substituting(values) }
                 description = descriptionTemplate.map { CmuxTemplate($0).substituting(values) }
             } catch {
@@ -201,6 +206,7 @@ extension TerminalController {
                 title: title,
                 workingDirectory: cwd,
                 initialTerminalCommand: layoutNode == nil ? initialCommand : nil,
+                initialTerminalInput: layoutNode == nil ? initialInput : nil,
                 initialTerminalEnvironment: layoutNode == nil ? initialEnv : [:],
                 workspaceEnvironment: workspaceEnv,
                 select: shouldFocus,
