@@ -1,17 +1,24 @@
+import Darwin
 import Foundation
 
 /// Launches and owns one headless Chromium process for a browser-engine session.
 actor ChromiumProcessController {
     private let launchTimeout: Duration
+    private let terminationTimeout: Duration
     private var process: Process?
     private var stderrTask: Task<Void, Never>?
     private var timeoutTask: Task<Void, Never>?
+    private var terminationDeadlineTask: Task<Void, Never>?
     private var endpointContinuation: CheckedContinuation<URL, any Error>?
     private var terminationContinuations: [CheckedContinuation<Void, Never>] = []
     private var didResolveEndpoint = false
 
-    init(launchTimeout: Duration = .seconds(10)) {
+    init(
+        launchTimeout: Duration = .seconds(10),
+        terminationTimeout: Duration = .seconds(1)
+    ) {
         self.launchTimeout = launchTimeout
+        self.terminationTimeout = terminationTimeout
     }
 
     /// Returns the identifier of the Chromium process while it is running.
@@ -48,9 +55,10 @@ actor ChromiumProcessController {
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
         process.standardError = stderrPipe
-        process.terminationHandler = { [weak self] _ in
+        process.terminationHandler = { [weak self] process in
+            let processIdentifier = process.processIdentifier
             Task {
-                await self?.processDidTerminate()
+                await self?.processDidTerminate(processIdentifier: processIdentifier)
             }
         }
         do {
@@ -88,14 +96,17 @@ actor ChromiumProcessController {
         }
         guard let process else {
             endpointContinuation = nil
+            resumeTerminationContinuations()
             return
         }
         endpointContinuation = nil
+        let processIdentifier = process.processIdentifier
         guard process.isRunning else {
-            self.process = nil
+            finishProcessTermination(processIdentifier: processIdentifier)
             return
         }
         process.terminate()
+        startTerminationDeadlineIfNeeded(processIdentifier: processIdentifier)
         await withCheckedContinuation { continuation in
             terminationContinuations.append(continuation)
         }
@@ -128,13 +139,46 @@ actor ChromiumProcessController {
         }
     }
 
-    private func processDidTerminate() {
+    private func processDidTerminate(processIdentifier: Int32) {
         if !didResolveEndpoint {
             failUnresolvedEndpoint(BrowserEngineSessionError.chromiumLaunch(
                 "Chromium stopped before opening its DevTools endpoint."
             ))
         }
-        process = nil
+        finishProcessTermination(processIdentifier: processIdentifier)
+    }
+
+    private func startTerminationDeadlineIfNeeded(processIdentifier: Int32) {
+        guard terminationDeadlineTask == nil else { return }
+        terminationDeadlineTask = Task { [weak self, terminationTimeout] in
+            // A bounded shutdown deadline is intentional; a stuck Chromium must not block its profile forever.
+            do {
+                try await ContinuousClock().sleep(for: terminationTimeout)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            await self?.forceTerminateProcess(processIdentifier: processIdentifier)
+        }
+    }
+
+    private func forceTerminateProcess(processIdentifier: Int32) {
+        guard let process, process.processIdentifier == processIdentifier else { return }
+        if process.isRunning {
+            _ = Darwin.kill(processIdentifier, SIGKILL)
+        }
+        finishProcessTermination(processIdentifier: processIdentifier)
+    }
+
+    private func finishProcessTermination(processIdentifier: Int32) {
+        guard let process, process.processIdentifier == processIdentifier else { return }
+        terminationDeadlineTask?.cancel()
+        terminationDeadlineTask = nil
+        self.process = nil
+        resumeTerminationContinuations()
+    }
+
+    private func resumeTerminationContinuations() {
         let continuations = terminationContinuations
         terminationContinuations.removeAll()
         for continuation in continuations {
