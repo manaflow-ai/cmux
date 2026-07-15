@@ -9,19 +9,16 @@ import Foundation
 /// of paths a filesystem watcher should observe to know when that metadata
 /// becomes stale.
 ///
-/// It is a `Sendable` value facade over blocking filesystem reads plus an
-/// injectable actor-isolated tracked-change scope. Callers that share the scope
-/// also share repository refresh authority, completed snapshots, and one
-/// in-flight scan per cache key. The
-/// reads do blocking filesystem work
+/// It is a `Sendable` value facade over blocking filesystem reads plus a small
+/// actor-isolated tracked-change cache. The reads do blocking filesystem work
 /// (walking to the repository, parsing the git `index`/`config`), and are plain
 /// `nonisolated async` methods (a struct's `async` methods are nonisolated): a
 /// `nonisolated async` function runs on the global concurrent executor, not the
 /// caller's actor (SE-0338), so `await git.workspaceMetadata(...)` from the main
 /// actor offloads the work off the main thread *and* lets reads for independent
-/// repositories run in parallel. The scope is an actor because it is mutable
-/// shared state, but it is only consulted through an explicit watcher-event or
-/// fallback-round request; direct reads always do a conservative scan.
+/// repositories run in parallel. The cache is an actor because it is mutable
+/// shared state, but it is only consulted through the watcher-generation API;
+/// direct reads without a watcher generation always do a conservative scan.
 ///
 /// - Important: If the package ever adopts the `NonisolatedNonsendingByDefault`
 ///   upcoming feature, a bare `nonisolated async` method flips to running on the
@@ -34,30 +31,21 @@ import Foundation
 /// if meta.isRepository, meta.isDirty { showDirtyIndicator() }
 /// ```
 public struct GitMetadataService: Sendable {
-    static let runtimeMetrics = CmuxGitRuntimeMetrics()
     let fileStatusReader: any GitFileStatusReading
-    private let trackedChangesSnapshotScope: GitTrackedChangesSnapshotScope
-    let runtimeMetricsRecorder: CmuxGitRuntimeMetrics
+    private let trackedChangesSnapshotCache: GitTrackedChangesSnapshotCache
 
-    /// Creates a git-metadata service with an injectable process scope.
-    ///
-    /// Services coordinate tracked scans only when they receive the same scope.
-    /// The default creates an isolated bounded scope.
-    public init(
-        trackedChangesSnapshotScope: GitTrackedChangesSnapshotScope = GitTrackedChangesSnapshotScope()
-    ) {
+    /// Creates a git-metadata service.
+    public init() {
         self.fileStatusReader = SystemGitFileStatusReader()
-        self.trackedChangesSnapshotScope = trackedChangesSnapshotScope
-        self.runtimeMetricsRecorder = trackedChangesSnapshotScope.runtimeMetricsRecorder
+        self.trackedChangesSnapshotCache = GitTrackedChangesSnapshotCache()
     }
 
     init(
         fileStatusReader: any GitFileStatusReading,
-        trackedChangesSnapshotScope: GitTrackedChangesSnapshotScope = GitTrackedChangesSnapshotScope()
+        trackedChangesSnapshotCache: GitTrackedChangesSnapshotCache = GitTrackedChangesSnapshotCache()
     ) {
         self.fileStatusReader = fileStatusReader
-        self.trackedChangesSnapshotScope = trackedChangesSnapshotScope
-        self.runtimeMetricsRecorder = trackedChangesSnapshotScope.runtimeMetricsRecorder
+        self.trackedChangesSnapshotCache = trackedChangesSnapshotCache
     }
 
     /// Reads a point-in-time git snapshot for `directory`.
@@ -70,130 +58,69 @@ public struct GitMetadataService: Sendable {
     /// - Returns: The git metadata for the enclosing repository, or
     ///   ``GitWorkspaceMetadata/notARepository`` when there is none.
     public nonisolated func workspaceMetadata(for directory: String) async -> GitWorkspaceMetadata {
-        await workspaceMetadata(for: directory, snapshotRequest: nil)
+        await workspaceMetadata(for: directory, trackedPathEventGeneration: nil)
     }
 
-    /// Reads a point-in-time snapshot with process-coordinated cache authority.
+    /// Reads a point-in-time git snapshot for `directory`, allowing callers
+    /// with a repository filesystem-event generation token to enable
+    /// tracked-change reuse when no relevant event has arrived.
+    ///
+    /// - Parameters:
+    ///   - directory: An absolute path to inspect.
+    ///   - trackedPathEventGeneration: A caller-owned, namespaced generation
+    ///     that changes whenever the watched repository paths report a
+    ///     filesystem event. Pass `nil` when no watcher is active; the read
+    ///     then avoids reuse.
+    /// - Returns: The git metadata for the enclosing repository, or
+    ///   ``GitWorkspaceMetadata/notARepository`` when there is none.
     public nonisolated func workspaceMetadata(
         for directory: String,
-        snapshotRequest: GitTrackedChangesSnapshotRequest?
+        trackedPathEventGeneration: GitTrackedPathEventGeneration?
     ) async -> GitWorkspaceMetadata {
-        await workspaceMetadataSnapshot(
-            for: directory,
-            snapshotRequest: snapshotRequest
-        ).metadata
-    }
-
-    /// Reads metadata and reports whether its stamped authority stayed current.
-    public nonisolated func workspaceMetadataSnapshot(
-        for directory: String,
-        snapshotRequest: GitTrackedChangesSnapshotRequest?
-    ) async -> GitWorkspaceMetadataSnapshot {
         guard let repository = Self.resolveGitRepository(containing: directory) else {
-            return GitWorkspaceMetadataSnapshot(
-                metadata: .notARepository,
-                isCurrent: true
-            )
+            return .notARepository
         }
-        guard let trackedChangesRead = await gitTrackedChangesSnapshotRead(
+        let trackedChanges = await gitTrackedChangesSnapshot(
             repository: repository,
-            snapshotRequest: snapshotRequest
-        ) else {
-            return GitWorkspaceMetadataSnapshot(
-                metadata: .notARepository,
-                isCurrent: false
-            )
-        }
-        return GitWorkspaceMetadataSnapshot(
-            metadata: GitWorkspaceMetadata(
-                isRepository: true,
-                branch: Self.gitBranchName(repository: repository),
-                isDirty: trackedChangesRead.snapshot.isDirty,
-                indexSignature: trackedChangesRead.snapshot.indexSignature,
-                indexContentSignature: trackedChangesRead.snapshot.indexContentSignature,
-                headSignature: Self.gitHeadSignature(repository: repository)
-            ),
-            isCurrent: trackedChangesRead.isCurrent
+            trackedPathEventGeneration: trackedPathEventGeneration
+        )
+        return GitWorkspaceMetadata(
+            isRepository: true,
+            branch: Self.gitBranchName(repository: repository),
+            isDirty: trackedChanges.isDirty,
+            indexSignature: trackedChanges.indexSignature,
+            indexContentSignature: trackedChanges.indexContentSignature,
+            headSignature: Self.gitHeadSignature(repository: repository)
         )
     }
 
     nonisolated func gitTrackedChangesSnapshot(
         repository: ResolvedGitRepository,
-        snapshotRequest: GitTrackedChangesSnapshotRequest?
+        trackedPathEventGeneration: GitTrackedPathEventGeneration?
     ) async -> GitTrackedChangesSnapshot {
-        if let read = await gitTrackedChangesSnapshotRead(
-            repository: repository,
-            snapshotRequest: snapshotRequest
-        ) {
-            return read.snapshot
-        }
-        return GitTrackedChangesSnapshot(
-            isDirty: false,
-            indexSignature: nil,
-            indexContentSignature: nil
-        )
-    }
-
-    nonisolated func gitTrackedChangesSnapshotRead(
-        repository: ResolvedGitRepository,
-        snapshotRequest: GitTrackedChangesSnapshotRequest?
-    ) async -> GitTrackedChangesSnapshotRead? {
         let indexURL = URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("index")
-        guard let authority = snapshotRequest?.authority else {
-            return GitTrackedChangesSnapshotRead(
-                snapshot: gitTrackedChangesSnapshot(repository: repository),
-                isCurrent: true
-            )
-        }
-        guard let indexStatus = fileStatusReader.status(atPath: indexURL.path) else {
-            let snapshot = gitTrackedChangesSnapshot(repository: repository)
-            return await trackedChangesSnapshotScope.validate(
-                snapshot: snapshot,
-                repository: repository,
-                authority: authority
-            )
+        guard let trackedPathEventGeneration,
+              let indexStatus = fileStatusReader.status(atPath: indexURL.path) else {
+            return gitTrackedChangesSnapshot(repository: repository)
         }
 
         let indexStatSignature = indexStatus.indexStatSignature
-        return await trackedChangesSnapshotScope.snapshot(
+        if let snapshot = await trackedChangesSnapshotCache.snapshot(
             repository: repository,
             indexStatSignature: indexStatSignature,
-            authority: authority
+            trackedPathEventGeneration: trackedPathEventGeneration
         ) {
-            gitTrackedChangesSnapshot(repository: repository)
+            return snapshot
         }
-    }
 
-    /// Resolves a directory to the stable identity used by snapshot authority.
-    public nonisolated func trackedChangesRepositoryIdentity(
-        for directory: String
-    ) async -> GitTrackedChangesRepositoryIdentity? {
-        guard let repository = Self.resolveGitRepository(containing: directory) else {
-            return nil
-        }
-        return GitTrackedChangesRepositoryIdentity(repository: repository)
-    }
-
-    /// Stamps the scope's current repository revision for one fallback round.
-    public nonisolated func trackedChangesSnapshotAuthority(
-        for repositoryIdentity: GitTrackedChangesRepositoryIdentity,
-        fallbackRoundID: GitFallbackRoundID?
-    ) async -> GitTrackedChangesSnapshotAuthority {
-        await trackedChangesSnapshotScope.authority(
-            for: repositoryIdentity,
-            fallbackRoundID: fallbackRoundID
+        let snapshot = gitTrackedChangesSnapshot(repository: repository)
+        await trackedChangesSnapshotCache.store(
+            snapshot,
+            repository: repository,
+            indexStatSignature: indexStatSignature,
+            trackedPathEventGeneration: trackedPathEventGeneration
         )
-    }
-
-    /// Advances shared repository revision before watcher work is scheduled.
-    public nonisolated func recordTrackedPathEvent(
-        for repositoryIdentity: GitTrackedChangesRepositoryIdentity,
-        sourceEvent: GitTrackedPathEventSource = .unknown
-    ) async -> GitTrackedChangesSnapshotAuthority {
-        await trackedChangesSnapshotScope.recordWatcherEvent(
-            for: repositoryIdentity,
-            source: sourceEvent
-        )
+        return snapshot
     }
 
     /// The set of existing filesystem paths whose changes can alter the metadata

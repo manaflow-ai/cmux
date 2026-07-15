@@ -11,12 +11,12 @@ final class KeyboardShortcutSettingsObserver: ObservableObject {
     static let shared = KeyboardShortcutSettingsObserver()
 
     @Published private(set) var revision: UInt64 = 0
-
+    let rightSidebarModeShortcutMatcher = RightSidebarModeShortcutMatcher()
     private var settingsCancellable: AnyCancellable?
     private var recorderCancellable: AnyCancellable?
 
     private init(notificationCenter: NotificationCenter = .default) {
-        settingsCancellable = notificationCenter.publisher(for: KeyboardShortcutSettings.didChangeNotification).receive(on: DispatchQueue.main).sink { [weak self] _ in self?.revision &+= 1 }
+        settingsCancellable = notificationCenter.publisher(for: KeyboardShortcutSettings.didChangeNotification).receive(on: DispatchQueue.main).sink { [weak self] _ in self?.revision &+= 1; self?.rightSidebarModeShortcutMatcher.reload() }
         recorderCancellable = notificationCenter.publisher(for: KeyboardShortcutRecorderActivity.didChangeNotification).receive(on: DispatchQueue.main).sink { [weak self] _ in self?.revision &+= 1 }
     }
 }
