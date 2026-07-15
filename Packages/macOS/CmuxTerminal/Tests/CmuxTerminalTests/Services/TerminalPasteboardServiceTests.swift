@@ -142,6 +142,21 @@ struct PasteboardTextContentsTests {
         #expect(types.contains(.rtf))
     }
 
+    @Test func rewritingTextDropsStaleRTFDRepresentation() throws {
+        let scratch = ScratchPasteboard()
+        let service = TerminalPasteboardService()
+        let item = NSPasteboardItem()
+        #expect(item.setString("hard\nwrapped", forType: .string))
+        #expect(item.setData(Data("stale hard-wrapped RTFD".utf8), forType: .rtfd))
+        #expect(scratch.pasteboard.writeObjects([item]))
+
+        #expect(service.rewriteTextRepresentations("hard wrapped", in: scratch.pasteboard))
+
+        #expect(scratch.pasteboard.string(forType: .string) == "hard wrapped")
+        let types = try #require(scratch.pasteboard.types)
+        #expect(!types.contains(.rtfd))
+    }
+
     @Test func largeRichRewriteDropsExpensiveFlavorsWithinLatencyBound() throws {
         let scratch = ScratchPasteboard()
         let service = TerminalPasteboardService()
