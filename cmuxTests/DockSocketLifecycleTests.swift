@@ -73,7 +73,7 @@ struct DockSocketLifecycleTests {
     }
 
     @MainActor
-    private func withDockEnabled(_ body: () throws -> Void) rethrows {
+    func withDockEnabled(_ body: () throws -> Void) rethrows {
         let defaults = UserDefaults.standard
         let key = RightSidebarBetaFeatureSettings.dockEnabledKey
         let previous = defaults.object(forKey: key)
@@ -787,7 +787,7 @@ struct DockSocketLifecycleTests {
     /// Sets up a single registered main window with that window's Dock created,
     /// and tears everything down (the Dock included, via unregister) on exit.
     @MainActor
-    private func withDockShortcutHarness(
+    func withDockShortcutHarness(
         _ body: @MainActor (
             _ appDelegate: AppDelegate,
             _ manager: TabManager,
@@ -848,58 +848,6 @@ struct DockSocketLifecycleTests {
             }
         }
         try body()
-    }
-
-    @Test("Explicit Dock focus transfers keyboard input from the host to its terminal")
-    @MainActor
-    func explicitDockFocusTransfersKeyboardInputToTerminal() throws {
-#if DEBUG
-        try withDockEnabled {
-            try withDockShortcutHarness { appDelegate, _, _, windowDock, fileExplorerState, window in
-                let rootPane = try #require(windowDock.resolvePane(requestedPaneID: nil))
-                let panelId = try #require(
-                    windowDock.newSurface(kind: .terminal, inPane: rootPane, focus: false)
-                )
-                let panel = try #require(windowDock.panels[panelId] as? TerminalPanel)
-                let contentView = try #require(window.contentView)
-                let dockHost = DockKeyboardFocusView(
-                    frame: NSRect(x: 0, y: 0, width: 24, height: 24)
-                )
-                defer {
-                    _ = window.makeFirstResponder(nil)
-                    dockHost.removeFromSuperview()
-                    panel.hostedView.removeFromSuperview()
-                }
-
-                panel.hostedView.frame = contentView.bounds
-                contentView.addSubview(panel.hostedView)
-                panel.hostedView.setVisibleInUI(true)
-                panel.hostedView.setActive(true)
-                contentView.addSubview(dockHost)
-                appDelegate.keyboardFocusCoordinator(for: window)?.registerDockHost(dockHost)
-
-                window.displayIfNeeded()
-                contentView.layoutSubtreeIfNeeded()
-                panel.hostedView.layoutSubtreeIfNeeded()
-                RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
-                fileExplorerState.setVisible(true)
-                fileExplorerState.mode = .dock
-                appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .dock, in: window)
-                #expect(window.makeFirstResponder(dockHost))
-                #expect(window.firstResponder === dockHost)
-                #expect(!panel.hostedView.isSurfaceViewFirstResponder())
-
-                #expect(windowDock.focusFirstControl())
-                RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
-                #expect(
-                    panel.hostedView.isSurfaceViewFirstResponder(),
-                    "An explicit Dock focus request must transfer keyboard input from its host to the selected terminal"
-                )
-            }
-        }
-#endif
     }
 
     @Test("Creation and split shortcuts route to the focused Dock")

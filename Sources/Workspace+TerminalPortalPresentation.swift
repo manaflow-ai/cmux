@@ -2,6 +2,29 @@ import Bonsplit
 import Foundation
 
 extension Workspace {
+    func setAgentHibernationAutoResumePresentationVisible(_ isVisible: Bool) {
+        guard agentHibernationAutoResumePresentationVisible != isVisible else { return }
+        agentHibernationAutoResumePresentationVisible = isVisible
+        guard isVisible else { return }
+        _ = resumeVisibleAgentHibernationPanels(panelIds: agentHibernationVisiblePanelIdsForCurrentLayout())
+    }
+
+    func setContentViewPresentationVisibility(
+        isVisible: Bool,
+        isInputActive: Bool,
+        hostId: UUID
+    ) {
+        if isVisible {
+            contentViewPresentationHosts[hostId] = isInputActive
+        } else {
+            contentViewPresentationHosts.removeValue(forKey: hostId)
+        }
+        setPortalPresentationVisible(!contentViewPresentationHosts.isEmpty)
+        setAgentHibernationAutoResumePresentationVisible(
+            contentViewPresentationHosts.values.contains(true)
+        )
+    }
+
     func setPortalPresentationVisible(_ visible: Bool) {
         guard portalPresentationVisible != visible else { return }
         portalPresentationVisible = visible
