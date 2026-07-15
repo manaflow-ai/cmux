@@ -82,4 +82,25 @@ struct AppUtilityPanelTests {
         #expect(mobilePanel.displayTitle == "Pair iPhone")
         #expect(workspace.focusedPanelId == originalFocusedPanelId)
     }
+
+    @Test func selectingAppUtilityTabHidesTerminalPortalInSamePane() throws {
+        let workspace = Workspace()
+        let terminalPaneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let terminalPanelId = try #require(workspace.focusedPanelId)
+        let terminalPanel = try #require(workspace.panels[terminalPanelId] as? TerminalPanel)
+        terminalPanel.hostedView.setVisibleInUI(true)
+
+        let utilityPanel = try #require(workspace.openOrFocusAppUtilityPane(
+            fromPane: terminalPaneId,
+            kind: .mobilePairing,
+            focus: false
+        ))
+        let utilityTabId = try #require(workspace.surfaceIdFromPanelId(utilityPanel.id))
+
+        #expect(workspace.bonsplitController.moveTab(utilityTabId, toPane: terminalPaneId))
+        workspace.focusPanel(utilityPanel.id)
+
+        #expect(workspace.bonsplitController.selectedTab(inPane: terminalPaneId)?.id == utilityTabId)
+        #expect(!terminalPanel.hostedView.debugPortalVisibleInUI)
+    }
 }
