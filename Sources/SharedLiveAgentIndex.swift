@@ -1,19 +1,6 @@
 import Darwin
 import Foundation
 
-private struct SharedLiveAgentHookStoreInputStampEntry: Equatable, Sendable {
-    let filename: String
-    let device: UInt64
-    let inode: UInt64
-    let size: Int64
-    let modificationSeconds: Int64
-    let modificationNanoseconds: Int64
-}
-
-private struct SharedLiveAgentHookStoreInputStamp: Equatable, Sendable {
-    let entries: [SharedLiveAgentHookStoreInputStampEntry]
-}
-
 /// Process-wide cache of `RestorableAgentSessionIndex` results for agent fork and restore paths.
 @MainActor
 final class SharedLiveAgentIndex {
@@ -60,7 +47,7 @@ final class SharedLiveAgentIndex {
     static let workloadUnitsPerReloadIntervalStep = 8
 
     private var directoryWatchSource: DispatchSourceFileSystemObject?
-    private var hookStoreInputStamp: SharedLiveAgentHookStoreInputStamp?
+    private var hookStoreInputStamp: [String]?
     // DispatchSource file watching requires a delivery queue; state hops back to MainActor.
     private let watchQueue = DispatchQueue(label: "com.cmuxterm.app.sharedLiveAgentIndexWatch")
 
@@ -512,7 +499,7 @@ final class SharedLiveAgentIndex {
         directoryWatchSource = source
     }
 
-    private func handleHookStoreDirectoryEvent(_ currentStamp: SharedLiveAgentHookStoreInputStamp) {
+    private func handleHookStoreDirectoryEvent(_ currentStamp: [String]) {
         guard currentStamp != hookStoreInputStamp else { return }
         hookStoreInputStamp = currentStamp
         handleHookStoreChange()
@@ -520,27 +507,27 @@ final class SharedLiveAgentIndex {
 
     nonisolated private static func hookStoreInputStamp(
         in directory: String
-    ) -> SharedLiveAgentHookStoreInputStamp {
+    ) -> [String] {
         let filenames = (try? FileManager.default.contentsOfDirectory(atPath: directory)) ?? []
         let directoryURL = URL(fileURLWithPath: directory, isDirectory: true)
         let entries = filenames
             .filter { $0.hasSuffix("-hook-sessions.json") }
             .sorted()
-            .compactMap { filename -> SharedLiveAgentHookStoreInputStampEntry? in
+            .compactMap { filename -> String? in
                 let path = directoryURL
                     .appendingPathComponent(filename, isDirectory: false)
                     .path
                 var info = stat()
                 guard stat(path, &info) == 0 else { return nil }
-                return SharedLiveAgentHookStoreInputStampEntry(
-                    filename: filename,
-                    device: UInt64(info.st_dev),
-                    inode: UInt64(info.st_ino),
-                    size: Int64(info.st_size),
-                    modificationSeconds: Int64(info.st_mtimespec.tv_sec),
-                    modificationNanoseconds: Int64(info.st_mtimespec.tv_nsec)
-                )
+                return [
+                    filename,
+                    String(info.st_dev),
+                    String(info.st_ino),
+                    String(info.st_size),
+                    String(info.st_mtimespec.tv_sec),
+                    String(info.st_mtimespec.tv_nsec),
+                ].joined(separator: "\u{0}")
             }
-        return SharedLiveAgentHookStoreInputStamp(entries: entries)
+        return entries
     }
 }
