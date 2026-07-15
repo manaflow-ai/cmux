@@ -81,6 +81,13 @@ extension DockSplitStore {
         panelIsSelectedInVisibleDockPane(panelId) && focusedPanelId == panelId
     }
 
+    func panelShouldReceiveInputInVisibleDockPane(
+        _ panelId: UUID,
+        rightSidebarOwnsInputFocus: Bool
+    ) -> Bool {
+        rightSidebarOwnsInputFocus && panelIsActiveInVisibleDockPane(panelId)
+    }
+
     @discardableResult
     func toggleDockPaneZoom(inPane paneId: PaneID) -> Bool {
         guard bonsplitController.togglePaneZoom(inPane: paneId) else { return false }
@@ -227,7 +234,11 @@ extension DockSplitStore {
 
     func applyVisibility(to panel: any Panel) {
         let shouldBeVisible = panelIsSelectedInVisibleDockPane(panel.id)
-        let shouldBeActive = panelIsActiveInVisibleDockPane(panel.id)
+        let rightSidebarOwnsInputFocus = AppDelegate.shared?.rightSidebarOwnsInputFocus(for: self) ?? false
+        let shouldBeActive = panelShouldReceiveInputInVisibleDockPane(
+            panel.id,
+            rightSidebarOwnsInputFocus: rightSidebarOwnsInputFocus
+        )
         if let terminal = panel as? TerminalPanel {
             if shouldBeVisible {
                 terminal.hostedView.setVisibleInUI(true, refreshPolicy: .deferredToPortal)

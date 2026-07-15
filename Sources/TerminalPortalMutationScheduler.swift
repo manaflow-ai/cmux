@@ -7,7 +7,7 @@ final class TerminalPortalMutationScheduler {
 
     private var cancellationGeneration: UInt64 = 0
     private var pendingMutation: Mutation?
-    private var pendingDrainCompletion: DrainCompletion?
+    private var pendingDrainCompletions: [DrainCompletion] = []
     private var drainTask: Task<Void, Never>?
 
     @discardableResult
@@ -16,10 +16,8 @@ final class TerminalPortalMutationScheduler {
         _ mutation: @escaping @MainActor () -> Void
     ) -> Task<Void, Never> {
         pendingMutation = mutation
-        // A schedule without cleanup must preserve a candidate cleanup already
-        // attached to this drain. A newer candidate replaces it with its token.
         if let afterDrain {
-            pendingDrainCompletion = afterDrain
+            pendingDrainCompletions.append(afterDrain)
         }
         if let drainTask {
             return drainTask
@@ -43,10 +41,12 @@ final class TerminalPortalMutationScheduler {
             }
 
             guard self.cancellationGeneration == scheduledCancellationGeneration else { return }
-            let completion = self.pendingDrainCompletion
-            self.pendingDrainCompletion = nil
+            let completions = self.pendingDrainCompletions
+            self.pendingDrainCompletions.removeAll(keepingCapacity: true)
             self.drainTask = nil
-            completion?()
+            for completion in completions {
+                completion()
+            }
         }
         drainTask = task
         return task
@@ -55,8 +55,12 @@ final class TerminalPortalMutationScheduler {
     func cancel() {
         cancellationGeneration &+= 1
         pendingMutation = nil
-        pendingDrainCompletion = nil
         drainTask?.cancel()
         drainTask = nil
+        let completions = pendingDrainCompletions
+        pendingDrainCompletions.removeAll(keepingCapacity: true)
+        for completion in completions {
+            completion()
+        }
     }
 }
