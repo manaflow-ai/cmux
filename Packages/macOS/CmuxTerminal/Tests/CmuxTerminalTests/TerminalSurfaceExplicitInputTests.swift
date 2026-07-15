@@ -1,4 +1,5 @@
 import AppKit
+import CmuxTerminalCore
 import GhosttyKit
 import Testing
 @testable import CmuxTerminal
