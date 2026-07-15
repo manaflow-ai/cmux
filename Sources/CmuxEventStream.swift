@@ -38,13 +38,13 @@ extension TerminalController {
         defer { CmuxEventBus.shared.unsubscribe(snapshot.subscription) }
 
         guard writeEventsStreamLine(snapshot.ack, socket: socket) else { return }
-        for frame in snapshot.replayFrames {
-            guard writeEventsStreamFrame(frame, socket: socket) else { return }
+        for event in snapshot.replay {
+            guard writeEventsStreamLine(event, socket: socket) else { return }
         }
 
         while true {
-            if let frame = snapshot.subscription.nextFrame(timeout: CmuxEventBus.defaultHeartbeatIntervalSeconds) {
-                guard writeEventsStreamFrame(frame, socket: socket) else { return }
+            if let event = snapshot.subscription.next(timeout: CmuxEventBus.defaultHeartbeatIntervalSeconds) {
+                guard writeEventsStreamLine(event, socket: socket) else { return }
             } else if snapshot.subscription.isClosed {
                 if let reason = snapshot.subscription.closeReason {
                     _ = writeEventsStreamLine([
@@ -76,10 +76,6 @@ extension TerminalController {
             guard let line = CmuxEventBus.encodeLine(object) else { return false }
             return transport.writeAll(Data((line + "\n").utf8), to: socket)
         }
-    }
-
-    private nonisolated func writeEventsStreamFrame(_ frame: CmuxEventFrame, socket: Int32) -> Bool {
-        transport.writeAll(frame.wireData, to: socket)
     }
 
     private nonisolated static func stringSet(_ value: Any?) -> Set<String> {

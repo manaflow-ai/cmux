@@ -124,7 +124,7 @@ By default the listener accepts only an IP loopback address such as `127.0.0.1` 
 | Field | Value |
 | --- | --- |
 | status | proposed |
-| since | proposed protocol 6 |
+| since | proposed protocol 8 |
 
 HTTP is opt-in. The server binds localhost by default when enabled:
 
@@ -188,16 +188,16 @@ Attach streams use WebSocket:
 GET /api/v1/attach/{surface}
 ```
 
-`{surface}` accepts an implemented numeric id or, when protocol v6 short ids are enabled, a short id. WebSocket messages are text JSON objects using the same `vt-state`, `output`, and `detached` event schemas from `events.md`.
+`{surface}` accepts an implemented numeric id or, when protocol v6 short ids are enabled, a short id. WebSocket messages are text JSON objects using the same `vt-state`, `resized`, `output`, `colors-changed`, and `detached` event schemas from `events.md`.
 
-The attach ordering contract is identical to the socket `attach-surface` command for the negotiated protocol. Protocol v5 sends `vt-state`, then live `output`, then `detached`. Protocol v6 sends `vt-state`, then zero or more `resized` or `output` events, then `detached`; each `resized` event carries a fresh replay and requires the client to replace its mirror before applying later output.
+The attach ordering contract is identical to the socket `attach-surface` command for the negotiated protocol. Protocol v5 sends `vt-state`, then live `output`, then `detached`. Protocol v6 sends `vt-state`, then zero or more `resized`, `output`, or `colors-changed` events, then `detached`; each `resized` event carries a fresh replay and requires the client to replace its mirror before applying later output. The additive `vt-state.colors` object and `colors-changed` event have the same schema on every transport.
 
 ## HTTP Auth
 
 | Field | Value |
 | --- | --- |
 | status | proposed |
-| since | proposed protocol 6 |
+| since | proposed protocol 8 |
 
 When HTTP is enabled securely, the server mints one token per mux session at:
 

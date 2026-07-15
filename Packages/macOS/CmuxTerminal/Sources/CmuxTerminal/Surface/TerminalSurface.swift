@@ -150,11 +150,6 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// The owning workspace id.
     public private(set) var tabId: UUID
 
-    /// Stable, opaque identifiers used by renderer profiling across runtime recreation.
-    public var rendererProfilingIdentity: TerminalRendererProfilingIdentity {
-        TerminalRendererProfilingIdentity(workspaceId: tabId, surfaceId: id)
-    }
-
     /// Port ordinal for CMUX_PORT range assignment. Captured at construction so
     /// every runtime startup path uses the same immutable workspace port range.
     let portOrdinal: Int
@@ -277,13 +272,6 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// path explicitly requests it so background panes do not keep a focused
     /// state unless the workspace focus path requests it.
     var desiredFocusState: Bool = false
-    /// Desired Ghostty renderer visibility, retained even while the native
-    /// surface is absent so a hidden pane cannot restart visible after runtime
-    /// recreation.
-    var desiredOcclusionVisible = true
-    /// Last visibility applied to the current native surface. Reset whenever
-    /// that native surface is replaced.
-    var lastAppliedOcclusionVisible: Bool?
 
     /// Bumped after every completed runtime clipboard read.
     public internal(set) var clipboardReadGeneration = 0
@@ -600,12 +588,12 @@ public final class TerminalSurface: Identifiable, ObservableObject {
             workspaceId: tabId,
             reason: "deinit",
             surface: surfaceToFree,
-            callbackContext: callbackContext,
-            manualIOContext: manualIOContext,
-            byteTeeLease: teeLease
+            callbackContext: callbackContext
         )
-        // The teardown coordinator releases every callback owner after native
-        // free has stopped the PTY/manual-I/O thread.
+        // The teardown coordinator releases callbackContext; manualIOContext and
+        // teeLease are not transported through the request, so release them here.
+        manualIOContext?.release()
+        teeLease?.release()
     }
 }
 
