@@ -29,6 +29,11 @@ enum BrowserLaunchServices {
 @available(macOS 15.4, *)
 @MainActor
 final class BrowserWebExtensionsManager: NSObject {
+    private enum LoadWaiter {
+        case pendingRegistration
+        case waiting(CheckedContinuation<Void, Never>)
+    }
+
     /// Fixed controller identifier so extension storage (`browser.storage`,
     /// declarativeNetRequest state) persists across launches.
     private static let controllerIdentifier = UUID(uuidString: "3B7D2A9E-5C41-4F8A-B6D0-9E2C7A51F3D8")!
@@ -58,7 +63,7 @@ final class BrowserWebExtensionsManager: NSObject {
     let directory: URL
     var loadTask: Task<Void, Never>?
     private(set) var isLoaded = false
-    private var loadWaiters: [CheckedContinuation<Void, Never>] = []
+    private var loadWaiters: [UUID: LoadWaiter] = [:]
     private(set) var loadedContexts: [WKWebExtensionContext] = []
     private(set) var loadErrors: [(url: URL, error: any Error)] = []
 
@@ -104,19 +109,44 @@ final class BrowserWebExtensionsManager: NSObject {
         clock: any Clock<Duration> = ContinuousClock()
     ) async {
         guard !isLoaded, loadTask != nil else { return }
-        let timeoutTask = Task { @MainActor in
+        let waiterID = UUID()
+        loadWaiters[waiterID] = .pendingRegistration
+        let timeoutTask = Task { @MainActor [weak self] in
             try? await clock.sleep(for: timeout, tolerance: nil)
             guard !Task.isCancelled else { return }
-            resumeLoadWaiters()
+            self?.resumeLoadWaiter(waiterID)
         }
-        await withCheckedContinuation { loadWaiters.append($0) }
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard loadWaiters[waiterID] != nil else {
+                    continuation.resume()
+                    return
+                }
+                loadWaiters[waiterID] = .waiting(continuation)
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.resumeLoadWaiter(waiterID)
+            }
+        }
         timeoutTask.cancel()
     }
 
+    private func resumeLoadWaiter(_ id: UUID) {
+        guard let waiter = loadWaiters.removeValue(forKey: id) else { return }
+        if case let .waiting(continuation) = waiter {
+            continuation.resume()
+        }
+    }
+
     private func resumeLoadWaiters() {
-        let waiters = loadWaiters
-        loadWaiters = []
-        for waiter in waiters { waiter.resume() }
+        let waiters = Array(loadWaiters.values)
+        loadWaiters.removeAll()
+        for waiter in waiters {
+            if case let .waiting(continuation) = waiter {
+                continuation.resume()
+            }
+        }
     }
 
     func loadExtensions() async {

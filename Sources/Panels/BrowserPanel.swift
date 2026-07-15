@@ -3106,6 +3106,7 @@ final class BrowserPanel: Panel, ObservableObject {
         let preserveRestoredSessionHistory: Bool
     }
     private var pendingRemoteNavigation: PendingRemoteNavigation?
+    private var pendingWebExtensionNavigationTask: Task<Void, Never>?
     private let bypassesRemoteWorkspaceProxy: Bool
     /// Marks this surface as transparent internal cmux UI (e.g. the diff viewer
     /// or other custom UI) rather than a normal web page. When set, the webview
@@ -4138,10 +4139,13 @@ final class BrowserPanel: Panel, ObservableObject {
     /// common-case navigation timing unchanged; `waitUntilLoaded`'s timeout
     /// bounds the deferral when a load is in flight.
     func runWhenWebExtensionsLoaded(_ navigation: @escaping @MainActor () -> Void) {
+        pendingWebExtensionNavigationTask?.cancel()
+        pendingWebExtensionNavigationTask = nil
         if #available(macOS 15.4, *), let manager = BrowserWebExtensionsManager.shared, !manager.isLoaded {
-            Task { @MainActor [weak self] in
+            pendingWebExtensionNavigationTask = Task { @MainActor [weak self] in
                 await manager.waitUntilLoaded()
-                guard let self, !self.isClosingWebViewLifecycle else { return }
+                guard !Task.isCancelled, let self, !self.isClosingWebViewLifecycle else { return }
+                self.pendingWebExtensionNavigationTask = nil
                 navigation()
             }
         } else {
@@ -5229,6 +5233,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
     func close() {
         cancelHiddenWebViewDiscard()
+        pendingWebExtensionNavigationTask?.cancel()
+        pendingWebExtensionNavigationTask = nil
         isClosingWebViewLifecycle = true
         refreshWebViewLifecycleState()
         GlobalSearchCoordinator.shared.purgePanel(id: id)
