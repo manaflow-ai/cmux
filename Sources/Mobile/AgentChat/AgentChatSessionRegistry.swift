@@ -7,6 +7,7 @@ import Foundation
 @MainActor
 final class AgentChatSessionRegistry {
     private var records: [String: AgentChatSessionRecord] = [:]
+    private var sessionSurfaceIndex = ChatSessionSurfaceIndex<String>()
     private var liveSessionIDBySurfaceID: [String: String] = [:]
     private var liveClaudeSessionIDsBySurfaceID: [String: Set<String>] = [:]
     private let hookStore: AgentChatHookSessionStore
@@ -140,7 +141,7 @@ final class AgentChatSessionRegistry {
                 stampVersion(&record)
                 records[targetSessionID] = record
                 syncProcessExitWatch(for: record)
-                updateLiveSessionIndex(previous: nil, current: record)
+                updateSessionIndexes(previous: nil, current: record)
                 onRecordChanged?(record, nil)
             } else {
                 guard let current = records[targetSessionID] else { continue }
@@ -259,7 +260,8 @@ final class AgentChatSessionRegistry {
         if let live = liveSession(surfaceID: surfaceID) {
             return live
         }
-        return records.values
+        return sessionSurfaceIndex.sessionIDs(surfaceID: surfaceID)
+            .compactMap { records[$0] }
             .filter { $0.surfaceID == surfaceID }
             .max { $0.lastActivityAt < $1.lastActivityAt }
     }
@@ -310,7 +312,7 @@ final class AgentChatSessionRegistry {
         }
         #endif
         syncProcessExitWatch(for: record)
-        updateLiveSessionIndex(previous: previous, current: record)
+        updateSessionIndexes(previous: previous, current: record)
         onRecordChanged?(record, previous)
     }
 
@@ -388,7 +390,7 @@ final class AgentChatSessionRegistry {
                 stampVersion(&record)
                 records[sessionID] = record
                 syncProcessExitWatch(for: record)
-                updateLiveSessionIndex(previous: nil, current: record)
+                updateSessionIndexes(previous: nil, current: record)
                 onRecordChanged?(record, nil)
             }
         }
@@ -476,7 +478,7 @@ final class AgentChatSessionRegistry {
         stampVersion(&record)
         records[sessionID] = record
         syncProcessExitWatch(for: record)
-        updateLiveSessionIndex(previous: previous, current: record)
+        updateSessionIndexes(previous: previous, current: record)
         onRecordChanged?(record, previous)
         if shouldConsultStore {
             backfillBindingsFromStore(
@@ -559,7 +561,7 @@ final class AgentChatSessionRegistry {
             exitWatchers[alias]?.source.cancel()
             exitWatchers[alias] = nil
             hookStoreConsultedAt.removeValue(forKey: alias)
-            updateLiveSessionIndex(previous: record, current: nil)
+            updateSessionIndexes(previous: record, current: nil)
             onRecordRemoved?(record)
         }
         if let indexed = liveSessionIDBySurfaceID[surfaceID],
@@ -650,7 +652,7 @@ final class AgentChatSessionRegistry {
         stampVersion(&record)
         records[sessionID] = record
         syncProcessExitWatch(for: record)
-        updateLiveSessionIndex(previous: nil, current: record)
+        updateSessionIndexes(previous: nil, current: record)
         onRecordChanged?(record, nil)
     }
 
@@ -692,10 +694,17 @@ final class AgentChatSessionRegistry {
         }
     }
 
-    private func updateLiveSessionIndex(
+    private func updateSessionIndexes(
         previous: AgentChatSessionRecord?,
         current: AgentChatSessionRecord?
     ) {
+        if let sessionID = current?.sessionID ?? previous?.sessionID {
+            sessionSurfaceIndex.update(
+                sessionID: sessionID,
+                previousSurfaceID: previous?.surfaceID,
+                currentSurfaceID: current?.surfaceID
+            )
+        }
         updateLiveClaudeSessionIndex(previous: previous, current: current)
         let previousSurfaceID = Self.liveSurfaceID(previous)
         let currentSurfaceID = Self.liveSurfaceID(current)
@@ -736,7 +745,8 @@ final class AgentChatSessionRegistry {
 
     private func rebuildLiveSessionIndex(surfaceID: String?) {
         guard let surfaceID else { return }
-        if let newest = records.values
+        if let newest = sessionSurfaceIndex.sessionIDs(surfaceID: surfaceID)
+            .compactMap({ records[$0] })
             .filter({ $0.surfaceID == surfaceID && $0.state != .ended })
             .max(by: { $0.lastActivityAt < $1.lastActivityAt }) {
             liveSessionIDBySurfaceID[surfaceID] = newest.sessionID
