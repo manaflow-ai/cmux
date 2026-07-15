@@ -332,6 +332,11 @@ final class TerminalNotificationStore: ObservableObject {
     static let dismissedTombstoneDefaultsKey = "cmux.notifications.dismissedTombstoneIds"
     private var retainedSupersededBannerIDs = Set<UUID>()
     private var retainedSupersededBannerIDsLoaded = false
+    private var retainedSupersededBannerPersistenceScheduled = false
+    private static let retainedSupersededBannerPersistenceQueue = DispatchQueue(
+        label: "com.cmux.notification.retained-superseded-banner-persistence",
+        qos: .utility
+    )
     static let retainedSupersededBannerDefaultsKey = "cmux.notifications.retainedSupersededBannerIds"
 
     private func loadDismissedTombstonesIfNeeded() {
@@ -391,11 +396,18 @@ final class TerminalNotificationStore: ObservableObject {
         retainedSupersededBannerIDs = Set(stored.compactMap { UUID(uuidString: $0) })
     }
 
-    private func persistRetainedSupersededBannerIDs() {
-        UserDefaults.standard.set(
-            retainedSupersededBannerIDs.map(\.uuidString).sorted(),
-            forKey: Self.retainedSupersededBannerDefaultsKey
-        )
+    private func scheduleRetainedSupersededBannerIDPersistence() {
+        guard !retainedSupersededBannerPersistenceScheduled else { return }
+        retainedSupersededBannerPersistenceScheduled = true
+        Task { @MainActor [weak self] in
+            await Task.yield()
+            guard let self else { return }
+            retainedSupersededBannerPersistenceScheduled = false
+            let ids = retainedSupersededBannerIDs.map(\.uuidString)
+            Self.retainedSupersededBannerPersistenceQueue.async {
+                UserDefaults.standard.set(ids, forKey: Self.retainedSupersededBannerDefaultsKey)
+            }
+        }
     }
 
     private func recordRetainedSupersededBannerIDs(ids: [UUID]) {
@@ -404,7 +416,7 @@ final class TerminalNotificationStore: ObservableObject {
         let previousCount = retainedSupersededBannerIDs.count
         retainedSupersededBannerIDs.formUnion(ids)
         if retainedSupersededBannerIDs.count != previousCount {
-            persistRetainedSupersededBannerIDs()
+            scheduleRetainedSupersededBannerIDPersistence()
         }
     }
 
@@ -414,7 +426,7 @@ final class TerminalNotificationStore: ObservableObject {
         let previousCount = retainedSupersededBannerIDs.count
         retainedSupersededBannerIDs.subtract(ids)
         if retainedSupersededBannerIDs.count != previousCount {
-            persistRetainedSupersededBannerIDs()
+            scheduleRetainedSupersededBannerIDPersistence()
         }
     }
 
@@ -423,7 +435,7 @@ final class TerminalNotificationStore: ObservableObject {
         let reconciled = retainedSupersededBannerIDs.intersection(retainedIDs)
         guard reconciled != retainedSupersededBannerIDs else { return }
         retainedSupersededBannerIDs = reconciled
-        persistRetainedSupersededBannerIDs()
+        scheduleRetainedSupersededBannerIDPersistence()
     }
 
     /// Phone-banner dismissals for superseded notifications, deferred until the
@@ -1619,6 +1631,7 @@ final class TerminalNotificationStore: ObservableObject {
         notificationFeedContentByteCount = retained.retained.reduce(0) {
             $0 + Self.notificationContentByteCount($1)
         }
+        reconcileRetainedSupersededBannerIDs(retainedIDs: Set(retained.retained.map(\.id)))
         notificationFeedDidChange(
             oldValue: previous,
             mutation: retained.evicted.isEmpty ? mutation : nil
@@ -1633,7 +1646,6 @@ final class TerminalNotificationStore: ObservableObject {
         oldValue: [TerminalNotification]?,
         mutation: NotificationMutationHint?
     ) {
-        reconcileRetainedSupersededBannerIDs(retainedIDs: Set(notifications.map(\.id)))
         let appliedIncrementally: Bool
         switch mutation {
         case .insertion(let inserted):
@@ -1648,6 +1660,7 @@ final class TerminalNotificationStore: ObservableObject {
             )
             let evictedIds = Set(evicted.map(\.id))
             deferredUnreadNavigationIds.removeAll { evictedIds.contains($0) }
+            removeRetainedSupersededBannerIDs(ids: Array(evictedIds))
             appliedIncrementally = true
         case .readState(let before, let after):
             appliedIncrementally = Self.updateReadState(
