@@ -9,12 +9,6 @@ let package = Package(
         .executable(name: "cmux-lite", targets: ["CmuxLiteApp"]),
         .executable(name: "cmux-lite-smoke", targets: ["CmuxLiteSmoke"]),
     ],
-    dependencies: [
-        .package(
-            url: "https://github.com/Lakr233/libghostty-spm.git",
-            revision: "faec539df2ada15503da1ff3d5e105b5eadd5264"
-        ),
-    ],
     targets: [
         .target(
             name: "CmuxLiteCore",
@@ -22,10 +16,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "CmuxLiteApp",
-            dependencies: [
-                "CmuxLiteCore",
-                .product(name: "GhosttyTerminal", package: "libghostty-spm"),
-            ],
+            dependencies: ["CmuxLiteCore"],
             resources: [.process("Resources")]
         ),
         .executableTarget(

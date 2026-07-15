@@ -1,6 +1,8 @@
 # cmux-lite Swift frontend
 
-`cmux-lite` is a dark AppKit/GhosttyKit frontend for a cmux-tui protocol-v6+ session. It renders the selected screen's full split tree and keeps one byte attachment per visible terminal pane.
+`cmux-lite` is a dark native AppKit frontend for a cmux-tui protocol-v7+ session. It renders the selected screen's full split tree from server-rendered styled rows and keeps one render attachment per visible terminal pane.
+
+Wheel or trackpad scrolling enters a bounded styled-history view. Input or the localized Back to live control returns to the current viewport.
 
 ## Keyboard shortcuts
 

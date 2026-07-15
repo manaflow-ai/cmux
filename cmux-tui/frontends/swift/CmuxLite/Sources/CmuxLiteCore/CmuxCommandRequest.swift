@@ -14,8 +14,12 @@ struct CmuxCommandRequest: Encodable, Sendable {
     var mode: String?
     var text: String?
     var bytes: String?
+    var paste: Bool?
+    var keys: [String]?
     var cols: UInt16?
     var rows: UInt16?
+    var start: UInt32?
+    var count: UInt32?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -31,7 +35,11 @@ struct CmuxCommandRequest: Encodable, Sendable {
         case mode
         case text
         case bytes
+        case paste
+        case keys
         case cols
         case rows
+        case start
+        case count
     }
 }

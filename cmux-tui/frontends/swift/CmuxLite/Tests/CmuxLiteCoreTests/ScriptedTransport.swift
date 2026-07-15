@@ -14,6 +14,7 @@ actor ScriptedTransport: CmuxTransport {
     private let treeAfterSplit: Data?
     private let newTabSurface: UInt64
     private let splitSurface: UInt64
+    private let protocolVersion: UInt32
     private var queued: [Data] = []
     private var waiters: [CheckedContinuation<Data, Error>] = []
     private var summaries: [String] = []
@@ -25,7 +26,8 @@ actor ScriptedTransport: CmuxTransport {
         treeAfterNewTab: Data? = nil,
         newTabSurface: UInt64 = 14,
         treeAfterSplit: Data? = nil,
-        splitSurface: UInt64 = 14
+        splitSurface: UInt64 = 14,
+        protocolVersion: UInt32 = 7
     ) {
         self.role = role
         if case let .control(tree) = role {
@@ -36,6 +38,7 @@ actor ScriptedTransport: CmuxTransport {
         self.treeAfterSplit = treeAfterSplit
         self.newTabSurface = newTabSurface
         self.splitSurface = splitSurface
+        self.protocolVersion = protocolVersion
     }
 
     func connect() async throws {
@@ -66,7 +69,7 @@ actor ScriptedTransport: CmuxTransport {
                 data: [
                     "app": "cmux-tui",
                     "version": "test",
-                    "protocol": 7,
+                    "protocol": protocolVersion,
                     "session": "phone",
                     "pid": 1,
                 ]
@@ -99,11 +102,14 @@ actor ScriptedTransport: CmuxTransport {
         case (.attachment(let surface), "attach-surface"):
             enqueue(Self.response(id: id, data: [:]))
             enqueue(Self.event([
-                "event": "vt-state",
+                "event": "render-state",
                 "surface": surface,
-                "cols": 80,
-                "rows": 24,
-                "data": "",
+                "size": ["cols": 80, "rows": 24],
+                "cursor": Self.cursor(),
+                "default_fg": "#eeeeee",
+                "default_bg": "#111111",
+                "scrollback_rows": 0,
+                "rows": Self.rows(count: 24),
             ]))
         default:
             enqueue(Self.response(id: id, data: [:]))
@@ -131,11 +137,12 @@ actor ScriptedTransport: CmuxTransport {
 
     func emitResized(surface: UInt64, columns: UInt16, rows: UInt16) {
         enqueue(Self.event([
-            "event": "resized",
+            "event": "render-delta",
             "surface": surface,
-            "cols": columns,
-            "rows": rows,
-            "data": "",
+            "cursor": Self.cursor(),
+            "full": true,
+            "size": ["cols": columns, "rows": rows],
+            "rows": Self.rows(count: Int(rows)),
         ]))
     }
 
@@ -166,7 +173,7 @@ actor ScriptedTransport: CmuxTransport {
     private static func summary(command: String, request: [String: Any]) -> String {
         switch command {
         case "attach-surface":
-            return "attach-surface:\((request["surface"] as? NSNumber)?.uint64Value ?? 0)"
+            return "attach-surface:\((request["surface"] as? NSNumber)?.uint64Value ?? 0):\(request["mode"] as? String ?? "default")"
         case "resize-surface":
             let columns = (request["cols"] as? NSNumber)?.uint16Value ?? 0
             let rows = (request["rows"] as? NSNumber)?.uint16Value ?? 0
@@ -200,5 +207,20 @@ actor ScriptedTransport: CmuxTransport {
         default:
             return command
         }
+    }
+
+    private static func cursor() -> [String: Any] {
+        [
+            "x": 0,
+            "y": 0,
+            "style": "block",
+            "blink": false,
+            "visible": true,
+            "color": NSNull(),
+        ]
+    }
+
+    private static func rows(count: Int) -> [[String: Any]] {
+        (0..<count).map { ["row": $0, "runs": []] }
     }
 }

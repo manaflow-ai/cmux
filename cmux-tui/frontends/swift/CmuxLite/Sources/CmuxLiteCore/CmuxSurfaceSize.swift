@@ -1,7 +1,7 @@
 import Foundation
 
 /// A terminal grid size expressed in character cells.
-public struct CmuxSurfaceSize: Decodable, Sendable, Equatable {
+public struct CmuxSurfaceSize: Codable, Sendable, Equatable {
     /// The number of terminal columns.
     public let cols: UInt16
 

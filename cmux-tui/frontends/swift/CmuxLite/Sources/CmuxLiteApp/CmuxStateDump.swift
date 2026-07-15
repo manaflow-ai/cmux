@@ -2,8 +2,8 @@ import AppKit
 import Foundation
 
 /// Verification hook: when CMUX_LITE_STATE_DUMP names a file, SIGUSR1 writes
-/// one JSON line per live terminal mirror (surface, grid, viewport text) so
-/// external harnesses can diff the mirror against server truth. Inert unless
+/// one JSON line per render model (surface, grid, cursor, viewport text) so
+/// external harnesses can compare the drawn model against server truth. Inert unless
 /// the environment variable is set.
 @MainActor
 enum CmuxStateDump {

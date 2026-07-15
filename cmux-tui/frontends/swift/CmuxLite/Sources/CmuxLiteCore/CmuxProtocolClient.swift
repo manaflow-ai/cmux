@@ -154,20 +154,16 @@ public actor CmuxProtocolClient {
         )
     }
 
-    func attachSurface(_ surface: UInt64, includeByteMode: Bool) async throws {
+    func attachRenderSurface(_ surface: UInt64) async throws {
         _ = try await request(
             CmuxCommandRequest(
                 id: 0,
                 cmd: "attach-surface",
                 surface: surface,
-                mode: includeByteMode ? "bytes" : nil
+                mode: "render"
             ),
             as: CmuxEmptyResponse.self
         )
-    }
-
-    func vtState(_ surface: UInt64) async throws -> CmuxVTStateResponse {
-        try await request(CmuxCommandRequest(id: 0, cmd: "vt-state", surface: surface))
     }
 
     func sendBytes(_ bytes: Data, surface: UInt64) async throws {
@@ -182,11 +178,38 @@ public actor CmuxProtocolClient {
         )
     }
 
-    func sendText(_ text: String, surface: UInt64) async throws {
+    func sendText(_ text: String, surface: UInt64, paste: Bool = false) async throws {
         _ = try await request(
-            CmuxCommandRequest(id: 0, cmd: "send", surface: surface, text: text),
+            CmuxCommandRequest(
+                id: 0,
+                cmd: "send",
+                surface: surface,
+                text: text,
+                paste: paste ? true : nil
+            ),
             as: CmuxEmptyResponse.self
         )
+    }
+
+    func sendKey(_ key: String, surface: UInt64) async throws {
+        _ = try await request(
+            CmuxCommandRequest(id: 0, cmd: "send-key", surface: surface, keys: [key]),
+            as: CmuxEmptyResponse.self
+        )
+    }
+
+    func readScrollback(
+        _ surface: UInt64,
+        start: UInt32,
+        count: UInt32
+    ) async throws -> CmuxReadScrollbackResponse {
+        try await request(CmuxCommandRequest(
+            id: 0,
+            cmd: "read-scrollback",
+            surface: surface,
+            start: start,
+            count: count
+        ))
     }
 
     func resizeSurface(_ surface: UInt64, columns: UInt16, rows: UInt16) async throws {
@@ -226,8 +249,12 @@ public actor CmuxProtocolClient {
             mode: request.mode,
             text: request.text,
             bytes: request.bytes,
+            paste: request.paste,
+            keys: request.keys,
             cols: request.cols,
-            rows: request.rows
+            rows: request.rows,
+            start: request.start,
+            count: request.count
         )
         let encoded = try JSONEncoder().encode(request)
         let responseData = try await withCheckedThrowingContinuation { continuation in

@@ -33,7 +33,7 @@ public enum CmuxProtocolError: Error, Sendable, CustomStringConvertible {
         case let .transportState(message): "transport state: \(message)"
         case let .unsupportedMessage(message): "unsupported message: \(message)"
         case let .command(message): "command failed: \(message)"
-        case let .incompatibleServer(message): "incompatible server: \(message)"
+        case let .incompatibleServer(message): message
         case .noActivePTYSurface: "no active PTY surface"
         case let .malformedPayload(message): "malformed payload: \(message)"
         case let .timedOut(message): "timed out: \(message)"

@@ -67,6 +67,12 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "ペイン %lld にはまだターミナルグリッドがありません" } }
       }
     },
+    "frontend.error.render_protocol_required" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Render mode requires cmux-tui protocol 7 or newer; server reported %@ protocol %lld" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "レンダーモードには cmux-tui プロトコル 7 以降が必要です。サーバーは %@ プロトコル %lld を返しました" } }
+      }
+    },
     "frontend.error.surface_not_attached" : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Surface %lld is not attached" } },
