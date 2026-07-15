@@ -80,6 +80,20 @@ struct SharedLiveAgentIndexAgentLivenessTests {
     }
 
     @Test
+    func hookStoreReloadCadenceCountsRepeatedSessionsInOnePanel() async throws {
+        let index = try Self.index(repeatedHookRecordCount: 270)
+        let reloadStarted = try await Self.hookStoreReloadStarted(
+            within: 10,
+            for: index,
+            fixtureName: "repeated-panel-history"
+        )
+        #expect(
+            !reloadStarted,
+            "Raw hook records must drive backpressure even when they collapse to one indexed panel."
+        )
+    }
+
+    @Test
     func hookStoreReloadCadenceKeepsModestHistoryResponsive() async throws {
         let index = Self.index(entryCount: 41)
         let reloadStarted = try await Self.hookStoreReloadStarted(
@@ -544,6 +558,52 @@ struct SharedLiveAgentIndexAgentLivenessTests {
             )
         }
         return Self.index(detectedSnapshots: detected)
+    }
+
+    nonisolated private static func index(
+        repeatedHookRecordCount: Int
+    ) throws -> RestorableAgentSessionIndex {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-repeated-hook-history-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let stateDirectory = root.appendingPathComponent(".cmuxterm", isDirectory: true)
+        try fm.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
+        let workspaceID = UUID()
+        let panelID = UUID()
+        let sessions = Dictionary(uniqueKeysWithValues: (0..<repeatedHookRecordCount).map { ordinal in
+            let sessionID = "repeated-panel-session-\(ordinal)"
+            return (
+                sessionID,
+                RestorableAgentHookSessionRecord(
+                    sessionId: sessionID,
+                    workspaceId: workspaceID.uuidString,
+                    surfaceId: panelID.uuidString,
+                    cwd: "/tmp/cmux-repeated-hook-history",
+                    transcriptPath: nil,
+                    pid: nil,
+                    launchCommand: nil,
+                    lastPermissionMode: nil,
+                    isRestorable: true,
+                    agentLifecycle: nil,
+                    updatedAt: TimeInterval(ordinal)
+                )
+            )
+        })
+        let store = RestorableAgentHookSessionStoreFile(sessions: sessions)
+        try JSONEncoder().encode(store).write(
+            to: stateDirectory.appendingPathComponent("codex-hook-sessions.json"),
+            options: .atomic
+        )
+        return RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: fm,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [:],
+            processArgumentsProvider: { _ in nil },
+            processIdentityProvider: { _ in nil }
+        )
     }
 
     nonisolated private static func index(
