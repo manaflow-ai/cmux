@@ -115,26 +115,17 @@ func transientStatusFailureDoesNotDowngradeAuthoritativeOutput() async throws {
     let surfaceID = "live-terminal"
     await router.enqueueReplayRenderGridFrames([
         try renderGridFrame(surfaceID: surfaceID, seq: 1, text: "last-good"),
-        try renderGridFrame(surfaceID: surfaceID, seq: 6, text: "status-recovery"),
+        try renderGridFrame(surfaceID: surfaceID, seq: 6, text: "status-recovery")
     ])
     let collector = AuthoritativeOutputCollector()
     collector.mount(store: store, surfaceID: surfaceID)
     defer { collector.unmount() }
 
-    let replayStarted = try await pollUntil {
-        await router.count(of: "mobile.terminal.replay") >= 1
-    }
-    #expect(replayStarted)
-    try await waitForReplayResponsesServed(
-        1,
+    try await confirmInitialAuthoritativeGrid(
+        store: store,
         router: router,
-        "the first authoritative replay must settle before capability recovery"
+        collector: collector
     )
-    #expect(store.supportsAuthoritativeTerminalGrid)
-    let baselineDelivered = try await pollUntil {
-        collector.renderGrids.contains { $0.plainRows().contains("last-good") }
-    }
-    #expect(baselineDelivered)
 
     let statusCount = await router.count(of: "mobile.host.status")
     let subscribeCount = await router.count(of: "mobile.events.subscribe")
@@ -145,16 +136,8 @@ func transientStatusFailureDoesNotDowngradeAuthoritativeOutput() async throws {
         surfaceIDs: [surfaceID]
     )
 
-    let statusFailed = await router.waitForCount(
-        of: "mobile.host.status",
-        atLeast: statusCount + 1
-    )
-    #expect(statusFailed)
-    let resubscribed = await router.waitForCount(
-        of: "mobile.events.subscribe",
-        atLeast: subscribeCount + 1
-    )
-    #expect(resubscribed)
+    #expect(await router.waitForCount(of: "mobile.host.status", atLeast: statusCount + 1))
+    #expect(await router.waitForCount(of: "mobile.events.subscribe", atLeast: subscribeCount + 1))
     #expect(store.supportsAuthoritativeTerminalGrid)
 
     let transport = try #require(box.get())
@@ -173,6 +156,28 @@ func transientStatusFailureDoesNotDowngradeAuthoritativeOutput() async throws {
     }
     #expect(gridDelivered)
     #expect(collector.rawChunks.isEmpty)
+}
+
+@MainActor
+private func confirmInitialAuthoritativeGrid(
+    store: MobileShellComposite,
+    router: LivenessHostRouter,
+    collector: AuthoritativeOutputCollector
+) async throws {
+    let replayStarted = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay") >= 1
+    }
+    #expect(replayStarted)
+    try await waitForReplayResponsesServed(
+        1,
+        router: router,
+        "the first authoritative replay must settle before capability recovery"
+    )
+    #expect(store.supportsAuthoritativeTerminalGrid)
+    let baselineDelivered = try await pollUntil {
+        collector.renderGrids.contains { $0.plainRows().contains("last-good") }
+    }
+    #expect(baselineDelivered)
 }
 
 @MainActor
