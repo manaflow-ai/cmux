@@ -4184,7 +4184,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let loadStart = ProcessInfo.processInfo.systemUptime
 #endif
         let resumeIndexes = await ProcessDetectedResumeIndexes.loadForAutosave(
-            cachedRestorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+            cachedAgentIndex: SharedLiveAgentIndex.shared.currentAutosaveCacheSchedulingRefresh()
         )
 #if DEBUG
         loadMs = (ProcessInfo.processInfo.systemUptime - loadStart) * 1000.0

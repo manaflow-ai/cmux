@@ -5,6 +5,7 @@ struct SharedLiveAgentIndexLoader {
     typealias LoadResult = (
         index: RestorableAgentSessionIndex,
         liveAgentProcessFingerprint: Set<String>,
+        processDetectedAgentFingerprint: ProcessDetectedResumeIndexes.ProcessDetectedAgentFingerprint,
         processScopeFingerprint: Set<String>,
         forkValidatedPanels: Set<RestorableAgentSessionIndex.PanelKey>
     )
@@ -73,6 +74,9 @@ struct SharedLiveAgentIndexLoader {
         return (
             index: index,
             liveAgentProcessFingerprint: index.liveAgentProcessFingerprint(),
+            processDetectedAgentFingerprint: ProcessDetectedResumeIndexes.processDetectedAgentFingerprint(
+                from: detectedSnapshots
+            ),
             processScopeFingerprint: Self.processScopeFingerprint(from: processSnapshot),
             forkValidatedPanels: Self.forkValidatedPanels(
                 in: index,
