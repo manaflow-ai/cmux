@@ -177,15 +177,119 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
         _ = navigationDelegate
     }
 
+    @Test func hoverInspectionContinuesWhileDistinctClicksStackReferencesForCopy() async throws {
+        let image = NSImage(size: NSSize(width: 640, height: 480))
+        image.lockFocus()
+        NSColor.white.setFill()
+        NSRect(origin: .zero, size: image.size).fill()
+        image.unlockFocus()
+
+        let directory = URL.temporaryDirectory
+            .appendingPathComponent("cmux-design-mode-stack-test-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var copiedPrompt: String?
+        let (copied, copiedContinuation) = AsyncStream<Void>.makeStream()
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+        let controller = BrowserDesignModeController(
+            surfaceID: UUID(),
+            script: BrowserDesignModeScript(),
+            promptFormatter: BrowserDesignModePromptFormatter(),
+            screenshotStore: BrowserDesignModeScreenshotStore(directory: directory),
+            javaScriptEvaluator: BrowserDesignModeJavaScriptEvaluator(),
+            screenshotEvaluator: BrowserDesignModeScreenshotEvaluator(timeout: 1) { _, completion in
+                completion(.success(image))
+            },
+            canEnable: { true },
+            clipboardWriter: { prompt in
+                copiedPrompt = prompt
+                copiedContinuation.yield()
+                copiedContinuation.finish()
+                return true
+            },
+            onActivityChanged: {}
+        )
+        controller.install(on: webView)
+
+        let (loaded, loadedContinuation) = AsyncStream<Void>.makeStream()
+        let navigationDelegate = BrowserDesignModeTestNavigationDelegate {
+            loadedContinuation.yield()
+            loadedContinuation.finish()
+        }
+        webView.navigationDelegate = navigationDelegate
+        webView.loadHTMLString(
+            """
+            <main>
+              <button id="first">First</button>
+              <button id="second">Second</button>
+            </main>
+            """,
+            baseURL: nil
+        )
+        var loadedIterator = loaded.makeAsyncIterator()
+        _ = await loadedIterator.next()
+
+        #expect(await controller.setEnabled(true, reason: "test"))
+        let evaluator = BrowserDesignModeJavaScriptEvaluator()
+        let value = try await evaluator.call(
+            """
+            const runtime = globalThis.__cmuxDesignMode;
+            runtime.select('#first');
+            const second = document.querySelector('#second');
+            const bounds = second.getBoundingClientRect();
+            const eventInit = {
+                bubbles: true,
+                cancelable: true,
+                composed: true,
+                button: 0,
+                clientX: bounds.left + bounds.width / 2,
+                clientY: bounds.top + bounds.height / 2,
+            };
+            document.dispatchEvent(new PointerEvent('pointermove', eventInit));
+            const hover = runtime.composerState();
+            document.dispatchEvent(new MouseEvent('click', eventInit));
+            const stacked = runtime.composerState();
+            runtime.requestCopy();
+            return { hover, stacked };
+            """,
+            arguments: [:],
+            in: webView,
+            contentWorld: BrowserDesignModeController.contentWorld
+        )
+        let state = try #require(value as? [String: Any])
+        let hover = try #require(state["hover"] as? [String: Any])
+        let stacked = try #require(state["stacked"] as? [String: Any])
+
+        #expect(hover["visible"] as? Bool == true)
+        #expect(hover["hovered_selector"] as? String == "#second")
+        #expect(hover["selection_count"] as? Int == 1)
+        #expect(stacked["selection_count"] as? Int == 2)
+        #expect(stacked["selectors"] as? [String] == ["#first", "#second"])
+
+        var copiedIterator = copied.makeAsyncIterator()
+        _ = await copiedIterator.next()
+
+        let prompt = try #require(copiedPrompt)
+        let payload = try payload(from: prompt)
+        let elements = try #require(payload["elements"] as? [[String: Any]])
+        #expect(elements.count == 2)
+        #expect((elements[0]["selection"] as? [String: Any])?["selector"] as? String == "#first")
+        #expect((elements[1]["selection"] as? [String: Any])?["selector"] as? String == "#second")
+        #expect(elements.allSatisfy { ($0["screenshot_path"] as? String)?.isEmpty == false })
+        _ = navigationDelegate
+    }
+
     private func requestedChange(from prompt: String) throws -> String? {
+        try payload(from: prompt)["requested_change"] as? String
+    }
+
+    private func payload(from prompt: String) throws -> [String: Any] {
         let marker = "Payload:\n"
         let start = try #require(prompt.range(of: marker)?.upperBound)
         let end = try #require(
             prompt.range(of: "\n</cmux_design_mode>", range: start..<prompt.endIndex)?.lowerBound
         )
         let data = try #require(Data(base64Encoded: String(prompt[start..<end])))
-        let payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
-        return payload["requested_change"] as? String
+        return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
 }
 
