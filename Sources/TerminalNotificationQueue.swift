@@ -83,6 +83,7 @@ final class TerminalMutationBus: @unchecked Sendable {
                 id: UUID(),
                 acceptedAt: Date(),
                 key: routedKey,
+                allowWorkspaceFallbackForValidatedSurface: false,
                 title: title,
                 subtitle: subtitle,
                 body: body
@@ -121,13 +122,15 @@ final class TerminalMutationBus: @unchecked Sendable {
         surfaceId: UUID?,
         title: String,
         subtitle: String,
-        body: String
+        body: String,
+        allowWorkspaceFallbackForValidatedSurface: Bool = false
     ) async -> ReliableTerminalNotificationEnqueueResult {
         await withCheckedContinuation { continuation in
             Self.reliableSubmissionLock.lock()
             guard let admissionToken = captureNotificationAdmissionToken(
                 tabId: tabId,
-                surfaceId: surfaceId
+                surfaceId: surfaceId,
+                allowWorkspaceFallbackForValidatedSurface: allowWorkspaceFallbackForValidatedSurface
             ) else {
                 Self.reliableSubmissionLock.unlock()
                 continuation.resume(returning: .saturated)
@@ -147,7 +150,8 @@ final class TerminalMutationBus: @unchecked Sendable {
 
     private nonisolated func captureNotificationAdmissionToken(
         tabId: UUID,
-        surfaceId: UUID?
+        surfaceId: UUID?,
+        allowWorkspaceFallbackForValidatedSurface: Bool
     ) -> TerminalNotificationAdmissionToken? {
         lock.lock()
         guard reliableAdmissionsById.count < Self.maximumWaitingNotificationProducerCount else {
@@ -161,6 +165,7 @@ final class TerminalMutationBus: @unchecked Sendable {
             id: UUID(),
             acceptedAt: Date(),
             key: routedKey,
+            allowWorkspaceFallbackForValidatedSurface: allowWorkspaceFallbackForValidatedSurface,
             notificationGeneration: currentNotificationGeneration
         )
         reliableAdmissionsById[registered.id] = registered
@@ -192,6 +197,7 @@ final class TerminalMutationBus: @unchecked Sendable {
             id: admission.id,
             acceptedAt: admission.acceptedAt,
             key: admission.key,
+            allowWorkspaceFallbackForValidatedSurface: admission.allowWorkspaceFallbackForValidatedSurface,
             title: title,
             subtitle: subtitle,
             body: body

@@ -344,6 +344,7 @@ private extension TerminalSocketMutation {
                 id: notification.id,
                 acceptedAt: notification.acceptedAt,
                 key: QueuedTerminalNotificationKey(tabId: toTabId, surfaceId: surfaceId),
+                allowWorkspaceFallbackForValidatedSurface: notification.allowWorkspaceFallbackForValidatedSurface,
                 title: notification.title,
                 subtitle: notification.subtitle,
                 body: notification.body

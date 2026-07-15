@@ -19,6 +19,7 @@ struct QueuedTerminalNotification: Sendable {
     let id: UUID
     let acceptedAt: Date
     let key: QueuedTerminalNotificationKey
+    let allowWorkspaceFallbackForValidatedSurface: Bool
     let title: String
     let subtitle: String
     let body: String
@@ -32,6 +33,7 @@ struct ReliableTerminalNotificationAdmission {
     let id: UUID
     let acceptedAt: Date
     var key: QueuedTerminalNotificationKey
+    let allowWorkspaceFallbackForValidatedSurface: Bool
     let notificationGeneration: UInt64
 }
 

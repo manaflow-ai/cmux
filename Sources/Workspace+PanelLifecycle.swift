@@ -154,7 +154,6 @@ extension Workspace {
         }
         if didChange {
             if refreshPorts { refreshTrackedAgentPorts() }
-            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id)
         }
         return didChange
     }
@@ -177,7 +176,6 @@ extension Workspace {
         }
         if didChange {
             if refreshPorts { refreshTrackedAgentPorts() }
-            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, surfaceId: panelId)
         }
         return didChange
     }

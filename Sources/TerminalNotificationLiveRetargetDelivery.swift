@@ -74,11 +74,13 @@ extension TerminalNotificationStore {
         body: String,
         id: UUID,
         acceptedAt: Date,
-        notificationGeneration: UInt64
+        notificationGeneration: UInt64,
+        allowWorkspaceFallbackForValidatedSurface: Bool = false
     ) {
         guard let target = AppDelegate.shared?.agentNotificationRecordTarget(
             claimedTabId: claimedTabId,
-            surfaceId: surfaceId
+            surfaceId: surfaceId,
+            allowWorkspaceFallbackForValidatedSurface: allowWorkspaceFallbackForValidatedSurface
         ) else {
 #if DEBUG
             cmuxDebugLog(

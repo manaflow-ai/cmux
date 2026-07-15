@@ -17,7 +17,8 @@ extension TerminalMutationBus {
                     body: notification.body,
                     id: notification.id,
                     acceptedAt: notification.acceptedAt,
-                    notificationGeneration: entry.notificationGeneration ?? 0
+                    notificationGeneration: entry.notificationGeneration ?? 0,
+                    allowWorkspaceFallbackForValidatedSurface: notification.allowWorkspaceFallbackForValidatedSurface
                 )
             case .clearAllNotifications(let boundary):
                 TerminalNotificationStore.shared.clearAll(

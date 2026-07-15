@@ -163,12 +163,22 @@ extension TerminalController: ControlNotificationContext {
     }
 
     func controlNotificationList() -> [ControlNotificationSnapshot] {
+        controlNotificationList(limit: nil)
+    }
+
+    func controlNotificationList(limit: Int?) -> [ControlNotificationSnapshot] {
         let notifications = TerminalNotificationStore.shared.notifications
         let tabIDs = Set(notifications.map(\.tabId))
         let tabTitles = Dictionary(uniqueKeysWithValues: tabIDs.compactMap { tabID in
             AppDelegate.shared?.tabTitle(for: tabID).map { (tabID, $0) }
         })
-        return notifications.map {
+        let source: AnySequence<TerminalNotification>
+        if let limit {
+            source = AnySequence(notifications.prefix(limit))
+        } else {
+            source = AnySequence(notifications)
+        }
+        return source.map {
             Self.controlSnapshot($0, cachedTabTitle: tabTitles[$0.tabId])
         }
     }

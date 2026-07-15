@@ -63,7 +63,8 @@ struct AgentNotificationDelivery: Sendable {
         subtitle: String,
         body: String,
         category: AgentNotifyCategory?,
-        pending: Bool
+        pending: Bool,
+        allowWorkspaceFallbackForValidatedSurface: Bool = false
     ) async -> AgentNotificationDeliveryResult {
         if let category,
            !agentNotificationShouldDeliver(
@@ -80,7 +81,8 @@ struct AgentNotificationDelivery: Sendable {
             surfaceId: surfaceID,
             title: title,
             subtitle: subtitle,
-            body: body
+            body: body,
+            allowWorkspaceFallbackForValidatedSurface: allowWorkspaceFallbackForValidatedSurface
         )
         switch result {
         case .accepted:

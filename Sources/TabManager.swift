@@ -5537,6 +5537,28 @@ class TabManager: ObservableObject {
 }
 
 extension TabManager {
+    private struct SessionAutosaveNotificationIndex {
+        private struct Key: Hashable {
+            let tabId: UUID
+            let surfaceId: UUID?
+        }
+
+        private var notificationsByKey: [Key: [TerminalNotification]] = [:]
+
+        init(notifications: TerminalNotificationFeed) {
+            for notification in notifications {
+                notificationsByKey[
+                    Key(tabId: notification.tabId, surfaceId: notification.surfaceId),
+                    default: []
+                ].append(notification)
+            }
+        }
+
+        func notifications(forTabId tabId: UUID, surfaceId: UUID?) -> [TerminalNotification] {
+            notificationsByKey[Key(tabId: tabId, surfaceId: surfaceId)] ?? []
+        }
+    }
+
     func sessionAutosaveFingerprint(
         restorableAgentIndex: RestorableAgentSessionIndex = .empty,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex = .empty
@@ -5545,6 +5567,9 @@ extension TabManager {
         hasher.combine(selectedTabId)
         hasher.combine(tabs.count)
         let notificationStore = AppDelegate.shared?.notificationStore
+        let notificationIndex = notificationStore.map { store in
+            SessionAutosaveNotificationIndex(notifications: store.notifications)
+        }
         // Workspace groups participate in the session snapshot, so changes
         // that only touch group metadata (rename / collapse / pin a group,
         // or move a workspace between groups without reordering tabs) must
@@ -5580,7 +5605,7 @@ extension TabManager {
             hasher.combine(notificationStore?.hasManualUnread(forTabId: workspace.id) ?? false)
             hasher.combine(notificationStore?.workspaceIsUnread(forTabId: workspace.id) ?? false)
             Self.hashNotifications(
-                notificationStore?.notifications(forTabId: workspace.id, surfaceId: nil) ?? [],
+                notificationIndex?.notifications(forTabId: workspace.id, surfaceId: nil) ?? [],
                 into: &hasher
             )
             let panelIds = workspace.panels.keys.sorted { $0.uuidString < $1.uuidString }
@@ -5600,7 +5625,7 @@ extension TabManager {
                     ) ?? false
                 )
                 Self.hashNotifications(
-                    notificationStore?.notifications(forTabId: workspace.id, surfaceId: panelId) ?? [],
+                    notificationIndex?.notifications(forTabId: workspace.id, surfaceId: panelId) ?? [],
                     into: &hasher
                 )
                 Self.hashRestorableAgentSnapshot(

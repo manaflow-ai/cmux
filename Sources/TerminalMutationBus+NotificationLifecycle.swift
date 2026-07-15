@@ -236,6 +236,7 @@ extension TerminalMutationBus {
                 id: notification.id,
                 acceptedAt: notification.acceptedAt,
                 key: notificationKeyFollowingReplacementRoutes(notification.key),
+                allowWorkspaceFallbackForValidatedSurface: notification.allowWorkspaceFallbackForValidatedSurface,
                 title: notification.title,
                 subtitle: notification.subtitle,
                 body: notification.body

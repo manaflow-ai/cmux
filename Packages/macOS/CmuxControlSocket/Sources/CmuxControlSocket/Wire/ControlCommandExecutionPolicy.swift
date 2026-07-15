@@ -358,8 +358,10 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     /// `TerminalController`: parse/format on the worker; `notify_target_async`
     /// and `clear_notifications` are pure mutation-bus enqueues (zero main
     /// hops, hooks nohup them and discard the reply); the synchronous
-    /// notify/list verbs keep one `v2MainSync` hop because their replies
-    /// depend on tab/surface resolution or the delivered store state.
+    /// notify verbs keep one `v2MainSync` hop because their replies depend on
+    /// tab/surface resolution or delivered store state. `list_notifications`
+    /// snapshots on the main actor but formats on the worker and is not safe
+    /// to collapse inline for in-process main-thread callers.
     /// Internal (not private) so the package tests can pin the exact set.
     static let notificationV1Commands: Set<String> = [
         "notify",
@@ -473,13 +475,13 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "report_tty",
         "ports_kick",
         // The v1 notification family (tranche B2): clear_notifications is a
-        // pure bus enqueue; the synchronous verbs are one inline-collapsing
-        // hop each. notify_target_async can wait for bounded queue capacity,
-        // so it must remain on a socket worker.
+        // pure bus enqueue; synchronous notify verbs are one inline-collapsing
+        // hop each. list_notifications formats the full feed and
+        // notify_target_async can wait for bounded queue capacity, so both
+        // remain worker-only.
         "notify",
         "notify_surface",
         "notify_target",
-        "list_notifications",
         "clear_notifications",
         // The v1 resolution reads (tranche D): non-blocking single-hop
         // snapshot reads whose hop collapses inline on a main-thread caller,

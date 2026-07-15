@@ -151,7 +151,8 @@ actor PromptTurnNotificationHandler {
                 defaultValue: "Task completed"
             ),
             category: .turnComplete,
-            pending: false
+            pending: false,
+            allowWorkspaceFallbackForValidatedSurface: true
         )
         if deliveringConfirmationIdentifierByAgentID[agentID] == confirmation.identifier {
             deliveringConfirmationIdentifierByAgentID.removeValue(forKey: agentID)

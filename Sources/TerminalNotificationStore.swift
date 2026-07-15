@@ -20,6 +20,11 @@ private final class TerminalNotificationFeedStorage {
         startOffset = 0
     }
 
+    private init(activeOldestFirst: [TerminalNotification]) {
+        oldestFirst = activeOldestFirst
+        startOffset = 0
+    }
+
     var count: Int {
         oldestFirst.count - startOffset
     }
@@ -31,19 +36,21 @@ private final class TerminalNotificationFeedStorage {
     func appendNewestEvictingOldest(
         _ notification: TerminalNotification,
         compactingAfter maxOffset: Int
-    ) -> TerminalNotification? {
+    ) -> (evicted: TerminalNotification, replacementStorage: TerminalNotificationFeedStorage?)? {
         guard count > 0 else {
             appendNewest(notification)
             return nil
         }
         let evicted = oldestFirst[startOffset]
-        startOffset += 1
-        oldestFirst.append(notification)
-        if startOffset >= maxOffset {
-            oldestFirst.removeFirst(startOffset)
-            startOffset = 0
+        let nextStartOffset = startOffset + 1
+        if nextStartOffset >= maxOffset {
+            var active = Array(oldestFirst[nextStartOffset...])
+            active.append(notification)
+            return (evicted, TerminalNotificationFeedStorage(activeOldestFirst: active))
         }
-        return evicted
+        startOffset = nextStartOffset
+        oldestFirst.append(notification)
+        return (evicted, nil)
     }
 }
 
@@ -283,6 +290,17 @@ final class TerminalNotificationStore: ObservableObject {
     /// refreshes the Mac Dock badge, so every mutation lane is covered.
     static let badgeEventTopic = "notification.badge"
     static let maximumNotificationFeedCount = 20_000
+#if DEBUG
+    static var notificationFeedCompactionOffsetForTesting: Int?
+#endif
+
+    private static var notificationFeedCompactionOffset: Int {
+#if DEBUG
+        notificationFeedCompactionOffsetForTesting ?? maximumNotificationFeedCount
+#else
+        maximumNotificationFeedCount
+#endif
+    }
 
     /// The number of unread notification *entries* — the count the iOS app icon
     /// badge mirrors. The phone's banners mirror notification entries, so its
@@ -1330,15 +1348,18 @@ final class TerminalNotificationStore: ObservableObject {
             return
         }
         if index == 0, notifications.count == Self.maximumNotificationFeedCount,
-           let evicted = notificationFeedStorage.appendNewestEvictingOldest(
+           let eviction = notificationFeedStorage.appendNewestEvictingOldest(
                notification,
-               compactingAfter: Self.maximumNotificationFeedCount
+               compactingAfter: Self.notificationFeedCompactionOffset
            ) {
-            externalBannerOwnership.clear(id: evicted.id)
+            if let replacementStorage = eviction.replacementStorage {
+                notificationFeedStorage = replacementStorage
+            }
+            externalBannerOwnership.clear(id: eviction.evicted.id)
             notificationFeedRevision &+= 1
             notificationFeedDidChange(
                 oldValue: nil,
-                mutation: .insertionEvicting(inserted: notification, evicted: evicted)
+                mutation: .insertionEvicting(inserted: notification, evicted: eviction.evicted)
             )
             return
         }
