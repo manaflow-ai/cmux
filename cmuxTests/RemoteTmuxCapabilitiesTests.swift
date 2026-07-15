@@ -7,8 +7,8 @@ import Testing
 @testable import cmux
 #endif
 
-@MainActor
 @Suite struct RemoteTmuxCapabilitiesTests {
+    @MainActor
     private func response(for method: String) throws -> [String: Any] {
         let request = #"{"jsonrpc":"2.0","id":1,"method":"\#(method)","params":{}}"#
         let responseText = TerminalController.shared.handleSocketLine(request)
@@ -16,12 +16,14 @@ import Testing
         return try #require(JSONSerialization.jsonObject(with: responseData) as? [String: Any])
     }
 
+    @MainActor
     private func advertisedMethods() throws -> Set<String> {
         let response = try response(for: "system.capabilities")
         let result = try #require(response["result"] as? [String: Any])
         return Set(try #require(result["methods"] as? [String]))
     }
 
+    @MainActor
     @Test func systemCapabilitiesAdvertisesRemoteTmuxMethods() throws {
         let advertisedMethods = try advertisedMethods()
 
@@ -35,6 +37,7 @@ import Testing
         ].allSatisfy { advertisedMethods.contains($0) })
     }
 
+    @MainActor
     @Test func systemCapabilitiesAgreeWithDispatchForTerminalHierarchyMutations() throws {
         let advertisedMethods = try advertisedMethods()
 
@@ -70,6 +73,9 @@ import Testing
         let error = try #require(response["error"] as? [String: Any])
         let code = try #require(error["code"] as? String)
 
-        #expect(code == "disabled" || code == "invalid_params")
+        #expect(
+            code == "disabled" || code == "invalid_params",
+            "Expected a network-free guard for \(method), got \(code)"
+        )
     }
 }
