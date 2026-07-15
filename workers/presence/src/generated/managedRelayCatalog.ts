@@ -3,7 +3,7 @@
  *
  * Fleet rotations are add-before-remove. Bump sequence and add first, deploy
  * both server consumers, wait one signed-policy lifetime, then bump sequence
- * again and remove. Run scripts/generate-managed-iroh-relay-catalog.ts after
+ * again and remove. Run web/tools/generate-managed-iroh-relay-catalog.ts after
  * every edit. Signing keys and relay credentials never belong in this file.
  */
 export const MANAGED_IROH_RELAY_CATALOG = {
