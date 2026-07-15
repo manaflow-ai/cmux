@@ -199,7 +199,10 @@ extension Workspace {
             let previousValue = suppressRemoteTerminalStartupForSessionRestoreScaffold
             suppressRemoteTerminalStartupForSessionRestoreScaffold = true
             defer { suppressRemoteTerminalStartupForSessionRestoreScaffold = previousValue }
-            return restoreSessionLayout(snapshot.layout)
+            return restoreSessionLayout(
+                snapshot.layout,
+                replacingExistingPanes: restoringRemoteRuntime
+            )
         }()
         var oldToNewPanelIds: [UUID: UUID] = [:]
 
@@ -1086,14 +1089,31 @@ extension Workspace {
     }
 #endif
 
-    private func restoreSessionLayout(_ layout: SessionWorkspaceLayoutSnapshot) -> [SessionPaneRestoreEntry] {
+    private func restoreSessionLayout(
+        _ layout: SessionWorkspaceLayoutSnapshot,
+        replacingExistingPanes: Bool
+    ) -> [SessionPaneRestoreEntry] {
         guard let rootPaneId = bonsplitController.allPaneIds.first else {
             return []
+        }
+
+        if replacingExistingPanes {
+            collapseSessionRestoreLayout(keeping: rootPaneId)
         }
 
         var leaves: [SessionPaneRestoreEntry] = []
         restoreSessionLayoutNode(layout, inPane: rootPaneId, leaves: &leaves)
         return leaves
+    }
+
+    private func collapseSessionRestoreLayout(keeping rootPaneId: PaneID) {
+        let stalePaneIds = bonsplitController.allPaneIds.filter { $0 != rootPaneId }
+        for paneId in stalePaneIds.reversed() {
+            let forcedTabIds = bonsplitController.tabs(inPane: paneId).map(\.id)
+            forceCloseTabIds.formUnion(forcedTabIds)
+            _ = bonsplitController.closePane(paneId)
+            forceCloseTabIds.subtract(forcedTabIds)
+        }
     }
 
     private func restoreSessionLayoutNode(

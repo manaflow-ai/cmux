@@ -320,5 +320,16 @@ func persistRuntimeStateDocumentWithFileSystem(
 	if err := fileSystem.Rename(temporaryPath, path); err != nil {
 		return fmt.Errorf("install runtime state: %w", err)
 	}
+	directory, err := fileSystem.OpenDirectory(filepath.Dir(path))
+	if err != nil {
+		return fmt.Errorf("open runtime state directory: %w", err)
+	}
+	if err := directory.Sync(); err != nil {
+		_ = directory.Close()
+		return fmt.Errorf("sync runtime state directory: %w", err)
+	}
+	if err := directory.Close(); err != nil {
+		return fmt.Errorf("close runtime state directory: %w", err)
+	}
 	return nil
 }
