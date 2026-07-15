@@ -246,6 +246,24 @@ check_screen_oracle() {
     note_fail "$iter" "text oracle found no on-screen mirrored pane"
     return
   fi
+  # The app chooses which panes it is presenting, so it also chooses this
+  # oracle's coverage — a pane the app quietly omitted would drop out of the
+  # comparison and the run would still read green. Hold the app to tmux's own
+  # census: every window with an on-screen pane is the VISIBLE window, so tmux's
+  # full pane list for it must be on screen. A missing pane is the app failing to
+  # render a pane of the visible window, which is a defect, not less coverage.
+  for window in $(printf '%s' "$PANE_SURFACES_JSON" | jq -r '
+    [.panes[]? | select(.on_screen == true) | .window_id] | unique[]
+  ' 2>/dev/null); do
+    tmux_panes=$(t list-panes -t "$window" -F '#{pane_id}' 2>/dev/null | sort) || continue
+    app_panes=$(printf '%s' "$PANE_SURFACES_JSON" | jq -r --arg w "$window" '
+      .panes[]? | select(.window_id == $w and .on_screen == true) | .pane_id
+    ' 2>/dev/null | sort)
+    missing=$(comm -23 <(printf '%s\n' "$tmux_panes") <(printf '%s\n' "$app_panes") | tr '\n' ' ')
+    if [ -n "${missing// /}" ]; then
+      note_fail "$iter" "visible $window: tmux panes [$missing] are not on screen in the app (coverage would silently drop them)"
+    fi
+  done
   checked=0
   while IFS= read -r pane; do
     [ -n "$pane" ] || continue
@@ -305,7 +323,13 @@ fi
 FUZZ_SERVER_OWNED=1
 cat > "$RULER" <<'EOF'
 #!/bin/sh
+# Every line carries this pane's OWN id (tmux exports TMUX_PANE into the pane's
+# environment) as well as its size. Without the id, two panes of equal
+# dimensions print byte-identical screens, so a comparison that read the wrong
+# pane's surface would pass — which is exactly how a broken text oracle stayed
+# green. With the id, a wrong surface can never alias a right one.
 unset COLUMNS LINES
+id=${TMUX_PANE:-%?}
 while :; do
   sz=$(stty size 2>/dev/null); rows=${sz%% *}; cols=${sz##* }
   [ -n "$rows" ] || rows=24; [ -n "$cols" ] || cols=80
@@ -313,10 +337,10 @@ while :; do
   printf '\033[2J\033[H'
   r=1
   while [ "$r" -lt "$rows" ]; do
-    printf '%s\n' "$(printf '%03dx%03d %s' "$cols" "$rows" "$base" | cut -c1-"$cols")"
+    printf '%s\n' "$(printf '%s %03dx%03d %s' "$id" "$cols" "$rows" "$base" | cut -c1-"$cols")"
     r=$((r+1))
   done
-  printf 'END %03dx%03d' "$cols" "$rows"
+  printf 'END %s %03dx%03d' "$id" "$cols" "$rows"
   sleep 2
 done
 EOF

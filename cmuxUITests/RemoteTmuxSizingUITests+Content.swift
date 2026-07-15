@@ -14,33 +14,83 @@ extension RemoteTmuxSizingUITests {
     // MARK: content probe
 
     /// Starts a full-screen ruler in a pane: every 2 seconds it clears the
-    /// screen and prints one `<cols>x<rows> 0123456789…` line per row (to the
-    /// exact width) plus an `END <cols>x<rows>` last line. Any divergence
-    /// between the mirror and tmux — stale content, a clipped row, a wrong
-    /// grid — shows up as plain text inequality. Same probe the live fuzz
-    /// runs; the printed size is the PTY's own view (`stty size`), so a pane
-    /// that was resized reprints at the new size within a cycle.
+    /// screen and prints one `%<id> <cols>x<rows> 0123456789…` line per row (to
+    /// the exact width) plus an `END %<id> <cols>x<rows>` last line. Any
+    /// divergence between the mirror and tmux — stale content, a clipped row, a
+    /// wrong grid — shows up as plain text inequality. Same probe the live fuzz
+    /// runs; the printed size is the PTY's own view (`stty size`), so a pane that
+    /// was resized reprints at the new size within a cycle.
+    ///
+    /// Every line carries the pane's OWN id (tmux exports `TMUX_PANE` into the
+    /// pane's environment). Without it, two panes of equal dimensions print
+    /// byte-identical screens, so a comparison that read the wrong pane's surface
+    /// would pass — which is exactly how a broken text oracle stayed green.
     func startRuler(pane: String) {
         let ruler = """
-        unset COLUMNS LINES; while :; do sz=$(stty size 2>/dev/null); \
+        unset COLUMNS LINES; id=${TMUX_PANE:-%?}; while :; do sz=$(stty size 2>/dev/null); \
         r=${sz%% *}; c=${sz##* }; [ -n "$r" ] || r=24; [ -n "$c" ] || c=80; \
         base=$(printf '%0.s0123456789' $(seq 1 400)); printf '\\033[2J\\033[H'; \
         i=1; while [ "$i" -lt "$r" ]; do printf '%s\\n' \
-        "$(printf '%03dx%03d %s' "$c" "$r" "$base" | cut -c1-"$c")"; \
-        i=$((i+1)); done; printf 'END %03dx%03d' "$c" "$r"; sleep 2; done
+        "$(printf '%s %03dx%03d %s' "$id" "$c" "$r" "$base" | cut -c1-"$c")"; \
+        i=$((i+1)); done; printf 'END %s %03dx%03d' "$id" "$c" "$r"; sleep 2; done
         """
-        _ = tmux(["send-keys", "-t", pane, ruler, "Enter"])
+        XCTAssertNotNil(
+            tmux(["send-keys", "-t", pane, ruler, "Enter"]),
+            "could not start the ruler in \(pane): \(lastTmuxFailure ?? "?")"
+        )
     }
 
-    /// Starts the ruler in every pane of a tmux window.
+    /// Starts the ruler in every pane of a tmux window and waits until each one is
+    /// actually PRINTING it.
+    ///
+    /// A discarded `send-keys` failure would leave the pane showing its idle shell
+    /// prompt — which the mirror renders faithfully, so every content assertion
+    /// would pass while testing nothing. Requiring the marker in tmux's own capture
+    /// makes the probe's presence a precondition rather than an assumption.
     func startRulers(window: Int) throws {
         let out = try XCTUnwrap(
             tmux(["list-panes", "-t", "\(sessionName):@\(window)", "-F", "#{pane_id}"]),
             "cannot list panes of @\(window): \(lastTmuxFailure ?? "?")"
         )
-        for pane in out.split(separator: "\n") {
-            startRuler(pane: String(pane))
+        let panes = out.split(separator: "\n").map(String.init)
+        XCTAssertFalse(panes.isEmpty, "@\(window) reported no panes to run the ruler in")
+        for pane in panes {
+            startRuler(pane: pane)
         }
+        for pane in panes {
+            let deadline = Date().addingTimeInterval(10)
+            var last = "never captured"
+            var running = false
+            while Date() < deadline {
+                if let screen = captureRemoteScreen(pane: pane) {
+                    last = screen.split(separator: "\n").first.map(String.init) ?? "<empty>"
+                    // The ruler's own output, not a shell echoing the command line:
+                    // its lines start with the pane id and carry the size marker.
+                    if screen.contains("END \(pane) ") {
+                        running = true
+                        break
+                    }
+                }
+                Thread.sleep(forTimeInterval: 0.3)
+            }
+            XCTAssertTrue(
+                running,
+                "the ruler never printed in \(pane) — every content assertion would "
+                    + "pass against an idle shell instead (last capture: \(last))"
+            )
+        }
+    }
+
+    /// Runs a tmux command that a scenario DEPENDS on and fails the test if it
+    /// did not run. A discarded failure here is worse than a red: the churn the
+    /// scenario exists to create never happens, the content still matches, and the
+    /// test reports green while exercising nothing.
+    func mustRunTmux(_ args: [String], _ what: String) {
+        XCTAssertNotNil(
+            tmux(args),
+            "\(what) failed, so the scenario never created the state it asserts on: "
+                + "\(lastTmuxFailure ?? "?")"
+        )
     }
 
     /// Trailing-whitespace/blank-line normalization, matching the fuzz's
@@ -247,9 +297,9 @@ extension RemoteTmuxSizingUITests {
         try waitWindowSizeStable(window: solo, within: 10, context: "solo before churn")
         try startRulers(window: solo)
         try assertWindowContentMatchesTmux(window: solo, context: "solo before churn")
-        _ = tmux(["resize-window", "-t", "\(sessionName):@\(solo)", "-x", "99", "-y", "35"])
+        mustRunTmux(["resize-window", "-t", "\(sessionName):@\(solo)", "-x", "99", "-y", "35"], "shrinking solo from the tmux side")
         Thread.sleep(forTimeInterval: 1.0)
-        _ = tmux(["resize-window", "-t", "\(sessionName):@\(solo)", "-x", "140", "-y", "40"])
+        mustRunTmux(["resize-window", "-t", "\(sessionName):@\(solo)", "-x", "140", "-y", "40"], "growing solo from the tmux side")
         try waitWindowSizeStable(window: solo, within: 10, context: "solo after churn")
         try assertWindowContentMatchesTmux(window: solo, context: "solo after churn")
     }
@@ -274,7 +324,7 @@ extension RemoteTmuxSizingUITests {
                 .split(separator: "\n").first.map(String.init),
             "no panes in split window"
         )
-        _ = tmux(["resize-pane", "-Z", "-t", firstPane])
+        mustRunTmux(["resize-pane", "-Z", "-t", firstPane], "toggling zoom")
         // Zoomed: only the one leaf is visible, so the base-layout coherence
         // check assertSettles runs does not apply (the hidden panes' widths
         // do not sum to the window). Wait for size stability, then let content
@@ -283,7 +333,7 @@ extension RemoteTmuxSizingUITests {
         if let failure = paneContentFailure(pane: firstPane) {
             XCTFail("\(failure) while zoomed")
         }
-        _ = tmux(["resize-pane", "-Z", "-t", firstPane])
+        mustRunTmux(["resize-pane", "-Z", "-t", firstPane], "toggling zoom")
         try assertSettles(selectedWindow: split, within: 10, context: "split unzoomed")
         try assertWindowContentMatchesTmux(window: split, context: "after unzoom")
     }
@@ -308,7 +358,7 @@ extension RemoteTmuxSizingUITests {
             "no panes in split"
         )
         while panes.count > 1 {
-            _ = tmux(["kill-pane", "-t", panes.removeLast()])
+            mustRunTmux(["kill-pane", "-t", panes.removeLast()], "killing a pane to collapse the window")
             Thread.sleep(forTimeInterval: 0.5)
         }
         try waitWindowSizeStable(window: split, within: 10, context: "split collapsed")
@@ -335,9 +385,9 @@ extension RemoteTmuxSizingUITests {
         // Bring split to the front; churn solo while it is hidden.
         XCTAssertTrue(selectTab(named: "split"), "could not select split tab")
         try assertSettles(selectedWindow: split, within: 10, context: "split front")
-        _ = tmux(["resize-window", "-t", "\(sessionName):@\(solo)", "-x", "80", "-y", "24"])
+        mustRunTmux(["resize-window", "-t", "\(sessionName):@\(solo)", "-x", "80", "-y", "24"], "shrinking solo while hidden")
         Thread.sleep(forTimeInterval: 1.0)
-        _ = tmux(["resize-window", "-t", "\(sessionName):@\(solo)", "-x", "150", "-y", "42"])
+        mustRunTmux(["resize-window", "-t", "\(sessionName):@\(solo)", "-x", "150", "-y", "42"], "growing solo while hidden")
         // Reveal and require parity.
         XCTAssertTrue(selectTab(named: "solo"), "could not select solo tab")
         try waitWindowSizeStable(window: solo, within: 10, context: "solo revealed")

@@ -37,22 +37,34 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
     /// windows have no mirror (so they never appear in ``sizingSnapshots()``).
     /// Backs `remote.tmux.pane_surfaces`.
     func paneSurfaceEntries() -> [[String: Any]] {
-        var entries: [(windowId: Int, paneId: Int, surfaceId: UUID, onScreen: Bool)] = []
+        // `windowIdByPane` is the session's authoritative ownership (mirrored from
+        // the connection's published map, which drops a window's stale panes when
+        // that window republishes). Attribute every pane through it, and key the
+        // result BY PANE: a `join-pane`/`swap-pane` in flight can leave the source
+        // window still holding the pane in its own mirror until its reconcile runs,
+        // so scanning published trees would report the pane twice — or pick the
+        // stale window's frozen surface, whichever came first in dictionary order.
+        var byPane: [Int: (windowId: Int, surfaceId: UUID, onScreen: Bool)] = [:]
         for (windowId, mirror) in windowMirrorByWindowId {
-            for (paneId, panel) in mirror.panelsByPaneId {
-                entries.append((windowId, paneId, panel.id, Self.isOnScreen(panel)))
+            for (paneId, panel) in mirror.panelsByPaneId
+            where windowIdByPane[paneId] == windowId {
+                byPane[paneId] = (windowId, panel.id, Self.isOnScreen(panel))
             }
         }
-        // Single-pane windows: the window's display panel IS the pane's surface.
-        // A window with a mirror is covered above; skip it so a pane cannot be
-        // reported twice across an ownership handoff.
+        // Single-pane windows: the window's display panel IS the pane's surface,
+        // and they have no mirror — so they appear in no other introspection verb.
         for (paneId, panelId) in panelIdByPane {
-            guard let windowId = windowIdForPane(paneId),
-                  windowMirrorByWindowId[windowId] == nil else { continue }
+            guard let windowId = windowIdByPane[paneId],
+                  windowMirrorByWindowId[windowId] == nil,
+                  byPane[paneId] == nil else { continue }
             let panel = workspace?.panels[panelId] as? TerminalPanel
-            entries.append((windowId, paneId, panelId, panel.map(Self.isOnScreen) ?? false))
+            byPane[paneId] = (windowId, panelId, panel.map(Self.isOnScreen) ?? false)
         }
-        return entries
+        return byPane
+            .map { paneId, entry in
+                (windowId: entry.windowId, paneId: paneId,
+                 surfaceId: entry.surfaceId, onScreen: entry.onScreen)
+            }
             .sorted { ($0.windowId, $0.paneId) < ($1.windowId, $1.paneId) }
             .map { [
                 "window_id": "@\($0.windowId)",
@@ -76,15 +88,6 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
             && view.window?.isVisible == true
     }
 
-    /// The tmux window holding `paneId`, from the connection's published
-    /// topology (the same trees the mirrors render).
-    private func windowIdForPane(_ paneId: Int) -> Int? {
-        for (windowId, window) in connection.windowsByID
-        where window.paneIDsInOrder.contains(paneId) {
-            return windowId
-        }
-        return nil
-    }
 
     /// Re-titles the mirror's sidebar workspace to track a remote session rename
     /// (the reverse of the cmux→tmux `rename-session` push). Uses TabManager's
