@@ -34,10 +34,13 @@ extension Workspace {
     ) async {
         guard remoteSessionTransitionID == id else { return }
         let cleanupOwners = remoteSessionCleanupControllers
-        var sameIdentityCleanupFailed = false
+        var blockingCleanupFailed = false
         for (controllerID, owner) in cleanupOwners {
             let hasSamePersistentIdentity = targetConfiguration.map {
                 owner.configuration.hasSamePersistentPTYIdentity(as: $0)
+            } == true
+            let hasConflictingRelayResources = targetConfiguration.map {
+                owner.configuration.hasSameRemoteRelayNamespace(as: $0)
             } == true
             let cleanupScope: RemoteRelayCleanupScope
             if targetConfiguration != nil {
@@ -64,8 +67,8 @@ extension Workspace {
                 remoteSessionCleanupControllers.removeValue(forKey: controllerID)
             }
             guard remoteSessionTransitionID == id else { return }
-            if hasSamePersistentIdentity, !succeeded {
-                sameIdentityCleanupFailed = true
+            if !succeeded, hasSamePersistentIdentity || hasConflictingRelayResources {
+                blockingCleanupFailed = true
             }
         }
 
@@ -79,7 +82,7 @@ extension Workspace {
               remoteConfiguration == targetConfiguration else {
             return
         }
-        guard !sameIdentityCleanupFailed else {
+        guard !blockingCleanupFailed else {
             remoteConnectionState = .error
             applyBrowserRemoteWorkspaceStatusToPanels()
             postRemoteConnectionPresentationDidChange()

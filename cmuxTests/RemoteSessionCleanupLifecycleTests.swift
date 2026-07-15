@@ -155,6 +155,59 @@ struct RemoteSessionCleanupLifecycleTests {
     }
 
     @Test
+    func failedDifferentIdentityCleanupOnSameRelayPreventsReplacementStartup() async throws {
+        let runner = CleanupLifecycleRecordingRunner(cleanupStatuses: [0, 1])
+        let workspace = Workspace()
+        workspace.remoteSessionProcessRunnerOverrideForTesting = runner
+        let configurationA = Self.configuration(slot: "ssh-lifecycle-a", relayPort: 64_007)
+        let configurationB = Self.configuration(slot: "ssh-lifecycle-b", relayPort: 64_007)
+        workspace.configureRemoteConnection(configurationA, autoConnect: true)
+        _ = try #require(await Self.nextBootstrapRequest(runner))
+        await workspace.remoteSessionTransitionTask?.value
+        let requestsBeforeReplacement = runner.nonCleanupRequestCount
+
+        workspace.configureRemoteConnection(configurationB, autoConnect: true)
+        let transportCleanup = try #require(await Self.nextCleanupCommand(runner))
+        let persistentCleanup = try #require(await Self.nextCleanupCommand(runner))
+        await workspace.remoteSessionTransitionTask?.value
+
+        #expect(!transportCleanup.contains("serve --persistent-stop --slot"))
+        #expect(persistentCleanup.contains("serve --persistent-stop --slot"))
+        #expect(persistentCleanup.contains("'ssh-lifecycle-a'"))
+        #expect(runner.nonCleanupRequestCount == requestsBeforeReplacement)
+        #expect(workspace.remoteSessionController == nil)
+        #expect(workspace.remoteSessionCleanupControllers.count == 1)
+        #expect(workspace.remoteConnectionState == .error)
+    }
+
+    @Test
+    func failedDifferentIdentityCleanupOnIndependentRelayAllowsReplacementStartup() async throws {
+        let runner = CleanupLifecycleRecordingRunner(cleanupStatuses: [0, 1])
+        let workspace = Workspace()
+        workspace.remoteSessionProcessRunnerOverrideForTesting = runner
+        let configurationA = Self.configuration(slot: "ssh-lifecycle-a", relayPort: 64_007)
+        let configurationB = Self.configuration(slot: "ssh-lifecycle-b", relayPort: 64_008)
+        workspace.configureRemoteConnection(configurationA, autoConnect: true)
+        _ = try #require(await Self.nextBootstrapRequest(runner))
+        await workspace.remoteSessionTransitionTask?.value
+        let requestsBeforeReplacement = runner.nonCleanupRequestCount
+
+        workspace.configureRemoteConnection(configurationB, autoConnect: true)
+        let transportCleanup = try #require(await Self.nextCleanupCommand(runner))
+        let persistentCleanup = try #require(await Self.nextCleanupCommand(runner))
+        _ = try #require(await Self.nextBootstrapRequest(runner))
+        await workspace.remoteSessionTransitionTask?.value
+
+        #expect(!transportCleanup.contains("serve --persistent-stop --slot"))
+        #expect(persistentCleanup.contains("serve --persistent-stop --slot"))
+        #expect(persistentCleanup.contains("'ssh-lifecycle-a'"))
+        #expect(runner.nonCleanupRequestCount > requestsBeforeReplacement)
+        #expect(workspace.remoteSessionController != nil)
+        #expect(workspace.remoteSessionCleanupControllers.count == 1)
+        #expect(workspace.remoteConfiguration == configurationB.scopedToOwnerWorkspace(workspace.id))
+    }
+
+    @Test
     func nonpersistentDisconnectDoesNotRetainStoppedController() async throws {
         let runner = CleanupLifecycleRecordingRunner()
         let workspace = Workspace()
