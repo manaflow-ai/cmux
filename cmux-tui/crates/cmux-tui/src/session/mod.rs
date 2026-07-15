@@ -41,6 +41,12 @@ pub(crate) fn is_remote_timeout(error: &anyhow::Error) -> bool {
         .is_some_and(remote::RemoteRequestError::is_timeout)
 }
 
+pub(crate) fn is_remote_retryable(error: &anyhow::Error) -> bool {
+    error
+        .downcast_ref::<remote::RemoteRequestError>()
+        .is_some_and(remote::RemoteRequestError::is_retryable)
+}
+
 #[cfg(test)]
 pub(crate) fn test_remote_timeout_error() -> anyhow::Error {
     remote::RemoteRequestError::Timeout.into()
@@ -702,12 +708,20 @@ impl SurfaceHandle {
             }
             SurfaceHandle::Remote(surface, session) => {
                 if resize_action(desired, surface.asserted_size(), surface.server_size(), false) {
-                    session.request(json!({
+                    let response = session.request(json!({
                         "cmd": "resize-surface",
                         "surface": surface.id,
                         "cols": desired.0,
                         "rows": desired.1,
                     }))?;
+                    if response.get("accepted").and_then(serde_json::Value::as_bool) == Some(false)
+                        && surface.server_size() != desired
+                    {
+                        return Err(remote::RemoteRequestError::Retryable(
+                            "browser resize is waiting for retry".to_string(),
+                        )
+                        .into());
+                    }
                     surface.set_asserted_size(desired);
                 }
                 Ok(())
@@ -741,12 +755,20 @@ impl SurfaceHandle {
             }
             SurfaceHandle::Remote(surface, session) => {
                 if resize_action(desired, surface.asserted_size(), surface.server_size(), true) {
-                    session.request(json!({
+                    let response = session.request(json!({
                         "cmd": "resize-surface",
                         "surface": surface.id,
                         "cols": desired.0,
                         "rows": desired.1,
                     }))?;
+                    if response.get("accepted").and_then(serde_json::Value::as_bool) == Some(false)
+                        && surface.server_size() != desired
+                    {
+                        return Err(remote::RemoteRequestError::Retryable(
+                            "browser resize is waiting for retry".to_string(),
+                        )
+                        .into());
+                    }
                 }
                 surface.set_asserted_size(desired);
                 Ok(())

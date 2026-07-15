@@ -107,7 +107,8 @@ struct BrowserState {
     pane_pixels: (u32, u32),
     capture_pixels: (u32, u32),
     capture_scale: f64,
-    pending_reconfigure: Option<(u32, u32)>,
+    pending_reconfigure: Option<BrowserGeometry>,
+    reconfigure_failure: Option<BrowserReconfigureFailure>,
     page_viewport: Option<(u32, u32)>,
     status: BrowserStatus,
     source: Option<BrowserSource>,
@@ -116,6 +117,21 @@ struct BrowserState {
     last_frame_at: Option<Instant>,
     stall_nudged: bool,
     not_responding_reported: bool,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+struct BrowserGeometry {
+    size: (u16, u16),
+    pane_pixels: (u32, u32),
+    capture_pixels: (u32, u32),
+    capture_scale: f64,
+}
+
+#[derive(Clone, Copy)]
+struct BrowserReconfigureFailure {
+    geometry: BrowserGeometry,
+    attempts: u8,
+    retry_at: Option<Instant>,
 }
 
 enum BrowserCommand {
@@ -221,6 +237,8 @@ const DEFAULT_CAPTURE_MEGAPIXELS: f64 = TRANSPORT_SAFE_CAPTURE_MEGAPIXELS;
 const STALL_THRESHOLD: Duration = Duration::from_secs(2);
 const BROWSER_COMMAND_QUEUE_CAPACITY: usize = 64;
 const BROWSER_NOT_RESPONDING_MESSAGE: &str = "browser is not responding";
+const BROWSER_RECONFIGURE_RETRY_DELAYS: [Duration; 2] =
+    [Duration::from_millis(250), Duration::from_millis(500)];
 
 impl BrowserRuntime {
     pub fn connect(opts: &SurfaceOptions) -> anyhow::Result<Arc<Self>> {
@@ -396,6 +414,7 @@ pub(crate) fn new_surface(
             capture_pixels,
             capture_scale,
             pending_reconfigure: None,
+            reconfigure_failure: None,
             page_viewport: None,
             status: BrowserStatus::Starting,
             source: None,
@@ -440,6 +459,15 @@ impl BrowserCaptureOptions {
             .browser_capture_scale
             .filter(|scale| scale.is_finite() && *scale > 0.0 && *scale <= 1.0);
         BrowserCaptureOptions { max_capture_megapixels, fixed_capture_scale }
+    }
+}
+
+fn browser_geometry_locked(state: &BrowserState) -> BrowserGeometry {
+    BrowserGeometry {
+        size: state.size,
+        pane_pixels: state.pane_pixels,
+        capture_pixels: state.capture_pixels,
+        capture_scale: state.capture_scale,
     }
 }
 
@@ -762,6 +790,10 @@ fn run_browser_worker_command(
 ) {
     let is_input = command.is_input();
     let is_reconfigure = matches!(command, BrowserCommand::Reconfigure { .. });
+    let reconfigure_size = match &command {
+        BrowserCommand::Reconfigure { cols, rows } => Some((*cols, *rows)),
+        _ => None,
+    };
     let mut resize_changed = false;
     let result = {
         let Some(browser) = surface.as_browser() else {
@@ -813,6 +845,20 @@ fn run_browser_worker_command(
     {
         let (cols, rows) = surface.size();
         mux.emit(MuxEvent::SurfaceResized { surface: id, cols, rows });
+    }
+    if let Some((cols, rows)) = reconfigure_size
+        && let Err(error) = &result
+        && let Some(browser) = surface.as_browser()
+        && let Some((_, retry_delay)) = browser.fail_reconfigure((cols, rows))
+        && let Some(mux) = mux.upgrade()
+    {
+        mux.emit(MuxEvent::SurfaceResizeFailed {
+            surface: id,
+            cols,
+            rows,
+            error: Arc::<str>::from(error.to_string()),
+            retry_after_ms: retry_delay.map(|delay| delay.as_millis() as u64),
+        });
     }
     record_browser_worker_result(surface, mux, id, is_input, result, failures);
 }
@@ -981,37 +1027,55 @@ impl BrowserSurface {
     }
 
     fn update_resize_state(&self, cols: u16, rows: u16) -> Option<(u32, u32)> {
-        let (cols, rows) = (cols.max(1), rows.max(1));
-        let cell = *self.cell_pixels.lock().unwrap();
-        let pixel_w = cols as u32 * cell.0.max(1) as u32;
-        let pixel_h = rows as u32 * cell.1.max(1) as u32;
+        let geometry = self.resize_geometry(cols, rows);
         let mut state = self.state.lock().unwrap();
-        let capture_scale = capture_scale_for(pixel_w, pixel_h, self.capture_options);
-        let capture_pixels = scaled_pixels(pixel_w, pixel_h, capture_scale);
-        let unchanged = state.size == (cols, rows)
-            && state.pane_pixels == (pixel_w, pixel_h)
-            && state.capture_pixels == capture_pixels;
-        state.size = (cols, rows);
-        state.pane_pixels = (pixel_w, pixel_h);
-        state.capture_pixels = capture_pixels;
-        state.capture_scale = capture_scale;
-        if !unchanged {
-            state.live_since = Some(Instant::now());
-            state.last_frame_at = None;
-            state.stall_nudged = false;
+        let unchanged = browser_geometry_locked(&state) == geometry;
+        if unchanged && state.pending_reconfigure.is_none() {
+            return None;
         }
-        if unchanged {
-            return state.pending_reconfigure;
+        if state.reconfigure_failure.is_some_and(|failure| failure.geometry != geometry) {
+            state.reconfigure_failure = None;
         }
-        state.pending_reconfigure = Some(capture_pixels);
-        Some(capture_pixels)
+        state.pending_reconfigure = Some(geometry);
+        Some(geometry.capture_pixels)
     }
 
     fn confirm_reconfigure(&self, width: u32, height: u32) {
         let mut state = self.state.lock().unwrap();
-        if state.pending_reconfigure == Some((width, height)) {
-            state.pending_reconfigure = None;
+        let Some(geometry) =
+            state.pending_reconfigure.filter(|geometry| geometry.capture_pixels == (width, height))
+        else {
+            return;
+        };
+        let changed = browser_geometry_locked(&state) != geometry;
+        state.pending_reconfigure = None;
+        state.reconfigure_failure = None;
+        state.size = geometry.size;
+        state.pane_pixels = geometry.pane_pixels;
+        state.capture_pixels = geometry.capture_pixels;
+        state.capture_scale = geometry.capture_scale;
+        if changed {
+            state.live_since = Some(Instant::now());
+            state.last_frame_at = None;
+            state.stall_nudged = false;
         }
+    }
+
+    fn fail_reconfigure(&self, desired: (u16, u16)) -> Option<(u8, Option<Duration>)> {
+        let mut state = self.state.lock().unwrap();
+        let geometry = state.pending_reconfigure.filter(|geometry| geometry.size == desired)?;
+        state.pending_reconfigure = None;
+        let attempts = state
+            .reconfigure_failure
+            .filter(|failure| failure.geometry == geometry)
+            .map_or(1, |failure| failure.attempts.saturating_add(1));
+        let retry_delay = BROWSER_RECONFIGURE_RETRY_DELAYS.get(usize::from(attempts - 1)).copied();
+        state.reconfigure_failure = Some(BrowserReconfigureFailure {
+            geometry,
+            attempts,
+            retry_at: retry_delay.map(|delay| Instant::now() + delay),
+        });
+        Some((attempts, retry_delay))
     }
 
     fn reconfigure_blocking(&self, width: u32, height: u32) -> anyhow::Result<()> {
@@ -1023,17 +1087,36 @@ impl BrowserSurface {
     }
 
     pub(crate) fn resize_needed(&self, cols: u16, rows: u16) -> bool {
+        let geometry = self.resize_geometry(cols, rows);
+        let mut state = self.state.lock().unwrap();
+        if state.reconfigure_failure.is_some_and(|failure| failure.geometry != geometry) {
+            state.reconfigure_failure = None;
+        }
+        if state.pending_reconfigure == Some(geometry) {
+            return false;
+        }
+        if let Some(failure) = state.reconfigure_failure
+            && failure.geometry == geometry
+            && failure.retry_at.is_none_or(|retry_at| Instant::now() < retry_at)
+        {
+            return false;
+        }
+        browser_geometry_locked(&state) != geometry || state.pending_reconfigure.is_some()
+    }
+
+    fn resize_geometry(&self, cols: u16, rows: u16) -> BrowserGeometry {
         let (cols, rows) = (cols.max(1), rows.max(1));
         let cell = *self.cell_pixels.lock().unwrap();
         let pixel_w = cols as u32 * cell.0.max(1) as u32;
         let pixel_h = rows as u32 * cell.1.max(1) as u32;
         let capture_scale = capture_scale_for(pixel_w, pixel_h, self.capture_options);
         let capture_pixels = scaled_pixels(pixel_w, pixel_h, capture_scale);
-        let state = self.state.lock().unwrap();
-        state.pending_reconfigure.is_some()
-            || state.size != (cols, rows)
-            || state.pane_pixels != (pixel_w, pixel_h)
-            || state.capture_pixels != capture_pixels
+        BrowserGeometry {
+            size: (cols, rows),
+            pane_pixels: (pixel_w, pixel_h),
+            capture_pixels,
+            capture_scale,
+        }
     }
 
     pub fn attach_frames(&self) -> (BrowserAttachState, BrowserFrameStream) {
@@ -2419,6 +2502,30 @@ mod tests {
         assert!(browser.reconfigure_resize_blocking(10, 5).unwrap());
         assert!(!browser.resize_needed(10, 5));
         assert!(!browser.reconfigure_resize_blocking(10, 5).unwrap());
+    }
+
+    #[test]
+    fn browser_resize_failure_retries_are_bounded_and_new_sizes_cancel_the_latch() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+
+        for attempt in 1..=3 {
+            browser.update_resize_state(11, 5).expect("resize must enter pending state");
+            let (recorded_attempt, retry_delay) =
+                browser.fail_reconfigure((11, 5)).expect("pending resize failure must be recorded");
+            assert_eq!(recorded_attempt, attempt);
+            assert_eq!(retry_delay.is_some(), attempt < 3);
+            assert!(!browser.resize_needed(11, 5));
+            if attempt < 3 {
+                browser.state.lock().unwrap().reconfigure_failure.as_mut().unwrap().retry_at =
+                    Some(Instant::now() - Duration::from_millis(1));
+                assert!(browser.resize_needed(11, 5));
+            }
+        }
+
+        assert!(!browser.resize_needed(11, 5));
+        assert!(browser.resize_needed(12, 5));
+        assert!(browser.resize_needed(11, 5));
     }
 
     #[test]

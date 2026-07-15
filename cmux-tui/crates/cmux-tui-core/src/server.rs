@@ -2331,10 +2331,10 @@ fn handle_command(
             Ok(json!({}))
         }
         Command::ResizeSurface { surface, cols, rows } => {
-            mux.resize_surface(surface, cols, rows)?;
+            let accepted = mux.resize_surface(surface, cols, rows)?;
             mux.record_client_size(cols, rows);
             mux.control_clients.record_size(client, surface, cols.max(1), rows.max(1));
-            Ok(json!({}))
+            Ok(json!({"accepted": accepted}))
         }
         Command::FocusPane { pane } => {
             if !mux.focus_pane(pane) {
@@ -2547,6 +2547,14 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
             "surface": surface,
             "cols": cols,
             "rows": rows,
+        }),
+        MuxEvent::SurfaceResizeFailed { surface, cols, rows, error, retry_after_ms } => json!({
+            "event": "surface-resize-failed",
+            "surface": surface,
+            "cols": cols,
+            "rows": rows,
+            "error": error.as_ref(),
+            "retry_after_ms": retry_after_ms,
         }),
         MuxEvent::SurfaceExited(id) => json!({"event": "surface-exited", "surface": id}),
         MuxEvent::TitleChanged { surface, title } => {

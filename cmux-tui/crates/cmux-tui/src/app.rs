@@ -45,7 +45,7 @@ use crate::pty_input::{
     PtyInputSender, PtyOperationDelivery, PtyOperationFailure,
 };
 use crate::session::{
-    Session, SidebarPluginSurface, SurfaceHandle, TreeView, is_remote_timeout,
+    Session, SidebarPluginSurface, SurfaceHandle, TreeView, is_remote_retryable, is_remote_timeout,
     is_remote_transport_failure,
 };
 use crate::sidebar_files::{FileBrowser, FileCommand, file_url, shell_single_quote};
@@ -153,6 +153,9 @@ fn forward_mux_events(
             return;
         }
         if !recovery_succeeded {
+            if mux_titles.rearm_wake() && tx.send(AppEvent::MuxTitlesReady).is_err() {
+                return;
+            }
             continue;
         }
         let mut app_channel_full = false;
@@ -267,6 +270,17 @@ impl MuxTitleIngress {
 
     fn current_epoch(&self) -> u64 {
         self.state.lock().unwrap().epoch
+    }
+
+    fn rearm_wake(&self) -> bool {
+        let mut state = self.state.lock().unwrap();
+        state.wake_queued = false;
+        if state.dirty.is_empty() {
+            false
+        } else {
+            state.wake_queued = true;
+            true
+        }
     }
 
     fn reconcile_authoritative(&self, through_epoch: u64) {
@@ -1072,8 +1086,9 @@ impl OrderedSession {
                         Ok(())
                     }
                     Err(error) => {
-                        let transient =
-                            is_remote_timeout(&error) || is_remote_transport_failure(&error);
+                        let transient = is_remote_timeout(&error)
+                            || is_remote_transport_failure(&error)
+                            || is_remote_retryable(&error);
                         let mut failures = failures.lock().unwrap();
                         let previous = failures.get(&surface_id).map(|failure| failure.state);
                         let state = next_surface_sync_failure(previous, transient, false);
@@ -1100,6 +1115,32 @@ impl OrderedSession {
             let state = next_surface_sync_failure(previous, transient, false);
             failures.insert(surface_id, SurfaceResizeFailure { desired: (cols, rows), state });
         }
+    }
+
+    fn confirm_surface_resize(&self, surface: SurfaceId, size: (u16, u16)) {
+        let mut failures = self.surface_resize_failures.lock().unwrap();
+        if failures.get(&surface).is_some_and(|failure| failure.desired == size) {
+            failures.remove(&surface);
+        }
+    }
+
+    fn note_surface_resize_failure(
+        &self,
+        surface: SurfaceId,
+        desired: (u16, u16),
+        retry_after_ms: Option<u64>,
+    ) {
+        let mut failures = self.surface_resize_failures.lock().unwrap();
+        let previous = failures
+            .get(&surface)
+            .filter(|failure| failure.desired == desired)
+            .map(|failure| failure.state);
+        let mut state = next_surface_sync_failure(previous, true, retry_after_ms.is_none());
+        if let Some(delay) = retry_after_ms {
+            state.retry_after = Some(Instant::now() + Duration::from_millis(delay));
+            state.sticky_until_reconnect = false;
+        }
+        failures.insert(surface, SurfaceResizeFailure { desired, state });
     }
 
     fn surface_resize_decision(
@@ -3049,6 +3090,23 @@ impl App {
             AppEvent::Mux(MuxEvent::SurfaceExited(id)) => {
                 self.retire_surface_state(id);
                 self.remove_surface_from_tree(id);
+                Ok(RenderAction::Draw)
+            }
+            AppEvent::Mux(MuxEvent::SurfaceResized { surface, cols, rows }) => {
+                self.session.confirm_surface_resize(surface, (cols, rows));
+                Ok(RenderAction::Draw)
+            }
+            AppEvent::Mux(MuxEvent::SurfaceResizeFailed {
+                surface,
+                cols,
+                rows,
+                error,
+                retry_after_ms,
+            }) => {
+                self.session.note_surface_resize_failure(surface, (cols, rows), retry_after_ms);
+                self.status_message = Some(format!(
+                    "browser surface {surface} resize to {cols}x{rows} failed: {error}"
+                ));
                 Ok(RenderAction::Draw)
             }
             AppEvent::Mux(MuxEvent::Status(message)) => {
@@ -7162,6 +7220,18 @@ mod tests {
         let retained = titles.snapshot();
         assert!(!retained.contains_key(&41));
         assert_eq!(retained.get(&42).map(AsRef::as_ref), Some("concurrent-title"));
+    }
+
+    #[test]
+    fn title_ingress_rearms_a_lost_wake_after_failed_recovery() {
+        let titles = MuxTitleIngress::default();
+        assert!(titles.push(41, "first"));
+        assert!(!titles.push(41, "latest"));
+
+        assert!(titles.rearm_wake());
+        assert_eq!(titles.take_dirty().get(&41).map(AsRef::as_ref), Some("latest"));
+        assert!(!titles.rearm_wake());
+        assert!(titles.push(41, "next"));
     }
 
     #[test]

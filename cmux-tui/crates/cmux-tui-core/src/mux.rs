@@ -24,6 +24,14 @@ pub enum MuxEvent {
         cols: u16,
         rows: u16,
     },
+    /// An asynchronous browser resize failed after queue acceptance.
+    SurfaceResizeFailed {
+        surface: SurfaceId,
+        cols: u16,
+        rows: u16,
+        error: Arc<str>,
+        retry_after_ms: Option<u64>,
+    },
     /// A surface's child exited. The mux has already reaped it from the
     /// tree (a tree-changed follows) by the time this arrives.
     SurfaceExited(SurfaceId),

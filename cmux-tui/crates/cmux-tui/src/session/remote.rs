@@ -36,6 +36,7 @@ pub(crate) enum RemoteRequestError {
     Encode(serde_json::Error),
     Transport(std::io::Error),
     Timeout,
+    Retryable(String),
     Rejected(String),
     Shutdown,
 }
@@ -48,6 +49,10 @@ impl RemoteRequestError {
     pub(crate) fn is_timeout(&self) -> bool {
         matches!(self, Self::Timeout)
     }
+
+    pub(crate) fn is_retryable(&self) -> bool {
+        matches!(self, Self::Retryable(_))
+    }
 }
 
 impl std::fmt::Display for RemoteRequestError {
@@ -56,6 +61,7 @@ impl std::fmt::Display for RemoteRequestError {
             Self::Encode(error) => write!(formatter, "could not encode remote request: {error}"),
             Self::Transport(error) => write!(formatter, "remote transport write failed: {error}"),
             Self::Timeout => write!(formatter, "remote session did not respond"),
+            Self::Retryable(error) => write!(formatter, "{error}"),
             Self::Rejected(error) => write!(formatter, "remote command rejected: {error}"),
             Self::Shutdown => write!(formatter, "remote response wait canceled for shutdown"),
         }
@@ -227,6 +233,13 @@ impl RemoteSurface {
 
     pub(super) fn set_asserted_size(&self, size: (u16, u16)) {
         *self.asserted_size.lock().unwrap() = Some(size);
+    }
+
+    pub(super) fn clear_asserted_size(&self, size: (u16, u16)) {
+        let mut asserted = self.asserted_size.lock().unwrap();
+        if *asserted == Some(size) {
+            *asserted = None;
+        }
     }
 
     pub fn browser_frame(&self) -> Option<BrowserFrame> {
@@ -437,6 +450,24 @@ impl RemoteSession {
                     surface.set_server_size(cols, rows);
                 }
                 self.emit(MuxEvent::SurfaceResized { surface: id, cols, rows });
+            }
+            Some("surface-resize-failed") => {
+                let Some(id) = surface_id() else { return };
+                let cols = value.get("cols").and_then(|v| v.as_u64()).unwrap_or(80) as u16;
+                let rows = value.get("rows").and_then(|v| v.as_u64()).unwrap_or(24) as u16;
+                let error =
+                    value.get("error").and_then(Value::as_str).unwrap_or("browser resize failed");
+                let retry_after_ms = value.get("retry_after_ms").and_then(Value::as_u64);
+                if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
+                    surface.clear_asserted_size((cols.max(1), rows.max(1)));
+                }
+                self.emit(MuxEvent::SurfaceResizeFailed {
+                    surface: id,
+                    cols,
+                    rows,
+                    error: Arc::<str>::from(error),
+                    retry_after_ms,
+                });
             }
             Some("output") => {
                 let Some(id) = surface_id() else { return };
@@ -1442,6 +1473,45 @@ mod tests {
         assert!(events.try_iter().any(|event| matches!(
             event,
             MuxEvent::SurfaceResized { surface: 7, cols: 90, rows: 31 }
+        )));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn surface_resize_failure_releases_remote_browser_assertion() {
+        let (client, _server) = UnixStream::pair().unwrap();
+        let session = socket_test_session(client);
+        let events = session.subscribe();
+        let surface = Arc::new(RemoteSurface {
+            id: 7,
+            kind: SurfaceKind::Browser,
+            term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
+            dirty: AtomicBool::new(false),
+            server_size: Mutex::new((12, 4)),
+            asserted_size: Mutex::new(Some((90, 31))),
+            browser: Mutex::new(RemoteBrowserState::default()),
+        });
+        session.surfaces.lock().unwrap().insert(7, surface.clone());
+
+        session.handle_line(json!({
+            "event": "surface-resize-failed",
+            "surface": 7,
+            "cols": 90,
+            "rows": 31,
+            "error": "device metrics rejected",
+            "retry_after_ms": 250,
+        }));
+
+        assert_eq!(surface.asserted_size(), None);
+        assert!(events.try_iter().any(|event| matches!(
+            event,
+            MuxEvent::SurfaceResizeFailed {
+                surface: 7,
+                cols: 90,
+                rows: 31,
+                retry_after_ms: Some(250),
+                ..
+            }
         )));
     }
 
