@@ -324,6 +324,54 @@ extension ReconnectRouteSelectionTests {
         #expect(after.isActive)
     }
 
+    @Test func activeIrohAuthorizationFailureOutranksSecondaryLegacyMigrationCopy() async throws {
+        let clock = TestClock()
+        let runtime = LivenessTestRuntime(
+            transportFactory: AuthorizationRejectingTransportFactory(),
+            now: { clock.now },
+            supportedRouteKinds: [.iroh, .tailscale]
+        )
+        let registry = SnapshotCountingDeviceRegistry(outcome: .ok([]))
+        let (pairedStore, directory) = try makePairedMacStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try await pairedStore.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Mac A",
+            routes: [try registryIroh(
+                id: "iroh-a",
+                endpointID: String(repeating: "a", count: 64)
+            )],
+            instanceTag: "stable",
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: clock.now
+        )
+        try await pairedStore.upsert(
+            macDeviceID: "mac-b",
+            displayName: "Mac B",
+            routes: [try tailscale(51_006)],
+            instanceTag: "stable",
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: clock.now.addingTimeInterval(1)
+        )
+        let store = await makeMigrationShell(
+            pairedStore: pairedStore,
+            registry: registry,
+            runtime: runtime
+        )
+
+        #expect(!(await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")))
+        #expect(store.connectionRequiresReauth)
+        let copy = [store.connectionError, store.connectionErrorGuidance]
+            .compactMap { $0 }
+            .joined(separator: " ")
+            .lowercased()
+        #expect(!copy.contains("update cmux"))
+    }
+
     @Test func switchingToIrohCapableMacUsesPinnedIrohRoute() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()
@@ -453,5 +501,11 @@ private actor SnapshotCountingDeviceRegistry: DeviceRegistryRefreshing {
 
     func counts() -> Counts {
         Counts(list: listCalls, fresh: freshCalls)
+    }
+}
+
+private struct AuthorizationRejectingTransportFactory: CmxByteTransportFactory {
+    func makeTransport(for _: CmxAttachRoute) throws -> any CmxByteTransport {
+        throw MobileShellConnectionError.authorizationFailed("authorization rejected")
     }
 }

@@ -33,7 +33,9 @@ extension MobileHostAuthorizationTests {
             workspaceID: "",
             terminalID: nil,
             routes: [iroh, tailscale],
-            ttl: 3600
+            ttl: 3600,
+            macUserEmail: "private@example.com",
+            macUserID: "opaque-user-id"
         )
 
         let payload = try store.payload(
@@ -114,6 +116,9 @@ extension MobileHostAuthorizationTests {
         #expect(!CmxPairingQRCode().isPairingCodeURLString(attachURL))
         #expect(decoded.routes == [tailscale])
         #expect(decoded.authToken == nil)
+        let sourceExpiry = try #require(ticket.expiresAt)
+        let legacyExpiry = try #require(decoded.expiresAt)
+        #expect(legacyExpiry > sourceExpiry.addingTimeInterval(365 * 24 * 60 * 60))
         #expect(!attachURL.contains(String(repeating: "a", count: 64)))
 
         let components = try #require(URLComponents(string: attachURL))
@@ -127,6 +132,8 @@ extension MobileHostAuthorizationTests {
         #expect(legacyObject["version"] as? Int == CmxAttachTicket.currentVersion)
         #expect(legacyObject["expiresAt"] != nil)
         #expect(legacyObject["auth_token"] == nil)
+        #expect(legacyObject["macUserEmail"] == nil)
+        #expect(legacyObject["macUserID"] as? String == "opaque-user-id")
         #expect((legacyObject["routes"] as? [[String: Any]])?.count == 1)
     }
 
