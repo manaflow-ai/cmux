@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import CmuxAgentChat
 import CmuxMobileShellModel
+import Foundation
 import Testing
 @testable import CmuxMobileShell
 
@@ -271,6 +272,110 @@ import Testing
         #expect(await store.isRegistrySessionHandoffAttemptCurrent(requestID, scope: scope))
         store.currentTeamDidChange()
         #expect(!(await store.isRegistrySessionHandoffAttemptCurrent(requestID, scope: scope)))
+    }
+
+    @Test func invalidationDuringInitialScopeLookupSuppressesStaleFailure() async {
+        let team = GatedHandoffTeamIDProvider()
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { await team.value() }
+        )
+        let newerWorkspaceID = MobileWorkspacePreview.ID(rawValue: "newer-workspace")
+        let handoff = Task {
+            await store.prepareRegistrySessionHandoff(
+                deviceID: "missing-device",
+                instanceTag: "missing-instance",
+                sessionID: "missing-session",
+                expectedAgentSessionID: nil
+            )
+        }
+
+        await team.waitUntilLookupStarted()
+        store.selectWorkspaceFromUserAction(newerWorkspaceID)
+        await team.release("team-a")
+
+        #expect(await handoff.value == nil)
+        #expect(store.selectedWorkspaceID == newerWorkspaceID)
+        #expect(!store.isRegistryHandoffFailurePresented)
+    }
+
+    @Test func invalidationDuringFinalScopeLookupBlocksStaleNavigation() async {
+        let team = GatedHandoffTeamIDProvider()
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { await team.value() }
+        )
+        let requestID = store.beginRegistrySessionHandoffAttempt()
+        let scope = MobileShellScopeSnapshot(userID: "user-1", teamID: "team-a", generation: 0)
+        let staleWorkspaceID = MobileWorkspacePreview.ID(rawValue: "stale-handoff")
+        let newerWorkspaceID = MobileWorkspacePreview.ID(rawValue: "newer-workspace")
+        let completion = Task {
+            await store.completeRegistrySessionHandoffNavigation(
+                workspaceID: staleWorkspaceID,
+                requestID: requestID,
+                scope: scope
+            )
+        }
+
+        await team.waitUntilLookupStarted()
+        store.selectWorkspaceFromUserAction(newerWorkspaceID)
+        await team.release("team-a")
+
+        #expect(!(await completion.value))
+        #expect(store.selectedWorkspaceID == newerWorkspaceID)
+        #expect(store.deeplinkWorkspaceNavigationRequest == nil)
+    }
+
+    @Test func newerNavigationClearsCompletedHandoffIntents() {
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            identityProvider: StaticIdentityProvider(userID: "user-1")
+        )
+        let staleWorkspaceID = MobileWorkspacePreview.ID(rawValue: "stale-handoff")
+        store.deeplinkWorkspaceNavigationRequest = DeeplinkWorkspaceNavigationRequest(
+            token: UUID(),
+            workspaceID: staleWorkspaceID
+        )
+        store.registrySessionHandoffNavigationRequest = RegistrySessionHandoffNavigationRequest(
+            token: UUID(),
+            workspaceID: staleWorkspaceID,
+            agentSessionID: "stale-agent"
+        )
+
+        store.selectWorkspaceFromUserAction(.init(rawValue: "newer-workspace"))
+
+        #expect(store.deeplinkWorkspaceNavigationRequest == nil)
+        #expect(store.registrySessionHandoffNavigationRequest == nil)
+    }
+}
+
+private actor GatedHandoffTeamIDProvider {
+    private var didStart = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var valueWaiters: [CheckedContinuation<String?, Never>] = []
+    private var releasedValue: String??
+
+    func value() async -> String? {
+        if let releasedValue { return releasedValue }
+        didStart = true
+        let waiters = startWaiters
+        startWaiters.removeAll()
+        waiters.forEach { $0.resume() }
+        return await withCheckedContinuation { valueWaiters.append($0) }
+    }
+
+    func waitUntilLookupStarted() async {
+        guard !didStart else { return }
+        await withCheckedContinuation { startWaiters.append($0) }
+    }
+
+    func release(_ value: String?) {
+        releasedValue = value
+        let waiters = valueWaiters
+        valueWaiters.removeAll()
+        waiters.forEach { $0.resume(returning: value) }
     }
 }
 
