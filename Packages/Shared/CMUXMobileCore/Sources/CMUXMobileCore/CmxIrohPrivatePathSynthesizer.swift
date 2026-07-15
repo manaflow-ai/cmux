@@ -1,5 +1,19 @@
 import Foundation
 
+private struct CmxIrohPathHintMergeKey: Hashable {
+    let kind: String
+    let value: String
+    let source: String
+    let networkProfile: CmxIrohNetworkProfileKey?
+
+    init(_ hint: CmxIrohPathHint) {
+        kind = hint.kind.rawValue
+        value = hint.value
+        source = hint.source.rawValue
+        networkProfile = hint.networkProfile
+    }
+}
+
 public extension CmxIrohNetworkProfileKey {
     /// The strongest Tailscale profile iOS can prove without a provider API.
     ///
@@ -33,29 +47,51 @@ public extension CmxAttachRoute {
         to routes: [CmxAttachRoute],
         observedAt: Date
     ) -> [CmxAttachRoute] {
-        let tailscaleHints = routes.compactMap {
-            $0.irohTailscalePathHint(observedAt: observedAt)
+        let maximumHintCount = CmxAttachEndpoint.maximumIrohPathHintCount
+        var candidateKeys: Set<CmxIrohPathHintMergeKey> = []
+        var candidates: [(key: CmxIrohPathHintMergeKey, hint: CmxIrohPathHint)] = []
+        candidates.reserveCapacity(maximumHintCount)
+        for route in routes where candidates.count < maximumHintCount {
+            guard let hint = route.irohTailscalePathHint(observedAt: observedAt) else {
+                continue
+            }
+            let key = CmxIrohPathHintMergeKey(hint)
+            guard candidateKeys.insert(key).inserted else { continue }
+            candidates.append((key, hint))
         }
-        guard !tailscaleHints.isEmpty else { return routes }
+        guard !candidates.isEmpty else { return routes }
 
         return routes.map { route in
             guard route.kind == .iroh,
                   case let .peer(identity, pathHints) = route.endpoint else {
                 return route
             }
-            var hints = pathHints
-            for hint in tailscaleHints {
-                hints.removeAll { existing in
-                    existing.kind == hint.kind
-                        && existing.value == hint.value
-                        && existing.source == hint.source
-                        && existing.networkProfile == hint.networkProfile
-                }
-                guard hints.count < CmxAttachEndpoint.maximumIrohPathHintCount else {
-                    continue
-                }
-                hints.append(hint)
+
+            let usableHints = pathHints.filter { $0.isUsable(at: observedAt) }
+            var existingCounts: [CmxIrohPathHintMergeKey: Int] = [:]
+            existingCounts.reserveCapacity(usableHints.count)
+            for hint in usableHints {
+                existingCounts[CmxIrohPathHintMergeKey(hint), default: 0] += 1
             }
+
+            var removedExistingKeys: Set<CmxIrohPathHintMergeKey> = []
+            var appendedCandidates: [CmxIrohPathHint] = []
+            appendedCandidates.reserveCapacity(candidates.count)
+            var mergedCount = usableHints.count
+            for candidate in candidates {
+                if let removedCount = existingCounts[candidate.key] {
+                    removedExistingKeys.insert(candidate.key)
+                    mergedCount -= removedCount
+                }
+                guard mergedCount < maximumHintCount else { continue }
+                appendedCandidates.append(candidate.hint)
+                mergedCount += 1
+            }
+
+            var hints = usableHints.filter {
+                !removedExistingKeys.contains(CmxIrohPathHintMergeKey($0))
+            }
+            hints.append(contentsOf: appendedCandidates)
             return (try? CmxAttachRoute(
                 id: route.id,
                 kind: route.kind,
