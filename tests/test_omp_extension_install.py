@@ -332,6 +332,45 @@ def main() -> int:
         if "cmux-omp-session-extension-marker" not in extension_text:
             print(f"FAIL: expected cmux marker in {extension_path}")
             return 1
+        source_marker_groups = {
+            "split OMP type imports": (
+                'import type { AgentEndEvent } from "@oh-my-pi/pi-coding-agent/extensibility/shared-events";',
+                'import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/types";',
+            ),
+            "resume launch support": ("RESUME_LAUNCH_MARKER", "restorableLaunchArgv", "runResumeLaunch", '"--session"'),
+            "local OMP executable fallback": ('const home = process.env.HOME || "";', 'path.join(home, ".local", "bin", "omp")'),
+            "nested journal suppression": ("isNestedSessionJournal", "getSessionFile"),
+            "reentrancy guard": ("CMUX_OMP_HOOK_DISPATCH",),
+            "4KiB extra string cap": ("HOOK_FIELD_LIMIT", "boundedHookText", "4_096", "[truncated]"),
+            "timeout escalation": ("HOOK_TIMEOUT_MS", "SIGTERM", "1_500", "SIGKILL", "250"),
+            "session shutdown dispatch": ('api.on("session_shutdown"', 'sendHook("session-end"', "SessionEnd"),
+        }
+        for description, markers in source_marker_groups.items():
+            if not all(marker in extension_text for marker in markers):
+                print(f"FAIL: generated extension is missing {description} markers")
+                print(f"markers={markers!r}")
+                return 1
+        if "detached: true" in extension_text or "child.unref()" in extension_text:
+            print("FAIL: generated extension still detaches or unreferences hook children")
+            return 1
+
+        transpile_outfile = root / "cmux-omp-session.js"
+        transpile = subprocess.run(
+            [bun, "build", "--no-bundle", str(extension_path), "--outfile", str(transpile_outfile)],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=20,
+        )
+        if transpile.returncode != 0 or not transpile_outfile.exists():
+            print("FAIL: generated OMP extension did not transpile with bun")
+            print(f"exit={transpile.returncode}")
+            print(f"stdout={transpile.stdout.strip()}")
+            print(f"stderr={transpile.stderr.strip()}")
+            return 1
+
         if shared_pi_extension.read_text(encoding="utf-8") != "// cmux-pi-session-extension-marker v1\n":
             print("FAIL: OMP install modified the Pi extension in PI_CODING_AGENT_DIR")
             return 1
@@ -359,7 +398,6 @@ def main() -> int:
             fake_cmux,
             """#!/usr/bin/env bash
 set -euo pipefail
-sleep 3
 printf '%s\n' "$*" >> "$FAKE_CMUX_ARGS_LOG"
 cat >> "$FAKE_CMUX_STDIN_LOG"
 printf '\n---\n' >> "$FAKE_CMUX_STDIN_LOG"
@@ -373,6 +411,7 @@ printf '\n---\n' >> "$FAKE_CMUX_STDIN_LOG"
     printf 'amp=missing\n'
   fi
 } >> "$FAKE_CMUX_ENV_LOG"
+sleep 3
 """,
         )
 
@@ -394,7 +433,7 @@ mod.default({
     handlers.set(name, handler);
   }
 });
-for (const name of ["session_start", "before_agent_start", "agent_end"]) {
+for (const name of ["session_start", "before_agent_start", "agent_end", "session_shutdown"]) {
   if (typeof handlers.get(name) !== "function") throw new Error(`missing ${name}`);
 }
 process.argv.splice(
@@ -407,12 +446,14 @@ process.argv.splice(
 const ctx = {
   cwd: "/tmp/omp-project",
   sessionManager: {
-    getSessionId() { return "omp-session-test"; }
+    getSessionId() { return "omp-session-test"; },
+    getSessionFile() { return undefined; }
   }
 };
 const start = Date.now();
 await handlers.get("session_start")({}, ctx);
 await handlers.get("before_agent_start")({ prompt: "hello omp" }, ctx);
+await handlers.get("before_agent_start")({ prompt: "x".repeat(8000) }, ctx);
 await handlers.get("agent_end")({
   messages: [
     { role: "user", content: "hello omp" },
@@ -420,8 +461,9 @@ await handlers.get("agent_end")({
   ],
   stopReason: "completed"
 }, ctx);
+await handlers.get("session_shutdown")({}, ctx);
 const elapsed = Date.now() - start;
-if (elapsed > 2000) throw new Error(`handlers blocked for ${elapsed}ms`);
+if (elapsed > 250) throw new Error(`handlers blocked for ${elapsed}ms`);
 """
         check = subprocess.run(
             [bun, "--eval", check_source],
@@ -439,7 +481,7 @@ if (elapsed > 2000) throw new Error(`handlers blocked for ${elapsed}ms`);
             print(f"stderr={check.stderr.strip()}")
             return 1
 
-        expected_invocations = 3
+        expected_invocations = 5
         args_log = wait_for_text(fake_args_log, expected_invocations, timeout=20.0)
         stdin_log = wait_for_text(fake_stdin_log, expected_invocations * 2, timeout=20.0)
         env_log = wait_for_text(fake_env_log, expected_invocations * 4, timeout=20.0)
@@ -447,6 +489,7 @@ if (elapsed > 2000) throw new Error(`handlers blocked for ${elapsed}ms`);
             "hooks omp session-start",
             "hooks omp prompt-submit",
             "hooks omp stop",
+            "hooks omp session-end",
         ]:
             if expected not in args_log:
                 print(f"FAIL: extension did not invoke {expected}, got {args_log!r}")
@@ -454,14 +497,43 @@ if (elapsed > 2000) throw new Error(`handlers blocked for ${elapsed}ms`);
         if '"session_id":"omp-session-test"' not in stdin_log:
             print(f"FAIL: extension did not pass session id, got {stdin_log!r}")
             return 1
-        if stdin_log.count('"session_id":"omp-session-test"') != 3:
-            print(f"FAIL: expected 3 hook payloads carrying the session id, got {stdin_log!r}")
+        if stdin_log.count('"session_id":"omp-session-test"') != expected_invocations:
+            print(f"FAIL: expected {expected_invocations} hook payloads carrying the session id, got {stdin_log!r}")
             return 1
         if '"hook_event_name":"Stop"' not in stdin_log:
             print(f"FAIL: stop hook payload was missing: {stdin_log!r}")
             return 1
+        if '"hook_event_name":"SessionEnd"' not in stdin_log:
+            print(f"FAIL: session shutdown hook payload was missing: {stdin_log!r}")
+            return 1
         if '"prompt":"hello omp"' not in stdin_log or '"last_assistant_message":"done"' not in stdin_log:
             print(f"FAIL: extension did not pass prompt/assistant payload, got {stdin_log!r}")
+            return 1
+        hook_payloads = []
+        for line in stdin_log.splitlines():
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload, dict):
+                hook_payloads.append(payload)
+        oversized_prompts = [
+            payload.get("prompt")
+            for payload in hook_payloads
+            if isinstance(payload.get("prompt"), str) and payload["prompt"].startswith("x")
+        ]
+        if len(oversized_prompts) != 1:
+            print(f"FAIL: expected one oversized prompt payload, got {hook_payloads!r}")
+            return 1
+        oversized_prompt = oversized_prompts[0]
+        assert isinstance(oversized_prompt, str)
+        truncation_suffix = "\n[truncated]"
+        if (
+            not oversized_prompt.endswith(truncation_suffix)
+            or len(oversized_prompt) > 4096 + len(truncation_suffix)
+            or len(oversized_prompt) <= len(truncation_suffix)
+        ):
+            print(f"FAIL: oversized prompt was not bounded with a truncation suffix: {oversized_prompt!r}")
             return 1
         if "kind=omp" not in env_log or "cwd=/tmp/omp-project" not in env_log or "argv=" not in env_log:
             print(f"FAIL: extension did not pass launch metadata environment, got {env_log!r}")
@@ -484,8 +556,23 @@ if (elapsed > 2000) throw new Error(`handlers blocked for ${elapsed}ms`);
             "--model",
             "anthropic/claude-sonnet-4-5",
         ]
-        if decoded_argv != expected_argv:
-            print(f"FAIL: extension captured wrong OMP launch argv; expected {expected_argv!r}, got {decoded_argv!r}")
+        if len(decoded_argv) != 4 or decoded_argv[2] != "--cmux-omp-resume-launch":
+            print(f"FAIL: extension launch argv did not use the OMP resume wrapper: {decoded_argv!r}")
+            return 1
+        if decoded_argv[1] != str(extension_path):
+            print(f"FAIL: extension launch argv used the wrong extension path: {decoded_argv!r}")
+            return 1
+        try:
+            restored_argv = [
+                value
+                for value in base64.b64decode(decoded_argv[3]).decode("utf-8").split("\0")
+                if value
+            ]
+        except Exception as exc:
+            print(f"FAIL: extension resume argv did not contain valid nested launch data: {exc}")
+            return 1
+        if restored_argv != expected_argv:
+            print(f"FAIL: extension captured wrong OMP launch argv; expected {expected_argv!r}, got {restored_argv!r}")
             return 1
 
         if not verify_hook_persistence(cli_path, root, env):
