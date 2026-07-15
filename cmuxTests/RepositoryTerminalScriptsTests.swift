@@ -1,5 +1,7 @@
+import AppKit
 import CmuxFoundation
 import CmuxSettings
+import CmuxSettingsUI
 import CryptoKit
 import Foundation
 import Testing
@@ -75,7 +77,7 @@ struct RepositoryTerminalScriptsTests {
         #expect(await resolver.resolve(directory: root.path, preferences: [])?.setup == "legacy")
     }
 
-    @Test func linkedWorktreesShareRepositoryIdentityAndTrustFingerprint() async throws {
+    @Test func linkedWorktreesShareRepositoryIdentityButRequireSeparateTrust() async throws {
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let common = root.appendingPathComponent("shared.git")
@@ -95,8 +97,79 @@ struct RepositoryTerminalScriptsTests {
         #expect(firstResolution.identity.workTreeRoot != secondResolution.identity.workTreeRoot)
         #expect(
             resolver.trustDescriptor(for: firstResolution)?.fingerprint
-                == resolver.trustDescriptor(for: secondResolution)?.fingerprint
+                != resolver.trustDescriptor(for: secondResolution)?.fingerprint
         )
+    }
+
+    @MainActor
+    @Test func settingsSaveStaysBoundToTheDisplayedRepository() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let root = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let first = root.appendingPathComponent("first")
+            let second = root.appendingPathComponent("second")
+            try makeNormalRepository(at: first)
+            try makeNormalRepository(at: second)
+
+            let suiteName = "cmux.repository-script-settings.\(UUID().uuidString)"
+            let defaults = try #require(UserDefaults(suiteName: suiteName))
+            defer { defaults.removePersistentDomain(forName: suiteName) }
+            let catalog = SettingCatalog()
+            let configURL = root.appendingPathComponent("cmux.json")
+            let jsonStore = JSONConfigStore(fileURL: configURL)
+            let hostActions = HostSettingsActions(configFileURL: configURL)
+            let runtime = SettingsRuntime(
+                catalog: catalog,
+                userDefaultsStore: UserDefaultsSettingsStore(defaults: defaults),
+                jsonStore: jsonStore,
+                secretStore: SecretFileStore(baseDirectory: root.appendingPathComponent("secrets")),
+                errorLog: SettingsErrorLog(),
+                hostActions: hostActions
+            )
+
+            let previousAppDelegate = AppDelegate.shared
+            let appDelegate = AppDelegate()
+            defer { AppDelegate.shared = previousAppDelegate }
+            appDelegate.settingsRuntime = runtime
+            let manager = TabManager(
+                initialWorkingDirectory: first.path,
+                autoWelcomeIfNeeded: false
+            )
+            appDelegate.tabManager = manager
+            let windowID = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+            let window = NSWindow()
+            let registeredContext = try #require(
+                appDelegate.mainWindowContexts.values.first { $0.windowId == windowID }
+            )
+            registeredContext.window = window
+            manager.window = window
+            defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowID) }
+
+            let displayed = try #require(await hostActions.repositoryScriptSettingsContext())
+            #expect(displayed.repositoryRoot == first.resolvingSymlinksInPath().path)
+
+            _ = manager.addWorkspace(
+                workingDirectory: second.path,
+                inheritWorkingDirectory: false,
+                select: true,
+                autoWelcomeIfNeeded: false,
+                autoRefreshMetadata: false,
+                runRepositoryScripts: false
+            )
+            #expect(manager.selectedWorkspace?.currentDirectory == second.path)
+            #expect(await hostActions.saveRepositoryScripts(setup: "echo first", archive: ""))
+
+            let resolver = RepositoryScriptResolver()
+            let firstID = try #require(
+                await resolver.resolve(directory: first.path, preferences: [])?.identity.id
+            )
+            let secondID = try #require(
+                await resolver.resolve(directory: second.path, preferences: [])?.identity.id
+            )
+            let preferences = await jsonStore.value(for: catalog.terminal.repositoryScripts)
+            #expect(preferences.contains { $0.repositoryID == firstID })
+            #expect(!preferences.contains { $0.repositoryID == secondID })
+        }
     }
 
     @Test func repositoryIdentityUsesStableLowercaseSHA256Encoding() async throws {
