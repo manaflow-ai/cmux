@@ -58,4 +58,21 @@ import Testing
             now: now
         ))
     }
+
+    @Test func discoveredSessionDismissesOnlyAutomaticPairing() {
+        var automatic = MobileAddDevicePresentationState()
+        automatic.present(origin: .automaticFirstConnection)
+        automatic.dismissAutomaticForAvailableSession()
+        #expect(!automatic.isPresented)
+
+        var userInitiated = MobileAddDevicePresentationState()
+        userInitiated.present(origin: .userInitiated)
+        userInitiated.dismissAutomaticForAvailableSession()
+        #expect(userInitiated.isPresented)
+
+        var attachApproval = MobileAddDevicePresentationState()
+        attachApproval.present(origin: .attachTicketApproval)
+        attachApproval.dismissAutomaticForAvailableSession()
+        #expect(attachApproval.isPresented)
+    }
 }
