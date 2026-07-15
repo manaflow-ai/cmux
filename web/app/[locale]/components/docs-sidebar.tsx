@@ -59,7 +59,7 @@ export function DocsSidebar({
   const pathname = usePathname();
   const locale = useLocale();
   const t = useTranslations("docs.navItems");
-  const navItems = navItemsForLocale(locale);
+  const navItems = navItemsForLocale(locale, channel);
   const releaseLabel = useTranslations("docs.api")("release");
   const nightlyLabel = useTranslations("footer")("nightly");
 

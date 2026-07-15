@@ -11,7 +11,10 @@ import {
 } from "./docs-search-utils";
 import { DocsLink } from "./docs-link";
 import { useDocsChannel } from "./docs-channel-context";
-import { docsChannelUrl } from "@/app/lib/docs-channel";
+import {
+  docsChannelUrl,
+  docsPathAvailableInChannel,
+} from "@/app/lib/docs-channel";
 
 type PagefindModule = {
   init: () => Promise<void> | void;
@@ -116,11 +119,14 @@ export function DocsSearch({ onNavigate }: { onNavigate?: () => void }) {
       if (requestIdRef.current !== requestId || searchResult === null) return;
 
       const pageData = await Promise.all(
-        searchResult.results.slice(0, 8).map((result) => result.data()),
+        searchResult.results.slice(0, 12).map((result) => result.data()),
       );
       if (requestIdRef.current !== requestId) return;
 
-      const normalizedResults = pageData.map(normalizeDocsSearchResult);
+      const normalizedResults = pageData
+        .map(normalizeDocsSearchResult)
+        .filter((result) => docsPathAvailableInChannel(channel, result.href))
+        .slice(0, 8);
       setResults(normalizedResults);
       setActiveIndex(normalizedResults.length ? 0 : -1);
       setStatus("ready");

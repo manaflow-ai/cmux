@@ -15,7 +15,7 @@ export function DocsPager() {
   const locale = useLocale();
   const channel = useDocsChannel();
   const t = useTranslations("docs.navItems");
-  const flat = flatNavItems(navItemsForLocale(locale));
+  const flat = flatNavItems(navItemsForLocale(locale, channel));
   const releasePathname = docsChannelUrl("release", pathname);
   const index = flat.findIndex((item) => item.href === releasePathname);
   const prev = index > 0 ? flat[index - 1] : null;

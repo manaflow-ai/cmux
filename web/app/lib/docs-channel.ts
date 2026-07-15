@@ -10,6 +10,14 @@ export function docsCanonicalOrigin(): string {
   return productionOrigin;
 }
 
+export function docsPathAvailableInChannel(
+  channel: DocsChannel,
+  pathname: string,
+): boolean {
+  const releasePath = pathname.replace(/\/docs\/nightly(?=\/|$)/, "/docs");
+  return channel === "nightly" || !/\/docs\/base(?=\/|$)/.test(releasePath);
+}
+
 export function docsChannelUrl(
   channel: DocsChannel,
   pathname: string,
@@ -17,8 +25,11 @@ export function docsChannelUrl(
   hash = "",
 ): string {
   const releasePath = pathname.replace(/\/docs\/nightly(?=\/|$)/, "/docs");
+  const releaseFallback = docsPathAvailableInChannel("release", releasePath)
+    ? releasePath
+    : releasePath.replace(/\/docs\/base(?=\/|$)/, "/docs/getting-started");
   const targetPath = channel === "nightly"
     ? releasePath.replace(/\/docs(?=\/|$)/, "/docs/nightly")
-    : releasePath;
+    : releaseFallback;
   return `${targetPath}${search}${hash}`;
 }

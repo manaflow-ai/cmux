@@ -24,6 +24,18 @@ const agentSlugMoves: [from: string, to: string][] = [
   ["/codex-cli", "/agents/codex"],
   ["/opencode", "/agents/opencode"],
 ];
+const baseNightlyMoves = ["", ".md", ".txt"].flatMap((ext) => [
+  {
+    source: `/docs/base${ext}`,
+    destination: `/docs/nightly/base${ext}`,
+    permanent: false,
+  },
+  {
+    source: `/en/docs/base${ext}`,
+    destination: `/docs/nightly/base${ext}`,
+    permanent: false,
+  },
+]);
 
 const nextConfig: NextConfig = {
   poweredByHeader,
@@ -83,7 +95,7 @@ const nextConfig: NextConfig = {
     // Cover the HTML page plus its agent-readable .md/.txt variants, which were
     // live and advertised in llms.txt before the move.
     const exts = ["", ".md", ".txt"];
-    return agentSlugMoves.flatMap(([from, to]) =>
+    const agentRedirects = agentSlugMoves.flatMap(([from, to]) =>
       exts.flatMap((ext) => [
         // Bare English path (canonical, no locale prefix).
         { source: `${from}${ext}`, destination: `${to}${ext}`, permanent: true },
@@ -102,6 +114,7 @@ const nextConfig: NextConfig = {
         },
       ]),
     );
+    return [...(isDocsZone ? [] : baseNightlyMoves), ...agentRedirects];
   },
   async headers() {
     if (docsChannel !== "nightly") return securityHeaderRules;
