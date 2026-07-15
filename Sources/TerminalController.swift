@@ -1296,9 +1296,13 @@ class TerminalController {
         case "remote.tmux.mirror": return v2RemoteTmuxMirror(id: request.id, params: request.params)
         case "remote.tmux.window": return v2RemoteTmuxWindow(id: request.id, params: request.params)
         case "remote.tmux.pane_grids": return v2RemoteTmuxPaneGrids(id: request.id, params: request.params)
+        case "remote.tmux.pane_surfaces":
+            return v2RemoteTmuxPaneSurfaces(id: request.id, params: request.params)
 #if DEBUG
         case "remote.tmux.test_exec": return v2RemoteTmuxTestExec(id: request.id, params: request.params)
         case "remote.tmux.test_set_frame": return v2RemoteTmuxTestSetFrame(id: request.id, params: request.params)
+        case "remote.tmux.test_perturb_divider": return v2RemoteTmuxTestPerturbDivider(id: request.id, params: request.params)
+        case "remote.tmux.root_frames": return v2RemoteTmuxRootFrames(id: request.id)
 #endif
         case "sidebar.custom.validate":
             return v2Result(id: request.id, v2CustomSidebarValidate(params: request.params))
@@ -2372,7 +2376,7 @@ class TerminalController {
             "workspace.remote.status",
             "workspace.remote.pty_sessions", "workspace.remote.pty_close", "workspace.remote.pty_detach",
             "workspace.remote.pty_bridge", "workspace.remote.pty_resize", "workspace.remote.pty_attach_end",
-            "workspace.remote.terminal_session_end", "remote.tmux.sessions", "remote.tmux.attach", "remote.tmux.detach", "remote.tmux.state", "remote.tmux.mirror", "remote.tmux.window", "remote.tmux.pane_grids",
+            "workspace.remote.terminal_session_end", "remote.tmux.sessions", "remote.tmux.attach", "remote.tmux.detach", "remote.tmux.state", "remote.tmux.mirror", "remote.tmux.window", "remote.tmux.pane_grids", "remote.tmux.pane_surfaces",
             "session.restore_previous",
             "settings.open",
             "feedback.open",

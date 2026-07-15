@@ -5797,8 +5797,13 @@ struct WebViewRepresentable: NSViewRepresentable {
             }
 
             localInlineSlotView.displayIfNeeded()
+            // Flush only this panel's subtree. A whole-window displayIfNeeded
+            // here would also draw sibling Metal terminal panes — and this
+            // method runs from updateNSView/viewDidMoveToWindow, inside the
+            // layout pass, where a synchronous terminal draw can wedge the
+            // main thread against the still-open window transaction. WebKit
+            // subtree flushes carry no such wait.
             displayIfNeeded()
-            window?.displayIfNeeded()
         }
 
         func prepareForWindowPortalHosting() {
