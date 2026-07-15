@@ -238,6 +238,52 @@ struct RepositoryTerminalScriptsTests {
         #expect(store.commandSourcePaths[command.id] == configURL.path)
     }
 
+    @MainActor
+    @Test func savedCommandSettingsChangesReloadTheCurrentCommandPalette() async throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let configURL = root.appendingPathComponent("cmux.json")
+        try writeConfig("{}", at: configURL)
+        let settingsStore = JSONConfigStore(fileURL: configURL)
+        let catalog = SettingCatalog()
+        let store = CmuxConfigStore(
+            globalConfigPath: configURL.path,
+            startFileWatchers: false,
+            terminalScriptSettingsStore: settingsStore,
+            settingCatalog: catalog
+        )
+        store.loadAll()
+        #expect(store.loadedCommands.isEmpty)
+
+        try await settingsStore.set(
+            SavedTerminalCommandLibrary(commands: [
+                SavedTerminalCommand(id: "bootstrap", name: "Bootstrap", command: "pnpm install"),
+            ]),
+            for: catalog.terminal.savedCommands
+        )
+        #expect(await waitForLoadedCommandNames(["Bootstrap"], in: store))
+
+        try await settingsStore.set(
+            SavedTerminalCommandLibrary(),
+            for: catalog.terminal.savedCommands
+        )
+        #expect(await waitForLoadedCommandNames([], in: store))
+    }
+
+    @MainActor
+    private func waitForLoadedCommandNames(
+        _ expected: [String],
+        in store: CmuxConfigStore
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while clock.now < deadline {
+            if store.loadedCommands.map(\.name) == expected { return true }
+            try? await clock.sleep(for: .milliseconds(10))
+        }
+        return store.loadedCommands.map(\.name) == expected
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-repository-scripts-\(UUID().uuidString)")
