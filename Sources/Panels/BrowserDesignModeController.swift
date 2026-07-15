@@ -13,7 +13,9 @@ final class BrowserDesignModeController {
     static let messageHandlerName = BrowserDesignModeMessageHandler.name
     private static let maximumRequestedChangeCharacters = 4_000
 
-    private(set) var phase: BrowserDesignModePhase = .inactive {
+    // Setter internal (not private) so @testable tests can start from an
+    // active phase without a page runtime.
+    var phase: BrowserDesignModePhase = .inactive {
         didSet {
             guard oldValue != phase else { return }
             onActivityChanged()
@@ -430,7 +432,9 @@ final class BrowserDesignModeController {
         )
     }
 
-    private func receiveSnapshotData(_ data: Data) {
+    // Internal (not private) so @testable tests can drive the message-handler
+    // snapshot path without a WKWebView.
+    func receiveSnapshotData(_ data: Data) {
         guard phase == .active || phase == .activating else { return }
         guard let next = try? JSONDecoder().decode(BrowserDesignModeSnapshot.self, from: data) else { return }
         let previousSelectors = snapshot?.selections.map(\.selector)
