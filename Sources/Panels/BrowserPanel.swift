@@ -3322,8 +3322,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
         let replacement = makeReplacementWebView(
             profileID: profileID,
-            websiteDataStore: websiteDataStore,
-            browserServices: browserServices
+            websiteDataStore: websiteDataStore
         )
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
@@ -5083,8 +5082,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
         let replacement = makeReplacementWebView(
             profileID: profileID,
-            websiteDataStore: websiteDataStore,
-            browserServices: browserServices
+            websiteDataStore: websiteDataStore
         )
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
