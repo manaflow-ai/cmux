@@ -13,11 +13,13 @@ public enum PullRequestChecksStatus: Equatable, Sendable {
     /// All checks completed with neutral or skipped conclusions.
     case neutral
 
-    /// Applies GitHub's rollup precedence to check-run and status-context values.
+    /// Creates a summary by applying GitHub's rollup precedence to check-run and status-context values.
     /// - Parameter checks: The `statusCheckRollup` entries returned by `gh pr view`.
-    /// - Returns: The overall check status.
-    static func derive(from checks: [GitHubPullRequestRollupCheck]) -> PullRequestChecksStatus {
-        guard !checks.isEmpty else { return .noChecks }
+    init(checks: [GitHubPullRequestRollupCheck]) {
+        guard !checks.isEmpty else {
+            self = .noChecks
+            return
+        }
 
         var hasPending = false
         var hasSuccess = false
@@ -26,9 +28,10 @@ public enum PullRequestChecksStatus: Equatable, Sendable {
                 hasPending = true
                 continue
             }
-            switch PullRequestCheckState.derive(from: conclusion) {
+            switch PullRequestCheckState(githubState: conclusion) {
             case .failure:
-                return .failure
+                self = .failure
+                return
             case .pending:
                 hasPending = true
             case .success:
@@ -38,8 +41,12 @@ public enum PullRequestChecksStatus: Equatable, Sendable {
             }
         }
 
-        if hasPending { return .pending }
-        if hasSuccess { return .success }
-        return .neutral
+        if hasPending {
+            self = .pending
+        } else if hasSuccess {
+            self = .success
+        } else {
+            self = .neutral
+        }
     }
 }

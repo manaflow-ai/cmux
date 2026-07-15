@@ -70,7 +70,7 @@ extension GitHubPullRequestPanelService {
         let (resolvedChecks, resolvedComments, resolvedSettings) = try await (checks, comments, settings)
         try Task.checkCancellation()
 
-        let checksStatus = PullRequestChecksStatus.derive(from: pullRequest.statusCheckRollup)
+        let checksStatus = PullRequestChecksStatus(checks: pullRequest.statusCheckRollup)
         let snapshot = PullRequestPanelSnapshot(
             context: context,
             pullRequest: pullRequest,
@@ -79,10 +79,7 @@ extension GitHubPullRequestPanelService {
             unresolvedReviewThreadCount: shouldFetchComments
                 ? resolvedComments?.unresolvedThreadCount
                 : cachedSnapshot?.unresolvedReviewThreadCount,
-            mergeMethods: PullRequestMergeMethod.orderedAllowed(
-                settings: resolvedSettings,
-                defaultMethod: resolvedSettings.viewerDefaultMergeMethod
-            )
+            mergeMethods: resolvedSettings.orderedMergeMethods
         )
         let content = PullRequestPanelContent.pullRequest(snapshot)
         storeCachedContentIfLatest(content, for: context, refreshSequence: refreshSequence)

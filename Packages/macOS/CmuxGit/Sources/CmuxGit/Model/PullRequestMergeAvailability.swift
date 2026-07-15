@@ -7,37 +7,61 @@ public enum PullRequestMergeAvailability: Equatable, Sendable {
     /// Direct merge is unavailable for the associated reason.
     case blocked(PullRequestMergeBlockReason)
 
-    /// Derives direct-merge availability from GitHub's authoritative PR state.
+    /// Creates direct-merge availability from GitHub's authoritative PR state.
     /// - Parameter pullRequest: The GitHub pull request.
-    /// - Returns: Direct-merge availability and any blocking reason.
-    static func derive(pullRequest: GitHubPullRequest) -> PullRequestMergeAvailability {
+    init(pullRequest: GitHubPullRequest) {
         switch pullRequest.state.uppercased() {
-        case "MERGED": return .blocked(.alreadyMerged)
-        case "CLOSED": return .blocked(.closed)
+        case "MERGED":
+            self = .blocked(.alreadyMerged)
+            return
+        case "CLOSED":
+            self = .blocked(.closed)
+            return
         case "OPEN": break
-        default: return .blocked(.githubBlocked)
+        default:
+            self = .blocked(.githubBlocked)
+            return
         }
-        if pullRequest.isDraft { return .blocked(.draft) }
+        if pullRequest.isDraft {
+            self = .blocked(.draft)
+            return
+        }
 
         switch pullRequest.reviewDecision?.uppercased() {
-        case "CHANGES_REQUESTED": return .blocked(.changesRequested)
-        case "REVIEW_REQUIRED": return .blocked(.reviewRequired)
+        case "CHANGES_REQUESTED":
+            self = .blocked(.changesRequested)
+            return
+        case "REVIEW_REQUIRED":
+            self = .blocked(.reviewRequired)
+            return
         case nil, "", "APPROVED": break
-        default: return .blocked(.githubBlocked)
+        default:
+            self = .blocked(.githubBlocked)
+            return
         }
 
         switch pullRequest.mergeable.uppercased() {
-        case "UNKNOWN": return .blocked(.computing)
-        case "CONFLICTING": return .blocked(.githubBlocked)
+        case "UNKNOWN":
+            self = .blocked(.computing)
+            return
+        case "CONFLICTING":
+            self = .blocked(.githubBlocked)
+            return
         case "MERGEABLE": break
-        default: return .blocked(.githubBlocked)
+        default:
+            self = .blocked(.githubBlocked)
+            return
         }
 
         switch pullRequest.mergeStateStatus.uppercased() {
-        case "UNKNOWN": return .blocked(.computing)
-        case "BLOCKED", "DIRTY", "DRAFT": return .blocked(.githubBlocked)
-        case "BEHIND", "CLEAN", "HAS_HOOKS", "UNSTABLE": return .allowed
-        default: return .blocked(.githubBlocked)
+        case "UNKNOWN":
+            self = .blocked(.computing)
+        case "BLOCKED", "DIRTY", "DRAFT":
+            self = .blocked(.githubBlocked)
+        case "BEHIND", "CLEAN", "HAS_HOOKS", "UNSTABLE":
+            self = .allowed
+        default:
+            self = .blocked(.githubBlocked)
         }
     }
 }

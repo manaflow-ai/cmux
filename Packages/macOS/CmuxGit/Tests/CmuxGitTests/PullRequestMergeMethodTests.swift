@@ -6,12 +6,10 @@ import Testing
         let settings = GitHubRepositoryMergeSettings(
             mergeCommitAllowed: true,
             rebaseMergeAllowed: true,
-            squashMergeAllowed: true
+            squashMergeAllowed: true,
+            viewerDefaultMergeMethod: .rebase
         )
-        #expect(
-            PullRequestMergeMethod.orderedAllowed(settings: settings, defaultMethod: .rebase)
-                == [.rebase, .squash, .merge]
-        )
+        #expect(settings.orderedMergeMethods == [.rebase, .squash, .merge])
     }
 
     @Test func squashIsFallbackDefault() {
@@ -20,22 +18,17 @@ import Testing
             rebaseMergeAllowed: true,
             squashMergeAllowed: true
         )
-        #expect(
-            PullRequestMergeMethod.orderedAllowed(settings: settings, defaultMethod: nil)
-                == [.squash, .merge, .rebase]
-        )
+        #expect(settings.orderedMergeMethods == [.squash, .merge, .rebase])
     }
 
     @Test func disallowedMethodsAreRemovedAndFirstAllowedBecomesDefault() {
         let settings = GitHubRepositoryMergeSettings(
             mergeCommitAllowed: false,
             rebaseMergeAllowed: true,
-            squashMergeAllowed: false
+            squashMergeAllowed: false,
+            viewerDefaultMergeMethod: .merge
         )
-        #expect(
-            PullRequestMergeMethod.orderedAllowed(settings: settings, defaultMethod: .merge)
-                == [.rebase]
-        )
+        #expect(settings.orderedMergeMethods == [.rebase])
     }
 
     @Test func malformedEmptyPolicyFallsBackToSquash() {
@@ -44,9 +37,6 @@ import Testing
             rebaseMergeAllowed: false,
             squashMergeAllowed: false
         )
-        #expect(
-            PullRequestMergeMethod.orderedAllowed(settings: settings, defaultMethod: nil)
-                == [.squash]
-        )
+        #expect(settings.orderedMergeMethods == [.squash])
     }
 }

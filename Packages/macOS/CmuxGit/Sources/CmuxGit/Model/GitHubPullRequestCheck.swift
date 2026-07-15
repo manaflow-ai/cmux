@@ -16,7 +16,7 @@ public struct GitHubPullRequestCheck: Decodable, Equatable, Hashable, Identifiab
 
     /// The normalized presentation state.
     public var presentationState: PullRequestCheckState {
-        PullRequestCheckState.derive(from: state)
+        PullRequestCheckState(githubState: state)
     }
 
     /// Creates a detailed pull-request check.

@@ -11,6 +11,22 @@ struct GitHubRepositoryMergeSettings: Decodable, Equatable, Sendable {
     /// The current GitHub viewer's default merge method, when reported.
     let viewerDefaultMergeMethod: PullRequestMergeMethod?
 
+    /// Allowed methods with the repository default first, falling back to squash.
+    var orderedMergeMethods: [PullRequestMergeMethod] {
+        let allowed = PullRequestMergeMethod.allCases.filter { method in
+            switch method {
+            case .squash: squashMergeAllowed
+            case .merge: mergeCommitAllowed
+            case .rebase: rebaseMergeAllowed
+            }
+        }
+        guard !allowed.isEmpty else { return [.squash] }
+
+        let first = viewerDefaultMergeMethod.flatMap { allowed.contains($0) ? $0 : nil }
+            ?? (allowed.contains(.squash) ? .squash : allowed[0])
+        return [first] + allowed.filter { $0 != first }
+    }
+
     /// Creates repository merge settings.
     /// - Parameters:
     ///   - mergeCommitAllowed: Whether merge commits are allowed.

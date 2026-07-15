@@ -11,17 +11,18 @@ public enum PullRequestCheckState: Equatable, Sendable {
     /// The check completed without a success or failure conclusion.
     case neutral
 
-    /// Normalizes GitHub check-run conclusions and status-context states.
-    static func derive(from rawState: String) -> PullRequestCheckState {
-        switch rawState.uppercased() {
+    /// Creates a presentation state from a GitHub check-run conclusion or status-context state.
+    /// - Parameter githubState: The raw state returned by GitHub.
+    init(githubState: String) {
+        switch githubState.uppercased() {
         case "SUCCESS":
-            return .success
+            self = .success
         case "FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "ERROR", "STARTUP_FAILURE":
-            return .failure
+            self = .failure
         case "PENDING", "QUEUED", "IN_PROGRESS", "WAITING", "REQUESTED", "STALE":
-            return .pending
+            self = .pending
         default:
-            return .neutral
+            self = .neutral
         }
     }
 }
