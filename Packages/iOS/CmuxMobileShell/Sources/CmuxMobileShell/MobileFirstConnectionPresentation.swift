@@ -2,13 +2,33 @@
 public enum MobileFirstConnectionRegistryState: Equatable, Sendable {
     case loading
     case loaded(hasAccountSession: Bool)
+    case authRejected
     case unavailable
 }
 
 /// Result of refreshing the account-scoped device registry.
 public enum MobileRegistryLoadResult: Equatable, Sendable {
     case loaded
+    case authRejected
     case unavailable
+}
+
+/// Mutually exclusive connection activity on the first-connection screen.
+public struct MobileFirstConnectionAttemptState: Equatable, Sendable {
+    public let connectingSavedComputerID: String?
+    public let pendingHandoffID: String?
+
+    public init(
+        connectingSavedComputerID: String?,
+        pendingHandoffID: String?
+    ) {
+        self.connectingSavedComputerID = connectingSavedComputerID
+        self.pendingHandoffID = pendingHandoffID
+    }
+
+    public var canStartConnection: Bool {
+        connectingSavedComputerID == nil && pendingHandoffID == nil
+    }
 }
 
 /// Connection choices available to a signed-in installation before its first attach.

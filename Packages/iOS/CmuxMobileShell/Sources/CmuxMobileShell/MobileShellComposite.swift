@@ -1146,6 +1146,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Likewise drop the registry-backed device tree so a shared device never
         // shows the previous user's team devices after sign-out.
         registryDevices = []
+        isRegistryHandoffFailurePresented = false
         // Reset the in-memory restoring flags; hasKnownPairedMac stays driven by
         // the forget path. On a real account switch the next reconnect's no-mac
         // branch clears the hint. Bump the reconnect generation so any in-flight
@@ -1249,6 +1250,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pairedMacs = []
         forgottenMacDeviceIDsByScope = [:]
         registryDevices = []
+        isRegistryHandoffFailurePresented = false
     }
 
     /// Forward a tap to the Mac's real surface as a left click at the given grid

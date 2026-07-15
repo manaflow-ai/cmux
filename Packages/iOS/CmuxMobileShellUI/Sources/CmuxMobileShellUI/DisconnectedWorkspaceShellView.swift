@@ -43,6 +43,7 @@ struct DisconnectedWorkspaceShellView: View {
     /// The account-discovered session currently attaching.
     @State private var pendingHandoffID: String?
     @State private var registryState: MobileFirstConnectionRegistryState = .loading
+    @State private var registryRefreshInFlight = false
     @State private var didPresentManualPairing = false
     #endif
 
@@ -77,17 +78,18 @@ struct DisconnectedWorkspaceShellView: View {
                     await store?.loadPairedMacs()
                     #if os(iOS)
                     await refreshRegistryAndPresentation()
-                    // Registry + presence enrich the rows (online dots, build
-                    // labels). The loop then keeps presence and last-seen fresh
+                    // Presence enriches the rows (online dots, build labels).
+                    // The loop keeps presence and last-seen fresh
                     // while the app is parked on this screen; like the Computers
                     // screen it deliberately does NOT dial offline Macs (see
-                    // `refreshComputersScreen()`), so no reconnect storm.
+                    // `refreshComputersScreen()`). Registry discovery refreshes
+                    // on entry, pull-to-refresh, and explicit Retry rather than
+                    // repeatedly fetching the complete account device tree.
                     // Cancellation is wired to this `.task`'s lifecycle.
                     while !Task.isCancelled {
                         try? await Task.sleep(for: .seconds(10))
                         guard !Task.isCancelled else { break }
                         await store?.refreshComputersScreen()
-                        await refreshRegistryAndPresentation()
                     }
                     #else
                     if store?.pairedMacs.isEmpty ?? true {
@@ -148,7 +150,9 @@ struct DisconnectedWorkspaceShellView: View {
 
     @ViewBuilder
     private var content: some View {
-        if !savedComputers.isEmpty || !handoffSessions.isEmpty {
+        if registryState == .authRejected {
+            registryAuthenticationRequiredState
+        } else if !savedComputers.isEmpty || !handoffSessions.isEmpty {
             connectionOptionsList(savedComputers)
         } else {
             switch registryState {
@@ -160,6 +164,8 @@ struct DisconnectedWorkspaceShellView: View {
                     ))
             case .unavailable:
                 registryUnavailableState
+            case .authRejected:
+                registryAuthenticationRequiredState
             case .loaded:
                 emptyState
             }
@@ -181,7 +187,7 @@ struct DisconnectedWorkspaceShellView: View {
                             isConnecting: pendingHandoffID == session.id,
                             continueSession: { continueSession(session) }
                         )
-                        .disabled(pendingHandoffID != nil)
+                        .disabled(!connectionAttemptState.canStartConnection)
                     }
                 } header: {
                     Text(L10n.string(
@@ -207,6 +213,7 @@ struct DisconnectedWorkspaceShellView: View {
                             connect: { connect(to: $0, named: computer.title) },
                             isConnecting: connectingMacID == computer.deviceId
                         )
+                        .disabled(!connectionAttemptState.canStartConnection)
                     }
                 } header: {
                     Text(L10n.string("mobile.devices.savedTitle", defaultValue: "Your Computers"))
@@ -224,6 +231,7 @@ struct DisconnectedWorkspaceShellView: View {
                         systemImage: "plus"
                     )
                 }
+                .disabled(!connectionAttemptState.canStartConnection)
                 .accessibilityIdentifier("MobileShowAddDeviceButton")
                 Button {
                     isShowingSetupHelp = true
@@ -238,17 +246,16 @@ struct DisconnectedWorkspaceShellView: View {
         }
         .listStyle(.insetGrouped)
         .refreshable {
-            // Same refresh the 10s loop performs (plus registry), so a pull
-            // updates the presence/last-seen the rows lead with, not just the
-            // stored Mac list.
+            // Refresh both the lightweight presence snapshot and the complete
+            // account registry when the user explicitly asks for fresh data.
             await store?.refreshComputersScreen()
-            await store?.loadRegistryDevices()
+            await refreshRegistryAndPresentation()
         }
         .accessibilityIdentifier("MobileDisconnectedSavedMacList")
     }
 
     private func continueSession(_ session: RegistryLiveSessionSnapshot) {
-        guard pendingHandoffID == nil, let store else { return }
+        guard connectionAttemptState.canStartConnection, let store else { return }
         pendingHandoffID = session.id
         Task { @MainActor in
             defer { pendingHandoffID = nil }
@@ -257,7 +264,6 @@ struct DisconnectedWorkspaceShellView: View {
                 instanceTag: session.instanceTag,
                 sessionID: session.sessionID
             ) else {
-                await store.loadRegistryDevices()
                 return
             }
             // The shell mounts after this first successful connection. Reuse its
@@ -267,10 +273,15 @@ struct DisconnectedWorkspaceShellView: View {
     }
 
     private func refreshRegistryAndPresentation() async {
+        guard !registryRefreshInFlight else { return }
+        registryRefreshInFlight = true
+        defer { registryRefreshInFlight = false }
         let loadResult = await store?.loadRegistryDevices() ?? .unavailable
         let nextState: MobileFirstConnectionRegistryState = switch loadResult {
         case .loaded:
             .loaded(hasAccountSession: !handoffSessions.isEmpty)
+        case .authRejected:
+            .authRejected
         case .unavailable:
             .unavailable
         }
@@ -304,9 +315,33 @@ struct DisconnectedWorkspaceShellView: View {
                 Text(L10n.string("mobile.common.retry", defaultValue: "Retry"))
             }
             .buttonStyle(.borderedProminent)
+            .disabled(registryRefreshInFlight)
             Button(action: showAddDevice) {
                 Text(L10n.string("mobile.computers.add", defaultValue: "Add Computer"))
             }
+        }
+    }
+
+    private var registryAuthenticationRequiredState: some View {
+        ContentUnavailableView {
+            Label(
+                L10n.string("mobile.settings.account", defaultValue: "Account"),
+                systemImage: "person.crop.circle.badge.exclamationmark"
+            )
+        } description: {
+            Text(L10n.string(
+                "mobile.recovery.accountMismatch",
+                defaultValue: "This computer is signed in to a different cmux account. Sign out and sign back in with that account."
+            ))
+        } actions: {
+            Button(action: signOut) {
+                Text(L10n.string(
+                    "mobile.recovery.switchAccount",
+                    defaultValue: "Sign Out & Switch Account"
+                ))
+            }
+            .buttonStyle(.borderedProminent)
+            .accessibilityIdentifier("MobileRegistryReauthSignOut")
         }
     }
 
@@ -347,7 +382,7 @@ struct DisconnectedWorkspaceShellView: View {
     /// in that case the newer attempt is still in flight or has already
     /// connected, and alerting "couldn't connect" would be wrong — skip it.
     private func connect(to macDeviceID: String, named name: String) {
-        guard connectingMacID == nil, let store else { return }
+        guard connectionAttemptState.canStartConnection, let store else { return }
         connectingMacID = macDeviceID
         Task {
             let connected = await store.switchToMac(macDeviceID: macDeviceID)
@@ -358,6 +393,13 @@ struct DisconnectedWorkspaceShellView: View {
                 connectFailedComputerName = name
             }
         }
+    }
+
+    private var connectionAttemptState: MobileFirstConnectionAttemptState {
+        MobileFirstConnectionAttemptState(
+            connectingSavedComputerID: connectingMacID,
+            pendingHandoffID: pendingHandoffID
+        )
     }
 
     private var connectFailedTitle: String {
@@ -481,5 +523,8 @@ struct DisconnectedWorkspaceShellView: View {
         }
         .accessibilityLabel(L10n.string("mobile.addDevice.title", defaultValue: "Add Computer"))
         .accessibilityIdentifier("MobileShowAddDeviceToolbarButton")
+        #if os(iOS)
+        .disabled(!connectionAttemptState.canStartConnection)
+        #endif
     }
 }
