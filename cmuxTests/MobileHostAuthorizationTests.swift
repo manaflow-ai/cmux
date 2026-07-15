@@ -881,7 +881,7 @@ struct MobileHostAuthorizationTests {
         MobileHostService.debugResetEventSubscriptionsForTesting()
         #expect(!MobileHostService.debugHasTerminalOutputSubscribersForTesting())
     }
-    @Test func testTerminalOutputActivationIsVisibleToFirstConcurrentAppend() async throws {
+    @Test func testTerminalOutputActivationUsesParserSequenceForFirstConcurrentAppend() async throws {
         MobileHostService.debugResetEventSubscriptionsForTesting()
         let surfaceID = UUID()
         let tee = MobileTerminalByteTee.shared
@@ -890,21 +890,24 @@ struct MobileHostAuthorizationTests {
             tee.dropSurface(surfaceID: surfaceID)
             MobileHostService.debugResetEventSubscriptionsForTesting()
         }
-        let session = makeSubscriptionTestSession()
-        await session.subscribe(streamID: "grid", topics: ["terminal.render_grid"])
+        var outputIterator = tee.outputUpdates(surfaceID: surfaceID).makeAsyncIterator()
 
+        let startSeq: UInt64 = 41
         let bytes: [UInt8] = [0x61, 0x62, 0x63]
         await Task.detached {
             bytes.withUnsafeBufferPointer {
-                tee.append(surfaceID: surfaceID, bytes: $0)
+                tee.append(surfaceID: surfaceID, bytes: $0, startSeq: startSeq)
             }
         }.value
 
-        for _ in 0..<100 where tee.currentSequence(surfaceID: surfaceID) != UInt64(bytes.count) {
+        let chunk = await outputIterator.next()
+        #expect(chunk?.sequence == startSeq)
+        #expect(chunk?.data == Data(bytes))
+        let expectedEndSeq = startSeq + UInt64(bytes.count)
+        for _ in 0..<100 where tee.currentSequence(surfaceID: surfaceID) != expectedEndSeq {
             try await Task.sleep(nanoseconds: 1_000_000)
         }
-        #expect(tee.currentSequence(surfaceID: surfaceID) == UInt64(bytes.count))
-        _ = await session.unsubscribe(streamID: "grid")
+        #expect(tee.currentSequence(surfaceID: surfaceID) == expectedEndSeq)
     }
     private func scopedAttachTicket(workspaceID: String, terminalID: String?) throws -> CmxAttachTicket {
         let route = try CmxAttachRoute(id: "debug", kind: .debugLoopback, endpoint: .hostPort(host: "127.0.0.1", port: 58465))
