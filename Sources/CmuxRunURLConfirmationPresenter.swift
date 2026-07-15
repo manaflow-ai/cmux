@@ -6,10 +6,10 @@ final class CmuxRunURLConfirmationPresenter {
     private let nonModalFailurePresenter: CmuxRunURLNonModalFailurePresenter
 
     init(
-        nonModalFailurePresenter: CmuxRunURLNonModalFailurePresenter =
-            CmuxRunURLNonModalFailurePresenter()
+        nonModalFailurePresenter: CmuxRunURLNonModalFailurePresenter? = nil
     ) {
         self.nonModalFailurePresenter = nonModalFailurePresenter
+            ?? CmuxRunURLNonModalFailurePresenter()
     }
 
     func confirm(_ plan: CmuxRunExecutionPlan, presentingWindow: NSWindow?) -> Bool {
