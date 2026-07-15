@@ -321,7 +321,7 @@ struct NotificationFeedScaleTests {
     }
 
     @Test
-    func largeByteCapacityEvictionPublishesOneBatchRemovalEvent() throws {
+    func largeByteCapacityEvictionPreservesPerRowRemovalEvents() throws {
         let store = TerminalNotificationStore.shared
         let eventBus = CmuxEventBus.shared
         let oldBody = String(repeating: "x", count: 512)
@@ -368,11 +368,16 @@ struct NotificationFeedScaleTests {
 
         let events = eventBus.retainedSnapshot()
         #expect(TerminalNotificationStore.fullIndexRebuildCountForTesting == 0)
-        #expect(events.compactMap { $0["name"] as? String } == ["notification.removed_batch", "notification.created"])
-        let payload = try #require(events.first?["payload"] as? [String: Any])
-        #expect(payload["count"] as? Int == expectedEvictionCount)
-        #expect(payload["notification_ids_truncated"] as? Bool == false)
-        #expect((payload["notification_ids"] as? [String])?.count == expectedEvictionCount)
+        #expect(
+            events.compactMap { $0["name"] as? String }
+                == Array(repeating: "notification.removed", count: expectedEvictionCount)
+                    + ["notification.created"]
+        )
+        let removedPayloads = try events.dropLast().map { event in
+            try #require(event["payload"] as? [String: Any])
+        }
+        #expect(removedPayloads.count == expectedEvictionCount)
+        #expect(removedPayloads.allSatisfy { $0["notification_id"] is String })
     }
 
     @Test

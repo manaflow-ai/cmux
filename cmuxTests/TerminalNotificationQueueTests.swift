@@ -688,7 +688,8 @@ final class TerminalNotificationQueueTests: XCTestCase {
     }
 
     private func waitForReliableAdmissionBlock(_ bus: TerminalMutationBus) async {
-        for _ in 0..<10_000 {
+        let deadline = Date(timeIntervalSinceNow: 2)
+        while Date() < deadline {
             if bus.reliablyWaitingNotificationProducerCountForTesting() == 1 { return }
             await Task.yield()
         }

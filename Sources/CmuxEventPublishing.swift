@@ -373,30 +373,9 @@ extension CmuxEventBus {
     func publishNotificationsRemoved(_ notifications: [TerminalNotification]) {
         var seen = Set<UUID>()
         let unique = notifications.filter { seen.insert($0.id).inserted }
-        guard !unique.isEmpty else { return }
-        guard unique.count > 64 else {
-            for notification in unique {
-                publishNotificationRemoved(notification)
-            }
-            return
+        for notification in unique {
+            publishNotificationRemoved(notification)
         }
-        let notificationIds = unique.map { $0.id.uuidString }
-        let workspaceIds = Set(unique.map { $0.tabId.uuidString }).sorted()
-        let surfaceIds = Set(unique.compactMap { $0.surfaceId?.uuidString }).sorted()
-        publish(
-            name: "notification.removed_batch",
-            category: "notification",
-            source: "notification.store",
-            payload: [
-                "notification_ids": Array(notificationIds.prefix(CmuxEventBus.maxSanitizedArrayItems)),
-                "notification_ids_truncated": notificationIds.count > CmuxEventBus.maxSanitizedArrayItems,
-                "count": unique.count,
-                "workspace_ids": Array(workspaceIds.prefix(CmuxEventBus.maxSanitizedArrayItems)),
-                "workspace_ids_truncated": workspaceIds.count > CmuxEventBus.maxSanitizedArrayItems,
-                "surface_ids": Array(surfaceIds.prefix(CmuxEventBus.maxSanitizedArrayItems)),
-                "surface_ids_truncated": surfaceIds.count > CmuxEventBus.maxSanitizedArrayItems
-            ]
-        )
     }
 
     func publishNotificationCleared(ids: [String], workspaceId: UUID?, surfaceId: UUID?) {

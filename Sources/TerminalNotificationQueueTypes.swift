@@ -50,10 +50,6 @@ extension QueuedTerminalNotificationPayload {
     }
 }
 
-struct TerminalNotificationAdmissionToken: Sendable {
-    let id: UUID
-}
-
 struct ReliableTerminalNotificationAdmission {
     let id: UUID
     let acceptedAt: Date

@@ -254,7 +254,6 @@ final class TerminalNotificationBackpressureTests: XCTestCase {
         bus.lock.lock()
         bus.pending.removeAll(keepingCapacity: false)
         bus.pendingHead = 0
-        bus.reliableAdmissionsById.removeAll()
         bus.notificationReplacementRoutesByTabId.removeAll()
         bus.notificationReplacementRouteOrder.removeAll()
         bus.notificationLiveOwnerTabIdBySurfaceId.removeAll()

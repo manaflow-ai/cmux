@@ -183,7 +183,8 @@ struct AgentNotificationRegressionTests {
                 pending: false
             )
         }
-        for _ in 0..<10_000 {
+        let directClearDeadline = Date(timeIntervalSinceNow: 2)
+        while Date() < directClearDeadline {
             if bus.reliablyWaitingNotificationProducerCountForTesting() == 1 { break }
             await Task.yield()
         }
@@ -229,7 +230,8 @@ struct AgentNotificationRegressionTests {
                 pending: false
             )
         }
-        for _ in 0..<10_000 {
+        let queuedClearDeadline = Date(timeIntervalSinceNow: 2)
+        while Date() < queuedClearDeadline {
             if bus.reliablyWaitingNotificationProducerCountForTesting() == 1 { break }
             await Task.yield()
         }

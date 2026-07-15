@@ -398,20 +398,14 @@ final class AgentNotificationReliableDeliveryTests: XCTestCase {
         await waitForReliableAdmissionBlock(bus)
         for _ in 0..<10_000 { await Task.yield() }
 
-        bus.lock.lock()
-        let admissionCount = bus.reliableAdmissionsById.count
-        bus.lock.unlock()
-        XCTAssertLessThanOrEqual(
-            admissionCount,
-            TerminalMutationBus.maximumWaitingNotificationProducerCount
-        )
+        XCTAssertEqual(bus.reliablyWaitingNotificationProducerCountForTesting(), 1)
 
         bus.drainForBackpressure()
         bus.drainForBackpressure()
         var results: [AgentNotificationDeliveryResult] = []
         for delivery in deliveries { results.append(await delivery.value) }
-        XCTAssertEqual(results.filter { $0 == .accepted }.count, 16)
-        XCTAssertEqual(results.filter { $0 == .saturated }.count, 1)
+        XCTAssertEqual(results.filter { $0 == .accepted }.count, deliveries.count)
+        XCTAssertEqual(results.filter { $0 == .saturated }.count, 0)
         XCTAssertEqual(results.filter { $0 == .cancelled }.count, 0)
     }
 
@@ -467,11 +461,8 @@ final class AgentNotificationReliableDeliveryTests: XCTestCase {
             category: nil,
             pending: false
         )
-        bus.lock.lock()
-        let admissionCount = bus.reliableAdmissionsById.count
-        bus.lock.unlock()
         XCTAssertEqual(result, .saturated)
-        XCTAssertEqual(admissionCount, 0)
+        XCTAssertEqual(bus.reliablyWaitingNotificationProducerCountForTesting(), 0)
     }
 
     func testReliableAdmissionDeadlineStartsAtCaptureForBackloggedSubmitters() async {
@@ -596,7 +587,8 @@ final class AgentNotificationReliableDeliveryTests: XCTestCase {
     }
 
     private func waitForReliableAdmissionBlock(_ bus: TerminalMutationBus) async {
-        for _ in 0..<10_000 {
+        let deadline = Date(timeIntervalSinceNow: 2)
+        while Date() < deadline {
             if bus.reliablyWaitingNotificationProducerCountForTesting() == 1 { return }
             await Task.yield()
         }

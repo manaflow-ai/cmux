@@ -314,6 +314,8 @@ final class TerminalNotificationStore: ObservableObject {
     private var retainedSupersededBannerIDs = Set<UUID>()
     private var retainedSupersededBannerIDsLoaded = false
     private var retainedSupersededBannerPersistenceDeltas: [String] = []
+    private var retainedSupersededBannerDeltaPersistenceInFlight = false
+    private var retainedSupersededBannerDeltaPersistenceDirty = false
     private var retainedSupersededBannerSnapshotPersistenceInFlight = false
     private var retainedSupersededBannerSnapshotPersistenceDirty = false
     private static let retainedSupersededBannerPersistenceQueue = DispatchQueue(
@@ -373,6 +375,8 @@ final class TerminalNotificationStore: ObservableObject {
         retainedSupersededBannerIDs.removeAll()
         retainedSupersededBannerPersistenceDeltas.removeAll()
         retainedSupersededBannerIDsLoaded = false
+        retainedSupersededBannerDeltaPersistenceInFlight = false
+        retainedSupersededBannerDeltaPersistenceDirty = false
         retainedSupersededBannerSnapshotPersistenceInFlight = false
         retainedSupersededBannerSnapshotPersistenceDirty = false
     }
@@ -410,17 +414,31 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
-    private func persistRetainedSupersededBannerDeltas() {
+    private func scheduleRetainedSupersededBannerDeltaPersistence() {
+        guard !retainedSupersededBannerDeltaPersistenceInFlight else {
+            retainedSupersededBannerDeltaPersistenceDirty = true
+            return
+        }
+        retainedSupersededBannerDeltaPersistenceInFlight = true
+        retainedSupersededBannerDeltaPersistenceDirty = false
         let deltas = retainedSupersededBannerPersistenceDeltas
         Self.retainedSupersededBannerPersistenceQueue.async {
             UserDefaults.standard.set(deltas, forKey: Self.retainedSupersededBannerDeltaDefaultsKey)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                retainedSupersededBannerDeltaPersistenceInFlight = false
+                if retainedSupersededBannerDeltaPersistenceDirty,
+                   !retainedSupersededBannerPersistenceDeltas.isEmpty {
+                    scheduleRetainedSupersededBannerDeltaPersistence()
+                }
+            }
         }
     }
 
     private func scheduleRetainedSupersededBannerSnapshotPersistence() {
         guard !retainedSupersededBannerSnapshotPersistenceInFlight else {
             retainedSupersededBannerSnapshotPersistenceDirty = true
-            persistRetainedSupersededBannerDeltas()
+            scheduleRetainedSupersededBannerDeltaPersistence()
             return
         }
         retainedSupersededBannerSnapshotPersistenceInFlight = true
@@ -439,7 +457,7 @@ final class TerminalNotificationStore: ObservableObject {
                     retainedSupersededBannerPersistenceDeltas.count >= Self.retainedSupersededBannerDeltaCompactionThreshold {
                     scheduleRetainedSupersededBannerSnapshotPersistence()
                 } else if !retainedSupersededBannerPersistenceDeltas.isEmpty {
-                    persistRetainedSupersededBannerDeltas()
+                    scheduleRetainedSupersededBannerDeltaPersistence()
                 }
             }
         }
@@ -454,7 +472,7 @@ final class TerminalNotificationStore: ObservableObject {
             deltas.count >= Self.retainedSupersededBannerDeltaCompactionThreshold {
             scheduleRetainedSupersededBannerSnapshotPersistence()
         } else {
-            persistRetainedSupersededBannerDeltas()
+            scheduleRetainedSupersededBannerDeltaPersistence()
         }
     }
 

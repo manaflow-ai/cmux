@@ -4815,7 +4815,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5F10000000000000000000C /* TerminalNotification.swift */,
 				D79020000000000000000002 /* TerminalNotification+NavigationSnapshot.swift */,
 				A5001092 /* TerminalNotificationStore.swift */,
-					A5A5A50AA1B2C3D4E5F60718 /* TerminalNotificationStore+QueuedDelivery.swift */,
 					468110000000000000000008 /* TerminalNotificationClickAction.swift */,
 					A5A5A50AA1B2C3D4E5F60718 /* TerminalNotificationStore+QueuedDelivery.swift */,
 					A5F10000000000000000000E /* TerminalNotificationStore+WorkspaceNotifications.swift */,
