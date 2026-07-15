@@ -18,6 +18,7 @@ struct WorkspaceDetailCreateDelayedTerminalPreviewView: View {
                 name: "cmux",
                 terminals: [
                     MobileTerminalPreview(id: initialTerminalID, name: "Build"),
+                    MobileTerminalPreview(id: "terminal-tests", name: "Tests"),
                 ]
             ),
             MobileWorkspacePreview(

@@ -324,7 +324,7 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    func testWorkspaceToolbarCreatesWorkspaceAndTerminal() async throws {
+    func testSurfaceDeckCreatesTerminalAndWorkspace() async throws {
         let server = try MobileSyncMockHostServer(createdWorkspaceTerminalDelay: 1.5)
         let port = try await server.start()
         defer { server.stop() }
@@ -341,50 +341,39 @@ final class cmuxUITests: XCTestCase {
         XCTAssertFalse(app.buttons["MobileNewTerminalMenuItem"].exists)
         dismissOpenMenu(in: app)
 
-        tap(app.buttons["MobileTerminalNewWorkspaceButton"], in: app)
-        let freshBackButton = app.buttons["MobileWorkspaceBackButton"]
-        let freshTitleMenu = workspaceTitleElement(in: app)
-        let freshTerminalDropdown = app.buttons["MobileTerminalDropdown"]
-        assertWorkspaceToolbarVisible(
-            backButton: freshBackButton,
-            titleMenu: freshTitleMenu,
-            terminalDropdown: freshTerminalDropdown,
-            in: app,
-            context: "fresh no-agent workspace immediately after create"
+        XCTAssertTrue(app.otherElements["MobileSurfaceDeck"].waitForExistence(timeout: 4))
+        XCTAssertTrue(app.buttons["MobileSurfaceDeckChip-terminal-build"].exists)
+        XCTAssertTrue(app.buttons["MobileSurfaceDeckChip-terminal-tui"].exists)
+
+        tap(app.buttons["MobileSurfaceDeckAdd"], in: app)
+        tapMenuItem(app.buttons["MobileNewTerminalMenuItem"], in: app)
+        await assertHostSelection(
+            workspaceID: "workspace-main",
+            terminalID: "workspace-main-terminal-3",
+            server: server
         )
-        assertMenuButtonDoesNotExist("MobileWorkspaceSettingsMenu", in: app)
-        assertToolbarOverflowButtonDoesNotExist(in: app)
+        assertSurfaceDeckChipExists("workspace-main-terminal-3", in: app)
+
+        tap(app.buttons["MobileSurfaceDeckAdd"], in: app)
+        tapMenuItem(app.buttons["MobileNewWorkspaceMenuItem"], in: app)
         RunLoop.current.run(until: Date().addingTimeInterval(5))
         await assertHostSelection(
             workspaceID: "workspace-3",
             terminalID: "workspace-3-terminal-1",
             server: server
         )
+        let freshBackButton = app.buttons["MobileWorkspaceBackButton"]
+        let freshTitleMenu = workspaceTitleElement(in: app)
+        let freshUtilitiesMenu = app.buttons["MobileWorkspaceUtilitiesMenu"]
         assertWorkspaceToolbarVisible(
             backButton: freshBackButton,
             titleMenu: freshTitleMenu,
-            terminalDropdown: freshTerminalDropdown,
+            utilitiesMenu: freshUtilitiesMenu,
             in: app,
-            context: "fresh no-agent workspace after 5s"
+            context: "fresh single-terminal workspace after create"
         )
-        assertMenuButtonDoesNotExist("MobileWorkspaceSettingsMenu", in: app)
+        XCTAssertFalse(app.otherElements["MobileSurfaceDeck"].exists)
         assertToolbarOverflowButtonDoesNotExist(in: app)
-        assertBackButtonFrameStaysCompactAroundPress(freshBackButton, in: app)
-
-        tap(app.buttons["MobileTerminalDropdown"], in: app)
-        assertTerminalMenuItemExists("workspace-3-terminal-1", in: app)
-        assertMenuButtonDoesNotExist("MobileWorkspaceTitleRenameMenuItem", in: app)
-        assertMenuButtonDoesNotExist("MobileWorkspaceTitleReadStateMenuItem", in: app)
-        assertMenuButtonDoesNotExist("MobileWorkspaceTitleCloseMenuItem", in: app)
-        tapMenuItem(app.buttons["MobileNewTerminalMenuItem"], in: app)
-        await assertHostSelection(
-            workspaceID: "workspace-3",
-            terminalID: "workspace-3-terminal-2",
-            server: server
-        )
-
-        tap(app.buttons["MobileTerminalDropdown"], in: app)
-        assertTerminalMenuItemExists("workspace-3-terminal-2", in: app)
     }
 
     @MainActor
@@ -392,12 +381,12 @@ final class cmuxUITests: XCTestCase {
         let app = launchWorkspaceDetailDelayedTerminalPreviewApp()
         let backButton = app.buttons["MobileWorkspaceBackButton"]
         let titleMenu = workspaceTitleElement(in: app)
-        let terminalDropdown = app.buttons["MobileTerminalDropdown"]
+        let utilitiesMenu = app.buttons["MobileWorkspaceUtilitiesMenu"]
 
         assertWorkspaceToolbarVisible(
             backButton: backButton,
             titleMenu: titleMenu,
-            terminalDropdown: terminalDropdown,
+            utilitiesMenu: utilitiesMenu,
             in: app,
             context: "fresh no-agent workspace before delayed terminal"
         )
@@ -408,7 +397,7 @@ final class cmuxUITests: XCTestCase {
         assertWorkspaceToolbarVisible(
             backButton: backButton,
             titleMenu: titleMenu,
-            terminalDropdown: terminalDropdown,
+            utilitiesMenu: utilitiesMenu,
             in: app,
             context: "fresh no-agent workspace after delayed terminal appears"
         )
@@ -416,35 +405,34 @@ final class cmuxUITests: XCTestCase {
         assertToolbarOverflowButtonDoesNotExist(in: app)
         assertBackButtonFrameStaysCompactAroundPress(backButton, in: app)
 
-        tap(terminalDropdown, in: app)
-        assertTerminalMenuItemExists("terminal-delayed", in: app)
+        XCTAssertFalse(app.otherElements["MobileSurfaceDeck"].exists)
     }
 
     @MainActor
-    func testWorkspaceDetailToolbarKeepsTerminalPickerVisibleWithLongTitle() throws {
+    func testWorkspaceDetailToolbarKeepsUtilitiesMenuVisibleWithLongTitle() throws {
         let app = launchWorkspaceDetailDelayedTerminalPreviewApp(environment: [
             "CMUX_UITEST_WORKSPACE_DETAIL_LONG_TITLE": "1",
         ])
         let backButton = app.buttons["MobileWorkspaceBackButton"]
         let titleMenu = workspaceTitleElement(in: app)
-        let terminalDropdown = app.buttons["MobileTerminalDropdown"]
+        let utilitiesMenu = app.buttons["MobileWorkspaceUtilitiesMenu"]
 
         RunLoop.current.run(until: Date().addingTimeInterval(2.5))
         assertWorkspaceToolbarVisible(
             backButton: backButton,
             titleMenu: titleMenu,
-            terminalDropdown: terminalDropdown,
+            utilitiesMenu: utilitiesMenu,
             in: app,
             context: "long workspace title without chat toggle"
         )
         XCTAssertFalse(app.buttons["MobileWorkspaceAgentChatButton"].exists)
         assertToolbarOverflowButtonDoesNotExist(in: app)
-        tap(terminalDropdown, in: app)
-        assertTerminalMenuItemExists("terminal-delayed", in: app)
+        tap(utilitiesMenu, in: app)
+        XCTAssertTrue(app.buttons["MobileViewAsTextMenuItem"].waitForExistence(timeout: 4))
     }
 
     @MainActor
-    func testWorkspaceDetailToolbarKeepsTerminalPickerVisibleWithLongTitleAndChatToggle() throws {
+    func testWorkspaceDetailToolbarKeepsUtilitiesMenuVisibleWithLongTitleAndChatToggle() throws {
         let app = launchWorkspaceDetailDelayedTerminalPreviewApp(environment: [
             "CMUX_UITEST_WORKSPACE_DETAIL_LONG_TITLE": "1",
             "CMUX_UITEST_WORKSPACE_DETAIL_CHAT_TOGGLE": "1",
@@ -452,38 +440,36 @@ final class cmuxUITests: XCTestCase {
         let backButton = app.buttons["MobileWorkspaceBackButton"]
         let titleMenu = workspaceTitleElement(in: app)
         let chatButton = app.buttons["MobileWorkspaceAgentChatButton"]
-        let terminalDropdown = app.buttons["MobileTerminalDropdown"]
+        let utilitiesMenu = app.buttons["MobileWorkspaceUtilitiesMenu"]
 
         RunLoop.current.run(until: Date().addingTimeInterval(2.5))
         assertWorkspaceToolbarVisible(
             backButton: backButton,
             titleMenu: titleMenu,
-            terminalDropdown: terminalDropdown,
+            utilitiesMenu: utilitiesMenu,
             in: app,
             context: "long workspace title with chat toggle"
         )
         XCTAssertTrue(chatButton.waitForExistence(timeout: 4))
         XCTAssertTrue(chatButton.isHittable)
         assertToolbarOverflowButtonDoesNotExist(in: app)
-        tap(terminalDropdown, in: app)
-        assertTerminalMenuItemExists("terminal-delayed", in: app)
+        XCTAssertTrue(utilitiesMenu.isHittable)
     }
 
     @MainActor
     func testWorkspaceDetailToolbarSurvivesCreateWorkspaceDelayedTerminalLifecycle() throws {
         let app = launchWorkspaceDetailCreateDelayedTerminalPreviewApp()
-        let initialTerminalDropdown = app.buttons["MobileTerminalDropdown"]
-        tap(initialTerminalDropdown, in: app)
+        tap(app.buttons["MobileSurfaceDeckAdd"], in: app)
         tapMenuItem(app.buttons["MobileNewWorkspaceMenuItem"], in: app)
 
         let backButton = app.buttons["MobileWorkspaceBackButton"]
         let titleMenu = workspaceTitleElement(in: app)
-        let terminalDropdown = app.buttons["MobileTerminalDropdown"]
+        let utilitiesMenu = app.buttons["MobileWorkspaceUtilitiesMenu"]
 
         assertWorkspaceToolbarVisible(
             backButton: backButton,
             titleMenu: titleMenu,
-            terminalDropdown: terminalDropdown,
+            utilitiesMenu: utilitiesMenu,
             in: app,
             context: "created no-agent workspace before delayed terminal"
         )
@@ -494,7 +480,7 @@ final class cmuxUITests: XCTestCase {
         assertWorkspaceToolbarVisible(
             backButton: backButton,
             titleMenu: titleMenu,
-            terminalDropdown: terminalDropdown,
+            utilitiesMenu: utilitiesMenu,
             in: app,
             context: "created no-agent workspace after delayed terminal appears"
         )
@@ -502,12 +488,11 @@ final class cmuxUITests: XCTestCase {
         assertToolbarOverflowButtonDoesNotExist(in: app)
         assertBackButtonFrameStaysCompactAroundPress(backButton, in: app)
 
-        tap(terminalDropdown, in: app)
-        assertTerminalMenuItemExists("workspace-3-terminal-1", in: app)
+        XCTAssertFalse(app.otherElements["MobileSurfaceDeck"].exists)
     }
 
     @MainActor
-    func testTerminalDropdownScrollsLongTerminalList() async throws {
+    func testSurfaceDeckScrollsLongTerminalList() async throws {
         let server = try MobileSyncMockHostServer(additionalMainTerminalCount: 24)
         let port = try await server.start()
         defer { server.stop() }
@@ -515,24 +500,22 @@ final class cmuxUITests: XCTestCase {
         let app = try launchConnectedApp(port: port)
         try openSelectedWorkspaceIfNeeded(app)
 
-        tap(app.buttons["MobileTerminalDropdown"], in: app)
-        assertTerminalMenuItemExists("terminal-build", in: app)
-        let target = scrollTerminalMenuToItem("terminal-extra-24", in: app)
-        tapMenuItem(target, in: app)
+        assertSurfaceDeckChipExists("terminal-build", in: app)
+        let target = scrollSurfaceDeckToChip("terminal-extra-24", in: app)
+        tap(target, in: app)
         await assertHostSelection(workspaceID: "workspace-main", terminalID: "terminal-extra-24", server: server)
         await assertTerminalReplay(terminalID: "terminal-extra-24", server: server)
     }
 
     @MainActor
-    func testTerminalDropdownKeepsBottomScrollDuringWorkspaceRefresh() throws {
+    func testSurfaceDeckKeepsBottomScrollDuringWorkspaceRefresh() throws {
         let app = launchWorkspaceDetailRefreshingTerminalMenuPreviewApp()
 
-        tap(app.buttons["MobileTerminalDropdown"], in: app)
-        assertTerminalMenuItemExists("terminal-build", in: app)
-        let target = scrollTerminalMenuToItem("terminal-extra-24", in: app)
+        assertSurfaceDeckChipExists("terminal-build", in: app)
+        let target = scrollSurfaceDeckToChip("terminal-extra-24", in: app)
         XCTAssertTrue(target.isHittable, "Bottom terminal must be visible before refresh pulses start.")
 
-        let refreshedTarget = app.buttons["MobileTerminalMenuItem-terminal-extra-24"]
+        let refreshedTarget = app.buttons["MobileSurfaceDeckChip-terminal-extra-24"]
         let deadline = Date().addingTimeInterval(3.0)
         while Date() < deadline {
             XCTAssertTrue(
@@ -541,16 +524,12 @@ final class cmuxUITests: XCTestCase {
             )
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
-        tapMenuItem(refreshedTarget, in: app)
-        let selectedValue = app.buttons["MobileTerminalDropdown"].value as? String ?? ""
-        XCTAssertTrue(
-            selectedValue.contains("Terminal 24"),
-            "Selecting the bottom terminal should update the picker value. value=\(selectedValue)"
-        )
+        tap(refreshedTarget, in: app)
+        XCTAssertTrue(refreshedTarget.isSelected, "Selecting the bottom surface should mark its deck chip selected.")
     }
 
     @MainActor
-    func testTerminalDropdownSwitchesToAlternateScreenSnapshot() async throws {
+    func testSurfaceDeckSwitchesToAlternateScreenSnapshot() async throws {
         let server = try MobileSyncMockHostServer()
         let port = try await server.start()
         defer { server.stop() }
@@ -558,8 +537,7 @@ final class cmuxUITests: XCTestCase {
         let app = try launchConnectedApp(port: port)
         try openSelectedWorkspaceIfNeeded(app)
 
-        tap(app.buttons["MobileTerminalDropdown"], in: app)
-        tapMenuItem(app.buttons["MobileTerminalMenuItem-terminal-tui"], in: app)
+        tap(app.buttons["MobileSurfaceDeckChip-terminal-tui"], in: app)
         await assertHostSelection(workspaceID: "workspace-main", terminalID: "terminal-tui", server: server)
         await assertTerminalReplay(terminalID: "terminal-tui", server: server)
 
@@ -1969,7 +1947,7 @@ final class cmuxUITests: XCTestCase {
             "CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE": "1",
         ])
         XCTAssertTrue(workspaceTitleElement(in: app).waitForExistence(timeout: 8))
-        XCTAssertTrue(app.buttons["MobileTerminalDropdown"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.otherElements["MobileSurfaceDeck"].waitForExistence(timeout: 8))
         return app
     }
 
@@ -1985,7 +1963,7 @@ final class cmuxUITests: XCTestCase {
             row.tap()
         }
         XCTAssertTrue(workspaceTitleElement(in: app).waitForExistence(timeout: 8))
-        XCTAssertTrue(app.buttons["MobileTerminalDropdown"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["MobileSurfaceDeckAdd"].waitForExistence(timeout: 8))
         return app
     }
 
@@ -2103,8 +2081,7 @@ final class cmuxUITests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) async throws {
-        tap(app.buttons["MobileTerminalDropdown"], in: app, file: file, line: line)
-        tapMenuItem(app.buttons["MobileTerminalMenuItem-terminal-tui"], in: app, file: file, line: line)
+        tap(app.buttons["MobileSurfaceDeckChip-terminal-tui"], in: app, file: file, line: line)
         await assertHostSelection(
             workspaceID: "workspace-main",
             terminalID: "terminal-tui",
@@ -2148,16 +2125,16 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    private func assertTerminalMenuItemExists(
+    private func assertSurfaceDeckChipExists(
         _ terminalID: String,
         in app: XCUIApplication,
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        let item = app.buttons["MobileTerminalMenuItem-\(terminalID)"]
+        let item = app.buttons["MobileSurfaceDeckChip-\(terminalID)"]
         XCTAssertTrue(
             item.waitForExistence(timeout: 4),
-            "Expected terminal menu to contain \(terminalID).",
+            "Expected surface deck to contain \(terminalID).",
             file: file,
             line: line
         )
@@ -2194,22 +2171,23 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    private func scrollTerminalMenuToItem(
+    private func scrollSurfaceDeckToChip(
         _ terminalID: String,
         in app: XCUIApplication,
         file: StaticString = #filePath,
         line: UInt = #line
     ) -> XCUIElement {
-        let item = app.buttons["MobileTerminalMenuItem-\(terminalID)"]
+        let item = app.buttons["MobileSurfaceDeckChip-\(terminalID)"]
+        let deck = app.descendants(matching: .any)["MobileSurfaceDeck"].firstMatch
         let deadline = Date().addingTimeInterval(8)
         while Date() < deadline {
             if item.exists, item.isHittable {
                 return item
             }
-            app.swipeUp(velocity: .slow)
+            deck.swipeLeft(velocity: .slow)
             RunLoop.current.run(until: Date().addingTimeInterval(0.15))
         }
-        XCTFail("Expected terminal menu to scroll to \(terminalID).", file: file, line: line)
+        XCTFail("Expected surface deck to scroll to \(terminalID).", file: file, line: line)
         return item
     }
 
@@ -2535,7 +2513,7 @@ final class cmuxUITests: XCTestCase {
     private func assertWorkspaceToolbarVisible(
         backButton: XCUIElement,
         titleMenu: XCUIElement,
-        terminalDropdown: XCUIElement,
+        utilitiesMenu: XCUIElement,
         in app: XCUIApplication,
         context: String,
         file: StaticString = #filePath,
@@ -2543,12 +2521,12 @@ final class cmuxUITests: XCTestCase {
     ) {
         XCTAssertTrue(backButton.waitForExistence(timeout: 4), "\(context): missing back button", file: file, line: line)
         XCTAssertTrue(titleMenu.waitForExistence(timeout: 4), "\(context): missing title menu", file: file, line: line)
-        XCTAssertTrue(terminalDropdown.waitForExistence(timeout: 4), "\(context): missing terminal dropdown", file: file, line: line)
+        XCTAssertTrue(utilitiesMenu.waitForExistence(timeout: 4), "\(context): missing utilities menu", file: file, line: line)
         XCTAssertTrue(
             waitForCompactToolbarHeightsToMatch(
                 titleMenu: titleMenu,
                 backButton: backButton,
-                surfacePicker: terminalDropdown,
+                surfacePicker: utilitiesMenu,
                 tolerance: 2,
                 timeout: 4,
                 file: file,

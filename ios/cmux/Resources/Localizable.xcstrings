@@ -6087,6 +6087,90 @@
         }
       }
     },
+    "mobile.paneMap.count.onePane.oneTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "1 pane · 1 tab" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "1ペイン・1タブ" } }
+      }
+    },
+    "mobile.paneMap.count.onePane.otherTabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "1 pane · %d tabs" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "1ペイン・%dタブ" } }
+      }
+    },
+    "mobile.paneMap.count.otherPanes.oneTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%d panes · 1 tab" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%dペイン・1タブ" } }
+      }
+    },
+    "mobile.paneMap.count.otherPanes.otherTabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%d panes · %d tabs" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%dペイン・%dタブ" } }
+      }
+    },
+    "mobile.paneMap.done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Done" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "完了" } }
+      }
+    },
+    "mobile.paneMap.refresh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Refresh" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "更新" } }
+      }
+    },
+    "mobile.surfaceDeck.add": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Add Surface" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "サーフェスを追加" } }
+      }
+    },
+    "mobile.surfaceDeck.chip.terminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%@, terminal" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@、ターミナル" } }
+      }
+    },
+    "mobile.surfaceDeck.chip.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%@, unavailable on iPhone" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@、iPhoneでは利用できません" } }
+      }
+    },
+    "mobile.surfaceDeck.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Workspace surfaces" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースのサーフェス" } }
+      }
+    },
+    "mobile.surfaceDeck.paneMap": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pane Map" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ペインマップ" } }
+      }
+    },
+    "mobile.surfaceDeck.terminalsOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Terminals only on iPhone for now" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "現在、iPhoneではターミナルのみ利用できます" } }
+      }
+    },
     "mobile.terminal.action.alt": {
       "extractionState": "manual",
       "localizations": {
@@ -7802,6 +7886,13 @@
             "value": "%d 個のターミナル"
           }
         }
+      }
+    },
+    "mobile.workspace.utilitiesMenu": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Workspace Utilities" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースユーティリティ" } }
       }
     },
     "mobile.workspace.unpin": {

@@ -1,0 +1,117 @@
+import CmuxMobileShellModel
+import Testing
+@testable import CmuxMobileShellUI
+
+@Suite struct SurfaceDeckValueTests {
+    @Test func olderMacUsesOneTerminalGroupAndOnlyShowsForMultipleSurfaces() {
+        let oneTerminal = MobileWorkspacePreview(
+            id: "workspace",
+            name: "Workspace",
+            terminals: [MobileTerminalPreview(id: "terminal-1", name: "Build")]
+        )
+        let oneValue = value(workspace: oneTerminal, selectedSurfaceID: "terminal-1")
+
+        let twoTerminals = MobileWorkspacePreview(
+            id: "workspace",
+            name: "Workspace",
+            terminals: [
+                MobileTerminalPreview(id: "terminal-1", name: "Build"),
+                MobileTerminalPreview(id: "terminal-2", name: "Tests"),
+            ]
+        )
+        let twoValue = value(workspace: twoTerminals, selectedSurfaceID: "terminal-2")
+
+        #expect(oneValue.groups.count == 1)
+        #expect(oneValue.groups[0].chips.map(\.id) == ["terminal-1"])
+        #expect(oneValue.shouldShow == false)
+        #expect(oneValue.showsPaneMap == false)
+        #expect(twoValue.groups[0].chips.map(\.id) == ["terminal-1", "terminal-2"])
+        #expect(twoValue.shouldShow)
+        #expect(twoValue.selectedSurfaceID == "terminal-2")
+    }
+
+    @Test func layoutPreservesPaneAndSurfaceOrderIncludingDisabledSurfaceTypes() {
+        let workspace = MobileWorkspacePreview(
+            id: "workspace",
+            name: "Workspace",
+            terminals: [MobileTerminalPreview(id: "terminal-1", name: "Build")],
+            layout: MobilePaneLayout(
+                version: 3,
+                focusedPaneID: "pane-2",
+                root: .split(
+                    MobilePaneSplit(
+                        id: "split",
+                        orientation: .horizontal,
+                        ratio: 0.5,
+                        first: .pane(
+                            MobilePaneNode(
+                                id: "pane-1",
+                                selectedSurfaceID: "terminal-1",
+                                surfaces: [
+                                    MobilePaneSurface(id: "terminal-1", type: .terminal, title: "Build"),
+                                    MobilePaneSurface(id: "browser-1", type: .browser, title: "Docs"),
+                                ]
+                            )
+                        ),
+                        second: .pane(
+                            MobilePaneNode(
+                                id: "pane-2",
+                                selectedSurfaceID: "markdown-1",
+                                surfaces: [
+                                    MobilePaneSurface(id: "markdown-1", type: .markdown, title: "Notes")
+                                ]
+                            )
+                        )
+                    )
+                )
+            )
+        )
+
+        let deck = value(workspace: workspace, selectedSurfaceID: "terminal-1")
+
+        #expect(deck.groups.map(\.id) == ["pane-1", "pane-2"])
+        #expect(deck.groups[0].chips.map(\.id) == ["terminal-1", "browser-1"])
+        #expect(deck.groups[0].chips[0].isTerminal)
+        #expect(deck.groups[0].chips[1].isTerminal == false)
+        #expect(deck.groups[1].chips.map(\.title) == ["Notes"])
+        #expect(deck.shouldShow)
+        #expect(deck.showsPaneMap)
+    }
+
+    @Test func valueCarriesPrecomputedAgentStatesWithoutStoreReferences() {
+        let workspace = MobileWorkspacePreview(
+            id: "workspace",
+            name: "Workspace",
+            terminals: [
+                MobileTerminalPreview(id: "terminal-1", name: "Build"),
+                MobileTerminalPreview(id: "terminal-2", name: "Tests"),
+            ]
+        )
+
+        let deck = SurfaceDeckValue(
+            workspace: workspace,
+            selectedSurfaceID: "terminal-1",
+            agentStateKindsBySurfaceID: [
+                "terminal-1": .working,
+                "terminal-2": .needsInput,
+            ],
+            canCreateWorkspace: false
+        )
+
+        #expect(deck.agentStateKindsBySurfaceID["terminal-1"] == .working)
+        #expect(deck.agentStateKindsBySurfaceID["terminal-2"] == .needsInput)
+        #expect(deck.canCreateWorkspace == false)
+    }
+
+    private func value(
+        workspace: MobileWorkspacePreview,
+        selectedSurfaceID: String?
+    ) -> SurfaceDeckValue {
+        SurfaceDeckValue(
+            workspace: workspace,
+            selectedSurfaceID: selectedSurfaceID,
+            agentStateKindsBySurfaceID: [:],
+            canCreateWorkspace: true
+        )
+    }
+}

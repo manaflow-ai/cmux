@@ -43,7 +43,7 @@ struct WorkspaceDetailView: View {
     @State private var isSubmittingFeedback = false
     @State private var feedbackErrorMessage: String?
     @State private var isTextSheetPresented = false
-    /// Drives the rename-workspace dialog launched from the picker menu, and its
+    /// Drives the rename-workspace dialog launched from the title menu, and its
     /// editable text (seeded with the current name when presented).
     @State var isRenamePresented = false
     @State var renameText = ""
@@ -51,7 +51,7 @@ struct WorkspaceDetailView: View {
     @State private var contentWidth: CGFloat = 0
     /// Terminal captured for the current "View as Text" sheet presentation.
     @State private var textSheetSurfaceID: String?
-    @State var terminalPickerRows: [TerminalPickerMenuRow] = []
+    @State private var isPaneMapPresented = false
     /// Chat-mode toggle for inline agent chat in place of the terminal.
     @State var isChatMode = false
     /// The session chat mode was entered on, pinned so sorting cannot swap the conversation
@@ -92,7 +92,30 @@ struct WorkspaceDetailView: View {
         let content = Group { detailSurfaceContent }
 
         #if os(iOS)
-        content
+        let deckValue = surfaceDeckValue
+        // Deck visibility must not change the content subtree's structural
+        // identity: branching around `content` would remount the terminal
+        // surface (and the chat/browser ZStack) every time the deck toggles.
+        // The branch lives inside the inset builder instead, and the
+        // keyboard-region parameter is data, not structure.
+        let showDeck = activeSurface == .terminal && deckValue.shouldShow
+        let contentWithSurfaceDeck = content
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if showDeck {
+                    SurfaceDeckBar(
+                        value: deckValue,
+                        actions: surfaceDeckActions
+                    )
+                    .equatable()
+                }
+            }
+            // The terminal owns keyboard geometry. Ignoring keyboard avoidance
+            // while the deck shows keeps the deck at the physical bottom so the
+            // keyboard covers it instead of lifting it; chat/browser modes keep
+            // normal avoidance.
+            .ignoresSafeArea(showDeck ? .keyboard : [], edges: .bottom)
+
+        contentWithSurfaceDeck
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
             .navigationTitle(systemNavigationTitle)
             .mobileTerminalNavigationChrome()
@@ -102,7 +125,6 @@ struct WorkspaceDetailView: View {
             .onChange(of: selectedTerminalID) { _, _ in
                 visibleArtifactCount = 0
                 refreshCachedChatToggleAnchor()
-                syncTerminalPickerRows(includeTitleChanges: true)
             }
             .onChange(of: store.supportsTerminalArtifacts) { _, supportsArtifacts in
                 visibleArtifactCount = 0
@@ -119,6 +141,11 @@ struct WorkspaceDetailView: View {
             }
             .sheet(isPresented: $isTextSheetPresented) {
                 TerminalTextSheetView(surfaceID: textSheetSurfaceID)
+            }
+            .fullScreenCover(isPresented: $isPaneMapPresented) {
+                PaneMapOverlay(workspaceName: workspace.name) {
+                    isPaneMapPresented = false
+                }
             }
             .workspaceRenameDialog(
                 isPresented: $isRenamePresented,
@@ -324,7 +351,6 @@ struct WorkspaceDetailView: View {
     @ViewBuilder
     private var terminalToolbarButtons: some View {
         newWorkspaceToolbarButton
-        terminalPickerToolbarButton
     }
 
     #if os(iOS)
@@ -364,36 +390,52 @@ struct WorkspaceDetailView: View {
         .accessibilityIdentifier("MobileTerminalNewWorkspaceButton")
     }
 
-    // Native menu keeps press-drag-release selection and routes through
-    // `selectTerminalFromPicker`; keyboard-dismiss-on-open is unavailable.
-    var terminalPickerToolbarButton: some View {
-        TerminalPickerMenu(
-            value: TerminalPickerMenuValue(
-                liveTerminals: workspace.terminals,
-                snapshotRows: terminalPickerRows,
-                selectedID: store.selectedTerminalID,
-                canCreateWorkspace: canCreateWorkspace,
-                hasActiveBrowser: activeBrowser != nil,
-                isChatMode: isChatMode
-            ),
-            actions: TerminalPickerMenuActions(
-                selectTerminal: selectTerminalFromPicker,
-                createWorkspace: createWorkspaceFromToolbar,
-                createTerminal: createTerminalFromToolbar,
-                openBrowser: openBrowserFromToolbar,
-                openTextSheet: openTextSheetFromMenu,
-                copyDebugLogs: {
-                    #if DEBUG
-                    copyDebugLogsFromMenu()
-                    #endif
-                },
-                sendFeedback: openFeedbackComposerFromMenu
-            )
+    var workspaceUtilitiesToolbarButton: some View {
+        WorkspaceUtilitiesMenu(
+            showsViewAsText: activeBrowser == nil && !isChatMode,
+            openTextSheet: openTextSheetFromMenu,
+            copyDebugLogs: {
+                #if DEBUG
+                copyDebugLogsFromMenu()
+                #endif
+            },
+            sendFeedback: openFeedbackComposerFromMenu
         )
-        .equatable()
-        .simultaneousGesture(TapGesture().onEnded { syncTerminalPickerRows(includeTitleChanges: true) })
-        .onAppear { syncTerminalPickerRows(includeTitleChanges: true) }
-        .onChange(of: terminalPickerLiveMembership) { _, _ in syncTerminalPickerRows() }
+    }
+
+    private var surfaceDeckValue: SurfaceDeckValue {
+        SurfaceDeckValue(
+            workspace: workspace,
+            selectedSurfaceID: selectedTerminal?.id.rawValue,
+            agentStateKindsBySurfaceID: surfaceDeckAgentStateKinds,
+            canCreateWorkspace: canCreateWorkspace
+        )
+    }
+
+    private var surfaceDeckActions: SurfaceDeckActions {
+        SurfaceDeckActions(
+            selectTerminal: selectTerminalFromDeck,
+            presentPaneMap: { isPaneMapPresented = true },
+            createTerminal: createTerminalFromToolbar,
+            openBrowser: openBrowserFromToolbar,
+            createWorkspace: createWorkspaceFromToolbar
+        )
+    }
+
+    private var surfaceDeckAgentStateKinds: [String: ChatAgentStateKind] {
+        var result: [String: ChatAgentStateKind] = [:]
+        for session in store.cachedChatSessions(workspaceID: workspace.id.rawValue) {
+            guard let terminalID = session.terminalID else { continue }
+            switch session.state {
+            case .working:
+                result[terminalID] = .working
+            case .needsInput:
+                result[terminalID] = .needsInput
+            case .idle, .ended:
+                break
+            }
+        }
+        return result
     }
 
     #if canImport(UIKit)
@@ -572,7 +614,7 @@ struct WorkspaceDetailView: View {
         closeWorkspace?(workspace.id)
     }
 
-    /// Toggle the current workspace's read state from the picker menu.
+    /// Toggle the current workspace's read state from the title menu.
     private func toggleWorkspaceReadStateFromMenu() {
         let id = workspace.id
         let markUnread = !workspace.hasUnread
@@ -610,16 +652,16 @@ struct WorkspaceDetailView: View {
         dismissTerminalKeyboardForChrome()
         // Opens (or reveals the existing) browser pane for this workspace. The
         // detail view flips to the browser because `activeBrowser` becomes
-        // non-nil; the picker shows a check next to "New Browser" while it is up.
+        // non-nil.
         browserStore.openBrowser(for: workspace.id.rawValue)
     }
 
-    private func selectTerminalFromPicker(_ terminalID: MobileTerminalPreview.ID) {
+    private func selectTerminalFromDeck(_ terminalID: MobileTerminalPreview.ID) {
         dismissTerminalKeyboardForChrome()
         // Choosing a terminal returns from the browser pane (if up) to the
         // terminal. Closing the browser is enough to flip the detail view back.
         browserStore.closeBrowser(for: workspace.id.rawValue)
-        // Switching from the picker is chrome, not a typing intent, so the
+        // Switching from the deck is chrome, not a typing intent, so the
         // newly-selected surface must not grab the keyboard on attach. The
         // store suppresses the target's autofocus (and is a no-op when it is
         // already selected). A push-notification deep link uses the plain
