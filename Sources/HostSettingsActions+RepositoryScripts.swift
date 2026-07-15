@@ -29,8 +29,8 @@ extension HostSettingsActions {
         guard let appDelegate = AppDelegate.shared,
               let runtime = appDelegate.settingsRuntime,
               let tabManager = appDelegate.activeTabManagerForCommands(),
-              let workspace = tabManager.selectedWorkspace,
-              let directory = workspace.currentDirectory else { return false }
+              let workspace = tabManager.selectedWorkspace else { return false }
+        let directory = workspace.currentDirectory
         var preferences = await runtime.jsonStore.value(for: runtime.catalog.terminal.repositoryScripts)
         guard let resolution = RepositoryScriptResolver().resolve(
             directory: directory,
