@@ -1010,6 +1010,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A8F801000000000000000002 /* MobileWorkspaceHierarchyProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8F801000000000000000001 /* MobileWorkspaceHierarchyProjection.swift */; };
 		A8F801000000000000000004 /* MobileWorkspaceHierarchyProjectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8F801000000000000000003 /* MobileWorkspaceHierarchyProjectionTests.swift */; };
 		F6448F377504F33956E7E03B /* MobileWorkspaceListFidelityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86544CEFA1CA33CA9225FB6E /* MobileWorkspaceListFidelityTests.swift */; };
+		F8C001010000000000000001 /* MobileWorkspaceListFocusEventTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8C001010000000000000002 /* MobileWorkspaceListFocusEventTests.swift */; };
 		00C3AA443F6DA8D94E28CE17 /* MobileWorkspaceListObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9F14137954A34DFFA05C88C /* MobileWorkspaceListObserver.swift */; };
 		A8F802000000000000000014 /* MobileWorkspaceListProjection+GroupValue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8F802000000000000000013 /* MobileWorkspaceListProjection+GroupValue.swift */; };
 		A8F801000000000000000006 /* MobileWorkspaceListProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8F801000000000000000005 /* MobileWorkspaceListProjection.swift */; };
@@ -2909,6 +2910,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A8F801000000000000000001 /* MobileWorkspaceHierarchyProjection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceHierarchyProjection.swift; sourceTree = "<group>"; };
 		A8F801000000000000000003 /* MobileWorkspaceHierarchyProjectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceHierarchyProjectionTests.swift; sourceTree = "<group>"; };
 		86544CEFA1CA33CA9225FB6E /* MobileWorkspaceListFidelityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceListFidelityTests.swift; sourceTree = "<group>"; };
+		F8C001010000000000000002 /* MobileWorkspaceListFocusEventTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceListFocusEventTests.swift; sourceTree = "<group>"; };
 		C9F14137954A34DFFA05C88C /* MobileWorkspaceListObserver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceListObserver.swift; sourceTree = "<group>"; };
 		A8F802000000000000000013 /* MobileWorkspaceListProjection+GroupValue.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileWorkspaceListProjection+GroupValue.swift"; sourceTree = "<group>"; };
 		A8F801000000000000000005 /* MobileWorkspaceListProjection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceListProjection.swift; sourceTree = "<group>"; };
@@ -5596,6 +5598,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B37A0000000000000000000C /* FileExplorerStateModePersistenceTests.swift */,
 				BC39DE4B96D1931C52AF7D68 /* SidebarOrderingTests.swift */,
 				86544CEFA1CA33CA9225FB6E /* MobileWorkspaceListFidelityTests.swift */,
+				F8C001010000000000000002 /* MobileWorkspaceListFocusEventTests.swift */,
 				A8F801000000000000000003 /* MobileWorkspaceHierarchyProjectionTests.swift */,
 				D8EEFCBE0D4137D01A1B4AC7 /* MobileWorkspacePaneHierarchyFidelityTests.swift */,
 				DB5B468D09754EA18A6ACCD3 /* MobileWorkspacePanePayloadTests.swift */,
@@ -7815,6 +7818,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A8F800000000000000000006 /* MobileTerminalReorderIndexResolverTests.swift in Sources */,
 				A8F801000000000000000004 /* MobileWorkspaceHierarchyProjectionTests.swift in Sources */,
 				F6448F377504F33956E7E03B /* MobileWorkspaceListFidelityTests.swift in Sources */,
+				F8C001010000000000000001 /* MobileWorkspaceListFocusEventTests.swift in Sources */,
 				A11CE0020000000000000001 /* MobileWorkspaceObserverMetricsTests.swift in Sources */,
 				90C33E5A98704D86832E3734 /* MobileWorkspacePaneHierarchyFidelityTests.swift in Sources */,
 				2B8B633A97054416BC2B3978 /* MobileWorkspacePanePayloadTests.swift in Sources */,
