@@ -1396,9 +1396,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // bestRepresentationForImage:hints:] while rendering SF Symbols
                 // (see #7254), so that default converts an otherwise-recoverable
                 // OS bug into a startup/navigation crash loop. Keep the legacy
-                // catch-and-log behavior instead; crash reporting for real
-                // signal-level crashes is unaffected.
-                options.enableUncaughtNSExceptionReporting = false
+                // catch-and-log behavior there instead; crash reporting for real
+                // signal-level crashes is unaffected, and stable macOS keeps
+                // Sentry's NSException reporting. Remove once Apple fixes the
+                // SF Symbol rendering path (FB23740635).
+                if #available(macOS 27, *) {
+                    options.enableUncaughtNSExceptionReporting = false
+                }
                 // Redact file paths, emails, and secrets from every outgoing
                 // event, breadcrumb, and (belt-and-suspenders, if tracing is ever
                 // re-enabled) child performance span before it leaves the device.
