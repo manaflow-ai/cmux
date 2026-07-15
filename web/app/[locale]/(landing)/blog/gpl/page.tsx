@@ -1,17 +1,24 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
-import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "@/i18n/seo";
+import { buildAlternates, openGraphDefaults, twitterSummary } from "@/i18n/seo";
+import { blogPostSeoCopy } from "@/i18n/audited-seo";
+import { englishFallbackContentLocales } from "@/i18n/locale-availability";
 import { BlogSchema } from "../blog-schema";
 import { Link } from "@/i18n/navigation";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "blog.gpl" });
-  const alternates = buildAlternates(locale, "/blog/gpl");
-  const title = t("metaTitle");
-  const description = seoDescription(locale, t("metaDescription"));
+  const post = await getTranslations({ locale, namespace: "blog.posts.gpl" });
+  const siteMeta = await getTranslations({ locale, namespace: "meta" });
+  const alternates = buildAlternates(
+    locale,
+    "/blog/gpl",
+    englishFallbackContentLocales,
+  );
+  const { title, description } = blogPostSeoCopy(locale, "gpl", t, post, siteMeta);
   return {
-    title,
+    title: { absolute: title },
     description,
     openGraph: {
       ...openGraphDefaults(locale, "article"),
@@ -31,7 +38,7 @@ export default function GplPage() {
 
   return (
     <>
-      <BlogSchema postKey="gpl" path="/blog/gpl" datePublished="2026-03-30T00:00:00Z" />
+      <BlogSchema postKey="gpl" seoKey="gpl" path="/blog/gpl" datePublished="2026-03-30T00:00:00Z" />
       <div className="mb-8">
         <Link
           href="/blog"

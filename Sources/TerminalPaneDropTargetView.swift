@@ -378,6 +378,46 @@ final class PaneDropTargetView: NSView {
         return false
     }
 
+    private func fileDropTextDestinationKind(
+        context: PaneDropContext,
+        workspace: Workspace
+    ) -> FileDropTextDestinationKind? {
+        if hostedView != nil {
+            return .terminal
+        }
+
+        guard let tabId = workspace.bonsplitController.selectedTab(inPane: context.paneId)?.id,
+              let panelId = workspace.panelIdFromSurfaceId(tabId),
+              let panel = workspace.panels[panelId] else {
+            return nil
+        }
+
+        switch panel.panelType {
+        case .terminal:
+            return .terminal
+        case .browser:
+            return nil
+        case .filePreview:
+            guard let filePreviewPanel = panel as? FilePreviewPanel,
+                  filePreviewPanel.previewMode == .text else {
+                return nil
+            }
+            return .editor
+        case .markdown:
+            return nil
+        case .rightSidebarTool:
+            return nil
+        case .customSidebar:
+            return nil
+        case .agentSession, .project:
+            return nil
+        case .extensionBrowser, .simulator, .workspaceTodo:
+            return nil
+        case .cloudVMLoading:
+            return nil
+        }
+    }
+
     func shouldDeferToPaneTabBar(at point: NSPoint) -> Bool {
         let windowPoint = convert(point, to: nil)
         return BonsplitTabBarPassThrough

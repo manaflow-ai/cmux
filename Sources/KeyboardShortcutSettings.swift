@@ -108,6 +108,9 @@ enum KeyboardShortcutSettings {
         case renameTab
         case renameWorkspace
         case editWorkspaceDescription
+        case markWorkspaceDone
+        case cycleWorkspaceStatus
+        case toggleChecklistItemComplete
         case closeTab
         case closeOtherTabsInPane
         case closeWorkspace
@@ -181,11 +184,14 @@ enum KeyboardShortcutSettings {
         case openDiffViewer
         case diffViewerScrollDown
         case diffViewerScrollUp
+        case diffViewerScrollHalfPageDown, diffViewerScrollHalfPageUp
+        case diffViewerScrollDownEmacs, diffViewerScrollUpEmacs
         case diffViewerScrollToBottom
         case diffViewerScrollToTop
         case diffViewerOpenFileSearch
         case simulatorHome, simulatorRotateLeft, simulatorRotateRight
         case simulatorToggleAppearance, simulatorToggleSoftwareKeyboard
+        case diffViewerNextFile, diffViewerPreviousFile
 
         var id: String { rawValue }
 
@@ -233,6 +239,9 @@ enum KeyboardShortcutSettings {
             case .renameTab: return String(localized: "shortcut.renameTab.label", defaultValue: "Rename Tab")
             case .renameWorkspace: return String(localized: "shortcut.renameWorkspace.label", defaultValue: "Rename Workspace")
             case .editWorkspaceDescription: return String(localized: "shortcut.editWorkspaceDescription.label", defaultValue: "Edit Workspace Description")
+            case .markWorkspaceDone: return String(localized: "shortcut.markWorkspaceDone.label", defaultValue: "Mark Workspace as Done")
+            case .cycleWorkspaceStatus: return String(localized: "shortcut.cycleWorkspaceStatus.label", defaultValue: "Cycle Workspace Status")
+            case .toggleChecklistItemComplete: return String(localized: "shortcut.toggleChecklistItemComplete.label", defaultValue: "Toggle Checklist Item Complete")
             case .closeTab: return String(localized: "menu.file.closeTab", defaultValue: "Close Tab")
             case .closeOtherTabsInPane: return String(localized: "menu.file.closeOtherTabs", defaultValue: "Close Other Tabs in Pane")
             case .closeWorkspace: return String(localized: "shortcut.closeWorkspace.label", defaultValue: "Close Workspace")
@@ -299,14 +308,20 @@ enum KeyboardShortcutSettings {
             case .toggleBrowserFocusMode: return String(localized: "shortcut.toggleBrowserFocusMode.label", defaultValue: "Enter Browser Focus Mode")
             case .toggleReactGrab: return String(localized: "shortcut.toggleReactGrab.label", defaultValue: "Toggle React Grab")
             case .openDiffViewer: return String(localized: "shortcut.openDiffViewer.label", defaultValue: "Open Diff Viewer")
-            case .diffViewerScrollDown: return String(localized: "shortcut.diffViewerScrollDown.label", defaultValue: "Diff Viewer: Scroll Down")
-            case .diffViewerScrollUp: return String(localized: "shortcut.diffViewerScrollUp.label", defaultValue: "Diff Viewer: Scroll Up")
-            case .diffViewerScrollToBottom: return String(localized: "shortcut.diffViewerScrollToBottom.label", defaultValue: "Diff Viewer: Scroll to Bottom")
-            case .diffViewerScrollToTop: return String(localized: "shortcut.diffViewerScrollToTop.label", defaultValue: "Diff Viewer: Scroll to Top")
+            case .diffViewerScrollDown: return String(localized: "shortcut.diffViewerScrollDown.label", defaultValue: "Viewers: Scroll Down")
+            case .diffViewerScrollUp: return String(localized: "shortcut.diffViewerScrollUp.label", defaultValue: "Viewers: Scroll Up")
+            case .diffViewerScrollHalfPageDown: return String(localized: "shortcut.diffViewerScrollHalfPageDown.label", defaultValue: "Viewers: Scroll Half Page Down")
+            case .diffViewerScrollHalfPageUp: return String(localized: "shortcut.diffViewerScrollHalfPageUp.label", defaultValue: "Viewers: Scroll Half Page Up")
+            case .diffViewerScrollDownEmacs: return String(localized: "shortcut.diffViewerScrollDownEmacs.label", defaultValue: "Viewers: Scroll Down (Emacs)")
+            case .diffViewerScrollUpEmacs: return String(localized: "shortcut.diffViewerScrollUpEmacs.label", defaultValue: "Viewers: Scroll Up (Emacs)")
+            case .diffViewerScrollToBottom: return String(localized: "shortcut.diffViewerScrollToBottom.label", defaultValue: "Viewers: Scroll to Bottom")
+            case .diffViewerScrollToTop: return String(localized: "shortcut.diffViewerScrollToTop.label", defaultValue: "Viewers: Scroll to Top")
             case .diffViewerOpenFileSearch: return String(localized: "shortcut.diffViewerOpenFileSearch.label", defaultValue: "Diff Viewer: Open File Search")
             case .simulatorHome, .simulatorRotateLeft, .simulatorRotateRight,
                  .simulatorToggleAppearance, .simulatorToggleSoftwareKeyboard:
                 return simulatorLabel
+            case .diffViewerNextFile: return String(localized: "shortcut.diffViewerNextFile.label", defaultValue: "Diff Viewer: Next File")
+            case .diffViewerPreviousFile: return String(localized: "shortcut.diffViewerPreviousFile.label", defaultValue: "Diff Viewer: Previous File")
             }
         }
 
@@ -332,10 +347,9 @@ enum KeyboardShortcutSettings {
             case .reloadConfiguration:
                 return StoredShortcut(key: ",", command: true, shift: true, option: false, control: false)
             case .showHideAllWindows:
-                // Avoid AppKit-reserved keystrokes such as Cmd+. (modal
-                // cancel). Default to Ctrl+Option+Cmd+. so the global hotkey
-                // does not collide with the standard cancel keystroke that
-                // NSAlert/NSOpenPanel use.
+                // Avoid AppKit-reserved keystrokes such as Cmd+. (modal cancel). Default to
+                // Ctrl+Option+Cmd+. so the global hotkey does not collide with the standard
+                // cancel keystroke that NSAlert/NSOpenPanel use.
                 return StoredShortcut(key: ".", command: true, shift: false, option: true, control: true)
             case .globalSearch:
                 return StoredShortcut(key: "f", command: true, shift: false, option: true, control: false)
@@ -352,9 +366,8 @@ enum KeyboardShortcutSettings {
             case .newTab:
                 return StoredShortcut(key: "n", command: true, shift: false, option: false, control: false)
             case .newBrowserWorkspace:
-                // Option+Cmd+N: sits next to New Workspace (Cmd+N) and New Window
-                // (Cmd+Shift+N) without colliding with any cmux default or an
-                // AppKit-reserved keystroke.
+                // Option+Cmd+N: sits next to New Workspace (Cmd+N) and New Window (Cmd+Shift+N)
+                // without colliding with any cmux default or an AppKit-reserved keystroke.
                 return StoredShortcut(key: "n", command: true, shift: false, option: true, control: false)
             case .saveLayoutTemplate:
                 return StoredShortcut(key: "s", command: true, shift: false, option: false, control: true)
@@ -408,6 +421,17 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "r", command: true, shift: true, option: false, control: false)
             case .editWorkspaceDescription:
                 return StoredShortcut(key: "e", command: true, shift: false, option: true, control: false)
+            case .markWorkspaceDone:
+                // Cmd+; pins the selected workspace's status to done. The Cmd-"D" family was taken by split/diff
+                // actions and the natural Cmd+Ctrl+D chord is reserved by macOS; Cmd+; (semicolon) is free and sits next to the status-cycle chord.
+                return StoredShortcut(key: ";", command: true, shift: false, option: false, control: false)
+            case .cycleWorkspaceStatus:
+                // Cmd+Shift+; cycles the selected workspace's status one lane forward (todo → working → needs-attention → review → done).
+                return StoredShortcut(key: ";", command: true, shift: true, option: false, control: false)
+            case .toggleChecklistItemComplete:
+                // Cmd+Return toggles the highlighted checklist item in the focused todo pane / checklist popover.
+                // Registered here for Settings discoverability and rebinding; the pane/popover handle the keystroke locally (they own the highlight).
+                return StoredShortcut(key: "\r", command: true, shift: false, option: false, control: false)
             case .closeTab:
                 return StoredShortcut(key: "w", command: true, shift: false, option: false, control: false)
             case .closeOtherTabsInPane:
@@ -417,18 +441,13 @@ enum KeyboardShortcutSettings {
             case .newWorkspaceGroup:
                 return StoredShortcut(key: "g", command: true, shift: false, option: false, control: true)
             case .groupSelectedWorkspaces:
-                // Cmd+Shift+G is the user-natural mnemonic. It collides with
-                // toggleReactGrab's default, but handleGroupSelectedWorkspacesShortcut
-                // returns false (lets the event propagate) whenever there are
-                // no eligible workspaces to group — so React Grab still
-                // fires in browser/terminal contexts where this shortcut
-                // wouldn't have done anything anyway.
+                // Cmd+Shift+G is the user-natural mnemonic. It collides with toggleReactGrab's default,
+                // but handleGroupSelectedWorkspacesShortcut returns false (lets the event propagate) whenever
+                // there are no eligible workspaces to group — so React Grab still fires in browser/terminal contexts where this shortcut wouldn't have done anything anyway.
                 return StoredShortcut(key: "g", command: true, shift: true, option: false, control: false)
             case .toggleFocusedWorkspaceGroupCollapsed:
-                // Ctrl+Cmd+period — matches the Ctrl+Cmd modifier family
-                // used by other group ops, with "." as the collapse
-                // mnemonic. No-ops gracefully when the focused workspace
-                // isn't in a group.
+                // Ctrl+Cmd+period — matches the Ctrl+Cmd modifier family used by other group ops,
+                // with "." as the collapse mnemonic. No-ops gracefully when the focused workspace isn't in a group.
                 return StoredShortcut(key: ".", command: true, shift: false, option: false, control: true)
             case .reopenClosedBrowserPanel:
                 return StoredShortcut(key: "t", command: true, shift: true, option: false, control: false)
@@ -488,17 +507,14 @@ enum KeyboardShortcutSettings {
             case .cycleTextBoxSubmitAction: return StoredShortcut(key: "\t", command: false, shift: true, option: false, control: false)
             case .attachTextBoxFile: return StoredShortcut(key: "a", command: true, shift: true, option: true, control: false)
             case .sendCtrlFToTerminal:
-                // Unbound by default: this is a deliberate escape hatch for forwarding a
-                // control chord (e.g. Claude Code's Ctrl-F force-stop) to the focused
-                // terminal. Binding it to plain Ctrl-F would be self-referential, so users
-                // opt in via Settings; it stays reachable through the command palette and
-                // the `send_key ctrl-f` socket command.
+                // Unbound by default: this is a deliberate escape hatch for forwarding a control chord
+                // (e.g. Claude Code's Ctrl-F force-stop) to the focused terminal. Binding it to plain Ctrl-F
+                // would be self-referential, so users opt in via Settings; it stays reachable through the command palette and the `send_key ctrl-f` socket command.
                 return .unbound
             case .clearScreenKeepScrollback:
-                // Cmd+Shift+K: the less-destructive sibling of Ghostty's Cmd+K
-                // (clear_screen), which also wipes scrollback. Shift+K is unbound in
-                // both Ghostty defaults and cmux, and sits next to the full-clear
-                // chord. Rebindable in Settings → Keyboard Shortcuts.
+                // Cmd+Shift+K: the less-destructive sibling of Ghostty's Cmd+K (clear_screen),
+                // which also wipes scrollback. Shift+K is unbound in both Ghostty defaults and
+                // cmux, and sits next to the full-clear chord. Rebindable in Settings → Keyboard Shortcuts.
                 return StoredShortcut(key: "k", command: true, shift: true, option: false, control: false)
             case .selectWorkspaceByNumber:
                 return StoredShortcut(key: "1", command: true, shift: false, option: false, control: false)
@@ -555,26 +571,32 @@ enum KeyboardShortcutSettings {
                 // Safari default: Show JavaScript Console.
                 return StoredShortcut(key: "c", command: true, shift: false, option: true, control: false)
             case .toggleBrowserFocusMode:
-                // Option+Cmd+Return: "enter" focus mode mnemonic. Option+Cmd is a
-                // modifier tier web pages rarely bind, so it stays out of the page's
-                // way while focus mode is off and cmux owns the shortcut, and it
-                // avoids the Ctrl+Cmd+Return global hotkey some screen recorders use.
-                // Exit stays double-Escape; rebind in Settings or cmux.json.
+                // Option+Cmd+Return: "enter" focus mode mnemonic. Option+Cmd is a modifier tier web
+                // pages rarely bind, so it stays out of the page's way while focus mode is off and
+                // cmux owns the shortcut, and it avoids the Ctrl+Cmd+Return global hotkey some
+                // screen recorders use. Exit stays double-Escape; rebind in Settings or cmux.json.
                 return StoredShortcut(key: "\r", command: true, shift: false, option: true, control: false)
             case .toggleReactGrab:
                 return StoredShortcut(key: "g", command: true, shift: true, option: false, control: false)
             case .openDiffViewer:
-                // Cmd+Ctrl+Shift+D. The plain Cmd+Ctrl+D chord is reserved by macOS for
-                // "Look Up & data detectors" — the OS swallows it before it reaches the
-                // app's key monitor — and the rest of the Cmd-based "D" family is taken
-                // by split actions (Cmd+D, Cmd+Shift+D, Cmd+Opt+D, Cmd+Shift+Opt+D).
-                // Adding Shift yields a chord that reaches cmux while keeping the "D for
-                // Diff" mnemonic. Rebindable in Settings → Keyboard Shortcuts.
+                // Cmd+Ctrl+Shift+D. The plain Cmd+Ctrl+D chord is reserved by macOS for "Look Up &
+                // data detectors" — the OS swallows it before it reaches the app's key monitor — and
+                // the rest of the Cmd-based "D" family is taken by split actions (Cmd+D, Cmd+Shift+D,
+                // Cmd+Opt+D, Cmd+Shift+Opt+D). Adding Shift yields a chord that reaches cmux while
+                // keeping the "D for Diff" mnemonic. Rebindable in Settings → Keyboard Shortcuts.
                 return StoredShortcut(key: "d", command: true, shift: true, option: false, control: true)
             case .diffViewerScrollDown:
                 return StoredShortcut(key: "j", command: false, shift: false, option: false, control: false)
             case .diffViewerScrollUp:
                 return StoredShortcut(key: "k", command: false, shift: false, option: false, control: false)
+            case .diffViewerScrollHalfPageDown:
+                return StoredShortcut(key: "d", command: false, shift: false, option: false, control: true)
+            case .diffViewerScrollHalfPageUp:
+                return StoredShortcut(key: "u", command: false, shift: false, option: false, control: true)
+            case .diffViewerScrollDownEmacs:
+                return StoredShortcut(key: "n", command: false, shift: false, option: false, control: true)
+            case .diffViewerScrollUpEmacs:
+                return StoredShortcut(key: "p", command: false, shift: false, option: false, control: true)
             case .diffViewerScrollToBottom:
                 return StoredShortcut(key: "g", command: false, shift: true, option: false, control: false)
             case .diffViewerScrollToTop:
@@ -584,21 +606,29 @@ enum KeyboardShortcutSettings {
                 )
             case .diffViewerOpenFileSearch:
                 return StoredShortcut(key: "/", command: false, shift: false, option: false, control: false)
+            case .diffViewerNextFile:
+                return StoredShortcut(
+                    first: ShortcutStroke(key: "]", command: false, shift: false, option: false, control: false),
+                    second: ShortcutStroke(key: "f", command: false, shift: false, option: false, control: false)
+                )
+            case .diffViewerPreviousFile:
+                return StoredShortcut(
+                    first: ShortcutStroke(key: "[", command: false, shift: false, option: false, control: false),
+                    second: ShortcutStroke(key: "f", command: false, shift: false, option: false, control: false)
+                )
             case .simulatorHome, .simulatorRotateLeft, .simulatorRotateRight,
                  .simulatorToggleAppearance, .simulatorToggleSoftwareKeyboard:
                 return simulatorDefaultShortcut
             }
         }
 
-        var allowsBareFirstStroke: Bool {
+        func tooltip(_ base: String) -> String {
+            "\(base) (\(displayedShortcutString(for: KeyboardShortcutSettings.shortcut(for: self))))"
+        }
+
+        var usesNumberedDigitMatching: Bool {
             switch self {
-            case .diffViewerScrollDown,
-                 .diffViewerScrollUp,
-                 .diffViewerScrollToBottom,
-                 .diffViewerScrollToTop,
-                 .diffViewerOpenFileSearch,
-                 .fileExplorerOpenSelection,
-                 .fileExplorerOpenSelectionFinderAlias:
+            case .selectSurfaceByNumber, .selectWorkspaceByNumber:
                 return true
             default:
                 return false
@@ -607,19 +637,6 @@ enum KeyboardShortcutSettings {
 
         var allowsChordShortcut: Bool {
             self != .fileExplorerOpenSelection && self != .fileExplorerOpenSelectionFinderAlias && self != .cycleTextBoxSubmitAction
-        }
-
-        var isBrowserContentShortcut: Bool {
-            switch self {
-            case .diffViewerScrollDown,
-                 .diffViewerScrollUp,
-                 .diffViewerScrollToBottom,
-                 .diffViewerScrollToTop,
-                 .diffViewerOpenFileSearch:
-                return true
-            default:
-                return false
-            }
         }
 
         func displayedShortcutString(for shortcut: StoredShortcut) -> String {
@@ -637,12 +654,11 @@ enum KeyboardShortcutSettings {
             proposedAction: Action,
             configuredShortcut: StoredShortcut
         ) -> Bool {
-            // Two bindings on the same keystroke only collide when some focus
-            // state activates both AND router priority cannot decide the overlap.
-            // A `shortcuts.when` override (or the built-in context default) can
-            // make them non-overlapping (issue #5189), and a pre-routed action
-            // wins its context outright, so factory Select Surface ⌃1…9 coexists
-            // with the sidebar's ⌃1…5 by priority.
+            // Two bindings on the same keystroke only collide when some focus state activates
+            // both AND router priority cannot decide the overlap. A `shortcuts.when` override
+            // (or the built-in context default) can make them non-overlapping (issue #5189),
+            // and a pre-routed action wins its context outright, so factory Select Surface
+            // ⌃1…9 coexists with the sidebar's ⌃1…5 by priority.
             guard ShortcutWhenClause.bindingsCollide(
                 KeyboardShortcutSettings.effectiveWhenClause(for: self),
                 lhsHasPriority: hasPriorityShortcutRouting,
@@ -694,9 +710,8 @@ enum KeyboardShortcutSettings {
                 return normalized
             }
 
-            // Preserve invalid settings-file values for the show/hide hotkey so managed
-            // configuration remains visible instead of silently falling back to defaults.
-            // Runtime registration still rejects unsupported Carbon hotkey shapes.
+            // Preserve invalid settings-file values for the show/hide hotkey so managed configuration
+            // remains visible instead of silently falling back to defaults. Runtime registration still rejects unsupported Carbon hotkey shapes.
             if usesNumberedDigitMatching || self == .globalSearch {
                 return nil
             }
@@ -1197,12 +1212,11 @@ final class SystemWideHotkeyController {
         ) { [weak self] _ in
             self?.refreshRegistration()
         }
-        // The live Settings UI uses the CmuxSettingsUI package recorder, which
-        // signals arm/disarm through its own notification (it cannot post the
-        // app-target `KeyboardShortcutRecorderActivity` one). Without this,
-        // recording a system-wide hotkey in Settings would not unregister the
-        // existing Carbon hotkey, so the keystroke would fire the global action
-        // instead of being captured (issue #5189).
+        // The live Settings UI uses the CmuxSettingsUI package recorder, which signals
+        // arm/disarm through its own notification (it cannot post the app-target
+        // `KeyboardShortcutRecorderActivity` one). Without this, recording a system-wide
+        // hotkey in Settings would not unregister the existing Carbon hotkey, so the
+        // keystroke would fire the global action instead of being captured (issue #5189).
         packageRecorderObserver = NotificationCenter.default.addObserver(
             forName: RecorderHostButton.activeRecordingDidChangeNotification,
             object: nil,
@@ -1231,9 +1245,8 @@ final class SystemWideHotkeyController {
     }
 
     private func refreshRegistration() {
-        // Stand down while either recorder is armed (legacy app-target recorder
-        // or the CmuxSettingsUI package recorder) so a system-wide hotkey being
-        // rebound in Settings is captured rather than fired.
+        // Stand down while either recorder is armed (legacy app-target recorder or the CmuxSettingsUI
+        // package recorder) so a system-wide hotkey being rebound in Settings is captured rather than fired.
         let isShortcutRecordingActive = KeyboardShortcutRecorderActivity.isAnyRecorderActive
             || RecorderHostButton.isActivelyRecording
 
@@ -1877,13 +1890,12 @@ struct ShortcutStroke: Equatable, Hashable {
     ) -> String {
         let lowered = eventCharacter.lowercased()
 
-        // "+" -> "=" and "_" -> "-" are normalized regardless of Shift. On US
-        // layouts these symbols only exist as Shift variants, so the Shift gate
-        // below historically sufficed. On European layouts (German QWERTZ, French
-        // AZERTY, Nordic) "+" and "-" are dedicated keys typed WITHOUT Shift, so a
-        // bare "+"/"_" can only originate from such a key. Mapping them to their
-        // base zoom key ("=", "-") unconditionally is therefore safe (no shortcut
-        // key is ever stored as "+"/"_") and is what makes Cmd zoom work there.
+        // "+" -> "=" and "_" -> "-" are normalized regardless of Shift. On US layouts these
+        // symbols only exist as Shift variants, so the Shift gate below historically sufficed.
+        // On European layouts (German QWERTZ, French AZERTY, Nordic) "+" and "-" are dedicated
+        // keys typed WITHOUT Shift, so a bare "+"/"_" can only originate from such a key.
+        // Mapping them to their base zoom key ("=", "-") unconditionally is therefore safe
+        // (no shortcut key is ever stored as "+"/"_") and is what makes Cmd zoom work there.
         switch lowered {
         case "+": return "="
         case "_": return "-"

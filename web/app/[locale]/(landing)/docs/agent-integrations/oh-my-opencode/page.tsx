@@ -1,28 +1,16 @@
 import { useTranslations } from "next-intl";
-import { getTranslations } from "next-intl/server";
 import { CodeBlock } from "@/app/[locale]/components/code-block";
 import { DocsHeading } from "@/app/[locale]/components/docs-heading";
-import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "@/i18n/seo";
+import { auditedDocsMetadata } from "../../audited-docs-metadata";
 import { DocsSchema } from "../../docs-schema";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
-  const t = await getTranslations({ locale, namespace: "docs.ohMyOpenCode" });
-  const alternates = buildAlternates(locale, "/docs/agent-integrations/oh-my-opencode");
-  const title = t("metaTitle");
-  const description = seoDescription(locale, t("metaDescription"));
-  return {
-    title,
-    description,
-    alternates,
-    openGraph: {
-      ...openGraphDefaults(locale, "article"),
-      title,
-      description,
-      url: alternates.canonical,
-    },
-    twitter: twitterSummary(locale, title, description),
-  };
+  return auditedDocsMetadata({
+    locale,
+    pageKey: "ohMyOpenCode",
+    path: "/docs/agent-integrations/oh-my-opencode",
+  });
 }
 
 export default function OhMyOpenCodePage() {

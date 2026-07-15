@@ -73,6 +73,7 @@ public final class ControlCommandCoordinator {
         if let result = handleNotification(request) { return result }
         if let result = handleLayout(request) { return result }
         if let result = handleWorkspaceGroup(request) { return result }
+        if let result = handleWorkspaceTodo(request) { return result }
         if let result = handlePane(request) { return result }
         if let result = handleCanvas(request) { return result }
         if let result = handleMobileHost(request) { return result }
@@ -80,6 +81,7 @@ public final class ControlCommandCoordinator {
         if let result = handleSurface(request) { return result }
         if let result = handleSystem(request) { return result }
         if let result = handleProject(request) { return result }
+        if let result = handlePerformance(request) { return result }
         if let result = handleDebug(request) { return result }
         // The v2 browser.* domain stays app-side: PR 5778 moved its
         // JS-evaluating methods onto the socket-worker lane (nonisolated

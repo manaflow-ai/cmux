@@ -20,6 +20,7 @@ public protocol ControlCommandContext:
     ControlNotificationContext,
     ControlLayoutContext,
     ControlWorkspaceGroupContext,
+    ControlWorkspaceTodoContext,
     ControlPaneContext,
     ControlCanvasContext,
     ControlSimulatorContext,
@@ -28,6 +29,7 @@ public protocol ControlCommandContext:
     ControlSurfaceContext,
     ControlSystemContext,
     ControlProjectContext,
+    ControlPerformanceContext,
     ControlDebugContext,
     ControlSidebarContext,
     ControlBrowserPanelContext

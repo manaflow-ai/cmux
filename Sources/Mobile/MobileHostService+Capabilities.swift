@@ -15,7 +15,7 @@ extension MobileHostService {
     /// still gated by the same-account Stack-auth check the rest of the mobile
     /// data plane enforces.
     nonisolated static var mobileHostCapabilities: [String] {
-        [
+        let capabilities = [
             "events.v1",
             "notification.badge.v1",
             "notification.dismiss.v1",
@@ -24,6 +24,7 @@ extension MobileHostService {
             "terminal.render_grid.v1",
             "terminal.replay.v1",
             "terminal.viewport.v1",
+            "terminal.artifact.v1",
             "workspace.actions.v1",
             "workspace.read_state.v1",
             "workspace.close.v1",
@@ -31,6 +32,8 @@ extension MobileHostService {
             "workspace.group_actions.v1",
             "workspace.group_create.v1",
             "workspace.create_in_group.v1",
+            "chat.artifact.v1",
+            "chat.artifact.gallery.v1",
             "dogfood.v1",
             // The workspace list carries group sections (group_id per workspace +
             // a top-level groups array) and the host accepts
@@ -38,5 +41,17 @@ extension MobileHostService {
             // this to render collapsible groups only against a Mac that emits them.
             "workspace.groups.v1",
         ]
+        #if DEBUG
+        // Lets a dev Mac impersonate an older host while dogfooding the iOS update hint.
+        let suppressed = Set(
+            (ProcessInfo.processInfo.environment["CMUX_DEBUG_SUPPRESS_MOBILE_CAPS"] ?? "")
+                .split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+        )
+        return capabilities.filter { !suppressed.contains($0) }
+        #else
+        return capabilities
+        #endif
     }
 }

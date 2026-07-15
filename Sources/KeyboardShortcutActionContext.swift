@@ -2,10 +2,52 @@ import CmuxCommandPalette
 import CmuxSettings
 
 extension KeyboardShortcutSettings.Action {
+    var allowsBareFirstStroke: Bool {
+        switch self {
+        case .diffViewerScrollDown,
+             .diffViewerScrollUp,
+             .diffViewerScrollHalfPageDown,
+             .diffViewerScrollHalfPageUp,
+             .diffViewerScrollDownEmacs,
+             .diffViewerScrollUpEmacs,
+             .diffViewerScrollToBottom,
+             .diffViewerScrollToTop,
+             .diffViewerOpenFileSearch,
+             .diffViewerNextFile,
+             .diffViewerPreviousFile,
+             .fileExplorerOpenSelection,
+             .fileExplorerOpenSelectionFinderAlias:
+            return true
+        default:
+            return false
+        }
+    }
+
+    var isBrowserContentShortcut: Bool {
+        switch self {
+        case .diffViewerScrollDown,
+             .diffViewerScrollUp,
+             .diffViewerScrollHalfPageDown,
+             .diffViewerScrollHalfPageUp,
+             .diffViewerScrollDownEmacs,
+             .diffViewerScrollUpEmacs,
+             .diffViewerScrollToBottom,
+             .diffViewerScrollToTop,
+             .diffViewerOpenFileSearch,
+             .diffViewerNextFile,
+             .diffViewerPreviousFile:
+            return true
+        default:
+            return false
+        }
+    }
+
     enum ShortcutContext: Equatable {
         case application
+        case commandPaletteVisible
         case nonBrowserPanel
         case browserPanel
+        case viewerPanel
         case browserOrFilePreviewTextEditor
         case markdownPanel
         case simulatorPanel
@@ -34,8 +76,10 @@ extension KeyboardShortcutSettings.Action {
         ) -> Bool {
             switch self {
             case .application: return true
+            case .commandPaletteVisible: return false
             case .nonBrowserPanel: return !focusedBrowserPanel && !rightSidebarFocused
             case .browserPanel: return focusedBrowserPanel
+            case .viewerPanel: return focusedBrowserPanel || focusedMarkdownPanel
             case .browserOrFilePreviewTextEditor: return focusedBrowserPanel || focusedFilePreviewTextEditor
             case .markdownPanel: return focusedMarkdownPanel
             case .simulatorPanel: return focusedSimulatorPanel
@@ -50,7 +94,7 @@ extension KeyboardShortcutSettings.Action {
         }
 
         func isAvailable(_ context: ShortcutEventFocusContext) -> Bool {
-            isAvailable(
+            return isAvailable(
                 focusedBrowserPanel: context.browserPanel != nil,
                 focusedMarkdownPanel: context.markdownPanel != nil,
                 focusedSimulatorPanel: context.shortcutContext.bool(ShortcutContextKnownKey.simulatorFocus.rawValue),
@@ -61,7 +105,10 @@ extension KeyboardShortcutSettings.Action {
         }
 
         func isAvailable(commandPaletteContext context: CommandPaletteContextSnapshot) -> Bool {
-            isAvailable(
+            if self == .commandPaletteVisible {
+                return true
+            }
+            return isAvailable(
                 focusedBrowserPanel: context.bool(CommandPaletteContextKeys.panelIsBrowser),
                 focusedMarkdownPanel: context.bool(CommandPaletteContextKeys.panelIsMarkdown),
                 focusedSimulatorPanel: context.bool(CommandPaletteContextKeys.panelIsSimulator),
@@ -74,8 +121,10 @@ extension KeyboardShortcutSettings.Action {
         var defaultWhenClause: ShortcutWhenClause {
             switch self {
             case .application: return .always
+            case .commandPaletteVisible: return .key(ShortcutContextKnownKey.commandPaletteVisible.rawValue)
             case .nonBrowserPanel: return .and(.not(.atom(.browserFocus)), .not(.atom(.sidebarFocus)))
             case .browserPanel: return .atom(.browserFocus)
+            case .viewerPanel: return .or(.atom(.browserFocus), .atom(.markdownFocus))
             case .browserOrFilePreviewTextEditor:
                 return .or(.atom(.browserFocus), .atom(.filePreviewTextEditorFocus))
             case .markdownPanel: return .atom(.markdownFocus)
@@ -101,6 +150,15 @@ extension KeyboardShortcutSettings.Action {
                 || (self == .nonBrowserPanel && other == .markdownPanel) {
                 return true
             }
+            if self == .viewerPanel || other == .viewerPanel {
+                let paired = self == .viewerPanel ? other : self
+                switch paired {
+                case .browserPanel, .browserOrFilePreviewTextEditor, .markdownPanel, .nonBrowserPanel, .canvasLayout:
+                    return true
+                default:
+                    return false
+                }
+            }
             if self == .browserOrFilePreviewTextEditor || other == .browserOrFilePreviewTextEditor {
                 let paired = self == .browserOrFilePreviewTextEditor ? other : self
                 switch paired {
@@ -120,6 +178,8 @@ extension KeyboardShortcutSettings.Action {
                     && other != .browserOrFilePreviewTextEditor
                     && self != .markdownPanel
                     && other != .markdownPanel
+                    && self != .viewerPanel
+                    && other != .viewerPanel
             }
             if self == .simulatorPanel || other == .simulatorPanel {
                 let paired = self == .simulatorPanel ? other : self
@@ -135,7 +195,8 @@ extension KeyboardShortcutSettings.Action {
         case .switchRightSidebarToFiles, .switchRightSidebarToFind,
              .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock,
              .simulatorHome, .simulatorRotateLeft, .simulatorRotateRight,
-             .simulatorToggleAppearance, .simulatorToggleSoftwareKeyboard:
+             .simulatorToggleAppearance, .simulatorToggleSoftwareKeyboard,
+             .commandPaletteNext, .commandPalettePrevious:
             return true
         default:
             return false
@@ -144,9 +205,15 @@ extension KeyboardShortcutSettings.Action {
 
     var shortcutContext: ShortcutContext {
         switch self {
-        case .diffViewerScrollDown, .diffViewerScrollUp, .diffViewerScrollToBottom,
-             .diffViewerScrollToTop, .diffViewerOpenFileSearch:
+        case .diffViewerScrollDown, .diffViewerScrollUp,
+             .diffViewerScrollHalfPageDown, .diffViewerScrollHalfPageUp,
+             .diffViewerScrollDownEmacs, .diffViewerScrollUpEmacs, .diffViewerScrollToBottom,
+             .diffViewerScrollToTop:
+            return .viewerPanel
+        case .diffViewerOpenFileSearch, .diffViewerNextFile, .diffViewerPreviousFile:
             return .browserPanel
+        case .commandPaletteNext, .commandPalettePrevious:
+            return .commandPaletteVisible
         case .switchRightSidebarToFiles, .switchRightSidebarToFind, .switchRightSidebarToSessions,
              .switchRightSidebarToFeed, .switchRightSidebarToDock, .fileExplorerOpenSelection,
              .fileExplorerOpenSelectionFinderAlias:

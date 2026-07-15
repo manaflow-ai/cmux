@@ -9,6 +9,16 @@ extension ShortcutAction {
                 first: ShortcutStroke(key: "g"),
                 second: ShortcutStroke(key: "g")
             )
+        case .diffViewerNextFile:
+            return StoredShortcut(
+                first: ShortcutStroke(key: "]"),
+                second: ShortcutStroke(key: "f")
+            )
+        case .diffViewerPreviousFile:
+            return StoredShortcut(
+                first: ShortcutStroke(key: "["),
+                second: ShortcutStroke(key: "f")
+            )
         default:
             return defaultStroke.map { StoredShortcut(first: $0) }
         }
@@ -61,6 +71,12 @@ extension ShortcutAction {
         case .renameTab: return ShortcutStroke(key: "r", command: true)
         case .renameWorkspace: return ShortcutStroke(key: "r", command: true, shift: true)
         case .editWorkspaceDescription: return ShortcutStroke(key: "e", command: true, option: true)
+        // Cmd+; pins the status to done; the Cmd-"D" family is taken by
+        // split/diff actions and Cmd+Ctrl+D is macOS-reserved. Mirrors the
+        // app-side table.
+        case .markWorkspaceDone: return ShortcutStroke(key: ";", command: true)
+        case .cycleWorkspaceStatus: return ShortcutStroke(key: ";", command: true, shift: true)
+        case .toggleChecklistItemComplete: return ShortcutStroke(key: "\r", command: true)
         case .closeTab: return ShortcutStroke(key: "w", command: true)
         case .closeOtherTabsInPane: return ShortcutStroke(key: "t", command: true, option: true)
         case .closeWorkspace: return ShortcutStroke(key: "w", command: true, shift: true)
@@ -131,6 +147,10 @@ extension ShortcutAction {
         case .toggleReactGrab: return ShortcutStroke(key: "g", command: true, shift: true)
         case .diffViewerScrollDown: return ShortcutStroke(key: "j")
         case .diffViewerScrollUp: return ShortcutStroke(key: "k")
+        case .diffViewerScrollHalfPageDown: return ShortcutStroke(key: "d", control: true)
+        case .diffViewerScrollHalfPageUp: return ShortcutStroke(key: "u", control: true)
+        case .diffViewerScrollDownEmacs: return ShortcutStroke(key: "n", control: true)
+        case .diffViewerScrollUpEmacs: return ShortcutStroke(key: "p", control: true)
         case .diffViewerScrollToBottom: return ShortcutStroke(key: "g", shift: true)
         case .diffViewerScrollToTop: return nil
         case .diffViewerOpenFileSearch: return ShortcutStroke(key: "/")
@@ -139,6 +159,8 @@ extension ShortcutAction {
         case .simulatorRotateRight: return ShortcutStroke(key: "→", command: true)
         case .simulatorToggleAppearance: return ShortcutStroke(key: "a", command: true, shift: true)
         case .simulatorToggleSoftwareKeyboard: return ShortcutStroke(key: "k", command: true)
+        case .diffViewerNextFile: return nil
+        case .diffViewerPreviousFile: return nil
         }
     }
 }

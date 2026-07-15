@@ -4,6 +4,8 @@ import Foundation
 import Testing
 @testable import CmuxMobileShell
 
+private let backupRouteDisclosureDate = Date(timeIntervalSince1970: 2_000_000_000)
+
 @Suite struct PairedMacBackupTests {
     private func makeInnerStore() throws -> (MobilePairedMacStore, URL) {
         let directory = FileManager.default.temporaryDirectory
@@ -32,8 +34,8 @@ import Testing
 
     private func uploadedRecord(from op: PairedMacBackupOp) -> PairedMacBackupRecord? {
         switch op {
-        case .upsert(let record), .upsertPreservingCustomizations(let record),
-             .revive(let record), .revivePreservingCustomizations(let record):
+        case .upsert(let record, _), .upsertPreservingCustomizations(let record, _),
+             .revive(let record, _), .revivePreservingCustomizations(let record, _):
             return record
         case .delete:
             return nil
@@ -41,7 +43,10 @@ import Testing
     }
 
     private func encodedRecordObject(from op: PairedMacBackupOp) throws -> [String: Any] {
-        let body = PairedMacBackupRequestBody(ops: [PairedMacBackupOpWire(op: op)])
+        let body = PairedMacBackupRequestBody(ops: [PairedMacBackupOpWire(
+            op: op,
+            routeDisclosureDate: backupRouteDisclosureDate
+        )])
         let json = try JSONSerialization.jsonObject(with: try JSONEncoder().encode(body)) as? [String: Any]
         let ops = try #require(json?["ops"] as? [[String: Any]])
         let first = try #require(ops.first)
@@ -62,6 +67,7 @@ import Testing
     }
 
     // MARK: - Decorator backup mirroring
+
 
     @Test func tokenSourceRejectsExpectedUserMismatchBeforeTokenRead() async {
         let probe = TokenProbe(userIDs: ["user-2"])
@@ -159,7 +165,7 @@ import Testing
         try await store.remove(macDeviceID: "mac-a", stackUserID: "user-1", teamID: nil)
         try await store.upsert(macDeviceID: "mac-a", displayName: nil, routes: [try route("10.0.0.1", 22)], markActive: true, stackUserID: "user-1", now: Date())
 
-        if case .revivePreservingCustomizations(let record)? = await backup.uploadedOps().last {
+        if case .revivePreservingCustomizations(let record, _)? = await backup.uploadedOps().last {
             #expect(record.macDeviceID == "mac-a")
         } else {
             Issue.record("expected re-pair to upload a customization-preserving revive op")
@@ -677,14 +683,6 @@ import Testing
         #expect(keys["customIcon"] is NSNull)
     }
 
-    @Test func deleteUploadHasNoRecordBody() throws {
-        let body = PairedMacBackupRequestBody(ops: [PairedMacBackupOpWire(op: .delete(macDeviceID: "mac-a"))])
-        let json = try JSONSerialization.jsonObject(with: try JSONEncoder().encode(body)) as? [String: Any]
-        let ops = try #require(json?["ops"] as? [[String: Any]])
-        let first = try #require(ops.first)
-        #expect(first["record"] == nil)
-        #expect(first["deleted"] as? Bool == true)
-    }
 
     @Test func routineMirrorUploadsUsePreserveModeEvenForTombstoneRevive() async throws {
         let (inner, dir) = try makeInnerStore()

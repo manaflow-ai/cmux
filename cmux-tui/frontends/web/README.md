@@ -35,6 +35,10 @@ Open `http://localhost:5173`, keep the default WebSocket URL, and connect. Add
 `--ws-token <token>` to the server command and enter the same token in the
 connect screen to exercise the SDK authentication preamble.
 
+## Remote access and one-tap links
+
+When the page is served from a non-localhost host, the WebSocket URL defaults to `wss://<hostname>:8443` — the convention is to serve the WS endpoint with TLS on port 8443 next to the app (for example with `tailscale serve --https=8443 <ws-port>`). Query parameters `?ws=<url>&token=<token>` prefill and auto-consume the connect form, enabling one-tap links; both are stripped from the address bar immediately so the token never persists in history, and the token is kept in memory only. The last-used WebSocket URL (never the token) is remembered in `localStorage`.
+
 ## Screenshot
 
 > Screenshot placeholder — capture the workspace tree, tab strip, attached
