@@ -70,141 +70,16 @@ struct ChatArtifactViewerRouteView: View {
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(String(localized: "chat.artifact.done", defaultValue: "Done", bundle: .module)) {
-                        onDone()
-                    }
-                }
                 #if os(iOS)
-                if model.hasFileActions {
-                    ToolbarItem(placement: .primaryAction) {
-                        fileActionsMenu
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    if hasViewerActions {
+                        viewerActionsMenu
                     }
+                    doneButton
                 }
-                if shouldShowTextJumpControls {
-                    ToolbarItemGroup(placement: .primaryAction) {
-                        Button {
-                            withAnimation(.snappy) {
-                                if isSearchPresented {
-                                    dismissSearch()
-                                } else {
-                                    dismissGoToLine()
-                                    isSearchPresented = true
-                                }
-                            }
-                        } label: {
-                            Label(
-                                String(
-                                    localized: "chat.artifact.search.title",
-                                    defaultValue: "Search",
-                                    bundle: .module
-                                ),
-                                systemImage: "magnifyingglass"
-                            )
-                        }
-                        Menu {
-                            Button {
-                                withAnimation(.snappy) {
-                                    if isGoToLinePresented {
-                                        dismissGoToLine()
-                                    } else {
-                                        dismissSearch()
-                                        isGoToLinePresented = true
-                                    }
-                                }
-                            } label: {
-                                Label(
-                                    String(
-                                        localized: "chat.artifact.line.goto",
-                                        defaultValue: "Go to line",
-                                        bundle: .module
-                                    ),
-                                    systemImage: "text.line.first.and.arrowtriangle.forward"
-                                )
-                            }
-                            Button {
-                                showsLineNumbers.toggle()
-                            } label: {
-                                Label(
-                                    String(
-                                        localized: "chat.artifact.line.numbers",
-                                        defaultValue: "Line numbers",
-                                        bundle: .module
-                                    ),
-                                    systemImage: showsLineNumbers ? "checkmark" : "number"
-                                )
-                            }
-                            Button {
-                                wrapsLines.toggle()
-                                textPreferences.setWrapsLines(
-                                    wrapsLines,
-                                    for: textLayoutKind
-                                )
-                            } label: {
-                                Label(
-                                    String(
-                                        localized: "chat.artifact.wrap",
-                                        defaultValue: "Word wrap",
-                                        bundle: .module
-                                    ),
-                                    systemImage: wrapsLines ? "checkmark" : "text.justify.left"
-                                )
-                            }
-                        } label: {
-                            Label(
-                                String(
-                                    localized: "chat.artifact.text_options",
-                                    defaultValue: "Text options",
-                                    bundle: .module
-                                ),
-                                systemImage: "textformat"
-                            )
-                        }
-                        Button {
-                            topRequestID += 1
-                        } label: {
-                            Label(
-                                String(
-                                    localized: "chat.artifact.jump.top",
-                                    defaultValue: "Top",
-                                    bundle: .module
-                                ),
-                                systemImage: "arrow.up.to.line"
-                            )
-                        }
-                        Button {
-                            bottomRequestID += 1
-                        } label: {
-                            Label(jumpToBottomTitle, systemImage: "arrow.down.to.line")
-                        }
-                    }
-                }
-                if model.state == .markdown,
-                   model.markdownPresentation.isRenderedAvailable {
-                    ToolbarItem(placement: .primaryAction) {
-                        Picker(
-                            String(
-                                localized: "chat.artifact.markdown.view",
-                                defaultValue: "Markdown view",
-                                bundle: .module
-                            ),
-                            selection: markdownModeBinding
-                        ) {
-                            Text(String(
-                                localized: "chat.artifact.markdown.raw",
-                                defaultValue: "Raw",
-                                bundle: .module
-                            ))
-                            .tag(ChatArtifactMarkdownMode.raw)
-                            Text(String(
-                                localized: "chat.artifact.markdown.rendered",
-                                defaultValue: "Rendered",
-                                bundle: .module
-                            ))
-                            .tag(ChatArtifactMarkdownMode.rendered)
-                        }
-                        .pickerStyle(.segmented)
-                    }
+                #else
+                ToolbarItem(placement: .cancellationAction) {
+                    doneButton
                 }
                 #endif
             }
@@ -242,51 +117,194 @@ struct ChatArtifactViewerRouteView: View {
             }
     }
 
+    private var doneButton: some View {
+        Button(String(localized: "chat.artifact.done", defaultValue: "Done", bundle: .module)) {
+            onDone()
+        }
+    }
+
     #if os(iOS)
-    private var fileActionsMenu: some View {
+    private var hasViewerActions: Bool {
+        model.hasFileActions
+            || shouldShowTextJumpControls
+            || (model.state == .markdown && model.markdownPresentation.isRenderedAvailable)
+    }
+
+    private var viewerActionsMenu: some View {
         Menu {
-            Button {
-                prepareFileAction(.share)
-            } label: {
-                Label(
-                    String(localized: "chat.artifact.share", defaultValue: "Share", bundle: .module),
-                    systemImage: "square.and.arrow.up"
-                )
-            }
-            Button {
-                prepareFileAction(.save)
-            } label: {
-                Label(
-                    String(localized: "chat.artifact.save_to_files", defaultValue: "Save to Files", bundle: .module),
-                    systemImage: "folder.badge.plus"
-                )
-            }
-            if model.isTextFile {
-                Button {
-                    UIPasteboard.general.string = model.renderedText
-                } label: {
-                    Label(
-                        String(localized: "chat.artifact.copy_contents", defaultValue: "Copy contents", bundle: .module),
-                        systemImage: "doc.on.doc"
-                    )
+            if model.hasFileActions {
+                Section {
+                    fileActionButtons
                 }
-                .disabled(!model.canCopyContents)
             }
-            Button {
-                UIPasteboard.general.string = path
-            } label: {
-                Label(
-                    String(localized: "chat.artifact.copy_path", defaultValue: "Copy path", bundle: .module),
-                    systemImage: "link"
-                )
+            if shouldShowTextJumpControls {
+                Section {
+                    textViewerActionButtons
+                }
+            }
+            if model.state == .markdown,
+               model.markdownPresentation.isRenderedAvailable {
+                Section {
+                    Picker(
+                        String(
+                            localized: "chat.artifact.markdown.view",
+                            defaultValue: "Markdown view",
+                            bundle: .module
+                        ),
+                        selection: markdownModeBinding
+                    ) {
+                        Text(String(
+                            localized: "chat.artifact.markdown.raw",
+                            defaultValue: "Raw",
+                            bundle: .module
+                        ))
+                        .tag(ChatArtifactMarkdownMode.raw)
+                        Text(String(
+                            localized: "chat.artifact.markdown.rendered",
+                            defaultValue: "Rendered",
+                            bundle: .module
+                        ))
+                        .tag(ChatArtifactMarkdownMode.rendered)
+                    }
+                }
             }
         } label: {
             Label(
-                String(localized: "chat.artifact.file_actions", defaultValue: "File actions", bundle: .module),
+                String(
+                    localized: "chat.artifact.viewer.actions",
+                    defaultValue: "Viewer actions",
+                    bundle: .module
+                ),
                 systemImage: "ellipsis.circle"
             )
         }
         .disabled(isFileActionRunning)
+    }
+
+    @ViewBuilder
+    private var fileActionButtons: some View {
+        Button {
+            prepareFileAction(.share)
+        } label: {
+            Label(
+                String(localized: "chat.artifact.share", defaultValue: "Share", bundle: .module),
+                systemImage: "square.and.arrow.up"
+            )
+        }
+        Button {
+            prepareFileAction(.save)
+        } label: {
+            Label(
+                String(localized: "chat.artifact.save_to_files", defaultValue: "Save to Files", bundle: .module),
+                systemImage: "folder.badge.plus"
+            )
+        }
+        if model.isTextFile {
+            Button {
+                UIPasteboard.general.string = model.renderedText
+            } label: {
+                Label(
+                    String(localized: "chat.artifact.copy_contents", defaultValue: "Copy contents", bundle: .module),
+                    systemImage: "doc.on.doc"
+                )
+            }
+            .disabled(!model.canCopyContents)
+        }
+        Button {
+            UIPasteboard.general.string = path
+        } label: {
+            Label(
+                String(localized: "chat.artifact.copy_path", defaultValue: "Copy path", bundle: .module),
+                systemImage: "link"
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var textViewerActionButtons: some View {
+        Button {
+            withAnimation(.snappy) {
+                if isSearchPresented {
+                    dismissSearch()
+                } else {
+                    dismissGoToLine()
+                    isSearchPresented = true
+                }
+            }
+        } label: {
+            Label(
+                String(
+                    localized: "chat.artifact.search.title",
+                    defaultValue: "Search",
+                    bundle: .module
+                ),
+                systemImage: "magnifyingglass"
+            )
+        }
+        Button {
+            withAnimation(.snappy) {
+                if isGoToLinePresented {
+                    dismissGoToLine()
+                } else {
+                    dismissSearch()
+                    isGoToLinePresented = true
+                }
+            }
+        } label: {
+            Label(
+                String(
+                    localized: "chat.artifact.line.goto",
+                    defaultValue: "Go to line",
+                    bundle: .module
+                ),
+                systemImage: "text.line.first.and.arrowtriangle.forward"
+            )
+        }
+        Button {
+            topRequestID += 1
+        } label: {
+            Label(
+                String(
+                    localized: "chat.artifact.jump.top",
+                    defaultValue: "Top",
+                    bundle: .module
+                ),
+                systemImage: "arrow.up.to.line"
+            )
+        }
+        Button {
+            bottomRequestID += 1
+        } label: {
+            Label(jumpToBottomTitle, systemImage: "arrow.down.to.line")
+        }
+        Button {
+            showsLineNumbers.toggle()
+        } label: {
+            Label(
+                String(
+                    localized: "chat.artifact.line.numbers",
+                    defaultValue: "Line numbers",
+                    bundle: .module
+                ),
+                systemImage: showsLineNumbers ? "checkmark" : "number"
+            )
+        }
+        Button {
+            wrapsLines.toggle()
+            textPreferences.setWrapsLines(
+                wrapsLines,
+                for: textLayoutKind
+            )
+        } label: {
+            Label(
+                String(
+                    localized: "chat.artifact.wrap",
+                    defaultValue: "Word wrap",
+                    bundle: .module
+                ),
+                systemImage: wrapsLines ? "checkmark" : "text.justify.left"
+            )
+        }
     }
 
     private enum PreparedFileAction {

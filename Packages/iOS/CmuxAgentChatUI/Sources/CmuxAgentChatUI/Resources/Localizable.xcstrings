@@ -2437,6 +2437,23 @@
         }
       }
     },
+    "chat.artifact.viewer.actions" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Viewer actions"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ビューア操作"
+          }
+        }
+      }
+    },
     "chat.artifact.wrap" : {
       "extractionState" : "manual",
       "localizations" : {
