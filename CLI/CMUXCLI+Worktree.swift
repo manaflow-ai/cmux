@@ -205,7 +205,11 @@ extension CMUXCLI {
         guard remaining.count == 1 else {
             throw CLIError(message: String(localized: "cli.worktree.error.removeUsage", defaultValue: "Usage: cmux worktree remove <path-or-name> [--force] [--keep-branch] [--yes]"))
         }
-        let repoRoot = try await resolvedWorktreeRepository(nil, service: service, host: host)
+        let repoRoot = try await resolvedWorktreeRepository(
+            worktreeRepositoryPathHint(remaining[0]),
+            service: service,
+            host: host
+        )
         let listed = try await service.list(repoRoot: repoRoot, on: host)
         let worktree = try resolvedWorktree(
             remaining[0],
@@ -421,7 +425,11 @@ extension CMUXCLI {
         guard arguments.count == 1 else {
             throw CLIError(message: String(localized: "cli.worktree.error.statusUsage", defaultValue: "Usage: cmux worktree status <path-or-name>"))
         }
-        let repoRoot = try await resolvedWorktreeRepository(nil, service: service, host: host)
+        let repoRoot = try await resolvedWorktreeRepository(
+            worktreeRepositoryPathHint(arguments[0]),
+            service: service,
+            host: host
+        )
         let listed = try await service.list(repoRoot: repoRoot, on: host)
         let worktree = try resolvedWorktree(
             arguments[0],
@@ -485,6 +493,23 @@ extension CMUXCLI {
     ) async throws -> String {
         let path = rawPath.map(expandedWorktreePath) ?? FileManager.default.currentDirectoryPath
         return try await service.repositoryRoot(containing: path, on: host)
+    }
+
+    /// Returns an existing directory that should drive repository discovery
+    /// for a path-like target, so full-path remove/status work from any
+    /// current directory. Name-only targets and missing paths return `nil`
+    /// and fall back to the current directory's repository.
+    private func worktreeRepositoryPathHint(_ raw: String) -> String? {
+        guard isWorktreePathArgument(raw) else { return nil }
+        let expanded = expandedWorktreePath(raw)
+        let absolute = expanded.hasPrefix("/")
+            ? expanded
+            : (FileManager.default.currentDirectoryPath as NSString).appendingPathComponent(expanded)
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: absolute, isDirectory: &isDirectory) else {
+            return nil
+        }
+        return isDirectory.boolValue ? absolute : (absolute as NSString).deletingLastPathComponent
     }
 
     private func resolvedWorktree(

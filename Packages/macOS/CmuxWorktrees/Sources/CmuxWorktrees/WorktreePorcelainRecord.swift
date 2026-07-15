@@ -8,16 +8,31 @@ struct WorktreePorcelainRecord {
     var lockReason: String?
     var isPrunable = false
     var prunableReason: String?
-    var hasUnknownFields = false
+    /// Whether the record cannot be trusted: a quoted path failed to decode,
+    /// or a legacy line-delimited record contained a line that may be the
+    /// continuation of an unescaped path rather than an attribute.
+    var isRejected = false
 
-    init(lines: [String], decodeQuotedPaths: Bool = false) {
+    /// Parses one porcelain record.
+    ///
+    /// NUL-delimited fields are unambiguous, so unrecognized attributes from
+    /// newer Git versions are ignored for forward compatibility. Legacy
+    /// line-delimited output cannot distinguish a future attribute from the
+    /// continuation of a path containing a newline, and only frozen-vocabulary
+    /// legacy Gits produce it, so any unknown line rejects the whole record.
+    ///
+    /// - Parameters:
+    ///   - lines: The record's attribute fields.
+    ///   - legacyLineMode: Whether the fields came from line-delimited output,
+    ///     which C-quotes unusual paths and requires strict unknown handling.
+    init(lines: [String], legacyLineMode: Bool = false) {
         let pathDecoder = GitCStylePathDecoder()
         for line in lines {
             if line.hasPrefix("worktree ") {
                 let rawPath = String(line.dropFirst("worktree ".count))
-                if decodeQuotedPaths {
+                if legacyLineMode {
                     guard let decodedPath = pathDecoder.decodeIfQuoted(rawPath) else {
-                        hasUnknownFields = true
+                        isRejected = true
                         continue
                     }
                     path = decodedPath
@@ -42,8 +57,8 @@ struct WorktreePorcelainRecord {
             } else if line.hasPrefix("prunable ") {
                 isPrunable = true
                 prunableReason = String(line.dropFirst("prunable ".count))
-            } else {
-                hasUnknownFields = true
+            } else if legacyLineMode {
+                isRejected = true
             }
         }
     }

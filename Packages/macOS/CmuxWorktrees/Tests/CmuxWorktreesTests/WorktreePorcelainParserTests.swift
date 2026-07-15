@@ -65,6 +65,23 @@ struct WorktreePorcelainParserTests {
     }
 
     @Test
+    func ignoresUnknownNULTerminatedAttributesForForwardCompatibility() throws {
+        let fixture = "worktree /repo\0HEAD 1111111111111111111111111111111111111111\0" +
+            "branch refs/heads/main\0future-attribute some value\0\0"
+
+        let parsed = WorktreePorcelainParser().parse(
+            fixture,
+            host: WorktreeHostID(rawValue: "fixture-host"),
+            fallbackRepoPath: "/unused"
+        )
+
+        let worktree = try #require(parsed.first)
+        #expect(parsed.count == 1)
+        #expect(worktree.identity.worktreePath == "/repo")
+        #expect(worktree.branch == "main")
+    }
+
+    @Test
     func omitsAmbiguousLineTerminatedRecord() {
         let fixture = """
         worktree /repo

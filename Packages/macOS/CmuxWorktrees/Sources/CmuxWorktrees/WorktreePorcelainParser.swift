@@ -27,7 +27,7 @@ public struct WorktreePorcelainParser: Sendable {
 
         let stableRepoPath = records.first?.path ?? fallbackRepoPath
         return records.enumerated().compactMap { index, record in
-            guard let path = record.path, !record.hasUnknownFields else { return nil }
+            guard let path = record.path, !record.isRejected else { return nil }
             let branch = record.branchReference.map { reference in
                 let prefix = "refs/heads/"
                 return reference.hasPrefix(prefix) ? String(reference.dropFirst(prefix.count)) : reference
@@ -75,7 +75,7 @@ public struct WorktreePorcelainParser: Sendable {
             .components(separatedBy: "\n\n")
             .flatMap { block -> [WorktreePorcelainRecord] in
                 let lines = block.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
-                return lines.isEmpty ? [] : [WorktreePorcelainRecord(lines: lines, decodeQuotedPaths: true)]
+                return lines.isEmpty ? [] : [WorktreePorcelainRecord(lines: lines, legacyLineMode: true)]
             }
     }
 }
