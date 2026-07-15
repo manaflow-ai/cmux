@@ -356,6 +356,12 @@ struct ReflowParagraphTests {
         )
     }
 
+    @Test func markdownHardBreakBlocksWrapJoin() {
+        let lead = "This Markdown line reaches the inferred terminal wrapping boundary and ends here"
+        let input = "\(lead)  \n  continuation remains on the next Markdown line\n"
+        #expect(reflow(input) == input)
+    }
+
     /// A 20,000-line stress selection must scale with its input size. The ratio
     /// leaves ample runner noise while catching repeated copying of the
     /// accumulated paragraph, which grows quadratically.

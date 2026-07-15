@@ -157,6 +157,26 @@ struct PasteboardTextContentsTests {
         #expect(!types.contains(.rtfd))
     }
 
+    @Test func rewritingTextDoesNotReadAdvertisedSourceRichPayloads() throws {
+        let scratch = ScratchPasteboard()
+        let service = TerminalPasteboardService()
+        let provider = PasteboardRepresentationReadProbe()
+        let item = NSPasteboardItem()
+        #expect(item.setString("hard\nwrapped", forType: .string))
+        item.setDataProvider(provider, forTypes: [.html, .rtf, .rtfd])
+        #expect(scratch.pasteboard.writeObjects([item]))
+        provider.reset()
+
+        #expect(service.rewriteTextRepresentations("hard wrapped", in: scratch.pasteboard))
+
+        #expect(provider.requestedTypes.isEmpty)
+        #expect(scratch.pasteboard.string(forType: .string) == "hard wrapped")
+        let types = try #require(scratch.pasteboard.types)
+        #expect(types.contains(.html))
+        #expect(types.contains(.rtf))
+        #expect(!types.contains(.rtfd))
+    }
+
     @Test func largeRichRewriteDropsExpensiveFlavorsWithinLatencyBound() throws {
         let scratch = ScratchPasteboard()
         let service = TerminalPasteboardService()
