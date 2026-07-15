@@ -106,6 +106,9 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
             // Accent caret: the theme-foreground caret reads as a stray gray
             // line against dark note backgrounds rather than a cursor.
             textView.insertionPointColor = .controlAccentColor
+            if let savingTextView = textView as? SavingTextView {
+                savingTextView.currentLineHighlightColor = foregroundColor.withAlphaComponent(0.055)
+            }
         }
     }
 
@@ -227,6 +230,13 @@ extension NSTextView {
 }
 
 final class SavingTextView: NSTextView {
+    /// Pane-focus hook invoked on pointer-down, ahead of AppKit selection
+    /// (see SavingTextView+CurrentLineHighlight for the mouseDown override).
+    var onPointerDown: (() -> Void)?
+    /// Draws a full-width tint under the caret's logical line.
+    var highlightsCurrentLine = false
+    var currentLineHighlightColor: NSColor = .clear
+
     private static let defaultPreviewFontSize: CGFloat = 13
     private static let minimumPreviewFontSize: CGFloat = 8
     private static let maximumPreviewFontSize: CGFloat = 36
