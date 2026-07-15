@@ -2,6 +2,11 @@ import Foundation
 
 /// Shared `simctl list devices --json` fixtures.
 enum SimulatorFixtures {
+    /// A valid 1×1 red PNG, for tests that need decodable frame bytes.
+    static let onePixelPNG = Data(base64Encoded:
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC"
+    )!
+
     static let bootedUDID = "DCE5B544-A3A4-418D-AF1E-AC244F465CE3"
     static let shutdownUDID = "11111111-2222-3333-4444-555555555555"
     static let unavailableUDID = "99999999-8888-7777-6666-555555555555"

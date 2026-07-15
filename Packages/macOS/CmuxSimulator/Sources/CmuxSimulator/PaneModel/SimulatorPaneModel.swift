@@ -6,7 +6,9 @@ internal import Observation
 /// Owns the whole pipeline for one pane: resolve the device query against the
 /// catalog, open a ``SimulatorDeviceSession`` (boot or attach per policy),
 /// then consume the capture backend's frame stream and project the latest
-/// frame for SwiftUI. Teardown reverses it: cancel the stream, then close the
+/// frame for SwiftUI. Frames are decoded to bitmaps **off the main actor**
+/// (see ``SimulatorRenderedFrame``); only the tiny published-state assignment
+/// hops to main. Teardown reverses it: cancel the stream, then close the
 /// session (which shuts the device down only when cmux booted it).
 ///
 /// Construct with fakes for tests:
@@ -24,8 +26,8 @@ internal import Observation
 public final class SimulatorPaneModel {
     /// The pane's current lifecycle phase.
     public private(set) var phase: SimulatorPanePhase = .idle
-    /// The most recent display frame, if any arrived yet.
-    public private(set) var latestFrame: SimulatorDisplayFrame?
+    /// The most recent decoded display frame, if any arrived yet.
+    public private(set) var latestFrame: SimulatorRenderedFrame?
     /// The resolved device record, once the query resolved.
     public private(set) var device: SimulatorDevice?
     /// Who owns the device's shutdown, once the session opened.
@@ -105,8 +107,23 @@ public final class SimulatorPaneModel {
             ownership = try await session.open()
             guard !Task.isCancelled else { return }
             phase = .streaming
-            for await frame in captureBackend.frames(for: device.udid) {
-                latestFrame = frame
+            // Consume + decode off the main actor: only the decoded-frame
+            // assignment hops back here. Rendering encoded data from SwiftUI
+            // would re-run ImageIO on main per display pass and starve the
+            // main actor while frames stream.
+            let backend = captureBackend
+            let udid = device.udid
+            let decodeTask = Task.detached { [weak self] in
+                for await frame in backend.frames(for: udid) {
+                    guard let rendered = SimulatorRenderedFrame(decoding: frame) else { continue }
+                    guard let self else { return }
+                    await self.applyFrame(rendered)
+                }
+            }
+            await withTaskCancellationHandler {
+                await decodeTask.value
+            } onCancel: {
+                decodeTask.cancel()
             }
             if phase == .streaming {
                 phase = .stopped
@@ -116,5 +133,10 @@ public final class SimulatorPaneModel {
         } catch {
             phase = .failed(.sessionFailed(detail: String(describing: error)))
         }
+    }
+
+    private func applyFrame(_ frame: SimulatorRenderedFrame) {
+        guard runTask != nil else { return }
+        latestFrame = frame
     }
 }

@@ -23,32 +23,25 @@ struct SimulatorPanelView: View {
 }
 
 /// The model-driven content; separated so Observation tracking re-evaluates
-/// only this subtree as frames arrive.
+/// only this subtree as frames arrive. Frames arrive pre-decoded (see
+/// ``SimulatorRenderedFrame``), so a body evaluation never runs ImageIO on
+/// the main thread.
 private struct SimulatorPaneContent: View {
     let model: SimulatorPaneModel
-    /// The last decoded frame, cached by sequence so a body re-evaluation
-    /// never re-decodes unchanged image data.
-    @State private var decodedFrame: (sequence: Int, image: NSImage)?
 
     var body: some View {
         ZStack {
-            if let decodedFrame {
-                Image(nsImage: decodedFrame.image)
+            if let frame = model.latestFrame {
+                Image(decorative: frame.image, scale: 1)
                     .resizable()
                     .interpolation(.high)
                     .aspectRatio(contentMode: .fit)
                     .padding(8)
                     .accessibilityLabel(deviceLabel)
             }
-            if decodedFrame == nil || !isStreaming {
+            if model.latestFrame == nil || !isStreaming {
                 statusOverlay
             }
-        }
-        .onChange(of: model.latestFrame) { _, frame in
-            decode(frame)
-        }
-        .onAppear {
-            decode(model.latestFrame)
         }
     }
 
@@ -58,12 +51,6 @@ private struct SimulatorPaneContent: View {
 
     private var deviceLabel: String {
         model.device?.name ?? model.deviceQuery
-    }
-
-    private func decode(_ frame: SimulatorDisplayFrame?) {
-        guard let frame, frame.sequence != decodedFrame?.sequence else { return }
-        guard let image = NSImage(data: frame.imageData) else { return }
-        decodedFrame = (frame.sequence, image)
     }
 
     @ViewBuilder

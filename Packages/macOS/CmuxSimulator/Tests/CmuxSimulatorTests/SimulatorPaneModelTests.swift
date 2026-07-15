@@ -21,7 +21,7 @@ private struct ScriptedCaptureBackend: SimulatorDisplayCapturing {
 @MainActor
 @Suite("SimulatorPaneModel")
 struct SimulatorPaneModelTests {
-    private static let frame = SimulatorDisplayFrame(imageData: Data("frame".utf8), sequence: 1)
+    private static let frame = SimulatorDisplayFrame(imageData: SimulatorFixtures.onePixelPNG, sequence: 1)
 
     private func waitUntil(
         _ condition: @MainActor () async -> Bool
@@ -56,7 +56,8 @@ struct SimulatorPaneModelTests {
         #expect(model.phase == .streaming)
         #expect(model.ownership == .bootedByCmux)
         #expect(model.device?.udid.rawValue == SimulatorFixtures.shutdownUDID)
-        #expect(model.latestFrame == Self.frame)
+        #expect(model.latestFrame?.sequence == Self.frame.sequence)
+        #expect(model.latestFrame?.image.width == 1)
 
         model.closePane()
         #expect(model.phase == .stopped)
