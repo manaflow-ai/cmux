@@ -18,9 +18,6 @@ import SwiftUI
 /// boundary; actions are plain closures.
 struct DeviceTreeView: View {
     @Bindable var store: CMUXMobileShellStore
-    /// Open a workspace (forwarded from the shell). Unused by the management list
-    /// today; kept so a future "show this computer's workspaces" tap can use it.
-    let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
     /// Present the add-device (pairing) flow. `nil` hides the add affordance.
     var showAddDevice: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
@@ -34,9 +31,6 @@ struct DeviceTreeView: View {
     @State private var pendingHandoffID: String?
     @State private var handoffTask: Task<Void, Never>?
     @State private var handoffGeneration: UInt64 = 0
-    /// The advertised session that could not be resolved after attaching.
-    @State private var failedHandoffSessionTitle: String?
-
     /// The user's computers as immutable snapshots, sourced from the paired-Mac
     /// backup (`pairedMacs`) — this feature's source of truth, the same set that
     /// feeds the workspace aggregation, and the one ``CMUXMobileShellStore/forgetMac``
@@ -125,20 +119,6 @@ struct DeviceTreeView: View {
                     await store.refreshComputersScreen()
                 }
             }
-        }
-        .alert(
-            L10n.string("mobile.handoff.failure.title", defaultValue: "Couldn't Continue Session"),
-            isPresented: Binding(
-                get: { failedHandoffSessionTitle != nil },
-                set: { if !$0 { failedHandoffSessionTitle = nil } }
-            )
-        ) {
-            Button(L10n.string("mobile.common.ok", defaultValue: "OK"), role: .cancel) {}
-        } message: {
-            Text(L10n.string(
-                "mobile.handoff.failure.message",
-                defaultValue: "The session may have ended or its computer may be offline. Refresh and try again."
-            ))
         }
         .interactiveDismissDisabled(pendingHandoffID != nil)
         .onDisappear(perform: cancelPendingHandoff)
@@ -240,21 +220,17 @@ struct DeviceTreeView: View {
                 }
             }
             guard !Task.isCancelled, handoffGeneration == generation else { return }
-            guard let workspaceID = await store.prepareRegistrySessionHandoff(
+            guard await store.prepareRegistrySessionHandoff(
                 deviceID: session.deviceID,
                 instanceTag: session.instanceTag,
                 sessionID: session.sessionID,
-                agentSessionID: session.agentSessionID,
-                ifStillCurrent: { handoffGeneration == generation }
-            ) else {
+                expectedAgentSessionID: session.agentSessionID
+            ) != nil else {
                 guard !Task.isCancelled, handoffGeneration == generation else { return }
                 await reload()
-                guard !Task.isCancelled, handoffGeneration == generation else { return }
-                failedHandoffSessionTitle = session.workspaceTitle
                 return
             }
             guard !Task.isCancelled, handoffGeneration == generation else { return }
-            selectWorkspace(workspaceID)
             dismiss()
         }
         handoffTask = task

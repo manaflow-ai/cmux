@@ -70,8 +70,8 @@ extension MobileShellComposite {
             }
     }
 
-    /// Prepare a disconnected-root handoff while keeping failure presentation
-    /// scoped to the account and team that started it.
+    /// Prepare a request-owned handoff while keeping navigation, rollback, and
+    /// failure presentation scoped to the account and team that started it.
     public func prepareRegistrySessionHandoff(
         deviceID: String,
         instanceTag: String,

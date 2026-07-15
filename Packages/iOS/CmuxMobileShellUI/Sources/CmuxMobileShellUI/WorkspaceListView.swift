@@ -359,7 +359,6 @@ struct WorkspaceListView: View {
             if let store {
                 DeviceTreeView(
                     store: store,
-                    selectWorkspace: { id in _ = selectWorkspaceFromList(id) },
                     showAddDevice: showAddDevice
                 )
             }
