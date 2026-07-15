@@ -252,11 +252,16 @@ def xcode_package_reference_changed(
 
 
 def is_expected_lockfile_path(lockfile: str, roots: set[str]) -> bool:
-    if lockfile == XCODE_PACKAGE_RESOLVED:
+    path = Path(lockfile)
+    if (
+        path.parent.name == "swiftpm"
+        and path.parent.parent.name == "xcshareddata"
+        and path.parent.parent.parent.suffix == ".xcworkspace"
+    ):
         return True
     if has_skipped_part(lockfile):
         return False
-    return Path(lockfile).parent.as_posix() in roots
+    return path.parent.as_posix() in roots
 
 
 def ignores_package_resolved(gitignore: Path) -> bool:
