@@ -105,15 +105,17 @@ final class ComputerUseUXCoordinator {
             }
         )
 
-        // Render the branded, click-through cursor overlay whenever the local
-        // driver is steering the pointer. Gated the same way as the menu bar via
-        // `featureEnabled`; the controller hides itself when the feature is off.
-        let cursorOverlay = ComputerUseCursorOverlayController(
-            stateDirectoryURL: stateDirectoryURL,
-            featureEnabled: featureEnabled
-        )
-        cursorOverlay.start()
-        cursorOverlayController = cursorOverlay
+        // NOTE: we deliberately do NOT start the cmux-hosted cursor overlay.
+        //
+        // The bundled cua-driver now renders its own on-screen agent cursor (its
+        // own compositor window, colored via CUA_DRIVER_CURSOR_* and glided
+        // natively). Running our overlay in addition drew a *second* cursor on top
+        // of the driver's — two cursors tracking the same actions. The driver owns
+        // the cursor; our overlay was a workaround from when the embedded driver
+        // rendered nothing, and is now redundant. Keep the controller type around
+        // (feed model, geometry, tests) but never start it, so exactly one cursor
+        // shows. Re-enable only if we ship a build whose driver renders no cursor.
+        _ = ComputerUseCursorOverlayController.self
 
         // Bring the app the local driver is steering to the front (once per target)
         // so the user watches the automation instead of the cmux-hosted cursor
