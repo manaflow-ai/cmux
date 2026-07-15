@@ -88,7 +88,10 @@ struct ReflowStructureTests {
 
     @Test func bareURLWrapJoinsWithoutSpace() {
         let input = "https://example.com/very/long/resource\n/path/continues/here\n"
-        #expect(reflow(input) == "https://example.com/very/long/resource/path/continues/here\n")
+        #expect(
+            ReflowOptions.default.reflow(input, terminalWidth: 38)
+                == "https://example.com/very/long/resource/path/continues/here\n"
+        )
     }
 
     @Test func adjacentBareURLsAreNotJoined() {
@@ -101,14 +104,25 @@ struct ReflowStructureTests {
         #expect(reflow(input) == input)
     }
 
+    @Test func bareURLDoesNotAbsorbIndependentPathRow() {
+        let input = "https://example.com\n/tmp/report\n"
+        #expect(reflow(input) == input)
+    }
+
     @Test func urlBehindListMarkerJoinsWithoutSpace() {
         let input = "- https://example.com/a\n/b/c\n"
-        #expect(reflow(input) == "- https://example.com/a/b/c\n")
+        #expect(
+            ReflowOptions.default.reflow(input, terminalWidth: 23)
+                == "- https://example.com/a/b/c\n"
+        )
     }
 
     @Test func urlBehindOrderedListMarkerJoinsWithoutSpace() {
         let input = "1. https://example.com/a\n/b/c\n"
-        #expect(reflow(input) == "1. https://example.com/a/b/c\n")
+        #expect(
+            ReflowOptions.default.reflow(input, terminalWidth: 24)
+                == "1. https://example.com/a/b/c\n"
+        )
     }
 
     @Test func mentionURLJoinsWithSpaceNotConcatenated() {
