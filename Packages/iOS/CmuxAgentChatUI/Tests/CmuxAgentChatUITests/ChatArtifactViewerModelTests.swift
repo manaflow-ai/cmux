@@ -6,6 +6,30 @@ import Testing
 
 @Suite
 struct ChatArtifactViewerModelTests {
+    @Test("large transport chunks are published in bounded UI batches")
+    @MainActor
+    func batchesLargeTransportChunks() async {
+        let line = "0123456789abcdef 漢🙂\n"
+        let text = String(repeating: line, count: 20_000)
+        let data = Data(text.utf8)
+        let loader = Self.loader(totalSize: Int64(data.count)) { _, onChunk in
+            try await onChunk(ChatArtifactChunk(
+                data: data,
+                offset: 0,
+                totalSize: Int64(data.count),
+                eof: true
+            ))
+        }
+        let model = ChatArtifactViewerModel()
+
+        await model.load(path: "/tmp/large.log", loader: loader)
+
+        #expect(model.textChunks.count > 1)
+        #expect(model.textChunks.allSatisfy { $0.utf8.count <= 262_160 })
+        #expect(model.renderedText == text)
+        #expect(model.textReachedEOF)
+    }
+
     @Test
     @MainActor
     func exposesFirstChunkBeforeEOFAndCompletesProgress() async throws {
