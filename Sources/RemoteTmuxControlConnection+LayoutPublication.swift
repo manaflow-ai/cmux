@@ -179,7 +179,15 @@ extension RemoteTmuxControlConnection {
             else { continue }
             rects[paneId] = (x: x, y: y, width: width, height: height)
             if parts[5] == "1" { activePane = paneId }
-            titleRowPlacement = RemoteTmuxPaneTitleRowPlacement(rawValue: String(parts[6]))
+            // `pane-border-status` is one window-level option, but only panes
+            // touching the configured edge carry it in their border-status
+            // field; interior panes report empty. Take the first non-empty
+            // value so a trailing interior pane can't clear a real `top`/`bottom`
+            // — otherwise the window-level placement flips reply to reply and the
+            // title-row claim oscillates by a row and never settles.
+            if let placement = RemoteTmuxPaneTitleRowPlacement(rawValue: String(parts[6])) {
+                titleRowPlacement = placement
+            }
             labels[paneId] = Self.strippingStyleTokens(String(parts[7].dropFirst()))
         }
         // The reply must cover EVERY pane of the tree it will publish:
