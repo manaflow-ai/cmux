@@ -99,6 +99,7 @@ func (s *runtimeStateSubscriber) stop() {
 
 type runtimeStateStore struct {
 	mu               sync.Mutex
+	writeMu          sync.Mutex
 	filePath         string
 	persistDocument  func(string, runtimeStateDocument) error
 	document         *runtimeStateDocument
@@ -146,6 +147,9 @@ func (s *runtimeStateStore) put(
 		return runtimeStateDocument{}, errors.New("state must be a valid JSON object within the size limit")
 	}
 
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
 	s.mu.Lock()
 	currentRevision := uint64(0)
 	if s.document != nil {
@@ -162,16 +166,17 @@ func (s *runtimeStateStore) put(
 		UpdatedAtUnixMS: time.Now().UnixMilli(),
 		State:           append(json.RawMessage(nil), state...),
 	}
+	s.mu.Unlock()
 	if s.filePath != "" {
 		persistDocument := s.persistDocument
 		if persistDocument == nil {
 			persistDocument = persistRuntimeStateDocument
 		}
 		if err := persistDocument(s.filePath, document); err != nil {
-			s.mu.Unlock()
 			return runtimeStateDocument{}, err
 		}
 	}
+	s.mu.Lock()
 	s.document = cloneRuntimeStateDocument(&document)
 	for _, subscriber := range s.subscribers {
 		// Offers are non-blocking. Keep them under the store lock so concurrent

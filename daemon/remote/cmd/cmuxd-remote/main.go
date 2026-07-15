@@ -1327,28 +1327,31 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 
 	switch req.Method {
 	case "hello":
+		capabilities := []string{
+			"session.basic",
+			"session.resize.min",
+			"proxy.http_connect",
+			"proxy.socks5",
+			"proxy.stream",
+			"proxy.stream.push",
+			"pty.session",
+			"pty.session.token",
+			"pty.session.persistent_daemon",
+			"pty.write.notification",
+			"pty.resize.notification",
+			"pty.input.seq_ack",
+			"cli.bridge",
+		}
+		if s.runtimeState != nil {
+			capabilities = append(capabilities, "runtime.state.v1")
+		}
 		return rpcResponse{
 			ID: req.ID,
 			OK: true,
 			Result: map[string]any{
-				"name":    "cmuxd-remote",
-				"version": version,
-				"capabilities": []string{
-					"session.basic",
-					"session.resize.min",
-					"proxy.http_connect",
-					"proxy.socks5",
-					"proxy.stream",
-					"proxy.stream.push",
-					"pty.session",
-					"pty.session.token",
-					"pty.session.persistent_daemon",
-					"pty.write.notification",
-					"pty.resize.notification",
-					"pty.input.seq_ack",
-					"cli.bridge",
-					"runtime.state.v1",
-				},
+				"name":         "cmuxd-remote",
+				"version":      version,
+				"capabilities": capabilities,
 			},
 		}
 	case "ping":
