@@ -73,8 +73,8 @@ extension CMUXCLI {
         Subcommands:
           list [--repo <path>] [--json]
           create [--repo <path>] [--name <name>] [--base <ref>] [--branch <branch>] [--path <path>] [--no-submodules] [--json]
-          remove <path-or-name> [--force] [--keep-branch] [--json]
-          prune [--repo <path>] [--json]
+          remove <path-or-name> [--force] [--keep-branch] [--yes] [--json]
+          prune [--repo <path>] [--dry-run] [--yes] [--json]
           status <path-or-name> [--json]
 
         Defaults:
@@ -84,6 +84,8 @@ extension CMUXCLI {
 
         Create requires at least one of --name, --branch, or --path. Names and
         branch seeds are sanitized deterministically; no generated names are used.
+        Remove and prune preview their plan and prompt for confirmation; pass
+        --yes to proceed without a prompt.
         """)
     }
 
@@ -198,8 +200,9 @@ extension CMUXCLI {
         var remaining = arguments
         let force = takeWorktreeFlag("--force", from: &remaining)
         let keepBranch = takeWorktreeFlag("--keep-branch", from: &remaining)
+        let assumeYes = takeWorktreeFlag("--yes", from: &remaining)
         guard remaining.count == 1 else {
-            throw CLIError(message: String(localized: "cli.worktree.error.removeUsage", defaultValue: "Usage: cmux worktree remove <path-or-name> [--force] [--keep-branch]"))
+            throw CLIError(message: String(localized: "cli.worktree.error.removeUsage", defaultValue: "Usage: cmux worktree remove <path-or-name> [--force] [--keep-branch] [--yes]"))
         }
         let repoRoot = try await resolvedWorktreeRepository(nil, service: service, host: host)
         let listed = try await service.list(repoRoot: repoRoot, on: host)
@@ -208,6 +211,31 @@ extension CMUXCLI {
             from: listed,
             currentDirectory: FileManager.default.currentDirectoryPath
         )
+        var preview = [worktreeLocalizedFormat(
+            "cli.worktree.preview.remove",
+            defaultValue: "Will remove worktree %@.",
+            arguments: [worktree.identity.worktreePath]
+        )]
+        if force {
+            preview.append(String(
+                localized: "cli.worktree.preview.forceDiscard",
+                defaultValue: "Uncommitted changes will be discarded (--force)."
+            ))
+        }
+        if let branch = worktree.branch {
+            preview.append(keepBranch
+                ? worktreeLocalizedFormat(
+                    "cli.worktree.preview.keepBranch",
+                    defaultValue: "Will keep branch %@.",
+                    arguments: [branch]
+                )
+                : worktreeLocalizedFormat(
+                    "cli.worktree.preview.deleteBranchIfMerged",
+                    defaultValue: "Will delete branch %@ if it is fully merged.",
+                    arguments: [branch]
+                ))
+        }
+        try confirmWorktreeMutation(preview: preview, assumeYes: assumeYes, jsonOutput: jsonOutput)
         let result = try await service.remove(
             worktree: worktree.identity,
             mode: WorktreeRemovalMode(
@@ -241,8 +269,26 @@ extension CMUXCLI {
     ) async throws {
         var remaining = arguments
         let repo = try takeWorktreeOption("--repo", from: &remaining)
-        try requireNoWorktreeArguments(remaining, usage: "cmux worktree prune [--repo <path>]")
+        let dryRun = takeWorktreeFlag("--dry-run", from: &remaining)
+        let assumeYes = takeWorktreeFlag("--yes", from: &remaining)
+        try requireNoWorktreeArguments(remaining, usage: "cmux worktree prune [--repo <path>] [--dry-run] [--yes]")
         let repoRoot = try await resolvedWorktreeRepository(repo, service: service, host: host)
+        let planned = try await service.prune(repoRoot: repoRoot, on: host, dryRun: true)
+        if planned.output.isEmpty || dryRun {
+            if jsonOutput {
+                try printWorktreeJSON(planned)
+            } else {
+                print(planned.output.isEmpty
+                    ? String(localized: "cli.worktree.output.noStaleRecords", defaultValue: "No stale worktree records.")
+                    : planned.output)
+            }
+            return
+        }
+        let preview = [String(
+            localized: "cli.worktree.preview.prune",
+            defaultValue: "Will prune these stale worktree records:"
+        )] + planned.output.split(separator: "\n").map(String.init)
+        try confirmWorktreeMutation(preview: preview, assumeYes: assumeYes, jsonOutput: jsonOutput)
         let result = try await service.prune(repoRoot: repoRoot, on: host)
         if jsonOutput {
             try printWorktreeJSON(result)
@@ -250,6 +296,43 @@ extension CMUXCLI {
             print(result.output.isEmpty
                 ? String(localized: "cli.worktree.output.noStaleRecords", defaultValue: "No stale worktree records.")
                 : result.output)
+        }
+    }
+
+    /// Prints a destructive-operation preview, then requires `--yes` or an
+    /// interactive confirmation before proceeding.
+    private func confirmWorktreeMutation(
+        preview: [String],
+        assumeYes: Bool,
+        jsonOutput: Bool
+    ) throws {
+        let emit: (String) -> Void = jsonOutput
+            ? { cliWriteStderr($0 + "\n") }
+            : { print($0) }
+        for line in preview {
+            emit(line)
+        }
+        if assumeYes {
+            return
+        }
+        guard isatty(STDIN_FILENO) == 1 else {
+            throw CLIError(message: String(
+                localized: "cli.worktree.error.confirmationRequired",
+                defaultValue: "Confirmation required; pass --yes to proceed without a prompt."
+            ))
+        }
+        cliWriteStderr(String(
+            localized: "cli.worktree.prompt.proceed",
+            defaultValue: "Proceed? [y/N] "
+        ))
+        let answer = (readLine(strippingNewline: true) ?? "")
+            .trimmingCharacters(in: .whitespaces)
+            .lowercased()
+        guard answer == "y" || answer == "yes" else {
+            throw CLIError(message: String(
+                localized: "cli.worktree.error.aborted",
+                defaultValue: "Aborted; no changes were made."
+            ))
         }
     }
     private func runWorktreeStatus(
