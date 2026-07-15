@@ -63,3 +63,38 @@ import Testing
     #expect(replay.contains("\u{1B}]4;4;rgb:12/34/56\u{1B}\\"))
     #expect(!replay.contains("\u{1B}]104;16"))
 }
+
+@Test func semanticDefaultStyleSurvivesColdReplayForLaterThemeChanges() throws {
+    let json = Data(
+        """
+        {
+          "format": "cmux.render-grid.v1",
+          "surface_id": "semantic-theme",
+          "state_seq": 1,
+          "columns": 4,
+          "rows": 1,
+          "full": true,
+          "styles": [{
+            "id": 0,
+            "foreground": "#FDFFF1",
+            "background": "#272822",
+            "foreground_source": "default",
+            "background_source": "default"
+          }],
+          "row_spans": [{
+            "row": 0,
+            "column": 0,
+            "style_id": 0,
+            "cell_width": 4,
+            "text": "test"
+          }]
+        }
+        """.utf8
+    )
+
+    let frame = try MobileTerminalRenderGridFrame.decode(json)
+    let replay = try #require(String(data: frame.vtPatchBytes(), encoding: .utf8))
+
+    #expect(replay.contains("\u{1B}[0;39;49m"))
+    #expect(!replay.contains("48;2;39;40;34"))
+}
