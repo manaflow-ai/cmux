@@ -112,4 +112,48 @@ import Testing
         #expect(hints[0].value == "[fd7a:115c:a1e0::4b36:d670]:50906")
         #expect(hints[0].observedAt == refreshedAt)
     }
+
+    @Test func expiredHintsDoNotConsumeFreshTailscaleCapacity() throws {
+        let expiredAt = now.addingTimeInterval(-1)
+        let expiredHint = try CmxIrohPathHint(
+            kind: .directAddress,
+            value: "100.82.214.111:50906",
+            source: .tailscale,
+            privacyScope: .privateNetwork,
+            observedAt: expiredAt.addingTimeInterval(-60),
+            expiresAt: expiredAt,
+            networkProfile: .activeTailscaleTunnel
+        )
+        let iroh = try CmxAttachRoute(
+            id: "iroh",
+            kind: .iroh,
+            endpoint: .peer(
+                identity: CmxIrohPeerIdentity(
+                    endpointID: String(repeating: "c", count: 64)
+                ),
+                pathHints: Array(
+                    repeating: expiredHint,
+                    count: CmxAttachEndpoint.maximumIrohPathHintCount
+                )
+            )
+        )
+        let tailscale = try CmxAttachRoute(
+            id: "tailscale",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.82.214.112", port: 50906)
+        )
+
+        let routes = CmxAttachRoute.addingIrohPrivatePaths(
+            to: [iroh, tailscale],
+            observedAt: now
+        )
+
+        guard case let .peer(_, hints) = routes[0].endpoint else {
+            Issue.record("Expected Iroh peer endpoint")
+            return
+        }
+        #expect(hints.count == 1)
+        #expect(hints[0].value == "100.82.214.112:50906")
+        #expect(hints[0].isUsable(at: now))
+    }
 }
