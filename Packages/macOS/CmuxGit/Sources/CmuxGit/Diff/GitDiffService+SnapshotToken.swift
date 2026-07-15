@@ -65,7 +65,7 @@ extension GitDiffService {
                 : nil
         }
         let existingIdentities: [FileSystemIdentity]
-        switch fileSystemIdentitiesResult(paths: existingPaths, allowMissing: false) {
+        switch fileSystemIdentitiesResult(paths: existingPaths, allowMissing: true) {
         case .success(let identities):
             existingIdentities = identities
         case .notFound, .failed:

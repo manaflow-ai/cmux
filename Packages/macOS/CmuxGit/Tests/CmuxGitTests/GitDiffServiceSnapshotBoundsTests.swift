@@ -72,6 +72,50 @@ import Testing
         }
     }
 
+    @Test func snapshotFileIdentitiesAllowIndexOnlyNonDeletedRows() throws {
+        let repo = try makeTempRepo()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let summaries = [
+            GitDiffSummary(
+                path: "staged-added.txt",
+                oldPath: nil,
+                status: .added,
+                additions: 1,
+                deletions: 0
+            ),
+            GitDiffSummary(
+                path: "staged-modified.txt",
+                oldPath: nil,
+                status: .modified,
+                additions: 1,
+                deletions: 1
+            ),
+            GitDiffSummary(
+                path: "staged-renamed.txt",
+                oldPath: "old-name.txt",
+                status: .renamed,
+                additions: 1,
+                deletions: 0
+            ),
+        ]
+        for summary in summaries {
+            #expect(!FileManager.default.fileExists(
+                atPath: repo.appendingPathComponent(summary.path).path
+            ))
+        }
+
+        let result = GitDiffService().snapshotFileIdentitiesResult(
+            repoRoot: repo.path,
+            summaries: summaries
+        )
+
+        guard case .success(let identities) = result else {
+            Issue.record("Expected missing non-deleted paths to produce stable snapshot identities, got \(result)")
+            return
+        }
+        #expect(identities.count == summaries.count)
+    }
+
     @Test func deletedGitlinkRowExcludesStagedDescendants() throws {
         let repo = try makeTempRepo()
         defer { try? FileManager.default.removeItem(at: repo) }
