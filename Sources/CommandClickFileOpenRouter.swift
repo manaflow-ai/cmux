@@ -4,26 +4,47 @@ import CmuxTerminalCore
 import CmuxWorkspaces
 import Foundation
 
-enum CommandClickFileOpenRouter {
-    nonisolated static func shouldRouteInCmux(path: String) -> Bool {
-        let store = FileRouteSettingsStore(defaults: .standard)
-        return store.shouldRouteMarkdown(path: path)
-            || store.shouldRouteSupportedFile(path: path)
+/// Coordinates command-click file routing with injected settings and opener dependencies.
+@MainActor
+struct CommandClickFileOpenRouter {
+    private let routeSettings: any FileRouteSettingsReading
+    private let openExternal: @MainActor @Sendable (URL, Int?, Int?) -> Void
+
+    init(
+        routeSettings: any FileRouteSettingsReading,
+        openExternal: @escaping @MainActor @Sendable (URL, Int?, Int?) -> Void
+    ) {
+        self.routeSettings = routeSettings
+        self.openExternal = openExternal
+    }
+
+    init(defaults: UserDefaults) {
+        let externalOpener = PreferredEditorService(defaults: defaults)
+        self.init(
+            routeSettings: FileRouteSettingsStore(defaults: defaults),
+            openExternal: { url, line, column in
+                externalOpener.open(url, line: line, column: column)
+            }
+        )
+    }
+
+    func shouldRouteInCmux(path: String) -> Bool {
+        routeSettings.shouldRouteMarkdown(path: path)
+            || routeSettings.shouldRouteSupportedFile(path: path)
     }
 
     @MainActor
-    static func openInCmux(
+    func openInCmux(
         workspace: Workspace,
         sourcePanelId: UUID,
         resolution: TerminalPathResolution
     ) -> Bool {
-        let store = FileRouteSettingsStore(defaults: .standard)
-        if store.shouldRouteMarkdown(path: resolution.path),
+        if routeSettings.shouldRouteMarkdown(path: resolution.path),
            workspace.openOrFocusMarkdownSplit(from: sourcePanelId, filePath: resolution.path) != nil {
             return true
         }
 
-        guard store.shouldRouteSupportedFile(path: resolution.path) else {
+        guard routeSettings.shouldRouteSupportedFile(path: resolution.path) else {
             return false
         }
         return workspace.openOrFocusFilePreviewSplit(from: sourcePanelId, filePath: resolution.path) != nil
@@ -33,7 +54,7 @@ enum CommandClickFileOpenRouter {
     /// per-panel directory, then the panel's requested working directory,
     /// then the workspace-level directory.
     @MainActor
-    static func resolveWorkingDirectory(
+    private func resolveWorkingDirectory(
         workspace: Workspace,
         surfaceId: UUID
     ) -> String? {
@@ -60,7 +81,7 @@ enum CommandClickFileOpenRouter {
     /// then the workspace directory; the resolver still requires existence at
     /// every candidate.
     @MainActor
-    static func resolvePathContext(
+    func resolvePathContext(
         workspace: Workspace,
         surfaceId: UUID
     ) -> TerminalPathResolutionContext {
@@ -100,7 +121,7 @@ enum CommandClickFileOpenRouter {
     /// path so commands that understand `file:line[:column]` can honor it.
     @MainActor
     @discardableResult
-    static func openExternally(
+    func openExternally(
         _ resolution: TerminalPathResolution,
         preferConfiguredEditor: Bool
     ) -> Bool {
@@ -108,10 +129,10 @@ enum CommandClickFileOpenRouter {
         guard preferConfiguredEditor || resolution.line != nil else {
             return NSWorkspace.shared.open(fileURL)
         }
-        PreferredEditorService(defaults: .standard).open(
+        openExternal(
             fileURL,
-            line: resolution.line,
-            column: resolution.column
+            resolution.line,
+            resolution.column
         )
         return true
     }
@@ -125,7 +146,7 @@ enum CommandClickFileOpenRouter {
     /// at dispatch time (TOCTOU). When routing fails, `fallback` is called so
     /// the caller can open the file externally.
     @MainActor
-    static func deferredOpenFileInCmux(
+    func deferredOpenFileInCmux(
         workspace: Workspace,
         preferredWorkspaceId: UUID,
         surfaceId: UUID,

@@ -15,7 +15,7 @@ public import Foundation
 /// file-existence capability is injected at init. Production uses the real
 /// file system; tests inject a fake probe. This mirrors
 /// ``TerminalLinkRouter``'s injected `BrowserHostNormalizing` seam.
-public struct TerminalPathResolver: Sendable {
+public nonisolated struct TerminalPathResolver: Sendable {
     private static let explicitURLSchemes: Set<String> = [
         "file", "ftp", "gemini", "git", "gopher", "http", "https", "ipfs",
         "ipns", "magnet", "mailto", "news", "ssh", "tel",
@@ -185,6 +185,18 @@ public struct TerminalPathResolver: Sendable {
         let trimmed = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         return resolvePath(trimmed, context: context)
+    }
+
+    /// Whether an unresolved relative-path-shaped callback should be consumed.
+    ///
+    /// Existing references must continue through file routing; only a
+    /// relative-looking token that failed existence-gated resolution is
+    /// consumed to prevent the browser fallback from guessing it as a URL.
+    public func shouldConsumeUnresolvedOpenURLPathReference(
+        _ rawText: String,
+        resolvedReference: TerminalPathResolution?
+    ) -> Bool {
+        resolvedReference == nil && isRelativePathReferenceCandidate(rawText)
     }
 
     /// Whether text is unambiguously shaped like a relative path reference.

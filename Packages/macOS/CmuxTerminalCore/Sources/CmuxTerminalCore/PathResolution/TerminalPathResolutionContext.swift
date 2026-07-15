@@ -1,5 +1,5 @@
 /// Ordered directories used to resolve a relative path emitted by a terminal.
-public struct TerminalPathResolutionContext: Equatable, Sendable {
+public nonisolated struct TerminalPathResolutionContext: Equatable, Sendable {
     /// The clicked surface's current working directory.
     public let workingDirectory: String?
 

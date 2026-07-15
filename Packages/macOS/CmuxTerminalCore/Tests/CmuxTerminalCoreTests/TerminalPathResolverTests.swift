@@ -283,6 +283,28 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         #expect(TerminalPathResolver().isRelativePathReferenceCandidate(rawText))
     }
 
+    @Test func consumesOnlyUnresolvedRelativeOpenURLReferences() {
+        let resolver = TerminalPathResolver()
+        let resolved = TerminalPathResolution(
+            path: "/Users/dev/project/Sources/App.swift",
+            line: 12,
+            column: 7
+        )
+
+        #expect(
+            resolver.shouldConsumeUnresolvedOpenURLPathReference(
+                "Sources/App.swift:12:7",
+                resolvedReference: nil
+            )
+        )
+        #expect(
+            !resolver.shouldConsumeUnresolvedOpenURLPathReference(
+                "Sources/App.swift:12:7",
+                resolvedReference: resolved
+            )
+        )
+    }
+
     @Test(arguments: [
         "https://example.com/path",
         "mailto:test@example.com",

@@ -1,5 +1,5 @@
 /// An existing terminal path together with an optional source location.
-public struct TerminalPathResolution: Equatable, Sendable {
+public nonisolated struct TerminalPathResolution: Equatable, Sendable {
     /// The standardized absolute path that passed the existence probe.
     public let path: String
 

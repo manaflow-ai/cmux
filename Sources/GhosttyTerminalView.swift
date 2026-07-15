@@ -2975,7 +2975,8 @@ class GhosttyApp {
                           !workspace.isRemoteTerminalSurface(termSurface.id) else {
                         return (false, nil)
                     }
-                    let context = CommandClickFileOpenRouter.resolvePathContext(
+                    let fileOpenRouter = CommandClickFileOpenRouter(defaults: .standard)
+                    let context = fileOpenRouter.resolvePathContext(
                         workspace: workspace,
                         surfaceId: termSurface.id
                     )
@@ -2985,19 +2986,19 @@ class GhosttyApp {
                     ) else {
                         return (false, nil)
                     }
-                    guard CommandClickFileOpenRouter.shouldRouteInCmux(path: resolution.path) else {
+                    guard fileOpenRouter.shouldRouteInCmux(path: resolution.path) else {
                         return (false, resolution)
                     }
                     #if DEBUG
                     cmuxDebugLog("link.openURL resolvedAsFilePath=\(resolution.path)")
                     #endif
-                    CommandClickFileOpenRouter.deferredOpenFileInCmux(
+                    fileOpenRouter.deferredOpenFileInCmux(
                         workspace: workspace,
                         preferredWorkspaceId: workspace.id,
                         surfaceId: termSurface.id,
                         resolution: resolution
                     ) {
-                        CommandClickFileOpenRouter.openExternally(
+                        fileOpenRouter.openExternally(
                             resolution,
                             preferConfiguredEditor: false
                         )
@@ -3012,7 +3013,7 @@ class GhosttyApp {
                     return true
                 }
             }
-            if TerminalPathResolver().isRelativePathReferenceCandidate(trimmedUrlString) { return true }
+            if TerminalPathResolver().shouldConsumeUnresolvedOpenURLPathReference(trimmedUrlString, resolvedReference: resolvedFileReference) { return true }
             guard let target = TerminalBrowserHostNormalizer().resolveOpenURLTarget(normalizedOpenURLString) else {
                 #if DEBUG
                 cmuxDebugLog("link.openURL resolve failed, returning false")
@@ -3033,13 +3034,14 @@ class GhosttyApp {
             ) {
                 let fileURL = target.url
                 let routed: Bool = performOnMain {
+                    let fileOpenRouter = CommandClickFileOpenRouter(defaults: .standard)
                     guard let termSurface = surfaceView.terminalSurface,
                           let workspace = termSurface.owningWorkspace(),
                           !workspace.isRemoteTerminalSurface(termSurface.id),
-                          CommandClickFileOpenRouter.shouldRouteInCmux(path: fileURL.path) else {
+                          fileOpenRouter.shouldRouteInCmux(path: fileURL.path) else {
                         return false
                     }
-                    CommandClickFileOpenRouter.deferredOpenFileInCmux(
+                    fileOpenRouter.deferredOpenFileInCmux(
                         workspace: workspace,
                         preferredWorkspaceId: workspace.id,
                         surfaceId: termSurface.id,
@@ -3059,7 +3061,7 @@ class GhosttyApp {
             }
             if let resolvedFileReference, resolvedFileReference.line != nil {
                 return performOnMain {
-                    CommandClickFileOpenRouter.openExternally(
+                    CommandClickFileOpenRouter(defaults: .standard).openExternally(
                         resolvedFileReference,
                         preferConfiguredEditor: false
                     )
@@ -6513,7 +6515,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         cmuxDebugLog("link.wordFallback resolved=\(resolution.path) source=\(resolution.source.rawValue)")
         #endif
 
-        CommandClickFileOpenRouter.openExternally(
+        CommandClickFileOpenRouter(defaults: .standard).openExternally(
             resolution.resolution,
             preferConfiguredEditor: true
         )
@@ -6699,7 +6701,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         workspace: Workspace,
         terminalSurface: TerminalSurface
     ) -> TerminalPathResolutionContext {
-        CommandClickFileOpenRouter.resolvePathContext(
+        CommandClickFileOpenRouter(defaults: .standard).resolvePathContext(
             workspace: workspace,
             surfaceId: terminalSurface.id
         )
@@ -6941,10 +6943,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // path on the main thread for a remote workspace. When the cmux route
         // is applicable but split creation fails, fall back to the preferred
         // editor so the click never silently no-ops.
+        let fileOpenRouter = CommandClickFileOpenRouter(defaults: .standard)
         if let termSurface = terminalSurface,
            let workspace = termSurface.owningWorkspace(),
            !workspace.isRemoteTerminalSurface(termSurface.id),
-           CommandClickFileOpenRouter.openInCmux(
+           fileOpenRouter.openInCmux(
                workspace: workspace,
                sourcePanelId: termSurface.id,
                resolution: resolution.resolution
@@ -6952,7 +6955,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return resolution
         }
 
-        CommandClickFileOpenRouter.openExternally(
+        fileOpenRouter.openExternally(
             resolution.resolution,
             preferConfiguredEditor: true
         )
