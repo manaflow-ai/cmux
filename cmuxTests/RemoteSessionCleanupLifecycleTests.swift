@@ -152,6 +152,36 @@ struct RemoteSessionCleanupLifecycleTests {
         #expect(workspace.remoteSessionCleanupControllers.isEmpty)
     }
 
+    @Test
+    func failedFinalCleanupTransfersRetryOwnershipToSameIdentityReplacement() async throws {
+        let runner = CleanupLifecycleRecordingRunner(cleanupStatuses: [1, 0, 0])
+        let workspace = Workspace()
+        workspace.remoteSessionProcessRunnerOverrideForTesting = runner
+        let configuration = Self.configuration(slot: "ssh-lifecycle-a")
+        workspace.configureRemoteConnection(configuration, autoConnect: true)
+        _ = try #require(await Self.nextBootstrapRequest(runner))
+
+        workspace.disconnectRemoteConnection(clearConfiguration: true)
+        let failedCleanup = try #require(await Self.nextCleanupCommand(runner))
+        await workspace.remoteSessionTransitionTask?.value
+        #expect(failedCleanup.contains("'ssh-lifecycle-a'"))
+        #expect(workspace.remoteSessionCleanupControllers.count == 1)
+
+        workspace.configureRemoteConnection(configuration, autoConnect: true)
+        let ownershipHandoff = try #require(await Self.nextCleanupCommand(runner))
+        _ = try #require(await Self.nextBootstrapRequest(runner))
+        await workspace.remoteSessionTransitionTask?.value
+        #expect(!ownershipHandoff.contains("serve --persistent-stop --slot"))
+        #expect(workspace.remoteSessionCleanupControllers.isEmpty)
+        #expect(workspace.remoteSessionController != nil)
+
+        workspace.disconnectRemoteConnection(clearConfiguration: true)
+        let replacementCleanup = try #require(await Self.nextCleanupCommand(runner))
+        await workspace.remoteSessionTransitionTask?.value
+        #expect(replacementCleanup.contains("'ssh-lifecycle-a'"))
+        #expect(workspace.remoteSessionCleanupControllers.isEmpty)
+    }
+
     private static func configuration(
         slot: String = "ssh-lifecycle-test",
         relayPort: Int = 64_007,
