@@ -5,6 +5,7 @@ import Testing
     var steps: [String] = []
 
     let result = AuthoritativeTerminalAttachmentOrder.start(
+        authoritativeGridEnabled: true,
         suppressPresentation: { steps.append("suppress") },
         registerStreams: {
             steps.append("register")
@@ -14,4 +15,20 @@ import Testing
 
     #expect(result == 42)
     #expect(steps == ["suppress", "register"])
+}
+
+@Test func ordinaryAttachRegistersWithoutSuppressingRenderer() {
+    var steps: [String] = []
+
+    let result = AuthoritativeTerminalAttachmentOrder.start(
+        authoritativeGridEnabled: false,
+        suppressPresentation: { steps.append("suppress") },
+        registerStreams: {
+            steps.append("register")
+            return 7
+        }
+    )
+
+    #expect(result == 7)
+    #expect(steps == ["register"])
 }
