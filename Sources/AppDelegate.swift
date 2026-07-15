@@ -187,7 +187,7 @@ enum CmuxTypingTiming {
         guard event.timestamp > 0 else { return }
         let delayMs = max(0, (ProcessInfo.processInfo.systemUptime - event.timestamp) * 1000.0)
         guard shouldLog(delayMs: delayMs, elapsedMs: nil) else { return }
-        cmuxDebugLog("typing.delay path=\(path) delayMs=\(format(delayMs)) \(eventFields(event))")
+        cmuxDebugLog("typing.delay probe=\(path) delayMs=\(format(delayMs)) \(eventFields(event))")
     }
 
     @inline(__always)
@@ -200,7 +200,7 @@ enum CmuxTypingTiming {
             return max(0, (ProcessInfo.processInfo.systemUptime - event.timestamp) * 1000.0)
         }()
         guard shouldLog(delayMs: delayMs, elapsedMs: elapsedMs) else { return }
-        var line = "typing.timing path=\(path) elapsedMs=\(format(elapsedMs))"
+        var line = "typing.timing probe=\(path) elapsedMs=\(format(elapsedMs))"
         if let event {
             line += " \(eventFields(event))"
             if let delayMs {
@@ -231,7 +231,7 @@ enum CmuxTypingTiming {
         guard isVerboseProbeEnabled || totalMs >= thresholdMs || hasSlowPart || (delayMs ?? 0) >= delayLogThresholdMs else {
             return
         }
-        var line = "typing.phase path=\(path) totalMs=\(format(totalMs))"
+        var line = "typing.phase probe=\(path) totalMs=\(format(totalMs))"
         if let event {
             line += " \(eventFields(event))"
         }
