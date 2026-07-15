@@ -317,6 +317,7 @@ extension DockSplitStore {
             return nil
         }
 
+        repairPlaceholderOnlyDockPane(paneId)
         finishAttachingDetachedSurface(
             panel,
             tabId: tab.id,
