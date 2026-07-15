@@ -59,9 +59,16 @@ public struct ChatArtifactGalleryBuilder: Sendable {
             referenced: referencedCandidates,
             ordering: ordering
         )
-        let pageCreated = Array(createdCandidates.dropFirst(starts.created).prefix(count))
-        let pageAttached = Array(attachedCandidates.dropFirst(starts.attached).prefix(count))
-        let pageReferenced = Array(referencedCandidates.dropFirst(starts.referenced).prefix(count))
+        // Sequential fill: a page extends the grouped list strictly at its
+        // bottom (created, then attached, then referenced), so a
+        // scroll-triggered load can never insert rows into a group the user
+        // has already scrolled past.
+        var remaining = count
+        let pageCreated = Array(createdCandidates.dropFirst(starts.created).prefix(remaining))
+        remaining -= pageCreated.count
+        let pageAttached = Array(attachedCandidates.dropFirst(starts.attached).prefix(remaining))
+        remaining -= pageAttached.count
+        let pageReferenced = Array(referencedCandidates.dropFirst(starts.referenced).prefix(remaining))
         let nextCreatedOffset = starts.created + pageCreated.count
         let nextAttachedOffset = starts.attached + pageAttached.count
         let nextReferencedOffset = starts.referenced + pageReferenced.count

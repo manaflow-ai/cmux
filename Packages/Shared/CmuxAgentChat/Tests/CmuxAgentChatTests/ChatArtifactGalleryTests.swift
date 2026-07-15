@@ -124,7 +124,7 @@ struct ChatArtifactGalleryTests {
         #expect(oldHostPage.referencedTotal == 0)
     }
 
-    @Test("each provenance section stats only one bounded page at a time")
+    @Test("pages fill sections sequentially so loads only extend the list bottom")
     func allSectionsPageLazily() throws {
         let items = (1...3).flatMap { index in
             [
@@ -168,19 +168,49 @@ struct ChatArtifactGalleryTests {
         )
         let snapshot = ChatArtifactGallerySnapshot(page: first).appending(second)
 
+        // Sequential fill: the first page is created rows only, and every
+        // later page extends the grouped list strictly at its bottom, so a
+        // scroll-triggered load never inserts rows into an earlier group.
         #expect(first.created.count == 2)
-        #expect(first.attached.count == 2)
-        #expect(first.referenced.count == 2)
+        #expect(first.attached.isEmpty)
+        #expect(first.referenced.isEmpty)
         #expect(first.createdTotal == 3)
         #expect(first.attachedTotal == 3)
         #expect(first.referencedTotal == 3)
         #expect(second.created.count == 1)
         #expect(second.attached.count == 1)
-        #expect(second.referenced.count == 1)
-        #expect(second.nextCursor == nil)
-        #expect(snapshot.created.count == 3)
-        #expect(snapshot.attached.count == 3)
-        #expect(snapshot.referenced.count == 3)
+        #expect(second.referenced.isEmpty)
+
+        var accumulated = snapshot
+        var nextToken = second.nextCursor
+        var guardCounter = 0
+        while let token = nextToken, guardCounter < 8 {
+            let cursor = try #require(ChatArtifactGalleryCursor(token: token))
+            let page = builder.page(
+                sessionID: "session",
+                items: items,
+                generation: "generation",
+                cursor: cursor,
+                pageSize: 2,
+                query: nil,
+                includeDirectories: true
+            )
+            if !accumulated.attached.isEmpty {
+                #expect(page.created.isEmpty)
+            }
+            if !accumulated.referenced.isEmpty {
+                #expect(page.created.isEmpty)
+                #expect(page.attached.isEmpty)
+            }
+            accumulated = accumulated.appending(page)
+            nextToken = page.nextCursor
+            guardCounter += 1
+        }
+
+        #expect(nextToken == nil)
+        #expect(accumulated.created.count == 3)
+        #expect(accumulated.attached.count == 3)
+        #expect(accumulated.referenced.count == 3)
     }
 
     @Test("a cursor from another generation requests a fresh paging restart")
