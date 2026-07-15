@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 
-private struct HookStoreFileStamp: Equatable, Sendable {
+struct HookStoreFileStamp: Equatable, Sendable {
     let filename: String
     let deviceID: UInt64
     let inode: UInt64
@@ -358,7 +358,7 @@ final class SharedLiveAgentIndex {
         }
     }
 
-    private func handleHookStoreDirectoryEvent(_ currentStamp: [HookStoreFileStamp]) {
+    func handleHookStoreDirectoryEvent(_ currentStamp: [HookStoreFileStamp]) {
         guard currentStamp != hookStoreInputStamp else { return }
         hookStoreInputStamp = currentStamp
         handleHookStoreChange()

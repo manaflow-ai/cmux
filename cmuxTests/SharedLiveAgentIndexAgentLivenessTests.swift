@@ -69,6 +69,63 @@ struct SharedLiveAgentIndexAgentLivenessTests {
     }
 
     @Test
+    func hookStoreWatcherIgnoresUnrelatedEventDuringInitialReload() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-hook-store-initial-filter-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let loadIndex = OSAllocatedUnfairLock(initialState: 0)
+        let initialLoadStarted = DispatchSemaphore(value: 0)
+        let releaseInitialLoad = DispatchSemaphore(value: 0)
+        let reloadStarted = DispatchSemaphore(value: 0)
+        let initialLoadCompleted = DispatchSemaphore(value: 0)
+        var dateReadCount = 0
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                let currentLoadIndex = loadIndex.withLock { loadIndex in
+                    defer { loadIndex += 1 }
+                    return loadIndex
+                }
+                if currentLoadIndex == 0 {
+                    initialLoadStarted.signal()
+                    _ = releaseInitialLoad.wait(timeout: .now() + 2)
+                } else {
+                    reloadStarted.signal()
+                }
+                return Self.loadResult(index: .empty)
+            },
+            hookStoreDirectoryProvider: { root.path },
+            dateProvider: {
+                dateReadCount += 1
+                return Date(timeIntervalSince1970: dateReadCount == 1 ? 100 : 110)
+            }
+        )
+        let observer = NotificationCenter.default.addObserver(
+            forName: .sharedLiveAgentIndexDidChange,
+            object: sharedIndex,
+            queue: nil
+        ) { _ in
+            initialLoadCompleted.signal()
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        sharedIndex.scheduleRefreshIfStale()
+        #expect(await Self.wait(for: initialLoadStarted))
+
+        sharedIndex.handleHookStoreDirectoryEvent([])
+        releaseInitialLoad.signal()
+        #expect(await Self.wait(for: initialLoadCompleted))
+
+        let unrelatedEventStartedReload = await Self.wait(for: reloadStarted)
+        #expect(
+            !unrelatedEventStartedReload,
+            "An unrelated event matching the initial hook-store stamp must not queue a second reload."
+        )
+    }
+
+    @Test
     func hookStoreReloadCadenceScalesWithIndexedHistory() async throws {
         let index = Self.index(entryCount: 270)
         let reloadStarted = try await Self.hookStoreReloadStarted(
