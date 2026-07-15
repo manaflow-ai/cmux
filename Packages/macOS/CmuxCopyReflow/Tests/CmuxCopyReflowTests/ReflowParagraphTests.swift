@@ -127,6 +127,13 @@ struct ReflowParagraphTests {
         #expect(reflow(input) == input)
     }
 
+    @Test func fullWidthUniformlyIndentedBlockBoundaryStaysSeparate() {
+        let input =
+            "  configuration description reaches the inferred wrapping boundary for this value:\n"
+            + "  value remains on its own structured row\n"
+        #expect(reflow(input) == input)
+    }
+
     @Test func partialCodeSelectionWithoutFenceIsNotJoined() {
         let input =
             "let message = \"This long literal contains enough words to reach the terminal wrap width and the\n"
