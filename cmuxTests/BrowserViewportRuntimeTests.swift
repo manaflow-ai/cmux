@@ -209,6 +209,18 @@ struct BrowserViewportRuntimeTests {
             assertTargetHitTestsThroughScaledHost(webView: webView, host: viewportHost, pane: pane)
         }
 
+        let fractionalScaledViewport = try #require(BrowserViewport(width: 375, height: 812))
+        viewportModel.setViewport(fractionalScaledViewport)
+        webView.pageZoom = 1.1
+        _ = try #require(webView.cmuxApplyBrowserViewportLayout(in: pane.bounds))
+        let fractionalScaledMetrics = try await runtimeMetrics(in: webView)
+        #expect(fractionalScaledMetrics["width"] as? Int == 375)
+        #expect(fractionalScaledMetrics["height"] as? Int == 812)
+
+        viewportModel.setViewport(viewport)
+        webView.pageZoom = 1
+        _ = try #require(webView.cmuxApplyBrowserViewportLayout(in: pane.bounds))
+
         let screenshot = try await BrowserScreenshotWebViewSnapshotter.captureVisibleViewport(
             from: webView
         )
