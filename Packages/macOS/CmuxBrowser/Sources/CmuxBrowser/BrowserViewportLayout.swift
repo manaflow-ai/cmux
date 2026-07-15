@@ -110,12 +110,13 @@ public struct BrowserViewportLayout: Equatable, Sendable {
     ) -> CGFloat {
         let scaledDimension = cssDimension * pageZoom
 
-        // WebKit floors the raw AppKit bounds after dividing by pageZoom. AppKit can
-        // round an exactly scaled bound one ULP downward while mapping the aspect-fit
-        // host (for example, 1280 * 1.1 becomes 1407.9999999999998, while 720 at
-        // default zoom can become 719.9999999999999), which otherwise drops the
-        // logical viewport by one CSS pixel. This sub-point headroom is many orders
-        // of magnitude below one CSS pixel at every supported page zoom.
-        return scaledDimension + emulatedViewportPrecisionBias
+        // WKWebView quantizes its AppKit viewport to whole points before applying
+        // pageZoom. Round fractional products upward so that quantization cannot
+        // shrink the requested CSS viewport (for example, 4096 * 1.4 is 5734.4,
+        // which WebKit otherwise truncates to 5734 and reports as 4095 CSS pixels).
+        // Keep sub-point headroom above the integer for downward AppKit rounding.
+        let wholePointDimension =
+            (scaledDimension - emulatedViewportPrecisionBias).rounded(.up)
+        return wholePointDimension + emulatedViewportPrecisionBias
     }
 }
