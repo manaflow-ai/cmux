@@ -12,11 +12,15 @@ import Testing
 @Suite("CEF omnibar integration")
 struct CEFOmnibarIntegrationTests {
     @Test
-    func xctestProcessArmsCEFExitBypass() {
+    func xctestProcessSkipsCEFInitialization() {
         #expect(CEFRuntimeSupport.isRunningUnderXCTest(environment: [
             "XCTestConfigurationFilePath": "/tmp/cmuxTests.xctestconfiguration"
         ]))
         #expect(!CEFRuntimeSupport.isRunningUnderXCTest(environment: [:]))
+        #expect(!CEFRuntimeSupport.shouldInitializeCEF(environment: [
+            "XCTestConfigurationFilePath": "/tmp/cmuxTests.xctestconfiguration"
+        ]))
+        #expect(CEFRuntimeSupport.shouldInitializeCEF(environment: [:]))
     }
 
     @Test
@@ -45,6 +49,13 @@ struct CEFOmnibarIntegrationTests {
         let url = try #require(panel.resolveNavigableURL(from: "chrome:extensions"))
 
         #expect(url.absoluteString == "chrome:extensions")
+    }
+
+    @Test
+    func javascriptURLIsRejected() {
+        let panel = CEFBrowserPanel(workspaceId: UUID())
+
+        #expect(panel.resolveNavigableURL(from: "javascript:alert(document.cookie)") == nil)
     }
 
     @Test
