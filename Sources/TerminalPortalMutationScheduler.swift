@@ -3,22 +3,29 @@ import Foundation
 @MainActor
 final class TerminalPortalMutationScheduler {
     private typealias Mutation = @MainActor () -> Void
-    private typealias DrainCompletion = @MainActor () -> Void
+    private typealias Completion = @MainActor () -> Void
+
+    private struct PendingWork {
+        let mutation: Mutation
+        let completion: Completion?
+    }
 
     private var cancellationGeneration: UInt64 = 0
-    private var pendingMutation: Mutation?
-    private var pendingDrainCompletions: [DrainCompletion] = []
+    private var pendingWork: PendingWork?
     private var drainTask: Task<Void, Never>?
 
+    /// `onCompletion` runs exactly once when its mutation executes, is superseded,
+    /// or is canceled.
     @discardableResult
     func schedule(
-        _ mutation: @escaping @MainActor () -> Void,
-        onDrain: (@MainActor () -> Void)? = nil
+        onCompletion: (@MainActor () -> Void)? = nil,
+        _ mutation: @escaping @MainActor () -> Void
     ) -> Task<Void, Never> {
-        pendingMutation = mutation
-        if let onDrain {
-            pendingDrainCompletions.append(onDrain)
-        }
+        let supersededWork = pendingWork
+        pendingWork = PendingWork(mutation: mutation, completion: onCompletion)
+        // Cleanup belongs to the mutation it was registered with. Running it
+        // when that mutation is replaced keeps coalescing storage bounded.
+        supersededWork?.completion?()
         if let drainTask {
             return drainTask
         }
@@ -35,18 +42,14 @@ final class TerminalPortalMutationScheduler {
                 await Task.yield()
                 guard !Task.isCancelled,
                       self.cancellationGeneration == scheduledCancellationGeneration,
-                      let mutation = self.pendingMutation else { break }
-                self.pendingMutation = nil
-                mutation()
+                      let work = self.pendingWork else { break }
+                self.pendingWork = nil
+                work.mutation()
+                work.completion?()
             }
 
             guard self.cancellationGeneration == scheduledCancellationGeneration else { return }
-            let completions = self.pendingDrainCompletions
-            self.pendingDrainCompletions.removeAll(keepingCapacity: true)
             self.drainTask = nil
-            for completion in completions {
-                completion()
-            }
         }
         drainTask = task
         return task
@@ -54,13 +57,10 @@ final class TerminalPortalMutationScheduler {
 
     func cancel() {
         cancellationGeneration &+= 1
-        pendingMutation = nil
+        let pendingWork = pendingWork
+        self.pendingWork = nil
         drainTask?.cancel()
         drainTask = nil
-        let completions = pendingDrainCompletions
-        pendingDrainCompletions.removeAll(keepingCapacity: true)
-        for completion in completions {
-            completion()
-        }
+        pendingWork?.completion?()
     }
 }
