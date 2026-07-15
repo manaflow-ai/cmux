@@ -152,7 +152,11 @@
     if (element.id && element.id.length <= maxSelectorValueCharacters) {
       candidates.push(`#${cssEscape(element.id)}`);
     }
+    const sensitive = isSensitiveElement(element);
     for (const name of preferredAttributes) {
+      // Accessibility labels on sensitive controls can embed user
+      // identifiers; never derive selectors from them.
+      if (sensitive && name === "aria-label") continue;
       const value = element.getAttribute?.(name);
       if (!value || value.length > 160) continue;
       candidates.push(`${element.localName}[${name}="${attributeValue(value)}"]`);
@@ -196,7 +200,7 @@
     if (urlBearingAttributes.has(name.toLowerCase())
         || hasSensitiveName(name)
         || (isSensitiveElement(element)
-          && !["id", "name", "type", "autocomplete", "class", "role", "aria-label"].includes(name.toLowerCase()))
+          && !["id", "name", "type", "autocomplete", "class", "role"].includes(name.toLowerCase()))
         || /(?:token|secret|password|passwd|credential|authorization|api[-_]?key)\s*[:=]/i.test(value)) {
       return redactedValue;
     }
