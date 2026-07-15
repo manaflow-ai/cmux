@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxCanvasUI
 import CmuxSettings
 import Foundation
 import Testing
@@ -8,6 +9,20 @@ import Testing
 #elseif canImport(cmux)
 @testable import cmux
 #endif
+
+@MainActor
+private final class ReorderCanvasViewportSpy: CanvasViewportControlling {
+    var modelDidChangeCount = 0
+    var currentMagnification: CGFloat = 1
+    var currentCenterInCanvas: CGPoint = .zero
+
+    func revealPane(_ panelId: UUID, animated: Bool) {}
+    func toggleOverview() {}
+    func zoom(by factor: CGFloat) {}
+    func resetZoom() {}
+    func setViewport(center: CGPoint, magnification: CGFloat?) {}
+    func modelDidChangeExternally(animated: Bool) { modelDidChangeCount += 1 }
+}
 
 @MainActor
 @Suite("Reorder shortcut actions", .serialized)
@@ -58,8 +73,14 @@ struct ReorderShortcutActionTests {
         workspace.setLayoutMode(.canvas)
         workspace.focusPanel(firstPanelId)
         let canvasPaneId = try #require(workspace.canvasModel.paneID(containing: firstPanelId))
+        let viewport = ReorderCanvasViewportSpy()
+        workspace.canvasModel.viewport = viewport
+
+        #expect(workspace.moveSelectedSurface(by: -1))
+        #expect(viewport.modelDidChangeCount == 0)
 
         #expect(workspace.moveSelectedSurface(by: 1))
+        #expect(viewport.modelDidChangeCount == 1)
         #expect(
             workspace.canvasModel.layout.panelIds(in: canvasPaneId)?.map(\.rawValue) ==
                 [secondPanel.id, firstPanelId, thirdPanel.id]
