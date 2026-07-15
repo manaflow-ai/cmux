@@ -209,6 +209,114 @@ extension ReconnectRouteSelectionTests {
         #expect(persisted.routes.contains { $0.id == iroh.id })
     }
 
+    @Test func concurrentPresenceUpgradeWinsWhenRegistrySnapshotHasNoMatchingDevice() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        await router.setHostIdentity(deviceID: "test-mac", instanceTag: "stable")
+        let box = TransportBox()
+        let factory = KindRecordingTransportFactory(router: router, box: box)
+        let runtime = LivenessTestRuntime(
+            transportFactory: factory,
+            now: { clock.now },
+            supportedRouteKinds: [.iroh, .tailscale]
+        )
+        let iroh = try registryIroh(
+            id: "iroh-presence",
+            endpointID: String(repeating: "f", count: 64)
+        )
+        let legacy = try tailscale(51_008)
+        let (pairedStore, directory) = try makePairedMacStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try await pairedStore.upsert(
+            macDeviceID: "test-mac",
+            displayName: "Test Mac",
+            routes: [legacy],
+            instanceTag: "stable",
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: clock.now
+        )
+        let registry = PresenceRacingDeviceRegistry(
+            pairedStore: pairedStore,
+            routes: [iroh, legacy],
+            outcome: .ok([]),
+            now: clock.now.addingTimeInterval(1)
+        )
+        let store = await makeMigrationShell(
+            pairedStore: pairedStore,
+            registry: registry,
+            runtime: runtime
+        )
+
+        #expect(await store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(store.activeRoute?.id == iroh.id)
+        #expect(factory.attemptedKinds() == [.iroh])
+        #expect(store.connectionError?.localizedCaseInsensitiveContains("update cmux") != true)
+    }
+
+    @Test func ambiguousRegistryAuthorityDoesNotClaimTheMacNeedsAnUpdate() async throws {
+        let clock = TestClock()
+        let runtime = LivenessTestRuntime(
+            transportFactory: KindRecordingTransportFactory(
+                router: LivenessHostRouter(),
+                box: TransportBox()
+            ),
+            now: { clock.now },
+            supportedRouteKinds: [.iroh, .tailscale]
+        )
+        let legacy = try tailscale(51_009)
+        let registry = SnapshotCountingDeviceRegistry(outcome: .ok([
+            RegistryDevice(
+                deviceId: "test-mac",
+                platform: "mac",
+                displayName: "Test Mac",
+                lastSeenAt: clock.now,
+                instances: [
+                    RegistryAppInstance(
+                        tag: "stable",
+                        routes: [try registryIroh(
+                            id: "iroh-a",
+                            endpointID: String(repeating: "a", count: 64)
+                        )],
+                        lastSeenAt: clock.now
+                    ),
+                    RegistryAppInstance(
+                        tag: "stable",
+                        routes: [try registryIroh(
+                            id: "iroh-b",
+                            endpointID: String(repeating: "b", count: 64)
+                        )],
+                        lastSeenAt: clock.now
+                    ),
+                ]
+            ),
+        ]))
+        let (pairedStore, directory) = try makePairedMacStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try await pairedStore.upsert(
+            macDeviceID: "test-mac",
+            displayName: "Test Mac",
+            routes: [legacy],
+            instanceTag: "stable",
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: clock.now
+        )
+        let store = await makeMigrationShell(
+            pairedStore: pairedStore,
+            registry: registry,
+            runtime: runtime
+        )
+
+        #expect(!(await store.reconnectActiveMacIfAvailable(stackUserID: "user-1")))
+        let copy = [store.connectionError, store.connectionErrorGuidance]
+            .compactMap { $0 }
+            .joined(separator: " ")
+        #expect(!copy.localizedCaseInsensitiveContains("update cmux"))
+    }
+
     @Test func switchToLegacySavedMacUpgradesFromRegistryWithoutRescan() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()

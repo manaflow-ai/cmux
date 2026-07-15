@@ -258,6 +258,7 @@ import Testing
         #expect(category.guidance?.localizedCaseInsensitiveContains("reconnect automatically") == true)
         #expect(category.guidance?.localizedCaseInsensitiveContains("do not need to sign out") == true)
         #expect(category.guidance?.localizedCaseInsensitiveContains("pair again") == true)
+        #expect(category.guidance?.localizedCaseInsensitiveContains("Iroh") != true)
     }
 
     @Test func invalidCodeNoLongerMentionsAPairingCode() {
