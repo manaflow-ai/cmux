@@ -1,6 +1,19 @@
 import Foundation
 import WebKit
 
+/// Starts browser-wide services before restored browser panels are created.
+/// Keeping this entrypoint browser-owned prevents AppDelegate from accumulating
+/// one launch hook for every browser subsystem.
+@MainActor
+enum BrowserLaunchServices {
+    static func start() {
+        BrowserSystemProxyWatcher.shared.startObserving()
+        if #available(macOS 15.4, *) {
+            _ = BrowserWebExtensionsManager.shared
+        }
+    }
+}
+
 /// Loads Safari Web Extensions (WebExtension `manifest.json` bundles, the same
 /// format Safari and Chrome use) into every cmux browser webview.
 ///
