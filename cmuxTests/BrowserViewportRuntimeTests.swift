@@ -13,6 +13,37 @@ import WebKit
 @Suite(.serialized)
 struct BrowserViewportRuntimeTests {
     @Test
+    func nativeViewportActivatesPresentationHostOnlyWhileEmulationIsRequested() throws {
+        let panel = BrowserPanel(workspaceId: UUID(), initialURL: URL(string: "about:blank")!)
+        let webView = panel.webView
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 380, height: 610))
+        defer {
+            webView.cmuxBrowserViewportPresentationView.removeFromSuperview()
+            panel.close()
+        }
+
+        #expect(webView.cmuxBrowserViewportPresentationView === webView)
+        container.addSubview(webView.cmuxBrowserViewportPresentationView)
+        #expect(webView.superview === container)
+        #expect(panel.viewportHostView.superview == nil)
+
+        let viewport = try #require(BrowserViewport(width: 1_280, height: 720))
+        let emulatedLayout = try panel.setAutomationViewport(viewport).get()
+
+        #expect(emulatedLayout.mode == .emulated)
+        #expect(webView.cmuxBrowserViewportPresentationView === panel.viewportHostView)
+        #expect(webView.superview === panel.viewportHostView)
+        #expect(panel.viewportHostView.superview === container)
+
+        let nativeLayout = try panel.setAutomationViewport(nil).get()
+
+        #expect(nativeLayout.mode == .native)
+        #expect(webView.cmuxBrowserViewportPresentationView === webView)
+        #expect(webView.superview === container)
+        #expect(panel.viewportHostView.superview == nil)
+    }
+
+    @Test
     func emulatedViewportDrivesDOMZoomScreenshotsAndInputGeometry() async throws {
         let paneFrame = NSRect(x: 0, y: 0, width: 380, height: 610)
         let window = NSWindow(
