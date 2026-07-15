@@ -130,6 +130,48 @@ struct UsageTipsTests {
     }
 
     @MainActor
+    @Test func presentedTipHidesWhenItsWindowResignsAndReschedulesForTheNextKeyWindow() throws {
+        let suiteName = "UsageTipsTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        let resolver = UsageTipShortcutResolver { _ in
+            StoredShortcut(key: "f", command: true, shift: false, option: true, control: false)
+        }
+        var scheduledActions: [UsageTipScheduler.Action] = []
+        let scheduler = UsageTipScheduler { _, action in
+            let index = scheduledActions.count
+            scheduledActions.append(action)
+            return { scheduledActions[index] = {} }
+        }
+        let controller = UsageTipsController(
+            store: UsageTipsStore(defaults: defaults),
+            catalog: catalog,
+            shortcutResolver: resolver,
+            scheduler: scheduler
+        )
+        let firstWindowID = UUID()
+        let nextWindowID = UUID()
+
+        controller.register(windowID: firstWindowID)
+        controller.register(windowID: nextWindowID)
+        controller.windowDidBecomeKey(windowID: firstWindowID)
+        scheduledActions.last?()
+        #expect(controller.presentation?.windowID == firstWindowID)
+
+        controller.windowDidResignKey(windowID: firstWindowID)
+        #expect(controller.presentation == nil)
+
+        controller.windowDidBecomeKey(windowID: nextWindowID)
+        #expect(scheduledActions.count == 3)
+        scheduledActions.last?()
+        #expect(controller.presentation?.windowID == nextWindowID)
+
+        controller.unregister(windowID: firstWindowID)
+        controller.unregister(windowID: nextWindowID)
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+
+    @MainActor
     @Test func enablingBeforeFirstWindowSchedulesTheInitialTip() throws {
         let suiteName = "UsageTipsTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
