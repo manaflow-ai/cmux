@@ -10,8 +10,9 @@ public import Foundation
 /// controller-ID guard that drops stale publishes from a replaced session
 /// coordinator; the coordinator itself never sees the workspace model.
 ///
-/// Every method may be called from the coordinator's private serial queue and
-/// must be safe to invoke from any thread.
+/// Publications originate from the coordinator's private serial queue. The
+/// runtime-state methods are awaited from a coordinator-owned task; every host
+/// must therefore remain safe to invoke from any thread.
 public protocol RemoteSessionHosting: Sendable {
     /// Publish a connection-state transition with an optional detail string.
     func publishConnectionState(_ state: WorkspaceRemoteConnectionState, detail: String?)
@@ -29,14 +30,14 @@ public protocol RemoteSessionHosting: Sendable {
     /// terminal.
     func publishBootstrapRemoteTTY(_ ttyName: String)
     /// Publish a server-authoritative workspace document for cold restore.
-    func publishRuntimeState(_ document: RemoteRuntimeStateDocument)
+    func publishRuntimeState(_ document: RemoteRuntimeStateDocument) async
     /// Publish the revision committed for a locally generated workspace snapshot.
-    func publishRuntimeStateRevision(_ revision: UInt64)
+    func publishRuntimeStateRevision(_ revision: UInt64) async
 }
 
 public extension RemoteSessionHosting {
     /// Default for hosts that do not project remote runtime state.
-    func publishRuntimeState(_: RemoteRuntimeStateDocument) {}
+    func publishRuntimeState(_: RemoteRuntimeStateDocument) async {}
     /// Default for hosts that do not track remote runtime revisions.
-    func publishRuntimeStateRevision(_: UInt64) {}
+    func publishRuntimeStateRevision(_: UInt64) async {}
 }

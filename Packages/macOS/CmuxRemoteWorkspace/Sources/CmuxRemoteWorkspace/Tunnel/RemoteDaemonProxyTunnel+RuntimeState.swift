@@ -4,14 +4,15 @@ public import Foundation
 extension RemoteDaemonProxyTunnel {
     /// Fetches the authoritative workspace state through this tunnel's RPC client.
     public func getRuntimeState() throws -> RemoteRuntimeStateDocument? {
-        try queue.sync {
+        let client = try queue.sync {
             guard let rpcClient, !isStopped else {
                 throw NSError(domain: "cmux.remote.runtime-state", code: 30, userInfo: [
                     NSLocalizedDescriptionKey: "remote daemon tunnel is not ready",
                 ])
             }
-            return try rpcClient.getRuntimeState()
+            return rpcClient
         }
+        return try client.getRuntimeState()
     }
 
     /// Replaces the authoritative workspace state through this tunnel's RPC client.
@@ -20,17 +21,18 @@ extension RemoteDaemonProxyTunnel {
         state: Data,
         expectedRevision: UInt64?
     ) throws -> RemoteRuntimeStateDocument {
-        try queue.sync {
+        let client = try queue.sync {
             guard let rpcClient, !isStopped else {
                 throw NSError(domain: "cmux.remote.runtime-state", code: 31, userInfo: [
                     NSLocalizedDescriptionKey: "remote daemon tunnel is not ready",
                 ])
             }
-            return try rpcClient.putRuntimeState(
-                schemaVersion: schemaVersion,
-                state: state,
-                expectedRevision: expectedRevision
-            )
+            return rpcClient
         }
+        return try client.putRuntimeState(
+            schemaVersion: schemaVersion,
+            state: state,
+            expectedRevision: expectedRevision
+        )
     }
 }

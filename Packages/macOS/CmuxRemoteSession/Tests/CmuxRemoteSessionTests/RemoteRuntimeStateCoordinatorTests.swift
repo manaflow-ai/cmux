@@ -8,7 +8,7 @@ import Testing
 @Suite("Remote runtime state coordinator", .serialized)
 struct RemoteRuntimeStateCoordinatorTests {
     @Test("server state wins over a snapshot queued before the initial fetch")
-    func serverWinsInitialSynchronization() throws {
+    func serverWinsInitialSynchronization() async throws {
         let fixture = Self.fixture()
         defer { fixture.stop() }
         let serverState = Data(#"{"title":"server"}"#.utf8)
@@ -25,7 +25,7 @@ struct RemoteRuntimeStateCoordinatorTests {
         )
         fixture.coordinator.queue.sync {}
 
-        Self.synchronize(fixture)
+        await Self.synchronize(fixture)
 
         #expect(fixture.host.documents.map(\.revision) == [7])
         #expect(fixture.host.revisions.isEmpty)
@@ -34,43 +34,43 @@ struct RemoteRuntimeStateCoordinatorTests {
     }
 
     @Test("an empty server is seeded from the queued workspace snapshot")
-    func emptyServerIsSeeded() throws {
+    func emptyServerIsSeeded() async throws {
         let fixture = Self.fixture()
         defer { fixture.stop() }
         let localState = Data(#"{"title":"local-seed"}"#.utf8)
         fixture.coordinator.enqueueRuntimeState(schemaVersion: 1, state: localState)
         fixture.coordinator.queue.sync {}
 
-        Self.synchronize(fixture)
+        await Self.synchronize(fixture)
 
         #expect(fixture.host.documents.isEmpty)
-        #expect(fixture.host.revisions == [1])
+        #expect(fixture.host.revisions == [0, 1])
         let storedState = try fixture.provider.tunnel.getRuntimeState()?.state
         #expect(storedState == localState)
     }
 
     @Test("a later snapshot retries a transient initial fetch failure before uploading")
-    func autosaveRetriesInitialFetchFailure() throws {
+    func autosaveRetriesInitialFetchFailure() async throws {
         let fixture = Self.fixture()
         defer { fixture.stop() }
         fixture.provider.tunnel.failNextRuntimeStateGet()
 
-        Self.synchronize(fixture)
+        await Self.synchronize(fixture)
         #expect(!fixture.coordinator.runtimeStateSynchronized)
 
         let localState = Data(#"{"title":"retry-seed"}"#.utf8)
         fixture.coordinator.enqueueRuntimeState(schemaVersion: 1, state: localState)
-        fixture.coordinator.queue.sync {}
+        await Self.drainRuntimeStatePublication(fixture)
 
         #expect(fixture.coordinator.runtimeStateSynchronized)
         #expect(fixture.host.documents.isEmpty)
-        #expect(fixture.host.revisions == [1])
+        #expect(fixture.host.revisions == [0, 1])
         let storedState = try fixture.provider.tunnel.getRuntimeState()?.state
         #expect(storedState == localState)
     }
 
     @Test("a reconnect uploads local edits when the server revision has not advanced")
-    func reconnectPreservesPendingLocalEdit() throws {
+    func reconnectPreservesPendingLocalEdit() async throws {
         let fixture = Self.fixture()
         defer { fixture.stop() }
         let serverState = Data(#"{"title":"server"}"#.utf8)
@@ -81,7 +81,7 @@ struct RemoteRuntimeStateCoordinatorTests {
             state: serverState,
             ptySessions: Data("[]".utf8)
         ))
-        Self.synchronize(fixture)
+        await Self.synchronize(fixture)
 
         fixture.coordinator.queue.sync {
             fixture.coordinator.proxyLease = nil
@@ -95,7 +95,7 @@ struct RemoteRuntimeStateCoordinatorTests {
         )
         fixture.coordinator.queue.sync {}
 
-        Self.synchronize(fixture)
+        await Self.synchronize(fixture)
 
         let storedDocument = try fixture.provider.tunnel.getRuntimeState()
         let stored = try #require(storedDocument)
@@ -106,7 +106,7 @@ struct RemoteRuntimeStateCoordinatorTests {
     }
 
     @Test("a snapshot captured before initial restore cannot overwrite fetched state")
-    func staleInitialCaptureIsDiscarded() throws {
+    func staleInitialCaptureIsDiscarded() async throws {
         let fixture = Self.fixture()
         defer { fixture.stop() }
         let serverState = Data(#"{"title":"server"}"#.utf8)
@@ -117,7 +117,7 @@ struct RemoteRuntimeStateCoordinatorTests {
             state: serverState,
             ptySessions: Data("[]".utf8)
         ))
-        Self.synchronize(fixture)
+        await Self.synchronize(fixture)
 
         fixture.coordinator.enqueueRuntimeState(
             schemaVersion: 1,
@@ -134,7 +134,7 @@ struct RemoteRuntimeStateCoordinatorTests {
     }
 
     @Test("a snapshot claiming an unfetched future revision is discarded")
-    func futureRevisionCaptureIsDiscarded() throws {
+    func futureRevisionCaptureIsDiscarded() async throws {
         let fixture = Self.fixture()
         defer { fixture.stop() }
         let serverState = Data(#"{"title":"server"}"#.utf8)
@@ -145,7 +145,7 @@ struct RemoteRuntimeStateCoordinatorTests {
             state: serverState,
             ptySessions: Data("[]".utf8)
         ))
-        Self.synchronize(fixture)
+        await Self.synchronize(fixture)
 
         fixture.coordinator.enqueueRuntimeState(
             schemaVersion: 1,
@@ -162,7 +162,7 @@ struct RemoteRuntimeStateCoordinatorTests {
     }
 
     @Test("a reconnect accepts newer server state instead of overwriting it")
-    func reconnectAcceptsAdvancedServerRevision() throws {
+    func reconnectAcceptsAdvancedServerRevision() async throws {
         let fixture = Self.fixture()
         defer { fixture.stop() }
         fixture.provider.tunnel.seedRuntimeState(RemoteRuntimeStateDocument(
@@ -172,7 +172,7 @@ struct RemoteRuntimeStateCoordinatorTests {
             state: Data(#"{"title":"initial"}"#.utf8),
             ptySessions: Data("[]".utf8)
         ))
-        Self.synchronize(fixture)
+        await Self.synchronize(fixture)
 
         fixture.coordinator.queue.sync {
             fixture.coordinator.proxyLease = nil
@@ -193,7 +193,7 @@ struct RemoteRuntimeStateCoordinatorTests {
             ptySessions: Data("[]".utf8)
         ))
 
-        Self.synchronize(fixture)
+        await Self.synchronize(fixture)
 
         let storedDocument = try fixture.provider.tunnel.getRuntimeState()
         let stored = try #require(storedDocument)
@@ -204,7 +204,7 @@ struct RemoteRuntimeStateCoordinatorTests {
     }
 
     @Test("an empty same-slot reset rebases the workspace before the next upload")
-    func emptySameSlotResetRebasesNextUpload() throws {
+    func emptySameSlotResetRebasesNextUpload() async throws {
         let fixture = Self.fixture()
         defer { fixture.stop() }
         fixture.provider.tunnel.seedRuntimeState(RemoteRuntimeStateDocument(
@@ -214,33 +214,43 @@ struct RemoteRuntimeStateCoordinatorTests {
             state: Data(#"{"title":"before-reset"}"#.utf8),
             ptySessions: Data("[]".utf8)
         ))
-        Self.synchronize(fixture)
+        await Self.synchronize(fixture)
 
         fixture.coordinator.queue.sync {
             fixture.coordinator.proxyLease = nil
             fixture.coordinator.runtimeStateSynchronized = false
         }
         fixture.provider.tunnel.seedRuntimeState(nil)
-        Self.synchronize(fixture)
+        await Self.synchronize(fixture)
 
         fixture.coordinator.enqueueRuntimeState(
             schemaVersion: 1,
             state: Data(#"{"title":"after-reset"}"#.utf8),
             baseRevision: 0
         )
-        fixture.coordinator.queue.sync {}
+        await Self.drainRuntimeStatePublication(fixture)
 
         #expect(fixture.host.revisions == [0, 1])
         #expect(try fixture.provider.tunnel.getRuntimeState()?.revision == 1)
     }
 
-    private static func synchronize(_ fixture: RemoteRuntimeStateCoordinatorFixture) {
+    private static func synchronize(_ fixture: RemoteRuntimeStateCoordinatorFixture) async {
         fixture.coordinator.queue.sync {
             fixture.coordinator.proxyLease = fixture.lease
             fixture.coordinator.daemonReady = true
             fixture.coordinator.runtimeStateCapabilityAvailable = true
             fixture.coordinator.runtimeStateSynchronized = false
             fixture.coordinator.synchronizeRuntimeStateLocked()
+        }
+        await drainRuntimeStatePublication(fixture)
+    }
+
+    private static func drainRuntimeStatePublication(_ fixture: RemoteRuntimeStateCoordinatorFixture) async {
+        while let task = fixture.coordinator.queue.sync(
+            execute: { fixture.coordinator.runtimeStatePublicationTask }
+        ) {
+            await task.value
+            fixture.coordinator.queue.sync {}
         }
     }
 

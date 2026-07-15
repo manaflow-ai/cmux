@@ -163,15 +163,12 @@ func (s *runtimeStateStore) put(
 		}
 	}
 	s.document = cloneRuntimeStateDocument(&document)
-	subscribers := make([]*runtimeStateSubscriber, 0, len(s.subscribers))
 	for _, subscriber := range s.subscribers {
-		subscribers = append(subscribers, subscriber)
-	}
-	s.mu.Unlock()
-
-	for _, subscriber := range subscribers {
+		// Offers are non-blocking. Keep them under the store lock so concurrent
+		// puts cannot enqueue newer revisions before older ones.
 		subscriber.offer(document)
 	}
+	s.mu.Unlock()
 	return document, nil
 }
 

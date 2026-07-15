@@ -29,20 +29,17 @@ extension Workspace {
         }
         // Local snapshots must not resurrect process status after its process
         // exited. Remote PTYs remain alive, so retain their portable status.
-        statusEntries = Dictionary(uniqueKeysWithValues: snapshot.statusEntries
-            .filter { !$0.key.hasPrefix("remote.") }
-            .map { entry in
-                (
-                    entry.key,
-                    SidebarStatusEntry(
-                        key: entry.key,
-                        value: entry.value,
-                        icon: entry.icon,
-                        color: entry.color,
-                        timestamp: Date(timeIntervalSince1970: entry.timestamp)
-                    )
-                )
-            })
+        var restoredStatusEntries: [String: SidebarStatusEntry] = [:]
+        for entry in snapshot.statusEntries where !entry.key.hasPrefix("remote.") {
+            restoredStatusEntries[entry.key] = SidebarStatusEntry(
+                key: entry.key,
+                value: entry.value,
+                icon: entry.icon,
+                color: entry.color,
+                timestamp: Date(timeIntervalSince1970: entry.timestamp)
+            )
+        }
+        statusEntries = restoredStatusEntries
     }
 
     func resetRemoteRuntimeStateRevision(preservingPersistentIdentity: Bool) {
@@ -84,23 +81,27 @@ extension Workspace {
     }
 
     func teardownPanelsForClosePreservingRemoteRuntimeState() {
-        enqueueRemoteRuntimeState(sessionSnapshot(includeScrollback: false))
+        if !isApplyingRemoteRuntimeState,
+           remoteConfiguration?.persistentDaemonSlot != nil,
+           remoteSessionControllerForRuntimeState != nil {
+            enqueueRemoteRuntimeState(sessionSnapshot(includeScrollback: false))
+        }
         withClosedPanelHistorySuppressed {
             teardownAllPanels()
         }
     }
 
-    func applyRemoteRuntimeState(_ document: RemoteRuntimeStateDocument) {
-        guard document.revision > remoteRuntimeStateRevision else { return }
+    func applyRemoteRuntimeState(
+        _ document: RemoteRuntimeStateDocument,
+        snapshot sourceSnapshot: SessionWorkspaceSnapshot
+    ) {
+        guard document.revision != remoteRuntimeStateRevision else { return }
         guard document.schemaVersion == SessionSnapshotSchema.currentVersion,
               let configuration = remoteConfiguration,
-              configuration.persistentDaemonSlot != nil,
-              var snapshot = try? JSONDecoder().decode(
-                  SessionWorkspaceSnapshot.self,
-                  from: document.state
-              ) else { return }
+              configuration.persistentDaemonSlot != nil else { return }
 
         remoteRuntimeStateRevision = document.revision
+        var snapshot = sourceSnapshot
         snapshot.remote = configuration.sessionSnapshot()
         isApplyingRemoteRuntimeState = true
         defer { isApplyingRemoteRuntimeState = false }
@@ -108,6 +109,6 @@ extension Workspace {
     }
 
     func acknowledgeRemoteRuntimeStateRevision(_ revision: UInt64) {
-        remoteRuntimeStateRevision = max(remoteRuntimeStateRevision, revision)
+        remoteRuntimeStateRevision = revision
     }
 }

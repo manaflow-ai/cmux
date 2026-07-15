@@ -54,19 +54,19 @@ struct RemoteRuntimeStateRestoreTests {
     func resetsRevisionForNewRuntimeIdentity() throws {
         let workspace = Workspace()
         workspace.configureRemoteConnection(Self.configuration(slot: "runtime-state-a"), autoConnect: false)
-        workspace.applyRemoteRuntimeState(try Self.document(
+        try Self.apply(Self.document(
             for: workspace,
             revision: 7,
             customTitle: "Runtime A"
-        ))
+        ), to: workspace)
         #expect(workspace.customTitle == "Runtime A")
 
         workspace.configureRemoteConnection(Self.configuration(slot: "runtime-state-b"), autoConnect: false)
-        workspace.applyRemoteRuntimeState(try Self.document(
+        try Self.apply(Self.document(
             for: workspace,
             revision: 1,
             customTitle: "Runtime B"
-        ))
+        ), to: workspace)
 
         #expect(workspace.customTitle == "Runtime B")
         #expect(workspace.remoteRuntimeStateRevision == 1)
@@ -79,19 +79,20 @@ struct RemoteRuntimeStateRestoreTests {
         workspace.configureRemoteConnection(Self.configuration(), autoConnect: false)
         var snapshot = workspace.sessionSnapshot(includeScrollback: false)
         snapshot.customTitle = "Unsupported runtime"
-        workspace.applyRemoteRuntimeState(RemoteRuntimeStateDocument(
+        let unsupportedDocument = RemoteRuntimeStateDocument(
             schemaVersion: SessionSnapshotSchema.currentVersion + 1,
             revision: 7,
             updatedAtUnixMilliseconds: 1_750_000_000_000,
             state: try JSONEncoder().encode(snapshot),
             ptySessions: Data("[]".utf8)
-        ))
+        )
+        try Self.apply(unsupportedDocument, to: workspace)
 
-        workspace.applyRemoteRuntimeState(try Self.document(
+        try Self.apply(Self.document(
             for: workspace,
             revision: 1,
             customTitle: "Supported runtime"
-        ))
+        ), to: workspace)
 
         #expect(workspace.customTitle == "Supported runtime")
         #expect(workspace.remoteRuntimeStateRevision == 1)
@@ -113,20 +114,29 @@ struct RemoteRuntimeStateRestoreTests {
     func restoresLowerAuthoritativeDocumentForSameRuntimeIdentity() throws {
         let workspace = Workspace()
         workspace.configureRemoteConnection(Self.configuration(), autoConnect: false)
-        workspace.applyRemoteRuntimeState(try Self.document(
+        try Self.apply(Self.document(
             for: workspace,
             revision: 7,
             customTitle: "Before reset"
-        ))
+        ), to: workspace)
 
-        workspace.applyRemoteRuntimeState(try Self.document(
+        try Self.apply(Self.document(
             for: workspace,
             revision: 1,
             customTitle: "After reset"
-        ))
+        ), to: workspace)
 
         #expect(workspace.customTitle == "After reset")
         #expect(workspace.remoteRuntimeStateRevision == 1)
+    }
+
+    @MainActor
+    private static func apply(
+        _ document: RemoteRuntimeStateDocument,
+        to workspace: Workspace
+    ) throws {
+        let snapshot = try JSONDecoder().decode(SessionWorkspaceSnapshot.self, from: document.state)
+        workspace.applyRemoteRuntimeState(document, snapshot: snapshot)
     }
 
     @MainActor

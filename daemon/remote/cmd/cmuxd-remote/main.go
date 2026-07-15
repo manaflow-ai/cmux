@@ -2304,8 +2304,9 @@ func (s *rpcServer) handleRuntimeStatePut(req rpcRequest) rpcResponse {
 		}}
 	}
 	if err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "cmuxd-remote: runtime state persistence failed: %v\n", err)
 		return rpcResponse{ID: req.ID, OK: false, Error: &rpcError{
-			Code: "state_write_failed", Message: err.Error(),
+			Code: "state_write_failed", Message: "runtime state could not be persisted",
 		}}
 	}
 	return rpcResponse{ID: req.ID, OK: true, Result: s.runtimeStateSnapshot(&document)}

@@ -83,6 +83,8 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     var hasCompletedInitialRuntimeStateSynchronization = false
     var lastKnownRuntimeStateRevision: UInt64 = 0
     var pendingRuntimeStateUpload: RemoteRuntimeStateUpload?
+    var runtimeStatePublicationTask: Task<Void, Never>?
+    var runtimeStatePublicationGeneration: UInt64 = 0
     var reverseRelayProcess: Process?
     var reverseRelayControlMasterForwardSpec: String?
     var cliRelayServer: RemoteCLIRelayServer?
