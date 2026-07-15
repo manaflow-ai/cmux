@@ -93,9 +93,11 @@ struct MobileHostServiceSettingsTests {
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        defaults.set(invalidPort, forKey: MobileHostService.portDefaultsKey)
-        let expected = SettingCatalog().mobile.iOSPairingPort.defaultValue
-        #expect(MobileHostService.configuredPort(defaults: defaults) == expected)
+        Self.withoutLaunchTag {
+            defaults.set(invalidPort, forKey: MobileHostService.portDefaultsKey)
+            let expected = SettingCatalog().mobile.iOSPairingPort.defaultValue
+            #expect(MobileHostService.configuredPort(defaults: defaults) == expected)
+        }
     }
 
     @Test func resolvedDesiredPortIsNilForInvalidSoRunningListenerIsNotDisturbed() throws {
@@ -103,32 +105,34 @@ struct MobileHostServiceSettingsTests {
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        // Unset → catalog default (a valid desired port).
-        #expect(MobileHostService.resolvedDesiredPort(defaults: defaults)
-            == SettingCatalog().mobile.iOSPairingPort.defaultValue)
+        Self.withoutLaunchTag {
+            // Unset -> catalog default (a valid desired port).
+            #expect(MobileHostService.resolvedDesiredPort(defaults: defaults)
+                == SettingCatalog().mobile.iOSPairingPort.defaultValue)
+        }
 
-        // Valid override → that port.
+        // Valid override -> that port.
         defaults.set(58_470, forKey: MobileHostService.portDefaultsKey)
         #expect(MobileHostService.resolvedDesiredPort(defaults: defaults) == 58_470)
 
-        // Invalid override → nil, so syncToSettings keeps the running listener
+        // Invalid override -> nil, so syncToSettings keeps the running listener
         // on its applied port instead of restarting onto the default.
         defaults.set(70_000, forKey: MobileHostService.portDefaultsKey)
         #expect(MobileHostService.resolvedDesiredPort(defaults: defaults) == nil)
     }
 
     @Test func portApplyPreBindClassifiesNonBindCases() {
-        // Out of range → invalid, regardless of anything else.
+        // Out of range -> invalid, regardless of anything else.
         #expect(MobileHostService.portApplyPreBindOutcome(enabled: true, currentBoundPort: nil, requestedPort: 0) == .invalid)
         #expect(MobileHostService.portApplyPreBindOutcome(enabled: true, currentBoundPort: nil, requestedPort: 70000) == .invalid)
-        // Pairing off → saved for when it's enabled.
+        // Pairing off -> saved for when it's enabled.
         #expect(MobileHostService.portApplyPreBindOutcome(enabled: false, currentBoundPort: nil, requestedPort: 58465) == .savedWhileDisabled)
-        // Already bound to the requested port → applied, no bind attempt.
+        // Already bound to the requested port -> applied, no bind attempt.
         #expect(MobileHostService.portApplyPreBindOutcome(enabled: true, currentBoundPort: 58465, requestedPort: 58465) == .applied(58465))
     }
 
     @Test func portApplyPreBindReturnsNilWhenABindIsNeeded() {
-        // Enabled, valid, different from the bound port → needs a real bind
+        // Enabled, valid, different from the bound port -> needs a real bind
         // attempt (make-before-break), signalled by nil.
         #expect(MobileHostService.portApplyPreBindOutcome(enabled: true, currentBoundPort: 58465, requestedPort: 58470) == nil)
         // Not running yet, enabled, valid → also needs a bind.
