@@ -723,8 +723,10 @@ struct cmuxApp: App {
                     }
                 }
 
-                Button(String(localized: "menu.file.newSimulatorPane", defaultValue: "New Simulator Pane")) {
-                    performNewSimulatorPaneFromMenu()
+                if CmuxFeatureFlags.shared.isSimulatorEnabled {
+                    Button(String(localized: "menu.file.newSimulatorPane", defaultValue: "New Simulator Pane")) {
+                        performNewSimulatorPaneFromMenu()
+                    }
                 }
 
                 splitCommandButton(title: String(localized: "menu.file.newWorkspaceGroup", defaultValue: "New Workspace Group"), shortcut: menuShortcut(for: .newWorkspaceGroup)) {

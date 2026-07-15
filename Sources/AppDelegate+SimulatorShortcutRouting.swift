@@ -32,7 +32,8 @@ extension AppDelegate {
         context: MainWindowContext,
         onExecuted: (() -> Void)?
     ) -> Bool {
-        guard let workspace = context.tabManager.selectedWorkspace,
+        guard CmuxFeatureFlags.shared.isSimulatorEnabled,
+              let workspace = context.tabManager.selectedWorkspace,
               let pane = workspace.bonsplitController.focusedPaneId,
               workspace.newSimulatorSurface(inPane: pane, focus: true) != nil else {
             return false

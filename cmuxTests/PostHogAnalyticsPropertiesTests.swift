@@ -60,6 +60,22 @@ struct PostHogAnalyticsPropertiesTests {
     }
 
     @MainActor
+    @Test("Simulator defaults enabled and accepts a remote disable")
+    func simulatorFeatureFlagKillSwitch() throws {
+        let suiteName = "cmux.feature.flags.simulator.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let flags = CmuxFeatureFlags(defaults: defaults) { _ in false }
+        #expect(flags.isSimulatorEnabled)
+
+        flags.applyLoadedFlags()
+        #expect(!flags.isSimulatorEnabled)
+    }
+
+    @MainActor
     @Test("feature flag overrides persist through UserDefaults")
     func featureFlagOverridePersistenceRoundTrip() throws {
         let flag = try #require(CmuxFeatureFlags.allFlags.first { $0.defaultWhenUnavailable })

@@ -6,6 +6,7 @@ extension Workspace {
     /// Imports external files into a Simulator panel without creating file-preview tabs.
     /// Returns `nil` when the target panel is not a Simulator.
     func handleSimulatorExternalFileDrop(urls: [URL], panelId: UUID) -> Bool? {
+        guard CmuxFeatureFlags.shared.isSimulatorEnabled else { return false }
         guard let panel = panels[panelId] as? SimulatorPanel else { return nil }
         guard !urls.isEmpty else { return false }
         let coordinator = panel.coordinator
@@ -23,7 +24,7 @@ extension Workspace {
         focus: Bool? = nil,
         targetIndex: Int? = nil
     ) -> SimulatorPanel? {
-        guard !isRemoteTmuxMirror else { return nil }
+        guard CmuxFeatureFlags.shared.isSimulatorEnabled, !isRemoteTmuxMirror else { return nil }
         let shouldFocus = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalPanel?.hostedView
@@ -88,7 +89,8 @@ extension Workspace {
         focus: Bool = true,
         initialDividerPosition: CGFloat? = nil
     ) -> SimulatorPanel? {
-        guard !isRemoteTmuxMirror,
+        guard CmuxFeatureFlags.shared.isSimulatorEnabled,
+              !isRemoteTmuxMirror,
               let sourceTabId = surfaceIdFromPanelId(panelId),
               let sourcePaneId = bonsplitController.allPaneIds.first(where: { paneId in
                   bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == sourceTabId })

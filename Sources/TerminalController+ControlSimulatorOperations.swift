@@ -8,6 +8,12 @@ extension TerminalController {
         routing: ControlRoutingSelectors,
         operation: ControlSimulatorOperation
     ) -> ControlSimulatorOperationStartResolution {
+        guard CmuxFeatureFlags.shared.isSimulatorEnabled else {
+            return .unavailable(String(
+                localized: "cli.simulator.error.featureDisabled",
+                defaultValue: "Simulator has been disabled remotely"
+            ))
+        }
         switch resolveSimulatorPanel(routing: routing) {
         case let .failure(failure):
             return .failed(failure)

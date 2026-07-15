@@ -23,7 +23,8 @@ extension CommandPaletteHandlerRegistry {
     @MainActor
     mutating func registerNewSimulatorPane(tabManager: TabManager, windowId: UUID) {
         register(commandId: "palette.newSimulatorPane") {
-            guard let appDelegate = AppDelegate.shared,
+            guard CmuxFeatureFlags.shared.isSimulatorEnabled,
+                  let appDelegate = AppDelegate.shared,
                   appDelegate.executeConfiguredCmuxAction(
                     id: CmuxSurfaceTabBarBuiltInAction.newSimulator.configID,
                     tabManager: tabManager,
@@ -82,6 +83,7 @@ extension KeyboardShortcutSettings.Action {
 
 extension AppDelegate {
     func handleSimulatorShortcut(_ event: NSEvent) -> Bool {
+        guard CmuxFeatureFlags.shared.isSimulatorEnabled else { return false }
         let context = shortcutEventFocusContext(event).shortcutContext
         guard context.bool(ShortcutContextKnownKey.simulatorFocus.rawValue),
               let manager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager,

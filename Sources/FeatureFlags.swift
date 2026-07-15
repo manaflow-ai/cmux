@@ -46,6 +46,7 @@ final class CmuxFeatureFlags {
     #endif
     private static let agentChatUIDefault = false
     private static let sidebarWorkspaceAgentSpinnerDefault = false
+    private static let simulatorDefault = true
 
     private static let overrideKeyPrefix = "cmux.flags.override."
 
@@ -132,6 +133,24 @@ final class CmuxFeatureFlags {
                 ),
                 defaultWhenUnavailable: CmuxFeatureFlags.sidebarWorkspaceAgentSpinnerDefault
             ),
+
+            // FLAG(key: simulator-enabled-release, owner: lawrencecchen,
+            //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
+            // Controls every Simulator entrypoint and active pane. The enabled
+            // fallback preserves access when PostHog is unavailable, while the
+            // remote value provides a release kill switch.
+            CmuxFeatureFlagDefinition(
+                key: "simulator-enabled-release",
+                title: String(
+                    localized: "featureFlags.simulator.title",
+                    defaultValue: "Simulator"
+                ),
+                flagDescription: String(
+                    localized: "featureFlags.simulator.description",
+                    defaultValue: "Enables iPhone and iPad Simulator panes, commands, and automation."
+                ),
+                defaultWhenUnavailable: CmuxFeatureFlags.simulatorDefault
+            ),
         ]
     }()
 
@@ -153,6 +172,10 @@ final class CmuxFeatureFlags {
 
     var isSidebarWorkspaceAgentSpinnerEnabled: Bool {
         effectiveValue(for: Self.allFlags[4])
+    }
+
+    var isSimulatorEnabled: Bool {
+        effectiveValue(for: Self.allFlags[5])
     }
 
     @ObservationIgnored

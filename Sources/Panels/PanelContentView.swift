@@ -122,15 +122,19 @@ struct PanelContentView: View {
             }
         case .simulator:
             if let simulatorPanel = panel as? SimulatorPanel {
-                SimulatorPanelView(
-                    panel: simulatorPanel,
-                    isFocused: isFocused,
-                    isVisibleInUI: isVisibleInUI,
-                    allowsPointerInput: allowsPointerInput,
-                    pointerEntryEventFilter: pointerEntryEventFilter,
-                    appearance: appearance,
-                    onRequestPanelFocus: onRequestPanelFocus
-                )
+                if CmuxFeatureFlags.shared.isSimulatorEnabled {
+                    SimulatorPanelView(
+                        panel: simulatorPanel,
+                        isFocused: isFocused,
+                        isVisibleInUI: isVisibleInUI,
+                        allowsPointerInput: allowsPointerInput,
+                        pointerEntryEventFilter: pointerEntryEventFilter,
+                        appearance: appearance,
+                        onRequestPanelFocus: onRequestPanelFocus
+                    )
+                } else {
+                    SimulatorFeatureDisabledView(appearance: appearance)
+                }
             }
         case .agentSession:
             if let agentSessionPanel = panel as? AgentSessionPanel {
