@@ -18,8 +18,8 @@ struct GhosttyScrollViewTests {
             "the terminal viewport must not inherit a second top inset from window chrome"
         )
         #expect(scrollView.contentInsets.top == 0)
-        #expect(scrollView.contentInsets.leading == 0)
+        #expect(scrollView.contentInsets.left == 0)
         #expect(scrollView.contentInsets.bottom == 0)
-        #expect(scrollView.contentInsets.trailing == 0)
+        #expect(scrollView.contentInsets.right == 0)
     }
 }
