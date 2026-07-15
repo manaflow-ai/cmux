@@ -618,6 +618,27 @@ describe("browser design-mode runtime", () => {
     expect(pagePointerDowns).toBe(0);
   });
 
+  test("selects elements whose class selectors are ambiguous beyond the structural walk depth", () => {
+    // Two identical deeply nested subtrees (deeper than the 7-level
+    // structural-selector walk) with repeated classes, like search-result
+    // rows. Nothing short of a full path disambiguates the second target.
+    const row = (label: string) =>
+      `<div class="res"><div class="a"><div class="b"><div class="c"><div class="d"><div class="e"><div class="f"><div class="g"><cite class="url x y">${label}</cite></div></div></div></div></div></div></div></div>`;
+    const { dom, runtime } = fixture(`<main>${row("first")}${row("second")}</main>`);
+    const targets = dom.window.document.querySelectorAll("cite");
+    const second = targets[1] as HTMLElement;
+    Object.defineProperty(dom.window.document, "elementFromPoint", { value: () => second });
+    dom.window.document.dispatchEvent(
+      new dom.window.MouseEvent("pointerdown", { bubbles: true, cancelable: true, button: 0, clientX: 4, clientY: 4 }),
+    );
+    const state = runtime.composerState();
+    expect(state.selection_count).toBe(1);
+    const snapshot = runtime.snapshot();
+    const selector = snapshot.selections?.[0]?.selector ?? "";
+    expect(selector).not.toBe("");
+    expect(dom.window.document.querySelector(selector)).toBe(second);
+  });
+
   test("plain click replaces the selection; shift-click stacks", () => {
     const { dom, runtime } = fixture(`<main><button id="first">A</button><button id="second">B</button></main>`);
     const first = dom.window.document.querySelector("#first") as HTMLButtonElement;
