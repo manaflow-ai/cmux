@@ -8,11 +8,18 @@ final class MacPowerService {
     private let assertionHolder: any PowerAssertionHolding
 
     init(
-        powerControls: any SleepyPowerControlling = SleepyPowerControls(),
-        assertionHolder: any PowerAssertionHolding = PowerAssertionHolder()
+        powerControls: any SleepyPowerControlling,
+        assertionHolder: any PowerAssertionHolding
     ) {
         self.powerControls = powerControls
         self.assertionHolder = assertionHolder
+    }
+
+    convenience init() {
+        self.init(
+            powerControls: SleepyPowerControls(),
+            assertionHolder: PowerAssertionHolder()
+        )
     }
 
     func status() async -> MacPowerStatus {

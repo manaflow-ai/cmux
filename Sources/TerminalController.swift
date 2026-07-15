@@ -348,6 +348,10 @@ class TerminalController {
         weak var controller: TerminalController?
     }
 
+    private convenience init() {
+        self.init(macPowerService: MacPowerService())
+    }
+
     private init(
         passwordStore: SocketControlPasswordStore = SocketControlPasswordStore(),
         transport: SocketTransport = SocketTransport(),
@@ -358,7 +362,7 @@ class TerminalController {
         remoteProxyBroker: any RemoteProxyBrokering = RemoteProxyBroker(
             tunnelProvider: RemoteDaemonProxyTunnelProvider(strings: .appLocalized, ptyBridgeStrings: AppRemotePTYBridgeStrings())
         ),
-        macPowerService: MacPowerService = MacPowerService()
+        macPowerService: MacPowerService
     ) {
         self.passwordStore = passwordStore
         self.macPowerService = macPowerService
