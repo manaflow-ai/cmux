@@ -1,5 +1,6 @@
 import CMUXAgentLaunch
 import CmuxAgentReplica
+import CmuxAgentTruthKit
 import CmuxAgentWire
 import Foundation
 import Testing
@@ -50,6 +51,53 @@ struct AgentGUIRPCHandlerTests {
         #expect(decoded.sessions.count == 1)
         #expect(decoded.sessions.first?.id.rawValue == "session-1")
         #expect(decoded.sessions.first?.macDeviceID.rawValue == "mac-test")
+    }
+
+    @Test func fortyProcessObservationTickStaysWithinMainActorBudget() throws {
+        let service = AgentGUIService(
+            macDeviceID: "mac-performance",
+            clock: { 1_000_000 },
+            hasEventSubscribers: { _ in false }
+        )
+        let observations = Self.processObservations(count: 40)
+        service.ingestProcessObservationsForTesting(observations)
+
+        let clock = ContinuousClock()
+        let durations = (0 ..< 5).map { _ in
+            let start = clock.now
+            service.ingestProcessObservationsForTesting(observations)
+            return start.duration(to: clock.now)
+        }
+        let best = try #require(durations.min())
+
+        #expect(best < .milliseconds(10), "40-session steady-state scan took \(best)")
+        #expect(service.journalPipelineCountForTesting == 0)
+    }
+
+    @Test func processDetectionMintsJournalsOnlyForSubscribedSessions() throws {
+        let demand = RPCFakeAgentGUIJournalDemand()
+        let service = AgentGUIService(
+            macDeviceID: "mac-demand",
+            clock: { 1_000_000 },
+            hasEventSubscribers: { demand.topics.contains($0) }
+        )
+        service.ingestProcessObservationsForTesting(Self.processObservations(count: 40))
+
+        #expect(service.sessionsResult().sessions.count == 40)
+        #expect(service.journalPipelineCountForTesting == 0)
+        #expect(service.watchingJournalPipelineCountForTesting == 0)
+
+        let subscribedSession = try #require(service.sessionsResult().sessions.first?.id)
+        let topic = GuiWireTopic.journal(sessionID: subscribedSession)
+        demand.topics = [topic]
+        service.refreshSubscriptionsForTesting(changedTopics: [topic])
+
+        #expect(service.journalPipelineCountForTesting == demand.topics.count)
+        #expect(service.watchingJournalPipelineCountForTesting == demand.topics.count)
+
+        demand.topics = []
+        service.refreshSubscriptionsForTesting(changedTopics: [topic])
+        #expect(service.watchingJournalPipelineCountForTesting == 0)
     }
 
     @Test func sendRPCShapesAcceptedAndQueuedResults() async throws {
@@ -173,6 +221,26 @@ struct AgentGUIRPCHandlerTests {
         }
         return error
     }
+
+    private static func processObservations(count: Int) -> [ProcessObservation] {
+        (0 ..< count).map { index in
+            ProcessObservation(
+                pid: Int32(10_000 + index),
+                ppid: 1,
+                startTick: 20_000 + index,
+                argvSummary: "codex --session \(index)",
+                agentKindGuess: .codex,
+                cwd: "/tmp/agent-gui-performance/\(index)",
+                surfaceID: "surface-\(index)",
+                openTranscriptPath: "/tmp/agent-gui-performance/\(index).jsonl"
+            )
+        }
+    }
+}
+
+@MainActor
+private final class RPCFakeAgentGUIJournalDemand {
+    var topics: Set<String> = []
 }
 
 @MainActor

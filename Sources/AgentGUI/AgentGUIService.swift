@@ -14,6 +14,7 @@ final class AgentGUIService {
     private let reducer: AgentTruthReducer
     private let publisher: AgentGUIWirePublisher
     private let clock: () -> Int
+    private let hasEventSubscribers: (String) -> Bool
     private let terminalInjector: any AgentGUITerminalInjecting
     private let hookMapper = AgentGUIHookFactMapper()
     private let transcriptResolver = AgentGUITranscriptResolver()
@@ -25,6 +26,7 @@ final class AgentGUIService {
     private var pipelines: [AgentSessionID: AgentGUIJournalPipeline] = [:]
     private var sendLedgers: [AgentSessionID: AgentGUISendLedger] = [:]
     private let askRegistry: AgentGUIAskRegistry
+    private let incrementalState = AgentGUIIncrementalState()
     private var streamProducer: AgentGUIStreamProducer?
     private var removalVersions: [AgentSessionID: UInt64] = [:]
     private var subscriptionObserver: NSObjectProtocol?
@@ -36,13 +38,17 @@ final class AgentGUIService {
     init(
         macDeviceID: String = MobileHostIdentity.deviceID(),
         clock: @escaping () -> Int = { Int(Date().timeIntervalSince1970 * 1_000) },
-        terminalInjector: (any AgentGUITerminalInjecting)? = nil
+        terminalInjector: (any AgentGUITerminalInjecting)? = nil,
+        hasEventSubscribers: @escaping (String) -> Bool = { topic in
+            MobileHostService.hasEventSubscribers(topic: topic)
+        }
     ) {
         self.epoch = ReplicaEpoch(rawValue: UUID().uuidString)
         self.macDeviceID = MacDeviceID(rawValue: macDeviceID)
         self.reducer = AgentTruthReducer(macDeviceID: self.macDeviceID)
         self.publisher = AgentGUIWirePublisher(epoch: epoch)
         self.clock = clock
+        self.hasEventSubscribers = hasEventSubscribers
         let resolvedTerminalInjector = terminalInjector ?? AgentGUITerminalInjector()
         self.terminalInjector = resolvedTerminalInjector
         self.askRegistry = AgentGUIAskRegistry(
@@ -64,7 +70,7 @@ final class AgentGUIService {
                     .mobileRenderGridFrame(stateSeq: 0, full: true)?.rows
             },
             hasSubscribers: { sessionID in
-                MobileHostService.hasEventSubscribers(topic: GuiWireTopic.journal(sessionID: sessionID))
+                hasEventSubscribers(GuiWireTopic.journal(sessionID: sessionID))
             },
             context: { [weak self] sessionID in
                 guard let window = self?.pipelines[sessionID]?.window else { return nil }
@@ -94,9 +100,10 @@ final class AgentGUIService {
             forName: .mobileHostEventSubscriptionsDidChange,
             object: nil,
             queue: nil
-        ) { [weak self] _ in
+        ) { [weak self] notification in
+            let changedTopics = notification.userInfo?["topics"] as? [String]
             Task { @MainActor in
-                self?.updateGates()
+                self?.handleSubscriptionChange(changedTopics: changedTopics)
             }
         }
         updateGates()
@@ -131,19 +138,37 @@ final class AgentGUIService {
         processSource?.scanNow()
     }
 
+    #if DEBUG
+    func ingestProcessObservationsForTesting(_ observations: [ProcessObservation]) {
+        handleProcessObservations(observations)
+    }
+
+    func refreshSubscriptionsForTesting(changedTopics: [String]) {
+        handleSubscriptionChange(changedTopics: changedTopics)
+    }
+
+    var journalPipelineCountForTesting: Int {
+        pipelines.count
+    }
+
+    var watchingJournalPipelineCountForTesting: Int {
+        pipelines.values.count(where: \.isWatching)
+    }
+    #endif
+
     func sessionsResult() -> GuiSessionsResult {
         GuiSessionsResult(epoch: epoch, sessions: reducer.snapshots.values.sorted { $0.lastActivityHint > $1.lastActivityHint })
     }
 
     func sessionResult(id: AgentSessionID) throws -> GuiSessionResult {
-        guard let session = reducer.snapshots[id] else {
+        guard let session = reducer.snapshot(for: id) else {
             throw AgentGUIRPCError.notFound
         }
         return GuiSessionResult(epoch: epoch, session: session)
     }
 
     func entriesResult(params: GuiEntriesParams) async throws -> GuiEntriesResult {
-        guard let pipeline = pipelines[params.sessionID] else {
+        guard let pipeline = ensurePipeline(sessionID: params.sessionID) else {
             throw AgentGUIRPCError.notFound
         }
         let initialEvents = await pipeline.ingestInitial()
@@ -166,7 +191,7 @@ final class AgentGUIService {
     }
 
     func capabilitiesResult(params: GuiCapabilitiesParams) throws -> GuiCapabilitiesResult {
-        guard let evidence = reducer.evidence[params.sessionID] else {
+        guard let evidence = reducer.evidence(for: params.sessionID) else {
             throw AgentGUIRPCError.notFound
         }
         let report = capabilityBuilder.report(for: evidence)
@@ -192,8 +217,8 @@ final class AgentGUIService {
         guard !text.isEmpty else {
             throw AgentGUIRPCError.invalidParams
         }
-        guard let snapshot = reducer.snapshots[params.sessionID],
-              let evidence = reducer.evidence[params.sessionID] else {
+        guard let snapshot = reducer.snapshot(for: params.sessionID),
+              let evidence = reducer.evidence(for: params.sessionID) else {
             throw AgentGUIRPCError.notFound
         }
         guard capabilityBuilder.report(for: evidence).steerable else {
@@ -210,7 +235,7 @@ final class AgentGUIService {
     }
 
     func interruptResult(params: GuiInterruptParams) throws -> GuiInterruptResult {
-        guard let snapshot = reducer.snapshots[params.sessionID] else {
+        guard let snapshot = reducer.snapshot(for: params.sessionID) else {
             throw AgentGUIRPCError.notFound
         }
         guard let surfaceID = snapshot.surfaceID, !surfaceID.isEmpty else {
@@ -231,17 +256,14 @@ final class AgentGUIService {
 
     private func handleProcessObservations(_ observations: [ProcessObservation]) {
         for observation in observations {
-            let knownSessionID = sessionID(for: observation)
-            let activityHint = reducer.snapshots[knownSessionID]?.lastActivityHint ?? currentActivityHintMS()
-            fold(.processObserved(observation, tick: activityHint))
+            let knownSessionID = incrementalState.sessionID(pid: observation.pid, startTick: observation.startTick)
+            let activityHint = knownSessionID.flatMap { reducer.snapshot(for: $0)?.lastActivityHint }
+                ?? currentActivityHintMS()
+            let changedSessionID = fold(.processObserved(observation, tick: activityHint))
             exitWatcher?.watch(pid: observation.pid, startTick: observation.startTick)
-            let sessionID = sessionID(for: observation)
-            ensurePipeline(
-                sessionID: sessionID,
-                kindHint: observation.agentKindGuess,
-                transcriptPath: observation.openTranscriptPath,
-                cwd: observation.cwd
-            )
+            guard let sessionID = changedSessionID ?? knownSessionID else { continue }
+            incrementalState.bindProcess(pid: observation.pid, startTick: observation.startTick, to: sessionID)
+            ensurePipelineIfDemanded(sessionID: sessionID)
         }
         updateGates()
     }
@@ -253,10 +275,10 @@ final class AgentGUIService {
         }
         let fact = hookMapper.hookFact(from: event)
         fold(.hookEvent(fact, tick: tick))
-        ensurePipeline(sessionID: fact.sessionID, kindHint: AgentKind(rawValue: event.source), transcriptPath: fact.transcriptPath, cwd: fact.cwd)
+        ensurePipelineIfDemanded(sessionID: fact.sessionID)
         switch event.hookEventName {
         case .userPromptSubmit:
-            if let snapshot = reducer.snapshots[fact.sessionID],
+            if let snapshot = reducer.snapshot(for: fact.sessionID),
                let rawSurfaceID = snapshot.surfaceID,
                let surfaceID = UUID(uuidString: rawSurfaceID) {
                 streamProducer?.turnStarted(sessionID: fact.sessionID, surfaceID: surfaceID, agentKind: snapshot.kind)
@@ -269,60 +291,87 @@ final class AgentGUIService {
         updateGates()
     }
 
-    private func sessionID(for observation: ProcessObservation) -> AgentSessionID {
-        reducer.evidence.first { _, evidence in
-            guard let identity = evidence.processIdentity else { return false }
-            return identity.pid == observation.pid
-        }?.key ?? reducer.snapshots.values.first { snapshot in
-            snapshot.surfaceID == observation.surfaceID
-        }?.id ?? AgentSessionID(rawValue: "process:\(observation.pid):\(observation.startTick)")
+    private func handleSubscriptionChange(changedTopics: [String]?) {
+        for topic in changedTopics ?? [] where topic.hasPrefix(GuiWireTopic.journalPrefix) {
+            let rawSessionID = String(topic.dropFirst(GuiWireTopic.journalPrefix.count))
+            guard !rawSessionID.isEmpty else { continue }
+            let sessionID = AgentSessionID(rawValue: rawSessionID)
+            ensurePipelineIfDemanded(sessionID: sessionID)
+        }
+        updateGates()
     }
 
-    private func ensurePipeline(sessionID: AgentSessionID, kindHint: AgentKind, transcriptPath: String?, cwd: String?) {
-        let snapshot = reducer.snapshots[sessionID]
-        let kind = snapshot?.kind ?? kindHint
-        let evidencePath = transcriptPath ?? reducer.evidence[sessionID]?.transcriptPath
-        guard let path = transcriptResolver.transcriptPath(sessionID: sessionID, kind: kind, cwd: cwd ?? snapshot?.cwd, evidencePath: evidencePath) else {
+    private func ensurePipelineIfDemanded(sessionID: AgentSessionID) {
+        let topic = GuiWireTopic.journal(sessionID: sessionID)
+        guard hasEventSubscribers(topic) else { return }
+        _ = ensurePipeline(sessionID: sessionID)
+    }
+
+    private func ensurePipeline(sessionID: AgentSessionID) -> AgentGUIJournalPipeline? {
+        if let pipeline = pipelines[sessionID] {
+            return pipeline
+        }
+        guard let snapshot = reducer.snapshot(for: sessionID) else { return nil }
+        let evidencePath = reducer.evidence(for: sessionID)?.transcriptPath
+        guard let path = transcriptResolver.transcriptPath(
+            sessionID: sessionID,
+            kind: snapshot.kind,
+            cwd: snapshot.cwd,
+            evidencePath: evidencePath
+        ) else {
+            return nil
+        }
+        let pipeline = AgentGUIJournalPipeline(sessionID: sessionID, kind: snapshot.kind, path: path)
+        pipelines[sessionID] = pipeline
+        Task { @MainActor [weak self, weak pipeline] in
+            guard let pipeline else { return }
+            let events = await pipeline.ingestInitial()
+            guard let self else { return }
+            self.handleJournalEvents(events, sessionID: sessionID)
+        }
+        return pipeline
+    }
+
+    private func indexProcessIdentity(for sessionID: AgentSessionID) {
+        guard let identity = reducer.evidence(for: sessionID)?.processIdentity,
+              let startTick = identity.startTick else {
             return
         }
-        if pipelines[sessionID] == nil {
-            pipelines[sessionID] = AgentGUIJournalPipeline(sessionID: sessionID, kind: kind, path: path)
-            if let pipeline = pipelines[sessionID] {
-                Task { [weak self] in
-                    let events = await pipeline.ingestInitial()
-                    await MainActor.run {
-                        guard let self else { return }
-                        self.handleJournalEvents(events, sessionID: sessionID)
-                    }
-                }
-            }
-        }
+        incrementalState.bindProcess(pid: identity.pid, startTick: startTick, to: sessionID)
     }
 
-    private func fold(_ signal: TruthChannelSignal) {
+    @discardableResult
+    private func fold(_ signal: TruthChannelSignal) -> AgentSessionID? {
+        var changedSessionID: AgentSessionID?
         for change in reducer.fold(signal) {
             switch change {
             case .sessionUpserted(let session):
+                changedSessionID = session.id
+                incrementalState.updateSession(session)
+                indexProcessIdentity(for: session.id)
                 publisher.publishSessionUpserted(session)
                 sendLedgers[session.id]?.handleSessionSnapshot(session)
                 askRegistry.handleSessionSnapshot(session)
             case .sessionRemoved(let sessionID):
+                incrementalState.removeSession(sessionID)
                 streamProducer?.turnEnded(sessionID: sessionID)
                 sendLedgers.removeValue(forKey: sessionID)
                 askRegistry.removeSession(sessionID)
+                if let pipeline = pipelines.removeValue(forKey: sessionID) {
+                    pipeline.setWatching(false) { _ in }
+                }
                 let version = nextRemovalVersion(sessionID: sessionID)
                 publisher.publishSessionRemoved(sessionID, version: EntityVersion(rawValue: version))
             }
         }
+        return changedSessionID
     }
 
     private func updateGates() {
         let nowTick = currentActivityHintMS()
         expirePendingAgentGUIState(now: nowTick)
-        let hasSessionSubscribers = MobileHostService.hasEventSubscribers(topic: GuiWireTopic.sessions)
-        let hasLiveRecent = reducer.snapshots.values.contains {
-            AgentGUISubscriptionPolicy.isLiveOrRecentlyActive($0, nowMS: nowTick)
-        }
+        let hasSessionSubscribers = hasEventSubscribers(GuiWireTopic.sessions)
+        let hasLiveRecent = incrementalState.hasLiveOrRecentlyActiveSession(at: nowTick)
         processSource?.setRunning(AgentGUISubscriptionPolicy.shouldRunObservation(
             hasSessionSubscribers: hasSessionSubscribers,
             hasLiveRecentSession: hasLiveRecent
@@ -330,16 +379,14 @@ final class AgentGUIService {
         for (sessionID, pipeline) in pipelines {
             let topic = GuiWireTopic.journal(sessionID: sessionID)
             let shouldRun = AgentGUISubscriptionPolicy.shouldRunJournal(
-                hasJournalSubscribers: MobileHostService.hasEventSubscribers(topic: topic),
-                session: reducer.snapshots[sessionID],
-                nowMS: nowTick
+                hasJournalSubscribers: hasEventSubscribers(topic)
             )
             pipeline.setWatching(shouldRun) { [weak self] events in
                 guard let self else { return }
                 self.handleJournalEvents(events, sessionID: sessionID)
             }
         }
-        updateReevaluationTimer(hasRunningSessions: reducer.snapshots.values.contains { $0.phase != .ended } || hasPendingAgentGUIExpirations)
+        updateReevaluationTimer(hasRunningSessions: incrementalState.hasNonEndedSessions || hasPendingAgentGUIExpirations)
     }
 
     private func updateReevaluationTimer(hasRunningSessions: Bool) {
@@ -406,7 +453,7 @@ final class AgentGUIService {
                 publisher.publishSendState(ticket)
             }
         )
-        if let snapshot = reducer.snapshots[sessionID] {
+        if let snapshot = reducer.snapshot(for: sessionID) {
             ledger.handleSessionSnapshot(snapshot)
         }
         sendLedgers[sessionID] = ledger

@@ -11,6 +11,56 @@ import Testing
 #endif
 
 @Suite struct AgentGUIHookFactMapperTests {
+    @Test @MainActor
+    func processObservationCoalescesInflightRequestsIntoOneFollowUp() async {
+        let capturer = ControlledAgentProcessObservationCapturer()
+        var deliveryCount = 0
+        let source = AgentProcessObservationSource(
+            captureObservations: { await capturer.capture() },
+            onObservations: { _ in deliveryCount += 1 }
+        )
+
+        source.scanNow()
+        await capturer.waitForCallCount(1)
+        source.scanNow()
+        source.scanNow()
+        source.scanNow()
+        #expect(await capturer.callCount() == 1)
+
+        await capturer.release(call: 1)
+        await capturer.waitForCallCount(2)
+        #expect(await capturer.callCount() == 2)
+        await capturer.release(call: 2)
+        await source.waitForIdleForTesting()
+
+        #expect(await capturer.callCount() == 2)
+        #expect(deliveryCount == 2)
+    }
+
+    @Test @MainActor
+    func stoppingAnInflightObservationAllowsImmediateReplacementScan() async {
+        let capturer = ControlledAgentProcessObservationCapturer()
+        var deliveryCount = 0
+        let source = AgentProcessObservationSource(
+            captureObservations: { await capturer.capture() },
+            onObservations: { _ in deliveryCount += 1 }
+        )
+
+        source.scanNow()
+        await capturer.waitForCallCount(1)
+        source.setRunning(false)
+        source.scanNow()
+        await capturer.waitForCallCount(2)
+
+        await capturer.release(call: 2)
+        await source.waitForIdleForTesting()
+        #expect(deliveryCount == 1)
+
+        await capturer.release(call: 1)
+        await Task.yield()
+        #expect(deliveryCount == 1)
+    }
+
     @Test func processKindUsesPreciseExecutableNamesWithoutRequiringLaunchMetadata() {
         #expect(AgentProcessObservationSource.agentKind(
             arguments: ["/usr/local/bin/claude"],

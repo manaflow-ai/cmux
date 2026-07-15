@@ -101,7 +101,7 @@ extension AgentSyncEngine {
         if let sessionID = event.sessionID {
             return sessionID
         }
-        let prefix = "gui.v1.journal."
+        let prefix = GuiWireTopic.journalPrefix
         guard topic.hasPrefix(prefix) else { return nil }
         return AgentSessionID(rawValue: String(topic.dropFirst(prefix.count)))
     }

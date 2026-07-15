@@ -6,15 +6,33 @@ import Foundation
 public final class AgentTruthReducer {
     private let macDeviceID: MacDeviceID
     private var records: [AgentSessionID: SessionRecord]
+    private var snapshotCache: [AgentSessionID: AgentSessionSnapshot]
+    private var evidenceCache: [AgentSessionID: DetectionEvidence]
+    private var sessionIDsByPID: [Int32: Set<AgentSessionID>]
+    private var pidBySessionID: [AgentSessionID: Int32]
 
     /// The current session snapshots keyed by session id.
     public var snapshots: [AgentSessionID: AgentSessionSnapshot] {
-        records.mapValues { $0.snapshot(macDeviceID: macDeviceID) }
+        snapshotCache
     }
 
     /// The current detection evidence keyed by session id.
     public var evidence: [AgentSessionID: DetectionEvidence] {
-        records.mapValues(\.draft.evidence)
+        evidenceCache
+    }
+
+    /// Returns the current snapshot for one session without materializing the full snapshot dictionary.
+    /// - Parameter sessionID: The session id to look up.
+    /// - Returns: The current snapshot, or `nil` when the session is unknown.
+    public func snapshot(for sessionID: AgentSessionID) -> AgentSessionSnapshot? {
+        snapshotCache[sessionID]
+    }
+
+    /// Returns the current detection evidence for one session without materializing the full evidence dictionary.
+    /// - Parameter sessionID: The session id to look up.
+    /// - Returns: The current evidence, or `nil` when the session is unknown.
+    public func evidence(for sessionID: AgentSessionID) -> DetectionEvidence? {
+        evidenceCache[sessionID]
     }
 
     /// Creates an agent truth reducer.
@@ -22,6 +40,10 @@ public final class AgentTruthReducer {
     public init(macDeviceID: MacDeviceID) {
         self.macDeviceID = macDeviceID
         self.records = [:]
+        self.snapshotCache = [:]
+        self.evidenceCache = [:]
+        self.sessionIDsByPID = [:]
+        self.pidBySessionID = [:]
     }
 
     /// Folds one truth signal into the current session set.
@@ -71,12 +93,10 @@ public final class AgentTruthReducer {
     }
 
     private func foldProcessGone(pid: Int32, startTick: Int, tick: Int) -> [AgentTruthChange] {
-        guard let id = records.first(where: { _, record in
-            guard let identity = record.draft.evidence.processIdentity, identity.pid == pid else {
-                return false
-            }
+        guard let id = sessionIDsByPID[pid]?.first(where: { sessionID in
+            guard let identity = records[sessionID]?.draft.evidence.processIdentity else { return false }
             return identity.startTick == nil || identity.startTick == startTick
-        })?.key else {
+        }) else {
             return []
         }
         var draft = records[id]!.draft
@@ -167,6 +187,9 @@ public final class AgentTruthReducer {
         guard let existing = records.removeValue(forKey: existingID) else {
             return nil
         }
+        snapshotCache.removeValue(forKey: existingID)
+        evidenceCache.removeValue(forKey: existingID)
+        removeProcessIndex(sessionID: existingID)
         let realRecord = records[realID]
         var merged = realRecord?.draft ?? existing.draft
         merged.id = realID
@@ -188,7 +211,11 @@ public final class AgentTruthReducer {
         }
         let nextVersion = EntityVersion(rawValue: max(records[draft.id]?.version.rawValue ?? 0, floorVersion) + 1)
         records[draft.id] = SessionRecord(draft: draft, version: nextVersion)
-        return [.sessionUpserted(draft.snapshot(macDeviceID: macDeviceID, version: nextVersion))]
+        let snapshot = draft.snapshot(macDeviceID: macDeviceID, version: nextVersion)
+        snapshotCache[draft.id] = snapshot
+        evidenceCache[draft.id] = draft.evidence
+        updateProcessIndex(sessionID: draft.id, pid: draft.evidence.processIdentity?.pid)
+        return [.sessionUpserted(snapshot)]
     }
 
     private func identityForProcessObservation(_ observation: ProcessObservation) -> AgentSessionID {
@@ -205,12 +232,31 @@ public final class AgentTruthReducer {
     }
 
     private func matchingID(surfaceID: String?, pid: Int32?) -> AgentSessionID? {
-        records.first { _, record in
-            guard let surfaceID, let pid else {
-                return false
+        guard let surfaceID, let pid, let sessionIDs = sessionIDsByPID[pid] else {
+            return nil
+        }
+        return sessionIDs.first { records[$0]?.draft.surfaceID == surfaceID }
+    }
+
+    private func updateProcessIndex(sessionID: AgentSessionID, pid: Int32?) {
+        if let previousPID = pidBySessionID[sessionID], previousPID != pid {
+            sessionIDsByPID[previousPID]?.remove(sessionID)
+            if sessionIDsByPID[previousPID]?.isEmpty == true {
+                sessionIDsByPID.removeValue(forKey: previousPID)
             }
-            return record.draft.surfaceID == surfaceID && record.draft.evidence.processIdentity?.pid == pid
-        }?.key
+            pidBySessionID.removeValue(forKey: sessionID)
+        }
+        guard let pid else { return }
+        sessionIDsByPID[pid, default: []].insert(sessionID)
+        pidBySessionID[sessionID] = pid
+    }
+
+    private func removeProcessIndex(sessionID: AgentSessionID) {
+        guard let pid = pidBySessionID.removeValue(forKey: sessionID) else { return }
+        sessionIDsByPID[pid]?.remove(sessionID)
+        if sessionIDsByPID[pid]?.isEmpty == true {
+            sessionIDsByPID.removeValue(forKey: pid)
+        }
     }
 
     private func preferredKind(existing: AgentKind, incoming: AgentKind) -> AgentKind {

@@ -45,6 +45,7 @@ import CmuxAgentReplica
         #expect(GuiWireMethod.answer == "gui.v1.answer")
         #expect(GuiWireMethod.capabilities == "gui.v1.capabilities")
         #expect(GuiWireTopic.sessions == "gui.v1.sessions")
+        #expect(GuiWireTopic.journalPrefix == "gui.v1.journal.")
         #expect(GuiWireTopic.journal(sessionID: WireTestSupport.sessionID) == "gui.v1.journal.session-1")
         #expect(GuiWireCaps.entriesPaging == "entries-paging")
         #expect(GuiWireCaps.sendTickets == "send-tickets")

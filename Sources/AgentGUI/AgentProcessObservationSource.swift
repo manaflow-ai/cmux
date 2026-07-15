@@ -5,10 +5,20 @@ import Foundation
 @MainActor
 final class AgentProcessObservationSource {
     private var timer: DispatchSourceTimer?
+    private var scanTask: Task<Void, Never>?
+    private var pendingScan = false
+    private var scanGeneration: UInt64 = 0
     private let utilityQueue = DispatchQueue(label: "dev.cmux.agentgui.process-observation", qos: .utility)
+    private let captureObservations: @Sendable () async -> [ProcessObservation]
     private let onObservations: @MainActor ([ProcessObservation]) -> Void
 
-    init(onObservations: @escaping @MainActor ([ProcessObservation]) -> Void) {
+    init(
+        captureObservations: @escaping @Sendable () async -> [ProcessObservation] = {
+            await AgentProcessObservationSource.captureObservations()
+        },
+        onObservations: @escaping @MainActor ([ProcessObservation]) -> Void
+    ) {
+        self.captureObservations = captureObservations
         self.onObservations = onObservations
     }
 
@@ -21,11 +31,23 @@ final class AgentProcessObservationSource {
     }
 
     func scanNow() {
-        let capture = Task.detached(priority: .utility) {
-            await Self.captureObservations()
+        guard scanTask == nil else {
+            pendingScan = true
+            return
         }
-        Task { @MainActor [onObservations] in
-            onObservations(await capture.value)
+        scanGeneration &+= 1
+        let generation = scanGeneration
+        let captureObservations = captureObservations
+        scanTask = Task { @MainActor [weak self] in
+            let observations = await Task.detached(priority: .utility) {
+                await captureObservations()
+            }.value
+            guard let self, self.scanGeneration == generation, !Task.isCancelled else { return }
+            self.scanTask = nil
+            self.onObservations(observations)
+            guard self.scanGeneration == generation, self.pendingScan else { return }
+            self.pendingScan = false
+            self.scanNow()
         }
     }
 
@@ -46,7 +68,19 @@ final class AgentProcessObservationSource {
     private func stop() {
         timer?.cancel()
         timer = nil
+        pendingScan = false
+        scanGeneration &+= 1
+        scanTask?.cancel()
+        scanTask = nil
     }
+
+    #if DEBUG
+    func waitForIdleForTesting() async {
+        while let scanTask {
+            await scanTask.value
+        }
+    }
+    #endif
 
     private nonisolated static func captureObservations() async -> [ProcessObservation] {
         let snapshot = await CmuxTopProcessSnapshotStore.shared.snapshot(
