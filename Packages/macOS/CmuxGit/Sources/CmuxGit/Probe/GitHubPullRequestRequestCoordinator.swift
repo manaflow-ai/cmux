@@ -5,10 +5,11 @@ import Foundation
 ///
 /// A single instance is shared by every app window. It owns the reusable
 /// session, conditional-response cache, rate-limit deadline, in-flight request
-/// coalescing, and a one-request transport queue. Keeping these concerns here
+/// coalescing, and a bounded transport pool. Keeping these concerns here
 /// prevents per-window pollers from independently consuming the same GitHub
 /// rate-limit pool.
 actor GitHubPullRequestRequestCoordinator {
+    private static let maximumConcurrentTransportCount = 3
     private static let maximumRateLimitIdentityCount = 32
 
     private struct RequestKey: Hashable, Sendable {
@@ -24,13 +25,12 @@ actor GitHubPullRequestRequestCoordinator {
     private struct InFlightRequest: Sendable {
         let id: UUID
         let task: Task<WorkspacePullRequestHTTPResponse?, Never>
-        let predecessor: TransportLink?
         var waiterIDs: Set<UUID>
     }
 
-    private struct TransportLink: Sendable {
+    private struct QueuedTransport: Sendable {
         let id: UUID
-        let task: Task<WorkspacePullRequestHTTPResponse?, Never>
+        let continuation: CheckedContinuation<Bool, Never>
     }
 
     private let session: URLSession
@@ -41,7 +41,8 @@ actor GitHubPullRequestRequestCoordinator {
     private var cachedResponseKeysInInsertionOrder: [RequestKey] = []
     private var cachedResponseBodyByteCount = 0
     private var inFlightRequestByRequestKey: [RequestKey: InFlightRequest] = [:]
-    private var transportTail: TransportLink?
+    private var activeTransportCount = 0
+    private var queuedTransports: [QueuedTransport] = []
     private var rateLimitRetryDateByAuthorizationFingerprint: [Data: Date] = [:]
     private var rateLimitAuthorizationFingerprintsInInsertionOrder: [Data] = []
 
@@ -91,11 +92,10 @@ actor GitHubPullRequestRequestCoordinator {
             task = inFlight.task
         } else {
             requestID = UUID()
-            let predecessor = transportTail
             task = Task<WorkspacePullRequestHTTPResponse?, Never> { [weak self] in
-                _ = await predecessor?.task.value
                 guard !Task.isCancelled, let self else { return nil }
                 return await self.executeRequest(
+                    requestID: requestID,
                     requestKey: requestKey,
                     authHeader: authHeader
                 )
@@ -103,10 +103,8 @@ actor GitHubPullRequestRequestCoordinator {
             inFlightRequestByRequestKey[requestKey] = InFlightRequest(
                 id: requestID,
                 task: task,
-                predecessor: predecessor,
                 waiterIDs: [waiterID]
             )
-            transportTail = TransportLink(id: requestID, task: task)
         }
 
         return await withTaskCancellationHandler {
@@ -139,9 +137,13 @@ actor GitHubPullRequestRequestCoordinator {
     }
 
     private func executeRequest(
+        requestID: UUID,
         requestKey: RequestKey,
         authHeader: String
     ) async -> WorkspacePullRequestHTTPResponse? {
+        guard await acquireTransportPermit(requestID: requestID) else { return nil }
+        defer { releaseTransportPermit() }
+        guard !Task.isCancelled else { return nil }
         guard activeRateLimitRetryDate(
             for: requestKey.authorizationFingerprint
         ) == nil,
@@ -203,9 +205,39 @@ actor GitHubPullRequestRequestCoordinator {
 
         inFlightRequestByRequestKey.removeValue(forKey: requestKey)
         inFlight.task.cancel()
-        if transportTail?.id == requestID {
-            transportTail = inFlight.predecessor
+    }
+
+    private func acquireTransportPermit(requestID: UUID) async -> Bool {
+        guard !Task.isCancelled else { return false }
+        if activeTransportCount < Self.maximumConcurrentTransportCount {
+            activeTransportCount += 1
+            return true
         }
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard !Task.isCancelled else {
+                    continuation.resume(returning: false)
+                    return
+                }
+                queuedTransports.append(QueuedTransport(id: requestID, continuation: continuation))
+            }
+        } onCancel: { [weak self] in
+            guard let self else { return }
+            Task { await self.cancelQueuedTransport(requestID: requestID) }
+        }
+    }
+
+    private func cancelQueuedTransport(requestID: UUID) {
+        guard let index = queuedTransports.firstIndex(where: { $0.id == requestID }) else { return }
+        queuedTransports.remove(at: index).continuation.resume(returning: false)
+    }
+
+    private func releaseTransportPermit() {
+        guard !queuedTransports.isEmpty else {
+            activeTransportCount -= 1
+            return
+        }
+        queuedTransports.removeFirst().continuation.resume(returning: true)
     }
 
     private func updateRateLimit(
@@ -241,9 +273,8 @@ actor GitHubPullRequestRequestCoordinator {
     ) {
         guard retryDate > now() else { return }
         removeExpiredRateLimitRetryDates()
-        if rateLimitRetryDateByAuthorizationFingerprint[authorizationFingerprint] == nil {
-            rateLimitAuthorizationFingerprintsInInsertionOrder.append(authorizationFingerprint)
-        }
+        rateLimitAuthorizationFingerprintsInInsertionOrder.removeAll { $0 == authorizationFingerprint }
+        rateLimitAuthorizationFingerprintsInInsertionOrder.append(authorizationFingerprint)
         rateLimitRetryDateByAuthorizationFingerprint[authorizationFingerprint] = max(
             rateLimitRetryDateByAuthorizationFingerprint[authorizationFingerprint] ?? .distantPast,
             retryDate

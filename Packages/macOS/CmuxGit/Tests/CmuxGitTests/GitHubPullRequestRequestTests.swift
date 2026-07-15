@@ -434,47 +434,45 @@ struct GitHubPullRequestRequestTests {
         }) == ["Bearer first-account-token", "Bearer second-account-token"])
     }
 
-    @Test func coordinatorUsesAtMostOneGitHubConnectionAtATime() async {
-        GitHubPullRequestStubURLProtocol.reset(stubs: [
-            .init(statusCode: 200, data: Data("[]".utf8), delay: 0.05),
-            .init(statusCode: 200, data: Data("[]".utf8), delay: 0.05),
-        ])
+    @Test func coordinatorUsesBoundedConcurrentTransportPool() async {
+        let gates = (0..<4).map { "pool-\($0)" }
+        GitHubPullRequestStubURLProtocol.reset(stubs: gates.map { .init(statusCode: 200, gate: $0) })
         let coordinator = GitHubPullRequestRequestCoordinator(session: makeSession())
-
-        async let recent = coordinator.response(
-            endpoint: endpoint,
-            authHeader: "Bearer test-token"
-        )
-        async let branch = coordinator.response(
-            endpoint: "repos/manaflow-ai/cmux/pulls?head=manaflow-ai:issue-8175",
-            authHeader: "Bearer test-token"
-        )
-        _ = await [recent, branch]
-
-        #expect(GitHubPullRequestStubURLProtocol.capturedRequests().count == 2)
-        #expect(GitHubPullRequestStubURLProtocol.maximumConcurrentRequestCount() == 1)
+        let tasks = gates.indices.map { index in
+            Task { await coordinator.response(endpoint: endpoint + "&page=\(index)", authHeader: "Bearer token") }
+        }
+        await waitForRequestCount(3)
+        #expect(GitHubPullRequestStubURLProtocol.capturedRequests().count == 3)
+        #expect(GitHubPullRequestStubURLProtocol.maximumConcurrentRequestCount() == 3)
+        GitHubPullRequestStubURLProtocol.releaseGate(gates[0])
+        await waitForRequestCount(4)
+        #expect(GitHubPullRequestStubURLProtocol.maximumConcurrentRequestCount() == 3)
+        for gate in gates.dropFirst() { GitHubPullRequestStubURLProtocol.releaseGate(gate) }
+        for task in tasks { #expect(await task.value?.statusCode == 200) }
     }
 
     @Test func cancelingOnlyQueuedWaiterPreventsItsTransport() async {
-        GitHubPullRequestStubURLProtocol.reset(stubs: [
-            .init(statusCode: 200, gate: "predecessor"),
-            .init(statusCode: 200),
-        ])
+        let gates = (0..<3).map { "blocker-\($0)" }
+        let stubs = gates.map { GitHubPullRequestStubURLProtocol.Stub(statusCode: 200, gate: $0) }
+            + [.init(statusCode: 200)]
+        GitHubPullRequestStubURLProtocol.reset(stubs: stubs)
         let coordinator = GitHubPullRequestRequestCoordinator(session: makeSession())
-        let predecessor = Task { await coordinator.response(endpoint: endpoint, authHeader: "Bearer token") }
-        await waitForRequestCount(1)
+        let blockers = gates.indices.map { index in
+            Task { await coordinator.response(endpoint: endpoint + "&page=\(index)", authHeader: "Bearer token") }
+        }
+        await waitForRequestCount(3)
         let queued = Task {
-            await coordinator.response(endpoint: endpoint + "&page=2", authHeader: "Bearer token")
+            await coordinator.response(endpoint: endpoint + "&page=queued", authHeader: "Bearer token")
         }
         await Task.yield()
         _ = await coordinator.retryDate(authHeader: "Bearer token")
         queued.cancel()
         await Task.yield()
         _ = await coordinator.retryDate(authHeader: "Bearer token")
-        GitHubPullRequestStubURLProtocol.releaseGate("predecessor")
-        _ = await predecessor.value
+        for gate in gates { GitHubPullRequestStubURLProtocol.releaseGate(gate) }
+        for blocker in blockers { _ = await blocker.value }
         #expect(await queued.value == nil)
-        #expect(GitHubPullRequestStubURLProtocol.capturedRequests().count == 1)
+        #expect(GitHubPullRequestStubURLProtocol.capturedRequests().count == 3)
     }
 
     @Test func cancelingOneCoalescedWaiterPreservesTransportForSurvivor() async {
