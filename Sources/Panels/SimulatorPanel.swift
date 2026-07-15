@@ -15,11 +15,13 @@ final class SimulatorPanel: Panel {
     let id = UUID()
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .simulator
-    let coordinator: SimulatorPaneCoordinator
+    private(set) var coordinator: SimulatorPaneCoordinator
 
-    private let preferredDeviceID: String?
-    private let preferredRuntimeIdentifier: String?
-    private let preferredDeviceTypeIdentifier: String?
+    private let clientFactory: @MainActor () -> any SimulatorPaneClient
+    private var preferredDeviceID: String?
+    private var preferredRuntimeIdentifier: String?
+    private var preferredDeviceTypeIdentifier: String?
+    private var isFeatureDisabled = false
     private var isClosed = false
 
     var displayTitle: String {
@@ -40,17 +42,41 @@ final class SimulatorPanel: Panel {
         preferredDeviceID: String? = nil,
         preferredRuntimeIdentifier: String? = nil,
         preferredDeviceTypeIdentifier: String? = nil,
-        client: any SimulatorPaneClient = SimulatorWorkerClientFactory().makeClient()
+        clientFactory: @escaping @MainActor () -> any SimulatorPaneClient = {
+            SimulatorWorkerClientFactory().makeClient()
+        }
     ) {
+        self.clientFactory = clientFactory
         self.preferredDeviceID = preferredDeviceID
         self.preferredRuntimeIdentifier = preferredRuntimeIdentifier
         self.preferredDeviceTypeIdentifier = preferredDeviceTypeIdentifier
         coordinator = SimulatorPaneCoordinator(
-            client: client,
+            client: clientFactory(),
             preferredDeviceID: preferredDeviceID,
             preferredRuntimeIdentifier: preferredRuntimeIdentifier,
             preferredDeviceTypeIdentifier: preferredDeviceTypeIdentifier
         )
+    }
+
+    func suspendForRemoteDisable() {
+        guard !isClosed, !isFeatureDisabled else { return }
+        isFeatureDisabled = true
+        rememberSelection()
+        let coordinator = self.coordinator
+        Task {
+            await coordinator.close()
+        }
+    }
+
+    func resumeAfterRemoteEnable() {
+        guard !isClosed, isFeatureDisabled else { return }
+        coordinator = SimulatorPaneCoordinator(
+            client: clientFactory(),
+            preferredDeviceID: preferredDeviceID,
+            preferredRuntimeIdentifier: preferredRuntimeIdentifier,
+            preferredDeviceTypeIdentifier: preferredDeviceTypeIdentifier
+        )
+        isFeatureDisabled = false
     }
 
     func close() {
@@ -91,5 +117,11 @@ final class SimulatorPanel: Panel {
 
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {
         _ = reason
+    }
+
+    private func rememberSelection() {
+        preferredDeviceID = selectedDeviceID
+        preferredRuntimeIdentifier = selectedRuntimeIdentifier
+        preferredDeviceTypeIdentifier = selectedDeviceTypeIdentifier
     }
 }
