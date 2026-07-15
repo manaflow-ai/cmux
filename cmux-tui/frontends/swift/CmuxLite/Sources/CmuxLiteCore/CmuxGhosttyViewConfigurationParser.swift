@@ -1,6 +1,6 @@
 import Foundation
 
-/// Parses the Ghostty settings that cmux-lite can pass through to GhosttyKit.
+/// Parses the Ghostty settings that cmux-lite's native renderer consumes.
 struct CmuxGhosttyViewConfigurationParser {
     static func parse(_ text: String) -> CmuxGhosttyViewConfiguration {
         parse(text, loadTheme: nil).configuration

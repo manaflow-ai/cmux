@@ -1,6 +1,6 @@
 import Foundation
 
-/// Orchestrates local navigation, visible-pane byte attachments, input, and sizing.
+/// Orchestrates local navigation, visible-pane render attachments, input, and sizing.
 public actor CmuxFrontendSession {
     private let controlClient: CmuxProtocolClient
     private let attachmentClientFactory: any CmuxProtocolClientFactory
@@ -40,7 +40,7 @@ public actor CmuxFrontendSession {
         eventContinuation = pair.continuation
     }
 
-    /// Connects, negotiates protocol 6+, and attaches every visible PTY pane.
+    /// Connects, requires protocol 7+, and render-attaches every visible PTY pane.
     /// - Parameters:
     ///   - hostname: The client name reported to cmux-tui.
     ///   - preferredSurface: An optional surface used to initialize local navigation.
@@ -51,9 +51,17 @@ public actor CmuxFrontendSession {
     ) async throws -> CmuxFrontendStartup {
         try await controlClient.connect(token: configuration.token)
         let identify = try await controlClient.identify()
-        guard identify.app == "cmux-tui", identify.protocol >= 6 else {
+        guard identify.app == "cmux-tui", identify.protocol >= 7 else {
             throw CmuxProtocolError.incompatibleServer(
-                "expected cmux-tui protocol >= 6, got \(identify.app) protocol \(identify.protocol)"
+                String(
+                    format: String(
+                        localized: "frontend.error.render_protocol_required",
+                        defaultValue: "Render mode requires cmux-tui protocol 7 or newer; server reported %@ protocol %lld",
+                        bundle: .module
+                    ),
+                    identify.app,
+                    Int64(identify.protocol)
+                )
             )
         }
 
@@ -250,7 +258,7 @@ public actor CmuxFrontendSession {
 
     /// Records a final grid for one visible surface without claiming a foreign replay size.
     /// - Parameters:
-    ///   - measurement: Final container bounds and Ghostty cell metrics.
+    ///   - measurement: Final container bounds and native cell metrics.
     ///   - surface: The measured surface identifier.
     public func recordTerminalMeasurement(
         _ measurement: CmuxTerminalMeasurement,
@@ -265,7 +273,7 @@ public actor CmuxFrontendSession {
     }
 
     /// Records a final grid for the server-active or first visible surface.
-    /// - Parameter measurement: Final container bounds and Ghostty cell metrics.
+    /// - Parameter measurement: Final container bounds and native cell metrics.
     public func recordTerminalMeasurement(_ measurement: CmuxTerminalMeasurement) {
         guard let surface = currentSnapshot()?.surface else { return }
         recordTerminalMeasurement(measurement, surface: surface)
@@ -273,7 +281,7 @@ public actor CmuxFrontendSession {
 
     /// Coalesces one pane's final user-driven layout measurement before applying its grid.
     /// - Parameters:
-    ///   - measurement: Final container bounds and Ghostty cell metrics.
+    ///   - measurement: Final container bounds and native cell metrics.
     ///   - surface: The measured surface identifier.
     public func scheduleResize(
         for measurement: CmuxTerminalMeasurement,
@@ -330,13 +338,13 @@ public actor CmuxFrontendSession {
     }
 
     /// Schedules a resize for the server-active or first visible surface.
-    /// - Parameter measurement: Final container bounds and Ghostty cell metrics.
+    /// - Parameter measurement: Final container bounds and native cell metrics.
     public func scheduleResize(for measurement: CmuxTerminalMeasurement) {
         guard let surface = currentSnapshot()?.surface else { return }
         scheduleResize(for: measurement, surface: surface)
     }
 
-    /// Sends libghostty-generated input bytes to one pane attachment.
+    /// Sends raw input bytes to one pane attachment.
     /// - Parameters:
     ///   - data: Raw terminal input bytes.
     ///   - surface: The destination surface identifier.
@@ -354,34 +362,12 @@ public actor CmuxFrontendSession {
         await sendInput(data, surface: surface)
     }
 
-    /// Replaces a startup mirror from a settled one-shot replay on its attachment connection.
-    /// - Parameter surface: The attached surface whose current state should replace the mirror.
-    /// - Returns: `true` when a valid replay was emitted to the frontend.
-    public func refreshStartupReplay(surface: UInt64) async -> Bool {
-        guard let pane = paneID(for: surface),
-              let attachment = attachments[pane],
-              attachment.surface == surface
-        else { return false }
-        do {
-            let state = try await attachment.client.vtState(surface)
-            guard let replay = state.replay else { return false }
-            eventContinuation.yield(.terminal(.resizedReplay(
-                surface: surface,
-                columns: state.cols,
-                rows: state.rows,
-                bytes: replay
-            )))
-            return true
-        } catch {
-            return false
-        }
-    }
-
     /// Sends UTF-8 text to one attached surface and waits for acknowledgement.
     /// - Parameters:
     ///   - text: Text to write to the PTY.
     ///   - surface: The destination surface identifier.
-    public func sendText(_ text: String, surface: UInt64) async throws {
+    ///   - paste: Whether the server should apply bracketed-paste handling.
+    public func sendText(_ text: String, surface: UInt64, paste: Bool = false) async throws {
         guard let pane = paneID(for: surface) else {
             throw CmuxProtocolError.transportState(String(
                 format: String(
@@ -403,16 +389,65 @@ public actor CmuxFrontendSession {
                 Int64(surface)
             ))
         }
-        try await attachment.client.sendText(text, surface: surface)
+        try await attachment.client.sendText(text, surface: surface, paste: paste)
     }
 
     /// Sends text to the server-active or first visible attachment.
     /// - Parameter text: Text to write to the PTY.
-    public func sendText(_ text: String) async throws {
+    public func sendText(_ text: String, paste: Bool = false) async throws {
         guard let surface = currentSnapshot()?.surface else {
             throw CmuxProtocolError.transportState("no attached surface")
         }
-        try await sendText(text, surface: surface)
+        try await sendText(text, surface: surface, paste: paste)
+    }
+
+    /// Sends one terminal-mode-aware named key to an attached surface.
+    /// - Parameters:
+    ///   - key: The lower-case protocol key chord.
+    ///   - surface: The destination surface identifier.
+    public func sendKey(_ key: String, surface: UInt64) async throws {
+        guard let pane = paneID(for: surface) else {
+            throw CmuxProtocolError.transportState(String(
+                format: String(
+                    localized: "frontend.error.surface_not_attached",
+                    defaultValue: "Surface %lld is not attached",
+                    bundle: .module
+                ),
+                Int64(surface)
+            ))
+        }
+        await claimSizeBeforeInput(pane: pane)
+        guard let attachment = attachments[pane], attachment.surface == surface else { return }
+        try await attachment.client.sendKey(key, surface: surface)
+    }
+
+    /// Reads one non-mutating styled scrollback page for an attached surface.
+    /// - Parameters:
+    ///   - request: The absolute retained-buffer range.
+    ///   - surface: The destination surface identifier.
+    /// - Returns: One atomic styled scrollback page.
+    public func readScrollback(
+        _ request: CmuxScrollbackRequest,
+        surface: UInt64
+    ) async throws -> CmuxReadScrollbackResponse {
+        guard let pane = paneID(for: surface),
+              let attachment = attachments[pane],
+              attachment.surface == surface
+        else {
+            throw CmuxProtocolError.transportState(String(
+                format: String(
+                    localized: "frontend.error.surface_not_attached",
+                    defaultValue: "Surface %lld is not attached",
+                    bundle: .module
+                ),
+                Int64(surface)
+            ))
+        }
+        return try await attachment.client.readScrollback(
+            surface,
+            start: request.start,
+            count: request.count
+        )
     }
 
     /// Closes the control connection and every visible attachment stream.
@@ -557,10 +592,7 @@ public actor CmuxFrontendSession {
                 try await client.setClientInfo(name: hostname, kind: "swift")
             }
             let events = await client.events()
-            try await client.attachSurface(
-                surface,
-                includeByteMode: (protocolVersion ?? 6) >= 7
-            )
+            try await client.attachRenderSurface(surface)
             try Task.checkCancellation()
             attachments[pane] = CmuxPaneAttachment(
                 pane: pane,
@@ -602,18 +634,17 @@ public actor CmuxFrontendSession {
         else { return }
         let routedEvent: CmuxAttachEvent
         switch event {
-        case let .initialReplay(eventSurface, columns, rows, _, _):
-            guard eventSurface == attachment.surface else { return }
-            attachment.remoteSize = CmuxSurfaceSize(cols: columns, rows: rows)
+        case let .renderState(state):
+            guard state.surface == attachment.surface else { return }
+            attachment.remoteSize = state.size
             attachment.sizeClaimed = attachment.localSize == attachment.remoteSize
             routedEvent = event
-        case let .resizedReplay(eventSurface, columns, rows, _):
-            guard eventSurface == attachment.surface else { return }
-            attachment.remoteSize = CmuxSurfaceSize(cols: columns, rows: rows)
-            attachment.sizeClaimed = attachment.remoteSize == attachment.lastSentSize
-            routedEvent = event
-        case let .output(eventSurface, _):
-            guard eventSurface == attachment.surface else { return }
+        case let .renderDelta(delta):
+            guard delta.surface == attachment.surface else { return }
+            if let size = delta.size {
+                attachment.remoteSize = size
+                attachment.sizeClaimed = size == attachment.lastSentSize
+            }
             routedEvent = event
         case let .detached(eventSurface):
             guard eventSurface == attachment.surface else { return }
@@ -622,9 +653,6 @@ public actor CmuxFrontendSession {
             eventContinuation.yield(.terminal(event))
             await attachment.client.close()
             return
-        case let .colorsChanged(eventSurface, colors):
-            guard eventSurface == nil || eventSurface == attachment.surface else { return }
-            routedEvent = .colorsChanged(surface: attachment.surface, colors: colors)
         case .other:
             return
         }

@@ -1,6 +1,6 @@
 import Foundation
 
-/// Holds Ghostty preferences that a remote byte stream cannot fully configure in-band.
+/// Holds Ghostty font and fallback-color preferences used by the native renderer.
 public struct CmuxGhosttyViewConfiguration: Sendable, Equatable {
     /// The fallback monospace family used when no valid preference exists.
     public static let fallbackFontFamily = "Menlo"

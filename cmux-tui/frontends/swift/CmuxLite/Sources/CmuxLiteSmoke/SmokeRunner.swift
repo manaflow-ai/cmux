@@ -137,16 +137,15 @@ struct SmokeRunner: Sendable {
     ) async throws {
         print("identify app=cmux-tui protocol=\(startup.protocolVersion) surface=\(startup.surface)")
 
-        var receivedReplay = false
-        var markerBuffer = Data()
-        let marker = Data("cmux-lite-done".utf8)
+        var model: CmuxRenderModel?
+        let marker = "cmux-lite-done"
 
         for await frontendEvent in events {
             guard case let .terminal(event) = frontendEvent else { continue }
             switch event {
-            case let .initialReplay(_, columns, rows, bytes, _):
-                print("received vt-state cols=\(columns) rows=\(rows) bytes=\(bytes.count)")
-                receivedReplay = true
+            case let .renderState(snapshot):
+                model = CmuxRenderModel.applySnapshot(snapshot)
+                print("received render-state cols=\(snapshot.size.cols) rows=\(snapshot.size.rows)")
                 try await frontend.sendText(
                     "\u{3}\u{15}echo swift-lite-ok > /tmp/swift-lite.txt\r"
                 )
@@ -154,12 +153,10 @@ struct SmokeRunner: Sendable {
                     "printf '\\143\\155\\165\\170\\55\\154\\151\\164\\145\\55\\144\\157\\156\\145\\12'\r"
                 )
                 print("send responses ok")
-            case let .output(_, bytes) where receivedReplay:
-                markerBuffer.append(bytes)
-                if markerBuffer.count > 65_536 {
-                    markerBuffer.removeFirst(markerBuffer.count - 65_536)
-                }
-                if markerBuffer.range(of: marker) != nil {
+            case let .renderDelta(delta):
+                guard let current = model else { continue }
+                model = current.applyDelta(delta)
+                if model?.text.contains(marker) == true {
                     let contents = try String(
                         contentsOfFile: "/tmp/swift-lite.txt",
                         encoding: .utf8
@@ -175,7 +172,7 @@ struct SmokeRunner: Sendable {
                 }
             case .detached:
                 throw CmuxProtocolError.transportState("surface detached during smoke")
-            case .resizedReplay, .output, .colorsChanged, .other:
+            case .other:
                 break
             }
         }
@@ -218,13 +215,13 @@ struct SmokeRunner: Sendable {
         iterations: Int
     ) async throws -> [Double] {
         var iterator = events.makeAsyncIterator()
-        try await waitForInitialReplay(from: &iterator)
+        var model = try await waitForInitialRender(from: &iterator)
 
-        let marker = Data("cmux-lite-benchmark-ready".utf8)
+        let marker = "cmux-lite-benchmark-ready"
         try await frontend.sendText(
             "\u{3}bash -c 'printf \"\\143\\155\\165\\170\\055\\154\\151\\164\\145\\055\\142\\145\\156\\143\\150\\155\\141\\162\\153\\055\\162\\145\\141\\144\\171\\012\"; exec cat'\r"
         )
-        try await waitForMarker(marker, occurrences: 1, from: &iterator)
+        try await waitForMarker(marker, model: &model, from: &iterator)
 
         let clock = ContinuousClock()
         let characters = Array("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".utf8)
@@ -239,7 +236,7 @@ struct SmokeRunner: Sendable {
                 let sendTask = Task {
                     await frontend.sendInput(payload)
                 }
-                try await waitForEcho(byte, from: &iterator)
+                try await waitForEcho(byte, model: &model, from: &iterator)
                 let elapsed = start.duration(to: clock.now)
                 await sendTask.value
                 samples.append(Self.milliseconds(elapsed))
@@ -317,46 +314,40 @@ struct SmokeRunner: Sendable {
         ))
     }
 
-    private func waitForInitialReplay(
+    private func waitForInitialRender(
         from iterator: inout AsyncStream<CmuxFrontendEvent>.AsyncIterator
-    ) async throws {
+    ) async throws -> CmuxRenderModel {
         while let event = await iterator.next() {
-            if case .terminal(.initialReplay) = event {
-                return
+            if case let .terminal(.renderState(snapshot)) = event {
+                return CmuxRenderModel.applySnapshot(snapshot)
             }
         }
-        throw CmuxProtocolError.transportState("event stream ended before initial replay")
+        throw CmuxProtocolError.transportState("event stream ended before initial render state")
     }
 
     private func waitForMarker(
-        _ marker: Data,
-        occurrences: Int,
+        _ marker: String,
+        model: inout CmuxRenderModel,
         from iterator: inout AsyncStream<CmuxFrontendEvent>.AsyncIterator
     ) async throws {
-        var remaining = occurrences
-        var buffer = Data()
         while let event = await iterator.next() {
-            guard case let .terminal(.output(_, bytes)) = event else { continue }
-            buffer.append(bytes)
-            while let range = buffer.range(of: marker) {
-                remaining -= 1
-                buffer.removeSubrange(buffer.startIndex..<range.upperBound)
-                if remaining == 0 { return }
-            }
-            if buffer.count > marker.count * 2 {
-                buffer.removeFirst(buffer.count - marker.count * 2)
-            }
+            guard case let .terminal(.renderDelta(delta)) = event else { continue }
+            model = model.applyDelta(delta)
+            if model.text.contains(marker) { return }
         }
         throw CmuxProtocolError.transportState("event stream ended before benchmark marker")
     }
 
     private func waitForEcho(
         _ byte: UInt8,
+        model: inout CmuxRenderModel,
         from iterator: inout AsyncStream<CmuxFrontendEvent>.AsyncIterator
     ) async throws {
+        let marker = String(decoding: [byte], as: UTF8.self)
         while let event = await iterator.next() {
-            guard case let .terminal(.output(_, bytes)) = event else { continue }
-            if bytes.contains(byte) { return }
+            guard case let .terminal(.renderDelta(delta)) = event else { continue }
+            model = model.applyDelta(delta)
+            if model.text.contains(marker) { return }
         }
         throw CmuxProtocolError.transportState("event stream ended before benchmark echo")
     }

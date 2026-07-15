@@ -5,6 +5,27 @@ import Testing
 @Suite(.serialized)
 struct CmuxFrontendSessionTests {
     @Test
+    func protocolSixIsRejectedBeforeRenderAttach() async {
+        let control = ScriptedTransport(
+            role: .control(tree: tree(activeTab: 0, tabSurfaces: [11])),
+            protocolVersion: 6
+        )
+        let attachment = ScriptedTransport(role: .attachment(surface: 11))
+        let session = makeSession(control: control, attachments: [attachment])
+
+        do {
+            _ = try await session.connect(hostname: "test")
+            Issue.record("protocol 6 should not enter render mode")
+        } catch let error as CmuxProtocolError {
+            #expect(error.description.contains("protocol 7 or newer"))
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+        #expect(!(await attachment.commandSummaries()).contains { $0.hasPrefix("attach-surface") })
+        await session.close()
+    }
+
+    @Test
     func visibleSplitPanesAttachIndependentlyAndDetachOnScreenChange() async throws {
         let tree = Data(
             #"{"workspaces":[{"id":4,"name":"phone","active":true,"screens":[{"id":101,"name":null,"active":true,"active_pane":201,"zoomed_pane":null,"layout":{"type":"split","dir":"right","ratio":0.5,"a":{"type":"leaf","pane":201},"b":{"type":"leaf","pane":202}},"panes":[{"id":201,"active_tab":0,"tabs":[{"surface":11,"kind":"pty","name":null,"title":"left","size":{"cols":80,"rows":24},"dead":false}],"dead":false},{"id":202,"active_tab":0,"tabs":[{"surface":12,"kind":"pty","name":null,"title":"right","size":{"cols":80,"rows":24},"dead":false}],"dead":false}]},{"id":102,"name":null,"active":false,"active_pane":203,"zoomed_pane":null,"layout":{"type":"leaf","pane":203},"panes":[{"id":203,"active_tab":0,"tabs":[{"surface":13,"kind":"pty","name":null,"title":"other","size":{"cols":80,"rows":24},"dead":false}],"dead":false}]}]}]}"#.utf8
@@ -17,8 +38,8 @@ struct CmuxFrontendSessionTests {
 
         let initial = try await session.connect(hostname: "test")
         #expect(initial.surfaces == [11, 12])
-        #expect(await attachments[0].commandSummaries().contains("attach-surface:11"))
-        #expect(await attachments[1].commandSummaries().contains("attach-surface:12"))
+        #expect(await attachments[0].commandSummaries().contains("attach-surface:11:render"))
+        #expect(await attachments[1].commandSummaries().contains("attach-surface:12:render"))
 
         try await session.sendText("left", surface: 11)
         try await session.sendText("right", surface: 12)
@@ -53,15 +74,15 @@ struct CmuxFrontendSessionTests {
         let controlCommands = await harness.control.commandSummaries()
         #expect(!controlCommands.contains("select-workspace"))
         #expect(!controlCommands.contains("select-screen"))
-        #expect(await harness.attachments[0].commandSummaries().contains("attach-surface:11"))
-        #expect(await harness.attachments[1].commandSummaries().contains("attach-surface:12"))
+        #expect(await harness.attachments[0].commandSummaries().contains("attach-surface:11:render"))
+        #expect(await harness.attachments[1].commandSummaries().contains("attach-surface:12:render"))
 
         await harness.session.close()
         #expect(await harness.attachments[1].isClosed())
     }
 
     @Test
-    func resizedReplayClaimsLocalGridBeforeInput() async throws {
+    func renderResizeClaimsLocalGridBeforeInput() async throws {
         let harness = makeHarness(attachmentSurfaces: [11])
         let events = await harness.session.events()
         _ = try await harness.session.connect(hostname: "test")
@@ -74,7 +95,7 @@ struct CmuxFrontendSessionTests {
 
         let observedResize = Task {
             for await event in events {
-                if case .terminal(.resizedReplay) = event { return }
+                if case .terminal(.renderDelta(let delta)) = event, delta.size != nil { return }
             }
         }
         await harness.attachments[0].emitResized(surface: 11, columns: 70, rows: 20)

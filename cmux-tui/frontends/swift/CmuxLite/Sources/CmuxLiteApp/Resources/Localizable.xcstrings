@@ -79,6 +79,12 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "リモートターミナル" } }
       }
     },
+    "terminal.back_to_live" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Back to live" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ライブ表示に戻る" } }
+      }
+    },
     "terminal.foreign_size_hint" : {
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "sized by another client (%1$lldx%2$lld), type to take over" } },

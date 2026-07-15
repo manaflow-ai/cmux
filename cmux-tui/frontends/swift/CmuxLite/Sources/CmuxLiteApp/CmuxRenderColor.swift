@@ -1,25 +1,16 @@
 import AppKit
-import CmuxLiteCore
 
-struct CmuxTerminalBackgroundColor {
+struct CmuxRenderColor {
     let color: NSColor
 
-    init(
-        colors: CmuxTerminalColors?,
-        configuration: CmuxGhosttyViewConfiguration
-    ) {
-        let source = colors?.background ?? configuration.background
-        color = Self.parse(source) ?? .black
-    }
-
-    private static func parse(_ value: String?) -> NSColor? {
+    init?(_ value: String?) {
         guard let value else { return nil }
-        let hex = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard hex.hasPrefix("#") else { return nil }
-        let digits = String(hex.dropFirst())
-        guard digits.count == 3 || digits.count == 6 || digits.count == 8,
-              let encoded = UInt64(digits, radix: 16)
-        else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("#") else { return nil }
+        let digits = String(trimmed.dropFirst())
+        guard [3, 6, 8].contains(digits.count), let encoded = UInt64(digits, radix: 16) else {
+            return nil
+        }
 
         let red: UInt64
         let green: UInt64
@@ -42,7 +33,7 @@ struct CmuxTerminalBackgroundColor {
             blue = (encoded >> 8) & 0xFF
             alpha = encoded & 0xFF
         }
-        return NSColor(
+        color = NSColor(
             srgbRed: CGFloat(red) / 255,
             green: CGFloat(green) / 255,
             blue: CGFloat(blue) / 255,

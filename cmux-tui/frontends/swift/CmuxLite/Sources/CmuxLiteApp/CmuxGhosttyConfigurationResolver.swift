@@ -1,7 +1,7 @@
 import CmuxLiteCore
 import Foundation
 
-/// Resolves the user's Ghostty settings for the embedded GhosttyKit terminal.
+/// Resolves the user's Ghostty font and theme preferences for the native renderer.
 @MainActor
 final class CmuxGhosttyConfigurationResolver {
     private let environment: [String: String]

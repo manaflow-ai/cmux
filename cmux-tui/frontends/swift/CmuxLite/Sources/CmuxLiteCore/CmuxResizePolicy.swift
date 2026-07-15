@@ -5,15 +5,15 @@ public struct CmuxResizePolicy: Sendable {
     /// Creates a stateless resize policy.
     public init() {}
 
-    /// Selects a resize using the last client send, latest replay, and final bounds.
+    /// Selects a resize using the last client send, latest render size, and final bounds.
     ///
-    /// An echoed replay never schedules another resize, a foreign replay is
+    /// An echoed render size never schedules another resize, a foreign size is
     /// accepted without ping-pong when the local grid is unchanged, and a
     /// genuinely changed local grid is returned for debounce.
     /// - Parameters:
     ///   - lastSent: The last grid successfully sent by this client.
-    ///   - incomingResized: The most recent authoritative replay grid.
-    ///   - measurement: Final container bounds and Ghostty cell metrics.
+    ///   - incomingResized: The most recent authoritative render grid.
+    ///   - measurement: Final container bounds and native cell metrics.
     /// - Returns: No action or the newly measured grid.
     public func action(
         lastSent: CmuxSurfaceSize?,
@@ -30,7 +30,7 @@ public struct CmuxResizePolicy: Sendable {
         return .resize(measured)
     }
 
-    /// Floors final backing-pixel bounds by Ghostty's cell dimensions.
+    /// Floors final backing-pixel bounds by the native renderer's cell dimensions.
     /// - Parameter measurement: Final container bounds and cell metrics.
     /// - Returns: A positive grid, or `nil` for incomplete layout metrics.
     public func grid(for measurement: CmuxTerminalMeasurement) -> CmuxSurfaceSize? {
