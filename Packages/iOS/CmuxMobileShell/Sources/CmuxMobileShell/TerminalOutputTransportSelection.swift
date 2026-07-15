@@ -28,3 +28,13 @@ func fallbackTerminalOutputTransport(
         terminalFidelity: nil
     )
 }
+
+func guardedFallbackTerminalOutputTransport(
+    learnedCapabilities: Set<String>,
+    isCurrentClient: Bool
+) -> MobileShellComposite.TerminalOutputTransport? {
+    guard isCurrentClient else { return nil }
+    return fallbackTerminalOutputTransport(
+        learnedCapabilities: learnedCapabilities
+    )
+}

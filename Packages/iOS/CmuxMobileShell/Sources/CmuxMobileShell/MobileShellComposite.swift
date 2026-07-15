@@ -6057,9 +6057,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         client: MobileCoreRPCClient,
         initialHostStatus: MobileHostStatusResponse? = nil
     ) async -> TerminalOutputTransport {
-        let fallback = fallbackTerminalOutputTransport(
-            learnedCapabilities: supportedHostCapabilities
-        )
+        let generation = connectionGeneration
         do {
             let payload: MobileHostStatusResponse
             if let initialHostStatus {
@@ -6070,6 +6068,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     timeoutNanoseconds: Self.terminalOutputCapabilityTimeoutNanoseconds
                 )
                 guard let decoded = try? MobileHostStatusResponse.decode(data) else {
+                    guard let fallback = guardedFallbackTerminalOutputTransport(
+                        learnedCapabilities: supportedHostCapabilities,
+                        isCurrentClient: isCurrentRemoteConnection(
+                            client: client,
+                            generation: generation
+                        )
+                    ) else {
+                        return .rawBytes
+                    }
                     terminalOutputTransport = fallback
                     // Preserve learned capabilities during transient status decode failures.
                     scheduleHostIdentityAdoptionIfNeeded(client: client)
@@ -6085,7 +6092,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // (which would persist the wrong paired-Mac record). The stale
             // listener task tears itself down via its own `remoteClient`
             // guards; returning the fallback here is inert.
-            guard remoteClient === client else { return fallback }
+            guard isCurrentRemoteConnection(
+                client: client,
+                generation: generation
+            ) else {
+                return .rawBytes
+            }
             supportedHostCapabilities = Set(payload.capabilities)
             // Adopt the Mac's resolved terminal theme. Older Macs omit the
             // field (`payload.theme == nil`), which the store resolves to the
@@ -6101,6 +6113,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 displayName: payload.macDisplayName,
                 instanceTag: payload.macInstanceTag
             )
+            guard isCurrentRemoteConnection(
+                client: client,
+                generation: generation
+            ) else {
+                return .rawBytes
+            }
             // A decoded status can still be identity-free: the probe's token
             // attach is best-effort, and the host withholds identity from an
             // unverified caller. If the v2 QR ticket is still anonymous after
@@ -6116,7 +6134,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             upgradePendingColdTerminalReplaysIfNeeded()
             return transport
         } catch {
-            guard remoteClient === client else { return fallback }
+            guard let fallback = guardedFallbackTerminalOutputTransport(
+                learnedCapabilities: supportedHostCapabilities,
+                isCurrentClient: isCurrentRemoteConnection(
+                    client: client,
+                    generation: generation
+                )
+            ) else {
+                return .rawBytes
+            }
             terminalOutputTransport = fallback
             // Preserve learned capabilities during transient reconnect probe failures.
             // The probe is best-effort for the terminal transport, but a
