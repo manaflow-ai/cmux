@@ -75,4 +75,18 @@ import Testing
         attachApproval.dismissAutomaticForAvailableSession()
         #expect(attachApproval.isPresented)
     }
+
+    @Test func automaticPairingNeverTakesOverAnExistingPresentation() {
+        var unowned = MobileAddDevicePresentationState()
+        unowned.presentAutomaticallyIfUnowned()
+        #expect(unowned.origin == .automaticFirstConnection)
+
+        var userInitiated = MobileAddDevicePresentationState(origin: .userInitiated)
+        userInitiated.presentAutomaticallyIfUnowned()
+        #expect(userInitiated.origin == .userInitiated)
+
+        var attachApproval = MobileAddDevicePresentationState(origin: .attachTicketApproval)
+        attachApproval.presentAutomaticallyIfUnowned()
+        #expect(attachApproval.origin == .attachTicketApproval)
+    }
 }

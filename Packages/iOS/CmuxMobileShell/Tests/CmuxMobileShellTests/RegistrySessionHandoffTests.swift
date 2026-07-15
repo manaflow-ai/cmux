@@ -239,6 +239,39 @@ import Testing
         ) == nil)
         #expect(store.isRegistryHandoffFailurePresented)
     }
+
+    @Test func staleHandoffCannotOverwriteNewerWorkspaceSelection() async throws {
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            identityProvider: StaticIdentityProvider(userID: "user-1")
+        )
+        let scope = try #require(await store.currentScopeSnapshot())
+        let requestID = store.beginRegistrySessionHandoffAttempt()
+        let newerWorkspaceID = MobileWorkspacePreview.ID(rawValue: "newer-workspace")
+        let staleWorkspaceID = MobileWorkspacePreview.ID(rawValue: "stale-handoff")
+
+        store.selectWorkspaceFromUserAction(newerWorkspaceID)
+        #expect(!(await store.completeRegistrySessionHandoffNavigation(
+            workspaceID: staleWorkspaceID,
+            requestID: requestID,
+            scope: scope
+        )))
+        #expect(store.selectedWorkspaceID == newerWorkspaceID)
+        #expect(store.deeplinkWorkspaceNavigationRequest == nil)
+    }
+
+    @Test func teamChangeInvalidatesRegistryHandoffAttempt() async throws {
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            identityProvider: StaticIdentityProvider(userID: "user-1")
+        )
+        let scope = try #require(await store.currentScopeSnapshot())
+        let requestID = store.beginRegistrySessionHandoffAttempt()
+
+        #expect(await store.isRegistrySessionHandoffAttemptCurrent(requestID, scope: scope))
+        store.currentTeamDidChange()
+        #expect(!(await store.isRegistrySessionHandoffAttemptCurrent(requestID, scope: scope)))
+    }
 }
 
 private actor FixedOutcomeDeviceRegistry: DeviceRegistryRefreshing {
