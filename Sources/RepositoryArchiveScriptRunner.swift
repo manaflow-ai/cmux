@@ -1,4 +1,5 @@
 import CmuxFoundation
+import Foundation
 
 struct RepositoryArchiveScriptRunner: Sendable {
     private static let timeout: TimeInterval = 300
