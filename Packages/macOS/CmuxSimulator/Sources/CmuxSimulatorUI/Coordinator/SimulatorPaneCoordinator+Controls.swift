@@ -30,6 +30,7 @@ extension SimulatorPaneCoordinator {
         }
         do {
             let result = try await client.perform(action)
+            try Task.checkCancellation()
             guard generation == selectionGeneration, !closed else { return result }
             controlFailure = nil
             apply(result, for: action)
@@ -362,12 +363,7 @@ extension SimulatorPaneCoordinator {
         case let .webInspectorTargets(targets):
             webInspectorTargets = targets
         case let .webInspectorSession(status):
-            webInspectorSession = status
-            if case .detached = status {
-                webInspectorIsHighlighted = false
-                webInspectorResponseBuffer.reset()
-                webInspectorResponses = []
-            }
+            applyWebInspectorSession(status)
         }
     }
 

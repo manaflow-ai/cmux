@@ -6,10 +6,14 @@ public import Foundation
 /// the mutable `completion` value, and completion accepts only the first result.
 public final class ControlSimulatorWebInspectorReceipt: @unchecked Sendable {
     private let condition = NSCondition()
+    private let cancellationJoinTimeout: TimeInterval
     private var completion: ControlSimulatorWebInspectorCompletion?
+    private var cancellation: (@Sendable () -> Void)?
 
     /// Creates an unresolved receipt.
-    public init() {}
+    public init(cancellationJoinTimeout: TimeInterval = 5) {
+        self.cancellationJoinTimeout = max(0, cancellationJoinTimeout)
+    }
 
     /// Resolves the receipt once and wakes every waiter.
     public func complete(_ completion: ControlSimulatorWebInspectorCompletion) {
@@ -17,17 +21,38 @@ public final class ControlSimulatorWebInspectorReceipt: @unchecked Sendable {
         defer { condition.unlock() }
         guard self.completion == nil else { return }
         self.completion = completion
+        cancellation = nil
         condition.broadcast()
+    }
+
+    /// Installs cancellation for the asynchronous inspector operation.
+    public func installCancellation(_ cancellation: @escaping @Sendable () -> Void) {
+        condition.lock()
+        defer { condition.unlock() }
+        guard completion == nil else { return }
+        self.cancellation = cancellation
     }
 
     /// Waits until the receipt resolves or the timeout expires.
     public func wait(timeout: TimeInterval) -> ControlSimulatorWebInspectorCompletion? {
         condition.lock()
-        defer { condition.unlock() }
         let deadline = Date().addingTimeInterval(max(0, timeout))
         while completion == nil {
             guard condition.wait(until: deadline) else { break }
         }
-        return completion
+        let result = completion
+        let cancellation = result == nil ? self.cancellation : nil
+        if result == nil { self.cancellation = nil }
+        condition.unlock()
+        cancellation?()
+        if result == nil, cancellation != nil, cancellationJoinTimeout > 0 {
+            condition.lock()
+            let unwindDeadline = Date().addingTimeInterval(cancellationJoinTimeout)
+            while completion == nil {
+                guard condition.wait(until: unwindDeadline) else { break }
+            }
+            condition.unlock()
+        }
+        return result
     }
 }

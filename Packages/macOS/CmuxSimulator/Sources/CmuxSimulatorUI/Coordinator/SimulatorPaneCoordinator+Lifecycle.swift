@@ -182,7 +182,10 @@ extension SimulatorPaneCoordinator {
         }
         selectDevice(id: id)
         let selectionTask = activationTask
-        _ = await selectionTask?.value
+        let generation = selectionGeneration
+        if let selectionTask {
+            try await awaitActivationTask(selectionTask, generation: generation)
+        }
         guard selectedDeviceID == id, status == .streaming else {
             throw failure ?? SimulatorFailure(
                 code: "simulator_device_selection_failed",
@@ -242,8 +245,8 @@ extension SimulatorPaneCoordinator {
                 isRecoverable: true
             )
         }
-        await activationTask.value
-        try Task.checkCancellation()
+        let generation = selectionGeneration
+        try await awaitActivationTask(activationTask, generation: generation)
         guard !closed, self.selectedDeviceID == selectedDeviceID else {
             throw CancellationError()
         }
@@ -256,6 +259,26 @@ extension SimulatorPaneCoordinator {
                 ),
                 isRecoverable: true
             )
+        }
+    }
+
+    private func awaitActivationTask(
+        _ task: Task<Void, Never>,
+        generation: UInt64
+    ) async throws {
+        do {
+            try await withTaskCancellationHandler {
+                await task.value
+                try Task.checkCancellation()
+            } onCancel: {
+                task.cancel()
+            }
+        } catch is CancellationError {
+            if selectionGeneration == generation, status == .connecting {
+                activationTask = nil
+                status = .idle
+            }
+            throw CancellationError()
         }
     }
 

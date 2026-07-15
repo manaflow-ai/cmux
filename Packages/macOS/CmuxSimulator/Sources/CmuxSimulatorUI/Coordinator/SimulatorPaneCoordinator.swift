@@ -115,6 +115,7 @@ public final class SimulatorPaneCoordinator {
     @ObservationIgnored var pendingWebInspectorResponses: [
         SimulatorWebInspectorJSONRequestID: SimulatorPendingWebInspectorResponse
     ] = [:]
+    @ObservationIgnored var retiredWebInspectorRequestIDs: Set<SimulatorWebInspectorJSONRequestID> = []
     @ObservationIgnored var accessibilityRefreshTask: Task<Void, Never>?
     @ObservationIgnored var accessibilityRefreshGeneration: UInt64 = 0
     @ObservationIgnored var accessibilityOverlayIsVisible = true

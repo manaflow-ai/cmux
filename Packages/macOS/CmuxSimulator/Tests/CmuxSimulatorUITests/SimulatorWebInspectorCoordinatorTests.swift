@@ -137,6 +137,66 @@ struct SimulatorWebInspectorCoordinatorTests {
         #expect(response.text.contains(#""ok":true"#))
     }
 
+    @Test("A cancelled command ID stays retired until its late response is discarded")
+    func cancelledRequestIDCannotCaptureLateResponse() async throws {
+        let client = SimulatorPaneClientSpy(devices: [])
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        await coordinator.start()
+        let sessionID = UUID()
+        await client.emit(.message(.capabilities([.webInspector])))
+        await client.emit(.message(.status(.streaming)))
+        await client.emit(.message(.webInspectorSession(
+            requestID: nil, .attached(sessionID: sessionID, targetID: "target")
+        )))
+        await Self.eventually { coordinator.webInspectorSession != .detached }
+
+        let first = Task { @MainActor in
+            try await coordinator.sendWebInspectorMessageAwaitingResponse(
+                #"{"id":91,"method":"Runtime.evaluate"}"#
+            )
+        }
+        await Self.eventually { coordinator.pendingWebInspectorResponses.count == 1 }
+        first.cancel()
+        do {
+            _ = try await first.value
+            Issue.record("Expected cancellation")
+        } catch {}
+
+        do {
+            _ = try await coordinator.sendWebInspectorMessageAwaitingResponse(
+                #"{"id":91,"method":"Runtime.evaluate"}"#
+            )
+            Issue.record("Expected retired ID rejection")
+        } catch let failure as SimulatorFailure {
+            #expect(failure.code == "web_inspector_request_id_in_use")
+        }
+
+        await client.emit(.message(.webInspectorMessage(SimulatorWebInspectorMessageChunk(
+            sessionID: sessionID,
+            messageID: UUID(),
+            sequence: 0,
+            isFinal: true,
+            payload: Data(#"{"id":91,"result":{"stale":true}}"#.utf8)
+        ))))
+        await Self.eventually { coordinator.retiredWebInspectorRequestIDs.isEmpty }
+
+        let replacement = Task { @MainActor in
+            try await coordinator.sendWebInspectorMessageAwaitingResponse(
+                #"{"id":91,"method":"Runtime.evaluate"}"#
+            )
+        }
+        await Self.eventually { coordinator.pendingWebInspectorResponses.count == 1 }
+        await client.emit(.message(.webInspectorMessage(SimulatorWebInspectorMessageChunk(
+            sessionID: sessionID,
+            messageID: UUID(),
+            sequence: 0,
+            isFinal: true,
+            payload: Data(#"{"id":91,"result":{"fresh":true}}"#.utf8)
+        ))))
+        let response = try await replacement.value
+        #expect(response.text.contains(#""fresh":true"#))
+    }
+
     @Test("Response-buffer overflow fails correlated commands immediately")
     func responseOverflowFailsCommand() async {
         let client = SimulatorPaneClientSpy(devices: [])

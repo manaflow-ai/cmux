@@ -108,7 +108,7 @@ extension TerminalController {
                 return .sessionDetached
             }
             let receipt = ControlSimulatorWebInspectorReceipt()
-            Task { @MainActor [weak coordinator] in
+            let task = Task { @MainActor [weak coordinator] in
                 guard let coordinator else {
                     receipt.complete(.failed(
                         code: "simulator_closed",
@@ -121,6 +121,7 @@ extension TerminalController {
                 }
                 await operation(coordinator, panel.id, receipt)
             }
+            receipt.installCancellation { task.cancel() }
             return .started(surfaceID: panel.id, timeoutSeconds: timeout, receipt: receipt)
         }
     }

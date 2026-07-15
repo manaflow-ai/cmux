@@ -132,11 +132,10 @@ extension SimulatorPaneCoordinator {
             webInspectorTargets = targets
             if case let .attached(_, targetID) = webInspectorSession,
                !targets.contains(where: { $0.id == targetID }) {
-                clearWebInspectorSession()
+                applyWebInspectorSession(.detached)
             }
         case let .webInspectorSession(_, status):
-            webInspectorSession = status
-            if case .detached = status { clearWebInspectorSession() }
+            applyWebInspectorSession(status)
         case .webInspectorCommand:
             break
         case let .webInspectorHighlight(_, succeeded):
@@ -191,19 +190,33 @@ extension SimulatorPaneCoordinator {
 
     func clearWebInspectorState() {
         webInspectorTargets = []
-        clearWebInspectorSession()
+        applyWebInspectorSession(.detached)
     }
 
-    private func clearWebInspectorSession() {
+    func applyWebInspectorSession(_ status: SimulatorWebInspectorSessionStatus) {
+        let previousSessionID: UUID? = switch webInspectorSession {
+        case let .attached(sessionID, _): sessionID
+        case .detached: nil
+        }
+        let nextSessionID: UUID? = switch status {
+        case let .attached(sessionID, _): sessionID
+        case .detached: nil
+        }
+        guard previousSessionID != nextSessionID || status == .detached else {
+            webInspectorSession = status
+            return
+        }
         failPendingWebInspectorResponses(
             code: "web_inspector_session_ended",
             message: String(
                 localized: "simulator.failure.webInspectorSessionEnded",
                 defaultValue: "The Web Inspector session ended before the response arrived."
-            )
+            ),
+            retireRequestIDs: false
         )
-        webInspectorSession = .detached
-        webInspectorIsHighlighted = false
+        retiredWebInspectorRequestIDs.removeAll()
+        webInspectorSession = status
+        if case .detached = status { webInspectorIsHighlighted = false }
         webInspectorResponseBuffer.reset()
         webInspectorResponses = []
     }

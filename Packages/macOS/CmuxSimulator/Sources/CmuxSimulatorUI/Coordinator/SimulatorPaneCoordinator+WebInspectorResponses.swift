@@ -2,6 +2,8 @@ import CmuxSimulator
 import Foundation
 
 extension SimulatorPaneCoordinator {
+    static let maximumRetiredWebInspectorRequestIDCount = 128
+
     /// Sends a raw command and waits for the response carrying the same JSON id.
     public func sendWebInspectorMessageAwaitingResponse(
         _ json: String,
@@ -17,7 +19,8 @@ extension SimulatorPaneCoordinator {
                 isRecoverable: true
             )
         }
-        guard pendingWebInspectorResponses[requestID] == nil else {
+        guard pendingWebInspectorResponses[requestID] == nil,
+              !retiredWebInspectorRequestIDs.contains(requestID) else {
             throw SimulatorFailure(
                 code: "web_inspector_request_id_in_use",
                 message: String(
@@ -40,6 +43,7 @@ extension SimulatorPaneCoordinator {
                     }
                     self?.resolveWebInspectorResponse(
                         requestID,
+                        retireRequestID: true,
                         with: .failure(SimulatorFailure(
                             code: "web_inspector_response_timeout",
                             message: String(
@@ -61,6 +65,7 @@ extension SimulatorPaneCoordinator {
                     } catch {
                         resolveWebInspectorResponse(
                             requestID,
+                            retireRequestID: true,
                             with: .failure(SimulatorFailure(
                                 code: "web_inspector_command_rejected",
                                 message: String(describing: error),
@@ -74,6 +79,7 @@ extension SimulatorPaneCoordinator {
             Task { @MainActor [weak self] in
                 self?.resolveWebInspectorResponse(
                     requestID,
+                    retireRequestID: true,
                     with: .failure(SimulatorFailure(
                         code: "web_inspector_response_cancelled",
                         message: String(
@@ -91,6 +97,7 @@ extension SimulatorPaneCoordinator {
     func receiveCompletedWebInspectorResponse(_ response: SimulatorWebInspectorResponse) {
         guard let requestID = response.requestID
                 ?? parseSimulatorWebInspectorJSONRequestID(from: response.text) else { return }
+        if retiredWebInspectorRequestIDs.remove(requestID) != nil { return }
         resolveWebInspectorResponse(
             requestID,
             with: .success(SimulatorWebInspectorCommandResponse(
@@ -100,11 +107,16 @@ extension SimulatorPaneCoordinator {
         )
     }
 
-    func failPendingWebInspectorResponses(code: String, message: String) {
+    func failPendingWebInspectorResponses(
+        code: String,
+        message: String,
+        retireRequestIDs: Bool = true
+    ) {
         let requestIDs = Array(pendingWebInspectorResponses.keys)
         for requestID in requestIDs {
             resolveWebInspectorResponse(
                 requestID,
+                retireRequestID: retireRequestIDs,
                 with: .failure(SimulatorFailure(
                     code: code,
                     message: message,
@@ -116,10 +128,21 @@ extension SimulatorPaneCoordinator {
 
     private func resolveWebInspectorResponse(
         _ requestID: SimulatorWebInspectorJSONRequestID,
+        retireRequestID: Bool = false,
         with result: Result<SimulatorWebInspectorCommandResponse, SimulatorFailure>
     ) {
         guard let pending = pendingWebInspectorResponses.removeValue(forKey: requestID) else { return }
         pending.timeoutTask.cancel()
+        if retireRequestID { retireWebInspectorRequestID(requestID) }
         pending.continuation.resume(returning: result)
+    }
+
+    private func retireWebInspectorRequestID(_ requestID: SimulatorWebInspectorJSONRequestID) {
+        guard retiredWebInspectorRequestIDs.count < Self.maximumRetiredWebInspectorRequestIDCount else {
+            clearWebInspectorState()
+            Task { [client] in await client.invalidateWorker() }
+            return
+        }
+        retiredWebInspectorRequestIDs.insert(requestID)
     }
 }

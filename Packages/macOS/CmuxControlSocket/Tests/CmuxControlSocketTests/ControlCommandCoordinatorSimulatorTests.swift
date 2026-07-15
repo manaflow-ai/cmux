@@ -25,6 +25,16 @@ struct ControlCommandCoordinatorSimulatorTests {
         #expect(cancelled.isMarked)
     }
 
+    @Test("Web Inspector receipt cancels work when its deadline expires")
+    func webInspectorReceiptCancelsTimedOutWork() {
+        let receipt = ControlSimulatorWebInspectorReceipt(cancellationJoinTimeout: 0)
+        let cancelled = SimulatorCancellationProbe()
+        receipt.installCancellation { cancelled.mark() }
+
+        #expect(receipt.wait(timeout: 0) == nil)
+        #expect(cancelled.isMarked)
+    }
+
     @Test("Long Simulator waits have bounded admission")
     func operationAdmissionIsBounded() {
         let gate = ControlSimulatorOperationAdmissionGate(maximumConcurrentOperations: 2)

@@ -8,6 +8,7 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
     private let applicationValues: [SimulatorInstalledApplication]
     private let delaysApplicationList: Bool
     private let delaysInvalidation: Bool
+    private let delaysActivation: Bool
     private let failsApplicationInstall: Bool
     private let eventStream: SimulatorWorkerEventStream
     private let eventContinuation: SimulatorWorkerEventStream.Continuation
@@ -18,18 +19,22 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
     private var actionValues: [SimulatorControlAction] = []
     private var delayedApplicationList: CheckedContinuation<SimulatorControlResult, Never>?
     private var delayedInvalidation: CheckedContinuation<Void, Never>?
+    private var delayedActivation: CheckedContinuation<Void, Error>?
+    private var activationCancellationValue = 0
 
     init(
         devices: [SimulatorDevice],
         applications: [SimulatorInstalledApplication] = [],
         delaysApplicationList: Bool = false,
         delaysInvalidation: Bool = false,
+        delaysActivation: Bool = false,
         failsApplicationInstall: Bool = false
     ) {
         self.devicesValue = devices
         self.applicationValues = applications
         self.delaysApplicationList = delaysApplicationList
         self.delaysInvalidation = delaysInvalidation
+        self.delaysActivation = delaysActivation
         self.failsApplicationInstall = failsApplicationInstall
         let source = SimulatorWorkerEventStreamSource(
             maximumBufferedBytes: 1_024 * 1_024,
@@ -46,6 +51,18 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
 
     func activateDevice(id: String, geometry: SimulatorSurfaceGeometry?) async throws {
         activationValues.append(Activation(id: id, geometry: geometry))
+        guard delaysActivation else { return }
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                if Task.isCancelled {
+                    continuation.resume(throwing: CancellationError())
+                } else {
+                    delayedActivation = continuation
+                }
+            }
+        } onCancel: {
+            Task { await self.cancelDelayedActivation() }
+        }
     }
 
     func shutdownDevice(id: String) async throws {}
@@ -112,6 +129,16 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
     func resumeInvalidation() {
         delayedInvalidation?.resume()
         delayedInvalidation = nil
+    }
+
+    func activationCancellationCount() -> Int {
+        activationCancellationValue
+    }
+
+    private func cancelDelayedActivation() {
+        activationCancellationValue += 1
+        delayedActivation?.resume(throwing: CancellationError())
+        delayedActivation = nil
     }
 
     func actions() -> [SimulatorControlAction] {
