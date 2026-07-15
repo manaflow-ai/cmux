@@ -142,6 +142,73 @@ extension ReconnectRouteSelectionTests {
         #expect(upgraded.routes.contains { $0.id == "iroh-b" })
     }
 
+    @Test func concurrentPresenceUpgradeIsUsedWhenRegistryReturnsTheSameIrohRoutes() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        await router.setHostIdentity(deviceID: "test-mac", instanceTag: "stable")
+        let box = TransportBox()
+        let factory = KindRecordingTransportFactory(router: router, box: box)
+        let runtime = LivenessTestRuntime(
+            transportFactory: factory,
+            now: { clock.now },
+            supportedRouteKinds: [.iroh, .tailscale]
+        )
+        let iroh = try registryIroh(
+            id: "iroh-stable",
+            endpointID: String(repeating: "e", count: 64)
+        )
+        let legacy = try tailscale(51_007)
+        let publishedRoutes = [iroh, legacy]
+        let (pairedStore, directory) = try makePairedMacStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try await pairedStore.upsert(
+            macDeviceID: "test-mac",
+            displayName: "Test Mac",
+            routes: [legacy],
+            instanceTag: "stable",
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: clock.now
+        )
+        let registry = PresenceRacingDeviceRegistry(
+            pairedStore: pairedStore,
+            routes: publishedRoutes,
+            outcome: .ok([
+                RegistryDevice(
+                    deviceId: "test-mac",
+                    platform: "mac",
+                    displayName: "Test Mac",
+                    lastSeenAt: clock.now,
+                    instances: [
+                        RegistryAppInstance(
+                            tag: "stable",
+                            routes: publishedRoutes,
+                            lastSeenAt: clock.now
+                        ),
+                    ]
+                ),
+            ]),
+            now: clock.now.addingTimeInterval(1)
+        )
+        let store = await makeMigrationShell(
+            pairedStore: pairedStore,
+            registry: registry,
+            runtime: runtime
+        )
+
+        #expect(await store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(store.activeRoute?.id == iroh.id)
+        #expect(factory.attemptedKinds() == [.iroh])
+        #expect(store.connectionError?.localizedCaseInsensitiveContains("update cmux") != true)
+        #expect(await registry.state() == .init(listCalls: 1, wrotePresenceRoutes: true))
+        let persisted = try #require(await pairedStore.activeMac(
+            stackUserID: "user-1",
+            teamID: nil
+        ))
+        #expect(persisted.routes.contains { $0.id == iroh.id })
+    }
+
     @Test func switchToLegacySavedMacUpgradesFromRegistryWithoutRescan() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()
@@ -501,6 +568,62 @@ private actor SnapshotCountingDeviceRegistry: DeviceRegistryRefreshing {
 
     func counts() -> Counts {
         Counts(list: listCalls, fresh: freshCalls)
+    }
+}
+
+private actor PresenceRacingDeviceRegistry: DeviceRegistryRefreshing {
+    struct State: Equatable, Sendable {
+        let listCalls: Int
+        let wrotePresenceRoutes: Bool
+    }
+
+    private let pairedStore: MobilePairedMacStore
+    private let routes: [CmxAttachRoute]
+    private let outcome: DeviceRegistryListOutcome
+    private let now: Date
+    private var listCalls = 0
+    private var wrotePresenceRoutes = false
+
+    init(
+        pairedStore: MobilePairedMacStore,
+        routes: [CmxAttachRoute],
+        outcome: DeviceRegistryListOutcome,
+        now: Date
+    ) {
+        self.pairedStore = pairedStore
+        self.routes = routes
+        self.outcome = outcome
+        self.now = now
+    }
+
+    func freshRoutes(
+        forMacDeviceID _: String,
+        instanceTag _: String?
+    ) async -> [CmxAttachRoute]? {
+        nil
+    }
+
+    func listDevices() async -> DeviceRegistryListOutcome {
+        listCalls += 1
+        do {
+            wrotePresenceRoutes = try await pairedStore.upsertRoutesIfAuthorized(
+                macDeviceID: "test-mac",
+                displayName: "Test Mac",
+                routes: routes,
+                condition: .matchingInstanceTag("stable"),
+                markActive: nil,
+                stackUserID: "user-1",
+                teamID: nil,
+                now: now
+            )
+            return outcome
+        } catch {
+            return .transientFailure
+        }
+    }
+
+    func state() -> State {
+        State(listCalls: listCalls, wrotePresenceRoutes: wrotePresenceRoutes)
     }
 }
 
