@@ -187,6 +187,7 @@ final class WorkspaceContentViewVisibilityTests {
         #expect(
             !WorkspaceContentView.panelVisibleInUI(
                 isWorkspaceVisible: false,
+                paneHasSelectedTab: true,
                 isSelectedInPane: true,
                 isFocused: true
             )
@@ -198,6 +199,7 @@ final class WorkspaceContentViewVisibilityTests {
         #expect(
             WorkspaceContentView.panelVisibleInUI(
                 isWorkspaceVisible: true,
+                paneHasSelectedTab: true,
                 isSelectedInPane: true,
                 isFocused: false
             )
@@ -209,6 +211,19 @@ final class WorkspaceContentViewVisibilityTests {
         #expect(
             WorkspaceContentView.panelVisibleInUI(
                 isWorkspaceVisible: true,
+                paneHasSelectedTab: false,
+                isSelectedInPane: false,
+                isFocused: true
+            )
+        )
+    }
+
+    @Test
+    func testPanelVisibleInUIReturnsFalseForStaleFocusedPanelWhenAnotherTabIsSelected() {
+        #expect(
+            !WorkspaceContentView.panelVisibleInUI(
+                isWorkspaceVisible: true,
+                paneHasSelectedTab: true,
                 isSelectedInPane: false,
                 isFocused: true
             )
@@ -220,6 +235,7 @@ final class WorkspaceContentViewVisibilityTests {
         #expect(
             !WorkspaceContentView.panelVisibleInUI(
                 isWorkspaceVisible: true,
+                paneHasSelectedTab: false,
                 isSelectedInPane: false,
                 isFocused: false
             )
