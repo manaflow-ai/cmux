@@ -119,6 +119,23 @@ struct CEFOmnibarIntegrationTests {
     }
 
     @Test
+    func addressBarExitHandoffRechecksLiveFocusOwner() {
+        let originalPanel = CEFBrowserPanel(workspaceId: UUID())
+        let replacementPanel = CEFBrowserPanel(workspaceId: UUID())
+        var liveFocusedPanel: (any OmnibarHostingPanel)? = originalPanel
+        let originalPanelStillOwnsFocus = {
+            omnibarFocusOwnerMatches(
+                panelId: originalPanel.id,
+                focusedPanel: liveFocusedPanel
+            )
+        }
+
+        #expect(originalPanelStillOwnsFocus())
+        liveFocusedPanel = replacementPanel
+        #expect(!originalPanelStillOwnsFocus())
+    }
+
+    @Test
     func focusedOmnibarLookupPrefersWindowDockStorage() throws {
         let dockPanel = CEFBrowserPanel(workspaceId: UUID())
         let workspacePanel = CEFBrowserPanel(workspaceId: UUID())
