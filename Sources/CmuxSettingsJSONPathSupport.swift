@@ -171,6 +171,8 @@ enum NotificationSettingsFileMapping {
 }
 
 enum TerminalSettingsFileMapping {
+    private static let terminal = TerminalCatalogSection()
+
     static let booleanSettings: [SettingsFileBooleanMapping] = [
         .init(
             jsonKey: "showScrollBar",
@@ -184,7 +186,7 @@ enum TerminalSettingsFileMapping {
         ),
         .init(
             jsonKey: "reflowCopy",
-            defaultsKey: TerminalReflowCopySettings.reflowCopyKey,
+            defaultsKey: terminal.reflowCopy.userDefaultsKey,
             invalidPath: "terminal.reflowCopy"
         ),
         .init(

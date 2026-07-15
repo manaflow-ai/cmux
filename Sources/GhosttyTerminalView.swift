@@ -3591,6 +3591,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private static let copyReflowMaxBytes = 2 * 1024 * 1024
     private static let copyReflowMaxLines = 20_000
     private static let keyboardCopyModeVisualLineFallbackMaxBytes: UInt = 2 * 1024 * 1024
+    private let reflowCopySettings = UserDefaultsSettingsClient(defaults: .standard)
+    private let reflowCopyKey = TerminalCatalogSection().reflowCopy
     private let keyboardCopyModeCursorOverlayView = GhosttyFlashOverlayView(frame: .zero)
     // internal (not fileprivate): witnesses for TerminalSurfaceNativeViewing
     // must match the conforming class's access level.
@@ -4989,7 +4991,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     ) -> String? {
         guard reflowRequested,
               !selectionMayBeRectangular,
-              TerminalReflowCopySettings.isEnabled(),
+              reflowCopySettings.value(for: reflowCopyKey),
               !text.isEmpty,
               shouldReflowCopiedText(text) else { return nil }
         let reflowed = ReflowOptions.default.reflow(text)
@@ -7419,7 +7421,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             item.target = self
             // When reflow is the default Copy behavior, offer a verbatim escape.
             // When reflow is off, plain Copy is already verbatim, so this is hidden.
-            if TerminalReflowCopySettings.isEnabled() {
+            if reflowCopySettings.value(for: reflowCopyKey) {
                 let rawItem = menu.addItem(
                     withTitle: String(localized: "terminalContextMenu.copyRaw", defaultValue: "Copy Raw"),
                     action: #selector(copyRaw(_:)),

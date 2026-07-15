@@ -92,7 +92,7 @@ extension CmuxSettingsFileStore {
                     "showScrollBar": TerminalScrollBarSettings.defaultShowScrollBar,
                     "scrollSpeed": TerminalScrollSpeedSettings.defaultMultiplier,
                     "copyOnSelect": TerminalCopyOnSelectSettings.defaultCopyOnSelect,
-                    "reflowCopy": TerminalReflowCopySettings.defaultReflowCopy,
+                    "reflowCopy": TerminalCatalogSection().reflowCopy.defaultValue,
                     "autoResumeAgentSessions": AgentSessionAutoResumeSettings.defaultAutoResumeAgentSessions,
                     "showTextBoxOnNewTerminals": TerminalTextBoxInputSettings.defaultShowOnNewTerminals,
                     "focusTextBoxOnNewTerminals": TerminalTextBoxInputSettings.defaultFocusOnNewTerminals,
