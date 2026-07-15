@@ -15,6 +15,8 @@ public struct TerminalTheme: Codable, Equatable, Sendable {
     public var background: String
     /// Terminal foreground color (`#rrggbb`).
     public var foreground: String
+    /// Ghostty bold-color behavior (`bright` or `#rrggbb`), or `nil` when unset.
+    public var boldColor: String?
     /// Cursor color (`#rrggbb`).
     public var cursor: String
     /// Cell-relative cursor-color semantics, when configured.
@@ -45,6 +47,7 @@ public struct TerminalTheme: Codable, Equatable, Sendable {
     public init(
         background: String,
         foreground: String,
+        boldColor: String? = nil,
         cursor: String,
         cursorColorSemantic: CellRelativeColor? = nil,
         cursorText: String? = nil,
@@ -57,6 +60,7 @@ public struct TerminalTheme: Codable, Equatable, Sendable {
     ) {
         self.background = background
         self.foreground = foreground
+        self.boldColor = boldColor
         self.cursor = cursor
         self.cursorColorSemantic = cursorColorSemantic
         self.cursorText = cursorText
@@ -71,6 +75,11 @@ public struct TerminalTheme: Codable, Equatable, Sendable {
     /// Whether every color string parses and the palette has exactly 16 entries.
     public var isValid: Bool {
         guard palette.count == Self.paletteCount || palette.count == Self.extendedPaletteCount else { return false }
+        if let boldColor,
+           boldColor.lowercased() != "bright",
+           Self.rgbComponents(boldColor) == nil {
+            return false
+        }
         var colors = [background, foreground, cursor, selectionBackground, selectionForeground]
         colors.append(contentsOf: palette)
         if let cursorText { colors.append(cursorText) }
@@ -105,6 +114,13 @@ public struct TerminalTheme: Codable, Equatable, Sendable {
         var lines: [String] = []
         if let bg = Self.canonicalHex(background) { lines.append("background = \(bg)") }
         if let fg = Self.canonicalHex(foreground) { lines.append("foreground = \(fg)") }
+        if let boldColor {
+            if boldColor.lowercased() == "bright" {
+                lines.append("bold-color = bright")
+            } else if let color = Self.canonicalHex(boldColor) {
+                lines.append("bold-color = \(color)")
+            }
+        }
         if let cursorColorSemantic {
             lines.append("cursor-color = \(cursorColorSemantic.rawValue)")
         } else if let cur = Self.canonicalHex(cursor) {

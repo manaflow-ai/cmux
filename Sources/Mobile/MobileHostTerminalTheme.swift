@@ -29,6 +29,7 @@ extension TerminalTheme {
         self.init(
             background: config.backgroundColor.hexString(),
             foreground: config.foregroundColor.hexString(),
+            boldColor: config.boldColor,
             cursor: config.cursorColor.hexString(),
             cursorText: cursorText,
             selectionBackground: config.selectionBackground.hexString(),
@@ -53,6 +54,9 @@ extension TerminalTheme {
         if let cursorText {
             object["cursorText"] = cursorText
         }
+        if let boldColor {
+            object["boldColor"] = boldColor
+        }
         return object
     }
 
@@ -73,6 +77,7 @@ extension TerminalTheme {
         return TerminalTheme(
             background: app.defaultBackgroundColor.hexString(),
             foreground: app.defaultForegroundColor.hexString(),
+            boldColor: resolvedConfigTheme.boldColor,
             cursor: app.defaultCursorColor.hexString(),
             cursorColorSemantic: resolvedConfigTheme.cursorColorSemantic,
             cursorText: resolvedConfigTheme.cursorText,
@@ -92,7 +97,11 @@ extension TerminalTheme {
         // overrides together. The legacy outer fields are raw on older GhosttyKit
         // builds, so applying them again would undo that effective result.
         if let effectiveTheme = frame.terminalTheme {
-            return effectiveTheme.validatedOrDefault()
+            var resolved = effectiveTheme
+            if resolved.boldColor == nil {
+                resolved.boldColor = boldColor
+            }
+            return resolved.validatedOrDefault()
         }
         var resolved = self
         if let background = frame.terminalBackground,

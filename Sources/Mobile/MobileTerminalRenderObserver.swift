@@ -280,8 +280,13 @@ final class MobileTerminalRenderObserver {
         }
 
         var themedFrame = snapshot.frame
+        var configCandidate = themedFrame.terminalConfigTheme
+        if configCandidate?.boldColor == nil {
+            configCandidate?.boldColor = terminalConfigThemesBySurfaceID[surfaceID]?.boldColor
+                ?? cachedTerminalTheme.boldColor
+        }
         let configTheme = MobileTerminalThemeEmissionDecision.resolveConfigTheme(
-            candidate: themedFrame.terminalConfigTheme,
+            candidate: configCandidate,
             cached: terminalConfigThemesBySurfaceID[surfaceID]
         )
         themedFrame.terminalConfigTheme = configTheme

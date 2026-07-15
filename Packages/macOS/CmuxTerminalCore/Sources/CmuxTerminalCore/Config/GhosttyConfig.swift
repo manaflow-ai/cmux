@@ -87,6 +87,8 @@ public struct GhosttyConfig {
     public var hasParsedBackgroundBlur = false
     /// The terminal foreground color.
     public var foregroundColor: NSColor = NSColor(hex: "#fdfff1")!
+    /// The configured bold-color behavior (`bright` or canonical `#rrggbb`).
+    public var boldColor: String?
     /// Whether a `foreground` directive was seen.
     public var hasForegroundColorDirective = false
     /// Whether the `foreground` directive parsed to a valid color.
@@ -569,6 +571,12 @@ public struct GhosttyConfig {
                     } else {
                         hasParsedForegroundColor = false
                     }
+                case "bold-color":
+                    if value.lowercased() == "bright" {
+                        boldColor = "bright"
+                    } else {
+                        boldColor = NSColor(hex: value)?.hexString().lowercased()
+                    }
                 case "cursor-color":
                     hasCursorColorDirective = true
                     if let color = NSColor(hex: value) {
@@ -802,7 +810,7 @@ public struct GhosttyConfig {
                 hasThemeDirective = true
                 let trimmedValue = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 lastThemeDirective = trimmedValue.isEmpty ? nil : trimmedValue
-            case "background", "foreground", "palette", "cursor-color", "cursor-text",
+            case "background", "foreground", "bold-color", "palette", "cursor-color", "cursor-text",
                  "selection-background", "selection-foreground":
                 hasExplicitTerminalColorDirective = true
             default:
@@ -867,7 +875,7 @@ public struct GhosttyConfig {
             guard let entry = parsedConfigEntry(from: line) else { continue }
 
             switch entry.key {
-            case "theme", "background", "foreground", "palette", "cursor-color",
+            case "theme", "background", "foreground", "bold-color", "palette", "cursor-color",
                  "cursor-text", "selection-background", "selection-foreground":
                 summary.recordDirective(key: entry.key, value: entry.value)
             case "config-file":
