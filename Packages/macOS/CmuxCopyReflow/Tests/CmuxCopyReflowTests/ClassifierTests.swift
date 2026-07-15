@@ -98,4 +98,10 @@ struct ClassifierTests {
         #expect(classify("    ") == .blank)
         #expect(classify("\t") == .blank)
     }
+
+    @Test func visibleLengthUsesTerminalCells() {
+        #expect("界"[...].visibleLength == 2)
+        #expect("e\u{301}"[...].visibleLength == 1)
+        #expect("👩‍💻"[...].visibleLength == 2)
+    }
 }

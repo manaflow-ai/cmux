@@ -213,6 +213,12 @@ struct ReflowParagraphTests {
         #expect(reflow(input) == input)
     }
 
+    @Test func fullWidthCJKWrappedProseRejoins() {
+        let first = String(repeating: "界", count: 20)
+        let input = "  \(first)\n  続きの文章です\n"
+        #expect(reflow(input) == "\(first) 続きの文章です\n")
+    }
+
     @Test func indentSignalDecidesTheJoin() {
         // Same text: with a continuation indent it joins; without it, it does not.
         let withIndent = "Lead line goes here\n  continues on this line\n"
