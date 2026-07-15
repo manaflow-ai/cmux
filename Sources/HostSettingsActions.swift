@@ -91,6 +91,11 @@ final class HostSettingsActions: SettingsHostActions {
         PaneChromeSettings.notifyDidChange()
     }
 
+    func notifyShortcutSettingsDidChange() {
+        KeyboardShortcutSettings.settingsFileStore.reload()
+        KeyboardShortcutSettings.notifySettingsFileDidChange()
+    }
+
     func applyLanguageOverride(_ language: AppLanguage) {
         LanguageSettingsStore(defaults: .standard).applyLanguageOverride(language)
     }
@@ -288,6 +293,10 @@ final class HostSettingsActions: SettingsHostActions {
                 observer.remove()
             }
         }
+    }
+
+    func irohSettingsController() -> (any CmxIrohSettingsControlling)? {
+        MobileHostIrohRuntime.shared
     }
 
     /// Maps the host's ``MobileHostServiceStatus`` into the settings package's

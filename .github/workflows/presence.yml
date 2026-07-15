@@ -19,11 +19,15 @@ on:
   pull_request:
     paths:
       - "workers/presence/**"
+      - "config/iroh/managed-relay-catalog.json"
+      - "web/tools/generate-managed-iroh-relay-catalog.ts"
       - ".github/workflows/presence.yml"
   push:
     branches: [main]
     paths:
       - "workers/presence/**"
+      - "config/iroh/managed-relay-catalog.json"
+      - "web/tools/generate-managed-iroh-relay-catalog.ts"
       - ".github/workflows/presence.yml"
 
 permissions:
@@ -52,6 +56,9 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Validate managed relay catalog
+        run: bun run relay-catalog:check
 
       - name: Typecheck
         run: bun run typecheck

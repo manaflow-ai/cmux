@@ -7,6 +7,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     case textBox
     case sleepyMode
     case mobile
+    case networking
     case sidebarAppearance
     case customSidebars
     case betaFeatures
@@ -35,6 +36,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return String(localized: "settings.section.sleepyMode", defaultValue: "Sleepy Mode")
         case .mobile:
             return String(localized: "settings.section.mobile", defaultValue: "Mobile")
+        case .networking:
+            return String(localized: "settings.section.networking", defaultValue: "Networking")
         case .workspaceColors:
             return String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors")
         case .sidebarAppearance:
@@ -74,6 +77,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "moon.zzz"
         case .mobile:
             return "iphone"
+        case .networking:
+            return "network"
         case .workspaceColors:
             return "paintpalette"
         case .sidebarAppearance:
@@ -113,6 +118,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "\(title) sleepy mode screensaver caffeinate keep awake lock touch id battery wifi clock mascot theme glow pixel"
         case .mobile:
             return "\(title) ios iphone ipad mobile pairing local network sync"
+        case .networking:
+            return "\(title) iroh relay server private network tailscale vpn direct peer custom provider region"
         case .workspaceColors:
             return "\(title) palette tabs"
         case .sidebarAppearance:
