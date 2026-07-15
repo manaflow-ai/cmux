@@ -56,6 +56,7 @@ extension MobileShellComposite {
         let responseMutationEpoch = foregroundWorkspaceListMutationEpoch
         let responseListRevision = foregroundWorkspaceListAppliedRevision
         let createSelectionRevision = claimForegroundCreateSelection()
+        let userSelectionRevision = userTerminalSelectionRevision
         let secondarySubscription = target.macDeviceID.flatMap { secondaryMacSubscriptions[$0] }
         let secondaryRefreshStartedGeneration = secondarySubscription?.refreshStartedGeneration
         let secondaryHierarchyMutationRevision = secondarySubscription?.hierarchyMutationRevision
@@ -127,7 +128,8 @@ extension MobileShellComposite {
                 workspaceID: rowWorkspaceID,
                 existingTerminalIDs: existingTerminalIDs,
                 paneID: paneID,
-                selectionRevision: createSelectionRevision
+                createSelectionRevision: createSelectionRevision,
+                userSelectionRevision: userSelectionRevision
             )
             return .success(())
         } catch {
@@ -195,9 +197,11 @@ extension MobileShellComposite {
         workspaceID: MobileWorkspacePreview.ID,
         existingTerminalIDs: Set<MobileTerminalPreview.ID>,
         paneID: MobilePanePreview.ID?,
-        selectionRevision: UInt64
+        createSelectionRevision: UInt64,
+        userSelectionRevision: UInt64
     ) {
-        guard ownsForegroundCreateSelection(selectionRevision),
+        guard ownsForegroundCreateSelection(createSelectionRevision),
+              self.userTerminalSelectionRevision == userSelectionRevision,
               selectedWorkspaceID == workspaceID,
               let createdTerminalID = resolvedRemoteTerminalCreationSelection(
                   responseCreatedTerminalID: responseCreatedTerminalID,
