@@ -541,7 +541,7 @@ func startOrFocusTerminalSearch(
         searchFocusNotifier(terminalSurface)
         return true
     }
-    if terminalSurface.performBindingAction("start_search") {
+    if terminalSurface.performExplicitInputBindingAction("start_search") {
         DispatchQueue.main.async { [weak terminalSurface] in
             guard let terminalSurface else { return }
             if let searchState = terminalSurface.searchState {

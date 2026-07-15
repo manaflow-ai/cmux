@@ -8,9 +8,9 @@ import Foundation
 /// with `ghostty_surface_process_output`. cmux uses this for remote-tmux pane
 /// display surfaces.
 final class TerminalManualIOWriteBox {
-    /// Invoked with bytes the user typed into the surface. Runs on ghostty's
-    /// I/O thread, so the closure must be Sendable and hop to the main actor
-    /// itself before touching MainActor state.
+    /// Invoked inline by whichever thread sends input into the manual Ghostty
+    /// backend, so the closure must be Sendable and hop to the main actor
+    /// before touching MainActor state.
     let onWrite: @Sendable (Data) -> Void
 
     init(onWrite: @escaping @Sendable (Data) -> Void) {
