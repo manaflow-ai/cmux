@@ -124,6 +124,100 @@ import Testing
         #expect(shellFingerprint != agentFingerprint)
     }
 
+    @Test func processScopeFingerprintIgnoresTransientChildrenOutsideForegroundOwnership() {
+        let workspaceID = UUID()
+        let panelID = UUID()
+        let shell = Self.scopedProcess(
+            pid: 42,
+            parentPID: 1,
+            name: "zsh",
+            path: "/bin/zsh",
+            processGroupID: 42,
+            terminalProcessGroupID: 42,
+            workspaceID: workspaceID,
+            panelID: panelID
+        )
+        let promptHelper = Self.scopedProcess(
+            pid: 43,
+            parentPID: 42,
+            name: "git",
+            path: "/usr/bin/git",
+            processGroupID: 42,
+            terminalProcessGroupID: 42,
+            workspaceID: workspaceID,
+            panelID: panelID
+        )
+
+        let stableFingerprint = SharedLiveAgentIndexLoader.processScopeFingerprint(
+            from: CmuxTopProcessSnapshot(
+                processes: [shell],
+                sampledAt: Date(timeIntervalSince1970: 1),
+                includesProcessDetails: true
+            )
+        )
+        let transientFingerprint = SharedLiveAgentIndexLoader.processScopeFingerprint(
+            from: CmuxTopProcessSnapshot(
+                processes: [shell, promptHelper],
+                sampledAt: Date(timeIntervalSince1970: 2),
+                includesProcessDetails: true
+            )
+        )
+
+        #expect(stableFingerprint == transientFingerprint)
+    }
+
+    @Test func processScopeFingerprintTracksForegroundProcessGroupChanges() {
+        let workspaceID = UUID()
+        let panelID = UUID()
+        let shell = Self.scopedProcess(
+            pid: 42,
+            parentPID: 1,
+            name: "zsh",
+            path: "/bin/zsh",
+            processGroupID: 42,
+            terminalProcessGroupID: 42,
+            workspaceID: workspaceID,
+            panelID: panelID
+        )
+        let backgroundShell = Self.scopedProcess(
+            pid: 42,
+            parentPID: 1,
+            name: "zsh",
+            path: "/bin/zsh",
+            processGroupID: 42,
+            terminalProcessGroupID: 43,
+            workspaceID: workspaceID,
+            panelID: panelID
+        )
+        let foregroundAgent = Self.scopedProcess(
+            pid: 43,
+            parentPID: 42,
+            name: "codex",
+            path: "/opt/homebrew/bin/codex",
+            processGroupID: 43,
+            terminalProcessGroupID: 43,
+            workspaceID: workspaceID,
+            panelID: panelID
+        )
+
+        let shellFingerprint = SharedLiveAgentIndexLoader.processScopeFingerprint(
+            from: CmuxTopProcessSnapshot(
+                processes: [shell],
+                sampledAt: Date(timeIntervalSince1970: 1),
+                includesProcessDetails: true
+            )
+        )
+        let agentFingerprint = SharedLiveAgentIndexLoader.processScopeFingerprint(
+            from: CmuxTopProcessSnapshot(
+                processes: [backgroundShell, foregroundAgent],
+                sampledAt: Date(timeIntervalSince1970: 2),
+                includesProcessDetails: true
+            )
+        )
+
+        #expect(shellFingerprint != agentFingerprint)
+    }
+
     @Test func agentHookSurfaceResumeStartupInputPreservesCustomAbsoluteAgentExecutable() throws {
         let binding = SurfaceResumeBindingSnapshot(
             kind: "codex",
@@ -763,6 +857,34 @@ import Testing
 
     private static func homeManagedExecutablePath(executableName: String, _ components: String...) -> String {
         localManagedExecutablePath(root: FileManager.default.homeDirectoryForCurrentUser, executableName: executableName, components)
+    }
+
+    private static func scopedProcess(
+        pid: Int,
+        parentPID: Int,
+        name: String,
+        path: String,
+        processGroupID: Int,
+        terminalProcessGroupID: Int,
+        workspaceID: UUID,
+        panelID: UUID
+    ) -> CmuxTopProcessInfo {
+        CmuxTopProcessInfo(
+            pid: pid,
+            parentPID: parentPID,
+            name: name,
+            path: path,
+            ttyDevice: 7,
+            cmuxWorkspaceID: workspaceID,
+            cmuxSurfaceID: panelID,
+            cmuxAttributionReason: "environment",
+            processGroupID: processGroupID,
+            terminalProcessGroupID: terminalProcessGroupID,
+            cpuPercent: 0,
+            residentBytes: 0,
+            virtualBytes: 0,
+            threadCount: 1
+        )
     }
 
     private static func localManagedExecutablePath(
