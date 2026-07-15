@@ -59,21 +59,24 @@ struct WorkspaceHubPaneView: View {
         }
     }
 
+    private static let cardShape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+
     private var paneCard: some View {
         ZStack(alignment: .bottomLeading) {
             paneThumbnail
                 .opacity(connectionStatus == .connected ? 1 : 0.3)
 
             LinearGradient(
-                colors: [.clear, .black.opacity(0.82)],
+                colors: [.clear, .black.opacity(0.28), .black.opacity(0.62)],
                 startPoint: .top,
                 endPoint: .bottom
             )
-            .frame(height: 54)
+            .frame(height: 64)
             .accessibilityHidden(true)
 
             paneCaption
-            .padding(8)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 10)
 
             if connectionStatus != .connected {
                 Text(connectionStatus.label)
@@ -83,24 +86,28 @@ struct WorkspaceHubPaneView: View {
                     .padding(.vertical, 4)
                     .background(.black.opacity(0.78), in: Capsule())
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .padding(8)
+                    .padding(10)
             }
         }
         .background(TerminalPalette.background)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(focusBorderColor, lineWidth: pane.focusState == .focused ? 3 : 1)
-        }
+        .clipShape(Self.cardShape)
         .overlay {
             if pane.focusState == .focused {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(.tint, lineWidth: 3)
+                Self.cardShape
+                    .strokeBorder(.tint, lineWidth: 2.5)
                     .accessibilityElement()
                     .accessibilityLabel(L10n.string("mobile.workspaceHub.focused", defaultValue: "Focused"))
                     .accessibilityIdentifier("MobileWorkspaceHubFocus-\(pane.id)")
+            } else {
+                Self.cardShape
+                    .strokeBorder(.white.opacity(0.14), lineWidth: 0.75)
             }
         }
+        .shadow(
+            color: pane.focusState == .focused ? Color.accentColor.opacity(0.35) : .black.opacity(0.16),
+            radius: pane.focusState == .focused ? 10 : 7,
+            y: 4
+        )
     }
 
     @ViewBuilder
@@ -143,12 +150,18 @@ struct WorkspaceHubPaneView: View {
     }
 
     private var captionTitle: some View {
-        Text(resolvedTitle)
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(.white)
-            .lineLimit(1)
-            .truncationMode(.tail)
-            .frame(maxWidth: .infinity, alignment: .leading)
+        HStack(spacing: 5) {
+            Image(systemName: pane.activeKind == .browser ? "safari" : "terminal")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.75))
+                .accessibilityHidden(true)
+            Text(resolvedTitle)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var captionMetadata: some View {
@@ -233,10 +246,6 @@ struct WorkspaceHubPaneView: View {
         case nil:
             nil
         }
-    }
-
-    private var focusBorderColor: Color {
-        pane.focusState == .focused ? .accentColor : .white.opacity(0.16)
     }
 
     private var previewTaskID: String {

@@ -17,11 +17,18 @@ public struct WorkspaceHubProjection: Equatable, Sendable {
     ///   - fallbackTerminals: The workspace's legacy flat terminal list.
     ///   - supportsLayout: Whether this workspace's owning Mac advertised layout support.
     ///   - chatCards: Client-side chat sessions used only for pane presence.
+    ///   - canvasAspect: When set (width / height of the rendering canvas), each
+    ///     split re-derives its axis from its own cell's aspect so the tree fills
+    ///     that canvas edge to edge: a cell wider than tall lays children side by
+    ///     side, a taller cell stacks them. Sibling order and ratios are the
+    ///     Mac's, so its left pane is consistently the phone's top pane. `nil`
+    ///     preserves the Mac's literal orientations (true-aspect miniature).
     public init(
         layout: MobileWorkspaceLayout?,
         fallbackTerminals: [MobileTerminalPreview],
         supportsLayout: Bool,
-        chatCards: [PaneChatCardSnapshot] = []
+        chatCards: [PaneChatCardSnapshot] = [],
+        canvasAspect: Double? = nil
     ) {
         guard supportsLayout, let layout else {
             panes = Self.fallbackPanes(from: fallbackTerminals)
@@ -33,7 +40,8 @@ public struct WorkspaceHubProjection: Equatable, Sendable {
             node: layout.root,
             frame: .unit,
             activePaneID: layout.activePaneID,
-            chatStatusesByTerminalID: chatStatusesByTerminalID
+            chatStatusesByTerminalID: chatStatusesByTerminalID,
+            canvasAspect: canvasAspect
         )
         isDegraded = false
     }
@@ -42,7 +50,8 @@ public struct WorkspaceHubProjection: Equatable, Sendable {
         node: MobileWorkspaceLayoutNode,
         frame: WorkspaceHubPaneFrame,
         activePaneID: String?,
-        chatStatusesByTerminalID: [String: MobileWorkspaceAgentStatus]
+        chatStatusesByTerminalID: [String: MobileWorkspaceAgentStatus],
+        canvasAspect: Double? = nil
     ) -> [WorkspaceHubPaneSnapshot] {
         switch node {
         case .pane(let pane):
@@ -64,19 +73,41 @@ public struct WorkspaceHubProjection: Equatable, Sendable {
             )]
         case .split(let split):
             let ratio = min(1, max(0, split.ratio))
-            let childFrames = splitFrames(frame: frame, orientation: split.orientation, ratio: ratio)
+            let childFrames = splitFrames(
+                frame: frame,
+                orientation: resolvedOrientation(split.orientation, frame: frame, canvasAspect: canvasAspect),
+                ratio: ratio
+            )
             return layoutPanes(
                 node: split.first,
                 frame: childFrames.first,
                 activePaneID: activePaneID,
-                chatStatusesByTerminalID: chatStatusesByTerminalID
+                chatStatusesByTerminalID: chatStatusesByTerminalID,
+                canvasAspect: canvasAspect
             ) + layoutPanes(
                 node: split.second,
                 frame: childFrames.second,
                 activePaneID: activePaneID,
-                chatStatusesByTerminalID: chatStatusesByTerminalID
+                chatStatusesByTerminalID: chatStatusesByTerminalID,
+                canvasAspect: canvasAspect
             )
         }
+    }
+
+    /// Picks the split axis for a cell. Without a canvas aspect the Mac's
+    /// orientation is authoritative; with one, the cell's rendered aspect is:
+    /// splitting along the longer side keeps both children as close to
+    /// screen-shaped as the tree allows, which is what makes the hub fill a
+    /// portrait phone instead of letterboxing the Mac's landscape geometry.
+    private static func resolvedOrientation(
+        _ authoritative: MobileWorkspaceSplitOrientation,
+        frame: WorkspaceHubPaneFrame,
+        canvasAspect: Double?
+    ) -> MobileWorkspaceSplitOrientation {
+        guard let canvasAspect, canvasAspect > 0 else { return authoritative }
+        let renderedWidth = frame.width * canvasAspect
+        let renderedHeight = frame.height
+        return renderedWidth > renderedHeight ? .horizontal : .vertical
     }
 
     private static func splitFrames(

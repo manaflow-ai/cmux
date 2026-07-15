@@ -36,6 +36,78 @@ import Testing
         #expect(projection.panes[2].focusState == .focused)
     }
 
+    @Test func portraitCanvasRestacksWideSplitsAndPreservesOrderAndRatios() throws {
+        let layout = MobileWorkspaceLayout(
+            workspaceID: "workspace",
+            root: .split(MobileWorkspaceSplit(
+                id: "root",
+                orientation: .horizontal,
+                ratio: 0.4,
+                first: paneNode(id: "left", tabID: "surface-left"),
+                second: .split(MobileWorkspaceSplit(
+                    id: "right-split",
+                    orientation: .vertical,
+                    ratio: 0.5,
+                    first: paneNode(id: "top-right", tabID: "surface-top"),
+                    second: paneNode(id: "bottom-right", tabID: "surface-bottom")
+                ))
+            )),
+            activePaneID: "left"
+        )
+
+        // A phone-shaped canvas (half as wide as tall): the root's side-by-side
+        // split re-stacks vertically with the Mac's 0.4 ratio, so the Mac's
+        // left pane becomes the top band. The inner cell (full width 0.5,
+        // height 0.6 => rendered aspect 0.5/0.6 < 1) stays a vertical stack.
+        let projection = WorkspaceHubProjection(
+            layout: layout,
+            fallbackTerminals: [],
+            supportsLayout: true,
+            canvasAspect: 0.5
+        )
+
+        #expect(projection.panes.map(\.id) == ["left", "top-right", "bottom-right"])
+        #expect(projection.panes[0].frame == WorkspaceHubPaneFrame(x: 0, y: 0, width: 1, height: 0.4))
+        #expect(projection.panes[1].frame == WorkspaceHubPaneFrame(x: 0, y: 0.4, width: 1, height: 0.3))
+        #expect(projection.panes[2].frame == WorkspaceHubPaneFrame(x: 0, y: 0.7, width: 1, height: 0.3))
+        #expect(projection.panes[0].focusState == .focused)
+    }
+
+    @Test func wideCellOnPortraitCanvasStillSplitsSideBySide() throws {
+        // A cell rendered wider than tall keeps children side by side even on a
+        // portrait canvas: a squat top band (height 0.2 of a 0.8-aspect canvas
+        // => rendered 0.8 wide x 0.2 tall) must not stack into slivers.
+        let layout = MobileWorkspaceLayout(
+            workspaceID: "workspace",
+            root: .split(MobileWorkspaceSplit(
+                id: "root",
+                orientation: .vertical,
+                ratio: 0.2,
+                first: .split(MobileWorkspaceSplit(
+                    id: "band",
+                    orientation: .horizontal,
+                    ratio: 0.5,
+                    first: paneNode(id: "band-left", tabID: "s1"),
+                    second: paneNode(id: "band-right", tabID: "s2")
+                )),
+                second: paneNode(id: "main", tabID: "s3")
+            )),
+            activePaneID: "main"
+        )
+
+        let projection = WorkspaceHubProjection(
+            layout: layout,
+            fallbackTerminals: [],
+            supportsLayout: true,
+            canvasAspect: 0.8
+        )
+
+        #expect(projection.panes.map(\.id) == ["band-left", "band-right", "main"])
+        #expect(projection.panes[0].frame == WorkspaceHubPaneFrame(x: 0, y: 0, width: 0.5, height: 0.2))
+        #expect(projection.panes[1].frame == WorkspaceHubPaneFrame(x: 0.5, y: 0, width: 0.5, height: 0.2))
+        #expect(projection.panes[2].frame == WorkspaceHubPaneFrame(x: 0, y: 0.2, width: 1, height: 0.8))
+    }
+
     @Test func laysOutDegenerateSinglePaneAtFullSize() throws {
         let projection = WorkspaceHubProjection(
             layout: MobileWorkspaceLayout(
