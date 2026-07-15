@@ -1,4 +1,6 @@
+import CmuxMobileRPC
 import CmuxMobileShellModel
+import Foundation
 import Testing
 @testable import CmuxMobileShell
 
@@ -291,5 +293,114 @@ import Testing
     #expect(
         store.workspaces.first(where: { $0.id == foregroundRowID })?.terminals.map(\.id.rawValue)
             == ["foreground-terminal"]
+    )
+}
+
+@MainActor
+@Test func secondaryTerminalCreatePreservesSiblingWorkspaceOrderStateAndFocusRevision() async throws {
+    let foregroundRouter = RoutingHostRouter()
+    let secondaryRouter = RoutingHostRouter()
+    let store = try await makeRoutingConnectedStore(
+        router: foregroundRouter,
+        connectionState: .connected
+    )
+    let secondaryMacID = "secondary-mac"
+    try installSecondaryClient(
+        on: store,
+        macDeviceID: secondaryMacID,
+        router: secondaryRouter
+    )
+
+    let foregroundWorkspace = MobileWorkspacePreview(
+        id: "foreground-workspace",
+        macDeviceID: "test-mac",
+        name: "Foreground",
+        terminals: []
+    )
+    let siblingWorkspace = MobileWorkspacePreview(
+        id: "secondary-sibling",
+        macDeviceID: secondaryMacID,
+        name: "Sibling",
+        terminals: [
+            MobileTerminalPreview(id: "sibling-a", name: "A", paneID: "sibling-pane", isFocused: true),
+            MobileTerminalPreview(id: "sibling-b", name: "B", paneID: "sibling-pane"),
+        ],
+        panes: [
+            MobilePanePreview(
+                id: "sibling-pane",
+                spatialIndex: 0,
+                isFocused: true,
+                terminalIDs: ["sibling-a", "sibling-b"]
+            ),
+        ],
+        focusedPaneID: "sibling-pane",
+        selectedTerminalID: "sibling-a"
+    )
+    let targetWorkspace = MobileWorkspacePreview(
+        id: .init(rawValue: RoutingHostRouter.workspaceID),
+        macDeviceID: secondaryMacID,
+        name: "Target",
+        terminals: [
+            MobileTerminalPreview(id: .init(rawValue: RoutingHostRouter.terminalA), name: "A"),
+            MobileTerminalPreview(id: .init(rawValue: RoutingHostRouter.terminalB), name: "B"),
+        ],
+        selectedTerminalID: .init(rawValue: RoutingHostRouter.terminalB)
+    )
+    store.setWorkspaceStatesForTesting(
+        [
+            "test-mac": MacWorkspaceState(
+                macDeviceID: "test-mac",
+                displayName: "Foreground Mac",
+                workspaces: [foregroundWorkspace],
+                status: .connected
+            ),
+            secondaryMacID: MacWorkspaceState(
+                macDeviceID: secondaryMacID,
+                displayName: "Secondary Mac",
+                workspaces: [siblingWorkspace, targetWorkspace],
+                status: .connected
+            ),
+        ],
+        foregroundMacDeviceID: "test-mac"
+    )
+    let siblingFocusEvent = try #require(MobileWorkspaceFocusEvent(payloadJSON: Data("""
+    {"kind":"focus","workspace_id":"secondary-sibling","focused_pane_id":"sibling-pane","selected_terminal_id":"sibling-b"}
+    """.utf8)))
+    store.applyWorkspaceFocusEvent(siblingFocusEvent, macID: secondaryMacID)
+    let siblingFocusRevision = try #require(
+        store.workspaceFocusEventRevisionsByMac[secondaryMacID]?[siblingWorkspace.id.rawValue]
+    )
+    let targetRowID = try #require(store.workspaces.first(where: {
+        $0.macDeviceID == secondaryMacID
+            && $0.rpcWorkspaceID.rawValue == RoutingHostRouter.workspaceID
+    })?.id)
+
+    let result = await withCheckedContinuation { continuation in
+        store.createTerminal(in: targetRowID) { result in
+            continuation.resume(returning: result)
+        }
+    }
+
+    guard case .success = result else {
+        Issue.record("Expected secondary terminal creation to succeed, got \(result)")
+        return
+    }
+    let secondaryState = try #require(store.workspacesByMac[secondaryMacID])
+    #expect(secondaryState.workspaces.map(\.rpcWorkspaceID.rawValue) == [
+        siblingWorkspace.id.rawValue,
+        RoutingHostRouter.workspaceID,
+    ])
+    let siblingAfter = try #require(secondaryState.workspaces.first)
+    #expect(siblingAfter.name == "Sibling")
+    #expect(siblingAfter.terminals.map(\.id.rawValue) == ["sibling-a", "sibling-b"])
+    #expect(siblingAfter.selectedTerminalID == "sibling-b")
+    #expect(siblingAfter.terminals.first(where: { $0.id == "sibling-b" })?.isFocused == true)
+    #expect(
+        store.workspaceFocusEventRevisionsByMac[secondaryMacID]?[siblingWorkspace.id.rawValue]
+            == siblingFocusRevision
+    )
+    #expect(
+        secondaryState.workspaces.last?.terminals.map(\.id.rawValue)
+            == [RoutingHostRouter.terminalA, RoutingHostRouter.terminalB, "terminal-route-created"]
     )
 }
