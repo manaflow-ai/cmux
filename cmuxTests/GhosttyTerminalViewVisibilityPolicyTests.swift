@@ -89,6 +89,7 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
             }
         }
 
+        #expect(completedValues == Array(0...64))
         await drain.value
         #expect(committedValues == [100, 101])
         #expect(completedValues == Array(0...64) + [100, 101])
@@ -108,6 +109,7 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
             committedValues.append(2)
         }
 
+        #expect(completionCount == 1)
         await drain.value
         #expect(committedValues == [2])
         #expect(completionCount == 1)
