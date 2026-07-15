@@ -94,6 +94,11 @@ struct ReflowStructureTests {
         )
     }
 
+    @Test func indentedBareURLContinuationJoinsWithoutWidth() {
+        let input = "https://example.com/resource\n  /path/continues/here\n"
+        #expect(reflow(input) == "https://example.com/resource/path/continues/here\n")
+    }
+
     @Test func adjacentBareURLsAreNotJoined() {
         let input = "https://a.example\nhttps://b.example\n"
         #expect(reflow(input) == input)
@@ -107,6 +112,7 @@ struct ReflowStructureTests {
     @Test func bareURLDoesNotAbsorbIndependentPathRow() {
         let input = "https://example.com\n/tmp/report\n"
         #expect(reflow(input) == input)
+        #expect(ReflowOptions.default.reflow(input, terminalWidth: 80) == input)
     }
 
     @Test func urlBehindListMarkerJoinsWithoutSpace() {

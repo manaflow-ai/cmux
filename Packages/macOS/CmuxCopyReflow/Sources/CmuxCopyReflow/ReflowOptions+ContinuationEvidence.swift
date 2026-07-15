@@ -1,6 +1,15 @@
 import Foundation
 
 extension ReflowOptions {
+    /// Whether a physical row ends within the configured tolerance of the grid edge.
+    func reachesTerminalWidth(lineLength: Int, terminalWidth: Int?) -> Bool {
+        guard let terminalWidth, terminalWidth > 0 else { return false }
+        let difference = lineLength >= terminalWidth
+            ? lineLength - terminalWidth
+            : terminalWidth - lineLength
+        return difference <= max(0, widthTolerance)
+    }
+
     /// True when the first non-whitespace character is a letter from a script
     /// without case. Uniformly indented, full-width paragraphs use this as the
     /// counterpart to the lowercase Latin continuation signal.

@@ -177,8 +177,16 @@ private extension ReflowOptions {
                         && (p.prevVisibleLength >= minWrapWidth || shortIndentContinuation)
                         && !endsIndentedBlock(p.prevContent)
                         && !structuredCode
-                    // s3: a wrapped bare URL continues as a spaceless path fragment.
-                    let s3 = p.isURL && startsURLContinuationToken(content)
+                    let previousLineReachedTerminalWidth = reachesTerminalWidth(
+                        lineLength: p.prevVisibleLength,
+                        terminalWidth: terminalWidth
+                    )
+                    // s3: a wrapped bare URL continues as a spaceless path
+                    //     fragment only with indentation or terminal-width
+                    //     evidence. A standalone following path stays separate.
+                    let s3 = p.isURL
+                        && startsURLContinuationToken(content)
+                        && (indentationDelta > 0 || previousLineReachedTerminalWidth)
                     // s4: mid-sentence continuation. The previous line is full
                     //     enough to have wrapped (prose-like, within widthTolerance
                     //     of the candidate paragraph's widest line) and this line
@@ -202,12 +210,8 @@ private extension ReflowOptions {
                             alreadyJoined: p.hasJoined
                         )
                         && !startsIndependentRecord(content, after: p.prevContent)
-                    let nonnegativeWidthTolerance = max(0, widthTolerance)
-                    let reachedTerminalWidth = terminalWidth.map { width in
-                        width >= minWrapWidth
-                            && p.prevVisibleLength >= width - nonnegativeWidthTolerance
-                            && p.prevVisibleLength <= width + nonnegativeWidthTolerance
-                    } ?? false
+                    let reachedTerminalWidth = (terminalWidth ?? 0) >= minWrapWidth
+                        && previousLineReachedTerminalWidth
                     let commandContinuation = startsCommandContinuationToken(content)
                         && reachedTerminalWidth
                         && !startsCommandContinuationToken(p.prevContent)
