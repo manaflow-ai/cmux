@@ -4637,7 +4637,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         timeoutNanoseconds: requestTimeoutNanoseconds
                     )
                     let response = try MobileSyncWorkspaceListResponse.decode(resultData)
-                    guard isConnectCurrent() else { return nil }
+                    guard isConnectCurrent() else { await client.disconnect(); return nil }
                     let hostStatusTimeoutNanoseconds: UInt64
                     if let connectionAttemptStartedAt {
                         hostStatusTimeoutNanoseconds = boundedPairingRequestTimeoutNanoseconds(
@@ -4748,7 +4748,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         lastError = MobileShellConnectionError.invalidResponse
                         continue routeLoop
                     }
-                    guard isConnectCurrent() else { return nil }
+                    guard isConnectCurrent() else { await client.disconnect(); return nil }
                     replaceRemoteClient(with: client)
                     activeMacInstanceTag = resolvedInstanceTag
                     // Reuse the authenticated status response that bound this
@@ -4827,12 +4827,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     return nil
                 } catch {
                     lastError = error
-                    guard isConnectCurrent() else { return nil }
+                    guard isConnectCurrent() else { await client.disconnect(); return nil }
                     mobileShellLog.error(
                         "pairing route failed kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private) scoped=\(workspaceListRequest.isScoped ? 1 : 0, privacy: .public): \(String(describing: error), privacy: .private)"
                     )
                 }
             }
+            await client.disconnect()
         }
 
         diagnosticLog?.record(DiagnosticEvent(.pairFail))

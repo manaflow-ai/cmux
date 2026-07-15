@@ -15,6 +15,33 @@ extension MobileShellComposite {
         supersedeAutomaticReconnectOwnership(clearPairingState: true)
     }
 
+    /// Supported routes for reconnecting an already-paired Mac.
+    ///
+    /// Unlike the legacy host/port helper, this preserves Iroh peer routes. Once
+    /// a supported Iroh route exists, it also pins the pairing to Iroh and drops
+    /// every raw host/port fallback. Otherwise an admission or revocation failure
+    /// could silently downgrade to a Stack-bearer Tailscale request and bypass the
+    /// Iroh device grant. Legacy Macs that never advertised Iroh keep their raw
+    /// private-network routes.
+    static func storedReconnectRoutes(
+        _ routes: [CmxAttachRoute],
+        supportedKinds: [CmxAttachTransportKind],
+        preferNonLoopback: Bool = false
+    ) -> [CmxAttachRoute] {
+        let supportedKinds = Set(supportedKinds)
+        var ordered = routes
+            .filter { supportedKinds.isEmpty || supportedKinds.contains($0.kind) }
+            .sorted(by: Self.routeSortsBefore)
+        if preferNonLoopback, ordered.contains(where: { $0.kind != .debugLoopback }) {
+            ordered.removeAll { $0.kind == .debugLoopback }
+        }
+        let irohRoutes = ordered.filter { $0.kind == .iroh }
+        if !irohRoutes.isEmpty {
+            return irohRoutes
+        }
+        return ordered
+    }
+
     /// The first reachable host/port route to a Mac, in priority order.
     ///
     /// When `preferNonLoopback` is set (physical devices), a real route
@@ -145,6 +172,13 @@ extension MobileShellComposite {
         preferNonLoopback: Bool = false
     ) -> [(host: String, port: Int, routeID: String)] {
         let supportedKinds = Set(supportedKinds)
+        let hasSupportedIrohRoute = routes.contains { route in
+            route.kind == .iroh
+                && (supportedKinds.isEmpty || supportedKinds.contains(.iroh))
+        }
+        guard !hasSupportedIrohRoute else {
+            return []
+        }
         let ordered = routes.sorted(by: Self.routeSortsBefore)
         var seenEndpoints = Set<String>()
 

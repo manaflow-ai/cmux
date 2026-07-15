@@ -126,13 +126,13 @@ extension MobileShellComposite {
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         let cachedMacs = pairedMacsForIdentityMatching
         storedMacReconnectTargetDeviceID = cachedMacs.first(where: {
-            $0.isActive && !Self.reconnectHostPortRoutes(
+            $0.isActive && !Self.storedReconnectRoutes(
                 $0.routes,
                 supportedKinds: supportedKinds,
                 preferNonLoopback: Self.prefersNonLoopbackRoutes
             ).isEmpty
         })?.macDeviceID ?? cachedMacs.first(where: {
-            !Self.reconnectHostPortRoutes(
+            !Self.storedReconnectRoutes(
                 $0.routes,
                 supportedKinds: supportedKinds,
                 preferNonLoopback: Self.prefersNonLoopbackRoutes

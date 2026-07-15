@@ -6,7 +6,7 @@ import Foundation
 
 @MainActor
 struct StoredMacReconnectOperation {
-    private typealias RouteCandidate = (route: CmxAttachRoute, host: String, port: Int)
+    private typealias RouteCandidate = (route: CmxAttachRoute, displayName: String)
     private typealias DialResult = (
         success: StoredMacReconnectSuccess?,
         error: MobileShellConnectionError?
@@ -149,15 +149,24 @@ struct StoredMacReconnectOperation {
     private func routes(
         for mac: MobilePairedMac
     ) -> [RouteCandidate] {
-        MobileShellComposite.reconnectHostPortRoutes(
+        MobileShellComposite.storedReconnectRoutes(
             mac.routes,
             supportedKinds: supportedKinds,
             preferNonLoopback: prefersNonLoopbackRoutes
-        ).compactMap { candidate in
-            mac.routes.first(where: { $0.id == candidate.routeID }).map {
-                (route: $0, host: candidate.host, port: candidate.port)
-            }
+        ).map { route in
+            (route: route, displayName: displayName(for: route, mac: mac))
         }
+    }
+
+    private func displayName(for route: CmxAttachRoute, mac: MobilePairedMac) -> String {
+        if let displayName = mac.displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !displayName.isEmpty {
+            return displayName
+        }
+        if case let .hostPort(host, _) = route.endpoint {
+            return host
+        }
+        return mac.macDeviceID
     }
 
     private func dial(
@@ -171,7 +180,7 @@ struct StoredMacReconnectOperation {
         let ticket: CmxAttachTicket
         do {
             ticket = try await attachTicket(
-                displayName: mac.displayName ?? candidate.host,
+                displayName: candidate.displayName,
                 sourceMacDeviceID: mac.macDeviceID,
                 route: route,
                 runtime: runtime
@@ -183,7 +192,7 @@ struct StoredMacReconnectOperation {
             ticket: ticket,
             sourceMac: mac,
             knownMacs: knownMacs,
-            routeDisplayName: candidate.host
+            routeDisplayName: candidate.displayName
         )
         guard ownsFence,
               !forgottenIDs.contains(authority.macDeviceID),
@@ -215,9 +224,13 @@ struct StoredMacReconnectOperation {
                 await client.disconnect()
                 return (nil, nil)
             }
+            let resolvedTicket = ticketAdoptingMacDeviceID(
+                ticket,
+                adoptingMacDeviceID: authority.macDeviceID
+            )
             if persistsPairedMac {
                 let accepted = await persistPairedMac(StoredMacReconnectPersistenceRequest(
-                    ticket: ticket,
+                    ticket: resolvedTicket,
                     sourceMacDeviceID: mac.macDeviceID,
                     storedAuthorityMac: authority.storedMac,
                     displayName: hostStatus?.macDisplayName,
@@ -230,14 +243,14 @@ struct StoredMacReconnectOperation {
                 }
             }
             let registryMac = authority.registryMac(
-                ticket: ticket,
+                ticket: resolvedTicket,
                 status: hostStatus,
                 scope: scope,
                 resolvedInstanceTag: resolvedAuthority.instanceTag
             )
             return (StoredMacReconnectSuccess(
                 client: client,
-                ticket: ticket,
+                ticket: resolvedTicket,
                 route: route,
                 workspaceResponse: workspaceResponse,
                 hostStatus: hostStatus,
@@ -261,6 +274,13 @@ struct StoredMacReconnectOperation {
         route: CmxAttachRoute,
         runtime: any MobileSyncRuntime
     ) async throws -> CmxAttachTicket {
+        if route.kind == .iroh {
+            return try storedMacTicket(
+                displayName: displayName,
+                macDeviceID: sourceMacDeviceID,
+                routes: [route]
+            )
+        }
         let probeTicket = try syntheticTicket(
             displayName: displayName,
             macDeviceID: "manual-ticket-request",
@@ -316,6 +336,48 @@ struct StoredMacReconnectOperation {
         )
     }
 
+    private func storedMacTicket(
+        displayName: String,
+        macDeviceID: String,
+        routes: [CmxAttachRoute]
+    ) throws -> CmxAttachTicket {
+        try CmxAttachTicket(
+            workspaceID: "stored-workspace",
+            terminalID: nil,
+            macDeviceID: macDeviceID,
+            macDisplayName: displayName,
+            macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
+            routes: routes
+        )
+    }
+
+    private func ticketAdoptingMacDeviceID(
+        _ ticket: CmxAttachTicket,
+        adoptingMacDeviceID macDeviceID: String
+    ) -> CmxAttachTicket {
+        let resolvedMacDeviceID = macDeviceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !resolvedMacDeviceID.isEmpty,
+              ticket.macDeviceID != resolvedMacDeviceID,
+              let adopted = try? CmxAttachTicket(
+                  version: ticket.version,
+                  workspaceID: ticket.workspaceID,
+                  terminalID: ticket.terminalID,
+                  macDeviceID: resolvedMacDeviceID,
+                  macDisplayName: ticket.macDisplayName,
+                  macUserEmail: ticket.macUserEmail,
+                  macUserID: ticket.macUserID,
+                  macPairingCompatibilityVersion: ticket.macPairingCompatibilityVersion,
+                  macAppVersion: ticket.macAppVersion,
+                  macAppBuild: ticket.macAppBuild,
+                  routes: ticket.routes,
+                  expiresAt: ticket.expiresAt,
+                  authToken: ticket.authToken
+              ) else {
+            return ticket
+        }
+        return adopted
+    }
+
     private func requestHostStatus(
         on client: MobileCoreRPCClient,
         runtime: any MobileSyncRuntime
@@ -335,6 +397,8 @@ struct StoredMacReconnectOperation {
         for mac: MobilePairedMac,
         triedRoutes: [RouteCandidate]
     ) async -> [RouteCandidate]? {
+        let localRoutes = routes(for: mac)
+        let requiresIroh = localRoutes.contains { $0.route.kind == .iroh }
         guard let deviceRegistry,
               ownsFence,
               !progress.wasForgotten(mac.macDeviceID),
@@ -357,19 +421,48 @@ struct StoredMacReconnectOperation {
               ) else {
             return nil
         }
+        let storedRoutes = MobileShellComposite.storedReconnectRoutes(
+            updatedRoutes,
+            supportedKinds: supportedKinds,
+            preferNonLoopback: prefersNonLoopbackRoutes
+        )
+        if storedRoutes.contains(where: { $0.kind == .iroh }) {
+            let refreshed = storedRoutes.map { route in
+                (route: route, displayName: displayName(for: route, mac: currentMac))
+            }
+            return sameCandidates(refreshed, triedRoutes) ? nil : refreshed
+        }
+        guard !requiresIroh else { return nil }
         let refreshed = MobileShellComposite.reconnectHostPortRoutes(
             updatedRoutes,
             supportedKinds: supportedKinds,
             preferNonLoopback: prefersNonLoopbackRoutes
-        ).compactMap { candidate in
+        ).compactMap { candidate -> RouteCandidate? in
             updatedRoutes.first(where: { $0.id == candidate.routeID }).map {
-                (route: $0, host: candidate.host, port: candidate.port)
+                (route: $0, displayName: displayName(for: $0, mac: currentMac))
             }
         }
         guard !refreshed.isEmpty else { return nil }
-        let tried = Set(triedRoutes.map { "\($0.host)\u{1F}\($0.port)" })
-        let fresh = Set(refreshed.map { "\($0.host)\u{1F}\($0.port)" })
-        return fresh == tried ? nil : refreshed
+        return sameCandidates(refreshed, triedRoutes) ? nil : refreshed
+    }
+
+    private func sameCandidates(
+        _ lhs: [RouteCandidate],
+        _ rhs: [RouteCandidate]
+    ) -> Bool {
+        Set(lhs.map(routeCandidateKey)) == Set(rhs.map(routeCandidateKey))
+    }
+
+    private func routeCandidateKey(_ candidate: RouteCandidate) -> String {
+        let route = candidate.route
+        switch route.endpoint {
+        case let .hostPort(host, port):
+            return "\(route.kind.rawValue):host:\(host)\u{1F}\(port)"
+        case let .peer(id, relayHint, directAddrs, relayURL):
+            return "\(route.kind.rawValue):peer:\(id)\u{1F}\(relayHint ?? "")\u{1F}\(directAddrs.joined(separator: ","))\u{1F}\(relayURL ?? "")"
+        case let .url(url):
+            return "\(route.kind.rawValue):url:\(url)"
+        }
     }
 
 }
