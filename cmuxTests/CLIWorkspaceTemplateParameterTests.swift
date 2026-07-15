@@ -1,9 +1,14 @@
 import Darwin
 import Foundation
 import XCTest
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
 
 extension CLINotifyProcessIntegrationRegressionTests {
-    func testWorkspaceCreateForwardsRepeatableTemplateParametersAndResolvesCommand() throws {
+    func testWorkspaceCreateForwardsRepeatableTemplateParametersAndPreservesCommandAsShellInput() throws {
         let socketPath = makeSocketPath("workspace-template")
         let listenerFD = try bindUnixSocket(at: socketPath)
         defer {
@@ -49,7 +54,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "workspace", "create",
                 "--name", "Dev {{ticket}}",
                 "--cwd", "{{root}}",
-                "--command", "api --ticket {{ticket}} --port {{apiPort}}",
+                "--command", "api\\t--ticket {{ticket}}\\n--port {{apiPort}}\\rready",
                 "--param", "ticket=FIRST",
                 "--param=ticket=BERKS-87",
                 "--param", "apiPort",
@@ -74,9 +79,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
             FileManager.default.currentDirectoryPath
         )
         XCTAssertEqual(
-            createParams["initial_command"] as? String,
-            "api --ticket {{ticket}} --port {{apiPort}}"
+            createParams["initial_input"] as? String,
+            "api\t--ticket {{ticket}}\r--port {{apiPort}}\rready\r"
         )
+        XCTAssertNil(createParams["initial_command"])
         XCTAssertEqual(createParams["focus"] as? Bool, false)
         XCTAssertEqual(
             createParams["template_params"] as? [String: String],
@@ -87,6 +93,37 @@ extension CLINotifyProcessIntegrationRegressionTests {
             ]
         )
         XCTAssertFalse(requests.contains { $0["method"] as? String == "surface.send_text" })
+    }
+
+    func testWorkspaceCreateResolvesTemplatedInitialShellInputWithoutProcessCommand() throws {
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        defer {
+            tabManager.tabs.forEach { $0.teardownAllPanels() }
+        }
+
+        let result = TerminalController.shared.v2WorkspaceCreate(
+            params: [
+                "initial_input": "echo {{ticket}}\r",
+                "template_params": ["ticket": "BERKS-87"],
+                "focus": false,
+                "eager_load_terminal": false,
+                "auto_refresh_metadata": false,
+            ],
+            tabManager: tabManager
+        )
+
+        guard case .ok(let rawPayload) = result,
+              let payload = rawPayload as? [String: Any],
+              let workspaceIdString = payload["workspace_id"] as? String,
+              let workspaceId = UUID(uuidString: workspaceIdString),
+              let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }),
+              let surface = workspace.focusedTerminalPanel?.surface else {
+            XCTFail("Expected workspace.create to create an initial terminal surface, got \(result)")
+            return
+        }
+
+        XCTAssertEqual(surface.initialInput, "echo BERKS-87\r")
+        XCTAssertNil(surface.debugInitialCommand())
     }
 
     func testLayoutOpenForwardsTemplateParametersWithoutFocus() throws {

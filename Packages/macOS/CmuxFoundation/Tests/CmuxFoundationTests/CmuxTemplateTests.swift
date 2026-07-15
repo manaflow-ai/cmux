@@ -65,6 +65,13 @@ import Testing
             == "{{bad.name}} {{1port}} {{literal}}")
     }
 
+    @Test func malformedPlaceholderDoesNotHideNestedValidPlaceholder() throws {
+        let resolver = CmuxTemplateResolver(explicitValues: ["ticket": "BERKS-87"])
+        let resolved = try resolver.resolve(CmuxTemplate("{{bad{{ticket}}"))
+
+        #expect(resolved == "{{badBERKS-87")
+    }
+
     @Test func parameterInputsPreserveOrderAndExposeEditableSuggestedValues() {
         let resolver = CmuxTemplateResolver(
             definitionValues: ["ticket": "CMUX-8059"],
