@@ -128,7 +128,7 @@ extension RemoteSessionCoordinator {
         let host = host
         runtimeStatePublicationTask = Task { [weak self] in
             guard !Task.isCancelled else { return }
-            await host.publishRuntimeState(document)
+            _ = await host.publishRuntimeState(document)
             guard !Task.isCancelled else { return }
             self?.queue.async { [weak self] in
                 guard let self,
@@ -151,7 +151,7 @@ extension RemoteSessionCoordinator {
         let host = host
         runtimeStatePublicationTask = Task { [weak self] in
             guard !Task.isCancelled else { return }
-            await host.publishRuntimeStateRevision(revision)
+            _ = await host.publishRuntimeStateRevision(revision)
             guard !Task.isCancelled else { return }
             self?.queue.async { [weak self] in
                 guard let self,

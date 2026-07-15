@@ -1,9 +1,16 @@
 import Foundation
 
+/// Owns the workspace's latest-wins runtime-state encoding chain.
+///
+/// Superseded tasks are cancelled but still awaited before replacement work
+/// starts, so cancellation cannot make synchronous `Encodable` work overlap.
+/// Closing a workspace detaches the current task with ``finishPendingWork(before:)``
+/// and runs the supplied finalizer only after that task has enqueued its result.
 @MainActor
 final class RemoteRuntimeStateEncodingPipeline {
     private var pendingTask: Task<Void, Never>?
 
+    /// Coalesces pending work while keeping synchronous operations serialized.
     @discardableResult
     func enqueue(_ operation: @escaping @Sendable () -> Void) -> Task<Void, Never> {
         let previousTask = pendingTask
@@ -19,6 +26,7 @@ final class RemoteRuntimeStateEncodingPipeline {
         return task
     }
 
+    /// Drains the current task before running a close-path finalizer.
     @discardableResult
     func finishPendingWork(
         before operation: @escaping @Sendable () -> Void

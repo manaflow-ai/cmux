@@ -30,14 +30,16 @@ public protocol RemoteSessionHosting: Sendable {
     /// terminal.
     func publishBootstrapRemoteTTY(_ ttyName: String)
     /// Publish a server-authoritative workspace document for cold restore.
-    func publishRuntimeState(_ document: RemoteRuntimeStateDocument) async
+    /// Returns whether the active host accepted the document.
+    func publishRuntimeState(_ document: RemoteRuntimeStateDocument) async -> Bool
     /// Publish the revision committed for a locally generated workspace snapshot.
-    func publishRuntimeStateRevision(_ revision: UInt64) async
+    /// Returns whether the active host accepted the revision.
+    func publishRuntimeStateRevision(_ revision: UInt64) async -> Bool
 }
 
 public extension RemoteSessionHosting {
     /// Default for hosts that do not project remote runtime state.
-    func publishRuntimeState(_: RemoteRuntimeStateDocument) async {}
+    func publishRuntimeState(_: RemoteRuntimeStateDocument) async -> Bool { true }
     /// Default for hosts that do not track remote runtime revisions.
-    func publishRuntimeStateRevision(_: UInt64) async {}
+    func publishRuntimeStateRevision(_: UInt64) async -> Bool { true }
 }

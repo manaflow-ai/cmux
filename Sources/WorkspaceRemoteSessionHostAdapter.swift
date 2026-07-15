@@ -90,30 +90,32 @@ final class WorkspaceRemoteSessionHostAdapter: RemoteSessionHosting, @unchecked 
         }
     }
 
-    func publishRuntimeState(_ document: RemoteRuntimeStateDocument) async {
+    func publishRuntimeState(_ document: RemoteRuntimeStateDocument) async -> Bool {
         guard !Task.isCancelled,
               document.schemaVersion == SessionSnapshotSchema.currentVersion,
               let snapshot = try? JSONDecoder().decode(
                   SessionWorkspaceSnapshot.self,
                   from: document.state
               ),
-              !Task.isCancelled else { return }
+              !Task.isCancelled else { return false }
         let controllerID = self.controllerID
-        await MainActor.run { [weak workspace] in
-            guard !Task.isCancelled else { return }
-            guard let workspace else { return }
-            guard workspace.activeRemoteSessionControllerID == controllerID else { return }
+        return await MainActor.run { [weak workspace] in
+            guard !Task.isCancelled else { return false }
+            guard let workspace else { return false }
+            guard workspace.activeRemoteSessionControllerID == controllerID else { return false }
             workspace.applyRemoteRuntimeState(document, snapshot: snapshot)
+            return true
         }
     }
 
-    func publishRuntimeStateRevision(_ revision: UInt64) async {
+    func publishRuntimeStateRevision(_ revision: UInt64) async -> Bool {
         let controllerID = self.controllerID
-        await MainActor.run { [weak workspace] in
-            guard !Task.isCancelled else { return }
-            guard let workspace else { return }
-            guard workspace.activeRemoteSessionControllerID == controllerID else { return }
+        return await MainActor.run { [weak workspace] in
+            guard !Task.isCancelled else { return false }
+            guard let workspace else { return false }
+            guard workspace.activeRemoteSessionControllerID == controllerID else { return false }
             workspace.acknowledgeRemoteRuntimeStateRevision(revision)
+            return true
         }
     }
 }

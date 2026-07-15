@@ -16,6 +16,13 @@ final class RuntimeStateRecordingHost: RemoteSessionHosting, @unchecked Sendable
     func publishPortsSnapshot(detectedByPanel _: [UUID: [Int]], detected _: [Int]) {}
     func publishHeartbeat(count _: Int, lastSeenAt _: Date?) {}
     func publishBootstrapRemoteTTY(_: String) {}
-    func publishRuntimeState(_ document: RemoteRuntimeStateDocument) async { documents.append(document) }
-    func publishRuntimeStateRevision(_ revision: UInt64) async { revisions.append(revision) }
+    func publishRuntimeState(_ document: RemoteRuntimeStateDocument) async -> Bool {
+        documents.append(document)
+        return true
+    }
+
+    func publishRuntimeStateRevision(_ revision: UInt64) async -> Bool {
+        revisions.append(revision)
+        return true
+    }
 }
