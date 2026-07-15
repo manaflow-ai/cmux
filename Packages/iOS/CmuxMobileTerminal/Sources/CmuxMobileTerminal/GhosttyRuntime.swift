@@ -467,8 +467,15 @@ private extension GhosttyRuntime {
     }
 
     func applyGhosttyiOSTheme(_ theme: TerminalTheme, to config: ghostty_config_t) {
+        // Each surface mirrors the Mac theme. Clear optional colors inherited
+        // from the phone config before applying the remote values.
+        let directives = """
+        bold-color =
+        cursor-text =
+        \(theme.ghosttyColorDirectives)
+        """
         loadInlineGhosttyiOSConfig(
-            theme.ghosttyColorDirectives,
+            directives,
             path: "/__cmux_ios__/theme.conf",
             into: config
         )
