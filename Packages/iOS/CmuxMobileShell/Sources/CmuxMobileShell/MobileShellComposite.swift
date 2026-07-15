@@ -37,7 +37,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static let maxTerminalReplayFailureRetries = 2
     static let maxTerminalReplayBarrierFollowUps = 1
 
-    enum TerminalOutputTransport: Equatable {
+    nonisolated enum TerminalOutputTransport: Equatable {
         case hybrid
         case renderGrid
         case rawBytes
@@ -6068,7 +6068,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     timeoutNanoseconds: Self.terminalOutputCapabilityTimeoutNanoseconds
                 )
                 guard let decoded = try? MobileHostStatusResponse.decode(data) else {
-                    guard let fallback = guardedFallbackTerminalOutputTransport(
+                    guard let fallback = Self.guardedFallbackTerminalOutputTransport(
                         learnedCapabilities: supportedHostCapabilities,
                         isCurrentClient: isCurrentRemoteConnection(
                             client: client,
@@ -6125,7 +6125,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // applying, run the dedicated recovery (it re-asks the token
             // provider and no-ops once an identity is adopted).
             scheduleHostIdentityAdoptionIfNeeded(client: client)
-            let transport = resolvedTerminalOutputTransport(
+            let transport = Self.resolvedTerminalOutputTransport(
                 capabilities: Set(payload.capabilities),
                 terminalFidelity: payload.terminalFidelity
             )
@@ -6134,7 +6134,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             upgradePendingColdTerminalReplaysIfNeeded()
             return transport
         } catch {
-            guard let fallback = guardedFallbackTerminalOutputTransport(
+            guard let fallback = Self.guardedFallbackTerminalOutputTransport(
                 learnedCapabilities: supportedHostCapabilities,
                 isCurrentClient: isCurrentRemoteConnection(
                     client: client,

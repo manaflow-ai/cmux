@@ -10,9 +10,13 @@ func transientStatusFailureRetainsVerifiedTransport() {
     ]
 
     #expect(
-        fallbackTerminalOutputTransport(learnedCapabilities: verifiedCapabilities) == .renderGrid
+        MobileShellComposite.fallbackTerminalOutputTransport(
+            learnedCapabilities: verifiedCapabilities
+        ) == .renderGrid
     )
-    #expect(fallbackTerminalOutputTransport(learnedCapabilities: []) == .rawBytes)
+    #expect(
+        MobileShellComposite.fallbackTerminalOutputTransport(learnedCapabilities: []) == .rawBytes
+    )
 }
 
 @Test("a stale connection cannot restore its learned transport")
@@ -22,11 +26,11 @@ func staleConnectionCannotSelectFallbackTransport() {
         "terminal.render_grid.verified_replay.v1"
     ]
 
-    #expect(guardedFallbackTerminalOutputTransport(
+    #expect(MobileShellComposite.guardedFallbackTerminalOutputTransport(
         learnedCapabilities: verifiedCapabilities,
         isCurrentClient: false
     ) == nil)
-    #expect(guardedFallbackTerminalOutputTransport(
+    #expect(MobileShellComposite.guardedFallbackTerminalOutputTransport(
         learnedCapabilities: verifiedCapabilities,
         isCurrentClient: true
     ) == .renderGrid)
@@ -40,7 +44,7 @@ func verifiedReplayRequiresBaseRenderGridCapability() {
     ]
 
     #expect(
-        resolvedTerminalOutputTransport(
+        MobileShellComposite.resolvedTerminalOutputTransport(
             capabilities: incompleteCapabilities,
             terminalFidelity: nil
         ) == .rawBytes
