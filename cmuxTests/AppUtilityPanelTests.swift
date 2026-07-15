@@ -26,22 +26,29 @@ struct AppUtilityPanelTests {
         #expect(panel.settingsNavigationRevision == 1)
     }
 
-    @Test func openOrFocusAppUtilitySurfaceReusesExistingKind() throws {
+    @Test func openOrFocusAppUtilityPaneCreatesRightSplitAndReusesExistingKind() throws {
         let workspace = Workspace()
         let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let originalPanelId = try #require(workspace.focusedPanelId)
 
-        let firstPanel = try #require(workspace.openOrFocusAppUtilitySurface(
-            inPane: paneId,
+        let firstPanel = try #require(workspace.openOrFocusAppUtilityPane(
+            fromPane: paneId,
             kind: .settings,
             focus: true
         ))
-        let secondPanel = try #require(workspace.openOrFocusAppUtilitySurface(
-            inPane: paneId,
+        let utilityPaneId = try #require(workspace.paneId(forPanelId: firstPanel.id))
+        let secondPanel = try #require(workspace.openOrFocusAppUtilityPane(
+            fromPane: paneId,
             kind: .settings,
             focus: true
         ))
 
         #expect(firstPanel.id == secondPanel.id)
+        #expect(utilityPaneId != paneId)
+        #expect(workspace.paneId(forPanelId: originalPanelId) == paneId)
+        #expect(workspace.bonsplitController.adjacentPane(to: paneId, direction: .right) == utilityPaneId)
+        #expect(workspace.bonsplitController.tabs(inPane: utilityPaneId).count == 1)
+        #expect(workspace.bonsplitController.allPaneIds.count == 2)
         #expect(
             workspace.panels.values.compactMap { $0 as? AppUtilityPanel }.filter { $0.kind == .settings }.count == 1
         )
@@ -52,23 +59,25 @@ struct AppUtilityPanelTests {
         )
     }
 
-    @Test func appUtilityKindsCreateIndependentSurfaces() throws {
+    @Test func appUtilityKindsCreateIndependentPanes() throws {
         let workspace = Workspace()
         let paneId = try #require(workspace.bonsplitController.focusedPaneId)
         let originalFocusedPanelId = try #require(workspace.focusedPanelId)
 
-        let settingsPanel = try #require(workspace.openOrFocusAppUtilitySurface(
-            inPane: paneId,
+        let settingsPanel = try #require(workspace.openOrFocusAppUtilityPane(
+            fromPane: paneId,
             kind: .settings,
             focus: false
         ))
-        let mobilePanel = try #require(workspace.openOrFocusAppUtilitySurface(
-            inPane: paneId,
+        let mobilePanel = try #require(workspace.openOrFocusAppUtilityPane(
+            fromPane: paneId,
             kind: .mobilePairing,
             focus: false
         ))
 
         #expect(settingsPanel.id != mobilePanel.id)
+        #expect(workspace.paneId(forPanelId: settingsPanel.id) != workspace.paneId(forPanelId: mobilePanel.id))
+        #expect(workspace.bonsplitController.allPaneIds.count == 3)
         #expect(settingsPanel.displayTitle == "Settings")
         #expect(mobilePanel.displayTitle == "Pair iPhone")
         #expect(workspace.focusedPanelId == originalFocusedPanelId)
