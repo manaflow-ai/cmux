@@ -92,4 +92,25 @@ import Testing
         #expect(retainedEvent?.method == "Fetch.requestPaused")
         #expect(droppedFrameAcknowledgementCount == 299)
     }
+
+    @Test func controlEventPressureClosesConnectionInsteadOfGrowingWithoutBound() async throws {
+        let transport = BufferedCDPWebSocketTransport()
+        let connection = CDPConnection(transport: transport)
+        await connection.connect()
+        let events = await connection.events(sessionID: "target")
+        let controlEvent = try JSONSerialization.data(withJSONObject: [
+            "method": "Page.frameStartedLoading",
+            "sessionId": "target",
+            "params": ["frameId": "main"],
+        ])
+
+        for _ in 0..<300 {
+            guard await connection.isOpen() else { break }
+            await transport.deliverAndWaitUntilConsumed(controlEvent)
+        }
+
+        _ = events
+        #expect(await connection.isOpen() == false)
+        await connection.close()
+    }
 }

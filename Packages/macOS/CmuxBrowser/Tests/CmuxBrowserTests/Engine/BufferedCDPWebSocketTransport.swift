@@ -58,6 +58,11 @@ actor BufferedCDPWebSocketTransport: CDPWebSocketTransport {
     private func finish() {
         receiveContinuation?.resume(throwing: CancellationError())
         receiveContinuation = nil
+        let waiters = receiveCountWaiters
+        receiveCountWaiters.removeAll()
+        for waiter in waiters {
+            waiter.continuation.resume()
+        }
     }
 
     private func resumeReceiveCountWaiters() {
