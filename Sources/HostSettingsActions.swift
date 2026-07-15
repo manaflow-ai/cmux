@@ -324,6 +324,10 @@ final class HostSettingsActions: SettingsHostActions {
         }
     }
 
+    func irohSettingsController() -> (any CmxIrohSettingsControlling)? {
+        MobileHostIrohRuntime.shared
+    }
+
     /// Maps the host's ``MobileHostServiceStatus`` into the settings package's
     /// Foundation-only ``MobilePairingStatusSnapshot``. Static so the status
     /// stream's forwarding task does not retain this host bridge.

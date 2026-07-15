@@ -30,8 +30,16 @@ extension TerminalSurface {
         surfaceConfig.platform = ghostty_platform_u(macos: ghostty_platform_macos_s(
             nsview: Unmanaged.passUnretained(view as NSView).toOpaque()
         ))
-        let callbackContext = Unmanaged.passRetained(GhosttySurfaceCallbackContext(surfaceHost: view, surfaceController: self))
+        let context = GhosttySurfaceCallbackContext(surfaceHost: view, surfaceController: self)
+        context.updateRendererProfilingState(
+            visible: desiredOcclusionVisible,
+            focused: desiredFocusState
+        )
+        let callbackContext = Unmanaged.passRetained(context)
         surfaceConfig.userdata = callbackContext.toOpaque()
+        if context.rendererEventProfilingRequested {
+            surfaceConfig.renderer_event_cb = terminalRendererEventCallback
+        }
         surfaceCallbackContext?.release()
         surfaceCallbackContext = callbackContext
         surfaceConfig.scale_factor = scaleFactors.layer
@@ -150,7 +158,12 @@ extension TerminalSurface {
             spawnPolicy.computerUseEnabled ? "0" : "1"
         )
 
-        if let cliBinPath = Bundle.main.resourceURL?.appendingPathComponent("bin").path {
+        if let cliBinURL = Bundle.main.resourceURL?.appendingPathComponent("bin") {
+            let cliBinPath = cliBinURL.path
+            let ghosttyCLIPath = cliBinURL.appendingPathComponent("ghostty").path
+            if FileManager.default.isExecutableFile(atPath: ghosttyCLIPath) {
+                setManagedEnvironmentValue("GHOSTTY_BIN", ghosttyCLIPath)
+            }
             let currentPath = env["PATH"]
                 ?? getenv("PATH").map { String(cString: $0) }
                 ?? ProcessInfo.processInfo.environment["PATH"]
@@ -285,14 +298,22 @@ extension TerminalSurface {
         envVars: inout [ghostty_env_var_s]
     ) -> ghostty_surface_t? {
         if envVars.isEmpty {
-            return ghostty_surface_new(app, &surfaceConfig)
+            return GhosttyRuntimeCInterop.createSurface(
+                app: app,
+                config: &surfaceConfig,
+                scrollbackLimitBytes: TerminalScrollbackBudget.cmuxDefault.maxBytesPerSurface
+            )
         }
 
         let envVarsCount = envVars.count
         return envVars.withUnsafeMutableBufferPointer { buffer in
             surfaceConfig.env_vars = buffer.baseAddress
             surfaceConfig.env_var_count = envVarsCount
-            return ghostty_surface_new(app, &surfaceConfig)
+            return GhosttyRuntimeCInterop.createSurface(
+                app: app,
+                config: &surfaceConfig,
+                scrollbackLimitBytes: TerminalScrollbackBudget.cmuxDefault.maxBytesPerSurface
+            )
         }
     }
 }

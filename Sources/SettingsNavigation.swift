@@ -7,6 +7,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     case textBox
     case sleepyMode
     case mobile
+    case networking
     case sidebarAppearance
     case customSidebars
     case betaFeatures
@@ -36,6 +37,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return String(localized: "settings.section.sleepyMode", defaultValue: "Sleepy Mode")
         case .mobile:
             return String(localized: "settings.section.mobile", defaultValue: "Mobile")
+        case .networking:
+            return String(localized: "settings.section.networking", defaultValue: "Networking")
         case .workspaceColors:
             return String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors")
         case .sidebarAppearance:
@@ -77,6 +80,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "moon.zzz"
         case .mobile:
             return "iphone"
+        case .networking:
+            return "network"
         case .workspaceColors:
             return "paintpalette"
         case .sidebarAppearance:
@@ -104,6 +109,48 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         }
     }
 
+    var searchText: String {
+        switch self {
+        case .account:
+            return "\(title) sign in team sync"
+        case .app:
+            return "\(title) appearance language workspace notifications menu bar telemetry default terminal"
+        case .terminal:
+            return "\(title) scrollbar auto resume restore reopen relaunch quit sessions agents claude codex opencode rovodev hibernation idle suspend commands approvals prefixes toggle"
+        case .textBox:
+            return "\(title) textbox text box rich input prompt beta new terminal workspace split tab focus height"
+        case .sleepyMode:
+            return "\(title) sleepy mode screensaver caffeinate keep awake lock touch id battery wifi clock mascot theme glow pixel"
+        case .mobile:
+            return "\(title) ios iphone ipad mobile pairing local network sync"
+        case .networking:
+            return "\(title) iroh relay server private network tailscale vpn direct peer custom provider region"
+        case .workspaceColors:
+            return "\(title) palette tabs"
+        case .sidebarAppearance:
+            return "\(title) sidebar details branches badges material terminal background"
+        case .customSidebars:
+            return "\(title) custom sidebars vibe swift json interpreted renderer in-process remote worker isolated"
+        case .betaFeatures:
+            return "\(title) beta experimental unstable feed dock right sidebar"
+        case .automation:
+            return "\(title) socket integrations hooks ports claude cursor gemini kiro naming auto naming workspace tabs"
+        case .computerUse:
+            return "\(title) computer use cua accessibility screen recording permissions cursor mcp agents driver menu bar onboarding"
+        case .browser:
+            return "\(title) search engine links history theme"
+        case .browserImport:
+            return "\(title) browser import data bookmarks history cookies"
+        case .globalHotkey:
+            return "\(title) system wide shortcut"
+        case .keyboardShortcuts:
+            return "\(title) keybindings commands chords"
+        case .settingsJSON:
+            return "\(title) config file preferences editor documentation schema jsonc reload"
+        case .reset:
+            return "\(title) defaults"
+        }
+    }
 }
 
 enum SettingsNavigationRequest {
@@ -378,6 +425,7 @@ enum SettingsSearchIndex {
         setting(.customSidebars, "renderer", String(localized: "settings.customSidebars.renderer", defaultValue: "Renderer"), "renderer in-process in app remote worker isolated process hover focus typing input"),
         setting(.betaFeatures, "feed", String(localized: "settings.betaFeatures.feed", defaultValue: "Feed"), "feed right sidebar agent decisions permissions questions"),
         setting(.betaFeatures, "dock", String(localized: "settings.betaFeatures.dock", defaultValue: "Dock"), "dock right sidebar terminal controls tui"),
+        setting(.betaFeatures, "workspace-todos-checklist-style", String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle", defaultValue: "Checklist Style"), "workspace todo todos task status checklist popover inline presentation style beta"),
         setting(.automation, "socket-mode", String(localized: "settings.automation.socketMode", defaultValue: "Socket Control Mode"), "unix socket api access password auth"),
         setting(.automation, "socket-password", String(localized: "settings.automation.socketPassword", defaultValue: "Socket Password"), "socket auth credential"),
         setting(.automation, "claude-code", String(localized: "settings.automation.claudeCode", defaultValue: "Claude Code Integration"), "agent hooks notifications"),
@@ -484,6 +532,7 @@ enum SettingsSearchIndex {
         "sidebar.hideAllDetails": settingID(for: .sidebarAppearance, idSuffix: "hide-sidebar-details"),
         "sidebar.wrapWorkspaceTitles": settingID(for: .sidebarAppearance, idSuffix: "wrap-workspace-titles"),
         "sidebar.showWorkspaceDescription": settingID(for: .sidebarAppearance, idSuffix: "show-workspace-description"),
+        "sidebar.beta.workspaceTodos.checklistStyle": settingID(for: .betaFeatures, idSuffix: "workspace-todos-checklist-style"),
         "sidebar.branchLayout": settingID(for: .sidebarAppearance, idSuffix: "sidebar-branch-layout"),
         "sidebar.stackBranchDirectory": settingID(for: .sidebarAppearance, idSuffix: "stack-branch-directory"),
         "sidebar.pathLastSegmentOnly": settingID(for: .sidebarAppearance, idSuffix: "path-last-segment-only"),
