@@ -170,4 +170,18 @@ struct ChromiumBrowserEngineSessionTests {
             session.close()
         }
     }
+
+    @Test
+    func preservesJavaScriptExceptionTextWithoutExposingProtocolErrors() {
+        let exceptionText = "ReferenceError: missingValue is not defined"
+
+        #expect(
+            BrowserEngineSessionError.chromiumJavaScriptEvaluation(exceptionText)
+                .localizedDescription == exceptionText
+        )
+        #expect(
+            BrowserEngineSessionError.chromiumProtocol("secret protocol detail")
+                .localizedDescription != "secret protocol detail"
+        )
+    }
 }
