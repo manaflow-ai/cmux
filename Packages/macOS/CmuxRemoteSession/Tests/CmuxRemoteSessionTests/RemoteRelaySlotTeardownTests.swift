@@ -239,6 +239,53 @@ struct RemoteRelaySlotTeardownTests {
         #expect(fileManager.fileExists(atPath: shellDirectory.path))
     }
 
+    @Test(arguments: MalformedSlotCleanupScope.allCases)
+    func malformedConfiguredSlotFailsClosed(_ cleanupScope: MalformedSlotCleanupScope) throws {
+        let fileManager = FileManager.default
+        let home = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-relay-malformed-slot-\(cleanupScope.rawValue)-\(UUID().uuidString)")
+        let relayDirectory = home.appendingPathComponent(".cmux/relay")
+        let shellDirectory = relayDirectory.appendingPathComponent("64013.shell")
+        let socketAddressURL = home.appendingPathComponent(".cmux/socket_addr")
+        defer { try? fileManager.removeItem(at: home) }
+
+        try fileManager.createDirectory(at: shellDirectory, withIntermediateDirectories: true)
+        try "127.0.0.1:64013".write(to: socketAddressURL, atomically: true, encoding: .utf8)
+        for suffix in ["auth", "daemon_path", "tty"] {
+            try suffix.write(
+                to: relayDirectory.appendingPathComponent("64013.\(suffix)"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+
+        let script = switch cleanupScope {
+        case .persistentSlot:
+            RemoteSessionCoordinator.remoteRelayMetadataCleanupScript(
+                relayPort: 64013,
+                persistentDaemonSlot: "../malformed-slot"
+            )
+        case .transport:
+            RemoteSessionCoordinator.remoteRelayTransportMetadataCleanupScript(
+                relayPort: 64013,
+                persistentDaemonSlot: "../malformed-slot"
+            )
+        }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", script]
+        process.environment = ["HOME": home.path, "PATH": "/usr/bin:/bin"]
+        try process.run()
+        process.waitUntilExit()
+
+        #expect(process.terminationStatus != 0)
+        #expect(fileManager.fileExists(atPath: socketAddressURL.path))
+        for suffix in ["auth", "daemon_path", "tty"] {
+            #expect(fileManager.fileExists(atPath: relayDirectory.appendingPathComponent("64013.\(suffix)").path))
+        }
+        #expect(fileManager.fileExists(atPath: shellDirectory.path))
+    }
+
     @Test
     func coordinatorStopUsesFinalPersistentSlotTeardown() async throws {
         let runner = SpyProcessRunner()
@@ -354,5 +401,10 @@ struct RemoteRelaySlotTeardownTests {
                 suspendedDetailFormat: "%@"
             )
         )
+    }
+
+    enum MalformedSlotCleanupScope: String, CaseIterable, Sendable {
+        case persistentSlot
+        case transport
     }
 }
