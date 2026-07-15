@@ -4,15 +4,20 @@ import Foundation
 
 /// Shared parameter collection for every interactive workspace-template launch.
 @MainActor
-enum WorkspaceTemplateParameterPrompt {
+struct WorkspaceTemplateParameterPrompt {
+    private let processEnvironment: [String: String]
+
+    init(processEnvironment: [String: String]) {
+        self.processEnvironment = processEnvironment
+    }
+
     /// Requests editable values when a definition explicitly enables templates.
     /// The completion receives `nil` when the user cancels.
     @discardableResult
-    static func requestParameters(
+    func requestParameters(
         for definition: CmuxWorkspaceDefinition,
         displayName: String,
         presentingWindow: NSWindow?,
-        processEnvironment: [String: String] = ProcessInfo.processInfo.environment,
         completion: @escaping ([String: String]?) -> Void
     ) -> Bool {
         let inputs = definition.templateParameterInputs(
@@ -69,7 +74,7 @@ enum WorkspaceTemplateParameterPrompt {
         return true
     }
 
-    private static func makeFields(
+    private func makeFields(
         _ inputs: [CmuxTemplateParameterInput]
     ) -> [String: NSTextField] {
         Dictionary(uniqueKeysWithValues: inputs.map { input in
@@ -89,7 +94,7 @@ enum WorkspaceTemplateParameterPrompt {
         })
     }
 
-    private static func makeAccessoryView(
+    private func makeAccessoryView(
         inputs: [CmuxTemplateParameterInput],
         fields: [String: NSTextField]
     ) -> NSView {

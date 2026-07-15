@@ -24,11 +24,12 @@ struct CmuxConfigExecutor {
                 processEnvironment: processEnvironment
             )
             if !parameterInputs.isEmpty {
-                return WorkspaceTemplateParameterPrompt.requestParameters(
+                return WorkspaceTemplateParameterPrompt(
+                    processEnvironment: processEnvironment
+                ).requestParameters(
                     for: workspace,
                     displayName: displayTitle ?? command.name,
-                    presentingWindow: presentingWindow,
-                    processEnvironment: processEnvironment
+                    presentingWindow: presentingWindow
                 ) { parameters in
                     guard let parameters else { return }
                     do {

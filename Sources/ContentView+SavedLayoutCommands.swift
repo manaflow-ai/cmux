@@ -58,9 +58,8 @@ extension ContentView {
                         NSSound.beep()
                         return
                     }
-                    _ = SavedLayoutLauncher.open(
+                    _ = tabManager.openSavedLayoutInteractively(
                         resolvedLayout,
-                        tabManager: tabManager,
                         cwdOverride: nil,
                         focus: true,
                         presentingWindow: NSApp.keyWindow ?? NSApp.mainWindow

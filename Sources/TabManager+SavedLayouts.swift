@@ -46,29 +46,26 @@ extension TabManager {
         }
         return workspace
     }
-}
 
-/// Shared interactive launch path for saved layouts from menus and commands.
-@MainActor
-enum SavedLayoutLauncher {
+    /// Shared interactive launch path for saved layouts from menus and commands.
     @discardableResult
-    static func open(
+    func openSavedLayoutInteractively(
         _ layout: CmuxSavedLayout,
-        tabManager: TabManager,
         cwdOverride: String?,
         focus: Bool,
         presentingWindow: NSWindow?
     ) -> Bool {
         let processEnvironment = ProcessInfo.processInfo.environment
-        return WorkspaceTemplateParameterPrompt.requestParameters(
+        return WorkspaceTemplateParameterPrompt(
+            processEnvironment: processEnvironment
+        ).requestParameters(
             for: layout.workspace,
             displayName: layout.name,
-            presentingWindow: presentingWindow,
-            processEnvironment: processEnvironment
+            presentingWindow: presentingWindow
         ) { parameters in
             guard let parameters else { return }
             do {
-                _ = try tabManager.openWorkspace(
+                _ = try self.openWorkspace(
                     fromSavedLayout: layout,
                     cwdOverride: cwdOverride,
                     templateParameters: parameters,

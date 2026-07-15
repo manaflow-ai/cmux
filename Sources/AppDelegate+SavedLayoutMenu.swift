@@ -64,9 +64,8 @@ extension AppDelegate {
                 NSSound.beep()
                 return
             }
-            _ = SavedLayoutLauncher.open(
+            _ = context.tabManager.openSavedLayoutInteractively(
                 layout,
-                tabManager: context.tabManager,
                 cwdOverride: nil,
                 focus: true,
                 presentingWindow: window
