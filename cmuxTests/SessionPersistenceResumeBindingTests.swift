@@ -15,7 +15,10 @@ import Testing
         let fullLoadCalls = OSAllocatedUnfairLock(initialState: 0)
 
         _ = await ProcessDetectedResumeIndexes.loadForAutosave(
-            cachedRestorableAgentIndex: .empty,
+            cachedAgentIndex: ProcessDetectedResumeIndexes.AutosaveAgentIndexCache(
+                restorableAgentIndex: .empty,
+                processDetectedAgentFingerprint: .empty
+            ),
             processSnapshotProvider: {
                 processSnapshotCalls.withLock { $0 += 1 }
                 return CmuxTopProcessSnapshot(
@@ -24,6 +27,7 @@ import Testing
                     includesProcessDetails: true
                 )
             },
+            processDetectedAgentFingerprintProvider: { _ in .empty },
             fullLoad: {
                 fullLoadCalls.withLock { $0 += 1 }
                 return ProcessDetectedResumeIndexes(
@@ -42,7 +46,7 @@ import Testing
         let fullLoadCalls = OSAllocatedUnfairLock(initialState: 0)
 
         _ = await ProcessDetectedResumeIndexes.loadForAutosave(
-            cachedRestorableAgentIndex: nil,
+            cachedAgentIndex: nil,
             processSnapshotProvider: {
                 processSnapshotCalls.withLock { $0 += 1 }
                 return CmuxTopProcessSnapshot(
@@ -61,6 +65,62 @@ import Testing
         )
 
         #expect(processSnapshotCalls.withLock { $0 } == 0)
+        #expect(fullLoadCalls.withLock { $0 } == 1)
+    }
+
+    @Test func autosaveResumeIndexesReloadWhenProcessDetectedAgentsChange() async {
+        let processSnapshotCalls = OSAllocatedUnfairLock(initialState: 0)
+        let fingerprintCalls = OSAllocatedUnfairLock(initialState: 0)
+        let fullLoadCalls = OSAllocatedUnfairLock(initialState: 0)
+        let panelKey = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: UUID(),
+            panelId: UUID()
+        )
+        let changedFingerprint = ProcessDetectedResumeIndexes.processDetectedAgentFingerprint(
+            from: [
+                panelKey: (
+                    snapshot: SessionRestorableAgentSnapshot(
+                        kind: .codex,
+                        sessionId: "new-live-session",
+                        workingDirectory: "/tmp/new-live-session",
+                        launchCommand: nil
+                    ),
+                    updatedAt: 1,
+                    processIDs: [42],
+                    agentProcessIDs: [42],
+                    sessionIDSource: .explicit
+                )
+            ]
+        )
+
+        _ = await ProcessDetectedResumeIndexes.loadForAutosave(
+            cachedAgentIndex: ProcessDetectedResumeIndexes.AutosaveAgentIndexCache(
+                restorableAgentIndex: .empty,
+                processDetectedAgentFingerprint: .empty
+            ),
+            processSnapshotProvider: {
+                processSnapshotCalls.withLock { $0 += 1 }
+                return CmuxTopProcessSnapshot(
+                    processes: [],
+                    sampledAt: Date(timeIntervalSince1970: 1),
+                    includesProcessDetails: true
+                )
+            },
+            processDetectedAgentFingerprintProvider: { _ in
+                fingerprintCalls.withLock { $0 += 1 }
+                return changedFingerprint
+            },
+            fullLoad: {
+                fullLoadCalls.withLock { $0 += 1 }
+                return ProcessDetectedResumeIndexes(
+                    restorableAgentIndex: .empty,
+                    surfaceResumeBindingIndex: .empty
+                )
+            }
+        )
+
+        #expect(processSnapshotCalls.withLock { $0 } == 1)
+        #expect(fingerprintCalls.withLock { $0 } == 1)
         #expect(fullLoadCalls.withLock { $0 } == 1)
     }
 
