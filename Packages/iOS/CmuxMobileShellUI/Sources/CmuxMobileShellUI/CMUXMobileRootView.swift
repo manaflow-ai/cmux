@@ -70,6 +70,14 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
+    private var shouldShowPanesTabsPreview: Bool {
+        #if os(iOS) && DEBUG
+        return UITestConfig.panesPreviewEnabled
+        #else
+        return false
+        #endif
+    }
+
     private var shouldShowWorkspaceListLayoutPreview: Bool {
         #if os(iOS) && DEBUG
         return UITestConfig.workspaceListLayoutPreviewEnabled
@@ -97,6 +105,14 @@ struct CMUXMobileRootView: View {
     @ViewBuilder private var terminalLayoutPreview: some View {
         #if os(iOS) && DEBUG
         TerminalLayoutPreviewView()
+        #else
+        EmptyView()
+        #endif
+    }
+
+    @ViewBuilder private var panesTabsPreview: some View {
+        #if os(iOS) && DEBUG
+        PanesTabsPreviewHost()
         #else
         EmptyView()
         #endif
@@ -210,6 +226,8 @@ struct CMUXMobileRootView: View {
             agentChatDemoPreview
         } else if shouldShowTerminalLayoutPreview {
             terminalLayoutPreview
+        } else if shouldShowPanesTabsPreview {
+            panesTabsPreview
         } else if shouldShowWorkspaceListLayoutPreview {
             workspaceListLayoutPreview
         } else if shouldShowStreamingChatPreview {

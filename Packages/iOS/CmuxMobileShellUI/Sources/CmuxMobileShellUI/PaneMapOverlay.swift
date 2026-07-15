@@ -77,6 +77,7 @@ struct PaneMapOverlay: View {
             }
             .buttonStyle(.plain)
             .disabled(isRefreshing)
+            .accessibilityLabel(L10n.string("mobile.paneMap.refresh", defaultValue: "Refresh"))
             .accessibilityIdentifier("MobilePaneMapRefresh")
 
             Button(action: dismiss) {
@@ -88,6 +89,7 @@ struct PaneMapOverlay: View {
                     .mobileGlassPill()
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(L10n.string("mobile.paneMap.done", defaultValue: "Done"))
             .accessibilityIdentifier("MobilePaneMapDone")
         }
         .padding(16)

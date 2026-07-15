@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxMobileShellModel
+import CmuxMobileSupport
 import SwiftUI
 
 /// One proportional pane tile rendered from immutable layout and preview snapshots.
@@ -102,6 +103,7 @@ struct PaneMapTileView: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel(surface.title)
                     .accessibilityAddTraits(surface.id == selectedSurface?.id ? .isSelected : [])
+                    .accessibilityIdentifier("MobilePaneMapTab-\(surface.id)")
                 }
             }
             .padding(.horizontal, 6)
@@ -113,12 +115,23 @@ struct PaneMapTileView: View {
     @ViewBuilder
     private func bodyContent(for surface: MobilePaneSurface) -> some View {
         if surface.type.isTerminal {
-            terminalPreview(surfaceID: surface.id)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    jumpToTerminal(surface.id)
-                }
-                .accessibilityAddTraits(.isButton)
+            Button {
+                jumpToTerminal(surface.id)
+            } label: {
+                terminalPreview(surfaceID: surface.id)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(
+                String.localizedStringWithFormat(
+                    L10n.string(
+                        "mobile.surfaceDeck.chip.terminal",
+                        defaultValue: "%@, terminal"
+                    ),
+                    surface.title
+                )
+            )
+            .accessibilityIdentifier("MobilePaneMapTile-\(surface.id)")
         } else {
             VStack(spacing: 5) {
                 Image(systemName: systemImage(for: surface.type))
