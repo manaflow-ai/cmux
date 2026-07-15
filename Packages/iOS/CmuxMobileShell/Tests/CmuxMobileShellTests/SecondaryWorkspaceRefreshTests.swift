@@ -314,6 +314,85 @@ import Testing
     #expect(!store.terminalReorderGate.canMutate(workspaceID: refreshedWorkspaceID))
 }
 
+@MainActor
+@Test func secondaryCreateInvalidatesFullRefreshSuspendedAfterItsFetch() async throws {
+    let router = RoutingHostRouter()
+    let macID = "secondary-create-fence"
+    let route = try CmxAttachRoute(
+        id: "debug_loopback_secondary_create_fence",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56587)
+    )
+    let pairedMacStore = DelayedTeamPairedMacStore(
+        recordsByTeam: [
+            "team-a": [
+                MobilePairedMac(
+                    macDeviceID: macID,
+                    displayName: "Secondary Mac",
+                    routes: [route],
+                    createdAt: Date(timeIntervalSince1970: 1),
+                    lastSeenAt: Date(timeIntervalSince1970: 2),
+                    isActive: false,
+                    stackUserID: "user-1",
+                    teamID: "team-a"
+                ),
+            ],
+        ],
+        blockedTeams: ["team-a"]
+    )
+    let store = makeRoutingMultiMacStore(router: router, pairedMacStore: pairedMacStore)
+    try installSecondaryClient(on: store, macDeviceID: macID, router: router)
+    let workspace = MobileWorkspacePreview(
+        id: .init(rawValue: RoutingHostRouter.workspaceID),
+        macDeviceID: macID,
+        name: "Routing Workspace",
+        terminals: [
+            MobileTerminalPreview(id: .init(rawValue: RoutingHostRouter.terminalA), name: "A"),
+            MobileTerminalPreview(id: .init(rawValue: RoutingHostRouter.terminalB), name: "B"),
+        ],
+        selectedTerminalID: .init(rawValue: RoutingHostRouter.terminalB)
+    )
+    store.setWorkspaceStatesForTesting(
+        [macID: MacWorkspaceState(
+            macDeviceID: macID,
+            displayName: "Secondary Mac",
+            workspaces: [workspace],
+            status: .connected
+        )],
+        foregroundMacDeviceID: "foreground-mac"
+    )
+    let rowID = try #require(store.workspaces.first?.id)
+    let subscription = try #require(store.secondaryMacSubscriptions[macID])
+
+    let olderRefresh = try #require(store.scheduleSecondaryRefresh(
+        macID: macID,
+        client: subscription.client,
+        displayName: "Secondary Mac"
+    ))
+    // The host has already encoded the pre-create hierarchy. Park the refresh in
+    // its post-fetch authority validation, where the old generation guard used to
+    // remain unchanged across a successful scoped create.
+    await pairedMacStore.waitUntilLoadStarted(teamID: "team-a")
+
+    let createResult = await store.createRemoteTerminal(in: rowID)
+    guard case .success = createResult else {
+        await pairedMacStore.release(teamID: "team-a")
+        Issue.record("Expected secondary terminal creation to succeed: \(createResult)")
+        return
+    }
+    #expect(store.workspaces.first?.terminals.contains(where: {
+        $0.id.rawValue == "terminal-route-created"
+    }) == true)
+
+    await pairedMacStore.release(teamID: "team-a")
+    await olderRefresh.value
+
+    #expect(await router.workspaceListGate.requestCount() == 2)
+    #expect(store.workspaces.first?.terminals.contains(where: {
+        $0.id.rawValue == "terminal-route-created"
+    }) == true)
+}
+
 @Test func terminalSubscriptionsIncludeScopedWorkspaceFocusTopic() {
     #expect(MobileShellComposite.TerminalOutputTransport.hybrid.eventTopics.contains("workspace.focused"))
     #expect(MobileShellComposite.TerminalOutputTransport.renderGrid.eventTopics.contains("workspace.focused"))
