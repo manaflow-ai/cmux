@@ -435,11 +435,11 @@ final class AgentChatTranscriptService {
         }
         return completedAt
     }
-
     private func handleRecordChange(_ record: AgentChatSessionRecord, previous: AgentChatSessionRecord?) {
         let descriptorChanged = Self.descriptorChangedMeaningfully(previous: previous, current: record)
-        if descriptorChanged, record.workspaceID != nil || previous?.workspaceID != nil {
-            DeviceRegistryClient.shared.liveSessionsDidChange()
+        let affectedWorkspaceIDs = Set([record.workspaceID, previous?.workspaceID].compactMap { $0 })
+        if descriptorChanged, !affectedWorkspaceIDs.isEmpty {
+            DeviceRegistryClient.shared.liveSessionsDidChange(workspaceIDs: affectedWorkspaceIDs)
         }
         let endedRecordIsListable: Bool
         if record.state == .ended {
@@ -479,8 +479,8 @@ final class AgentChatTranscriptService {
         }
     }
     private func handleRecordRemoval(_ record: AgentChatSessionRecord) {
-        if record.workspaceID != nil {
-            DeviceRegistryClient.shared.liveSessionsDidChange()
+        if let workspaceID = record.workspaceID {
+            DeviceRegistryClient.shared.liveSessionsDidChange(workspaceIDs: [workspaceID])
         }
         proseStreamer.turnEnded(sessionID: record.sessionID)
         if let tailer = tailers.removeValue(forKey: record.sessionID) {

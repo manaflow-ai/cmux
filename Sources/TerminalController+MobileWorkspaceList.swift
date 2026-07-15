@@ -21,7 +21,7 @@ extension TerminalController {
         var seenWorkspaceIDs: Set<UUID> = []
         var sessions: [CmxLiveSession] = []
         let agentSessionsByWorkspaceID = Dictionary(
-            grouping: agentChatTranscriptService?.sessionDescriptors(workspaceID: nil) ?? [],
+            grouping: agentChatTranscriptService?.sessionDescriptors(workspaceID: workspaceID) ?? [],
             by: \.workspaceID
         )
 

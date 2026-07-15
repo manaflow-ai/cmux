@@ -146,38 +146,39 @@ extension WorkspaceDetailView {
     /// descriptor/state change; we register the push stream first, seed the list
     /// once, then fold each subsequent frame in.
     func refreshChatSessions() async {
-        let workspaceID = workspace.id.rawValue
+        let rowWorkspaceID = workspace.id.rawValue
+        let remoteWorkspaceID = workspace.rpcWorkspaceID.rawValue
         let sourceIdentity = store.agentChatEventSourceIdentity
         guard let source = store.makeChatEventSource() else {
             applyChatModeFallback(canInvalidateSelection: false)
             return
         }
-        var reducer = ChatSessionListReducer(workspaceID: workspaceID)
+        var reducer = ChatSessionListReducer(workspaceID: remoteWorkspaceID)
         let stream = await source.sessionEvents()
         let seedOutcome: WorkspaceChatSessionRefreshOutcome
         do {
-            seedOutcome = .authoritative(try await source.sessions(workspaceID: workspaceID))
+            seedOutcome = .authoritative(try await source.sessions(workspaceID: remoteWorkspaceID))
         } catch {
             seedOutcome = store.chatSessionListFailureMeansUnsupported(error)
                 ? .authoritative([])
                 : .unavailable
         }
         guard !Task.isCancelled,
-              workspaceID == workspace.id.rawValue,
+              rowWorkspaceID == workspace.id.rawValue,
               sourceIdentity == store.agentChatEventSourceIdentity
         else { return }
         let nextSessions = seedOutcome.applying(to: visibleChatSessions)
         withAnimation(.snappy(duration: 0.25)) {
-            chatSessionsWorkspaceID = workspaceID
+            chatSessionsWorkspaceID = rowWorkspaceID
             chatSessions = nextSessions
         }
         if seedOutcome.canInvalidateSelection {
-            store.rememberChatSessions(nextSessions, workspaceID: workspaceID)
+            store.rememberChatSessions(nextSessions, workspaceID: rowWorkspaceID)
         }
         reconcileChatSessionSnapshot(seedOutcomeCanInvalidateSelection: seedOutcome.canInvalidateSelection)
         for await frame in stream {
             guard !Task.isCancelled,
-                  workspaceID == workspace.id.rawValue,
+                  rowWorkspaceID == workspace.id.rawValue,
                   sourceIdentity == store.agentChatEventSourceIdentity
             else { break }
             let current = visibleChatSessions
@@ -192,16 +193,17 @@ extension WorkspaceDetailView {
                 _ = await refreshAfterIgnoredChatSessionFrameIfNeeded(
                     frame,
                     source: source,
-                    workspaceID: workspaceID,
+                    rowWorkspaceID: rowWorkspaceID,
+                    remoteWorkspaceID: remoteWorkspaceID,
                     sourceIdentity: sourceIdentity
                 )
                 continue
             }
             withAnimation(.snappy(duration: 0.25)) {
-                chatSessionsWorkspaceID = workspaceID
+                chatSessionsWorkspaceID = rowWorkspaceID
                 chatSessions = next
             }
-            store.rememberChatSessions(next, workspaceID: workspaceID)
+            store.rememberChatSessions(next, workspaceID: rowWorkspaceID)
             reconcileChatSessionSnapshot(seedOutcomeCanInvalidateSelection: true)
         }
     }
@@ -213,11 +215,12 @@ extension WorkspaceDetailView {
     private func refreshAfterIgnoredChatSessionFrameIfNeeded(
         _ frame: ChatSessionEventFrame,
         source: MobileChatEventSource,
-        workspaceID: String,
+        rowWorkspaceID: String,
+        remoteWorkspaceID: String,
         sourceIdentity: String
     ) async -> Bool {
         guard frame.shouldPullAuthoritativeSnapshotForIgnoredWorkspaceFrame(
-            workspaceID: workspaceID,
+            workspaceID: remoteWorkspaceID,
             selectedTerminalID: selectedTerminalID,
             cachedChatToggleTerminalID: cachedChatToggleTerminalID
         )
@@ -226,24 +229,24 @@ extension WorkspaceDetailView {
         let sessions: [ChatSessionDescriptor]
         guard let refreshed = await coalescedIgnoredChatSessionSnapshot(
             source: source,
-            workspaceID: workspaceID,
+            workspaceID: remoteWorkspaceID,
             sourceIdentity: sourceIdentity
         ) else {
             return false
         }
         sessions = refreshed
         guard !Task.isCancelled,
-              workspaceID == workspace.id.rawValue,
+              rowWorkspaceID == workspace.id.rawValue,
               sourceIdentity == store.agentChatEventSourceIdentity
         else { return false }
         let next = WorkspaceChatSessionRefreshOutcome.authoritative(sessions)
             .applying(to: visibleChatSessions)
         guard next != visibleChatSessions else { return true }
         withAnimation(.snappy(duration: 0.25)) {
-            chatSessionsWorkspaceID = workspaceID
+            chatSessionsWorkspaceID = rowWorkspaceID
             chatSessions = next
         }
-        store.rememberChatSessions(next, workspaceID: workspaceID)
+        store.rememberChatSessions(next, workspaceID: rowWorkspaceID)
         reconcileChatSessionSnapshot(seedOutcomeCanInvalidateSelection: true)
         return true
     }
