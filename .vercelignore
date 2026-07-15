@@ -15,5 +15,6 @@ node_modules/
 .build/
 *.framework/
 *.xcframework/
-scripts/
+scripts/*
+!scripts/generate-managed-iroh-relay-catalog.ts
 tests/
