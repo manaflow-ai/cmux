@@ -54,7 +54,7 @@ extension SocketACLReloadRegressionTests {
         #expect(response == TerminalController.socketClientAccessDeniedResponse)
     }
 
-    @Test func activeEventStreamClosesWhenPolicyGenerationChanges() throws {
+    @Test func idleEventStreamClosesWhenPolicyGenerationChanges() throws {
         let controller = TerminalController.shared
         controller.stop()
         CmuxEventBus.shared.resetForTesting()
@@ -99,11 +99,6 @@ extension SocketACLReloadRegressionTests {
         #expect(acknowledgementObject["type"] as? String == "ack")
 
         #expect(controller.socketServer.reconfigure(accessMode: .automation))
-        CmuxEventBus.shared.publish(
-            name: "test.revoked",
-            category: "test",
-            source: "test"
-        )
 
         var byte: UInt8 = 0
         #expect(Darwin.read(sockets.client, &byte, 1) == 0)
