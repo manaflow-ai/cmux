@@ -1,7 +1,15 @@
+import CmuxCore
 import Foundation
 
 /// Settings under the dotted-id prefix `browser.*`.
 public struct BrowserCatalogSection: SettingCatalogSection {
+    /// Chooses the engine used by newly-created browser surfaces.
+    public let engine = DefaultsKey<BrowserEnginePreference>(
+        id: "browser.engine",
+        defaultValue: .automatic,
+        userDefaultsKey: "browserEnginePreference"
+    )
+
     public let defaultSearchEngine = DefaultsKey<BrowserSearchEngine>(
         id: "browser.defaultSearchEngine",
         defaultValue: BrowserSearchSettingsStore.defaultSearchEngine,

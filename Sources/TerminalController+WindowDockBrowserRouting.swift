@@ -78,7 +78,8 @@ extension TerminalController {
                 workspaceId: dock.workspaceId,
                 surfaceId: surfaceId,
                 browserPanel: browserPanel,
-                webView: browserPanel.webView
+                webView: browserPanel.webView,
+                engineKind: browserPanel.engineKind
             ),
             nil
         )

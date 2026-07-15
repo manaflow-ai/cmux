@@ -15,6 +15,7 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../../Shared/CMUXMobileCore"),
+        .package(path: "../CmuxCore"),
         .package(path: "../CmuxFoundation"),
         .package(path: "../CmuxSettings"),
     ],
@@ -23,6 +24,7 @@ let package = Package(
             name: "CmuxSettingsUI",
             dependencies: [
                 "CMUXMobileCore",
+                .product(name: "CmuxCore", package: "CmuxCore"),
                 .product(name: "CmuxFoundation", package: "CmuxFoundation"),
                 .product(name: "CmuxSettings", package: "CmuxSettings"),
             ]

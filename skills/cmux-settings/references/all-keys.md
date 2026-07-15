@@ -120,6 +120,7 @@ Embedded browser settings from Settings > Browser.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
+| `browser.engine` | `"auto"` or `"webkit"` or `"chromium"` | `"auto"` | Browser engine for new panes. Auto follows the engine family of the macOS default browser; remote-proxied panes and cmux internal pages use WebKit. |
 | `browser.defaultSearchEngine` | `"google"` or `"duckduckgo"` or `"bing"` or `"kagi"` or `"startpage"` | `"google"` | Default search engine for non-URL queries. |
 | `browser.showSearchSuggestions` | boolean | `true` | Show omnibar search suggestions. |
 | `browser.theme` | `"system"` or `"light"` or `"dark"` | `"system"` | Embedded browser theme. |

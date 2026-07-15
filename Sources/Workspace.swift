@@ -595,6 +595,7 @@ extension Workspace {
             browserSnapshot = SessionBrowserPanelSnapshot(
                 urlString: browserPanel.preferredURLStringForSessionSnapshot(),
                 profileID: browserPanel.profileID,
+                engineKind: browserPanel.engineKind,
                 shouldRenderWebView: browserPanel.shouldRenderWebViewForSessionSnapshot(),
                 pageZoom: Double(browserPanel.currentPageZoomFactor()),
                 developerToolsVisible: browserPanel.isDeveloperToolsVisible(),
@@ -1593,11 +1594,15 @@ extension Workspace {
             applySessionPanelMetadata(snapshot, toPanelId: terminalPanel.id)
             return terminalPanel.id
         case .browser:
+            let restoredEngineKind: BrowserEngineKind? = snapshot.browser?.diffViewerToken == nil
+                ? snapshot.browser?.engineKind
+                : .webKit
             guard let browserPanel = newBrowserSurface(
                 inPane: paneId,
                 url: nil,
                 focus: false,
                 preferredProfileID: snapshot.browser?.profileID,
+                browserEngineKind: restoredEngineKind,
                 creationPolicy: .restoration,
                 transparentBackground: snapshot.browser?.transparentBackground ?? false
             ) else {
@@ -2970,7 +2975,8 @@ final class Workspace: Identifiable, ObservableObject {
                 profileID: resolvedNewBrowserProfileID(),
                 initialURL: initialBrowserURL,
                 omnibarVisible: initialBrowserOmnibarVisible,
-                transparentBackground: initialBrowserTransparentBackground
+                transparentBackground: initialBrowserTransparentBackground,
+                engineSelection: .current()
             )
             configureBrowserPanel(browserPanel)
             panels[browserPanel.id] = browserPanel
@@ -7885,6 +7891,7 @@ final class Workspace: Identifiable, ObservableObject {
         insertFirst: Bool = false,
         url: URL? = nil,
         preferredProfileID: UUID? = nil,
+        browserEngineKind: BrowserEngineKind? = nil,
         focus: Bool = true,
         creationPolicy: BrowserPanelCreationPolicy = .userInitiated,
         omnibarVisible: Bool = true,
@@ -7931,7 +7938,8 @@ final class Workspace: Identifiable, ObservableObject {
             proxyEndpoint: remoteProxyEndpoint,
             bypassRemoteProxy: bypassRemoteProxy,
             isRemoteWorkspace: isRemoteWorkspace,
-            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil
+            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil,
+            engineSelection: .current(restoring: browserEngineKind)
         )
         configureBrowserPanel(browserPanel)
         panels[browserPanel.id] = browserPanel
@@ -8000,6 +8008,7 @@ final class Workspace: Identifiable, ObservableObject {
         selectWhenNotFocused: Bool = false,
         insertAtEnd: Bool = false,
         preferredProfileID: UUID? = nil,
+        browserEngineKind: BrowserEngineKind? = nil,
         bypassInsecureHTTPHostOnce: String? = nil,
         creationPolicy: BrowserPanelCreationPolicy = .userInitiated,
         omnibarVisible: Bool = true,
@@ -8040,7 +8049,8 @@ final class Workspace: Identifiable, ObservableObject {
             proxyEndpoint: remoteProxyEndpoint,
             bypassRemoteProxy: bypassRemoteProxy,
             isRemoteWorkspace: isRemoteWorkspace,
-            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil
+            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil,
+            engineSelection: .current(restoring: browserEngineKind)
         )
         configureBrowserPanel(browserPanel)
         panels[browserPanel.id] = browserPanel
@@ -9019,6 +9029,7 @@ final class Workspace: Identifiable, ObservableObject {
             workspaceId: id,
             url: resolvedURL,
             profileID: browserPanel.profileID,
+            engineKind: browserPanel.engineKind,
             originalPaneId: pane.id,
             originalTabIndex: tabIndex,
             fallbackSplitOrientation: fallbackPlan?.orientation,

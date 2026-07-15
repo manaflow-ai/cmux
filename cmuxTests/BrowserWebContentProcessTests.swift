@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import WebKit
+import CmuxBrowser
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -12,6 +13,61 @@ import WebKit
 @Suite(.serialized)
 struct BrowserWebContentProcessTests {
     private let recoveryURL = URL(string: "data:text/html,cmux-recovery")!
+
+    @Test
+    func topologyUsesTheContentProcessForEachBrowserEngine() {
+        #expect(TerminalController.resolvedBrowserContentProcessIdentifier(
+            engineKind: .webKit,
+            chromiumProcessIdentifier: 41,
+            webKitProcessIdentifier: 42
+        ) == 42)
+        #expect(TerminalController.resolvedBrowserContentProcessIdentifier(
+            engineKind: .chromium,
+            chromiumProcessIdentifier: 41,
+            webKitProcessIdentifier: 42
+        ) == 41)
+    }
+
+    @Test
+    func chromiumZoomChangesThePageEngineWithoutScalingItsCanvasTransport() {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            renderInitialNavigation: false,
+            engineSelection: BrowserEngineSelection(kind: .chromium)
+        )
+        defer { panel.close() }
+        let canvasZoom = panel.webView.pageZoom
+
+        #expect(panel.zoomIn())
+
+        #expect(panel.currentPageZoomFactor() == 1.1)
+        #expect(panel.webView.pageZoom == canvasZoom)
+    }
+
+    @Test
+    func remoteWorkspaceDowngradeRestoresTheChromiumPageURL() {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            renderInitialNavigation: false,
+            engineSelection: BrowserEngineSelection(kind: .chromium)
+        )
+        defer { panel.close() }
+        let pageURL = URL(string: "https://example.com/chromium-page")!
+
+        panel.navigate(to: pageURL)
+        #expect(panel.engineSession.state.url == pageURL)
+
+        panel.reattachToWorkspace(
+            UUID(),
+            isRemoteWorkspace: true,
+            remoteWebsiteDataStoreIdentifier: UUID(),
+            proxyEndpoint: nil,
+            remoteStatus: nil
+        )
+
+        #expect(panel.engineKind == .webKit)
+        #expect(panel.currentURL == pageURL)
+    }
 
     @Test
     func browserPanelsShareDefaultWebsiteDataStore() {

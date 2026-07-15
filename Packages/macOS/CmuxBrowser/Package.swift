@@ -14,12 +14,14 @@ let package = Package(
         ),
     ],
     dependencies: [
+        .package(path: "../CmuxCore"),
         .package(path: "../../../vendor/bonsplit"),
     ],
     targets: [
         .target(
             name: "CmuxBrowser",
             dependencies: [
+                .product(name: "CmuxCore", package: "CmuxCore"),
                 .product(name: "Bonsplit", package: "bonsplit"),
             ],
             swiftSettings: [

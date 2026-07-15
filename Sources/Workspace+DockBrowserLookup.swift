@@ -47,6 +47,7 @@ extension Workspace {
             initialRequest: seed.initialRequest,
             focus: true,
             preferredProfileID: panel.profileID,
+            browserEngineKind: panel.engineKind,
             bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce
         ) != nil
     }
@@ -63,6 +64,7 @@ extension Workspace {
                 initialRequest: seed.initialRequest,
                 focus: true,
                 preferredProfileID: panel.profileID,
+                browserEngineKind: panel.engineKind,
                 bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce
             ) != nil
         }
@@ -97,6 +99,7 @@ extension DockSplitStore {
         url: URL?,
         initialRequest: URLRequest? = nil,
         preferredProfileID: UUID? = nil,
+        browserEngineKind: BrowserEngineKind? = nil,
         bypassInsecureHTTPHostOnce: String? = nil
     ) -> BrowserPanel {
         let settings = currentRemoteBrowserSettings()
@@ -109,7 +112,8 @@ extension DockSplitStore {
             proxyEndpoint: settings.proxyEndpoint,
             bypassRemoteProxy: settings.bypassRemoteProxy,
             isRemoteWorkspace: settings.isRemoteWorkspace,
-            remoteWebsiteDataStoreIdentifier: settings.remoteWebsiteDataStoreIdentifier
+            remoteWebsiteDataStoreIdentifier: settings.remoteWebsiteDataStoreIdentifier,
+            engineSelection: .current(restoring: browserEngineKind)
         )
         panel.setRemoteWorkspaceStatus(settings.remoteStatus)
         panel.webViewDidRequestClose = { [weak self, weak panel] in
