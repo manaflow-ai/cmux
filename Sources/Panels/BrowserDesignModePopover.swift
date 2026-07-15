@@ -13,17 +13,20 @@ struct BrowserDesignModePopover: View {
     @State private var isCloseHovered = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             if let selections = controller.snapshot?.selections, !selections.isEmpty {
-                composerRow(selections)
+                HStack(alignment: .center, spacing: 10) {
+                    composerRow(selections)
+                    copyButton
+                }
                 errorMessage
-                footer
             } else {
                 emptyState
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .padding(.leading, 18)
+        .padding(.trailing, 9)
+        .padding(.vertical, 9)
         .frame(width: 440)
         .background(cardBackground)
         .environment(\.colorScheme, .dark)
@@ -37,10 +40,10 @@ struct BrowserDesignModePopover: View {
     }
 
     private var cardBackground: some View {
-        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: 26, style: .continuous)
         return shape
-            .fill(Color(red: 0.118, green: 0.118, blue: 0.125).opacity(0.98))
-            .overlay(shape.strokeBorder(Color.white.opacity(0.10), lineWidth: 1))
+            .fill(Color(red: 0.110, green: 0.110, blue: 0.118).opacity(0.98))
+            .overlay(shape.strokeBorder(Color.white.opacity(0.09), lineWidth: 1))
             .shadow(color: Color.black.opacity(0.35), radius: 14, y: 5)
     }
 
@@ -69,14 +72,14 @@ struct BrowserDesignModePopover: View {
         )
         .textFieldStyle(.plain)
         .lineLimit(1...5)
-        .cmuxFont(size: 13.5)
+        .cmuxFont(size: 15)
         .foregroundStyle(.white.opacity(0.96))
         .tint(Color(red: 0.35, green: 0.62, blue: 1.0))
         .focused($requestFieldFocused)
         .onSubmit {
             Task { @MainActor in await controller.copySelection() }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 5)
         .accessibilityLabel(
             String(
                 localized: "browser.designMode.composer.describeChange",
@@ -95,38 +98,34 @@ struct BrowserDesignModePopover: View {
         }
     }
 
-    private var footer: some View {
-        HStack(spacing: 8) {
-            Text(String(localized: "browser.designMode.copy.shortcut", defaultValue: "⌘↩"))
-                .cmuxFont(size: 12)
-                .foregroundStyle(.white.opacity(0.40))
-            if controller.didCopy {
-                Label(
-                    String(localized: "browser.designMode.copy.copied", defaultValue: "Copied"),
-                    systemImage: "checkmark"
+    /// Circular trailing action, mirroring the cmux agent composer's send
+    /// button and Cursor's compact pill affordance. Shows a checkmark right
+    /// after a successful copy.
+    private var copyButton: some View {
+        Button {
+            Task { @MainActor in await controller.copySelection() }
+        } label: {
+            Image(systemName: controller.didCopy ? "checkmark" : "doc.on.clipboard.fill")
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 32, height: 32)
+                .background(
+                    Circle().fill(
+                        controller.canCopy || controller.didCopy
+                            ? Color(red: 0.25, green: 0.47, blue: 0.96)
+                            : Color.white.opacity(0.12)
+                    )
                 )
-                .cmuxFont(size: 11, weight: .medium)
-                .foregroundStyle(.green)
-                .transition(.opacity)
-            }
-            Spacer(minLength: 0)
-            Button {
-                Task { @MainActor in await controller.copySelection() }
-            } label: {
-                Text(
-                    controller.isCopying
-                        ? String(localized: "browser.designMode.copy.copying", defaultValue: "Copying…")
-                        : String(localized: "browser.designMode.copy", defaultValue: "Copy")
-                )
-                .cmuxFont(size: 12, weight: .semibold)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-            .tint(Color(red: 0.25, green: 0.47, blue: 0.96))
-            .keyboardShortcut(.return, modifiers: .command)
-            .disabled(!controller.canCopy)
-            .accessibilityIdentifier("BrowserDesignModeCopyButton")
+                .contentShape(Circle())
         }
+        .buttonStyle(.plain)
+        .keyboardShortcut(.return, modifiers: .command)
+        .disabled(!controller.canCopy)
+        .safeHelp(
+            "\(String(localized: "browser.designMode.copy", defaultValue: "Copy")) (\(String(localized: "browser.designMode.copy.shortcut", defaultValue: "⌘↩")))"
+        )
+        .accessibilityLabel(String(localized: "browser.designMode.copy", defaultValue: "Copy"))
+        .accessibilityIdentifier("BrowserDesignModeCopyButton")
     }
 
     private var emptyState: some View {

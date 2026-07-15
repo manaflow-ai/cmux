@@ -12,11 +12,11 @@ struct BrowserDesignModeSelectionChip: View {
     private static let chipBlue = Color(red: 0.35, green: 0.62, blue: 1.0)
 
     var body: some View {
-        HStack(spacing: 3) {
+        HStack(spacing: 4) {
             Image(systemName: "cursorarrow")
-                .font(.system(size: 9, weight: .semibold))
+                .font(.system(size: 10.5, weight: .semibold))
             Text(selection.tagName)
-                .cmuxFont(size: 13, weight: .medium)
+                .cmuxFont(size: 14, weight: .medium)
                 .lineLimit(1)
             if isHovered {
                 Button(action: onRemove) {
@@ -43,8 +43,8 @@ struct BrowserDesignModeSelectionChip: View {
             }
         }
         .foregroundStyle(Self.chipBlue)
-        .padding(.horizontal, 3)
-        .frame(height: 20)
+        .padding(.horizontal, 4)
+        .frame(height: 24)
         .background(
             RoundedRectangle(cornerRadius: 5, style: .continuous)
                 .fill(isHovered ? Color.white.opacity(0.08) : Color.clear)
@@ -81,6 +81,8 @@ struct BrowserDesignModeComposerRowLayout: Layout {
     private struct Slot {
         var origin: CGPoint
         var width: CGFloat?
+        var height: CGFloat
+        var row: Int
     }
 
     private func arrange(
@@ -89,34 +91,41 @@ struct BrowserDesignModeComposerRowLayout: Layout {
     ) -> (size: CGSize, slots: [Slot]) {
         let maxWidth = proposal.width ?? 400
         var slots: [Slot] = []
+        var rowHeights: [CGFloat] = [0]
         var cursor = CGPoint.zero
-        var rowHeight: CGFloat = 0
+        var row = 0
+        func wrapRow() {
+            cursor.x = 0
+            cursor.y += rowHeights[row] + rowSpacing
+            row += 1
+            rowHeights.append(0)
+        }
         for (index, subview) in subviews.enumerated() {
             let isField = index == subviews.count - 1
             if isField {
                 var available = maxWidth - cursor.x
                 if available < minimumFieldWidth, cursor.x > 0 {
-                    cursor.x = 0
-                    cursor.y += rowHeight + rowSpacing
-                    rowHeight = 0
+                    wrapRow()
                     available = maxWidth
                 }
-                let fieldSize = subview.sizeThatFits(ProposedViewSize(width: available, height: nil))
-                slots.append(Slot(origin: cursor, width: available))
-                rowHeight = max(rowHeight, fieldSize.height)
+                let size = subview.sizeThatFits(ProposedViewSize(width: available, height: nil))
+                slots.append(Slot(origin: cursor, width: available, height: size.height, row: row))
+                rowHeights[row] = max(rowHeights[row], size.height)
                 cursor.x += available
             } else {
                 let size = subview.sizeThatFits(.unspecified)
                 if cursor.x > 0, cursor.x + size.width > maxWidth {
-                    cursor.x = 0
-                    cursor.y += rowHeight + rowSpacing
-                    rowHeight = 0
+                    wrapRow()
                 }
-                slots.append(Slot(origin: cursor, width: nil))
-                rowHeight = max(rowHeight, size.height)
+                slots.append(Slot(origin: cursor, width: nil, height: size.height, row: row))
+                rowHeights[row] = max(rowHeights[row], size.height)
                 cursor.x += size.width + spacing
             }
         }
-        return (CGSize(width: maxWidth, height: cursor.y + rowHeight), slots)
+        // Center every subview vertically within its row.
+        for index in slots.indices {
+            slots[index].origin.y += (rowHeights[slots[index].row] - slots[index].height) / 2
+        }
+        return (CGSize(width: maxWidth, height: cursor.y + rowHeights[row]), slots)
     }
 }
