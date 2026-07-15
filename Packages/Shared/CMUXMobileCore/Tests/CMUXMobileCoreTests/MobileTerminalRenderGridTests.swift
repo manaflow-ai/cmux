@@ -330,6 +330,7 @@ import Testing
     let frame = try MobileTerminalRenderGridFrame(
         surfaceID: "terminal-a",
         stateSeq: 44,
+        producerEpoch: 12,
         renderRevision: 91,
         columns: 8,
         rows: 4,
@@ -338,6 +339,7 @@ import Testing
 
     let decoded = try MobileTerminalRenderGridFrame.decodeJSONObject(frame.jsonObject())
 
+    #expect(decoded.producerEpoch == 12)
     #expect(decoded.renderRevision == 91)
     #expect(decoded == frame)
 }

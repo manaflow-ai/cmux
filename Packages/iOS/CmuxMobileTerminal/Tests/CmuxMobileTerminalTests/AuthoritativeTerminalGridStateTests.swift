@@ -75,6 +75,19 @@ struct AuthoritativeTerminalGridStateTests {
         #expect(state.frame == current)
     }
 
+    @Test("a newer producer epoch accepts a reset revision and fences the old epoch")
+    func producerReplacementResetsRevisionOrdering() throws {
+        var state = AuthoritativeTerminalGridState(surfaceID: "surface")
+        let oldProducer = try frame(epoch: 7, revision: 90, columns: 8, rows: ["old"])
+        let replacement = try frame(epoch: 8, revision: 1, columns: 8, rows: ["new"])
+        let delayedOldProducer = try frame(epoch: 7, revision: 91, columns: 8, rows: ["late"])
+
+        #expect(state.apply(oldProducer) == .presented)
+        #expect(state.apply(replacement) == .presented)
+        #expect(state.apply(delayedOldProducer) == .ignoredStale)
+        #expect(state.frame == replacement)
+    }
+
     @Test("an incomplete frame never replaces the visible full snapshot")
     func partialFrameRequiresAFullSnapshot() throws {
         var state = AuthoritativeTerminalGridState(surfaceID: "surface")
@@ -160,6 +173,7 @@ struct AuthoritativeTerminalGridStateTests {
     }
 
     private func frame(
+        epoch: UInt64 = 1,
         revision: UInt64,
         columns: Int,
         rows: [String]
@@ -167,6 +181,7 @@ struct AuthoritativeTerminalGridStateTests {
         try MobileTerminalRenderGridFrame(
             surfaceID: "surface",
             stateSeq: revision,
+            producerEpoch: epoch,
             renderRevision: revision,
             columns: columns,
             rows: rows.count,
