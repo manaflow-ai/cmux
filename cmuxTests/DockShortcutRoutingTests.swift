@@ -1,4 +1,6 @@
 import AppKit
+import Bonsplit
+import Combine
 import Testing
 
 #if canImport(cmux_DEV)
@@ -102,6 +104,96 @@ struct DockShortcutRoutingTests {
             }
         }
     }
+
+    @Test("Customized previous and numbered-surface shortcuts target the focused Dock")
+    @MainActor
+    func customizedPreviousAndNumberedSurfaceTargetFocusedDock() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try Self.withHarness { harness in
+                let firstPanel = try #require(
+                    harness.dock.newSurface(kind: .terminal, inPane: harness.rootPane, focus: true)
+                )
+                let secondPanel = try #require(
+                    harness.dock.newSurface(kind: .terminal, inPane: harness.rootPane, focus: true)
+                )
+                let thirdPanel = try #require(
+                    harness.dock.newSurface(kind: .terminal, inPane: harness.rootPane, focus: true)
+                )
+                harness.dock.focusPanel(secondPanel)
+                let mainPanelBefore = harness.mainWorkspace.focusedPanelId
+
+                let previousShortcut = Self.customShortcut(key: "y")
+                KeyboardShortcutSettings.setShortcut(previousShortcut, for: .prevSurface)
+                #expect(Self.dispatch(previousShortcut, in: harness))
+                #expect(harness.dock.focusedPanelId == firstPanel)
+
+                let numberedShortcut = StoredShortcut(
+                    key: "3",
+                    command: false,
+                    shift: false,
+                    option: true,
+                    control: true
+                )
+                KeyboardShortcutSettings.setShortcut(numberedShortcut, for: .selectSurfaceByNumber)
+                #expect(Self.dispatch(numberedShortcut, in: harness))
+                #expect(harness.dock.focusedPanelId == thirdPanel)
+                #expect(harness.mainWorkspace.focusedPanelId == mainPanelBefore)
+            }
+        }
+    }
+
+    @Test("Customized move-surface shortcuts reorder only focused Dock surfaces")
+    @MainActor
+    func customizedMoveSurfaceReordersFocusedDock() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try Self.withHarness { harness in
+                let firstPanel = try #require(
+                    harness.dock.newSurface(kind: .terminal, inPane: harness.rootPane, focus: true)
+                )
+                let secondPanel = try #require(
+                    harness.dock.newSurface(kind: .terminal, inPane: harness.rootPane, focus: true)
+                )
+                let firstTab = try #require(harness.dock.surfaceId(forPanelId: firstPanel))
+                let secondTab = try #require(harness.dock.surfaceId(forPanelId: secondPanel))
+                harness.dock.focusPanel(secondPanel)
+                let mainPanelBefore = harness.mainWorkspace.focusedPanelId
+
+                let moveLeft = Self.customShortcut(key: "y")
+                KeyboardShortcutSettings.setShortcut(moveLeft, for: .moveSurfaceLeft)
+                #expect(Self.dispatch(moveLeft, in: harness))
+                #expect(harness.dock.bonsplitController.tabs(inPane: harness.rootPane).map(\.id) == [secondTab, firstTab])
+
+                let moveRight = Self.customShortcut(key: "u")
+                KeyboardShortcutSettings.setShortcut(moveRight, for: .moveSurfaceRight)
+                #expect(Self.dispatch(moveRight, in: harness))
+                #expect(harness.dock.bonsplitController.tabs(inPane: harness.rootPane).map(\.id) == [firstTab, secondTab])
+                #expect(harness.mainWorkspace.focusedPanelId == mainPanelBefore)
+            }
+        }
+    }
+
+    @Test("Customized zoom and flash shortcuts target the focused Dock")
+    @MainActor
+    func customizedZoomAndFlashTargetFocusedDock() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try Self.withHarness { harness in
+                let panel = try harness.dock.seedShortcutTestPanel(inPane: harness.rootPane)
+                let mainPanelBefore = harness.mainWorkspace.focusedPanelId
+
+                let zoom = Self.customShortcut(key: "y")
+                KeyboardShortcutSettings.setShortcut(zoom, for: .toggleSplitZoom)
+                #expect(!harness.dock.bonsplitController.isSplitZoomed)
+                #expect(Self.dispatch(zoom, in: harness))
+                #expect(harness.dock.bonsplitController.isSplitZoomed)
+
+                let flash = Self.customShortcut(key: "u")
+                KeyboardShortcutSettings.setShortcut(flash, for: .triggerFlash)
+                #expect(Self.dispatch(flash, in: harness))
+                #expect(panel.flashCount == 1)
+                #expect(harness.mainWorkspace.focusedPanelId == mainPanelBefore)
+            }
+        }
+    }
 }
 
 private extension DockShortcutRoutingTests {
@@ -201,5 +293,57 @@ private extension DockShortcutRoutingTests {
 #else
         return false
 #endif
+    }
+
+    static func customShortcut(key: String) -> StoredShortcut {
+        StoredShortcut(
+            key: key,
+            command: true,
+            shift: false,
+            option: true,
+            control: true
+        )
+    }
+}
+
+@MainActor
+private final class DockShortcutTestPanel: Panel, ObservableObject {
+    let id = UUID()
+    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
+    let panelType: PanelType = .terminal
+    let displayTitle = "Dock Shortcut Test Panel"
+    let displayIcon: String? = "terminal.fill"
+    var isDirty = false
+    private(set) var flashCount = 0
+
+    func close() {}
+    func focus() {}
+    func unfocus() {}
+
+    func triggerFlash(reason: WorkspaceAttentionFlashReason) {
+        _ = reason
+        flashCount += 1
+    }
+}
+
+private extension DockSplitStore {
+    @MainActor
+    func seedShortcutTestPanel(inPane pane: PaneID) throws -> DockShortcutTestPanel {
+        let panel = DockShortcutTestPanel()
+        panels[panel.id] = panel
+        let tabId = try #require(
+            bonsplitController.createTab(
+                title: panel.displayTitle,
+                icon: panel.displayIcon,
+                kind: "terminal",
+                isDirty: panel.isDirty,
+                inPane: pane
+            )
+        )
+        surfaceIdToPanelId[tabId] = panel.id
+        bonsplitController.focusPane(pane)
+        bonsplitController.selectTab(tabId)
+        applyDockSelection(tabId: tabId, inPane: pane)
+        return panel
     }
 }

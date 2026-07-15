@@ -250,21 +250,13 @@ extension DockSplitStore {
         if let index {
             _ = bonsplitController.reorderTab(newTabId, toIndex: index)
         }
-        installSubscription(for: panel, tracksTerminalTitle: true)
-        withCoalescedTerminalViewReattach {
-            applyVisibility(to: panel)
-            if let terminal = panel as? TerminalPanel {
-                requestTerminalViewReattach(terminal)
-            }
-            recordExplicitPanelCreation()
-            if focus {
-                bonsplitController.focusPane(paneId)
-                bonsplitController.selectTab(newTabId)
-                applyDockSelection(tabId: newTabId, inPane: paneId)
-                panel.focus()
-            }
-        }
-        scheduleDockPortalReconcile(reason: "dock.attachDetachedSurface")
+        finishAttachingDetachedSurface(
+            panel,
+            tabId: newTabId,
+            inPane: paneId,
+            focus: focus,
+            reconcileReason: "dock.attachDetachedSurface"
+        )
         return detached.panelId
     }
 
@@ -325,6 +317,23 @@ extension DockSplitStore {
             return nil
         }
 
+        finishAttachingDetachedSurface(
+            panel,
+            tabId: tab.id,
+            inPane: newPane,
+            focus: focus,
+            reconcileReason: "dock.attachDetachedSurface.split"
+        )
+        return detached.panelId
+    }
+
+    private func finishAttachingDetachedSurface(
+        _ panel: any Panel,
+        tabId: TabID,
+        inPane paneId: PaneID,
+        focus: Bool,
+        reconcileReason: String
+    ) {
         installSubscription(for: panel, tracksTerminalTitle: true)
         withCoalescedTerminalViewReattach {
             applyVisibility(to: panel)
@@ -333,14 +342,13 @@ extension DockSplitStore {
             }
             recordExplicitPanelCreation()
             if focus {
-                bonsplitController.focusPane(newPane)
-                bonsplitController.selectTab(tab.id)
-                applyDockSelection(tabId: tab.id, inPane: newPane)
+                bonsplitController.focusPane(paneId)
+                bonsplitController.selectTab(tabId)
+                applyDockSelection(tabId: tabId, inPane: paneId)
                 panel.focus()
             }
         }
-        scheduleDockPortalReconcile(reason: "dock.attachDetachedSurface.split")
-        return detached.panelId
+        scheduleDockPortalReconcile(reason: reconcileReason)
     }
 }
 

@@ -93,12 +93,12 @@ extension AppDelegate {
             (.triggerFlash, .triggerFlash),
         ]
         for (action, command) in commands where matchConfiguredShortcut(event: event, action: action) {
-            _ = store.performShortcutCommand(command)
+            if !store.performShortcutCommand(command) { NSSound.beep() }
             return true
         }
 
         if let digit = routableNumberedConfiguredShortcutDigit(event: event, action: .selectSurfaceByNumber) {
-            _ = store.performShortcutCommand(.selectSurface(number: digit))
+            if !store.performShortcutCommand(.selectSurface(number: digit)) { NSSound.beep() }
             return true
         }
 
@@ -119,7 +119,7 @@ extension AppDelegate {
             arrowGlyph: route.glyph,
             arrowKeyCode: route.keyCode
         ) {
-            _ = store.performShortcutCommand(route.command)
+            if !store.performShortcutCommand(route.command) { NSSound.beep() }
             return true
         }
 
