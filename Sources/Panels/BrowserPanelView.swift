@@ -277,8 +277,14 @@ struct BrowserPanelView: View {
     private let installedBrowserDetector = BrowserInstalledBrowserDetector()
     @State private var omnibarState = OmnibarState()
     @State private var addressBarFocused: Bool = false
-    @AppStorage(BrowserSearchSettings.searchEngineKey) private var searchEngineRaw = BrowserSearchSettings.defaultSearchEngine.rawValue
-    @AppStorage(BrowserSearchSettings.searchSuggestionsEnabledKey) private var searchSuggestionsEnabledStorage = BrowserSearchSettings.defaultSearchSuggestionsEnabled
+    @AppStorage(BrowserSearchSettingsStore.searchEngineKey)
+    private var searchEngineRaw = BrowserSearchSettingsStore.defaultSearchEngine.rawValue
+    @AppStorage(BrowserSearchSettingsStore.customSearchEngineNameKey)
+    private var customSearchEngineName = BrowserSearchSettingsStore.defaultCustomSearchEngineName
+    @AppStorage(BrowserSearchSettingsStore.customSearchEngineURLTemplateKey)
+    private var customSearchEngineURLTemplate = BrowserSearchSettingsStore.defaultCustomSearchEngineURLTemplate
+    @AppStorage(BrowserSearchSettingsStore.searchSuggestionsEnabledKey)
+    private var searchSuggestionsEnabledStorage = BrowserSearchSettingsStore.defaultSearchSuggestionsEnabled
     @AppStorage(BrowserSiteSearchSettings.shortcutsKey) private var siteSearchShortcutsStorage = BrowserSiteSearchSettings.defaultShortcutsStorage
     @AppStorage(BrowserSiteSearchSettings.activationShortcutKey) private var siteSearchActivationShortcutRaw = BrowserSiteSearchSettings.defaultActivationShortcut.rawValue
     @AppStorage(BrowserDevToolsButtonDebugSettings.iconNameKey) private var devToolsIconNameRaw = BrowserDevToolsButtonDebugSettings.defaultIcon.rawValue
@@ -1079,8 +1085,10 @@ struct BrowserPanelView: View {
         .onAppear {
             handleBrowserPanelAppear()
             UserDefaults.standard.register(defaults: [
-                BrowserSearchSettings.searchEngineKey: BrowserSearchSettings.defaultSearchEngine.rawValue,
-                BrowserSearchSettings.searchSuggestionsEnabledKey: BrowserSearchSettings.defaultSearchSuggestionsEnabled,
+                BrowserSearchSettingsStore.searchEngineKey: BrowserSearchSettingsStore.defaultSearchEngine.rawValue,
+                BrowserSearchSettingsStore.customSearchEngineNameKey: BrowserSearchSettingsStore.defaultCustomSearchEngineName,
+                BrowserSearchSettingsStore.customSearchEngineURLTemplateKey: BrowserSearchSettingsStore.defaultCustomSearchEngineURLTemplate,
+                BrowserSearchSettingsStore.searchSuggestionsEnabledKey: BrowserSearchSettingsStore.defaultSearchSuggestionsEnabled,
                 BrowserSiteSearchSettings.shortcutsKey: BrowserSiteSearchSettings.defaultShortcutsStorage,
                 BrowserSiteSearchSettings.activationShortcutKey: BrowserSiteSearchSettings.defaultActivationShortcut.rawValue,
                 BrowserToolbarAccessorySpacingDebugSettings.key: BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing,
@@ -1751,7 +1759,6 @@ struct BrowserPanelView: View {
                         return
                     }
                     handleOmnibarSubmit(liveField: liveField)
-                }
                 },
                 onEscape: {
                     handleOmnibarEscape()

@@ -417,10 +417,16 @@ private final class BrowserHiddenWebViewRetentionCoordinator {
             entriesByManagerId.removeAll()
             return
         }
-        let entries = entriesByManagerId.map { EntryWithID(id: $0.key, entry: $0.value) }.sorted {
-            $0.entry.hiddenAt == $1.entry.hiddenAt
-                ? $0.entry.sequence < $1.entry.sequence
-                : $0.entry.hiddenAt < $1.entry.hiddenAt
+        var entries: [EntryWithID] = []
+        entries.reserveCapacity(entriesByManagerId.count)
+        for (id, entry) in entriesByManagerId {
+            entries.append(EntryWithID(id: id, entry: entry))
+        }
+        entries.sort { lhs, rhs in
+            if lhs.entry.hiddenAt != rhs.entry.hiddenAt {
+                return lhs.entry.hiddenAt < rhs.entry.hiddenAt
+            }
+            return lhs.entry.sequence < rhs.entry.sequence
         }
         let now = Date()
         for item in entries.filter({
