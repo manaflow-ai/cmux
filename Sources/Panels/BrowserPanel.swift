@@ -4865,7 +4865,11 @@ final class BrowserPanel: Panel, ObservableObject {
            let diffURL = CmuxDiffViewerURLSchemeHandler.diffViewerURL(token: token, requestPath: requestPath) {
             hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(snapshot.shouldRenderWebView)
             setMuted(snapshot.isMuted)
-            setOmnibarVisible(snapshot.omnibarVisible ?? false)
+            setOmnibarVisible(
+                token == CmuxDiffViewerURLSchemeHandler.bundledFeedToken
+                    ? false
+                    : snapshot.omnibarVisible ?? false
+            )
             currentURL = diffURL
             let shouldRenderRestoredWebView = snapshot.shouldRenderWebView && BrowserAvailabilitySettings.isEnabled()
             guard shouldRenderRestoredWebView else {
@@ -4877,11 +4881,15 @@ final class BrowserPanel: Panel, ObservableObject {
             return
         }
 
-        let restoredURL = Self.remappedAppPricingSessionRestoreURL(Self.sanitizedSessionHistoryURL(snapshot.urlString))
+        let sanitizedURL = Self.sanitizedSessionHistoryURL(snapshot.urlString)
+        let isLegacyPackagedFeed = FeedSurfaceBridge.isLegacyPackagedFeedURL(sanitizedURL)
+        let restoredURL = isLegacyPackagedFeed
+            ? FeedSurfaceBridge.feedURL()
+            : Self.remappedAppPricingSessionRestoreURL(sanitizedURL)
         let shouldRenderRestoredWebView = snapshot.shouldRenderWebView && BrowserAvailabilitySettings.isEnabled()
         hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(snapshot.shouldRenderWebView)
         setMuted(snapshot.isMuted)
-        setOmnibarVisible(snapshot.omnibarVisible ?? true)
+        setOmnibarVisible(isLegacyPackagedFeed ? false : snapshot.omnibarVisible ?? true)
 
         restoreSessionNavigationHistory(
             backHistoryURLStrings: snapshot.backHistoryURLStrings ?? [],

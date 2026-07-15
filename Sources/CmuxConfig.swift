@@ -1644,6 +1644,7 @@ struct CmuxSurfaceDefinition: Codable, Sendable, Hashable {
     var env: [String: String]?
     var url: String?
     var focus: Bool?
+    var omnibarVisible: Bool? = nil
 }
 
 enum CmuxSurfaceType: String, Codable, Sendable {

@@ -67,6 +67,13 @@ final class FeedSurfaceBridge: NSObject, WKScriptMessageHandlerWithReply {
         return url == expected
     }
 
+    static func isLegacyPackagedFeedURL(_ url: URL?) -> Bool {
+        guard let url, url.isFileURL else { return false }
+        return url.standardizedFileURL.path.hasSuffix(
+            "/Contents/Resources/markdown-viewer/webviews-app/feed.html"
+        )
+    }
+
     static func feedURL() -> URL? {
         do {
             return try CmuxDiffViewerURLSchemeHandler.shared.registerBundledFeedAssets()

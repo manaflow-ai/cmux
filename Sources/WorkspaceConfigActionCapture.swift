@@ -204,6 +204,7 @@ extension Workspace {
             surface.name = customName
             surface.url = browser.currentURL?.absoluteString
             surface.focus = focus
+            surface.omnibarVisible = browser.isOmnibarVisible
             return surface
         case let project as ProjectPanel:
             var surface = CmuxSurfaceDefinition(type: .project)

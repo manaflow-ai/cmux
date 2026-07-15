@@ -191,7 +191,8 @@ extension Workspace {
                 inPane: paneId,
                 url: url,
                 focus: false,
-                creationPolicy: .restoration
+                creationPolicy: .restoration,
+                omnibarVisible: surface.omnibarVisible ?? true
             ) {
                 _ = closePanel(panelId, force: true)
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
@@ -240,7 +241,8 @@ extension Workspace {
                 inPane: paneId,
                 url: url,
                 focus: false,
-                creationPolicy: .restoration
+                creationPolicy: .restoration,
+                omnibarVisible: surface.omnibarVisible ?? true
             ) {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }

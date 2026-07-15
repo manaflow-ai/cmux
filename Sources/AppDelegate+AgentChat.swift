@@ -112,7 +112,8 @@ extension AppDelegate {
                     cwd: nil,
                     env: nil,
                     url: feedURL.absoluteString,
-                    focus: true
+                    focus: true,
+                    omnibarVisible: false
                 ),
             ]))
         )
