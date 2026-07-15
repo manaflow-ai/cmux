@@ -69,7 +69,7 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
 
     @MainActor
     @Test
-    func portalMutationSchedulerCoalescesLatestDrainCompletionThroughFollowUp() async {
+    func portalMutationSchedulerRunsEveryDrainCompletionThroughFollowUp() async {
         let scheduler = TerminalPortalMutationScheduler()
         var committedValues: [Int] = []
         var completedValues: [Int] = []
@@ -91,7 +91,7 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
 
         await drain.value
         #expect(committedValues == [100, 101])
-        #expect(completedValues == [101])
+        #expect(completedValues == Array(0...64) + [100, 101])
     }
 
     @MainActor
@@ -127,7 +127,7 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
 
         await commit.value
         #expect(!didCommit)
-        #expect(!didComplete)
+        #expect(didComplete)
     }
 
     @MainActor
@@ -208,18 +208,23 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
             dock.setVisibleInUI(true)
             let panelId = try #require(dock.newSurface(kind: .terminal, inPane: pane, focus: true))
             let tabId = try #require(dock.surfaceId(forPanelId: panelId))
+            let terminal = try #require(dock.panel(for: tabId) as? TerminalPanel)
 
             fileExplorerState.rightSidebarOwnsInputFocus = false
             #expect(
                 dock.terminalPortalPresentation(panelId: panelId, tabId: tabId, paneId: pane) ==
-                    .visible(isActive: true, zPriority: 1)
+                    .visible(isActive: false, zPriority: 1)
             )
+            dock.reconcileDockPortalPass(reason: "test.sidebarFocus.main")
+            #expect(!terminal.hostedView.debugPortalActive)
 
             fileExplorerState.rightSidebarOwnsInputFocus = true
             #expect(
                 dock.terminalPortalPresentation(panelId: panelId, tabId: tabId, paneId: pane) ==
-                    .visible(isActive: false, zPriority: 1)
+                    .visible(isActive: true, zPriority: 1)
             )
+            dock.reconcileDockPortalPass(reason: "test.sidebarFocus.dock")
+            #expect(terminal.hostedView.debugPortalActive)
         }
     }
 
