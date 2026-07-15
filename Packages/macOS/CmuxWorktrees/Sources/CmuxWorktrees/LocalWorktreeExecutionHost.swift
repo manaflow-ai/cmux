@@ -36,7 +36,27 @@ public struct LocalWorktreeExecutionHost: WorktreeExecutionHost, Sendable {
         true
     }
 
+    /// Inherited repository-local Git variables that would override the
+    /// working directory passed to every hosted command; Git documents that
+    /// these must be cleared when targeting another repository.
+    static let repositoryLocalGitVariables = [
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_COMMON_DIR",
+        "GIT_DIR",
+        "GIT_INDEX_FILE",
+        "GIT_NAMESPACE",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_PREFIX",
+        "GIT_WORK_TREE",
+    ]
+
     /// Runs a command locally, adding environment values without invoking a shell.
+    ///
+    /// Repository-local Git variables inherited from the calling process are
+    /// always unset first so `directory` alone selects the repository; values
+    /// passed in `environment` still win because `/usr/bin/env` applies
+    /// assignments after removals.
+    ///
     /// - Parameters:
     ///   - directory: The local working directory.
     ///   - executable: The executable name or absolute path.
@@ -54,22 +74,14 @@ public struct LocalWorktreeExecutionHost: WorktreeExecutionHost, Sendable {
         let effectiveEnvironment = additionalEnvironment.merging(environment) { _, operationValue in
             operationValue
         }
-        guard !effectiveEnvironment.isEmpty else {
-            return await commandRunner.run(
-                directory: directory,
-                executable: executable,
-                arguments: arguments,
-                timeout: timeout
-            )
-        }
-
+        let removals = Self.repositoryLocalGitVariables.flatMap { ["-u", $0] }
         let assignments = effectiveEnvironment.keys.sorted().map { key in
             "\(key)=\(effectiveEnvironment[key] ?? "")"
         }
         return await commandRunner.run(
             directory: directory,
             executable: "/usr/bin/env",
-            arguments: assignments + [executable] + arguments,
+            arguments: removals + assignments + [executable] + arguments,
             timeout: timeout
         )
     }

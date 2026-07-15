@@ -258,7 +258,17 @@ extension CMUXCLI {
                 throw CLIError(message: worktreeLocalizedFormat(
                     "cli.worktree.error.changedSinceConfirmation",
                     defaultValue: "Worktree %@ changed while awaiting confirmation; run the command again to review the new state.",
-                    arguments: [worktree.identity.worktreePath]
+                    arguments: [terminalSafeWorktreeText(worktree.identity.worktreePath)]
+                ))
+            }
+            // Removal's stale-administration recovery prunes whatever is
+            // eligible at execution time; refuse if that set no longer matches
+            // the previewed plan.
+            let stalePlanRecheck = try await service.prune(repoRoot: repoRoot, on: host, dryRun: true)
+            guard stalePlanRecheck.output == stalePlan.output else {
+                throw CLIError(message: String(
+                    localized: "cli.worktree.error.prunePlanChanged",
+                    defaultValue: "The prune plan changed while awaiting confirmation; run the command again to review the new plan."
                 ))
             }
         }
@@ -482,38 +492,56 @@ extension CMUXCLI {
         from worktrees: [WorktreeInfo],
         currentDirectory: String
     ) throws -> WorktreeInfo {
-        let candidates: [WorktreeInfo]
-        if isWorktreePathArgument(raw) {
-            let expanded = expandedWorktreePath(raw)
-            let absolute = expanded.hasPrefix("/")
-                ? expanded
-                : (currentDirectory as NSString).appendingPathComponent(expanded)
-            let normalized = canonicalLocalWorktreePath(absolute)
-            candidates = Array(worktrees.filter {
-                let root = canonicalLocalWorktreePath($0.identity.worktreePath)
-                return normalized == root || root == "/" || normalized.hasPrefix(root + "/")
-            }.sorted {
-                canonicalLocalWorktreePath($0.identity.worktreePath).count > canonicalLocalWorktreePath($1.identity.worktreePath).count
-            }.prefix(1))
-        } else {
-            candidates = worktrees.filter {
-                URL(fileURLWithPath: $0.identity.worktreePath).lastPathComponent == raw ||
-                    $0.branch == raw
-            }
+        // Exact branch or leaf-name matches win over path interpretation so an
+        // ordinary slash-containing branch name (feature/foo) can never fall
+        // through to path containment and select an unrelated worktree.
+        let named = worktrees.filter {
+            URL(fileURLWithPath: $0.identity.worktreePath).lastPathComponent == raw ||
+                $0.branch == raw
         }
-        guard candidates.count == 1, let match = candidates.first else {
-            if candidates.isEmpty {
-                throw CLIError(message: worktreeLocalizedFormat(
-                    "cli.worktree.error.noMatch",
-                    defaultValue: "No worktree matches '%@'.",
-                    arguments: [raw]
-                ))
-            }
+        if named.count > 1 {
             throw CLIError(message: worktreeLocalizedFormat(
                 "cli.worktree.error.ambiguousName",
                 defaultValue: "Worktree name '%@' is ambiguous; pass its full path.",
                 arguments: [raw]
             ))
+        }
+        if let match = named.first {
+            return match
+        }
+
+        let noMatch = CLIError(message: worktreeLocalizedFormat(
+            "cli.worktree.error.noMatch",
+            defaultValue: "No worktree matches '%@'.",
+            arguments: [raw]
+        ))
+        guard isWorktreePathArgument(raw) else {
+            throw noMatch
+        }
+        let expanded = expandedWorktreePath(raw)
+        let absolute = expanded.hasPrefix("/")
+            ? expanded
+            : (currentDirectory as NSString).appendingPathComponent(expanded)
+        let normalized = canonicalLocalWorktreePath(absolute)
+        if let exact = worktrees.first(where: {
+            canonicalLocalWorktreePath($0.identity.worktreePath) == normalized
+        }) {
+            return exact
+        }
+        // Containment ("this path is inside a worktree") applies only to paths
+        // that actually exist; a mistyped or branch-like token must not select
+        // the surrounding worktree for a destructive command.
+        guard FileManager.default.fileExists(atPath: normalized) else {
+            throw noMatch
+        }
+        let match = worktrees.filter {
+            let root = canonicalLocalWorktreePath($0.identity.worktreePath)
+            return normalized == root || root == "/" || normalized.hasPrefix(root + "/")
+        }.max {
+            canonicalLocalWorktreePath($0.identity.worktreePath).count < canonicalLocalWorktreePath($1.identity.worktreePath).count
+        }
+        guard let match else {
+            throw noMatch
         }
         return match
     }
@@ -620,38 +648,40 @@ extension CMUXCLI {
     }
 
     private func localizedWorktreeError(_ error: WorktreeServiceError) -> String {
+        // Dynamic fields originate from Git output and repository state, so
+        // they get the same terminal-control sanitization as regular output.
         switch error {
         case let .hostUnavailable(host):
-            return worktreeLocalizedFormat("cli.worktree.serviceError.hostUnavailable", defaultValue: "Execution host '%@' is unavailable.", arguments: [host.rawValue])
+            return worktreeLocalizedFormat("cli.worktree.serviceError.hostUnavailable", defaultValue: "Execution host '%@' is unavailable.", arguments: [terminalSafeWorktreeText(host.rawValue)])
         case let .hostMismatch(expected, actual):
-            return worktreeLocalizedFormat("cli.worktree.serviceError.hostMismatch", defaultValue: "Worktree belongs to host '%@', not '%@'.", arguments: [expected.rawValue, actual.rawValue])
+            return worktreeLocalizedFormat("cli.worktree.serviceError.hostMismatch", defaultValue: "Worktree belongs to host '%@', not '%@'.", arguments: [terminalSafeWorktreeText(expected.rawValue), terminalSafeWorktreeText(actual.rawValue)])
         case let .invalidName(name):
-            return worktreeLocalizedFormat("cli.worktree.serviceError.invalidName", defaultValue: "Worktree name '%@' does not contain a Unicode letter or number.", arguments: [name])
+            return worktreeLocalizedFormat("cli.worktree.serviceError.invalidName", defaultValue: "Worktree name '%@' does not contain a Unicode letter or number.", arguments: [terminalSafeWorktreeText(name)])
         case let .invalidBranch(branch, reason):
-            return worktreeLocalizedFormat("cli.worktree.serviceError.invalidBranch", defaultValue: "Invalid branch '%@': %@", arguments: [branch, reason])
+            return worktreeLocalizedFormat("cli.worktree.serviceError.invalidBranch", defaultValue: "Invalid branch '%@': %@", arguments: [terminalSafeWorktreeText(branch), terminalSafeWorktreeText(reason)])
         case let .invalidPath(path):
-            return worktreeLocalizedFormat("cli.worktree.serviceError.invalidPath", defaultValue: "Invalid worktree path '%@'; path traversal is not allowed.", arguments: [path])
+            return worktreeLocalizedFormat("cli.worktree.serviceError.invalidPath", defaultValue: "Invalid worktree path '%@'; path traversal is not allowed.", arguments: [terminalSafeWorktreeText(path)])
         case let .worktreeNotFound(path):
-            return worktreeLocalizedFormat("cli.worktree.serviceError.worktreeNotFound", defaultValue: "Git does not report a worktree at '%@'.", arguments: [path])
+            return worktreeLocalizedFormat("cli.worktree.serviceError.worktreeNotFound", defaultValue: "Git does not report a worktree at '%@'.", arguments: [terminalSafeWorktreeText(path)])
         case let .mainWorktreeRemovalRefused(path):
-            return worktreeLocalizedFormat("cli.worktree.serviceError.mainRemovalRefused", defaultValue: "Refusing to remove the main worktree at '%@'.", arguments: [path])
+            return worktreeLocalizedFormat("cli.worktree.serviceError.mainRemovalRefused", defaultValue: "Refusing to remove the main worktree at '%@'.", arguments: [terminalSafeWorktreeText(path)])
         case let .dirtyWorktree(path, fileCount):
-            return worktreeLocalizedFormat("cli.worktree.serviceError.dirtyWorktree", defaultValue: "Refusing to remove dirty worktree '%@' (%lld changed path(s)); pass --force to discard them.", arguments: [path, Int64(fileCount)])
+            return worktreeLocalizedFormat("cli.worktree.serviceError.dirtyWorktree", defaultValue: "Refusing to remove dirty worktree '%@' (%lld changed path(s)); pass --force to discard them.", arguments: [terminalSafeWorktreeText(path), Int64(fileCount)])
         case let .lockedWorktree(path, reason):
             if let reason {
-                return worktreeLocalizedFormat("cli.worktree.serviceError.lockedWorktreeReason", defaultValue: "Refusing to remove locked worktree '%@': %@", arguments: [path, reason])
+                return worktreeLocalizedFormat("cli.worktree.serviceError.lockedWorktreeReason", defaultValue: "Refusing to remove locked worktree '%@': %@", arguments: [terminalSafeWorktreeText(path), terminalSafeWorktreeText(reason)])
             }
-            return worktreeLocalizedFormat("cli.worktree.serviceError.lockedWorktree", defaultValue: "Refusing to remove locked worktree '%@'.", arguments: [path])
+            return worktreeLocalizedFormat("cli.worktree.serviceError.lockedWorktree", defaultValue: "Refusing to remove locked worktree '%@'.", arguments: [terminalSafeWorktreeText(path)])
         case let .orphanedGitDirectory(path, message):
-            return worktreeLocalizedFormat("cli.worktree.serviceError.orphanedGitDirectory", defaultValue: "Git reports '%@' is not a working tree; prune its orphaned administrative entry instead. %@", arguments: [path, message])
+            return worktreeLocalizedFormat("cli.worktree.serviceError.orphanedGitDirectory", defaultValue: "Git reports '%@' is not a working tree; prune its orphaned administrative entry instead. %@", arguments: [terminalSafeWorktreeText(path), terminalSafeWorktreeLines(message)])
         case let .commandTimedOut(command, seconds):
-            return worktreeLocalizedFormat("cli.worktree.serviceError.commandTimedOut", defaultValue: "Command timed out after %llds: %@", arguments: [Int64(seconds), command])
+            return worktreeLocalizedFormat("cli.worktree.serviceError.commandTimedOut", defaultValue: "Command timed out after %llds: %@", arguments: [Int64(seconds), terminalSafeWorktreeText(command)])
         case let .commandFailed(command, exitStatus, message):
             let status = exitStatus.map(String.init)
                 ?? String(localized: "cli.worktree.serviceError.statusUnavailable", defaultValue: "unavailable")
-            return worktreeLocalizedFormat("cli.worktree.serviceError.commandFailed", defaultValue: "Command failed (status %@): %@\n%@", arguments: [status, command, message])
+            return worktreeLocalizedFormat("cli.worktree.serviceError.commandFailed", defaultValue: "Command failed (status %@): %@\n%@", arguments: [status, terminalSafeWorktreeText(command), terminalSafeWorktreeLines(message)])
         case let .submoduleInitializationFailed(path, message):
-            return worktreeLocalizedFormat("cli.worktree.serviceError.submoduleInitializationFailed", defaultValue: "Worktree was created at '%@', but submodule initialization failed: %@", arguments: [path, message])
+            return worktreeLocalizedFormat("cli.worktree.serviceError.submoduleInitializationFailed", defaultValue: "Worktree was created at '%@', but submodule initialization failed: %@", arguments: [terminalSafeWorktreeText(path), terminalSafeWorktreeLines(message)])
         }
     }
 
