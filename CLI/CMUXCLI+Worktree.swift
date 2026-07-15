@@ -6,7 +6,10 @@ extension CMUXCLI {
         var arguments = commandArgs
         let wantsJSON = jsonOutput || arguments.contains("--json")
         arguments.removeAll { $0 == "--json" }
-        let subcommand = arguments.first?.lowercased() ?? "help"
+        var subcommand = arguments.first?.lowercased() ?? "help"
+        if subcommand == "--help" || subcommand == "-h" {
+            subcommand = "help"
+        }
         if !arguments.isEmpty {
             arguments.removeFirst()
         }
