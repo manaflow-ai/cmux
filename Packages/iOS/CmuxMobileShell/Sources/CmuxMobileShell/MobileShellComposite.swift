@@ -1058,6 +1058,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalLiveFontTokensBySurfaceID = [:]
         self.rawTerminalInputBuffer = MobileTerminalInputSendBuffer()
         self.pairingAttemptID = UUID()
+        self.terminalReorderGate.updateWorkspacePresentationIdentities(workspaces)
     }
 
     isolated deinit {
@@ -3410,6 +3411,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
         workspaces = derived
+        terminalReorderGate.updateWorkspacePresentationIdentities(derived)
         pruneChatSessionSnapshots(to: derived)
         if let selectedWorkspaceID,
            !derived.contains(where: { $0.id == selectedWorkspaceID }) {
