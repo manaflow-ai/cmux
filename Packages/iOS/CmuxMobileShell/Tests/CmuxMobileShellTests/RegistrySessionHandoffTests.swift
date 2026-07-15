@@ -349,6 +349,41 @@ import Testing
         #expect(store.deeplinkWorkspaceNavigationRequest == nil)
         #expect(store.registrySessionHandoffNavigationRequest == nil)
     }
+
+    @Test func handoffGatesInteractiveShellUntilItsRequestEnds() {
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            identityProvider: StaticIdentityProvider(userID: "user-1")
+        )
+
+        let completedRequestID = store.beginRegistrySessionHandoffAttempt()
+        #expect(store.isRegistrySessionHandoffInProgress)
+        store.finishRegistrySessionHandoffAttempt(completedRequestID)
+        #expect(!store.isRegistrySessionHandoffInProgress)
+
+        _ = store.beginRegistrySessionHandoffAttempt()
+        #expect(store.isRegistrySessionHandoffInProgress)
+        store.invalidateRegistrySessionHandoffAttempt()
+        #expect(!store.isRegistrySessionHandoffInProgress)
+    }
+
+    @Test func cancellationRestoresOnlyWhileTheHandoffOwnsTheConnection() {
+        #expect(CMUXMobileShellStore.registryHandoffShouldRestorePreviousMac(
+            hasPreviousActive: true,
+            canContinue: false,
+            stillOwnsAttempt: true
+        ))
+        #expect(!CMUXMobileShellStore.registryHandoffShouldRestorePreviousMac(
+            hasPreviousActive: true,
+            canContinue: false,
+            stillOwnsAttempt: false
+        ))
+        #expect(!CMUXMobileShellStore.registryHandoffShouldRestorePreviousMac(
+            hasPreviousActive: false,
+            canContinue: false,
+            stillOwnsAttempt: true
+        ))
+    }
 }
 
 private actor GatedHandoffTeamIDProvider {
