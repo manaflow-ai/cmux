@@ -30,6 +30,22 @@ struct ChromiumBrowserEngineSessionTests {
     }
 
     @Test
+    func startsAndStopsScreencastWithViewportVisibility() {
+        #expect(ChromiumBrowserEngineSession.screencastMethod(
+            isViewportVisible: false,
+            isScreencastActive: false
+        ) == nil)
+        #expect(ChromiumBrowserEngineSession.screencastMethod(
+            isViewportVisible: true,
+            isScreencastActive: false
+        ) == "Page.startScreencast")
+        #expect(ChromiumBrowserEngineSession.screencastMethod(
+            isViewportVisible: false,
+            isScreencastActive: true
+        ) == "Page.stopScreencast")
+    }
+
+    @Test
     func forwardsCompositionAndCommittedTextToCDPInputCommands() {
         let session = ChromiumBrowserEngineSession(
             viewportWebView: WKWebView(),

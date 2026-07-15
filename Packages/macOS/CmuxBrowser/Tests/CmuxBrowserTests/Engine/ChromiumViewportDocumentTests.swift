@@ -53,15 +53,19 @@ struct ChromiumViewportDocumentTests {
             contentWorld: .page
         )
         let messages = try #require(result as? [[String: Any]])
+        let inputMessages = messages.filter {
+            guard let type = $0["type"] as? String else { return false }
+            return type == "text" || type == "composition"
+        }
 
-        #expect(messages.compactMap { $0["type"] as? String } == [
+        #expect(inputMessages.compactMap { $0["type"] as? String } == [
             "text",
             "composition",
             "composition",
             "text",
             "text",
         ])
-        #expect(messages.compactMap { $0["text"] as? String } == [
+        #expect(inputMessages.compactMap { $0["text"] as? String } == [
             "é",
             "に",
             "",

@@ -17,6 +17,13 @@ public protocol BrowserEngineSession: AnyObject {
     /// State snapshots emitted when navigation or engine lifecycle changes.
     var stateUpdates: AsyncStream<BrowserEngineState> { get }
 
+    /// Updates whether this engine's viewport is currently visible in cmux.
+    ///
+    /// Engines may suspend offscreen presentation while preserving page state and navigation.
+    ///
+    /// - Parameter visible: Whether the pane is visible and should actively present frames.
+    func setViewportVisible(_ visible: Bool)
+
     /// Loads a request in the current browser surface.
     ///
     /// - Parameter request: The top-level request to load.

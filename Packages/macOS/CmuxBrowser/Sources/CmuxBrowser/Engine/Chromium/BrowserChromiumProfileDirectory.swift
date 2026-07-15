@@ -50,5 +50,18 @@ public struct BrowserChromiumProfileDirectory {
         guard fileManager.fileExists(atPath: candidate.path) else { return }
 
         try fileManager.removeItem(at: candidate)
+        removeDirectoryIfEmpty(candidate.deletingLastPathComponent())
+        removeDirectoryIfEmpty(candidate.deletingLastPathComponent().deletingLastPathComponent())
+    }
+
+    private func removeDirectoryIfEmpty(_ directory: URL) {
+        guard (try? fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil
+        ).isEmpty) == true else {
+            return
+        }
+        // A concurrent session creation makes removal fail safely once the directory is nonempty.
+        try? fileManager.removeItem(at: directory)
     }
 }

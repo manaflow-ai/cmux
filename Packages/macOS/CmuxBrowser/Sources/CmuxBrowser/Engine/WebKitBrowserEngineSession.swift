@@ -64,6 +64,9 @@ public final class WebKitBrowserEngineSession: BrowserEngineSession {
     /// Stops the active WebKit load.
     public func stopLoading() { webView.stopLoading() }
 
+    /// Keeps WebKit active because its native view owns offscreen presentation throttling.
+    public func setViewportVisible(_: Bool) {}
+
     /// Evaluates JavaScript in a WebKit content world.
     public func evaluateJavaScript(
         _ script: String,

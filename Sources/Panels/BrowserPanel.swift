@@ -2801,6 +2801,7 @@ final class BrowserPanel: Panel, ObservableObject {
     @Published var shouldRenderWebView: Bool = false {
         didSet {
             if oldValue != shouldRenderWebView {
+                syncEngineViewportVisibility()
                 refreshWebViewLifecycleState()
                 applyConfiguredWebViewBackground()
             }
@@ -3181,6 +3182,7 @@ final class BrowserPanel: Panel, ObservableObject {
         now: Date = Date(),
         recordIfUnchanged: Bool = false
     ) {
+        engineSessionStorage?.setViewportVisible(visible && shouldRenderWebView)
         let changed = isWebViewVisibleInUI != visible
         let isFirstVisibilityRecord = webViewLastVisibilityChangeReason == nil
         let shouldRecordVisibleHeartbeat = visible && recordIfUnchanged
@@ -3267,6 +3269,7 @@ final class BrowserPanel: Panel, ObservableObject {
             webViewLastVisibilityChangeReason = nil
             isWebViewVisibleInUI = false
         }
+        syncEngineViewportVisibility()
         hiddenWebViewDiscardManager.resetMetadata()
         isClosingWebViewLifecycle = false
     }
@@ -4306,6 +4309,10 @@ final class BrowserPanel: Panel, ObservableObject {
         }
     }
 
+    private func syncEngineViewportVisibility() {
+        engineSessionStorage?.setViewportVisible(isWebViewVisibleInUI && shouldRenderWebView)
+    }
+
     private func replaceEngineSession(for webView: WKWebView) {
         engineStateTask?.cancel()
         engineStateTask = nil
@@ -4318,6 +4325,7 @@ final class BrowserPanel: Panel, ObservableObject {
             surfaceID: id,
             initializationScripts: engineInitializationScripts
         )
+        syncEngineViewportVisibility()
         if engineKind == .chromium, let webView = webView as? CmuxWebView {
             bindChromiumViewport(webView)
             observeEngineState()

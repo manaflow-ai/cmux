@@ -32,6 +32,9 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
     private var pendingRequest: URLRequest?
     private var initializationScripts: [String]
     private var initializationScriptInstallations: [Int: Task<Void, any Error>] = [:]
+    private var isViewportVisible = false
+    private var isScreencastActive = false
+    private var screencastUpdateTask: Task<Void, Never>?
     var viewportInputQueue = ChromiumViewportInputQueue()
     var viewportInputTask: Task<Void, Never>?
     var viewportInputFailed = false
@@ -134,6 +137,12 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
         guard let connection, let cdpSessionID else { return }
         Task { try? await connection.send(method: "Page.stopLoading", sessionID: cdpSessionID) }
         updateState { $0.isLoading = false }
+    }
+
+    /// Starts or suspends Chromium frame delivery for the viewport's visibility.
+    public func setViewportVisible(_ visible: Bool) {
+        isViewportVisible = visible
+        startScreencastUpdateIfNeeded()
     }
 
     /// Evaluates JavaScript through `Runtime.evaluate` and returns its by-value result.
@@ -259,7 +268,7 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
         [
             "frameId": .string(frameID),
             "worldName": .string("cmux.browser.automation"),
-            "grantUniveralAccess": .bool(true),
+            "grantUniversalAccess": .bool(true),
         ]
     }
 
@@ -291,6 +300,10 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
         eventTask?.cancel()
         initializationScriptInstallations.values.forEach { $0.cancel() }
         initializationScriptInstallations.removeAll()
+        screencastUpdateTask?.cancel()
+        screencastUpdateTask = nil
+        isViewportVisible = false
+        isScreencastActive = false
         viewportInputTask?.cancel()
         viewportInputTask = nil
         viewportInputQueue.removeAll()
@@ -367,14 +380,7 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
         _ = try await connection.send(method: "Page.enable", sessionID: sessionID)
         _ = try await connection.send(method: "Runtime.enable", sessionID: sessionID)
         try await sendDeviceMetrics(connection: connection, sessionID: sessionID)
-        _ = try await connection.send(
-            method: "Page.startScreencast",
-            parameters: Self.screencastParameters(
-                viewportWidth: viewportWidth,
-                viewportHeight: viewportHeight
-            ),
-            sessionID: sessionID
-        )
+        startScreencastUpdateIfNeeded()
         try await installAllInitializationScripts(connection: connection, sessionID: sessionID)
         if let request = pendingRequest {
             load(request)
@@ -392,8 +398,66 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
             "quality": .number(75),
             "maxWidth": .number(Double(max(viewportWidth, 1) * 2)),
             "maxHeight": .number(Double(max(viewportHeight, 1) * 2)),
-            "everyNthFrame": .number(1),
+            "everyNthFrame": .number(2),
         ]
+    }
+
+    static func screencastMethod(
+        isViewportVisible: Bool,
+        isScreencastActive: Bool
+    ) -> String? {
+        guard isViewportVisible != isScreencastActive else { return nil }
+        return isViewportVisible ? "Page.startScreencast" : "Page.stopScreencast"
+    }
+
+    private func startScreencastUpdateIfNeeded() {
+        guard !isClosed,
+              connection != nil,
+              cdpSessionID != nil,
+              screencastUpdateTask == nil,
+              Self.screencastMethod(
+                  isViewportVisible: isViewportVisible,
+                  isScreencastActive: isScreencastActive
+              ) != nil else {
+            return
+        }
+        screencastUpdateTask = Task { [weak self] in
+            await self?.drainScreencastUpdates()
+        }
+    }
+
+    private func drainScreencastUpdates() async {
+        defer { screencastUpdateTask = nil }
+        while !Task.isCancelled,
+              let connection,
+              let cdpSessionID {
+            let targetVisible = isViewportVisible
+            guard let method = Self.screencastMethod(
+                isViewportVisible: targetVisible,
+                isScreencastActive: isScreencastActive
+            ) else {
+                return
+            }
+            let parameters = targetVisible
+                ? Self.screencastParameters(
+                    viewportWidth: viewportWidth,
+                    viewportHeight: viewportHeight
+                )
+                : [:]
+            do {
+                _ = try await connection.send(
+                    method: method,
+                    parameters: parameters,
+                    sessionID: cdpSessionID
+                )
+                isScreencastActive = targetVisible
+            } catch is CancellationError {
+                return
+            } catch {
+                presentOperationFailure()
+                return
+            }
+        }
     }
 
     private func beginEvents(connection: CDPConnection, sessionID: String) {
