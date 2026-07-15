@@ -277,6 +277,15 @@ struct CmuxRunURLRequestTests {
         #expect(CmuxRunURLRequest.parse(otherRoute, supportedSchemes: [scheme]) == .success(nil))
     }
 
+    @Test func rejectsPathStyleRunRouteInsteadOfSilentlyIgnoringIt() throws {
+        let url = try #require(URL(string: "\(scheme):/run?command=true&cwd=/tmp"))
+
+        #expect(
+            CmuxRunURLRequest.parse(url, supportedSchemes: [scheme])
+                == .failure(.unsupportedURLShape)
+        )
+    }
+
     @Test @MainActor func classifiesEachMalformedExternalURLAsOneIntent() throws {
         let urls = try [
             #require(URL(string: "\(scheme)://run?cwd=/tmp")),
@@ -518,6 +527,20 @@ struct CmuxRunURLRequestTests {
         first.cancel()
         #expect(await first.value == .failure(.workingDirectoryResolutionTimedOut))
         startedContinuation.finish()
+    }
+
+    @Test func deadlineResolverRequiresIdentityFromTheBoundedVerifier() async {
+        let resolver = CmuxRunWorkingDirectoryResolver { _ in
+            CmuxRunWorkingDirectoryCommand(
+                executableURL: URL(fileURLWithPath: "/bin/sh"),
+                arguments: ["-c", "printf '/tmp\\n'"]
+            )
+        }
+
+        #expect(
+            await resolver.resolveWithDeadline("/tmp")
+                == .failure(.workingDirectoryNotFound)
+        )
     }
 
     private func parsed(_ queryItems: [URLQueryItem]) throws -> CmuxRunURLRequest {
