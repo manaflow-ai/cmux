@@ -197,8 +197,14 @@ struct SimulatorPanelIntegrationTests {
     }
 
     @Test("External file drops target Simulator import instead of file previews")
-    func externalFileDropRouting() {
+    func externalFileDropRouting() throws {
+        let flags = CmuxFeatureFlags.shared
+        let simulatorFlag = CmuxFeatureFlags.allFlags[5]
+        let previousOverride = flags.overrideValue(for: simulatorFlag)
+        flags.setOverride(true, for: simulatorFlag)
+        defer { flags.setOverride(previousOverride, for: simulatorFlag) }
         let workspace = Workspace()
+        let terminalPanelID = try #require(workspace.focusedPanelId)
         let panel = SimulatorPanel()
         defer { panel.close() }
         workspace.panels[panel.id] = panel
@@ -209,6 +215,16 @@ struct SimulatorPanelIntegrationTests {
         ) == true)
         #expect(workspace.panels.count == originalPanelCount)
         #expect(workspace.handleSimulatorExternalFileDrop(urls: [], panelId: panel.id) == false)
+
+        flags.setOverride(false, for: simulatorFlag)
+        #expect(workspace.handleSimulatorExternalFileDrop(
+            urls: [URL(fileURLWithPath: "/tmp/Fixture.txt")],
+            panelId: terminalPanelID
+        ) == nil)
+        #expect(workspace.handleSimulatorExternalFileDrop(
+            urls: [URL(fileURLWithPath: "/tmp/Fixture.app")],
+            panelId: panel.id
+        ) == false)
     }
 
     @Test("Control routing selects focused or sole Simulator and rejects ambiguous targets")

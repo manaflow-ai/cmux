@@ -6,8 +6,8 @@ extension Workspace {
     /// Imports external files into a Simulator panel without creating file-preview tabs.
     /// Returns `nil` when the target panel is not a Simulator.
     func handleSimulatorExternalFileDrop(urls: [URL], panelId: UUID) -> Bool? {
-        guard CmuxFeatureFlags.shared.isSimulatorEnabled else { return false }
         guard let panel = panels[panelId] as? SimulatorPanel else { return nil }
+        guard CmuxFeatureFlags.shared.isSimulatorEnabled else { return false }
         guard !urls.isEmpty else { return false }
         let coordinator = panel.coordinator
         Task { @MainActor in await coordinator.importDroppedFiles(urls) }
