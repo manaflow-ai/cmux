@@ -22,16 +22,21 @@ function fixture(html: string) {
   return { dom, messages, runtime };
 }
 
+type SnapshotSelection = {
+  selector: string;
+  selectors: string[];
+  tag_name?: string;
+  text_content?: string;
+  text_editable?: boolean;
+  dom_snippet?: string;
+  computed_styles?: Record<string, string>;
+  bounds?: { x: number; y: number; width: number; height: number };
+};
+
 type Snapshot = {
   enabled: boolean;
-  selection: null | {
-    selector: string;
-    selectors: string[];
-    text_content?: string;
-    text_editable?: boolean;
-    dom_snippet?: string;
-    computed_styles?: Record<string, string>;
-  };
+  selection: null | SnapshotSelection;
+  selections?: SnapshotSelection[];
   edits: Array<{ id: string; property: string; original_value: string; value: string }>;
   css_diff: string;
 };
@@ -41,7 +46,7 @@ type DesignRuntime = {
   destroy(): Snapshot;
   snapshot(): Snapshot;
   select(selector: string, stack?: boolean): Snapshot;
-  composerState(): { selection_count: number; selectors: string[] };
+  composerState(): { selection_count: number; selectors: string[]; can_copy: boolean };
   applyStyle(property: string, value: string): Snapshot;
   applyText(value: string): Snapshot;
   revert(id: string): Snapshot;
