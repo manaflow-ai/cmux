@@ -116,6 +116,9 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
             onTopologyChanged: { [weak self] in
                 self?.rebuild()
             },
+            onReconnectReady: { [weak self] in
+                self?.forceResizeAllVisibleMirrors()
+            },
             onExit: { [weak self] in
                 self?.handleConnectionExited()
             },
@@ -174,6 +177,10 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         if workspace?.remoteTmuxSessionMirror === self {
             workspace?.remoteTmuxSessionMirror = nil
         }
+        // Detach owns the whole mirror set, so prune the sizing ledger once.
+        // Each mirror's teardown then sees no claim and avoids rescanning the
+        // shrinking maxima table once per window.
+        connection.retainWindowSizeClaims(for: [])
         for mirror in windowMirrorByWindowId.values {
             workspace?.setRemoteTmuxWindowMirror(nil, forPanelId: mirror.panelId)
             mirror.teardown()
@@ -188,10 +195,6 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         windowIdByPane[paneId]
     }
 
-    /// Adds a tab for any window that doesn't yet have one, refreshes existing
-    /// tab titles after a tmux rename, activates/reconciles the in-tab multi-pane
-    /// renderer for multi-pane windows, then closes the workspace's original
-    /// local tab(s) once at least one remote tab exists.
     func rebuild() {
         guard let workspace else { return }
         workspace.performRemoteTmuxMirrorMutation {
@@ -287,6 +290,22 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
             windowIdByPanel[panelId] = nil
             panelIdByPane = panelIdByPane.filter { $0.value != panelId }
         }
+        // Belt for a mirror that outlived its panel bookkeeping: a mirror
+        // whose window tmux no longer lists must die even if the
+        // panel-by-window entry was already gone (a server restart inside a
+        // reused workspace once left a corpse mirror claiming and being
+        // judged against a window id that no longer existed — it could
+        // never settle, and its tree kept replanning against live
+        // container sizes with no layouts ever arriving).
+        for (windowId, mirror) in windowMirrorByWindowId where !liveWindows.contains(windowId) {
+            mirror.teardown()
+            windowMirrorByWindowId[windowId] = nil
+        }
+        // A dead window's size claims die with the authoritative topology.
+        // Prune the whole ledger once: removing each dead window separately
+        // rescans the remaining claims for maxima and turns batch churn into
+        // quadratic work.
+        connection.retainWindowSizeClaims(for: liveWindows)
         // Drop cached directories for panes tmux no longer reports, so the cache
         // stays bounded across window/pane churn (tmux pane ids never recur).
         panelIdByPane = panelIdByPane.filter { livePanes.contains($0.key) }

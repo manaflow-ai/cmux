@@ -341,7 +341,9 @@
   "pricing": {
     "metaTitle": "料金 — cmux",
     "metaDescription": "cmux はAIコーディングエージェント向けの無料・オープンソースの macOS ターミナルです。Pro では Cloud VM、cmux Vault によるセッションバックアップ、モデルゲートウェイが使えます。Enterprise は SSO とセルフホストに対応します。",
+    "metaDescriptionShort": "cmux は無料・オープンソースの macOS ターミナルです。Pro では Cloud VM、Vault、モデルゲートウェイを利用でき、Enterprise では SSO とセルフホストに対応します。",
     "metaDescriptionNoVault": "cmux はAIコーディングエージェント向けの無料・オープンソースの macOS ターミナルです。Pro では Cloud VM とモデルゲートウェイが使えます。Enterprise は SSO とセルフホストに対応します。",
+    "metaDescriptionNoVaultShort": "cmux は無料・オープンソースの macOS ターミナルです。Pro では Cloud VM とモデルゲートウェイを利用でき、Enterprise では SSO とセルフホストに対応します。",
     "title": "料金",
     "perMonth": "/月",
     "perUserMonth": "/ユーザー/月",
@@ -1323,6 +1325,7 @@
       "enableDesc": "設定 → ベータ機能 を開き、「リモート tmux」をオンにします。デフォルトはオフなので、オプトインするまでローカルのターミナルには何も影響しません。",
       "attachTitle": "接続する",
       "attachIntro": "ターミナルで cmux ssh-tmux <宛先>（~/.ssh/config のエイリアスまたは user@host）を実行します。cmux はそのホストの tmux セッションを現在のウィンドウのサイドバーにミラーリングします。各セッションはワークスペースに、各ウィンドウはタブに、複数ペインのウィンドウはタブ内の分割になります。",
+      "attachNewWindow": "--new-window を指定すると、現在のウィンドウの代わりに専用の新しいウィンドウでミラーを開きます。",
       "attachSockets": "remote.tmux.* のソケットコマンド（下記）でより細かく制御できます。remote.tmux.mirror がミラーリングのエントリポイントで、ウィンドウや呼び出し元のルーティングを受け取り、必要に応じてミラーワークスペースを選択できます。",
       "attachCli": "非対話で認証されるホスト（ssh-agent や ~/.ssh/config の鍵）はプロンプトなしで接続されます。対話的な認証（パスワード、ホストキーの確認、多要素認証）が必要なホストでは、cmux がそのターミナル内で ssh を実行するため、その場で認証でき、その後 cmux が現在のウィンドウにミラーリングします。--port、--identity、--no-focus を指定できます。",
       "troubleshootTitle": "「Permission denied」が出る場合",
@@ -1549,6 +1552,7 @@
     "configuration": {
       "title": "設定",
       "metaDescription": "Ghostty設定ファイルと ~/.config/cmux/cmux.json によるcmuxの設定。ターミナル描画はGhostty設定、cmux側のアプリ設定、ショートカット、自動化、サイドバー、通知、ブラウザ動作は cmux.json で管理します。",
+      "metaDescriptionShort": "Ghostty設定と cmux.json でターミナル描画、アプリ設定、ショートカット、自動化、サイドバー、通知、ブラウザ動作を管理します。",
       "intro": "cmuxはターミナル設定をGhosttyの設定ファイルから読み込みます。cmux管理のアプリ設定も ~/.config/cmux/cmux.json で管理でき、ショートカット、自動化、サイドバー、通知、ブラウザ設定を含みます。",
       "configLocations": "設定ファイルの場所",
       "configLocationsDesc": "cmuxは以下の場所から設定を検索します（順番に）：",
@@ -1662,6 +1666,7 @@
           "wordWrap": "横スクロールする代わりに、エディタの右端で長い行を折り返します。"
         },
         "sidebar": {
+          "notificationMessageLineLimit": "各ワークスペースタイトルの下に表示する最新通知の最大行数です。",
           "rightMaxWidth": "右サイドバーの最大幅（ポイント）。省略すると、組み込みの動的上限が適用されます。"
         },
         "fileExplorer": {

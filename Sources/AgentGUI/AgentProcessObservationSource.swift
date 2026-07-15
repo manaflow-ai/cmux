@@ -21,11 +21,11 @@ final class AgentProcessObservationSource {
     }
 
     func scanNow() {
-        utilityQueue.async { [onObservations] in
-            let observations = Self.captureObservations()
-            Task { @MainActor in
-                onObservations(observations)
-            }
+        let capture = Task.detached(priority: .utility) {
+            await Self.captureObservations()
+        }
+        Task { @MainActor [onObservations] in
+            onObservations(await capture.value)
         }
     }
 
@@ -48,10 +48,9 @@ final class AgentProcessObservationSource {
         timer = nil
     }
 
-    private nonisolated static func captureObservations() -> [ProcessObservation] {
-        let snapshot = CmuxTopProcessSnapshot.captureCached(
-            includeProcessDetails: true,
-            includeCMUXScope: true,
+    private nonisolated static func captureObservations() async -> [ProcessObservation] {
+        let snapshot = await CmuxTopProcessSnapshotStore.shared.snapshot(
+            requirements: [.processDetails, .cmuxScope],
             maximumAge: 1
         )
         return snapshot.cmuxScopedProcesses().compactMap { process in

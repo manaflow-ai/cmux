@@ -1,6 +1,7 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
-import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "@/i18n/seo";
+import { buildAlternates, openGraphDefaults, twitterSummary } from "@/i18n/seo";
+import { blogPostSeoCopy } from "@/i18n/audited-seo";
 import { BlogSchema } from "../blog-schema";
 import { Link } from "@/i18n/navigation";
 import { CodeBlock } from "@/app/[locale]/components/code-block";
@@ -12,15 +13,16 @@ export async function generateMetadata({
 }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "blog.passkeyAuth" });
+  const post = await getTranslations({ locale, namespace: "blog.posts.passkeyAuth" });
+  const siteMeta = await getTranslations({ locale, namespace: "meta" });
   const rawKeywords = t.raw("metaKeywords");
   const keywords = Array.isArray(rawKeywords)
     ? rawKeywords.filter((keyword): keyword is string => typeof keyword === "string")
     : [];
   const alternates = buildAlternates(locale, "/blog/passkey-auth");
-  const title = t("metaTitle");
-  const description = seoDescription(locale, t("metaDescription"));
+  const { title, description } = blogPostSeoCopy(locale, "passkeyAuth", t, post, siteMeta);
   return {
-    title,
+    title: { absolute: title },
     description,
     keywords,
     openGraph: {
@@ -41,7 +43,7 @@ export default function PasskeyAuthPage() {
 
   return (
     <>
-      <BlogSchema postKey="passkeyAuth" path="/blog/passkey-auth" datePublished="2026-05-22T00:00:00Z" />
+      <BlogSchema postKey="passkeyAuth" seoKey="passkeyAuth" path="/blog/passkey-auth" datePublished="2026-05-22T00:00:00Z" />
       <div className="mb-8">
         <Link
           href="/blog"

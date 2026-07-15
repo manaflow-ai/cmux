@@ -1,9 +1,89 @@
 import CMUXMobileCore
 import CmuxMobilePairedMac
 import Foundation
+import os
+
+private let reconnectRouteLog = Logger(
+    subsystem: "com.cmuxterm.app",
+    category: "MobileReconnectRoutes"
+)
 
 @MainActor
 extension MobileShellComposite {
+    /// Refresh the active row only while its account, device, and authenticated
+    /// instance authority still match the values captured before the network call.
+    func refreshRoutesFromRegistry(
+        for mac: MobilePairedMac,
+        scope: MobileShellScopeSnapshot
+    ) {
+        guard let deviceRegistry, let pairedMacStore else { return }
+        let macDeviceID = mac.macDeviceID
+        let localRoutes = mac.routes
+        let displayName = mac.displayName
+        let capturedInstanceTag = mac.instanceTag
+        let task = Task { [weak self] in
+            let registryRoutes = await deviceRegistry.freshRoutes(
+                forMacDeviceID: macDeviceID,
+                instanceTag: capturedInstanceTag
+            )
+            guard let updated = DeviceRegistryService.selectReconnectRoutes(
+                local: localRoutes,
+                registry: registryRoutes
+            ), let self else { return }
+            await self.performSerializedPairedMacWrite(ifStillCurrent: nil) {
+                guard await self.isScopeCurrent(scope),
+                      await !self.isForgottenMacDeviceID(macDeviceID, scope: scope) else { return }
+                let activeMac: MobilePairedMac?
+                do {
+                    activeMac = try await pairedMacStore.activeMac(
+                        stackUserID: scope.userID,
+                        teamID: scope.teamID
+                    )
+                } catch {
+                    reconnectRouteLog.debug("registry refresh recheck failed: \(String(describing: error), privacy: .public)")
+                    return
+                }
+                guard await self.isScopeCurrent(scope),
+                      await !self.isForgottenMacDeviceID(macDeviceID, scope: scope),
+                      DeviceRegistryService.shouldApplyRegistryRefresh(
+                        isSignedIn: self.isSignedIn,
+                        capturedUserID: scope.userID,
+                        currentUserID: self.identityProvider?.currentUserID ?? scope.userID,
+                        activeMacID: activeMac?.macDeviceID,
+                        activeMacInstanceTag: activeMac?.instanceTag,
+                        targetMacID: macDeviceID,
+                        targetInstanceTag: capturedInstanceTag
+                ) else { return }
+                do {
+                    let wrote = try await pairedMacStore.upsertRoutesIfAuthorized(
+                        macDeviceID: macDeviceID,
+                        displayName: displayName,
+                        routes: updated,
+                        condition: .matchingInstanceTag(capturedInstanceTag),
+                        markActive: nil,
+                        stackUserID: scope.userID,
+                        teamID: scope.teamID,
+                        now: Date()
+                    )
+                    guard wrote else { return }
+                } catch {
+                    reconnectRouteLog.debug("registry refresh upsert failed: \(String(describing: error), privacy: .public)")
+                    return
+                }
+                if await self.isForgottenMacDeviceID(macDeviceID, scope: scope) {
+                    try? await pairedMacStore.remove(
+                        macDeviceID: macDeviceID,
+                        stackUserID: scope.userID,
+                        teamID: scope.teamID
+                    )
+                    return
+                }
+                if await self.isScopeCurrent(scope) { await self.loadPairedMacs() }
+            }
+        }
+        registryRouteRefreshTask = task
+    }
+
     /// The first reachable host/port route to a Mac, in priority order.
     ///
     /// When `preferNonLoopback` is set (physical devices), a real route
@@ -60,7 +140,17 @@ extension MobileShellComposite {
         guard let deviceRegistry,
               await isScopeCurrent(scope),
               await !isForgottenMacDeviceID(mac.macDeviceID, scope: scope),
-              let registryRoutes = await deviceRegistry.freshRoutes(forMacDeviceID: mac.macDeviceID),
+              let registryRoutes = await deviceRegistry.freshRoutes(
+                  forMacDeviceID: mac.macDeviceID,
+                  instanceTag: mac.instanceTag
+              ),
+              connectionState != .connected,
+              let pairedMacStore,
+              let currentMac = try? await pairedMacStore.loadAll(
+                  stackUserID: scope.userID,
+                  teamID: scope.teamID
+              ).first(where: { $0.macDeviceID == mac.macDeviceID }),
+              currentMac.instanceTag == mac.instanceTag,
               let updatedRoutes = DeviceRegistryService.selectReconnectRoutes(
                 local: mac.routes,
                 registry: registryRoutes

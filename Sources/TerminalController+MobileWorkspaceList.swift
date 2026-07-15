@@ -9,6 +9,13 @@ import Foundation
 // group collapse/expand handler. Lives in its own file so the mobile list
 // payload code stays together without growing TerminalController.swift.
 extension TerminalController {
+    private func mobileNonEmpty(_ raw: String?) -> String? {
+        guard let value = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
+
     /// Mobile-gated collapse/expand of a workspace group. P1 group support on
     /// iOS is display-only: the phone renders collapsible group sections and can
     /// toggle a section open/closed, but cannot create, rename, or restructure

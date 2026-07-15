@@ -118,6 +118,27 @@ extension TerminalController {
         }
     }
 
+    /// Resolves a UUID-addressed panel's owner inside the deferred mutation so
+    /// agent runtime updates follow a pane that moved after the socket request.
+    nonisolated func controlSidebarSchedulePanelOwnedMutation(
+        target: ControlSidebarTabTarget,
+        panelID: UUID?,
+        mutation: @escaping @MainActor (TerminalController, Workspace) -> Void
+    ) {
+        TerminalMutationBus.shared.enqueueMainActorMutation { [weak self] in
+            guard let self else { return }
+            var tab = self.controlSidebarResolveMutationTab(target)
+            if let panelID, case .workspace = target,
+               tab?.panels.keys.contains(panelID) != true,
+               let owner = AppDelegate.shared?.workspaceContainingPanel(panelId: panelID) {
+                tab = owner.workspace
+            }
+            guard let tab else { return }
+            if let panelID, !tab.panels.keys.contains(panelID) { return }
+            mutation(self, tab)
+        }
+    }
+
     /// The enqueue halves of the deleted file-private
     /// `schedulePanelMetadataMutation(args:options:missingPanelUsage:mutation:)`
     /// (the parse-level head moved into the coordinator's

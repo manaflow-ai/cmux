@@ -349,22 +349,29 @@ struct WorkspaceDetailView: View {
     // Native menu keeps press-drag-release selection and routes through
     // `selectTerminalFromPicker`; keyboard-dismiss-on-open is unavailable.
     var terminalPickerToolbarButton: some View {
-        let rows = terminalPickerRows.isEmpty ? terminalPickerLiveRows : terminalPickerRows
-        let selection = terminalPickerLiveRows.resolvedTerminalPickerSelection(selectedID: store.selectedTerminalID)
-
-        return Menu {
-            terminalPickerMenuContent(rows: rows, selectedID: selection?.id)
-        } label: {
-            Label(
-                selection?.name ?? L10n.string("mobile.terminal.select", defaultValue: "Terminal"),
-                systemImage: "rectangle.stack"
+        TerminalPickerMenu(
+            value: TerminalPickerMenuValue(
+                liveTerminals: workspace.terminals,
+                snapshotRows: terminalPickerRows,
+                selectedID: store.selectedTerminalID,
+                canCreateWorkspace: canCreateWorkspace,
+                hasActiveBrowser: activeBrowser != nil
+            ),
+            actions: TerminalPickerMenuActions(
+                selectTerminal: selectTerminalFromPicker,
+                createWorkspace: createWorkspaceFromToolbar,
+                createTerminal: createTerminalFromToolbar,
+                openBrowser: openBrowserFromToolbar,
+                openTextSheet: openTextSheetFromMenu,
+                copyDebugLogs: {
+                    #if DEBUG
+                    copyDebugLogsFromMenu()
+                    #endif
+                },
+                sendFeedback: openFeedbackComposerFromMenu
             )
-            .labelStyle(.iconOnly)
-        }
-        .foregroundStyle(TerminalPalette.foreground)
-        .accessibilityLabel(L10n.string("mobile.terminal.picker.title", defaultValue: "Terminals"))
-        .accessibilityIdentifier("MobileTerminalDropdown")
-        .accessibilityValue(selection?.name ?? "")
+        )
+        .equatable()
         .simultaneousGesture(TapGesture().onEnded { syncTerminalPickerRows(includeTitleChanges: true) })
         .onAppear { syncTerminalPickerRows(includeTitleChanges: true) }
         .onChange(of: terminalPickerLiveMembership) { _, _ in syncTerminalPickerRows() }

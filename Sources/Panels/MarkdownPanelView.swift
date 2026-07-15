@@ -100,6 +100,7 @@ struct MarkdownPanelView: View {
             if panel.displayMode == .text {
                 FilePreviewTextEditor(
                     panel: panel,
+                    session: panel.textEditorSession,
                     isVisibleInUI: isVisibleInUI,
                     themeBackgroundColor: appearance.contentBackgroundColor,
                     themeForegroundColor: themeForegroundColor,

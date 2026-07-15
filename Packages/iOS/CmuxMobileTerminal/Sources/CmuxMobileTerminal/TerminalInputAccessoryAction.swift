@@ -77,6 +77,11 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
     /// stable; its default on-bar position is curated separately in
     /// ``defaultConfigurableOrder``.
     case returnKey
+    /// Type the `ollama run ` launcher prefix. No trailing CR: unlike the
+    /// Claude/Codex launchers there is no universal model argument, so the
+    /// user completes the model name and submits. Appended at the end so
+    /// existing persisted raw values stay stable.
+    case ollama
     /// Short label rendered on the terminal accessory button.
     public var title: String {
         title(isMacRemote: false)
@@ -127,6 +132,8 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
             return "Claude"
         case .codex:
             return "Codex"
+        case .ollama:
+            return "Ollama"
         case .home:
             return String(localized: "terminal.input_accessory.title.home", defaultValue: "Home")
         case .end:
@@ -169,6 +176,7 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
         case .rightArrow: return "terminal.inputAccessory.right"
         case .claude: return "terminal.inputAccessory.claude"
         case .codex: return "terminal.inputAccessory.codex"
+        case .ollama: return "terminal.inputAccessory.ollama"
         case .tilde: return "terminal.inputAccessory.tilde"
         case .pipe: return "terminal.inputAccessory.pipe"
         case .dollar: return "terminal.inputAccessory.dollar"
@@ -280,6 +288,9 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
             return Data("claude --dangerously-skip-permissions\r".utf8)
         case .codex:
             return Data("codex --yolo -c model_reasoning_effort=xhigh --search\r".utf8)
+        case .ollama:
+            // No CR: the user completes the model name before submitting.
+            return Data("ollama run ".utf8)
         case .home:
             return Data([0x1B, 0x5B, 0x48]) // ESC[H
         case .end:
@@ -348,7 +359,7 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
             .escape,
             .returnKey,
             .ctrlC, .ctrlD,
-            .claude, .codex,
+            .claude, .codex, .ollama,
             .upArrow, .downArrow, .leftArrow, .rightArrow,
             .ctrlL,
             .tilde, .dollar, .slash, .atSign, .pipe,
@@ -370,6 +381,7 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
         case .rightArrow: return String(localized: "terminal.shortcut.name.rightArrow", defaultValue: "Right Arrow")
         case .claude: return String(localized: "terminal.shortcut.name.claude", defaultValue: "Claude")
         case .codex: return String(localized: "terminal.shortcut.name.codex", defaultValue: "Codex")
+        case .ollama: return String(localized: "terminal.shortcut.name.ollama", defaultValue: "Ollama")
         case .tilde: return String(localized: "terminal.shortcut.name.tilde", defaultValue: "Tilde ~")
         case .pipe: return String(localized: "terminal.shortcut.name.pipe", defaultValue: "Pipe |")
         case .dollar: return String(localized: "terminal.shortcut.name.dollar", defaultValue: "Dollar $")

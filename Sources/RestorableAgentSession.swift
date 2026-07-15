@@ -317,7 +317,8 @@ enum AgentResumeCommandBuilder {
         launchCommand: AgentLaunchCommandSnapshot?,
         workingDirectory: String?,
         registrationOverride: CmuxVaultAgentRegistration? = nil,
-        includeWorkingDirectoryPrefix: Bool = true
+        includeWorkingDirectoryPrefix: Bool = true,
+        observedPermissionMode: String? = nil
     ) -> String? {
         let customRegistration = registrationOverride
         guard !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -326,7 +327,8 @@ enum AgentResumeCommandBuilder {
                   sessionId: sessionId,
                   launchCommand: launchCommand,
                   workingDirectory: workingDirectory,
-                  customRegistration: customRegistration
+                  customRegistration: customRegistration,
+                  observedPermissionMode: observedPermissionMode
               ),
               !argv.isEmpty else {
             return nil
@@ -348,7 +350,8 @@ enum AgentResumeCommandBuilder {
         launchCommand: AgentLaunchCommandSnapshot?,
         workingDirectory: String?,
         registrationOverride: CmuxVaultAgentRegistration? = nil,
-        includeWorkingDirectoryPrefix: Bool = true
+        includeWorkingDirectoryPrefix: Bool = true,
+        observedPermissionMode: String? = nil
     ) -> String? {
         let customRegistration = registrationOverride
         guard !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -357,7 +360,8 @@ enum AgentResumeCommandBuilder {
                   sessionId: sessionId,
                   launchCommand: launchCommand,
                   workingDirectory: workingDirectory,
-                  customRegistration: customRegistration
+                  customRegistration: customRegistration,
+                  observedPermissionMode: observedPermissionMode
               ),
               !argv.isEmpty else {
             return nil
@@ -476,7 +480,8 @@ enum AgentResumeCommandBuilder {
         sessionId: String,
         launchCommand: AgentLaunchCommandSnapshot?,
         workingDirectory: String?,
-        customRegistration: CmuxVaultAgentRegistration?
+        customRegistration: CmuxVaultAgentRegistration?,
+        observedPermissionMode: String? = nil
     ) -> [String]? {
         switch AgentResumeArgv().launcherResolution(
             launcher: launchCommand?.launcher,
@@ -514,7 +519,8 @@ enum AgentResumeCommandBuilder {
             kind: kind.rawValue,
             sessionId: sessionId,
             executablePath: launchCommand?.executablePath,
-            arguments: launchCommand?.arguments ?? []
+            arguments: launchCommand?.arguments ?? [],
+            observedPermissionMode: observedPermissionMode
         )
     }
 
@@ -523,7 +529,8 @@ enum AgentResumeCommandBuilder {
         sessionId: String,
         launchCommand: AgentLaunchCommandSnapshot?,
         workingDirectory: String?,
-        customRegistration: CmuxVaultAgentRegistration?
+        customRegistration: CmuxVaultAgentRegistration?,
+        observedPermissionMode: String? = nil
     ) -> [String]? {
         let forkArgv = AgentForkArgv()
         switch forkArgv.launcherResolution(
@@ -553,7 +560,8 @@ enum AgentResumeCommandBuilder {
             kind: kind.rawValue,
             sessionId: sessionId,
             executablePath: launchCommand?.executablePath,
-            arguments: launchCommand?.arguments ?? []
+            arguments: launchCommand?.arguments ?? [],
+            observedPermissionMode: observedPermissionMode
         )
     }
 
@@ -738,26 +746,9 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
     var workingDirectory: String?
     var launchCommand: AgentLaunchCommandSnapshot?
     var registration: CmuxVaultAgentRegistration? = nil
-
-    var resumeCommand: String? {
-        AgentResumeCommandBuilder.resumeShellCommand(
-            kind: kind,
-            sessionId: sessionId,
-            launchCommand: launchCommand,
-            workingDirectory: workingDirectory,
-            registrationOverride: registration
-        )
-    }
-
-    var forkCommand: String? {
-        AgentResumeCommandBuilder.forkShellCommand(
-            kind: kind,
-            sessionId: sessionId,
-            launchCommand: launchCommand,
-            workingDirectory: workingDirectory,
-            registrationOverride: registration
-        )
-    }
+    /// Last hook-observed permission mode; re-applied as `--permission-mode` on
+    /// user-owned claude resume/fork when no explicit launch flag covers it.
+    var permissionMode: String? = nil
 
     func resumeStartupInput(
         fileManager: FileManager = .default,
@@ -838,16 +829,6 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
 
         let scriptInput = "/bin/zsh \(shellSingleQuoted(scriptURL.path))\n"
         return scriptInput.utf8.count <= Self.maxInlineStartupInputBytes ? scriptInput : nil
-    }
-}
-
-extension SessionRestorableAgentSnapshot {
-    var agentDisplayName: String {
-        if let name = registration?.name.trimmingCharacters(in: .whitespacesAndNewlines),
-           !name.isEmpty {
-            return name
-        }
-        return kind.displayName
     }
 }
 
@@ -940,6 +921,7 @@ struct RestorableAgentSessionIndex: Sendable {
         case explicit
         case inferredLatestSessionFile
         case forkParentFallback
+        case relaunchOnly
     }
 
     typealias ProcessDetectedSnapshotEntry = (
@@ -1033,26 +1015,26 @@ struct RestorableAgentSessionIndex: Sendable {
         )
     }
 
-    static func loadIncludingProcessDetectedSnapshots(
-        homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default
-    ) async -> RestorableAgentSessionIndex {
-        await Task.detached(priority: .utility) {
+    static func loadIncludingProcessDetectedSnapshots(homeDirectory: String = NSHomeDirectory(), fileManager: FileManager = .default, snapshotStore: CmuxTopProcessSnapshotStore = .shared) async -> RestorableAgentSessionIndex {
+        let processSnapshot = await snapshotStore.snapshot(
+            requirements: [.processDetails, .cmuxScope],
+            maximumAge: 3, consumer: .processDetectedResume
+        )
+        return await Task.detached(priority: .utility) {
             loadIncludingProcessDetectedSnapshotsSynchronously(
                 homeDirectory: homeDirectory,
-                fileManager: fileManager
+                fileManager: fileManager, processSnapshot: processSnapshot
             )
         }.value
     }
 
-    static func loadIncludingProcessDetectedSnapshotsSynchronously(
-        homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default
-    ) -> RestorableAgentSessionIndex {
+    static func loadIncludingProcessDetectedSnapshotsSynchronously(homeDirectory: String, fileManager: FileManager, processSnapshot: CmuxTopProcessSnapshot) -> RestorableAgentSessionIndex {
         let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
         let detectedSnapshots = processDetectedSnapshots(
             registry: registry,
-            fileManager: fileManager
+            fileManager: fileManager,
+            processSnapshot: processSnapshot,
+            capturedAt: processSnapshot.sampledAt.timeIntervalSince1970
         )
         return load(
             homeDirectory: homeDirectory,
@@ -1141,7 +1123,8 @@ struct RestorableAgentSessionIndex: Sendable {
                         codexCwdLookup: codexCwdLookup
                     ),
                     launchCommand: effectiveRecord.launchCommand,
-                    registration: registration
+                    registration: registration,
+                    permissionMode: effectiveRecord.lastPermissionMode
                 )
                 let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
                 let sessionKey = SessionKey(kind: kind, sessionId: normalizedSessionId)

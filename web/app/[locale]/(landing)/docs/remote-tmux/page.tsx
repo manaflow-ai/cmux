@@ -1,7 +1,7 @@
 import { getTranslations } from "next-intl/server";
 import { notFound } from "next/navigation";
 import { remoteTmuxDocsLocales } from "@/i18n/locale-availability";
-import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "@/i18n/seo";
+import { auditedDocsMetadata } from "../audited-docs-metadata";
 import { DocsSchema } from "../docs-schema";
 import { Callout } from "@/app/[locale]/components/callout";
 import { CodeBlock } from "@/app/[locale]/components/code-block";
@@ -20,22 +20,12 @@ function assertSupportedLocale(locale: string) {
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
   assertSupportedLocale(locale);
-  const t = await getTranslations({ locale, namespace: "docs.remoteTmux" });
-  const alternates = buildAlternates(locale, "/docs/remote-tmux", remoteTmuxDocsLocales);
-  const title = t("metaTitle");
-  const description = seoDescription(locale, t("metaDescription"));
-  return {
-    title,
-    description,
-    alternates,
-    openGraph: {
-      ...openGraphDefaults(locale, "article"),
-      title,
-      description,
-      url: alternates.canonical,
-    },
-    twitter: twitterSummary(locale, title, description),
-  };
+  return auditedDocsMetadata({
+    locale,
+    pageKey: "remoteTmux",
+    path: "/docs/remote-tmux",
+    availableLocales: remoteTmuxDocsLocales,
+  });
 }
 
 export default async function RemoteTmuxPage({
@@ -80,8 +70,9 @@ export default async function RemoteTmuxPage({
 
       <DocsHeading level={2} id="attach">{t("attachTitle")}</DocsHeading>
       <p>{t("attachIntro")}</p>
+      <p>{t("attachNewWindow")}</p>
       <p>{t("attachCli")}</p>
-      <CodeBlock lang="bash">{`cmux ssh-tmux dev@example.com\ncmux ssh-tmux my-ssh-alias --port 2222 --identity ~/.ssh/id_ed25519`}</CodeBlock>
+      <CodeBlock lang="bash">{`cmux ssh-tmux dev@example.com\ncmux ssh-tmux my-ssh-alias --port 2222 --identity ~/.ssh/id_ed25519\ncmux ssh-tmux dev@example.com --new-window`}</CodeBlock>
       <p>{t("attachSockets")}</p>
 
       <DocsHeading level={3} id="permission-denied">{t("troubleshootTitle")}</DocsHeading>
