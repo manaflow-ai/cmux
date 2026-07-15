@@ -156,6 +156,40 @@ extension String {
         return candidates
     }
 
+    /// Candidate path references derived from a single normalized spelling.
+    ///
+    /// The literal spelling is first so a real file whose name ends in
+    /// `:number` wins. A trailing `:line` or `:line:column` interpretation is
+    /// second and is only observable when its stripped path exists.
+    func terminalPathReferenceCandidates() -> [(path: String, line: Int?, column: Int?)] {
+        var candidates = [(path: self, line: Optional<Int>.none, column: Optional<Int>.none)]
+        let components = split(separator: ":", omittingEmptySubsequences: false)
+        guard components.count >= 2,
+              let trailingNumber = components.last.flatMap({ Int($0) }),
+              trailingNumber > 0 else {
+            return candidates
+        }
+
+        let path: String
+        let line: Int
+        let column: Int?
+        if components.count >= 3,
+           let lineNumber = Int(components[components.count - 2]),
+           lineNumber > 0 {
+            path = components.dropLast(2).joined(separator: ":")
+            line = lineNumber
+            column = trailingNumber
+        } else {
+            path = components.dropLast().joined(separator: ":")
+            line = trailingNumber
+            column = nil
+        }
+
+        guard !path.isEmpty else { return candidates }
+        candidates.append((path: path, line: line, column: column))
+        return candidates
+    }
+
     /// Path-token candidates around a column of a visible terminal line: the
     /// raw whitespace-delimited segment first, then the shell-escape-aware
     /// token.

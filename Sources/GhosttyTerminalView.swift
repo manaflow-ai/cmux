@@ -185,24 +185,6 @@ private func cmuxRuntimeReadClipboardCallback(
 // CmuxTerminalCore). The process-wide instance is the transitional
 // GhosttyApp.terminalPasteboard composition static below.
 
-/// The app-side conformance injected into ``TerminalLinkRouter``: terminal
-/// links validate hosts and resolve bare domains through the same browser
-/// rules the embedded browser uses.
-struct TerminalBrowserHostNormalizer: BrowserHostNormalizing {
-    func normalizedHost(_ rawHost: String) -> String? {
-        BrowserInsecureHTTPSettings.normalizeHost(rawHost)
-    }
-
-    func navigableWebURL(_ input: String) -> URL? {
-        resolveBrowserNavigableURL(input)
-    }
-}
-
-func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? {
-    TerminalLinkRouter(hostNormalizer: TerminalBrowserHostNormalizer())
-        .resolveOpenURLTarget(rawValue)
-}
-
 private var terminalKeyboardCopyModeIndicatorText: String {
     String(localized: "ghostty.copy-mode.indicator", defaultValue: "vim")
 }
@@ -2489,70 +2471,6 @@ class GhosttyApp {
         }
     }
 
-    @MainActor
-    private static func openEmbeddedBrowserLink(
-        url: URL,
-        sourceWorkspaceId: UUID,
-        sourcePanelId: UUID,
-        host: String
-    ) -> Bool {
-        guard BrowserAvailabilitySettings.isEnabled() else {
-            #if DEBUG
-            cmuxDebugLog("link.openURL deferred embedded but cmuxBrowser=disabled, opening externally url=\(url)")
-            #endif
-            return NSWorkspace.shared.open(url)
-        }
-
-        guard let app = AppDelegate.shared,
-              let resolved = app.workspaceContainingPanel(
-                panelId: sourcePanelId,
-                preferredWorkspaceId: sourceWorkspaceId
-              ) else {
-            #if DEBUG
-            cmuxDebugLog(
-                "link.openURL deferred embedded but workspace lookup failed, opening externally " +
-                "tabId=\(sourceWorkspaceId) surfaceId=\(sourcePanelId) url=\(url)"
-            )
-            #endif
-            return NSWorkspace.shared.open(url)
-        }
-
-        let workspace = resolved.workspace
-        #if DEBUG
-        if workspace.id != sourceWorkspaceId {
-            cmuxDebugLog(
-                "link.openURL workspace.remap sourceTab=\(sourceWorkspaceId) " +
-                "resolvedTab=\(workspace.id) surfaceId=\(sourcePanelId)"
-            )
-        }
-        #endif
-
-        let openedInBrowser: Bool
-        if let targetPane = workspace.preferredRightSideTargetPane(fromPanelId: sourcePanelId) {
-            #if DEBUG
-            cmuxDebugLog("link.openURL opening in existing browser pane=\(targetPane)")
-            #endif
-            openedInBrowser = workspace.newBrowserSurface(inPane: targetPane, url: url, focus: true) != nil
-        } else {
-            #if DEBUG
-            cmuxDebugLog("link.openURL opening as new browser split from surface=\(sourcePanelId)")
-            #endif
-            openedInBrowser = workspace.newBrowserSplit(from: sourcePanelId, orientation: .horizontal, url: url) != nil
-        }
-
-        guard openedInBrowser else {
-            #if DEBUG
-            cmuxDebugLog(
-                "link.openURL deferred embedded browser creation failed, opening externally " +
-                "host=\(host) url=\(url)"
-            )
-            #endif
-            return NSWorkspace.shared.open(url)
-        }
-
-        return true
-    }
-
     private func splitDirection(from direction: ghostty_action_split_direction_e) -> SplitDirection? {
         switch direction {
         case GHOSTTY_SPLIT_DIRECTION_RIGHT: return .right
@@ -3049,46 +2967,58 @@ class GhosttyApp {
             // match path-like text as URLs; route existing local files through cmux first.
             let trimmedUrlString = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
             var normalizedOpenURLString = urlString
+            var resolvedFileReference: TerminalPathResolution?
             if !trimmedUrlString.isEmpty {
-                let filePathResolution: (routed: Bool, fallbackPath: String?) = performOnMain {
+                let filePathResolution: (routed: Bool, resolution: TerminalPathResolution?) = performOnMain {
                     guard let termSurface = surfaceView.terminalSurface,
                           let workspace = termSurface.owningWorkspace(),
                           !workspace.isRemoteTerminalSurface(termSurface.id) else {
                         return (false, nil)
                     }
-                    let cwd = CommandClickFileOpenRouter.resolveWorkingDirectory(
+                    let fileOpenRouter = CommandClickFileOpenRouter(defaults: .standard)
+                    let context = fileOpenRouter.resolvePathContext(
                         workspace: workspace,
                         surfaceId: termSurface.id
                     )
-                    guard let resolvedPath = TerminalPathResolver().resolveOpenURLFilePath(trimmedUrlString, cwd: cwd) else {
+                    guard let resolution = TerminalPathResolver().resolveOpenURLFileReference(
+                        trimmedUrlString,
+                        context: context
+                    ) else {
                         return (false, nil)
                     }
-                    guard CommandClickFileOpenRouter.shouldRouteInCmux(path: resolvedPath) else {
-                        return (false, resolvedPath)
+                    guard fileOpenRouter.shouldRouteInCmux(resolution: resolution) else {
+                        return (false, resolution)
                     }
                     #if DEBUG
-                    cmuxDebugLog("link.openURL resolvedAsFilePath=\(resolvedPath)")
+                    cmuxDebugLog("link.openURL resolvedAsFilePath=\(resolution.path)")
                     #endif
-                    let fileURL = URL(fileURLWithPath: resolvedPath)
-                    CommandClickFileOpenRouter.deferredOpenFileInCmux(
+                    fileOpenRouter.deferredOpenFileInCmux(
                         workspace: workspace,
                         preferredWorkspaceId: workspace.id,
                         surfaceId: termSurface.id,
-                        filePath: resolvedPath
+                        resolution: resolution
                     ) {
-                        NSWorkspace.shared.open(fileURL)
+                        fileOpenRouter.openExternally(
+                            resolution,
+                            preferConfiguredEditor: false
+                        )
                     }
-                    return (true, resolvedPath)
+                    surfaceView.noteHandledOpenURLFile(resolution)
+                    return (true, resolution)
                 }
-                if let fallbackPath = filePathResolution.fallbackPath {
-                    normalizedOpenURLString = fallbackPath
+                resolvedFileReference = filePathResolution.resolution
+                if let resolution = filePathResolution.resolution {
+                    normalizedOpenURLString = resolution.path
                 }
                 if filePathResolution.routed {
                     return true
                 }
             }
-
-            guard let target = resolveTerminalOpenURLTarget(normalizedOpenURLString) else {
+            if TerminalPathResolver().shouldConsumeUnresolvedOpenURLPathReference(
+                trimmedUrlString,
+                resolvedReference: resolvedFileReference
+            ) { return true }
+            guard let target = TerminalBrowserHostNormalizer().resolveOpenURLTarget(normalizedOpenURLString) else {
                 #if DEBUG
                 cmuxDebugLog("link.openURL resolve failed, returning false")
                 #endif
@@ -3099,39 +3029,48 @@ class GhosttyApp {
                 envKey: "CMUX_UI_TEST_CAPTURE_OPEN_URL_PATH",
                 line: target.url.absoluteString
             ) {
+                if let resolvedFileReference { performOnMain { surfaceView.noteHandledOpenURLFile(resolvedFileReference) } }
                 return true
             }
             #endif
-            // Route local file paths into cmux when the file-routing toggle is on.
-            // Explicit URL schemes (including file://) stay on the URL route so
-            // the OS owns non-web schemes, while bare paths like `foo.md#L42`
-            // still route into the viewer when eligible.
             if TerminalOpenURLFileRoutingPolicy().shouldAttemptCmuxFileRouting(
                 rawOpenURLValue: trimmedUrlString,
                 target: target
             ) {
                 let fileURL = target.url
                 let routed: Bool = performOnMain {
+                    let resolution = resolvedFileReference ?? TerminalPathResolution(path: fileURL.path, line: nil, column: nil)
+                    let fileOpenRouter = CommandClickFileOpenRouter(defaults: .standard)
                     guard let termSurface = surfaceView.terminalSurface,
                           let workspace = termSurface.owningWorkspace(),
                           !workspace.isRemoteTerminalSurface(termSurface.id),
-                          CommandClickFileOpenRouter.shouldRouteInCmux(path: fileURL.path) else {
+                          fileOpenRouter.shouldRouteInCmux(resolution: resolution) else {
                         return false
                     }
-                    CommandClickFileOpenRouter.deferredOpenFileInCmux(
+                    fileOpenRouter.deferredOpenFileInCmux(
                         workspace: workspace,
                         preferredWorkspaceId: workspace.id,
                         surfaceId: termSurface.id,
-                        filePath: fileURL.path
+                        resolution: resolution
                     ) {
                         NSWorkspace.shared.open(fileURL)
                     }
+                    surfaceView.noteHandledOpenURLFile(resolution)
                     return true
                 }
                 if routed {
                     return true
                 }
-                // Fall through to the existing NSWorkspace path below.
+            }
+            if let resolvedFileReference, resolvedFileReference.line != nil {
+                return performOnMain {
+                    let handled = CommandClickFileOpenRouter(defaults: .standard).openExternally(
+                        resolvedFileReference,
+                        preferConfiguredEditor: false
+                    )
+                    if handled { surfaceView.noteHandledOpenURLFile(resolvedFileReference) }
+                    return handled
+                }
             }
 
             if !BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser() {
@@ -3139,7 +3078,7 @@ class GhosttyApp {
                 cmuxDebugLog("link.openURL cmuxBrowser=disabled, opening externally url=\(target.url)")
                 #endif
                 return performOnMain {
-                    NSWorkspace.shared.open(target.url)
+                    surfaceView.openURLExternally(target.url, resolvedFileReference: resolvedFileReference)
                 }
             }
             switch target {
@@ -3148,7 +3087,7 @@ class GhosttyApp {
                 cmuxDebugLog("link.openURL target=external, opening externally url=\(url)")
                 #endif
                 return performOnMain {
-                    NSWorkspace.shared.open(url)
+                    surfaceView.openURLExternally(url, resolvedFileReference: resolvedFileReference)
                 }
             case let .embeddedBrowser(url):
                 if BrowserLinkOpenSettings.shouldOpenExternally(url) {
@@ -3400,18 +3339,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private struct WordPathResolution {
-        let path: String
+        let resolution: TerminalPathResolution
         let source: WordPathResolutionSource
         let rawToken: String
+
+        var path: String { resolution.path }
     }
 
     private func makeWordPathResolution(
-        path: String,
+        resolution: TerminalPathResolution,
         source: WordPathResolutionSource,
         rawToken: String
     ) -> WordPathResolution {
         WordPathResolution(
-            path: path,
+            resolution: resolution,
             source: source,
             rawToken: rawToken
         )
@@ -3560,6 +3501,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var keyTables: [String] = []
     fileprivate private(set) var keyboardCopyModeActive = false
     private var wordPathHoverActive = false
+    private var handledOpenURLFileReferenceForMouseRelease: TerminalPathResolution?
     private var keyboardCopyModeConsumedKeyUps: Set<UInt16> = []
     private var imeConsumedKeyUps: Set<UInt16> = []
     private var keyboardCopyModeInputState = TerminalKeyboardCopyModeInputState()
@@ -6565,37 +6507,38 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         hasPendingLeftMouseRelease = false
         guard let surface else { return false }
         let point = convert(event.locationInWindow, from: nil)
-        let consumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mouseModsFromEvent(event))
-        _ = handleCommandClickRelease(at: point, modifierFlags: event.modifierFlags, ghosttyConsumed: consumed)
+        let release = dispatchLeftMouseRelease(surface: surface, mods: mouseModsFromEvent(event))
+        _ = handleCommandClickRelease(at: point, modifierFlags: event.modifierFlags, ghosttyConsumed: release.consumed, handledOpenURLReference: release.handledOpenURLReference)
         return true
     }
 
-    /// Attempt to open the word under the mouse cursor as a file path, resolved
-    /// against the terminal panel's current working directory.
-    private func tryOpenWordAsPath(at point: NSPoint? = nil) {
-        guard let resolution = resolveWordUnderCursorPath(at: point) else { return }
-
-        #if DEBUG
-        cmuxDebugLog("link.wordFallback resolved=\(resolution.path) source=\(resolution.source.rawValue)")
-        #endif
-
-        PreferredEditorService(defaults: .standard).open(URL(fileURLWithPath: resolution.path))
+    fileprivate func noteHandledOpenURLFile(_ reference: TerminalPathResolution) { handledOpenURLFileReferenceForMouseRelease = reference }
+    fileprivate func openURLExternally(_ url: URL, resolvedFileReference: TerminalPathResolution?) -> Bool {
+        let handled = NSWorkspace.shared.open(url)
+        if handled, let reference = resolvedFileReference ?? (url.isFileURL ? TerminalPathResolution(path: url.path, line: nil, column: nil) : nil) { noteHandledOpenURLFile(reference) }
+        return handled
     }
 
-    /// Check if the word under the mouse cursor resolves to an existing file/directory
-    /// in the terminal panel's CWD. Returns the resolved absolute path, or nil.
-    private func resolveWordUnderCursorAsPath(at point: NSPoint? = nil) -> String? {
-        resolveWordUnderCursorPath(at: point)?.path
+    private func dispatchLeftMouseRelease(
+        surface: ghostty_surface_t,
+        mods: ghostty_input_mods_e
+    ) -> (consumed: Bool, handledOpenURLReference: TerminalPathResolution?) {
+        handledOpenURLFileReferenceForMouseRelease = nil
+        let consumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mods)
+        defer { handledOpenURLFileReferenceForMouseRelease = nil }
+        return (consumed, handledOpenURLFileReferenceForMouseRelease)
     }
 
-    private func resolveWordUnderCursorPath(at point: NSPoint? = nil) -> WordPathResolution? {
+    private func resolveWordUnderCursorPath(at point: NSPoint? = nil, includeFallbackDirectories: Bool = true) -> WordPathResolution? {
         guard let surface = surface else { return nil }
 
         guard let termSurface = terminalSurface,
               let workspace = termSurface.owningWorkspace(),
               !workspace.isRemoteTerminalSurface(termSurface.id) else { return nil }
 
-        guard let cwd = resolvedWordPathWorkingDirectory(workspace: workspace, terminalSurface: termSurface) else {
+        let fullContext = resolvedWordPathContext(workspace: workspace, terminalSurface: termSurface)
+        let context = includeFallbackDirectories ? fullContext : TerminalPathResolutionContext(workingDirectory: fullContext.workingDirectory)
+        guard context.workingDirectory != nil || !context.fallbackDirectories.isEmpty else {
             return nil
         }
 
@@ -6603,7 +6546,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let pointSnapshotResolution = snapshotPoint.flatMap {
             resolveVisibleWordPath(
                 at: $0,
-                cwd: cwd,
+                context: context,
                 workspace: workspace,
                 terminalSurface: termSurface
             )
@@ -6621,9 +6564,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #else
                     let resolvedQuicklookWord = decodedWord
 #endif
-                    if let resolvedPath = TerminalPathResolver().resolveQuicklookPath(resolvedQuicklookWord, cwd: cwd) {
+                    if let resolution = TerminalPathResolver().resolvePath(
+                        resolvedQuicklookWord,
+                        context: context
+                    ) {
                         quicklookResolution = makeWordPathResolution(
-                            path: resolvedPath,
+                            resolution: resolution,
                             source: .quicklook,
                             rawToken: resolvedQuicklookWord
                         )
@@ -6640,7 +6586,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
                 viewportResolution = resolveVisibleWordPathFromViewportOffset(
                     viewportOffsetStart,
-                    cwd: cwd,
+                    context: context,
                     workspace: workspace,
                     terminalSurface: termSurface
                 )
@@ -6722,7 +6668,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
 
-        let resolution = resolveWordUnderCursorPath(at: point)
+        let resolution = resolveWordUnderCursorPath(at: point, includeFallbackDirectories: false)
         if resolution != nil {
             if !wordPathHoverActive {
                 wordPathHoverActive = true
@@ -6754,11 +6700,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
     }
 
-    private func resolvedWordPathWorkingDirectory(
+    private func resolvedWordPathContext(
         workspace: Workspace,
         terminalSurface: TerminalSurface
-    ) -> String? {
-        CommandClickFileOpenRouter.resolveWorkingDirectory(
+    ) -> TerminalPathResolutionContext {
+        CommandClickFileOpenRouter(defaults: .standard).resolvePathContext(
             workspace: workspace,
             surfaceId: terminalSurface.id
         )
@@ -6797,7 +6743,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func resolveVisibleWordPathFromViewportOffset(
         _ viewportOffsetStart: Int,
-        cwd: String,
+        context: TerminalPathResolutionContext,
         workspace: Workspace,
         terminalSurface: TerminalSurface
     ) -> WordPathResolution? {
@@ -6820,24 +6766,24 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard visibleRow >= 0, visibleRow < visibleLines.count else { return nil }
 
         let column = max(0, min(cols - 1, viewportOffsetStart % cols))
-        guard let resolution = TerminalPathResolver().resolveVisibleLinePath(
+        guard let result = TerminalPathResolver().resolveVisibleLineReference(
             visibleLines[visibleRow],
             column: column,
-            cwd: cwd
+            context: context
         ) else {
             return nil
         }
 
         return makeWordPathResolution(
-            path: resolution.path,
+            resolution: result.resolution,
             source: .snapshot,
-            rawToken: resolution.rawToken
+            rawToken: result.rawToken
         )
     }
 
     private func resolveVisibleWordPath(
         at point: NSPoint,
-        cwd: String,
+        context: TerminalPathResolutionContext,
         workspace: Workspace,
         terminalSurface: TerminalSurface
     ) -> WordPathResolution? {
@@ -6868,18 +6814,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard visibleRow >= 0, visibleRow < visibleLines.count else { return nil }
 
         let column = max(0, min(cols - 1, Int((point.x - xInset) / resolvedCellWidth)))
-        guard let resolution = TerminalPathResolver().resolveVisibleLinePath(
+        guard let result = TerminalPathResolver().resolveVisibleLineReference(
             visibleLines[visibleRow],
             column: column,
-            cwd: cwd
+            context: context
         ) else {
             return nil
         }
 
         return makeWordPathResolution(
-            path: resolution.path,
+            resolution: result.resolution,
             source: .snapshot,
-            rawToken: resolution.rawToken
+            rawToken: result.rawToken
         )
     }
 
@@ -6887,7 +6833,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func handleCommandClickRelease(
         at point: NSPoint,
         modifierFlags: NSEvent.ModifierFlags,
-        ghosttyConsumed: Bool
+        ghosttyConsumed: Bool,
+        handledOpenURLReference: TerminalPathResolution?
     ) -> WordPathResolution? {
         guard let surface else { return nil }
         let suppressCommandPathHover = shouldSuppressCommandPathHover(for: modifierFlags)
@@ -6946,26 +6893,21 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
             return nil
         }
-        guard !ghosttyConsumed || resolution.source == .snapshot else {
+        guard TerminalCommandClickFallbackPolicy().shouldOpenFallback(
+            ghosttyConsumed: ghosttyConsumed,
+            isSnapshotResolution: resolution.source == .snapshot,
+            resolvedReference: resolution.resolution,
+            handledOpenURLReference: handledOpenURLReference
+        ) else {
 #if DEBUG
-            var payload: [String: Any] = [
-                "flags": debugModifierString(modifierFlags),
-                "ghostty_consumed": ghosttyConsumed,
-                "point_x": point.x,
-                "point_y": point.y,
-                "resolved_point_x": resolvedPoint?.x ?? -1,
-                "resolved_point_y": resolvedPoint?.y ?? -1,
-                "suppress_path_hover": suppressCommandPathHover
-            ]
-            for (key, value) in runtimeDebugResolutionPayload(resolution) {
-                payload[key] = value
-            }
             runtimeDebugLog(
                 hypothesisID: "h3",
                 name: "command_click_release",
                 expected: "ghostty-consumed clicks should only skip fallback for real ghostty targets",
-                actual: "consumed_quicklook_resolution_skipped",
-                data: payload
+                actual: handledOpenURLReference == resolution.resolution
+                    ? "open_url_already_handled_same_reference"
+                    : "consumed_quicklook_resolution_skipped",
+                data: runtimeDebugResolutionPayload(resolution)
             )
 #endif
             return nil
@@ -7000,18 +6942,22 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // path on the main thread for a remote workspace. When the cmux route
         // is applicable but split creation fails, fall back to the preferred
         // editor so the click never silently no-ops.
+        let fileOpenRouter = CommandClickFileOpenRouter(defaults: .standard)
         if let termSurface = terminalSurface,
            let workspace = termSurface.owningWorkspace(),
            !workspace.isRemoteTerminalSurface(termSurface.id),
-           CommandClickFileOpenRouter.openInCmux(
+           fileOpenRouter.openInCmux(
                workspace: workspace,
                sourcePanelId: termSurface.id,
-               filePath: resolution.path
+               resolution: resolution.resolution
            ) {
             return resolution
         }
 
-        PreferredEditorService(defaults: .standard).open(URL(fileURLWithPath: resolution.path))
+        fileOpenRouter.openExternally(
+            resolution.resolution,
+            preferConfiguredEditor: true
+        )
         return resolution
     }
 
@@ -7095,7 +7041,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             )
         )
 
-        let resolution = suppressCommandPathHover ? nil : resolveWordUnderCursorPath(at: clampedPoint)
+        let resolution = suppressCommandPathHover ? nil : resolveWordUnderCursorPath(at: clampedPoint, includeFallbackDirectories: false)
         updateWordPathHover(
             at: clampedPoint,
             cmdHeld: true,
@@ -7126,16 +7072,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         window?.makeFirstResponder(self)
         ghostty_surface_mouse_pos(surface, clampedPoint.x, bounds.height - clampedPoint.y, mods)
         let pressHandled = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods)
-        let releaseConsumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mods)
+        let release = dispatchLeftMouseRelease(surface: surface, mods: mods)
         let resolution = handleCommandClickRelease(
             at: clampedPoint,
             modifierFlags: flags,
-            ghosttyConsumed: releaseConsumed
+            ghosttyConsumed: release.consumed,
+            handledOpenURLReference: release.handledOpenURLReference
         )
 
         var payload: [String: Any] = [
             "pressHandled": pressHandled ? "1" : "0",
-            "releaseConsumed": releaseConsumed ? "1" : "0",
+            "releaseConsumed": release.consumed ? "1" : "0",
         ]
         if let resolution {
             payload["openedPath"] = resolution.path
@@ -7170,12 +7117,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         ghostty_surface_mouse_pos(surface, clampedPoint.x, bounds.height - clampedPoint.y, noMods)
         flagsChanged(with: cmdDown)
         let pressHandled = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, commandMods)
-        let releaseConsumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, commandMods)
+        let release = dispatchLeftMouseRelease(surface: surface, mods: commandMods)
         flagsChanged(with: cmdUp)
 
         return [
             "pressHandled": pressHandled ? "1" : "0",
-            "releaseConsumed": releaseConsumed ? "1" : "0",
+            "releaseConsumed": release.consumed ? "1" : "0",
         ]
     }
 

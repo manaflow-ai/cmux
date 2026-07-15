@@ -97,6 +97,108 @@ struct PreferredEditorServiceTests {
         #expect(opener.openedURLs.isEmpty)
     }
 
+    @Test func genericConfiguredCommandReceivesPlainPathForSourceLocation() async throws {
+        let scratch = try makeScratchDirectory()
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let marker = scratch.appendingPathComponent("received-location.txt")
+        let script = scratch.appendingPathComponent("location-editor.sh")
+        try #"""
+        #!/bin/sh
+        printf %s "$1" > '\#(marker.path)'
+        """#.write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755], ofItemAtPath: script.path
+        )
+
+        let opener = RecordingSystemOpener()
+        let service = PreferredEditorService(
+            editor: FixedEditor(resolvedCommand: script.path),
+            capture: UITestCaptureSink(environment: [:]),
+            systemOpener: opener
+        )
+        let fileURL = URL(fileURLWithPath: "/tmp/source file.swift")
+
+        service.open(fileURL, line: 42, column: 7)
+
+        for _ in 0..<200 where !FileManager.default.fileExists(atPath: marker.path) {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        let received = try String(contentsOf: marker, encoding: .utf8)
+        #expect(received == "/tmp/source file.swift")
+        #expect(opener.openedURLs.isEmpty)
+    }
+
+    @Test func visualStudioCodeCommandUsesGotoForSourceLocation() {
+        let command = PreferredEditorLaunchCommand(command: "code -w")
+
+        #expect(
+            command.shellCommand(
+                url: URL(fileURLWithPath: "/tmp/source file.swift"),
+                line: 42,
+                column: 7
+            ) == "code -w '--goto' '/tmp/source file.swift:42:7'"
+        )
+    }
+
+    @Test(arguments: [
+        "env -u ELECTRON_RUN_AS_NODE code -w",
+        #"/Applications/Visual\ Studio\ Code.app/Contents/Resources/app/bin/code -w"#,
+        "\"/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code\" -w",
+    ])
+    func shellWrappedVisualStudioCodeCommandsSupportSourceLocations(command: String) {
+        #expect(PreferredEditorLaunchCommand(command: command).supportsSourceLocation)
+    }
+
+    @Test(arguments: [
+        "code -w && osascript -e 'display dialog 1'",
+        "code -w | tee /tmp/editor.log",
+        "code -w; osascript -e 'display dialog 1'",
+        "code -w > /tmp/editor.log",
+        "code $(printf '%s' -w)",
+        "code --",
+    ])
+    func compoundCommandsDoNotClaimSourceLocationSupport(command: String) {
+        let launchCommand = PreferredEditorLaunchCommand(command: command)
+        #expect(!launchCommand.supportsSourceLocation)
+        #expect(
+            !launchCommand.shellCommand(
+                url: URL(fileURLWithPath: "/tmp/App.swift"),
+                line: 42,
+                column: 7
+            ).contains("App.swift:42:7")
+        )
+    }
+
+    @Test func colonLocationEditorsReceiveLocationWithoutGotoFlag() {
+        let command = PreferredEditorLaunchCommand(command: "zed")
+
+        #expect(
+            command.shellCommand(
+                url: URL(fileURLWithPath: "/tmp/App.swift"),
+                line: 9,
+                column: nil
+            ) == "zed '/tmp/App.swift:9'"
+        )
+    }
+
+    @Test func unknownEditorDoesNotClaimSourceLocationSupport() {
+        #expect(!PreferredEditorLaunchCommand(command: "/tmp/editor.sh").supportsSourceLocation)
+    }
+
+    @Test func systemFallbackReceivesPlainFileURLForSourceLocation() {
+        let opener = RecordingSystemOpener()
+        let service = PreferredEditorService(
+            editor: FixedEditor(resolvedCommand: nil),
+            capture: UITestCaptureSink(environment: [:]),
+            systemOpener: opener
+        )
+        let fileURL = URL(fileURLWithPath: "/tmp/source.swift")
+
+        service.open(fileURL, line: 42, column: 7)
+
+        #expect(opener.openedURLs == [fileURL])
+    }
+
     @Test func failingCommandFallsBackToSystemOpen() async {
         let opener = RecordingSystemOpener()
         let service = PreferredEditorService(

@@ -57,9 +57,40 @@ public struct PreferredEditorService: FileOpening {
     }
 
     public func open(_ url: URL) {
+        open(url, line: nil, column: nil)
+    }
+
+    /// Whether the configured editor has a known source-location CLI contract.
+    public var supportsSourceLocations: Bool {
+        guard let command = editor.resolvedCommand else { return false }
+        return PreferredEditorLaunchCommand(command: command).supportsSourceLocation
+    }
+
+    /// Opens a file, carrying a one-based source location to editor commands.
+    ///
+    /// Known editor CLIs receive their source-location syntax; other commands
+    /// receive the plain file path. UI-test capture records the structured
+    /// reference, while the system fallback still receives the plain file URL.
+    ///
+    /// - Parameters:
+    ///   - url: The local file URL to open.
+    ///   - line: An optional one-based line.
+    ///   - column: An optional one-based column, used only when `line` exists.
+    public func open(_ url: URL, line: Int?, column: Int?) {
+        let editorArgument: String
+        if let line {
+            if let column {
+                editorArgument = "\(url.path):\(line):\(column)"
+            } else {
+                editorArgument = "\(url.path):\(line)"
+            }
+        } else {
+            editorArgument = url.path
+        }
+
         if capture.appendLineIfConfigured(
             envKey: "CMUX_UI_TEST_CAPTURE_OPEN_PATH",
-            line: url.path
+            line: editorArgument
         ) {
             return
         }
@@ -69,9 +100,11 @@ public struct PreferredEditorService: FileOpening {
             return
         }
 
+        let launchCommand = PreferredEditorLaunchCommand(command: command)
+
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", "\(command) \(url.path.posixShellSingleQuoted)"]
+        process.arguments = ["-c", launchCommand.shellCommand(url: url, line: line, column: column)]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
 
