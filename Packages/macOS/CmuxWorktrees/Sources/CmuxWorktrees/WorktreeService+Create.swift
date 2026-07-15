@@ -230,10 +230,14 @@ extension WorktreeService {
         repoRoot: String,
         on host: any WorktreeExecutionHost
     ) async -> String {
+        // `git worktree add` accepts a bare `-` as `@{-1}`; the probes do not,
+        // so normalize before resolving. `--end-of-options` keeps option-shaped
+        // user input from being parsed as a rev-parse flag.
+        let probeRef = baseRef == "-" ? "@{-1}" : baseRef
         let symbolic = await host.run(
             directory: repoRoot,
             executable: "git",
-            arguments: ["rev-parse", "--symbolic-full-name", "--verify", baseRef],
+            arguments: ["rev-parse", "--symbolic-full-name", "--verify", "--end-of-options", probeRef],
             environment: WorktreeService.gitEnvironment,
             timeout: WorktreeService.readTimeout
         )
@@ -252,7 +256,7 @@ extension WorktreeService {
         let commit = await host.run(
             directory: repoRoot,
             executable: "git",
-            arguments: ["rev-parse", "--verify", "\(baseRef)^{commit}"],
+            arguments: ["rev-parse", "--verify", "--end-of-options", "\(probeRef)^{commit}"],
             environment: WorktreeService.gitEnvironment,
             timeout: WorktreeService.readTimeout
         )

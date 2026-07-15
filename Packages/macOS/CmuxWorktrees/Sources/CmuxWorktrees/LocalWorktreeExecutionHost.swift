@@ -38,15 +38,25 @@ public struct LocalWorktreeExecutionHost: WorktreeExecutionHost, Sendable {
 
     /// Inherited repository-local Git variables that would override the
     /// working directory passed to every hosted command; Git documents that
-    /// these must be cleared when targeting another repository.
+    /// these must be cleared when targeting another repository. The list is
+    /// `git rev-parse --local-env-vars` plus `GIT_NAMESPACE`.
     static let repositoryLocalGitVariables = [
         "GIT_ALTERNATE_OBJECT_DIRECTORIES",
         "GIT_COMMON_DIR",
+        "GIT_CONFIG",
+        "GIT_CONFIG_COUNT",
+        "GIT_CONFIG_PARAMETERS",
         "GIT_DIR",
+        "GIT_GRAFT_FILE",
+        "GIT_IMPLICIT_WORK_TREE",
         "GIT_INDEX_FILE",
+        "GIT_INTERNAL_SUPER_PREFIX",
         "GIT_NAMESPACE",
+        "GIT_NO_REPLACE_OBJECTS",
         "GIT_OBJECT_DIRECTORY",
         "GIT_PREFIX",
+        "GIT_REPLACE_REF_BASE",
+        "GIT_SHALLOW_FILE",
         "GIT_WORK_TREE",
     ]
 

@@ -155,6 +155,17 @@ extension WorktreeService {
                 timeout: WorktreeService.readTimeout
             )
             if result.executionError == nil, !result.timedOut, result.exitStatus == 0 {
+                // `git branch -d` also removes the branch's configuration
+                // (upstream tracking plus the recorded lineage base) after
+                // deleting the ref; mirror that here. Best effort, exactly
+                // like Git's own non-atomic sequence.
+                _ = await host.run(
+                    directory: repoRoot,
+                    executable: "git",
+                    arguments: ["config", "--local", "--remove-section", "branch.\(branch)"],
+                    environment: WorktreeService.gitEnvironment,
+                    timeout: WorktreeService.readTimeout
+                )
                 return .deleted(branch: branch)
             }
             let detail = commandMessage(result)

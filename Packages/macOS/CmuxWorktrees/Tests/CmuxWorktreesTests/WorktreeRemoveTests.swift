@@ -111,6 +111,35 @@ struct WorktreeRemoveTests {
     }
 
     @Test
+    func casDeletionRemovesBranchConfiguration() async throws {
+        let fixture = try await GitTestRepository.make()
+        defer { fixture.cleanup() }
+        let path = fixture.path("worktrees/cas-config")
+        let worktree = try await WorktreeService().create(
+            repoRoot: fixture.repository.path,
+            name: "cas-config",
+            baseRef: "HEAD",
+            options: WorktreeCreateOptions(worktreePath: path.path),
+            on: fixture.host
+        )
+        let recordedBase = await fixture.gitRaw(["config", "--get", "branch.cas-config.base"])
+        #expect(recordedBase.exitStatus == 0)
+        let headOID = try #require(worktree.headOID)
+
+        let result = try await WorktreeService().remove(
+            worktree: worktree.identity,
+            mode: WorktreeRemovalMode(branchCleanup: .forceDelete(expectedOID: headOID)),
+            on: fixture.host
+        )
+
+        #expect(result.branchCleanup == .deleted(branch: "cas-config"))
+        let branchGone = await fixture.gitRaw(["show-ref", "--verify", "refs/heads/cas-config"])
+        #expect(branchGone.exitStatus != 0)
+        let configGone = await fixture.gitRaw(["config", "--get", "branch.cas-config.base"])
+        #expect(configGone.exitStatus != 0)
+    }
+
+    @Test
     func refusesLockedWorktreeUntilExplicitlyUnlocked() async throws {
         let fixture = try await GitTestRepository.make()
         defer { fixture.cleanup() }
