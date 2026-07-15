@@ -9,7 +9,7 @@ extension SimulatorRemoteSurfaceView {
 
     func beginPointerInteraction(
         with event: NSEvent,
-        source: SimulatorPendingPointerEntry.Source
+        source: SimulatorPointerEntrySource
     ) {
         let location = convert(event.locationInWindow, from: nil)
         if source == .surface {

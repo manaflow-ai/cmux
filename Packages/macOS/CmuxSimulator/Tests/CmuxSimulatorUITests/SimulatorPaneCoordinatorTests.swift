@@ -106,6 +106,23 @@ struct SimulatorPaneCoordinatorTests {
         }
     }
 
+    @Test("Host visibility controls every occlusion-sensitive resource")
+    func paneVisibility() {
+        let coordinator = SimulatorPaneCoordinator(client: SimulatorPaneClientSpy(devices: []))
+
+        coordinator.setPaneVisibility(false)
+
+        #expect(!coordinator.frameIsVisible)
+        #expect(!coordinator.liveStatusIsVisible)
+        #expect(!coordinator.accessibilityOverlayIsVisible)
+
+        coordinator.setPaneVisibility(true)
+
+        #expect(coordinator.frameIsVisible)
+        #expect(coordinator.liveStatusIsVisible)
+        #expect(coordinator.accessibilityOverlayIsVisible)
+    }
+
     @Test("Explicit recovery returns only after the selected device streams")
     func explicitRecoveryWaitsForActivation() async throws {
         let client = SimulatorPaneClientSpy(devices: [

@@ -5,6 +5,53 @@ import Testing
 
 @MainActor
 extension SimulatorPaneCoordinatorTests {
+    @Test("Recovery retries device discovery after an initial failure")
+    func recoveryRetriesDeviceDiscovery() async throws {
+        let phone = Self.device(id: "phone", family: .iPhone, state: .booted)
+        let client = LocationLifecyclePaneClient(devices: [phone])
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        await client.setDiscoveryFailure(SimulatorFailure(
+            code: "discovery_unavailable",
+            message: "Discovery is unavailable.",
+            isRecoverable: true
+        ))
+
+        await coordinator.reloadDevices()
+        #expect(coordinator.selectedDeviceID == nil)
+
+        await client.setDiscoveryFailure(nil)
+        try await coordinator.recoverAndWait()
+
+        #expect(coordinator.selectedDeviceID == phone.id)
+        #expect(coordinator.status == .streaming)
+        #expect(await client.operations().contains("activate:\(phone.id)"))
+    }
+
+    @Test("A discovery refresh failure preserves an active stream")
+    func discoveryRefreshFailurePreservesStream() async throws {
+        let phone = Self.device(id: "phone", family: .iPhone, state: .booted)
+        let client = LocationLifecyclePaneClient(devices: [phone])
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        await coordinator.reloadDevices()
+        try await coordinator.recoverAndWait()
+        await client.setDiscoveryFailure(SimulatorFailure(
+            code: "discovery_unavailable",
+            message: "Discovery is unavailable.",
+            isRecoverable: true
+        ))
+
+        await coordinator.reloadDevices()
+
+        #expect(coordinator.status == .streaming)
+        #expect(coordinator.failure?.code == "discovery_unavailable")
+
+        await client.setDiscoveryFailure(nil)
+        await coordinator.reloadDevices()
+
+        #expect(coordinator.status == .streaming)
+        #expect(coordinator.failure == nil)
+    }
+
     @Test("Camera status hydrates and targeting exposes only user-installed apps")
     func cameraStatusAndApplicationFiltering() async {
         let client = SimulatorPaneClientSpy(

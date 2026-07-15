@@ -6,6 +6,7 @@ actor LocationLifecyclePaneClient: SimulatorPaneClient {
     private let stream: SimulatorWorkerEventStream
     private let continuation: SimulatorWorkerEventStream.Continuation
     private var operationValues: [String] = []
+    private var discoveryFailure: SimulatorFailure?
 
     init(devices: [SimulatorDevice]) {
         deviceValues = devices
@@ -18,7 +19,10 @@ actor LocationLifecyclePaneClient: SimulatorPaneClient {
         self.continuation = source.continuation
     }
 
-    func discoverDevices() async throws -> [SimulatorDevice] { deviceValues }
+    func discoverDevices() async throws -> [SimulatorDevice] {
+        if let discoveryFailure { throw discoveryFailure }
+        return deviceValues
+    }
 
     func activateDevice(id: String, geometry: SimulatorSurfaceGeometry?) async throws {
         operationValues.append("activate:\(id)")
@@ -55,5 +59,6 @@ actor LocationLifecyclePaneClient: SimulatorPaneClient {
     }
 
     func setDevices(_ devices: [SimulatorDevice]) { deviceValues = devices }
+    func setDiscoveryFailure(_ failure: SimulatorFailure?) { discoveryFailure = failure }
     func operations() -> [String] { operationValues }
 }

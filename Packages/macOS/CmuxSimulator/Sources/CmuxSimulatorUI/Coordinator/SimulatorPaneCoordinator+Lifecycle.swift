@@ -109,7 +109,9 @@ extension SimulatorPaneCoordinator {
             guard !Task.isCancelled else { return }
             let simulatorFailure = simulatorPaneFailure(from: error, code: "device_discovery_failed")
             failure = simulatorFailure
-            status = .failed(simulatorFailure)
+            if status != .streaming {
+                status = .failed(simulatorFailure)
+            }
         }
     }
 
@@ -214,6 +216,10 @@ extension SimulatorPaneCoordinator {
         }
         restartOutgoingDelivery()
         restartEventObservation()
+        if selectedDeviceID == nil
+            || !devices.contains(where: { $0.id == selectedDeviceID }) {
+            await reloadDevices()
+        }
         guard let selectedDeviceID,
               devices.contains(where: { $0.id == selectedDeviceID }) else {
             throw SimulatorFailure(

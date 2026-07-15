@@ -1,11 +1,11 @@
 import Foundation
 
+private let maximumWebInspectorJSONKeyBytes = 64
+private let maximumWebInspectorJSONIDBytes = 8 * 1_024
+
 /// Incrementally extracts one bounded top-level JSON `id` token without
 /// retaining or decoding the response body.
 public struct SimulatorWebInspectorRequestIDTokenExtractor: Sendable {
-    private static let maximumKeyBytes = 64
-    private static let maximumIDBytes = 8 * 1_024
-
     /// The raw JSON token for the top-level `id`, including quotes for strings.
     public private(set) var requestIDToken: Data?
     private var started = false
@@ -17,7 +17,7 @@ public struct SimulatorWebInspectorRequestIDTokenExtractor: Sendable {
     private var awaitingIDValue = false
     private var isInsideString = false
     private var isEscaped = false
-    private var stringRole = StringRole.other
+    private var stringRole = SimulatorWebInspectorJSONTokenRole.other
     private var token = Data()
     private var tokenOverflowed = false
     private var isCapturingScalarID = false
@@ -38,22 +38,22 @@ public struct SimulatorWebInspectorRequestIDTokenExtractor: Sendable {
             return
         }
         if isCapturingScalarID {
-            if Self.isValueDelimiter(byte) {
+            if isWebInspectorJSONValueDelimiter(byte) {
                 finishScalarID()
             } else {
-                append(byte, maximumCount: Self.maximumIDBytes)
+                append(byte, maximumCount: maximumWebInspectorJSONIDBytes)
                 return
             }
         }
         if !started {
-            guard !Self.isWhitespace(byte) else { return }
+            guard !isWebInspectorJSONWhitespace(byte) else { return }
             guard byte == 0x7B else { finished = true; return }
             started = true
             depth = 1
             expectsTopLevelKey = true
             return
         }
-        if depth == 1, awaitingIDValue, !Self.isWhitespace(byte) {
+        if depth == 1, awaitingIDValue, !isWebInspectorJSONWhitespace(byte) {
             awaitingIDValue = false
             if byte == 0x22 {
                 startString(role: .idValue)
@@ -88,7 +88,7 @@ public struct SimulatorWebInspectorRequestIDTokenExtractor: Sendable {
         }
     }
 
-    private mutating func startString(role: StringRole) {
+    private mutating func startString(role: SimulatorWebInspectorJSONTokenRole) {
         isInsideString = true
         isEscaped = false
         stringRole = role
@@ -101,7 +101,9 @@ public struct SimulatorWebInspectorRequestIDTokenExtractor: Sendable {
         if stringRole != .other {
             append(
                 byte,
-                maximumCount: stringRole == .key ? Self.maximumKeyBytes : Self.maximumIDBytes
+                maximumCount: stringRole == .key
+                    ? maximumWebInspectorJSONKeyBytes
+                    : maximumWebInspectorJSONIDBytes
             )
         }
         if isEscaped { isEscaped = false; return }
@@ -110,7 +112,7 @@ public struct SimulatorWebInspectorRequestIDTokenExtractor: Sendable {
         isInsideString = false
         switch stringRole {
         case .key:
-            currentKeyIsID = !tokenOverflowed && Self.decodeString(token) == "id"
+            currentKeyIsID = !tokenOverflowed && decodeWebInspectorJSONString(token) == "id"
             expectsTopLevelKey = false
             awaitingColon = true
         case .idValue:
@@ -137,25 +139,19 @@ public struct SimulatorWebInspectorRequestIDTokenExtractor: Sendable {
         }
         token.append(byte)
     }
+}
 
-    private static func decodeString(_ token: Data) -> String? {
-        var array = Data([0x5B])
-        array.append(token)
-        array.append(0x5D)
-        return (try? JSONSerialization.jsonObject(with: array) as? [String])?.first
-    }
+private func decodeWebInspectorJSONString(_ token: Data) -> String? {
+    var array = Data([0x5B])
+    array.append(token)
+    array.append(0x5D)
+    return (try? JSONSerialization.jsonObject(with: array) as? [String])?.first
+}
 
-    private static func isWhitespace(_ byte: UInt8) -> Bool {
-        byte == 0x20 || byte == 0x09 || byte == 0x0A || byte == 0x0D
-    }
+private func isWebInspectorJSONWhitespace(_ byte: UInt8) -> Bool {
+    byte == 0x20 || byte == 0x09 || byte == 0x0A || byte == 0x0D
+}
 
-    private static func isValueDelimiter(_ byte: UInt8) -> Bool {
-        byte == 0x2C || byte == 0x7D || byte == 0x5D || isWhitespace(byte)
-    }
-
-    private enum StringRole: Sendable {
-        case key
-        case idValue
-        case other
-    }
+private func isWebInspectorJSONValueDelimiter(_ byte: UInt8) -> Bool {
+    byte == 0x2C || byte == 0x7D || byte == 0x5D || isWebInspectorJSONWhitespace(byte)
 }
