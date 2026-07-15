@@ -12602,6 +12602,14 @@ extension Workspace: BonsplitDelegate {
             case .newWorkspace:
                 owningTabManager?.addWorkspace()
             case .newAgentChat: performSurfaceTabBarNewAgentChatAction(presentingWindow: presentingWindow)
+            case .feed:
+                if let owningTabManager {
+                    _ = AppDelegate.shared?.executeConfiguredCmuxAction(
+                        id: CmuxSurfaceTabBarBuiltInAction.feed.configID,
+                        tabManager: owningTabManager,
+                        preferredWindow: presentingWindow
+                    )
+                }
             case .cloudVM:
                 _ = AppDelegate.shared?.performCloudVMAction(tabManager: owningTabManager, preferredWindow: presentingWindow, debugSource: "surfaceTabBar.cloudVM")
             case .mobileConnect:

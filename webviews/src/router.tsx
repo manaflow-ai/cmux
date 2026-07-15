@@ -34,11 +34,17 @@ export function createWebviewsRouter(WebviewComponent: WebviewRouteComponent) {
     path: "/agent-session",
     component: WebviewComponent,
   });
+  const feedRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/feed",
+    component: WebviewComponent,
+  });
   const routeTree = rootRoute.addChildren([
     indexRoute,
     diffRoute,
     generatedDiffRoute,
     agentSessionRoute,
+    feedRoute,
   ]);
   return createRouter({
     history: createHashHistory(),

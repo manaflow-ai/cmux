@@ -12,6 +12,11 @@ import Testing
 /// always-present management tail.
 struct NewWorkspaceMenuModelTests {
 
+    @Test func feedCommandPaletteContributionUsesSharedBuiltInAction() {
+        let contributions = ContentView.commandPaletteFeedContributions()
+        #expect(contributions.map(\.commandId) == ["palette.feed"])
+    }
+
     @MainActor
     private func loadStore(globalJSON: String) throws -> (store: CmuxConfigStore, root: URL) {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
@@ -101,9 +106,11 @@ struct NewWorkspaceMenuModelTests {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let agent = CmuxResolvedConfigAction.builtIn(.newAgentChat)
+        let feed = CmuxResolvedConfigAction.builtIn(.feed)
         let model = NewWorkspaceMenuModel.build(
             newWorkspaceContextMenuItems: store.newWorkspaceContextMenuItems,
             agentChatAction: agent,
+            feedAction: feed,
             cloudSectionEnabled: true,
             templateNames: ["Template A"],
             loadedActions: store.loadedActions,
@@ -136,6 +143,7 @@ struct NewWorkspaceMenuModelTests {
             CmuxSurfaceTabBarBuiltInAction.newWorkspace.configID,
             "terminal-command",
             CmuxSurfaceTabBarBuiltInAction.newAgentChat.configID,
+            CmuxSurfaceTabBarBuiltInAction.feed.configID,
         ])
         #expect(createRows.contains(.separator))
         #expect(layoutRows.map { $0.menuAction.action.id } == ["review-layout"])
@@ -156,6 +164,7 @@ struct NewWorkspaceMenuModelTests {
         let cloudFirstModel = NewWorkspaceMenuModel.build(
             newWorkspaceContextMenuItems: store.newWorkspaceContextMenuItems,
             agentChatAction: agent,
+            feedAction: feed,
             cloudSectionEnabled: true,
             templateNames: ["Template A"],
             loadedActions: store.loadedActions,

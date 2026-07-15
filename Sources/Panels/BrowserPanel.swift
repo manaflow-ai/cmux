@@ -1854,6 +1854,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
     static let scheme = "cmux-diff-viewer"
     static let shared = CmuxDiffViewerURLSchemeHandler()
     static let maxRegisteredFiles = 1024
+    static let bundledFeedToken = "feed"
 
     struct RegisteredFile {
         let requestPath: String
@@ -1917,7 +1918,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
 
             let standardizedURL = file.fileURL.standardizedFileURL.resolvingSymlinksInPath()
             var isDirectory: ObjCBool = false
-            guard isTrustedDiffViewerFileURL(standardizedURL),
+            guard isTrustedRegisteredFileURL(standardizedURL, token: token),
                   FileManager.default.fileExists(atPath: standardizedURL.path, isDirectory: &isDirectory),
                   !isDirectory.boolValue,
                   FileManager.default.isReadableFile(atPath: standardizedURL.path) else {
@@ -1942,6 +1943,46 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         pruneExpiredSessionsLocked(now: now)
         sessions[token] = Session(token: token, filesByPath: byPath, createdAt: now)
         lock.unlock()
+    }
+
+    func registerBundledFeedAssets(resourceURL: URL? = Bundle.main.resourceURL) throws -> URL {
+        guard let root = resourceURL?
+            .appendingPathComponent("markdown-viewer/webviews-app", isDirectory: true)
+            .standardizedFileURL
+            .resolvingSymlinksInPath(),
+              let enumerator = FileManager.default.enumerator(
+                at: root,
+                includingPropertiesForKeys: [.isRegularFileKey],
+                options: [.skipsHiddenFiles]
+              ) else {
+            throw NSError(domain: "CmuxDiffViewerURLSchemeHandler", code: 6)
+        }
+        let files = enumerator.compactMap { entry -> RegisteredFile? in
+            guard let fileURL = entry as? URL,
+                  (try? fileURL.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else {
+                return nil
+            }
+            var relativePath = String(fileURL.path.dropFirst(root.path.count))
+            if relativePath.hasSuffix(".deflate") {
+                relativePath.removeLast(".deflate".count)
+            }
+            let mimeType: String
+            if relativePath.hasSuffix(".html") {
+                mimeType = "text/html"
+            } else if relativePath.hasSuffix(".mjs") || relativePath.hasSuffix(".js") {
+                mimeType = "text/javascript"
+            } else if relativePath.hasSuffix(".css") {
+                mimeType = "text/css"
+            } else {
+                return nil
+            }
+            return RegisteredFile(requestPath: relativePath, fileURL: fileURL, mimeType: mimeType)
+        }
+        try register(token: Self.bundledFeedToken, files: files)
+        guard let url = Self.diffViewerURL(token: Self.bundledFeedToken, requestPath: "/feed.html") else {
+            throw NSError(domain: "CmuxDiffViewerURLSchemeHandler", code: 7)
+        }
+        return url
     }
 
     /// Whether the token currently has a registered (or manifest-restorable)
@@ -2432,7 +2473,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
     }
 
     private static func isAllowedMimeType(_ mimeType: String) -> Bool {
-        mimeType == "text/html" || mimeType == "text/javascript" || mimeType == "text/x-diff"
+        mimeType == "text/html" || mimeType == "text/javascript" || mimeType == "text/css" || mimeType == "text/x-diff"
     }
 
     private static func pathExtensionMatchesMimeType(path: String, mimeType: String) -> Bool {
@@ -2441,6 +2482,9 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         }
         if mimeType == "text/javascript" {
             return path.hasSuffix(".mjs") || path.hasSuffix(".js")
+        }
+        if mimeType == "text/css" {
+            return path.hasSuffix(".css")
         }
         if mimeType == "text/x-diff" {
             return path.hasSuffix(".patch")
@@ -2575,6 +2619,17 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         return url.isFileURL && url.path.hasPrefix(rootPath + "/")
     }
 
+    private func isTrustedRegisteredFileURL(_ url: URL, token: String) -> Bool {
+        if token == Self.bundledFeedToken,
+           let bundleRoot = Bundle.main.resourceURL?
+            .appendingPathComponent("markdown-viewer/webviews-app", isDirectory: true)
+            .standardizedFileURL
+            .resolvingSymlinksInPath() {
+            return url.isFileURL && url.path.hasPrefix(bundleRoot.path + "/")
+        }
+        return isTrustedDiffViewerFileURL(url)
+    }
+
     private func pruneExpiredSessionsLocked(now: Date) {
         sessions = sessions.filter { _, session in
             now.timeIntervalSince(session.createdAt) <= maxSessionAge
@@ -2592,7 +2647,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
             headers["Content-Security-Policy"] = [
                 "default-src 'none'",
                 "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'",
-                "style-src 'unsafe-inline'",
+                "style-src 'self' 'unsafe-inline'",
                 "img-src 'self' data:",
                 "connect-src 'self'",
                 "font-src 'none'",
@@ -3570,6 +3625,7 @@ final class BrowserPanel: Panel, ObservableObject {
         // The handler itself rejects every frame that is not a registered diff
         // viewer session, so installing it on all browser webviews is safe.
         DiffCommentsBridge.installIfNeeded(on: configuration.userContentController)
+        FeedSurfaceBridge.installIfNeeded(on: configuration.userContentController)
 
         // Enable developer extras (DevTools)
         configuration.preferences.setValue(true, forKey: "developerExtrasEnabled")
