@@ -147,6 +147,7 @@ import Testing
         let definition = CmuxWorkspaceDefinition(
             name: "{{ticket}}",
             env: ["API_PORT": "{{apiPort}}"],
+            params: [:],
             layout: .pane(CmuxPaneDefinition(surfaces: [
                 CmuxSurfaceDefinition(type: .browser, url: "http://localhost:{{vitePort}}"),
             ]))
@@ -155,6 +156,27 @@ import Testing
         #expect(throws: CmuxTemplateResolutionError.missingVariables(["ticket", "apiPort", "vitePort"])) {
             try definition.resolvingTemplateParameters([:], processEnvironment: [:])
         }
+    }
+
+    @Test func launchResolutionPreservesLiteralPlaceholdersUntilParameterizationIsEnabled() throws {
+        let literal = CmuxWorkspaceDefinition(name: "Literal {{upstream}}")
+        let enabled = CmuxWorkspaceDefinition(
+            name: "Ticket {{ticket}}",
+            params: ["ticket": "CMUX-8059"]
+        )
+
+        let preserved = try literal.resolvingTemplateParametersForLaunch(
+            [:],
+            processEnvironment: [:]
+        )
+        let resolved = try enabled.resolvingTemplateParametersForLaunch(
+            [:],
+            processEnvironment: [:]
+        )
+
+        #expect(preserved.name == "Literal {{upstream}}")
+        #expect(resolved.name == "Ticket CMUX-8059")
+        #expect(resolved.params == nil)
     }
 
     private static var nestedLayout: CmuxLayoutNode {

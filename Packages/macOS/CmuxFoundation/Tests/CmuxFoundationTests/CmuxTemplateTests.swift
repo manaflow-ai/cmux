@@ -64,4 +64,23 @@ import Testing
         #expect(try resolver.resolve(CmuxTemplate(#"{{bad.name}} {{1port}} \{{literal}}"#))
             == "{{bad.name}} {{1port}} {{literal}}")
     }
+
+    @Test func parameterInputsPreserveOrderAndExposeEditableSuggestedValues() {
+        let resolver = CmuxTemplateResolver(
+            definitionValues: ["ticket": "CMUX-8059"],
+            workspaceEnvironment: ["region": "workspace-region"],
+            processEnvironment: ["owner": "austin"]
+        )
+
+        #expect(resolver.parameterInputs(for: [
+            CmuxTemplate("{{ticket}} {{missing}}"),
+            CmuxTemplate("{{region}} {{owner}} {{port=4100}} {{ticket=ignored}}"),
+        ]) == [
+            CmuxTemplateParameterInput(name: "ticket", suggestedValue: "CMUX-8059"),
+            CmuxTemplateParameterInput(name: "missing", suggestedValue: nil),
+            CmuxTemplateParameterInput(name: "region", suggestedValue: "workspace-region"),
+            CmuxTemplateParameterInput(name: "owner", suggestedValue: "austin"),
+            CmuxTemplateParameterInput(name: "port", suggestedValue: "4100"),
+        ])
+    }
 }
