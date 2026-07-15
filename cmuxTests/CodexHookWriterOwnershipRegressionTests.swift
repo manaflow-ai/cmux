@@ -140,15 +140,24 @@ final class CodexHookWriterOwnershipRegressionTests: XCTestCase {
     }
 
     func testPersistentHooksBindToNativeCodexProcessBeforeWrapperFallback() throws {
-        let codexDef = try XCTUnwrap(CMUXCLI.agentDefs.first { $0.name == "codex" })
-        let command = CMUXCLI.codexFireAndForgetAgentHookShellCommand(
-            "cmux hooks codex session-start",
-            for: codexDef,
-            ownership: .persistent,
-            target: .wrapperEnvironment
-        )
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-native-pid-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
 
-        XCTAssertTrue(command.contains(#"agent_pid="${PPID:-${CMUX_CODEX_PID:-}}""#))
+        let install = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "install", "--yes"],
+            environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
+            timeout: 5
+        )
+        XCTAssertEqual(install.status, 0, install.stderr)
+        let sessionStart = try XCTUnwrap(
+            codexHookEntries(in: codexHome).first { $0.eventName == "SessionStart" }
+        )
+        XCTAssertTrue(sessionStart.body.contains(#"agent_pid="${PPID:-${CMUX_CODEX_PID:-}}""#))
     }
 
     func testPersistentHooksDoNotPinOneCmuxInstanceIntoSharedCodexConfig() throws {
@@ -275,13 +284,7 @@ final class CodexHookWriterOwnershipRegressionTests: XCTestCase {
         try FileManager.default.createDirectory(at: hookDirectory, withIntermediateDirectories: true)
         try makeCodexHookExecutableShellFile(at: oldScript, lines: ["#!/bin/sh", "exit 0"])
         defer { try? FileManager.default.removeItem(at: root) }
-        let codexDef = try XCTUnwrap(CMUXCLI.agentDefs.first { $0.name == "codex" })
-        let oldInlineDispatcher = CMUXCLI.codexFireAndForgetAgentHookShellCommand(
-            "cmux hooks codex session-start",
-            for: codexDef,
-            ownership: .persistent,
-            target: .wrapperEnvironment
-        )
+        let oldInlineDispatcher = #"cmux_cli="${CMUX_BUNDLED_CLI_PATH:-}"; "$cmux_cli" hooks codex session-start"#
         let hooksJSON: [String: Any] = [
             "hooks": ["SessionStart": [
                 ["hooks": [["command": oldScript.path, "timeout": 5, "type": "command"]]],
