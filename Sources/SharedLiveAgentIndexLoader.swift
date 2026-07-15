@@ -84,12 +84,19 @@ struct SharedLiveAgentIndexLoader {
     }
 
     static func processScopeFingerprint(from snapshot: CmuxTopProcessSnapshot) -> Set<String> {
+        // Snapshot-only fields keep autosave checks cheap while still detecting
+        // a same-PID shell-to-agent exec or terminal process-group transition.
         Set(snapshot.cmuxScopedProcesses().map { process in
             [
                 process.cmuxWorkspaceID?.uuidString ?? "",
                 process.cmuxSurfaceID?.uuidString ?? "",
                 String(process.pid),
-                String(process.parentPID)
+                String(process.parentPID),
+                process.name,
+                process.path ?? "",
+                process.ttyDevice.map { String($0) } ?? "",
+                process.processGroupID.map { String($0) } ?? "",
+                process.terminalProcessGroupID.map { String($0) } ?? ""
             ].joined(separator: "|")
         })
     }
