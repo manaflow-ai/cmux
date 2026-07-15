@@ -278,14 +278,23 @@ struct GitHubPullRequestRequestTests {
             endpoint: endpoint,
             authHeader: "Bearer available-token"
         )
-        let changedCredentialRetryDate = await coordinator.retryDate()
+        let exhaustedCredentialRetryDate = await coordinator.retryDate(
+            authHeader: "Bearer exhausted-token"
+        )
+        let availableCredentialRetryDate = await coordinator.retryDate(
+            authHeader: "Bearer available-token"
+        )
+        let expectedExhaustedRetryDate = Date(
+            timeIntervalSince1970: TimeInterval(reset + 1)
+        )
         let originalCredentialResponse = await coordinator.response(
             endpoint: "repos/manaflow-ai/cmux/pulls?state=open",
             authHeader: "Bearer exhausted-token"
         )
 
         #expect(changedCredentialResponse?.statusCode == 200)
-        #expect(changedCredentialRetryDate == nil)
+        #expect(exhaustedCredentialRetryDate == expectedExhaustedRetryDate)
+        #expect(availableCredentialRetryDate == nil)
         #expect(originalCredentialResponse == nil)
         #expect(GitHubPullRequestStubURLProtocol.capturedRequests().count == 2)
     }
@@ -349,7 +358,10 @@ struct GitHubPullRequestRequestTests {
         )
 
         #expect(suppressed == nil)
-        #expect(await coordinator.retryDate() == now.addingTimeInterval(120))
+        #expect(
+            await coordinator.retryDate(authHeader: "Bearer test-token")
+                == now.addingTimeInterval(120)
+        )
         #expect(GitHubPullRequestStubURLProtocol.capturedRequests().count == 1)
     }
 

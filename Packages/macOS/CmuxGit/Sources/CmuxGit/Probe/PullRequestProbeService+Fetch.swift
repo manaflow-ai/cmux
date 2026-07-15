@@ -17,20 +17,29 @@ extension PullRequestProbeService {
     ///   - cacheBySlug: The caller-owned repo cache.
     ///   - now: The refresh timestamp used for cache-freshness checks.
     ///   - allowCachedResults: Whether fresh cache entries may satisfy the fetch.
-    /// - Returns: One ``WorkspacePullRequestRepoFetchResult`` per repository slug.
+    /// - Returns: The repository results and the retry deadline for the exact
+    ///   authorization credential used by this batch.
     public nonisolated func fetchRepoResults(
         repoDirectoriesBySlug: [String: String],
         candidateBranchesByRepo: [String: Set<String>],
         cacheBySlug: [String: WorkspacePullRequestRepoCacheEntry],
         now: Date,
         allowCachedResults: Bool
-    ) async -> [String: WorkspacePullRequestRepoFetchResult] {
-        guard !repoDirectoriesBySlug.isEmpty else { return [:] }
+    ) async -> (
+        repoResults: [String: WorkspacePullRequestRepoFetchResult],
+        rateLimitRetryDate: Date?
+    ) {
+        guard !repoDirectoriesBySlug.isEmpty else {
+            return (repoResults: [:], rateLimitRetryDate: nil)
+        }
 
         guard let authHeader = await authHeaderValue() else {
             debugLog("workspace.prRefresh.authUnavailable")
-            return Dictionary(
-                uniqueKeysWithValues: repoDirectoriesBySlug.keys.map { ($0, .transientFailure) }
+            return (
+                repoResults: Dictionary(
+                    uniqueKeysWithValues: repoDirectoriesBySlug.keys.map { ($0, .transientFailure) }
+                ),
+                rateLimitRetryDate: nil
             )
         }
         var results: [String: WorkspacePullRequestRepoFetchResult] = [:]
@@ -65,7 +74,10 @@ extension PullRequestProbeService {
         for (repoSlug, result) in fetchedResults {
             results[repoSlug] = result
         }
-        return results
+        return (
+            repoResults: results,
+            rateLimitRetryDate: await requestCoordinator.retryDate(authHeader: authHeader)
+        )
     }
 
     /// Fetches one repository: serve from cache when permitted and complete,
@@ -343,10 +355,5 @@ extension PullRequestProbeService {
         authHeader: String?
     ) async -> WorkspacePullRequestHTTPResponse? {
         await requestCoordinator.response(endpoint: endpoint, authHeader: authHeader)
-    }
-
-    /// The GitHub reset deadline currently suppressing transport, if any.
-    public nonisolated func rateLimitRetryDate() async -> Date? {
-        await requestCoordinator.retryDate()
     }
 }

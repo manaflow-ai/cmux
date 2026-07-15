@@ -37,7 +37,6 @@ actor GitHubPullRequestRequestCoordinator {
     private var transportTail: Task<Void, Never>?
     private var rateLimitRetryDateByAuthorizationFingerprint: [Data: Date] = [:]
     private var rateLimitAuthorizationFingerprintsInInsertionOrder: [Data] = []
-    private var mostRecentAuthorizationFingerprint: Data?
 
     init(
         session: URLSession? = nil,
@@ -68,9 +67,8 @@ actor GitHubPullRequestRequestCoordinator {
         }
         let requestKey = RequestKey(
             endpoint: endpoint,
-            authorizationFingerprint: Data(SHA256.hash(data: Data(authHeader.utf8)))
+            authorizationFingerprint: Self.authorizationFingerprint(for: authHeader)
         )
-        mostRecentAuthorizationFingerprint = requestKey.authorizationFingerprint
         guard activeRateLimitRetryDate(
             for: requestKey.authorizationFingerprint
         ) == nil else { return nil }
@@ -99,9 +97,13 @@ actor GitHubPullRequestRequestCoordinator {
         return response
     }
 
-    func retryDate() -> Date? {
-        guard let mostRecentAuthorizationFingerprint else { return nil }
-        return activeRateLimitRetryDate(for: mostRecentAuthorizationFingerprint)
+    func retryDate(authHeader: String) -> Date? {
+        guard !authHeader.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        return activeRateLimitRetryDate(
+            for: Self.authorizationFingerprint(for: authHeader)
+        )
     }
 
     private func executeRequest(
@@ -228,6 +230,10 @@ actor GitHubPullRequestRequestCoordinator {
     private func activeRateLimitRetryDate(for authorizationFingerprint: Data) -> Date? {
         removeExpiredRateLimitRetryDates()
         return rateLimitRetryDateByAuthorizationFingerprint[authorizationFingerprint]
+    }
+
+    private static func authorizationFingerprint(for authHeader: String) -> Data {
+        Data(SHA256.hash(data: Data(authHeader.utf8)))
     }
 
     private func removeExpiredRateLimitRetryDates() {
