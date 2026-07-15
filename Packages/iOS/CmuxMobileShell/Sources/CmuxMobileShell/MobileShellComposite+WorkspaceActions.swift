@@ -362,11 +362,22 @@ extension MobileShellComposite {
             await refreshWorkspaces()
             return .failure(.notConnected(hostDisplayName: hostDisplayName))
         }
+        let generation = connectionGeneration
         do {
             let request = try MobileCoreRPCClient.requestData(method: method, params: params)
             _ = try await client.sendRequest(request)
         } catch {
-            if disconnectForAuthorizationFailureIfNeeded(error) {
+            guard isCurrentWorkspaceMutationTarget(
+                target,
+                client: client,
+                generation: generation
+            ), !Task.isCancelled else { return .success(()) }
+            if invalidateWorkspaceMutationTargetForAuthorizationFailure(
+                error,
+                target: target,
+                client: client,
+                generation: generation
+            ) {
                 return .failure(.authorizationFailed(hostDisplayName: hostDisplayName))
             }
             // Only the foreground connection's health drives the foreground
@@ -381,6 +392,11 @@ extension MobileShellComposite {
                 return .failure(workspaceMutationFailure(error, hostDisplayName: hostDisplayName))
             case .definiteDivergence:
                 let reconciled = await refreshAfterWorkspaceMutation(target)
+                guard isCurrentWorkspaceMutationTarget(
+                    target,
+                    client: client,
+                    generation: generation
+                ), !Task.isCancelled else { return .success(()) }
                 if !reconciled {
                     if let hierarchyWorkspaceID {
                         terminalReorderGate.requireRefresh(workspaceID: hierarchyWorkspaceID)
@@ -390,6 +406,11 @@ extension MobileShellComposite {
                 return .failure(workspaceMutationFailure(error, hostDisplayName: hostDisplayName))
             case .ambiguous:
                 let reconciled = await refreshAfterWorkspaceMutation(target)
+                guard isCurrentWorkspaceMutationTarget(
+                    target,
+                    client: client,
+                    generation: generation
+                ), !Task.isCancelled else { return .success(()) }
                 if !reconciled {
                     return .failure(unreconciledWorkspaceMutationFailure(
                         error,
@@ -403,7 +424,18 @@ extension MobileShellComposite {
             }
         }
         // Re-sync the authoritative list for the Mac we actually mutated.
-        guard await refreshAfterWorkspaceMutation(target) else {
+        guard isCurrentWorkspaceMutationTarget(
+            target,
+            client: client,
+            generation: generation
+        ), !Task.isCancelled else { return .success(()) }
+        let reconciled = await refreshAfterWorkspaceMutation(target)
+        guard isCurrentWorkspaceMutationTarget(
+            target,
+            client: client,
+            generation: generation
+        ), !Task.isCancelled else { return .success(()) }
+        guard reconciled else {
             return .failure(.appliedNeedsRefresh(hostDisplayName: hostDisplayName))
         }
         return .success(())

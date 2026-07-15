@@ -70,6 +70,38 @@ import Testing
         #expect(await replacementRouter.recordedWorkspaceMutationMethods().isEmpty)
     }
 
+    @Test func authorizationInvalidatorRejectsStaleForegroundOwnerDirectly() async throws {
+        let rejectedRouter = RoutingHostRouter()
+        let replacementRouter = RoutingHostRouter()
+        let store = try await makeRoutingConnectedStore(
+            router: rejectedRouter,
+            connectionState: .connected,
+            workspaceActionCapabilities: MobileWorkspaceActionCapabilities(
+                supportsCloseActions: true
+            )
+        )
+        let workspaceID = try #require(store.workspaces.first?.id)
+        let rejectedTarget = store.workspaceMutationTarget(for: workspaceID)
+        let rejectedClient = try #require(rejectedTarget.client)
+        let rejectedGeneration = store.connectionGeneration
+
+        try installFreshRemoteClient(on: store, router: replacementRouter)
+        let replacementClient = try #require(store.remoteClient)
+
+        let handled = store.invalidateWorkspaceMutationTargetForAuthorizationFailure(
+            MobileShellConnectionError.rpcError("unauthorized", "rejected"),
+            target: rejectedTarget,
+            client: rejectedClient,
+            generation: rejectedGeneration
+        )
+
+        #expect(handled)
+        #expect(store.remoteClient === replacementClient)
+        #expect(store.connectionState == .connected)
+        #expect(store.macConnectionStatus == .connected)
+        #expect(!store.connectionRequiresReauth)
+    }
+
     private enum SecondaryMutationAction {
         case close
         case reorder

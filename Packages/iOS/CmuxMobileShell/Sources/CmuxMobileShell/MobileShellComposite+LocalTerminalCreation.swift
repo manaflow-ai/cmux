@@ -81,7 +81,7 @@ extension MobileShellComposite {
                     generation: generation
                 )
             } else {
-                guard isCurrentTerminalCreateTarget(
+                guard isCurrentWorkspaceMutationTarget(
                     target,
                     client: client,
                     generation: generation
@@ -99,7 +99,7 @@ extension MobileShellComposite {
                     responseOutcome = .appliedScopedResponse
                 } else {
                     let reconciled = await refreshAfterWorkspaceMutation(target)
-                    guard isCurrentTerminalCreateTarget(
+                    guard isCurrentWorkspaceMutationTarget(
                         target,
                         client: client,
                         generation: generation
@@ -127,12 +127,13 @@ extension MobileShellComposite {
             )
             return .success(())
         } catch {
-            guard isCurrentTerminalCreateTarget(target, client: client, generation: generation),
+            guard isCurrentWorkspaceMutationTarget(target, client: client, generation: generation),
                   !Task.isCancelled else { return .success(()) }
-            guard !invalidateTerminalCreateTargetForAuthorizationFailure(
+            guard !invalidateWorkspaceMutationTargetForAuthorizationFailure(
                 error,
                 target: target,
-                client: client
+                client: client,
+                generation: generation
             ) else {
                 return .failure(.authorizationFailed(hostDisplayName: hostDisplayName))
             }
@@ -145,7 +146,7 @@ extension MobileShellComposite {
                 break
             case .definiteDivergence, .ambiguous:
                 let reconciled = await refreshAfterWorkspaceMutation(target)
-                guard isCurrentTerminalCreateTarget(target, client: client, generation: generation),
+                guard isCurrentWorkspaceMutationTarget(target, client: client, generation: generation),
                       !Task.isCancelled else { return .success(()) }
                 if !reconciled {
                     terminalReorderGate.requireRefresh(workspaceID: rowWorkspaceID)
@@ -180,42 +181,6 @@ extension MobileShellComposite {
                 hostDisplayName: hostDisplayName
             ))
         }
-    }
-
-    /// Revalidates the exact owner/client captured by the action entrypoint.
-    /// Foreground operations also retain the connection generation; secondary
-    /// operations retain their per-Mac subscription identity through its client.
-    private func isCurrentTerminalCreateTarget(
-        _ target: WorkspaceMutationTarget,
-        client: MobileCoreRPCClient,
-        generation: UUID
-    ) -> Bool {
-        if target.isForeground {
-            return target.client === remoteClient
-                && isCurrentRemoteOperation(client: client, generation: generation)
-        }
-        guard let macDeviceID = target.macDeviceID else { return false }
-        return secondaryMacSubscriptions[macDeviceID]?.client === client
-    }
-
-    /// Authorization failure invalidates only the connection that rejected the
-    /// request. A secondary-Mac failure must never tear down foreground state.
-    private func invalidateTerminalCreateTargetForAuthorizationFailure(
-        _ error: any Error,
-        target: WorkspaceMutationTarget,
-        client: MobileCoreRPCClient
-    ) -> Bool {
-        guard Self.shouldDisconnectForAuthorizationFailure(error) else { return false }
-        if target.isForeground {
-            return disconnectForAuthorizationFailureIfNeeded(error)
-        }
-        guard let macDeviceID = target.macDeviceID,
-              let subscription = secondaryMacSubscriptions[macDeviceID],
-              subscription.client === client else { return true }
-        subscription.cancel()
-        secondaryMacSubscriptions[macDeviceID] = nil
-        markSecondaryMacUnavailable(macDeviceID)
-        return true
     }
 
     /// Selects one uniquely identified create result while the request still
