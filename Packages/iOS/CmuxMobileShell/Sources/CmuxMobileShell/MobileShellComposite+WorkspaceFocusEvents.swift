@@ -83,8 +83,15 @@ extension MobileShellComposite {
             workspaceFocusEventRevisionsByMac[ownerKey]?.filter {
                 retainingRemoteWorkspaceIDs.contains($0.key)
             }
+        workspaceFocusHostSequencesByMac[ownerKey] =
+            workspaceFocusHostSequencesByMac[ownerKey]?.filter {
+                retainingRemoteWorkspaceIDs.contains($0.key)
+            }
         if workspaceFocusEventRevisionsByMac[ownerKey]?.isEmpty == true {
             workspaceFocusEventRevisionsByMac[ownerKey] = nil
+        }
+        if workspaceFocusHostSequencesByMac[ownerKey]?.isEmpty == true {
+            workspaceFocusHostSequencesByMac[ownerKey] = nil
         }
     }
 
