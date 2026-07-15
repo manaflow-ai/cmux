@@ -223,8 +223,10 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
         )
         let object = response.objectValue ?? [:]
         if let exception = object["exceptionDetails"]?.objectValue {
-            let text = exception["text"]?.stringValue ?? "JavaScript evaluation failed."
-            throw BrowserEngineSessionError.chromiumProtocol(text)
+            if let text = exception["text"]?.stringValue, !text.isEmpty {
+                throw BrowserEngineSessionError.chromiumJavaScriptEvaluation(text)
+            }
+            throw BrowserEngineSessionError.chromiumProtocol("JavaScript evaluation failed.")
         }
         guard let remoteObject = object["result"]?.objectValue else { return .undefined }
         if remoteObject["type"]?.stringValue == "undefined" { return .undefined }

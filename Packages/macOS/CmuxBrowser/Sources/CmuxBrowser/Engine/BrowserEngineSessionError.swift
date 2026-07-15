@@ -14,13 +14,16 @@ public enum BrowserEngineSessionError: LocalizedError, Sendable {
     /// A Chrome DevTools Protocol operation failed.
     case chromiumProtocol(String)
 
+    /// Chromium reported an exception from caller-supplied JavaScript.
+    case chromiumJavaScriptEvaluation(String)
+
     /// A Chromium process ended before exposing its DevTools endpoint.
     case chromiumLaunch(String)
 
     /// A browser returned a JavaScript value that cannot cross the engine boundary.
     case unsupportedJavaScriptValue
 
-    /// A localized, user-facing description that omits protocol internals.
+    /// A user-facing description that omits protocol internals while preserving page script exceptions.
     public var errorDescription: String? {
         switch self {
         case .emptyScreenshot:
@@ -43,6 +46,8 @@ public enum BrowserEngineSessionError: LocalizedError, Sendable {
                 localized: "browser.chromium.error.operationFailed",
                 defaultValue: "Chromium stopped responding. Reload the page or switch to WebKit."
             )
+        case .chromiumJavaScriptEvaluation(let message):
+            return message
         case .chromiumLaunch:
             return String(
                 localized: "browser.chromium.error.launchFailed",
