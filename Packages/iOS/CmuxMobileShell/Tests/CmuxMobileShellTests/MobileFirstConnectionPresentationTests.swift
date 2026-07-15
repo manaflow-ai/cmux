@@ -30,6 +30,33 @@ import Testing
         ).shouldPresentManualPairing)
     }
 
+    @Test func automaticPairingDismissesOnlyForAuthoritativeReplacement() {
+        #expect(!MobileFirstConnectionState(
+            hasSavedComputer: false,
+            registryState: .loading
+        ).shouldDismissAutomaticPairing)
+        #expect(!MobileFirstConnectionState(
+            hasSavedComputer: false,
+            registryState: .unavailable
+        ).shouldDismissAutomaticPairing)
+        #expect(!MobileFirstConnectionState(
+            hasSavedComputer: false,
+            registryState: .loaded(hasAccountSession: false)
+        ).shouldDismissAutomaticPairing)
+        #expect(MobileFirstConnectionState(
+            hasSavedComputer: true,
+            registryState: .unavailable
+        ).shouldDismissAutomaticPairing)
+        #expect(MobileFirstConnectionState(
+            hasSavedComputer: false,
+            registryState: .loaded(hasAccountSession: true)
+        ).shouldDismissAutomaticPairing)
+        #expect(MobileFirstConnectionState(
+            hasSavedComputer: false,
+            registryState: .authRejected
+        ).shouldDismissAutomaticPairing)
+    }
+
     @Test func savedComputerAndHandoffConnectionsShareOneAttemptGate() {
         #expect(MobileFirstConnectionAttemptState(
             connectingSavedComputerID: nil,

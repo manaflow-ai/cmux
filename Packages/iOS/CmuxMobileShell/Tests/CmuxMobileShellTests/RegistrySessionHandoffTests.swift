@@ -367,6 +367,28 @@ import Testing
         #expect(!store.isRegistrySessionHandoffInProgress)
     }
 
+    @Test func firstConnectionHandoffKeepsOnlyItsShellMounted() {
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            identityProvider: StaticIdentityProvider(userID: "user-1")
+        )
+
+        let firstConnectionRequestID = store.beginRegistrySessionHandoffAttempt(
+            keepsFirstConnectionShellMounted: true
+        )
+        #expect(store.isRegistrySessionHandoffInProgress)
+        #expect(store.isFirstConnectionRegistrySessionHandoffInProgress)
+        store.finishRegistrySessionHandoffAttempt(firstConnectionRequestID)
+        #expect(!store.isFirstConnectionRegistrySessionHandoffInProgress)
+
+        let connectedRequestID = store.beginRegistrySessionHandoffAttempt(
+            keepsFirstConnectionShellMounted: false
+        )
+        #expect(store.isRegistrySessionHandoffInProgress)
+        #expect(!store.isFirstConnectionRegistrySessionHandoffInProgress)
+        store.finishRegistrySessionHandoffAttempt(connectedRequestID)
+    }
+
     @Test func cancellationRestoresOnlyWhileTheHandoffOwnsTheConnection() {
         #expect(CMUXMobileShellStore.registryHandoffShouldRestorePreviousMac(
             hasPreviousActive: true,

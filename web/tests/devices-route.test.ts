@@ -262,6 +262,66 @@ describe("device registry route", () => {
     expect(list.devices[0].instances[0].sessions).toEqual([]);
   });
 
+  dbTest("live-session projection returns only the caller's devices and active session instances", async () => {
+    if (!sql) throw new Error("test database not initialized");
+
+    expect((await POST(registerRequest({
+      deviceId: DEVICE_A,
+      platform: "mac",
+      tag: "stable",
+      routes: [{ id: "r1", kind: "iroh", endpoint: publicIrohRoute.endpoint }],
+      sessions: [{
+        id: "workspace-private",
+        workspaceID: "workspace-private",
+        title: "App Review",
+        status: "working",
+        lastActivityAt: 1_800_000_000,
+      }],
+    }))).status).toBe(200);
+    expect((await POST(registerRequest({
+      deviceId: DEVICE_A,
+      platform: "mac",
+      tag: "sessionless",
+      routes: [{ id: "r2", kind: "iroh", endpoint: publicIrohRoute.endpoint }],
+    }))).status).toBe(200);
+
+    currentUserId = "registry-user-2";
+    expect((await POST(registerRequest({
+      deviceId: DEVICE_B,
+      platform: "mac",
+      tag: "stable",
+      routes: [{ id: "r3", kind: "iroh", endpoint: publicIrohRoute.endpoint }],
+      sessions: [{
+        id: "other-member-workspace",
+        workspaceID: "other-member-workspace",
+        title: "Other member",
+        status: "idle",
+        lastActivityAt: 1_800_000_000,
+      }],
+    }))).status).toBe(200);
+
+    currentUserId = "registry-user-1";
+    const response = await GET(new Request(
+      "https://cmux.test/api/devices?view=live-sessions",
+      { method: "GET", headers: authHeaders() },
+    ));
+    expect(response.status).toBe(200);
+    const list = (await response.json()) as {
+      devices: Array<{
+        deviceId: string;
+        instances: Array<{ tag: string; routes: unknown[]; sessions: Array<{ id: string }> }>;
+      }>;
+    };
+    expect(list.devices).toHaveLength(1);
+    expect(list.devices[0].deviceId).toBe(DEVICE_A);
+    expect(list.devices[0].instances).toHaveLength(1);
+    expect(list.devices[0].instances[0].tag).toBe("stable");
+    expect(list.devices[0].instances[0].routes).toHaveLength(1);
+    expect(list.devices[0].instances[0].sessions.map((session) => session.id)).toEqual([
+      "workspace-private",
+    ]);
+  });
+
   dbTest("clears submitted sessions when an instance has no attach routes", async () => {
     if (!sql) throw new Error("test database not initialized");
 

@@ -24,18 +24,49 @@ struct DeviceRegistryRedirectTests {
 
         #expect(DeviceRegistryRedirectURLProtocol.capturedDestinationRequests().isEmpty)
     }
+
+    @Test func liveSessionRenewalRequestsTheLightweightRegistryProjection() async throws {
+        let destination = try #require(URL(string: "https://attacker.example/capture"))
+        DeviceRegistryRedirectURLProtocol.reset(destination: destination)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [DeviceRegistryRedirectURLProtocol.self]
+        let service = DeviceRegistryService(
+            apiBaseURL: "https://cmux.example",
+            deviceID: "ios-device",
+            tokenSource: .init(
+                accessToken: { "access-token" },
+                refreshToken: { "refresh-token" }
+            ),
+            sessionConfiguration: configuration,
+            requestTimeout: 0.1
+        )
+
+        _ = await service.listLiveSessionDevices()
+
+        let request = try #require(DeviceRegistryRedirectURLProtocol.capturedSourceRequests().first)
+        let url = try #require(request.url)
+        let components = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
+        #expect(components.path == "/api/devices")
+        #expect(components.queryItems == [URLQueryItem(name: "view", value: "live-sessions")])
+    }
 }
 
 private final class DeviceRegistryRedirectURLProtocol: URLProtocol, @unchecked Sendable {
     private static let lock = NSLock()
     private nonisolated(unsafe) static var destination: URL?
+    private nonisolated(unsafe) static var sourceRequests: [URLRequest] = []
     private nonisolated(unsafe) static var destinationRequests: [URLRequest] = []
 
     static func reset(destination: URL) {
         lock.withLock {
             self.destination = destination
+            sourceRequests = []
             destinationRequests = []
         }
+    }
+
+    static func capturedSourceRequests() -> [URLRequest] {
+        lock.withLock { sourceRequests }
     }
 
     static func capturedDestinationRequests() -> [URLRequest] {
@@ -67,6 +98,10 @@ private final class DeviceRegistryRedirectURLProtocol: URLProtocol, @unchecked S
             client?.urlProtocol(self, didLoad: Data(#"{"devices":[]}"#.utf8))
             client?.urlProtocolDidFinishLoading(self)
             return
+        }
+
+        Self.lock.withLock {
+            Self.sourceRequests.append(request)
         }
 
         let response = HTTPURLResponse(
