@@ -11,14 +11,15 @@ if ! awk '
   in_universal && /-destination '\''generic\/platform=macOS'\''/ { saw_universal_destination=1 }
   in_universal && /ARCHS="arm64 x86_64"/ { saw_universal_archs=1 }
   in_universal && /ONLY_ACTIVE_ARCH=NO/ { saw_universal_only_active_arch=1 }
+  in_universal && /-quiet/ { saw_quiet=1 }
   in_universal && /COMPILATION_CACHE_ENABLE_CACHING=YES/ { saw_compilation_cache=1 }
   in_universal && /COMPILER_INDEX_STORE_ENABLE=NO/ { saw_index_disabled=1 }
   in_universal && /-showBuildTimingSummary/ { saw_timing_summary=1 }
   END {
-    exit !(saw_universal_destination && saw_universal_archs && saw_universal_only_active_arch && saw_compilation_cache && saw_index_disabled && saw_timing_summary)
+    exit !(saw_universal_destination && saw_universal_archs && saw_universal_only_active_arch && saw_quiet && saw_compilation_cache && saw_index_disabled && saw_timing_summary)
   }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly workflow must build the universal app with compilation caching, no index store, and timing output"
+  echo "FAIL: nightly workflow must build the universal app quietly with compilation caching, no index store, and timing output"
   exit 1
 fi
 
@@ -26,39 +27,47 @@ if ! awk '
   /^      - name: Cache Xcode compilation results/ { in_cache=1; next }
   in_cache && /^      - name:/ { in_cache=0 }
   in_cache && /path: build-universal\/CompilationCache\.noindex/ { saw_path=1 }
-  in_cache && /key: xcode-compilation-nightly-/ { saw_key=1 }
+  in_cache && /key: xcode-compilation-release-/ { saw_key=1 }
   in_cache && /steps\.compilation-cache-key\.outputs\.toolchain/ { saw_toolchain=1 }
   in_cache && /needs\.decide\.outputs\.head_sha/ { saw_head_sha=1 }
   in_cache && /restore-keys:/ { saw_restore=1 }
   END { exit !(saw_path && saw_key && saw_toolchain && saw_head_sha && saw_restore) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly workflow must roll toolchain-scoped caches forward by source revision"
+  echo "FAIL: nightly workflow must roll the shared Release compilation cache forward by source revision"
   exit 1
 fi
 
 if ! grep -Fq 'cron: "17 */6 * * *"' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly workflow must refresh compilation caches four times daily"
+  echo "FAIL: nightly workflow must refresh the shared Release cache four times daily"
+  exit 1
+fi
+
+if ! grep -Fq 'cron: "47 8 * * *"' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly workflow must publish once daily at 08:47 UTC"
   exit 1
 fi
 
 if ! awk '
   /^  refresh-compilation-cache:/ { in_refresh=1; next }
   in_refresh && /^  [a-zA-Z0-9_-]+:/ { in_refresh=0 }
-  in_refresh && /if: github\.event_name == '\''schedule'\''/ { saw_schedule_gate=1 }
+  in_refresh && /if: github\.event_name == '\''schedule'\'' && github\.event\.schedule == '\''17 \*\/6 \* \* \*'\''/ { saw_schedule_gate=1 }
+  in_refresh && /runs-on: \$\{\{ vars\.MACOS_RUNNER_26_RELEASE/ { saw_release_runner=1 }
+  in_refresh && /CMUX_CI_XCODE_APP_MACOS_26/ { saw_release_xcode=1 }
+  in_refresh && /select-ci-xcode\.sh/ { saw_xcode_selection=1 }
   in_refresh && /^      - name: Look up Xcode compilation cache/ { saw_lookup=1 }
   in_refresh && /uses: actions\/cache\/restore@/ { saw_restore_action=1 }
   in_refresh && /lookup-only: true/ { saw_lookup_only=1 }
   in_refresh && /^      - name: Cache Xcode compilation results/ { saw_cache=1 }
   in_refresh && /^      - name: Refresh universal nightly compilation cache/ { saw_refresh=1 }
   in_refresh && /if: steps\.compilation-cache-lookup\.outputs\.cache-hit != '\''true'\''/ { saw_change_gate=1 }
-  END { exit !(saw_schedule_gate && saw_lookup && saw_restore_action && saw_lookup_only && saw_cache && saw_refresh && saw_change_gate) }
+  END { exit !(saw_schedule_gate && saw_release_runner && saw_release_xcode && saw_xcode_selection && saw_lookup && saw_restore_action && saw_lookup_only && saw_cache && saw_refresh && saw_change_gate) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: scheduled cache refreshes must use a metadata lookup and skip cache downloads and compilation when main is unchanged"
+  echo "FAIL: the six-hour schedule must warm the PR Release cache with the matching runner and Xcode when main changes"
   exit 1
 fi
 
-if ! grep -Fq "if: needs.decide.outputs.should_build == 'true' && github.event_name != 'schedule'" "$WORKFLOW_FILE"; then
-  echo "FAIL: scheduled cache refreshes must not sign, notarize, or publish Nightly"
+if ! grep -Fq "if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')" "$WORKFLOW_FILE"; then
+  echo "FAIL: manual runs and the daily publish schedule must sign, notarize, and publish Nightly"
   exit 1
 fi
 
@@ -70,6 +79,20 @@ if ! awk '
   END { exit !(saw_limit && saw_skip_save) }
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: nightly workflow must skip saving Xcode compilation caches larger than 3 GiB"
+  exit 1
+fi
+
+CI_WORKFLOW_FILE="$ROOT_DIR/.github/workflows/ci.yml"
+if ! awk '
+  /^  release-build:/ { in_release=1; next }
+  in_release && /^  [a-zA-Z0-9_-]+:/ { in_release=0 }
+  in_release && /path: build-universal\/CompilationCache\.noindex/ { saw_path=1 }
+  in_release && /key: xcode-compilation-release-/ { saw_key=1 }
+  in_release && /restore-keys:/ { saw_restore=1 }
+  in_release && /COMPILATION_CACHE_ENABLE_CACHING=YES/ { saw_cache_flag=1 }
+  END { exit !(saw_path && saw_key && saw_restore && saw_cache_flag) }
+' "$CI_WORKFLOW_FILE"; then
+  echo "FAIL: PR release builds must restore and update the cache warmed from main"
   exit 1
 fi
 
