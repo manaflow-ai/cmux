@@ -4,6 +4,47 @@ import Testing
 
 @MainActor
 @Suite struct MobileShellTerminalToolbarRecoveryTests {
+    @Test func disconnectedCreateCompletesUnknownExactlyOnceAndFencesHierarchy() async throws {
+        let router = RoutingHostRouter()
+        await router.setHoldFirstTerminalCreate(true)
+        let store = try await makeRecoveryStore(router: router)
+        let workspace = try #require(store.workspaces.first)
+        let paneID = try #require(workspace.resolvedPanes.first?.id)
+        var completions: [Result<Void, MobileWorkspaceMutationFailure>] = []
+
+        store.createTerminal(in: workspace.id, paneID: paneID) { result in
+            completions.append(result)
+        }
+        await router.awaitFirstTerminalCreateReached()
+
+        #expect(store.terminalCreationRequestOwner.isActive)
+        #expect(store.terminalReorderGate.isActive(workspaceID: workspace.id))
+
+        store.clearRemoteConnectionContext()
+
+        #expect(!store.terminalCreationRequestOwner.isActive)
+        #expect(completions.count == 1)
+        guard completions.count == 1 else {
+            await router.releaseFirstTerminalCreate()
+            return
+        }
+        guard case .failure(.resultUnknownNeedsRefresh) = completions[0] else {
+            await router.releaseFirstTerminalCreate()
+            Issue.record("cancelled in-flight create should report an unknown result: \(completions[0])")
+            return
+        }
+        #expect(store.terminalReorderGate.requiresRefresh(workspaceID: workspace.id))
+        #expect(!store.terminalReorderGate.canMutate(workspaceID: workspace.id))
+
+        await router.releaseFirstTerminalCreate()
+        for _ in 0..<100 {
+            await Task.yield()
+        }
+
+        #expect(await router.recordedTerminalCreateCount() == 1)
+        #expect(completions.count == 1, "the late transport response must not complete the toolbar a second time")
+    }
+
     @Test func toolbarCompletionWaitsForSuccessfulHierarchyRecovery() async throws {
         let router = RoutingHostRouter()
         await router.workspaceListGate.setHoldFirst(true)
