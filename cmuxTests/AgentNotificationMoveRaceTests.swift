@@ -32,27 +32,23 @@ struct AgentNotificationRegressionTests {
         let originalNotificationStore = appDelegate.notificationStore
         let originalAppFocusOverride = AppFocusState.overrideIsFocused
 
-        var configRoot: URL?
-        var configStore: CmuxConfigStore?
+        let configRoot = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-notification-move-race-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: configRoot, withIntermediateDirectories: true)
+        let configURL = configRoot.appendingPathComponent("cmux.json")
         if let policyHookCommand {
-            let root = FileManager.default.temporaryDirectory.appendingPathComponent(
-                "cmux-notification-move-race-\(UUID().uuidString)",
-                isDirectory: true
-            )
-            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-            let configURL = root.appendingPathComponent("cmux.json")
             let encodedCommand = try String(data: JSONEncoder().encode(policyHookCommand), encoding: .utf8)
             let timeoutJSON = policyHookTimeoutSeconds.map { ",\"timeoutSeconds\":\($0)" } ?? ""
             try #"{"notifications":{"hooks":[{"id":"move-race","command":\#(encodedCommand ?? "\"cat\"")\#(timeoutJSON)}]}}"#
                 .write(to: configURL, atomically: true, encoding: .utf8)
-            let loadedStore = CmuxConfigStore(
-                globalConfigPath: configURL.path,
-                startFileWatchers: false
-            )
-            loadedStore.loadAll()
-            configRoot = root
-            configStore = loadedStore
         }
+        let configStore = CmuxConfigStore(
+            globalConfigPath: configURL.path,
+            startFileWatchers: false
+        )
+        configStore.loadAll()
 
         store.replaceNotificationsForTesting([])
         store.configureNotificationDeliveryHandlerForTesting { _, _ in }
@@ -87,7 +83,7 @@ struct AgentNotificationRegressionTests {
                 appDelegate.tabManager = originalTabManager
                 appDelegate.notificationStore = originalNotificationStore
                 AppFocusState.overrideIsFocused = originalAppFocusOverride
-                if let configRoot { try? FileManager.default.removeItem(at: configRoot) }
+                try? FileManager.default.removeItem(at: configRoot)
             }
         )
     }
@@ -211,7 +207,6 @@ struct AgentNotificationRegressionTests {
             tabId: fixture.source.id,
             surfaceId: fixture.panelId,
             hookDirectory: nil,
-            globalConfigPath: "/missing/cmux-\(UUID().uuidString).json",
             title: "OSC live-owner suppression",
             body: "Must be suppressed by the destination"
         )
