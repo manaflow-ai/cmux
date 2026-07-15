@@ -287,15 +287,25 @@ final class CmuxTerminalHostViewController: NSViewController,
     }
 
     private func finishIngesting(_ chunk: CmuxTerminalChunk) {
-        if chunk.replayGrid != nil {
+        let isReplay = chunk.replayGrid != nil
+        if isReplay {
             applyingReplay = false
-            if currentViewport?.hasPresentableInitialOutput == true {
-                presentTerminal()
+        }
+        guard isReplay || chunk.waitsForIngestion else { return }
+        // The drain can run inside a ghostty action callback that still holds
+        // the surface lock, and readViewportText takes that same lock — seen
+        // live as a permanent main-thread deadlock when a resize-drag's
+        // nested event loop drained the queued tick. Leave the callback
+        // stack before reading the viewport.
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  self.currentViewport?.hasPresentableInitialOutput == true
+            else { return }
+            if isReplay {
+                self.presentTerminal()
+            } else {
+                self.scheduleInitialPresentation()
             }
-        } else if chunk.waitsForIngestion,
-                  currentViewport?.hasPresentableInitialOutput == true
-        {
-            scheduleInitialPresentation()
         }
     }
 
