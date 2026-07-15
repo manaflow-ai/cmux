@@ -210,8 +210,17 @@ cmux_computer_use_canonical_executable() {
 }
 
 cmux_computer_use_resolve_driver() {
-    local self_dir bundled_driver override driver_real
+    local self_dir bundled_driver helper_driver override driver_real
     self_dir="$(cd "$(dirname "$0")" && pwd)" || return 1
+    # Prefer the standalone "cmux Computer Use.app" helper bundle: spawned
+    # non-embedded, the driver re-execs as its own TCC responsible process and
+    # macOS attributes permissions to "cmux Computer Use". Set CMUX_CUA_NO_HELPER=1
+    # to force the bare-binary embedded path instead.
+    helper_driver="$self_dir/../../Library/cmux Computer Use.app/Contents/MacOS/cmux-cua-driver"
+    if [[ -z "${CMUX_CUA_NO_HELPER:-}" && -x "$helper_driver" ]]; then
+        printf '%s' "$helper_driver"
+        return 0
+    fi
     bundled_driver="$self_dir/cmux-cua-driver"
     if [[ -x "$bundled_driver" ]]; then
         # No wrapper-side signature/ownership gate on the bundled path, on
@@ -251,13 +260,18 @@ cmux_codex_emit_computer_use_args() {
     # Stable per-terminal session id so the branded agent cursor is auto-active
     # for anonymous embedded calls; driver falls back to embedded-<pid> if empty.
     default_session="cmux-${CMUX_SURFACE_ID:-$$}"
+    # Standalone helper bundle -> non-embedded so the driver becomes its own TCC
+    # responsible process ("cmux Computer Use"); bare fallback binary -> embedded.
+    local cua_args_c
+    if [[ "$driver" == *"/cmux Computer Use.app/Contents/MacOS/"* ]]; then
+        cua_args_c=("-c" 'mcp_servers.cmux-computer-use.args=["mcp","--no-daemon-relaunch"]')
+    else
+        cua_args_c=("-c" 'mcp_servers.cmux-computer-use.args=["--embedded"]' "-c" 'mcp_servers.cmux-computer-use.env.CUA_DRIVER_EMBEDDED="1"')
+    fi
     printf '%s\0' \
         "-c" \
         "mcp_servers.cmux-computer-use.command=\"$(cmux_computer_use_json_escape "$driver")\"" \
-        "-c" \
-        "mcp_servers.cmux-computer-use.args=[\"--embedded\"]" \
-        "-c" \
-        "mcp_servers.cmux-computer-use.env.CUA_DRIVER_EMBEDDED=\"1\"" \
+        "${cua_args_c[@]}" \
         "-c" \
         "mcp_servers.cmux-computer-use.env.CUA_DRIVER_DEFAULT_SESSION=\"$(cmux_computer_use_json_escape "$default_session")\"" \
         "-c" \

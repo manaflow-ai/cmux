@@ -268,6 +268,51 @@ chmod 0755 "$OUTPUT"
 /usr/bin/strip -Sx "$OUTPUT"
 /usr/bin/codesign --force --sign - --timestamp=none "$OUTPUT"
 /usr/bin/codesign --verify --strict "$OUTPUT"
+
+# ── Package the driver as a standalone "cmux Computer Use.app" helper ──────────
+# When $OUTPUT lands inside an app bundle (…/Contents/Resources/bin/…), also
+# assemble the driver into its OWN nested app bundle with its own bundle id and
+# the cmux icon. Spawning the driver from THIS bundle non-embedded (so it becomes
+# its own TCC "responsible process") makes macOS attribute Accessibility / Screen
+# Recording to "cmux Computer Use" — a clear, cmux-branded identity distinct from
+# the host app. The host wrappers prefer this bundle and fall back to the bare
+# binary above.
+_cua_bin_dir="$(cd "$(dirname "$OUTPUT")" && pwd)"
+_cua_contents="$(cd "$_cua_bin_dir/../.." 2>/dev/null && pwd || true)"
+if [ -n "${_cua_contents:-}" ] && [ "$(basename "$_cua_contents")" = "Contents" ]; then
+  HELPER_APP="$_cua_contents/Library/cmux Computer Use.app"
+  rm -rf "$HELPER_APP"
+  mkdir -p "$HELPER_APP/Contents/MacOS" "$HELPER_APP/Contents/Resources"
+  cp "$OUTPUT" "$HELPER_APP/Contents/MacOS/cmux-cua-driver"
+  chmod 0755 "$HELPER_APP/Contents/MacOS/cmux-cua-driver"
+  # Reuse the host app's compiled cmux icon so the helper shares the cmux logo.
+  if [ -f "$_cua_contents/Resources/AppIcon.icns" ]; then
+    cp "$_cua_contents/Resources/AppIcon.icns" "$HELPER_APP/Contents/Resources/AppIcon.icns"
+  fi
+  cat > "$HELPER_APP/Contents/Info.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key><string>cmux Computer Use</string>
+  <key>CFBundleDisplayName</key><string>cmux Computer Use</string>
+  <key>CFBundleIdentifier</key><string>com.cmuxterm.computer-use</string>
+  <key>CFBundleExecutable</key><string>cmux-cua-driver</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+  <key>CFBundleShortVersionString</key><string>1.0</string>
+  <key>CFBundleVersion</key><string>1</string>
+  <key>LSUIElement</key><true/>
+  <key>LSMinimumSystemVersion</key><string>13.0</string>
+  <key>NSAccessibilityUsageDescription</key><string>cmux Computer Use inspects and controls the apps you ask an agent to drive.</string>
+  <key>NSScreenCaptureUsageDescription</key><string>cmux Computer Use captures app windows so it can act on what is visible on screen.</string>
+</dict>
+</plist>
+PLIST
+  /usr/bin/codesign --force --deep --sign - --timestamp=none "$HELPER_APP" 2>/dev/null || true
+  echo "cmux Computer Use.app assembled at: $HELPER_APP"
+fi
 # Launchability probe. Deliberately NOT `doctor --json`: doctor's macOS
 # platform probes are mutating (they `launchctl unload` + delete a legacy
 # LaunchAgent plist and remove the hard-coded /usr/local/bin/cua-driver-update,
