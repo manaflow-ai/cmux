@@ -46,10 +46,7 @@ final class MobileWorkspaceListObserver {
     private var unreadIndicatorsCancellable: AnyCancellable?
     private var perWorkspaceCancellables: [UUID: AnyCancellable] = [:]
     private var focusedHierarchyProjections: [UUID: MobileWorkspaceHierarchyProjection.FocusValue] = [:]
-    /// Host-lifetime ordering token for focus-only events. Event delivery fans
-    /// out through independent tasks, so receive order is not authoritative.
-    /// The phone keeps a per-workspace high-water mark and discards older tokens.
-    private var focusEventSequence: UInt64 = 0
+    private let focusEventSequenceService: MobileWorkspaceFocusEventSequenceService
     private var lastSummaryHash: Int = 0
     private var workspaceSummaryHashes: [UUID: Int] = [:]
     private var lastPreviewSignatures: [UUID: Int] = [:]
@@ -68,6 +65,7 @@ final class MobileWorkspaceListObserver {
                 quietDelay: 0.05,
                 maximumDelay: 0.16
             ),
+            focusEventSequenceService: .shared,
             emitWorkspaceUpdated: {
                 MobileHostService.shared.emitEvent(topic: "workspace.updated", payload: [:])
             }
@@ -90,6 +88,7 @@ final class MobileWorkspaceListObserver {
                 maximumDelay: 0.16,
                 scheduler: scheduler
             ),
+            focusEventSequenceService: .shared,
             emitWorkspaceUpdated: emitWorkspaceUpdated
         )
     }
@@ -98,11 +97,13 @@ final class MobileWorkspaceListObserver {
         tabManager: TabManager,
         notificationStore: TerminalNotificationStore?,
         invalidationBatcher: LatestWinsBatcher<MobileWorkspaceInvalidation, Bool>,
+        focusEventSequenceService: MobileWorkspaceFocusEventSequenceService,
         emitWorkspaceUpdated: @escaping @MainActor () -> Void
     ) {
         self.tabManager = tabManager
         self.notificationStore = notificationStore
         self.invalidationBatcher = invalidationBatcher
+        self.focusEventSequenceService = focusEventSequenceService
         self.emitWorkspaceUpdated = emitWorkspaceUpdated
         #if DEBUG
         cmuxDebugLog("mobile.observer init tabs=\(tabManager.tabs.count)")
@@ -152,8 +153,10 @@ final class MobileWorkspaceListObserver {
             .sink { [weak self] _ in
                 self?.scheduleInvalidation(.summary)
             }
-        // Bonsplit focus is not published Workspace state. The deferred focus notification arrives
-        // after pane and terminal selection converge, so emit only a changed workspace projection.
+        // Bonsplit focus is not published Workspace state. FocusSurfaceBroadcaster emits this
+        // generic authoritative surface-focus notification for terminal and non-terminal panels
+        // after selection converges. Browser clicks and direct bonsplit selection both reach it,
+        // so emit only a changed workspace projection from this shared path.
         focusedSurfaceTask = Task { @MainActor [weak self] in
             for await notification in NotificationCenter.default.notifications(named: .ghosttyDidFocusSurface) {
                 guard let self, let workspaceID = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
@@ -302,7 +305,7 @@ final class MobileWorkspaceListObserver {
         let projection = MobileWorkspaceHierarchyProjection.FocusValue(workspace: workspace)
         guard focusedHierarchyProjections[workspace.id] != projection else { return }
         focusedHierarchyProjections[workspace.id] = projection
-        focusEventSequence &+= 1
+        let focusEventSequence = focusEventSequenceService.next()
         mobileWorkspaceObserverLog.debug("emitting workspace.focused hierarchy workspace=\(workspace.id, privacy: .public)")
         MobileHostService.shared.emitEvent(
             topic: "workspace.focused",
