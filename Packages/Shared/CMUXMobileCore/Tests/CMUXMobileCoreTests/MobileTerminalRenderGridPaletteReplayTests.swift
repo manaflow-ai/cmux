@@ -98,3 +98,28 @@ import Testing
     #expect(replay.contains("\u{1B}[0;39;49m"))
     #expect(!replay.contains("48;2;39;40;34"))
 }
+
+@Test func boldStyleReplaysMacResolvedForegroundInsteadOfUnrepresentableColorSemantics() throws {
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "bold-color",
+        stateSeq: 1,
+        columns: 4,
+        rows: 1,
+        styles: [
+            .init(
+                id: 0,
+                foreground: "#4e2a84",
+                foregroundSource: .defaultColor,
+                bold: true
+            ),
+        ],
+        rowSpans: [
+            .init(row: 0, column: 0, styleID: 0, text: "bold", cellWidth: 4),
+        ]
+    )
+
+    let replay = try #require(String(data: frame.vtPatchBytes(), encoding: .utf8))
+
+    #expect(replay.contains("\u{1B}[0;1;38;2;78;42;132m"))
+    #expect(!replay.contains("\u{1B}[0;1;39m"))
+}
