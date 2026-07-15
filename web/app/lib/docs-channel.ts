@@ -33,3 +33,11 @@ export function docsChannelUrl(
     : releaseFallback;
   return `${targetPath}${search}${hash}`;
 }
+
+export function docsNavPath(pathname: string, locale: string): string {
+  const releasePath = docsChannelUrl("release", pathname);
+  const localePrefix = `/${locale}`;
+  return releasePath.startsWith(`${localePrefix}/`)
+    ? releasePath.slice(localePrefix.length)
+    : releasePath;
+}

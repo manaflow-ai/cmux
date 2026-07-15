@@ -44,7 +44,16 @@ const nextConfig: NextConfig = {
   },
   assetPrefix: isDocsZone ? `/_docs-assets/${docsChannel}` : undefined,
   async rewrites() {
-    if (isDocsZone) return [];
+    if (isDocsZone) {
+      return {
+        beforeFiles: [
+          {
+            source: `/_docs-assets/${docsChannel}/_next/:path*`,
+            destination: "/_next/:path*",
+          },
+        ],
+      };
+    }
     return {
       beforeFiles: [
         {
@@ -83,6 +92,10 @@ const nextConfig: NextConfig = {
         {
           source: "/docs/:path*",
           destination: `${releaseDocsOrigin}/docs/:path*`,
+        },
+        {
+          source: "/:locale/docs",
+          destination: `${releaseDocsOrigin}/:locale/docs`,
         },
         {
           source: "/:locale/docs/:path*",

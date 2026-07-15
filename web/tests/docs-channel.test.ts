@@ -3,6 +3,7 @@ import {
   docsCanonicalOrigin,
   docsChannel,
   docsChannelUrl,
+  docsNavPath,
   docsPathAvailableInChannel,
 } from "../app/lib/docs-channel";
 import {
@@ -24,6 +25,15 @@ test("channel switching preserves localized path, query, and hash", () => {
   ).toBe("/ja/docs/nightly/base?q=base#install");
   expect(docsChannelUrl("release", "/ja/docs/nightly/base")).toBe(
     "/ja/docs/getting-started",
+  );
+});
+
+test("pager matching removes locale and nightly prefixes", () => {
+  expect(docsNavPath("/ja/docs/nightly/concepts", "ja")).toBe(
+    "/docs/concepts",
+  );
+  expect(docsNavPath("/docs/nightly/concepts", "en")).toBe(
+    "/docs/concepts",
   );
 });
 
