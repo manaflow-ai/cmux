@@ -262,4 +262,60 @@ import Testing
         }
         service.resetWorkspacePullRequestRefreshState()
     }
+
+    @Test(.timeLimit(.minutes(1)))
+    func rejectedBatchPreservesBatchWideCacheBypassBeyondImmediateFollowUp() async throws {
+        let host = RecordingSidebarGitHost()
+        host.pollingEnabled = true
+        var keys: [WorkspaceGitProbeKey] = []
+        for index in 0..<5 {
+            let (workspaceId, panelId) = host.addWorkspace(panelDirectory: "/tmp/repo")
+            host.workspaces[index].state.panels[panelId]?.branch = SidebarPanelGitBranch(
+                branch: "feature/\(index)",
+                isDirty: false
+            )
+            keys.append(WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId))
+        }
+        let executor = GatedPullRequestRefreshExecutor()
+        let service = makeService(host: host, executor: executor)
+        service.workspacePullRequestNextPollAtByKey[keys[0]] = .distantFuture
+        service.workspacePullRequestNextPollAtByKey[keys[1]] = .distantFuture
+
+        service.refreshTrackedWorkspacePullRequestsIfNeeded(
+            reason: "timer",
+            allowCachedResultsOverride: false
+        )
+        await executor.waitForFetchCount(1)
+
+        service.workspacePullRequestNextPollAtByKey[keys[0]] = .distantPast
+        service.workspacePullRequestNextPollAtByKey[keys[1]] = .distantPast
+        service.markWorkspacePullRequestProbeRerunPending(
+            for: keys[2],
+            reason: "sourceChange",
+            bypassRepoCache: false
+        )
+        await executor.releaseNextFetch()
+        await executor.waitForFetchCount(2)
+
+        #expect(await executor.allowCachedResultsRequests == [false, false])
+
+        await executor.releaseNextFetch()
+        while service.workspacePullRequestRefreshTask != nil {
+            await Task.yield()
+        }
+
+        service.refreshTrackedWorkspacePullRequestsIfNeeded(reason: "timer")
+        await executor.waitForFetchCount(3)
+
+        #expect(
+            await executor.allowCachedResultsRequests == [false, false, false],
+            "Every surviving key from a rejected batch-wide refresh must retain cache-bypass intent."
+        )
+
+        await executor.releaseNextFetch()
+        while service.workspacePullRequestRefreshTask != nil {
+            await Task.yield()
+        }
+        service.resetWorkspacePullRequestRefreshState()
+    }
 }
