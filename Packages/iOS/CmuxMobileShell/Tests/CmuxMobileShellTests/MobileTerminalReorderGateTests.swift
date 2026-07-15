@@ -345,7 +345,84 @@ import Testing
     #expect(store.terminalReorderGate.canMutate(workspaceID: rawWorkspaceID))
 }
 
-private func hierarchyGateWorkspace(macID: String) -> MobileWorkspacePreview {
+@MainActor
+@Test func hierarchyGateMigratesActiveReservationAcrossOwnerAdoption() throws {
+    let gate = MobileTerminalReorderGate()
+    let anonymousWorkspace = hierarchyGateWorkspace(macID: nil)
+    let durableWorkspace = hierarchyGateWorkspace(macID: "mac-adopted")
+    gate.updateWorkspacePresentationIdentities([anonymousWorkspace])
+    let reservation = try #require(gate.reserve(
+        workspaceID: anonymousWorkspace.id,
+        paneID: "pane-adoption"
+    ))
+    #expect(reservation.ownerIdentity.ownerMacID == nil)
+
+    gate.updateWorkspacePresentationIdentities([durableWorkspace])
+
+    #expect(reservation.ownerIdentity.ownerMacID == nil, "reservation ownership stays immutable")
+    #expect(gate.isActive(workspaceID: durableWorkspace.id))
+    #expect(gate.owns(reservation))
+    let duplicate = gate.reserve(
+        workspaceID: durableWorkspace.id,
+        paneID: "pane-adoption"
+    )
+    #expect(duplicate == nil)
+    if let duplicate { gate.finish(duplicate) }
+
+    gate.finish(reservation)
+
+    #expect(!gate.isActive)
+    #expect(gate.canMutate(workspaceID: durableWorkspace.id))
+}
+
+@MainActor
+@Test func hierarchyGateMigratesRefreshFenceAcrossOwnerAdoption() {
+    let gate = MobileTerminalReorderGate()
+    let anonymousWorkspace = hierarchyGateWorkspace(macID: nil)
+    let durableWorkspace = hierarchyGateWorkspace(macID: "mac-adopted")
+    gate.updateWorkspacePresentationIdentities([anonymousWorkspace])
+    gate.requireRefresh(workspaceID: anonymousWorkspace.id)
+
+    gate.updateWorkspacePresentationIdentities([durableWorkspace])
+
+    #expect(gate.requiresRefresh(workspaceID: durableWorkspace.id))
+    #expect(!gate.canMutate(workspaceID: durableWorkspace.id))
+
+    gate.reconcileAfterAuthoritativeRefresh(workspaceIDs: [durableWorkspace.id])
+
+    #expect(gate.refreshRequiredWorkspaceIDs.isEmpty)
+    #expect(gate.canMutate(workspaceID: durableWorkspace.id))
+}
+
+@MainActor
+@Test func hierarchyGateMigratesRecoveryAcrossOwnerAdoption() {
+    let gate = MobileTerminalReorderGate()
+    let anonymousWorkspace = hierarchyGateWorkspace(macID: nil)
+    let durableWorkspace = hierarchyGateWorkspace(macID: "mac-adopted")
+    let originalRecoveryWorkspaceID = anonymousWorkspace.id
+    gate.updateWorkspacePresentationIdentities([anonymousWorkspace])
+    gate.requireRefresh(workspaceID: originalRecoveryWorkspaceID)
+    #expect(gate.beginRecovery(workspaceID: originalRecoveryWorkspaceID))
+
+    gate.updateWorkspacePresentationIdentities([durableWorkspace])
+
+    #expect(gate.isActive(workspaceID: durableWorkspace.id))
+    #expect(gate.requiresRefresh(workspaceID: durableWorkspace.id))
+    let duplicate = gate.reserve(
+        workspaceID: durableWorkspace.id,
+        paneID: "pane-adoption"
+    )
+    #expect(duplicate == nil)
+    if let duplicate { gate.finish(duplicate) }
+
+    gate.finishRecovery(workspaceID: originalRecoveryWorkspaceID, succeeded: true)
+
+    #expect(!gate.isActive)
+    #expect(gate.refreshRequiredWorkspaceIDs.isEmpty)
+    #expect(gate.canMutate(workspaceID: durableWorkspace.id))
+}
+
+private func hierarchyGateWorkspace(macID: String?) -> MobileWorkspacePreview {
     MobileWorkspacePreview(
         id: "workspace-stable",
         macDeviceID: macID,
