@@ -10,6 +10,45 @@ import Testing
 
 @Suite("Dock portal reconcile", .serialized)
 struct DockPortalReconcileTests {
+    @Test("Delayed workspace host cannot reclaim a terminal after Dock handoff")
+    @MainActor
+    func delayedWorkspaceHostCannotReclaimTerminalAfterDockHandoff() {
+        let panel = TerminalPanel(workspaceId: UUID())
+        defer { panel.surface.teardownSurface() }
+        let sourceHost = NSView()
+        let dockHost = NSView()
+        let sourcePane = PaneID()
+        let dockPane = PaneID()
+        let bounds = CGRect(x: 0, y: 0, width: 400, height: 300)
+
+        #expect(panel.surface.claimPortalHost(
+            hostId: ObjectIdentifier(sourceHost),
+            paneId: sourcePane,
+            instanceSerial: 1,
+            inWindow: true,
+            bounds: bounds,
+            reason: "test.workspace.initial"
+        ))
+        #expect(panel.surface.claimPortalHost(
+            hostId: ObjectIdentifier(dockHost),
+            paneId: dockPane,
+            instanceSerial: 2,
+            inWindow: true,
+            bounds: bounds,
+            reason: "test.dock.handoff"
+        ))
+
+        #expect(!panel.surface.claimPortalHost(
+            hostId: ObjectIdentifier(sourceHost),
+            paneId: sourcePane,
+            instanceSerial: 1,
+            inWindow: true,
+            bounds: bounds,
+            reason: "test.workspace.delayedCallback"
+        ))
+        #expect(panel.surface.debugPortalHostLease().paneId == dockPane.id)
+    }
+
     @Test("Browser attach into visible Dock shows portal")
     @MainActor
     func dockBrowserAttachIntoVisibleDockShowsPortal() throws {
