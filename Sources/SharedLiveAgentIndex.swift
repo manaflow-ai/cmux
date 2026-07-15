@@ -18,12 +18,15 @@ final class SharedLiveAgentIndex {
     private var processScopeFingerprint: Set<String> = []
     private var changePending = false
     private var deferredReloadTimer: DispatchSourceTimer?
+    private var hookStoreInputStamp: [String]?
 
     private static let cacheTTL: TimeInterval = 60.0
     private static let forkAvailabilityProbeTTL: TimeInterval = 15.0
-    // Floor between event-driven reloads so chatty hook stores cannot keep the
-    // measured ~350ms-1.8s loader running at near-continuous duty cycle.
+    // Scale event-driven reloads so the measured ~350ms-1.8s loader cannot
+    // approach continuous duty cycle as indexed history or live-agent work grows.
     private static let minEventReloadInterval: TimeInterval = 5.0
+    private static let maxEventReloadInterval: TimeInterval = 30.0
+    private static let workloadUnitsPerReloadIntervalStep = 8
 
     private var directoryWatchSource: DispatchSourceFileSystemObject?
     // DispatchSource file watching requires a delivery queue; state hops back to MainActor.
@@ -279,13 +282,17 @@ final class SharedLiveAgentIndex {
             changePending = true
             return
         }
+        let reloadInterval = Self.hookEventReloadInterval(
+            liveAgentCount: index?.liveAgentProcessCount ?? 0,
+            indexedSessionCount: index?.entryCount ?? 0
+        )
         let elapsed = loadedAt.map { dateProvider().timeIntervalSince($0) } ?? .infinity
-        if elapsed >= Self.minEventReloadInterval {
+        if elapsed >= reloadInterval {
             startReload()
         } else if deferredReloadTimer == nil {
             // DispatchSourceTimer coalesces hook-store event bursts without Task.sleep in runtime code.
             let timer = DispatchSource.makeTimerSource(queue: watchQueue)
-            timer.schedule(deadline: .now() + (Self.minEventReloadInterval - elapsed))
+            timer.schedule(deadline: .now() + (reloadInterval - elapsed))
             timer.setEventHandler { [weak self] in
                 Task { @MainActor in
                     guard let self else { return }
@@ -314,9 +321,11 @@ final class SharedLiveAgentIndex {
             queue: watchQueue
         )
         source.setEventHandler { [weak self] in
-            Task { @MainActor in self?.handleHookStoreChange() }
+            let currentStamp = Self.hookStoreInputStamp(in: dir)
+            Task { @MainActor in self?.handleHookStoreDirectoryEvent(currentStamp) }
         }
         source.setCancelHandler { Darwin.close(fd) }
+        hookStoreInputStamp = Self.hookStoreInputStamp(in: dir)
         source.resume()
         directoryWatchSource = source
         if refreshTask == nil {
@@ -324,6 +333,51 @@ final class SharedLiveAgentIndex {
         } else {
             changePending = true
         }
+    }
+
+    private func handleHookStoreDirectoryEvent(_ currentStamp: [String]) {
+        guard currentStamp != hookStoreInputStamp else { return }
+        hookStoreInputStamp = currentStamp
+        handleHookStoreChange()
+    }
+
+    nonisolated private static func hookStoreInputStamp(in directory: String) -> [String] {
+        let filenames = (try? FileManager.default.contentsOfDirectory(atPath: directory)) ?? []
+        let directoryURL = URL(fileURLWithPath: directory, isDirectory: true)
+        return filenames
+            .filter { $0.hasSuffix("-hook-sessions.json") }
+            .sorted()
+            .compactMap { filename -> String? in
+                let path = directoryURL
+                    .appendingPathComponent(filename, isDirectory: false)
+                    .path
+                var info = stat()
+                guard stat(path, &info) == 0 else { return nil }
+                return [
+                    filename,
+                    String(info.st_dev),
+                    String(info.st_ino),
+                    String(info.st_size),
+                    String(info.st_mtimespec.tv_sec),
+                    String(info.st_mtimespec.tv_nsec),
+                ].joined(separator: "\u{0}")
+            }
+    }
+
+    private static func hookEventReloadInterval(
+        liveAgentCount: Int,
+        indexedSessionCount: Int
+    ) -> TimeInterval {
+        let workloadCount = max(0, max(liveAgentCount, indexedSessionCount))
+        let intervalSteps = max(
+            1,
+            (workloadCount + workloadUnitsPerReloadIntervalStep - 1)
+                / workloadUnitsPerReloadIntervalStep
+        )
+        return min(
+            maxEventReloadInterval,
+            minEventReloadInterval * TimeInterval(intervalSteps)
+        )
     }
 }
 
