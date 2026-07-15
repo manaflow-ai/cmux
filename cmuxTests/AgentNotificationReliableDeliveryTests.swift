@@ -220,6 +220,36 @@ final class AgentNotificationReliableDeliveryTests: XCTestCase {
         XCTAssertEqual(identity.3, newSurfaceId)
     }
 
+    func testClearStartedAfterSessionTransferUsesReplacementRoute() {
+        let bus = TerminalMutationBus.shared
+        let oldTabId = UUID()
+        let newTabId = UUID()
+        let oldSurfaceId = UUID()
+        let newSurfaceId = UUID()
+        bus.discardPendingNotifications()
+        bus.setDrainsSuspendedForTesting(true)
+        defer { reset(bus) }
+
+        bus.transferPendingNotifications(
+            fromTabId: oldTabId,
+            toTabId: newTabId,
+            panelIdMap: [oldSurfaceId: newSurfaceId]
+        )
+        XCTAssertTrue(bus.enqueueNotification(
+            tabId: oldTabId,
+            surfaceId: oldSurfaceId,
+            title: "Must be cleared through replacement route",
+            subtitle: "",
+            body: ""
+        ))
+
+        bus.enqueueClearNotifications(forTabId: oldTabId, surfaceId: oldSurfaceId)
+
+        XCTAssertFalse(
+            bus.notificationQueueStateForTesting().1.contains("Must be cleared through replacement route")
+        )
+    }
+
     func testReliableAdmissionBacklogIsBounded() async {
         let bus = TerminalMutationBus.shared
         bus.discardPendingNotifications()

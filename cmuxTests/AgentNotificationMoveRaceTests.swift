@@ -201,6 +201,99 @@ struct AgentNotificationRegressionTests {
         #expect(!bus.notificationQueueStateForTesting().1.contains("Must not cross moved-surface clear"))
     }
 
+    @Test("Queued workspace clear cancels a blocked admission after its surface moves")
+    func queuedWorkspaceClearCancelsBlockedAdmissionAtMovedSurface() async throws {
+        let fixture = try makeFixture()
+        let bus = TerminalMutationBus.shared
+        bus.discardPendingNotifications()
+        bus.setDrainsSuspendedForTesting(true)
+        defer {
+            bus.discardPendingNotifications()
+            bus.drainForTesting()
+            bus.setDrainsSuspendedForTesting(false)
+            fixture.restore()
+        }
+        for index in 0..<TerminalMutationBus.maximumPendingMutationCount {
+            #expect(bus.enqueueNotification(
+                tabId: UUID(),
+                surfaceId: nil,
+                title: "Queued clear seed \(index)",
+                subtitle: "",
+                body: ""
+            ))
+        }
+        let delivery = Task { @MainActor in
+            await AgentNotificationDelivery().enqueueReliably(
+                workspaceID: fixture.source.id,
+                surfaceID: fixture.panelId,
+                title: "Must not cross queued moved-surface clear",
+                subtitle: "",
+                body: "",
+                category: nil,
+                pending: false
+            )
+        }
+        for _ in 0..<10_000 {
+            if bus.reliablyWaitingNotificationProducerCountForTesting() == 1 { break }
+            await Task.yield()
+        }
+        #expect(bus.reliablyWaitingNotificationProducerCountForTesting() == 1)
+
+        try movePanel(fixture)
+        bus.enqueueClearNotifications(forTabId: fixture.destination.id)
+        bus.drainForBackpressure()
+
+        #expect(await delivery.value == .cancelled)
+        #expect(!bus.notificationQueueStateForTesting().1.contains("Must not cross queued moved-surface clear"))
+    }
+
+    @Test("Direct store producer follows a session replacement route")
+    func directStoreProducerFollowsSessionReplacementRoute() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let destinationSurfaceId = try #require(fixture.destination.focusedPanelId)
+        TerminalMutationBus.shared.transferPendingNotifications(
+            fromTabId: fixture.source.id,
+            toTabId: fixture.destination.id,
+            panelIdMap: [fixture.panelId: destinationSurfaceId]
+        )
+
+        fixture.store.addNotification(
+            tabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            title: "Direct producer",
+            subtitle: "",
+            body: "",
+            retargetsToLiveSurfaceOwner: true
+        )
+
+        let notification = try #require(fixture.store.notifications.first)
+        #expect(notification.tabId == fixture.destination.id)
+        #expect(notification.surfaceId == destinationSurfaceId)
+    }
+
+    @Test("Accepted notification falls back to its live workspace when its surface is gone")
+    func acceptedNotificationFallsBackToLiveWorkspaceWhenSurfaceIsGone() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let missingSurfaceId = UUID()
+
+        fixture.store.deliverQueuedNotification(
+            claimedTabId: fixture.source.id,
+            surfaceId: missingSurfaceId,
+            title: "Orphaned accepted notification",
+            subtitle: "",
+            body: "",
+            id: UUID(),
+            acceptedAt: Date(),
+            notificationGeneration: TerminalMutationBus.shared.notificationGenerationSnapshot()
+        )
+
+        let notification = try #require(fixture.store.notifications.first)
+        #expect(notification.tabId == fixture.source.id)
+        #expect(notification.surfaceId == nil)
+    }
+
     @Test("Source-confined synchronous delivery does not follow a moved surface")
     func sourceConfinedSynchronousDeliveryDoesNotRetarget() throws {
         let fixture = try makeFixture()
