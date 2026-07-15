@@ -9,6 +9,10 @@ final class WebViewFindTextFieldCoordinator: NSObject, NSTextFieldDelegate {
     weak var lastAppliedFocusRequestOwner: AnyObject?
     var lastSelectedRange: NSRange?
     weak var parentField: WebViewFindNativeTextField?
+    private var pendingFocusRequestGeneration: UInt64 = 0
+    private var pendingFocusAlreadyFocused = false
+    private var pendingFocusSelectAll = false
+    private var pendingFocusRememberedRange: NSRange?
 
     init(parent: WebViewFindTextField) {
         self.parent = parent
@@ -23,33 +27,23 @@ final class WebViewFindTextFieldCoordinator: NSObject, NSTextFieldDelegate {
               let window = field.window else { return }
 
         let alreadyFocused = cmuxTextFieldIsFirstResponder(field, in: window)
-        guard alreadyFocused || window.makeFirstResponder(field) else { return }
-        lastAppliedFocusRequestGeneration = generation
-        lastAppliedFocusRequestOwner = parent.selectionOwner
         let rememberedRange = field.cmuxLastSelectedRange
             ?? cmuxStoredFindSelection(for: parent.selectionOwner)
             ?? lastSelectedRange
-        if let selection = cmuxApplyFindFocusSelection(
-            field: field,
+
+        stageFocusSelection(
+            generation: generation,
             selectAll: parent.selectAllOnFocusRequest,
             alreadyFocused: alreadyFocused,
             rememberedRange: rememberedRange
-        ) {
-            lastSelectedRange = selection
-        } else {
-            DispatchQueue.main.async { [weak self, weak field] in
-                guard let self, let field,
-                      self.parent.focusRequestGeneration == generation,
-                      self.parent.canApplyFocusRequest(generation),
-                      let selection = cmuxApplyFindFocusSelection(
-                          field: field,
-                          selectAll: self.parent.selectAllOnFocusRequest,
-                          alreadyFocused: alreadyFocused,
-                          rememberedRange: rememberedRange
-                      ) else { return }
-                self.lastSelectedRange = selection
-            }
+        )
+        guard alreadyFocused || window.makeFirstResponder(field) else {
+            clearPendingFocusSelection()
+            return
         }
+        lastAppliedFocusRequestGeneration = generation
+        lastAppliedFocusRequestOwner = parent.selectionOwner
+        applyPendingFocusSelection(to: field)
         parent.onFieldDidFocus()
     }
 
@@ -61,6 +55,9 @@ final class WebViewFindTextFieldCoordinator: NSObject, NSTextFieldDelegate {
     }
 
     func controlTextDidBeginEditing(_ notification: Notification) {
+        if let field = notification.object as? WebViewFindNativeTextField {
+            applyPendingFocusSelection(to: field)
+        }
         parent.onFieldDidFocus()
     }
 
@@ -84,12 +81,6 @@ final class WebViewFindTextFieldCoordinator: NSObject, NSTextFieldDelegate {
             parent.onReturn(isShift)
             return true
         default:
-            if cmuxFindCommandMayChangeSelection(commandSelector) {
-                DispatchQueue.main.async { [weak self, weak textView] in
-                    guard let textView else { return }
-                    self?.rememberSelection(from: textView)
-                }
-            }
             return false
         }
     }
@@ -99,6 +90,46 @@ final class WebViewFindTextFieldCoordinator: NSObject, NSTextFieldDelegate {
         rememberSelection(from: textView)
         parent.onEscape()
         return true
+    }
+
+    private func stageFocusSelection(
+        generation: UInt64,
+        selectAll: Bool,
+        alreadyFocused: Bool,
+        rememberedRange: NSRange?
+    ) {
+        pendingFocusRequestGeneration = generation
+        pendingFocusSelectAll = selectAll
+        pendingFocusAlreadyFocused = alreadyFocused
+        pendingFocusRememberedRange = rememberedRange
+    }
+
+    private func applyPendingFocusSelection(to field: WebViewFindNativeTextField) {
+        let generation = pendingFocusRequestGeneration
+        guard generation != 0 else { return }
+        guard parent.focusRequestGeneration == generation,
+              parent.canApplyFocusRequest(generation) else {
+            clearPendingFocusSelection()
+            return
+        }
+        guard let editor = field.currentEditor() as? NSTextView else { return }
+        defer { clearPendingFocusSelection() }
+        guard !editor.hasMarkedText() else { return }
+        if let selection = cmuxApplyFindFocusSelection(
+            field: field,
+            selectAll: pendingFocusSelectAll,
+            alreadyFocused: pendingFocusAlreadyFocused,
+            rememberedRange: pendingFocusRememberedRange
+        ) {
+            lastSelectedRange = selection
+        }
+    }
+
+    private func clearPendingFocusSelection() {
+        pendingFocusRequestGeneration = 0
+        pendingFocusSelectAll = false
+        pendingFocusAlreadyFocused = false
+        pendingFocusRememberedRange = nil
     }
 
     private func rememberSelection(from field: NSTextField) {

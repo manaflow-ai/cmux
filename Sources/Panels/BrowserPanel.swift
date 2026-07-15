@@ -2917,7 +2917,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// Incremented whenever async browser find focus ownership changes.
     @Published private(set) var searchFocusRequestGeneration: UInt64 = 0
-    @Published private(set) var searchFocusSelectAll = false
+    private(set) var searchFocusSelectAll = false
     private var lastSearchNeedle = ""
 
     /// Find-in-page state. Non-nil when the find bar is visible.

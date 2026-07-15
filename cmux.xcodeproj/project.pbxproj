@@ -1794,6 +1794,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C37800000000000000000003 /* VMDefaultCloudCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C37800000000000000000004 /* VMDefaultCloudCommandTests.swift */; };
 		C37800000000000000000001 /* VMSSHCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C37800000000000000000002 /* VMSSHCommandTests.swift */; };
 		8178A0048178A0048178A004 /* WebViewFindBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8178A0038178A0038178A003 /* WebViewFindBar.swift */; };
+		8178A0188178A0188178A018 /* WebViewFindBarCorner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8178A0178178A0178178A017 /* WebViewFindBarCorner.swift */; };
 		8178A0068178A0068178A006 /* WebViewFindNativeTextField.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8178A0058178A0058178A005 /* WebViewFindNativeTextField.swift */; };
 		8178A0088178A0088178A008 /* WebViewFindTextField.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8178A0078178A0078178A007 /* WebViewFindTextField.swift */; };
 		8178A00A8178A00A8178A00A /* WebViewFindTextFieldCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8178A0098178A0098178A009 /* WebViewFindTextFieldCoordinator.swift */; };
@@ -3707,6 +3708,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C37800000000000000000004 /* VMDefaultCloudCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VMDefaultCloudCommandTests.swift; sourceTree = "<group>"; };
 		C37800000000000000000002 /* VMSSHCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VMSSHCommandTests.swift; sourceTree = "<group>"; };
 		8178A0038178A0038178A003 /* WebViewFindBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/WebViewFindBar.swift; sourceTree = "<group>"; };
+		8178A0178178A0178178A017 /* WebViewFindBarCorner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/WebViewFindBarCorner.swift; sourceTree = "<group>"; };
 		8178A0058178A0058178A005 /* WebViewFindNativeTextField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/WebViewFindNativeTextField.swift; sourceTree = "<group>"; };
 		8178A0078178A0078178A007 /* WebViewFindTextField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/WebViewFindTextField.swift; sourceTree = "<group>"; };
 		8178A0098178A0098178A009 /* WebViewFindTextFieldCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/WebViewFindTextFieldCoordinator.swift; sourceTree = "<group>"; };
@@ -4830,6 +4832,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5008370 /* BrowserSearchOverlay.swift */,
 				8178A0018178A0018178A001 /* SearchButtonStyle.swift */,
 				8178A0038178A0038178A003 /* WebViewFindBar.swift */,
+				8178A0178178A0178178A017 /* WebViewFindBarCorner.swift */,
 				8178A0058178A0058178A005 /* WebViewFindNativeTextField.swift */,
 				8178A0078178A0078178A007 /* WebViewFindTextField.swift */,
 				8178A0098178A0098178A009 /* WebViewFindTextFieldCoordinator.swift */,
@@ -7429,6 +7432,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				ACE4FE1A8F1CC6C0B6A673AB /* VMClient.swift in Sources */,
 				ACE4FE2A8F1CC6C0B6A673AB /* VMClientSocketCommands.swift in Sources */,
 				8178A0048178A0048178A004 /* WebViewFindBar.swift in Sources */,
+				8178A0188178A0188178A018 /* WebViewFindBarCorner.swift in Sources */,
 				8178A0068178A0068178A006 /* WebViewFindNativeTextField.swift in Sources */,
 				8178A0088178A0088178A008 /* WebViewFindTextField.swift in Sources */,
 				8178A00A8178A00A8178A00A /* WebViewFindTextFieldCoordinator.swift in Sources */,
