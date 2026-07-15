@@ -288,7 +288,7 @@ extension DockSplitStore {
     func dockBrowserPortalReady(_ browser: BrowserPanel) -> Bool {
         dockBrowserPortalAnchorReady(browser.portalAnchorView) &&
             browser.webView.window != nil &&
-            browser.webView.superview != nil &&
+            browser.webView.cmuxBrowserViewportAttachmentSuperview != nil &&
             BrowserWindowPortalRegistry.isWebView(browser.webView, boundTo: browser.portalAnchorView)
     }
 
