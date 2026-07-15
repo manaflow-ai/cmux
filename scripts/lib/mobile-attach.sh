@@ -8,6 +8,19 @@
 #
 # The attach URL is a bearer credential: callers must never print it.
 
+# Resolve the backend shared by a tagged Mac and its mobile build. Localhost
+# remains the default for ordinary simulator work. Physical-device dogfood can
+# select a trusted shared backend without giving every developer the relay
+# fleet's private JWT signing key.
+cmux_attach_resolve_dev_api_base_url() {
+  local fallback="$1"
+  if [[ -n "${CMUX_DEV_API_BASE_URL:-}" ]]; then
+    printf '%s' "$CMUX_DEV_API_BASE_URL"
+  else
+    printf '%s' "$fallback"
+  fi
+}
+
 # Raw slug WITHOUT the empty-input fallback: lowercase, ASCII non-[a-z0-9] -> '-',
 # trimmed/collapsed. Empty when the tag has no ASCII alphanumerics. The ASCII
 # class is deliberate (matches reload.sh + cmux-debug-cli.sh socket/DerivedData
