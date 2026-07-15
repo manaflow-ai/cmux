@@ -30,6 +30,62 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
             .compactMap { windowMirrorByWindowId[$0]?.sizingSnapshot() }
     }
 
+    /// Every mirrored tmux pane paired with the cmux surface rendering it,
+    /// ordered by window then pane. Covers BOTH ownership paths — a multi-pane
+    /// window's mirror panes and a single-pane window's display panel — because
+    /// a content oracle must be able to name any pane's surface, and single-pane
+    /// windows have no mirror (so they never appear in ``sizingSnapshots()``).
+    /// Backs `remote.tmux.pane_surfaces`.
+    func paneSurfaceEntries() -> [[String: Any]] {
+        var entries: [(windowId: Int, paneId: Int, surfaceId: UUID, onScreen: Bool)] = []
+        for (windowId, mirror) in windowMirrorByWindowId {
+            for (paneId, panel) in mirror.panelsByPaneId {
+                entries.append((windowId, paneId, panel.id, Self.isOnScreen(panel)))
+            }
+        }
+        // Single-pane windows: the window's display panel IS the pane's surface.
+        // A window with a mirror is covered above; skip it so a pane cannot be
+        // reported twice across an ownership handoff.
+        for (paneId, panelId) in panelIdByPane {
+            guard let windowId = windowIdForPane(paneId),
+                  windowMirrorByWindowId[windowId] == nil else { continue }
+            let panel = workspace?.panels[panelId] as? TerminalPanel
+            entries.append((windowId, paneId, panelId, panel.map(Self.isOnScreen) ?? false))
+        }
+        return entries
+            .sorted { ($0.windowId, $0.paneId) < ($1.windowId, $1.paneId) }
+            .map { [
+                "window_id": "@\($0.windowId)",
+                "pane_id": "%\($0.paneId)",
+                "surface_id": $0.surfaceId.uuidString,
+                // Only an on-screen pane's content is required to match tmux:
+                // a hidden tab holds its last render by design and catches up
+                // when selected, so a content oracle must skip it rather than
+                // report a designed lag as a mismatch.
+                "on_screen": $0.onScreen,
+            ] }
+    }
+
+    /// Whether a pane's hosted view is actually presented — the same predicate
+    /// ``RemoteTmuxWindowMirror/isEffectivelyVisibleForSizing`` judges with.
+    private static func isOnScreen(_ panel: TerminalPanel) -> Bool {
+        let view = panel.hostedView
+        return view.isVisibleInUI
+            && !view.isHidden
+            && view.superview != nil
+            && view.window?.isVisible == true
+    }
+
+    /// The tmux window holding `paneId`, from the connection's published
+    /// topology (the same trees the mirrors render).
+    private func windowIdForPane(_ paneId: Int) -> Int? {
+        for (windowId, window) in connection.windowsByID
+        where window.paneIDsInOrder.contains(paneId) {
+            return windowId
+        }
+        return nil
+    }
+
     /// Re-titles the mirror's sidebar workspace to track a remote session rename
     /// (the reverse of the cmux→tmux `rename-session` push). Uses TabManager's
     /// title path so selected-window chrome refreshes, while suppressing the

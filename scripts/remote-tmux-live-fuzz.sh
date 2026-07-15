@@ -171,20 +171,53 @@ capture_remote_screen() {
   REMOTE_SCREEN=$(printf '%s\n' "$raw" | normalize_screen)
 }
 
+# tmux pane id -> cmux surface id (plus whether that surface is on screen),
+# from `remote.tmux.pane_surfaces`. This map is what makes the text oracle
+# exact. Reading "the focused surface" cannot verify a NAMED pane: cmux does
+# not follow tmux's active pane or current window, so `select-pane` then read
+# returns whichever pane the app already showed — which matches the target's
+# capture whenever the two panes happen to share dimensions (the ruler prints
+# the same text at the same size) and mismatches when they do not. That read
+# the wrong pane and reported it as a mirror defect.
+PANE_SURFACES_JSON=""
+refresh_pane_surfaces() {
+  PANE_SURFACES_JSON=$("$TIMEOUT_BIN" 8 "$CLI" rpc remote.tmux.pane_surfaces \
+    "{\"host\":\"$HOST\",\"session\":\"$SESSION\"}" 2>/dev/null) || return 1
+  [ -n "$PANE_SURFACES_JSON" ] || return 1
+  printf '%s' "$PANE_SURFACES_JSON" | jq -e '.panes' >/dev/null 2>&1
+}
+
+# The surface id rendering $1, only when that surface is on screen (a hidden
+# tab holds its last render by design; judging it would report a designed lag).
+surface_for_pane() {
+  printf '%s' "$PANE_SURFACES_JSON" | jq -r --arg p "$1" '
+    .panes[]? | select(.pane_id == $p and .on_screen == true) | .surface_id
+  ' 2>/dev/null | head -1
+}
+
+# Panes the app is currently presenting, as tmux pane ids.
+on_screen_panes() {
+  printf '%s' "$PANE_SURFACES_JSON" | jq -r '
+    .panes[]? | select(.on_screen == true) | .pane_id
+  ' 2>/dev/null
+}
+
 capture_mirror_screen() {
-  local raw
-  raw=$("$TIMEOUT_BIN" 8 "$CLI" read-screen --window "$WINDOW_ID" 2>/dev/null) || return 1
-  MIRROR_SCREEN=$(printf '%s\n' "$raw" | normalize_screen)
+  local surface=$1 raw text
+  raw=$("$TIMEOUT_BIN" 8 "$CLI" rpc surface.read_text \
+    "{\"surface_id\":\"$surface\"}" 2>/dev/null) || return 1
+  text=$(printf '%s' "$raw" | jq -r '.result.text // .text // empty' 2>/dev/null) || return 1
+  [ -n "$text" ] || return 1
+  MIRROR_SCREEN=$(printf '%s\n' "$text" | normalize_screen)
 }
 
 compare_pane_screen() {
-  local pane=$1 deadline before after
-  t select-pane -t "$pane" >/dev/null 2>&1 || return 1
+  local pane=$1 surface=$2 deadline before after
   deadline=$((SECONDS + 6))
   while [ "$SECONDS" -lt "$deadline" ]; do
     if capture_remote_screen "$pane"; then
       before=$REMOTE_SCREEN
-      if capture_mirror_screen && capture_remote_screen "$pane"; then
+      if capture_mirror_screen "$surface" && capture_remote_screen "$pane"; then
         after=$REMOTE_SCREEN
         # The ruler redraws every two seconds. Accept the mirror matching the
         # remote capture immediately before OR after it, so a redraw between
@@ -200,54 +233,45 @@ compare_pane_screen() {
 }
 
 check_screen_oracle() {
-  local iter=$1 settled_json=$2 windows window panes pane remote_lines mirror_lines
-  windows=$(printf '%s' "$settled_json" | jq -r '
-    .windows[]?
-    | select(.settled == true)
-    | .window
-    | if type == "number" then tostring
-      elif type == "string" then ltrimstr("@")
-      else empty
-      end
-    | select(test("^[0-9]+$"))
-    | "@" + .
-  ' 2>/dev/null) || windows=""
-  if [ -z "$windows" ]; then
-    if settlement_has_reported_windows "$settled_json"; then
-      note_fail "$iter" "text oracle could not parse settled tmux window ids"
-      return
-    fi
-    # Single-pane mirrors are omitted from sizing_settled because they need no
-    # native split plan. The tmux session's active window is the visible tab.
-    windows=$(t display -t "$SESSION" -p '#{window_id}' 2>/dev/null) || windows=""
-  fi
-  if [ -z "$windows" ]; then
-    note_fail "$iter" "text oracle found no settled or active tmux window"
+  local iter=$1 panes pane surface checked remote_lines mirror_lines
+  # Judge exactly the panes the app is PRESENTING, each against its OWN
+  # surface. The app does not follow tmux's active pane or current window, so
+  # the set of on-screen panes comes from the app itself, not from tmux.
+  if ! refresh_pane_surfaces; then
+    note_fail "$iter" "text oracle could not read remote.tmux.pane_surfaces"
     return
   fi
-
-  while IFS= read -r window; do
-    [ -n "$window" ] || continue
-    panes=$(t list-panes -t "$window" -F '#{pane_id}' 2>/dev/null) || panes=""
-    if [ -z "$panes" ]; then
-      note_fail "$iter" "text oracle could not list panes for $window"
+  panes=$(on_screen_panes)
+  if [ -z "$panes" ]; then
+    note_fail "$iter" "text oracle found no on-screen mirrored pane"
+    return
+  fi
+  checked=0
+  while IFS= read -r pane; do
+    [ -n "$pane" ] || continue
+    surface=$(surface_for_pane "$pane")
+    if [ -z "$surface" ]; then
+      note_fail "$iter" "text oracle has no on-screen surface for pane $pane"
       continue
     fi
-    while IFS= read -r pane; do
-      [ -n "$pane" ] || continue
-      if compare_pane_screen "$pane"; then
-        continue
-      fi
-      note_fail "$iter" "pane $pane mirror read-screen differs from tmux capture-pane in $window"
-      remote_lines=$(printf '%s\n' "$REMOTE_SCREEN" | grep -c . || true)
-      mirror_lines=$(printf '%s\n' "$MIRROR_SCREEN" | grep -c . || true)
-      echo "  text evidence pane=$pane remote_lines=$remote_lines mirror_lines=$mirror_lines"
-      diff -u \
-        <(printf '%s\n' "$REMOTE_SCREEN") \
-        <(printf '%s\n' "$MIRROR_SCREEN") \
-        | head -40 | sed 's/^/  /' || true
-    done <<< "$panes"
-  done <<< "$windows"
+    # The pane may have been killed by the churn between the map read and now.
+    t list-panes -t "$pane" -F '#{pane_id}' >/dev/null 2>&1 || continue
+    checked=$((checked + 1))
+    if compare_pane_screen "$pane" "$surface"; then
+      continue
+    fi
+    note_fail "$iter" "pane $pane mirror surface $surface differs from tmux capture-pane"
+    remote_lines=$(printf '%s\n' "$REMOTE_SCREEN" | grep -c . || true)
+    mirror_lines=$(printf '%s\n' "$MIRROR_SCREEN" | grep -c . || true)
+    echo "  text evidence pane=$pane remote_lines=$remote_lines mirror_lines=$mirror_lines"
+    diff -u \
+      <(printf '%s\n' "$REMOTE_SCREEN") \
+      <(printf '%s\n' "$MIRROR_SCREEN") \
+      | head -40 | sed 's/^/  /' || true
+  done <<< "$panes"
+  if [ "$checked" -eq 0 ]; then
+    note_fail "$iter" "text oracle checked no pane (every on-screen pane vanished mid-check)"
+  fi
 }
 
 # Fresh lab: 2 windows, random pane counts, ruler panes that redraw to their
@@ -402,7 +426,7 @@ check_iter() {
   # control connection, pane-focus routing, Ghostty surface, and debug CLI;
   # sizing_settled alone cannot detect content corruption along that path.
   if settlement_has_schema "$settled_json" && ! settlement_is_unsettled "$settled_json"; then
-    check_screen_oracle "$iter" "$settled_json"
+    check_screen_oracle "$iter"
   fi
   # Ruler liveness: every ruler redrew to its actual pane size on the tmux side
   # (a stale ruler would make on-screen text look mangled without any

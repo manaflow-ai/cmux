@@ -64,14 +64,41 @@ extension RemoteTmuxSizingUITests {
         return Self.normalizeScreen(raw)
     }
 
-    /// The mirror's view: the focused surface's viewport text via
-    /// `surface.read_text`, normalized. The caller focuses the pane first
-    /// (tmux `select-pane` — the mirror follows the active pane, exactly the
-    /// path the live fuzz reads through).
-    func readMirrorScreen() -> String? {
-        guard let response = socketJSON(method: "surface.read_text", params: [:]),
-              response["ok"] as? Bool == true,
-              let text = response["text"] as? String else { return nil }
+    /// The tmux pane id → cmux surface id map (on-screen panes only), from
+    /// `remote.tmux.pane_surfaces`.
+    ///
+    /// A content oracle MUST read the named pane's own surface. Reading "the
+    /// focused surface" cannot verify a named pane: cmux does not follow tmux's
+    /// active pane or current window, so `select-pane` then read returns
+    /// whichever pane the app already showed — which matches the target's
+    /// capture whenever the two panes share dimensions (the ruler prints the
+    /// same text at the same size), and mismatches when they do not. That is
+    /// how the live fuzz reported a mirror defect for a mirror that was right.
+    /// Hidden panes are excluded: a hidden tab holds its last render by design.
+    func onScreenPaneSurfaces() -> [String: String] {
+        guard let response = socketJSON(method: "remote.tmux.pane_surfaces", params: [
+            "host": "e2e-shim-host",
+            "session": sessionName,
+        ]),
+        response["mirrored"] as? Bool == true,
+        let panes = response["panes"] as? [[String: Any]] else { return [:] }
+        var map: [String: String] = [:]
+        for pane in panes {
+            guard pane["on_screen"] as? Bool == true,
+                  let paneId = pane["pane_id"] as? String,
+                  let surfaceId = pane["surface_id"] as? String else { continue }
+            map[paneId] = surfaceId
+        }
+        return map
+    }
+
+    /// One pane's surface text via `surface.read_text`, normalized.
+    func readMirrorScreen(surfaceId: String) -> String? {
+        guard let response = socketJSON(method: "surface.read_text", params: [
+            "surface_id": surfaceId,
+        ]),
+        response["ok"] as? Bool == true,
+        let text = response["text"] as? String else { return nil }
         return Self.normalizeScreen(text)
     }
 
@@ -81,14 +108,16 @@ extension RemoteTmuxSizingUITests {
     /// must not manufacture a mismatch. Polls up to the deadline; on failure
     /// returns a diagnostic with both screens' head lines.
     func paneContentFailure(pane: String, timeout: TimeInterval = 8) -> String? {
-        _ = tmux(["select-pane", "-t", pane])
+        guard let surfaceId = onScreenPaneSurfaces()[pane] else {
+            return "pane \(pane) has no on-screen surface (pane_surfaces: \(onScreenPaneSurfaces()))"
+        }
         let deadline = Date().addingTimeInterval(timeout)
         var lastRemote: String?
         var lastMirror: String?
         var lastNote = "no reads"
         while Date() < deadline {
             let before = captureRemoteScreen(pane: pane)
-            let mirror = readMirrorScreen()
+            let mirror = readMirrorScreen(surfaceId: surfaceId)
             let after = captureRemoteScreen(pane: pane)
             lastRemote = after ?? before
             lastMirror = mirror
@@ -132,14 +161,26 @@ extension RemoteTmuxSizingUITests {
         XCTFail("window @\(window) size never stabilized \(context): \(last)")
     }
 
-    /// Every pane of a tmux window holds content parity with tmux.
+    /// Every pane of a tmux window holds content parity with tmux, each judged
+    /// against its OWN surface. Requires the window to be the one on screen:
+    /// its panes must all appear in the on-screen surface map, so a scenario
+    /// that forgot to select the window's tab fails loudly instead of quietly
+    /// checking nothing (or checking another window's surface).
     func assertWindowContentMatchesTmux(window: Int, context: String) throws {
         let out = try XCTUnwrap(
             tmux(["list-panes", "-t", "\(sessionName):@\(window)", "-F", "#{pane_id}"]),
             "cannot list panes of @\(window) \(context): \(lastTmuxFailure ?? "?")"
         )
-        for pane in out.split(separator: "\n") {
-            if let failure = paneContentFailure(pane: String(pane)) {
+        let panes = out.split(separator: "\n").map(String.init)
+        XCTAssertFalse(panes.isEmpty, "@\(window) reported no panes \(context)")
+        let onScreen = onScreenPaneSurfaces()
+        for pane in panes {
+            XCTAssertNotNil(
+                onScreen[pane],
+                "@\(window) pane \(pane) is not on screen \(context) — select its tab before "
+                    + "asserting content (on-screen panes: \(onScreen.keys.sorted()))"
+            )
+            if let failure = paneContentFailure(pane: pane) {
                 XCTFail("\(failure) \(context)")
             }
         }
