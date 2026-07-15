@@ -3071,13 +3071,18 @@ final class Workspace: Identifiable, ObservableObject {
         }
         bonsplitController.tabContextForkConversationAvailabilityProvider = { [weak self] tabId, _ in
             guard let self,
-                  let panelId = self.panelIdFromSurfaceId(tabId) else { return false }
-            return self.forkAgentConversationContextMenuAvailability(forPanelId: panelId).isAvailable
-        }
-        bonsplitController.tabContextForkConversationOpenAvailabilityProvider = { [weak self] tabId, _ in
-            guard let self,
-                  let panelId = self.panelIdFromSurfaceId(tabId) else { return false }
-            return self.forkAgentConversationContextMenuOpenAvailability(forPanelId: panelId).isAvailable
+                  let panelId = self.panelIdFromSurfaceId(tabId) else { return .hidden }
+            switch self.forkAgentConversationContextMenuPresentationAvailability(forPanelId: panelId) {
+            case .available:
+                return .available
+            case .agentIndexRefreshing:
+                return .refreshing
+            case .notTerminalPanel,
+                 .noAgentSnapshot,
+                 .unsupported,
+                 .requiresProbe:
+                return .hidden
+            }
         }
         bonsplitController.tabContextForkConversationDefaultActionProvider = { _, _ in
             AgentConversationForkDefaultSettings.current().tabContextAction
@@ -11101,35 +11106,10 @@ final class Workspace: Identifiable, ObservableObject {
         ])
     }
 
-    /// Synchronous availability check used by the tab right-click context menu to decide
-    /// whether to surface the Fork Conversation item for a given anchor tab. Restricted to
-    /// `.supportedWithoutProbe` so we never offer an item that may quietly fail; agents
-    /// requiring a probe (e.g. shell-launched OpenCode) stay reachable from the command
-    /// palette path that performs that probe first.
+    /// Synchronous availability check used by right-click entry points. Probe-required
+    /// sessions remain unavailable while their shared validation refresh is in flight.
     func canForkAgentConversationFromPanel(_ panelId: UUID) -> Bool {
-        forkAgentConversationContextMenuOpenAvailability(forPanelId: panelId).isAvailable
-    }
-
-    /// Snapshot used by the right-click fork path. Prefers restored snapshots, then asks
-    /// `SharedLiveAgentIndex` for a process-sensitive snapshot so live panel remaps do not
-    /// inherit the stale-tolerant cache used by close-history restore paths.
-    func forkableAgentSnapshot(forPanelId panelId: UUID) -> SessionRestorableAgentSnapshot? {
-        if let snapshot = restoredAgentSnapshotForContinuation(panelId: panelId) {
-            return snapshot
-        }
-        guard let snapshot = SharedLiveAgentIndex.shared.snapshotForForkAvailability(
-            workspaceId: id,
-            panelId: panelId
-        ) else {
-            return nil
-        }
-        if let observation = SharedLiveAgentIndex.shared.index?.entry(
-            workspaceId: id,
-            panelId: panelId
-        ) {
-            reconcileCompletedRestoredAgent(panelId: panelId, observation: observation)
-        }
-        return allowsAgentContinuation(forPanelId: panelId) ? snapshot : nil
+        forkAgentConversationContextMenuPresentationAvailability(forPanelId: panelId).isAvailable
     }
 
     /// Fork the panel's agent conversation into a brand-new sibling tab placed immediately
