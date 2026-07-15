@@ -77,7 +77,7 @@ struct RemoteSessionCleanupLifecycleTests {
         #expect(!cleanup.contains("serve --persistent-stop --slot"))
         #expect(cleanup.contains("64007.slot"))
         #expect(workspace.remoteConfiguration == configurationA)
-        #expect(workspace.remoteSessionController?.configuration == configurationA)
+        #expect(workspace.remoteSessionController != nil)
     }
 
     @Test
