@@ -29,7 +29,7 @@ final class RemoteRuntimeStateEncodingPipeline {
     /// Drains the current task before running a close-path finalizer.
     @discardableResult
     func finishPendingWork(
-        before operation: @escaping @Sendable () -> Void
+        before operation: @escaping @Sendable () async -> Void
     ) -> Task<Void, Never> {
         let pendingTask = pendingTask
         self.pendingTask = nil
@@ -37,7 +37,7 @@ final class RemoteRuntimeStateEncodingPipeline {
             if let pendingTask {
                 await pendingTask.value
             }
-            operation()
+            await operation()
         }
     }
 }

@@ -14,6 +14,11 @@ private enum RuntimeStatePutResult: Sendable {
 extension RemoteSessionCoordinator {
     private static let maximumRuntimeStateRetryCount = 5
 
+    /// Waits until queued runtime-state work commits or reaches a terminal failure.
+    public func finishPendingRuntimeStateWork() async -> Bool {
+        false
+    }
+
     /// Queues the latest workspace snapshot for the authoritative daemon slot.
     ///
     /// The initial ready transition always fetches first. An existing server
