@@ -16,7 +16,7 @@ actor GitHubPullRequestRequestCoordinator {
     private static let maximumConcurrentTransportCount = 3
     private static let maximumRateLimitIdentityCount = 32
 
-    private struct RequestKey: Hashable, Sendable {
+    internal struct RequestKey: Hashable, Sendable {
         let endpoint: String
         let authorizationFingerprint: Data
     }
@@ -26,13 +26,13 @@ actor GitHubPullRequestRequestCoordinator {
         let data: Data
     }
 
-    private struct InFlightRequest: Sendable {
+    internal struct InFlightRequest: Sendable {
         let id: UUID
         let task: Task<WorkspacePullRequestHTTPResponse?, Never>
         var waiterIDs: Set<UUID>
     }
 
-    private struct QueuedTransport: Sendable {
+    internal struct QueuedTransport: Sendable {
         let id: UUID
         let continuation: CheckedContinuation<Bool, Never>
     }
@@ -44,9 +44,9 @@ actor GitHubPullRequestRequestCoordinator {
     private var cachedResponseByRequestKey: [RequestKey: CachedResponse] = [:]
     private var cachedResponseKeysInInsertionOrder: [RequestKey] = []
     private var cachedResponseBodyByteCount = 0
-    private var inFlightRequestByRequestKey: [RequestKey: InFlightRequest] = [:]
+    internal var inFlightRequestByRequestKey: [RequestKey: InFlightRequest] = [:]
     private var activeTransportCount = 0
-    private var queuedTransports: [QueuedTransport] = []
+    internal var queuedTransports: [QueuedTransport] = []
     private var rateLimitRetryDateByAuthorizationFingerprint: [Data: Date] = [:]
     private var rateLimitAuthorizationFingerprintsInInsertionOrder: [Data] = []
 

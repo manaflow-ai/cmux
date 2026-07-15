@@ -2,119 +2,6 @@ import Foundation
 import Testing
 @testable import CmuxGit
 
-private final class GitHubPullRequestStubURLProtocol: URLProtocol, @unchecked Sendable {
-    struct Stub: Sendable {
-        let statusCode: Int
-        let headers: [String: String]
-        let data: Data
-        let delay: TimeInterval
-        let gate: String?
-
-        init(
-            statusCode: Int,
-            headers: [String: String] = [:],
-            data: Data = Data(),
-            delay: TimeInterval = 0,
-            gate: String? = nil
-        ) {
-            self.statusCode = statusCode
-            self.headers = headers
-            self.data = data
-            self.delay = delay
-            self.gate = gate
-        }
-    }
-
-    private static let lock = NSLock()
-    nonisolated(unsafe) private static var stubs: [Stub] = []
-    nonisolated(unsafe) private static var requests: [URLRequest] = []
-    nonisolated(unsafe) private static var activeRequestCount = 0
-    nonisolated(unsafe) private static var maximumActiveRequestCount = 0
-    nonisolated(unsafe) private static var gatedFinishes: [String: @Sendable () -> Void] = [:]
-
-    static func reset(stubs: [Stub]) {
-        lock.lock()
-        self.stubs = stubs
-        requests = []
-        activeRequestCount = 0
-        maximumActiveRequestCount = 0
-        gatedFinishes = [:]
-        lock.unlock()
-    }
-
-    static func capturedRequests() -> [URLRequest] {
-        lock.lock()
-        defer { lock.unlock() }
-        return requests
-    }
-
-    static func maximumConcurrentRequestCount() -> Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return maximumActiveRequestCount
-    }
-
-    static func releaseGate(_ gate: String) {
-        lock.lock()
-        let finish = gatedFinishes.removeValue(forKey: gate)
-        lock.unlock()
-        finish?()
-    }
-
-    override class func canInit(with request: URLRequest) -> Bool {
-        request.url?.host == "api.github.com"
-    }
-
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
-        request
-    }
-
-    override func startLoading() {
-        Self.lock.lock()
-        guard !Self.stubs.isEmpty else {
-            Self.lock.unlock()
-            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
-            return
-        }
-        let stub = Self.stubs.removeFirst()
-        Self.activeRequestCount += 1
-        Self.maximumActiveRequestCount = max(
-            Self.maximumActiveRequestCount,
-            Self.activeRequestCount
-        )
-        Self.lock.unlock()
-
-        let finish: @Sendable () -> Void = { [self] in
-            let response = HTTPURLResponse(
-                url: request.url!,
-                statusCode: stub.statusCode,
-                httpVersion: nil,
-                headerFields: stub.headers
-            )!
-            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: stub.data)
-            client?.urlProtocolDidFinishLoading(self)
-
-            Self.lock.lock()
-            Self.activeRequestCount -= 1
-            Self.lock.unlock()
-        }
-        Self.lock.lock()
-        if let gate = stub.gate { Self.gatedFinishes[gate] = finish }
-        Self.requests.append(request)
-        Self.lock.unlock()
-        if stub.gate != nil {
-            return
-        } else if stub.delay > 0 {
-            DispatchQueue.global().asyncAfter(deadline: .now() + stub.delay, execute: finish)
-        } else {
-            finish()
-        }
-    }
-
-    override func stopLoading() {}
-}
-
 @Suite(.serialized)
 struct GitHubPullRequestRequestTests {
     private let endpoint = "repos/manaflow-ai/cmux/pulls?state=all"
@@ -122,13 +9,9 @@ struct GitHubPullRequestRequestTests {
     private func makeSession() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [GitHubPullRequestStubURLProtocol.self]
+        configuration.timeoutIntervalForRequest = 2
+        configuration.timeoutIntervalForResource = 2
         return URLSession(configuration: configuration)
-    }
-
-    private func waitForRequestCount(_ count: Int) async {
-        while GitHubPullRequestStubURLProtocol.capturedRequests().count < count {
-            await Task.yield()
-        }
     }
 
     @Test func missingCredentialsNeverStartsAnonymousTransport() async {
@@ -390,62 +273,60 @@ struct GitHubPullRequestRequestTests {
 
     @Test func duplicateEndpointRequestsShareOneInFlightTransport() async {
         let body = Data("[]".utf8)
-        GitHubPullRequestStubURLProtocol.reset(stubs: [
-            .init(statusCode: 200, data: body, delay: 0.05),
-            .init(statusCode: 200, data: body, delay: 0.05),
+        let requestsStarted = GitHubPullRequestStubURLProtocol.reset(stubs: [
+            .init(statusCode: 200, data: body, gate: "shared"),
+            .init(statusCode: 200, data: body),
         ])
         let coordinator = GitHubPullRequestRequestCoordinator(session: makeSession())
-
-        async let first = coordinator.response(
-            endpoint: endpoint,
-            authHeader: "Bearer test-token"
-        )
-        async let second = coordinator.response(
-            endpoint: endpoint,
-            authHeader: "Bearer test-token"
-        )
-        let responses = await [first, second]
+        let first = Task { await coordinator.response(endpoint: endpoint, authHeader: "Bearer test-token") }
+        #expect(await requestsStarted.wait())
+        let second = Task { await coordinator.response(endpoint: endpoint, authHeader: "Bearer test-token") }
+        #expect(await GitHubPullRequestTestSignal.waitUntil {
+            let inFlight = await coordinator.inFlightRequestByRequestKey
+            return inFlight.values.first?.waiterIDs.count == 2
+        })
+        GitHubPullRequestStubURLProtocol.releaseGate("shared")
+        let responses = await [first.value, second.value]
 
         #expect(responses.allSatisfy { $0?.statusCode == 200 && $0?.data == body })
         #expect(GitHubPullRequestStubURLProtocol.capturedRequests().count == 1)
     }
 
     @Test func changedCredentialDoesNotJoinInFlightEndpointRequest() async {
-        GitHubPullRequestStubURLProtocol.reset(stubs: [
-            .init(statusCode: 200, data: Data("[]".utf8), delay: 0.05),
-            .init(statusCode: 200, data: Data("[]".utf8)),
+        let requestsStarted = GitHubPullRequestStubURLProtocol.reset(stubs: [
+            .init(statusCode: 200, gate: "first"),
+            .init(statusCode: 200, gate: "second"),
         ])
         let coordinator = GitHubPullRequestRequestCoordinator(session: makeSession())
-
-        async let first = coordinator.response(
-            endpoint: endpoint,
-            authHeader: "Bearer first-account-token"
-        )
-        async let second = coordinator.response(
-            endpoint: endpoint,
-            authHeader: "Bearer second-account-token"
-        )
-        _ = await [first, second]
+        let first = Task { await coordinator.response(endpoint: endpoint, authHeader: "Bearer first-token") }
+        #expect(await requestsStarted.wait())
+        let second = Task { await coordinator.response(endpoint: endpoint, authHeader: "Bearer second-token") }
+        #expect(await requestsStarted.wait(until: 2))
+        GitHubPullRequestStubURLProtocol.releaseGate("first")
+        GitHubPullRequestStubURLProtocol.releaseGate("second")
+        _ = await [first.value, second.value]
 
         let requests = GitHubPullRequestStubURLProtocol.capturedRequests()
         #expect(requests.count == 2)
         #expect(Set(requests.compactMap {
             $0.value(forHTTPHeaderField: "Authorization")
-        }) == ["Bearer first-account-token", "Bearer second-account-token"])
+        }) == ["Bearer first-token", "Bearer second-token"])
     }
 
     @Test func coordinatorUsesBoundedConcurrentTransportPool() async {
         let gates = (0..<4).map { "pool-\($0)" }
-        GitHubPullRequestStubURLProtocol.reset(stubs: gates.map { .init(statusCode: 200, gate: $0) })
+        let requestsStarted = GitHubPullRequestStubURLProtocol.reset(
+            stubs: gates.map { .init(statusCode: 200, gate: $0) }
+        )
         let coordinator = GitHubPullRequestRequestCoordinator(session: makeSession())
         let tasks = gates.indices.map { index in
             Task { await coordinator.response(endpoint: endpoint + "&page=\(index)", authHeader: "Bearer token") }
         }
-        await waitForRequestCount(3)
+        #expect(await requestsStarted.wait(until: 3))
         #expect(GitHubPullRequestStubURLProtocol.capturedRequests().count == 3)
         #expect(GitHubPullRequestStubURLProtocol.maximumConcurrentRequestCount() == 3)
         GitHubPullRequestStubURLProtocol.releaseGate(gates[0])
-        await waitForRequestCount(4)
+        #expect(await requestsStarted.wait(until: 4))
         #expect(GitHubPullRequestStubURLProtocol.maximumConcurrentRequestCount() == 3)
         for gate in gates.dropFirst() { GitHubPullRequestStubURLProtocol.releaseGate(gate) }
         for task in tasks { #expect(await task.value?.statusCode == 200) }
@@ -453,22 +334,28 @@ struct GitHubPullRequestRequestTests {
 
     @Test func cancelingOnlyQueuedWaiterPreventsItsTransport() async {
         let gates = (0..<3).map { "blocker-\($0)" }
-        let stubs = gates.map { GitHubPullRequestStubURLProtocol.Stub(statusCode: 200, gate: $0) }
+        let stubs = gates.map { GitHubPullRequestStub(statusCode: 200, gate: $0) }
             + [.init(statusCode: 200)]
-        GitHubPullRequestStubURLProtocol.reset(stubs: stubs)
+        let requestsStarted = GitHubPullRequestStubURLProtocol.reset(stubs: stubs)
         let coordinator = GitHubPullRequestRequestCoordinator(session: makeSession())
         let blockers = gates.indices.map { index in
             Task { await coordinator.response(endpoint: endpoint + "&page=\(index)", authHeader: "Bearer token") }
         }
-        await waitForRequestCount(3)
+        #expect(await requestsStarted.wait(until: 3))
+        let cancellationFinished = GitHubPullRequestTestSignal()
         let queued = Task {
-            await coordinator.response(endpoint: endpoint + "&page=queued", authHeader: "Bearer token")
+            let response = await coordinator.response(
+                endpoint: endpoint + "&page=queued",
+                authHeader: "Bearer token"
+            )
+            await cancellationFinished.signal()
+            return response
         }
-        await Task.yield()
-        _ = await coordinator.retryDate(authHeader: "Bearer token")
+        #expect(await GitHubPullRequestTestSignal.waitUntil {
+            await coordinator.queuedTransports.count == 1
+        })
         queued.cancel()
-        await Task.yield()
-        _ = await coordinator.retryDate(authHeader: "Bearer token")
+        #expect(await cancellationFinished.wait())
         for gate in gates { GitHubPullRequestStubURLProtocol.releaseGate(gate) }
         for blocker in blockers { _ = await blocker.value }
         #expect(await queued.value == nil)
@@ -476,15 +363,17 @@ struct GitHubPullRequestRequestTests {
     }
 
     @Test func cancelingOneCoalescedWaiterPreservesTransportForSurvivor() async {
-        GitHubPullRequestStubURLProtocol.reset(stubs: [
+        let requestsStarted = GitHubPullRequestStubURLProtocol.reset(stubs: [
             .init(statusCode: 200, data: Data("[]".utf8), gate: "shared"),
         ])
         let coordinator = GitHubPullRequestRequestCoordinator(session: makeSession())
         let canceled = Task { await coordinator.response(endpoint: endpoint, authHeader: "Bearer token") }
-        await waitForRequestCount(1)
+        #expect(await requestsStarted.wait())
         let survivor = Task { await coordinator.response(endpoint: endpoint, authHeader: "Bearer token") }
-        await Task.yield()
-        _ = await coordinator.retryDate(authHeader: "Bearer token")
+        #expect(await GitHubPullRequestTestSignal.waitUntil {
+            let inFlight = await coordinator.inFlightRequestByRequestKey
+            return inFlight.values.first?.waiterIDs.count == 2
+        })
         canceled.cancel()
         GitHubPullRequestStubURLProtocol.releaseGate("shared")
 
