@@ -32,7 +32,6 @@ extension SimulatorWorkerCoordinator {
         currentDeviceIdentifier = nil
         gestureStart = nil
         gestureUsesTwoFingers = false
-        pendingKeyUsages.removeAll()
     }
 
     func shutdown() async {
@@ -58,7 +57,6 @@ extension SimulatorWorkerCoordinator {
         currentDeviceIdentifier = nil
         gestureStart = nil
         gestureUsesTwoFingers = false
-        pendingKeyUsages.removeAll()
     }
 
     func attach(udid: String) async {
@@ -258,7 +256,6 @@ extension SimulatorWorkerCoordinator {
         currentDeviceIdentifier = nil
         gestureStart = nil
         gestureUsesTwoFingers = false
-        pendingKeyUsages.removeAll()
         camera.detachFromUnavailableDevice()
         webInspector.shutdown()
 

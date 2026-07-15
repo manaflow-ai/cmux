@@ -8,7 +8,6 @@ nonisolated let coordinatorLogger = Logger(
 )
 @MainActor
 final class SimulatorWorkerCoordinator {
-    private let keyboardEventLog = SimulatorKeyboardEventLog()
     let channel: SimulatorLengthPrefixedMessageChannel
     let encoder = JSONEncoder()
     let frameworkLoader = SimulatorFrameworkLoader()
@@ -35,7 +34,6 @@ final class SimulatorWorkerCoordinator {
     var frameworksLoaded = false
     var gestureStart: SimulatorPoint?
     var gestureUsesTwoFingers = false
-    var pendingKeyUsages: Set<UInt32> = []
     var foregroundApplicationTask: Task<Void, Never>?
     var foregroundApplicationGeneration: UUID?
     var foregroundApplicationRequestIdentifiers: [UUID] = []
@@ -138,18 +136,6 @@ final class SimulatorWorkerCoordinator {
                 reportUnavailable(action: "key", detail: "Keyboard injection is unavailable.")
                 break
             }
-            switch event.phase {
-            case .down:
-                pendingKeyUsages.insert(event.usage)
-            case .up:
-                if pendingKeyUsages.remove(event.usage) != nil {
-                    emitAction(
-                        "key",
-                        summary: keyboardEventLog.summary(for: event.usage),
-                        succeeded: true
-                    )
-                }
-            }
         case .keySequence(let events):
             let succeeded = await hid?.sendPacedKeySequence(events) == true
             if !succeeded {
@@ -171,9 +157,6 @@ final class SimulatorWorkerCoordinator {
             }
         case .typeText(let requestIdentifier, let sequence):
             let succeeded = await hid?.sendTextSequence(sequence) == true
-            if !succeeded {
-                pendingKeyUsages.removeAll()
-            }
             if !succeeded {
                 reportUnavailable(
                     action: "type_text",
@@ -478,7 +461,6 @@ final class SimulatorWorkerCoordinator {
         case .releaseInputs:
             scrollWheel?.cancel()
             hid?.releaseInputs()
-            pendingKeyUsages.removeAll()
         case .terminateRenderer:
             #if DEBUG
                 _exit(86)

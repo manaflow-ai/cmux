@@ -33,7 +33,7 @@ extension TerminalController {
                 ))
             }
             let receipt = ControlSimulatorOperationReceipt()
-            Task { @MainActor [weak coordinator] in
+            let task = Task { @MainActor [weak coordinator] in
                 guard let coordinator else {
                     receipt.complete(.failed(
                         code: "simulator_closed",
@@ -46,6 +46,7 @@ extension TerminalController {
                 }
                 await self.performSimulatorOperation(operation, coordinator: coordinator, receipt: receipt)
             }
+            receipt.installCancellation { task.cancel() }
             return .started(
                 surfaceID: panel.id,
                 timeoutSeconds: simulatorTimeout(for: operation),
@@ -235,7 +236,16 @@ extension TerminalController {
                     try await coordinator.perform(.readForegroundApplication)
                 )
             }
+            try Task.checkCancellation()
             receipt.complete(.success(payload))
+        } catch is CancellationError {
+            receipt.complete(.failed(
+                code: "cancelled",
+                message: String(
+                    localized: "cli.simulator.error.operationCancelled",
+                    defaultValue: "The Simulator operation was cancelled"
+                )
+            ))
         } catch let failure as SimulatorFailure {
             receipt.complete(.failed(code: failure.code, message: failure.message))
         } catch {

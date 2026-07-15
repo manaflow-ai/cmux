@@ -66,3 +66,35 @@ public enum SimulatorWorkerOutbound: Codable, Equatable, Sendable {
     /// Reports a recoverable or terminal failure without crashing cmux.
     case failure(SimulatorFailure)
 }
+
+extension SimulatorWorkerOutbound {
+    /// Correlation identifier carried by request/response worker messages.
+    public var requestIdentifier: UUID? {
+        switch self {
+        case let .accessibility(requestID, _),
+             let .foregroundApplication(requestID, _),
+             let .requestFailure(requestID, _),
+             let .privacy(requestID, _),
+             let .privatePrivacy(requestID, _),
+             let .reactNativeReload(requestID, _),
+             let .accessibilityHighlight(requestID, _),
+             let .textInput(requestID, _),
+             let .cameraTargetResolved(requestID, _),
+             let .interactiveAction(requestID, _),
+             let .cameraMirror(requestID, _),
+             let .cameraConfiguration(requestID, _, _),
+             let .cameraStatus(requestID, _),
+             let .applicationMutationPrepared(requestID, _),
+             let .privateInterface(requestID, _),
+             let .privateInterfaceStatus(requestID, _),
+             let .webInspectorCommand(requestID, _),
+             let .webInspectorHighlight(requestID, _):
+            requestID
+        case let .webInspectorTargets(requestID, _),
+             let .webInspectorSession(requestID, _):
+            requestID
+        default:
+            nil
+        }
+    }
+}

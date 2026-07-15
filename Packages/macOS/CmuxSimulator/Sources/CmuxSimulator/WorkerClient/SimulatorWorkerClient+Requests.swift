@@ -12,16 +12,25 @@ extension SimulatorWorkerClient {
         timeoutRecovery: SimulatorWorkerRequestTimeoutRecovery = .restartWorker,
         matching: @escaping @Sendable (SimulatorWorkerOutbound) -> Value?
     ) async throws -> Value {
-        let stream = await subscribe()
         let requestIdentifier = message.requestIdentifier
+        let stream = if let requestIdentifier {
+            try await registerRequestSubscriber(requestIdentifier)
+        } else {
+            await subscribe()
+        }
         // The response deadline starts only after the command reaches the
         // worker. A request waiting behind replay remains cancellable without
         // performing a stale side effect later.
-        try await sendRequired(message)
+        do {
+            try await sendRequired(message)
+        } catch {
+            if let requestIdentifier { await removeRequestSubscriber(requestIdentifier) }
+            throw error
+        }
         let requestGeneration = generation
         let sleeper = self.sleeper
         do {
-            return try await withThrowingTaskGroup(of: Value.self) { group in
+            let value = try await withThrowingTaskGroup(of: Value.self) { group in
                 group.addTask {
                     for await event in stream {
                         guard case let .message(outbound) = event else {
@@ -73,14 +82,20 @@ extension SimulatorWorkerClient {
                 group.cancelAll()
                 return value
             }
+            if let requestIdentifier { await removeRequestSubscriber(requestIdentifier) }
+            return value
         } catch let error as SimulatorControlError
             where error.code == "worker_response_timed_out" {
+            if let requestIdentifier { await removeRequestSubscriber(requestIdentifier) }
             if timeoutRecovery == .restartWorker {
                 await correlatedOperationDeadlineExpired(
                     generation: requestGeneration,
                     failure: error
                 )
             }
+            throw error
+        } catch {
+            if let requestIdentifier { await removeRequestSubscriber(requestIdentifier) }
             throw error
         }
     }

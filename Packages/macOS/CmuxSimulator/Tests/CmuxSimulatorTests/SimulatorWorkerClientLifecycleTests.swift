@@ -3,6 +3,49 @@ import Testing
 @testable import CmuxSimulator
 
 extension SimulatorWorkerClientTests {
+    @Test("Correlated replies bypass lifecycle fanout")
+    func correlatedRepliesRouteDirectly() async throws {
+        let client = makeClient(launcher: TestWorkerLauncher())
+        let lifecycle = await client.subscribe()
+        var lifecycleIterator = lifecycle.makeAsyncIterator()
+        let requestID = UUID()
+        let request = try await client.registerRequestSubscriber(requestID)
+        var requestIterator = request.makeAsyncIterator()
+        let status = SimulatorCameraStatus(
+            configuration: .disabled,
+            mirrorMode: .auto,
+            injectedBundleIdentifiers: [],
+            hostCameras: []
+        )
+        let action = SimulatorActionLogEntry(
+            id: UUID(), timestamp: Date(), action: "tap", summary: "ok", succeeded: true
+        )
+
+        await client.broadcast(.message(.cameraStatus(requestID: requestID, status)))
+        await client.broadcast(.message(.actionLog(action)))
+
+        #expect(await requestIterator.next() == .message(.cameraStatus(requestID: requestID, status)))
+        #expect(await lifecycleIterator.next() == .message(.actionLog(action)))
+        await client.removeRequestSubscriber(requestID)
+        await client.stop()
+    }
+
+    @Test("Correlated request routing has a hard waiter limit")
+    func correlatedRequestCapacityIsBounded() async throws {
+        let client = makeClient(launcher: TestWorkerLauncher())
+        var streams: [SimulatorWorkerEventStream] = []
+        for _ in 0..<SimulatorWorkerClient.maximumPendingRequestCount {
+            streams.append(try await client.registerRequestSubscriber(UUID()))
+        }
+
+        await #expect(throws: SimulatorControlError.self) {
+            _ = try await client.registerRequestSubscriber(UUID())
+        }
+        #expect(await client.requestSubscribers.count == SimulatorWorkerClient.maximumPendingRequestCount)
+        withExtendedLifetime(streams) {}
+        await client.stop()
+    }
+
     @Test("Replacing a framebuffer transport evicts its obsolete shared-memory name")
     func replacementFrameTransportEvictsObsoleteName() async throws {
         let launcher = TestWorkerLauncher()

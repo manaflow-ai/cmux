@@ -484,6 +484,7 @@ extension SimulatorWorkerClient {
         requestIdentifiers.formUnion(cameraRequestConfigurations.keys)
         requestIdentifiers.formUnion(cameraSourceSwitchRequests.keys)
         requestIdentifiers.formUnion(cameraMirrorRequests.keys)
+        requestIdentifiers.formUnion(requestSubscribers.keys)
         deferredMessages.removeAll()
         pendingTextInputUsages.removeAll()
         pendingInteractiveRequestIdentifiers.removeAll()

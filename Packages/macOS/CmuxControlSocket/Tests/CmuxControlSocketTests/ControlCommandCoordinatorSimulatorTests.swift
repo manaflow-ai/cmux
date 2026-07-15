@@ -5,6 +5,28 @@ import Testing
 @MainActor
 @Suite("ControlCommandCoordinator Simulator domain")
 struct ControlCommandCoordinatorSimulatorTests {
+    @Test("Operation receipt cancels work when its deadline expires")
+    func operationReceiptCancelsTimedOutWork() {
+        let receipt = ControlSimulatorOperationReceipt(cancellationJoinTimeout: 0)
+        let cancelled = SimulatorCancellationProbe()
+        receipt.installCancellation { cancelled.mark() }
+
+        #expect(receipt.wait(timeout: 0) == nil)
+        #expect(cancelled.isMarked)
+    }
+
+    @Test("Long Simulator waits have bounded admission")
+    func operationAdmissionIsBounded() {
+        let gate = ControlSimulatorOperationAdmissionGate(maximumConcurrentOperations: 2)
+        #expect(gate.acquire())
+        #expect(gate.acquire())
+        #expect(!gate.acquire())
+        gate.release()
+        #expect(gate.acquire())
+        gate.release()
+        gate.release()
+    }
+
     @Test("Text success waits off-main for the correlated worker receipt")
     func textWaitsForReceipt() async {
         let context = FakeSimulatorControlCommandContext()
@@ -472,5 +494,18 @@ struct ControlCommandCoordinatorSimulatorTests {
         _ params: [String: JSONValue] = [:]
     ) -> ControlRequest {
         ControlRequest(id: .int(1), method: method, params: params)
+    }
+}
+
+private final class SimulatorCancellationProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var marked = false
+
+    var isMarked: Bool {
+        lock.withLock { marked }
+    }
+
+    func mark() {
+        lock.withLock { marked = true }
     }
 }

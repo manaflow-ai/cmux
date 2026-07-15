@@ -142,6 +142,17 @@ extension ControlCommandCoordinator {
         guard let context else {
             return simulatorNoActiveWindow()
         }
+        guard ControlSimulatorOperationAdmissionGate.shared.acquire() else {
+            return .err(
+                code: "busy",
+                message: String(
+                    localized: "cli.simulator.error.tooManyOperations",
+                    defaultValue: "Too many Simulator operations are already running"
+                ),
+                data: nil
+            )
+        }
+        defer { ControlSimulatorOperationAdmissionGate.shared.release() }
         let outcome: SimulatorOperationHopOutcome = context.controlResolveOnMain { seam in
             let resolution = seam.controlSimulatorBeginOperation(
                 routing: self.routingSelectors(params), operation: operation

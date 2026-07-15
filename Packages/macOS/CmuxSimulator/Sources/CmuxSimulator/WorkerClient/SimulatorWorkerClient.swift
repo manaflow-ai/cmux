@@ -12,6 +12,7 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
     public static let workerModeArgument = "--cmux-simulator-worker"
     static let maximumSubscriberBufferedBytes = 32 * 1_024 * 1_024
     static let maximumSubscriberEventCount = 1_024
+    static let maximumPendingRequestCount = 64
 
     let executableURL: URL
     let arguments: [String]
@@ -38,6 +39,7 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
     var ackWatchdog: Task<Void, Never>?
 
     var subscribers: [Int: SimulatorWorkerEventStream.Continuation] = [:]
+    var requestSubscribers: [UUID: SimulatorWorkerEventStream.Continuation] = [:]
     var nextSubscriberID = 0
     var currentFrameTransport: SimulatorFrameTransportDescriptor?
     var frameTransportSharedMemoryNames: Set<String> = []
@@ -344,6 +346,10 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
             await continuation.finish()
         }
         subscribers.removeAll()
+        for continuation in requestSubscribers.values {
+            await continuation.finish()
+        }
+        requestSubscribers.removeAll()
     }
 
     func sendRequired(

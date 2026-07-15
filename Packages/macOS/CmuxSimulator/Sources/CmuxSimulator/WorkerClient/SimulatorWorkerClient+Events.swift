@@ -18,8 +18,50 @@ extension SimulatorWorkerClient {
         }
     }
 
+    func registerRequestSubscriber(_ requestIdentifier: UUID) async throws -> SimulatorWorkerEventStream {
+        guard requestSubscribers.count < Self.maximumPendingRequestCount else {
+            throw SimulatorControlError(
+                code: "worker_request_capacity_exceeded",
+                arguments: [],
+                message: "The Simulator worker has too many pending requests."
+            )
+        }
+        guard requestSubscribers[requestIdentifier] == nil else {
+            throw SimulatorControlError(
+                code: "duplicate_worker_request",
+                arguments: [],
+                message: "A Simulator worker request reused an active identifier."
+            )
+        }
+        let source = SimulatorWorkerEventStreamSource(
+            maximumBufferedBytes: Self.maximumSubscriberBufferedBytes,
+            maximumBufferedEvents: 1
+        ) { [weak self] in
+            Task { await self?.removeRequestSubscriber(requestIdentifier) }
+        }
+        requestSubscribers[requestIdentifier] = source.continuation
+        return source.stream
+    }
+
+    func removeRequestSubscriber(_ requestIdentifier: UUID) async {
+        await requestSubscribers.removeValue(forKey: requestIdentifier)?.finish()
+    }
+
     func broadcast(_ event: SimulatorWorkerEvent, byteCount: Int? = nil) async {
         let chargedBytes = byteCount ?? estimatedByteCount(of: event)
+        if case let .message(message) = event,
+           let requestIdentifier = message.requestIdentifier {
+            guard let continuation = requestSubscribers[requestIdentifier] else { return }
+            switch await continuation.yield(event, byteCount: chargedBytes) {
+            case .enqueued:
+                return
+            case .overflow, .terminated:
+                await removeRequestSubscriber(requestIdentifier)
+                return
+            @unknown default:
+                return
+            }
+        }
         var overflowed: [Int] = []
         var terminated: [Int] = []
         for (identifier, continuation) in subscribers {
