@@ -31,17 +31,25 @@ on:
         default: false
         type: boolean
   schedule:
-    # Every ~2h (at :17 to stay off the top-of-hour rush). The decide job skips a
+    # Every ~2h (at :17 to stay off the top-of-hour rush). Internal dogfood lane:
+    # scheduled builds always auto-assign to the "cmux INTERNAL" TestFlight group
+    # using the checked-in CMUX_IOS_BETA_MARKETING_VERSION. The decide job skips a
     # run when the current main HEAD was already uploaded by a prior successful
     # run (SHA compare, not a wall-clock window), and also when main advanced but
-    # the diff since the last uploaded beta touches no iOS-affecting path (every
+    # the diff since the last uploaded build touches no iOS-affecting path (every
     # upload notifies every TestFlight tester, so web-only / macOS-only merges
-    # must not ship a new beta). An iOS-affecting change still reaches the
-    # TestFlight beta lane within ~2h of landing on main, and a failed or missed
-    # run retries the not-yet-uploaded commit instead of permanently stranding
-    # it. These uploads are external-eligible too, and reuse
-    # CMUX_IOS_BETA_MARKETING_VERSION so external testers receive new builds under
-    # the already-approved beta version until that version is intentionally bumped.
+    # must not ship a new build). An iOS-affecting change still reaches the
+    # internal lane within ~2h of landing on main, and a failed or missed run
+    # retries the not-yet-uploaded commit instead of permanently stranding it.
+    #
+    # VERSIONING STRATEGY (prevents version scatter):
+    # - Scheduled (internal): Always uses CMUX_IOS_BETA_MARKETING_VERSION from
+    #   Shared.xcconfig (currently 1.0.4). When ready to bump: edit Shared.xcconfig
+    #   to 1.0.5, commit, and the next scheduled run auto-publishes to internal as 1.0.5.
+    # - Manual (external/founders): Only via workflow_dispatch with explicit
+    #   marketing_version_override. External stays on approved stable versions until
+    #   intentionally bumped via dispatch. This prevents accidental external version
+    #   increments and keeps internal/external in sync only when intended.
     #
     # Why ~2h and not a push trigger / per-commit: a per-push lane needs either a
     # shared concurrency group (which cancels superseded pending runs into red
