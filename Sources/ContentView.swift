@@ -13449,6 +13449,13 @@ struct TabItemView: View, Equatable {
         let badgeFont = magnifiedFont(scaledFontSize(9), weight: .semibold)
         let spinnerTooltip = SidebarWorkspaceLoadingTooltip.text(count: workspaceSnapshot.activeCodingAgentCount)
         let spinnerColor = usesInvertedActiveForeground ? selectedWorkspaceForegroundNSColor(opacity: 0.55) : .secondaryLabelColor
+        let rowTaskStatusResolution = WorkspaceTaskStatusOverride.effectiveStatus(
+            override: tab.todoState.statusOverride,
+            inferred: tab.inferredTaskStatus
+        )
+        let rowHasManualTaskStatus = todoControlsEnabled
+            && tab.todoState.statusOverride != nil
+            && rowTaskStatusResolution.shouldClearOverride == false
         let rowView = VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .sidebarTitleFirstLineCenter, spacing: titleRowSpacing) {
 
@@ -13474,11 +13481,11 @@ struct TabItemView: View, Equatable {
 
                 if SidebarWorkspaceManualTaskStatusIndicatorModel.showsIndicator(
                     featureEnabled: todoControlsEnabled,
-                    taskStatus: workspaceSnapshot.taskStatus,
-                    hasManualOverride: workspaceSnapshot.hasManualTaskStatus
-                ), let taskStatus = workspaceSnapshot.taskStatus {
+                    taskStatus: rowTaskStatusResolution.effective,
+                    hasManualOverride: rowHasManualTaskStatus
+                ) {
                     SidebarWorkspaceManualStatusIndicatorMenu(
-                        status: taskStatus,
+                        status: rowTaskStatusResolution.effective,
                         tab: tab,
                         usesMonochrome: usesInvertedActiveForeground,
                         monochromeColor: activeSecondaryColor(0.8),
