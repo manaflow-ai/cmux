@@ -2828,6 +2828,11 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Test-only stand-in for the chromium engine's content view so focus
     /// behavior is exercisable without a live Content Shell session.
     var chromiumWebContentViewOverrideForTesting: NSView?
+
+    /// Test seam: when set, `activateChromiumIfNeeded` reports the initial URL
+    /// and `--proxy-server` value it would launch the Content Shell with, then
+    /// returns without acquiring a real session.
+    var chromiumActivationInterceptorForTesting: ((_ initialURL: String, _ proxyServer: String?) -> Void)?
 #endif
 
     /// Tracks whether the Chromium runtime's DevTools panel is currently open, so
@@ -5874,6 +5879,13 @@ final class BrowserPanel: Panel, ObservableObject {
         chromiumActivationInProgress = true
         let initialURL = pendingInitialChromiumURL ?? blankURLString
         let requestedProfileID = profileID
+#if DEBUG
+        if let interceptor = chromiumActivationInterceptorForTesting {
+            chromiumActivationInProgress = false
+            interceptor(initialURL, nil)
+            return
+        }
+#endif
         Task { @MainActor in
             do {
                 let (session, model, webView) = try await ChromiumRuntimeManager.shared.acquireSession(
