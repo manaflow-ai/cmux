@@ -132,14 +132,90 @@ struct TerminalNotificationPolicyInFlightStoreTests {
     @Test func completedRequestsApplyInRegistrationOrder() {
         let store = TerminalNotificationPolicyInFlightStore()
         var applied: [String] = []
-        let first = store.register(makeRequest(title: "first"), generation: 1, onDiscard: {})
-        let second = store.register(makeRequest(title: "second"), generation: 1, onDiscard: {})
+        let tabId = UUID()
+        let surfaceId = UUID()
+        let first = store.register(
+            makeRequest(tabId: tabId, surfaceId: surfaceId, title: "first"),
+            generation: 1,
+            onDiscard: {}
+        )
+        let second = store.register(
+            makeRequest(tabId: tabId, surfaceId: surfaceId, title: "second"),
+            generation: 1,
+            onDiscard: {}
+        )
 
         store.complete(second) { applied.append("second") }
         #expect(applied.isEmpty)
         store.complete(first) { applied.append("first") }
 
         #expect(applied == ["first", "second"])
+    }
+
+    @Test func blockedDeliveryIdentityDoesNotDelayAnotherWorkspace() {
+        let store = TerminalNotificationPolicyInFlightStore()
+        var applied: [String] = []
+        _ = store.register(
+            makeRequest(tabId: UUID(), surfaceId: nil, title: "blocked"),
+            generation: 1,
+            onDiscard: {}
+        )
+        let independent = store.register(
+            makeRequest(tabId: UUID(), surfaceId: nil, title: "independent"),
+            generation: 1,
+            onDiscard: {}
+        )
+
+        store.complete(independent) { applied.append("independent") }
+
+        #expect(applied == ["independent"])
+    }
+
+    @Test func rebindMovesPendingIndexesToDestinationWorkspace() {
+        let store = TerminalNotificationPolicyInFlightStore()
+        let sourceTabId = UUID()
+        let destinationTabId = UUID()
+        let surfaceId = UUID()
+        _ = store.register(
+            makeRequest(
+                tabId: sourceTabId,
+                surfaceId: surfaceId,
+                retargetsToLiveSurfaceOwner: true,
+                title: "moving"
+            ),
+            generation: 1,
+            onDiscard: {}
+        )
+
+        store.rebindSurface(
+            fromTabId: sourceTabId,
+            toTabId: destinationTabId,
+            surfaceId: surfaceId
+        )
+
+        #expect(!store.hasPendingRequest(forTabId: sourceTabId))
+        #expect(store.hasPendingRequest(forTabId: destinationTabId))
+        #expect(store.hasPendingRequest(forTabId: destinationTabId, surfaceId: surfaceId))
+    }
+
+    @Test func panelAliasDiscardCancelsPendingRequest() {
+        let store = TerminalNotificationPolicyInFlightStore()
+        let tabId = UUID()
+        let surfaceId = UUID()
+        let panelId = UUID()
+        var wasDiscarded = false
+        _ = store.register(
+            makeRequest(tabId: tabId, surfaceId: surfaceId, panelId: panelId, title: "pending"),
+            generation: 1,
+            onDiscard: { wasDiscarded = true }
+        )
+
+        store.discard(forTabId: tabId, surfaceId: panelId)
+
+        #expect(wasDiscarded)
+        #expect(!store.hasPendingRequest(forTabId: tabId))
+        #expect(!store.hasPendingRequest(forTabId: tabId, surfaceId: surfaceId))
+        #expect(!store.hasPendingRequest(forTabId: tabId, surfaceId: panelId))
     }
 
     @Test func pendingIndexesCoverSurfaceAndPanelAliases() {
@@ -164,12 +240,14 @@ struct TerminalNotificationPolicyInFlightStoreTests {
         tabId: UUID = UUID(),
         surfaceId: UUID? = UUID(),
         panelId: UUID? = nil,
+        retargetsToLiveSurfaceOwner: Bool = false,
         title: String
     ) -> TerminalNotificationPolicyRequest {
         TerminalNotificationPolicyRequest(
             tabId: tabId,
             surfaceId: surfaceId,
             panelId: panelId,
+            retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
             title: title,
             subtitle: "",
             body: "",
@@ -177,6 +255,77 @@ struct TerminalNotificationPolicyInFlightStoreTests {
             isAppFocused: false,
             isFocusedPanel: false
         )
+    }
+}
+
+@Suite("Ghostty desktop notification ingress")
+@MainActor
+struct GhosttyDesktopNotificationIngressTests {
+    @Test func overflowDropsOldestBufferedRequest() async throws {
+        let (deliveries, deliveryContinuation) = AsyncStream<GhosttyDesktopNotificationRequest>.makeStream()
+        let (releaseFirstDelivery, releaseContinuation) = AsyncStream<Void>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        let first = request(title: "first")
+        let second = request(title: "second")
+        let third = request(title: "third")
+        let fourth = request(title: "fourth")
+        let ingress = GhosttyDesktopNotificationIngress(maxBufferedRequests: 2) { request in
+            deliveryContinuation.yield(request)
+            if request == first {
+                for await _ in releaseFirstDelivery.prefix(1) {}
+            }
+        }
+        var iterator = deliveries.makeAsyncIterator()
+
+        #expect(ingress.submit(first))
+        #expect(await iterator.next() == first)
+        #expect(ingress.submit(second))
+        #expect(ingress.submit(third))
+        #expect(!ingress.submit(fourth))
+        releaseContinuation.yield()
+
+        #expect(await iterator.next() == third)
+        #expect(await iterator.next() == fourth)
+        deliveryContinuation.finish()
+        releaseContinuation.finish()
+    }
+
+    private func request(title: String) -> GhosttyDesktopNotificationRequest {
+        GhosttyDesktopNotificationRequest(
+            tabId: UUID(),
+            surfaceId: UUID(),
+            title: title,
+            body: "body"
+        )
+    }
+}
+
+@Suite("Synchronous generic notification delivery", .serialized)
+@MainActor
+struct SynchronousGenericNotificationDeliveryTests {
+    @Test func noHookNotificationIsImmediatelyObservable() {
+        let store = TerminalNotificationStore.shared
+        let tabId = UUID()
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        defer {
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+        }
+
+        store.addNotification(
+            tabId: tabId,
+            surfaceId: nil,
+            title: "Immediate",
+            subtitle: "",
+            body: "Visible before return",
+            retargetsToLiveSurfaceOwner: false,
+            resolvedHooks: []
+        )
+
+        #expect(store.notifications.map(\.tabId) == [tabId])
+        #expect(store.notifications.map(\.title) == ["Immediate"])
     }
 }
 
