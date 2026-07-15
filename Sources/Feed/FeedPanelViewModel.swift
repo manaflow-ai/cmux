@@ -4,37 +4,43 @@ import Foundation
 import Observation
 import SwiftUI
 
-/// Bridges the `@Observable` WorkstreamStore to a Combine `@Published`
-/// snapshot so SwiftUI reliably re-renders the Feed panel on every
-/// mutation.
+/// Projects the shared Workstream store into immutable Feed snapshots.
 @MainActor
-final class FeedPanelViewModel: ObservableObject {
-    @Published private(set) var items: [WorkstreamItem] = []
-    @Published private(set) var hasMorePersistedItems = false
-    @Published private(set) var isLoadingOlderItems = false
-    private var storeInstalledObserver: NSObjectProtocol?
+@Observable
+final class FeedPanelViewModel {
+    private(set) var items: [WorkstreamItem] = []
+    private(set) var hasMorePersistedItems = false
+    private(set) var isLoadingOlderItems = false
 
-    init() {
-        storeInstalledObserver = NotificationCenter.default.addObserver(
-            forName: FeedCoordinator.storeInstalledNotification,
-            object: FeedCoordinator.shared,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.arm()
+    @ObservationIgnored private let coordinator: FeedCoordinator
+    @ObservationIgnored private var storeInstallTask: Task<Void, Never>?
+    @ObservationIgnored private var loadOlderTask: Task<Void, Never>?
+
+    init(
+        coordinator: FeedCoordinator = .shared,
+        notificationCenter: NotificationCenter = .default
+    ) {
+        self.coordinator = coordinator
+        arm()
+        storeInstallTask = Task { @MainActor [weak self, weak coordinator] in
+            guard let coordinator else { return }
+            for await _ in notificationCenter.notifications(
+                named: FeedCoordinator.storeInstalledNotification,
+                object: coordinator
+            ) {
+                guard !Task.isCancelled, let self else { return }
+                self.arm()
             }
         }
-        arm()
     }
 
     deinit {
-        if let storeInstalledObserver {
-            NotificationCenter.default.removeObserver(storeInstalledObserver)
-        }
+        storeInstallTask?.cancel()
+        loadOlderTask?.cancel()
     }
 
     private func arm() {
-        guard let store = FeedCoordinator.shared.store else { return }
+        guard let store = coordinator.store else { return }
         withObservationTracking {
             items = store.items
             hasMorePersistedItems = store.hasMorePersistedItems
@@ -46,10 +52,13 @@ final class FeedPanelViewModel: ObservableObject {
         }
     }
 
-    nonisolated func loadOlderItems() {
-        Task { @MainActor [weak self] in
-            guard let self, !self.isLoadingOlderItems, self.hasMorePersistedItems else { return }
-            await FeedCoordinator.shared.store?.loadOlderItems()
+    func loadOlderItems() {
+        guard !isLoadingOlderItems,
+              hasMorePersistedItems,
+              let store = coordinator.store else { return }
+        loadOlderTask?.cancel()
+        loadOlderTask = Task { @MainActor in
+            await store.loadOlderItems()
         }
     }
 }

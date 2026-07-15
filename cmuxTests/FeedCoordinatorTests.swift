@@ -10,6 +10,34 @@ import CMUXAgentLaunch
 
 @Suite("Feed coordinator", .serialized)
 struct FeedCoordinatorTests {
+    @MainActor
+    @Test func feedWorkspaceContainsOnlyFeedAndIsPinned() throws {
+        let manager = TabManager()
+        let coordinator = FeedOpeningCoordinator(isEnabled: { true })
+
+        let workspace = try #require(coordinator.openPinnedWorkspace(in: manager))
+
+        #expect(workspace.isPinned)
+        #expect(manager.selectedTabId == workspace.id)
+        #expect(workspace.panels.count == 1)
+        let panel = try #require(workspace.panels.values.first as? RightSidebarToolPanel)
+        #expect(panel.mode == .feed)
+        #expect(!workspace.panels.values.contains { $0 is TerminalPanel })
+    }
+
+    @MainActor
+    @Test func feedPaneUsesNativeRightSidebarToolSurface() throws {
+        let manager = TabManager()
+        let workspace = manager.addWorkspace()
+        let coordinator = FeedOpeningCoordinator(isEnabled: { true })
+
+        let panel = try #require(coordinator.openPane(in: workspace))
+
+        #expect(panel.mode == .feed)
+        #expect(workspace.panels[panel.id] === panel)
+        #expect(workspace.focusedPanelId == panel.id)
+    }
+
     @Test func codexTeamsResolvesExplicitWorkingDirectoryFlags() {
         let base = "/tmp/cmux-base"
 

@@ -46,6 +46,7 @@ final class CmuxFeatureFlags {
     #endif
     private static let agentChatUIDefault = false
     private static let sidebarWorkspaceAgentSpinnerDefault = false
+    private static let feedUIDefault = true
 
     private static let overrideKeyPrefix = "cmux.flags.override."
 
@@ -132,6 +133,21 @@ final class CmuxFeatureFlags {
                 ),
                 defaultWhenUnavailable: CmuxFeatureFlags.sidebarWorkspaceAgentSpinnerDefault
             ),
+
+            // FLAG(key: feed-ui-enabled-release, owner: lawrencecchen,
+            //      reviewBy: 2026-10-01, defaultWhenUnavailable: true)
+            // Shows Feed in the right sidebar, new-workspace menu, and command
+            // palette. The default ships Feed to everyone while retaining a
+            // remote kill switch for operational regressions.
+            CmuxFeatureFlagDefinition(
+                key: "feed-ui-enabled-release",
+                title: String(localized: "featureFlags.feed.title", defaultValue: "Feed UI"),
+                flagDescription: String(
+                    localized: "featureFlags.feed.description",
+                    defaultValue: "Shows Feed in the right sidebar, new-workspace menu, and command palette."
+                ),
+                defaultWhenUnavailable: CmuxFeatureFlags.feedUIDefault
+            ),
         ]
     }()
 
@@ -153,6 +169,10 @@ final class CmuxFeatureFlags {
 
     var isSidebarWorkspaceAgentSpinnerEnabled: Bool {
         effectiveValue(for: Self.allFlags[4])
+    }
+
+    var isFeedUIEnabled: Bool {
+        effectiveValue(for: Self.allFlags[5])
     }
 
     @ObservationIgnored

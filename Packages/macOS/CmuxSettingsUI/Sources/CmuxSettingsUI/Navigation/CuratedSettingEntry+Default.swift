@@ -195,7 +195,6 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .customSidebars, id: "renderer", title: String(localized: "settings.customSidebars.renderer", defaultValue: "Renderer"), synonyms: "customSidebars.renderer renderer in-process in app remote worker isolated process hover focus typing input"),
 
             // Beta
-            .init(section: .betaFeatures, id: "feed", title: "Feed", synonyms: "feed right sidebar agent decisions permissions questions approval beta unstable"),
             .init(section: .betaFeatures, id: "dock", title: "Dock", synonyms: "dock right sidebar terminal controls tui beta unstable"),
             .init(section: .betaFeatures, id: "customSidebars", title: "Custom Sidebars", synonyms: "custom sidebars swift json interpreted vibe beta unstable"),
             .init(section: .betaFeatures, id: "remoteTmux", title: "Remote tmux", synonyms: "remote tmux ssh control mode -CC mirror session window pane sidebar workspace beta unstable"),

@@ -2996,6 +2996,22 @@ final class Workspace: Identifiable, ObservableObject {
                 initialTabId = tabId
             }
             installBrowserPanelSubscription(browserPanel)
+        } else if initialSurface == .feed {
+            let feedPanel = RightSidebarToolPanel(workspace: self, mode: .feed)
+            panels[feedPanel.id] = feedPanel
+            panelTitles[feedPanel.id] = feedPanel.displayTitle
+
+            if let tabId = bonsplitController.createTab(
+                title: feedPanel.displayTitle,
+                icon: feedPanel.displayIcon,
+                kind: SurfaceKind.rightSidebarTool.rawValue,
+                isDirty: false,
+                isLoading: false,
+                isPinned: false
+            ) {
+                bindSurface(tabId, toPanelId: feedPanel.id)
+                initialTabId = tabId
+            }
         } else if initialSurface == .cloudVMLoading {
             let loadingPanel = CloudVMLoadingPanel(workspaceId: id)
             panels[loadingPanel.id] = loadingPanel

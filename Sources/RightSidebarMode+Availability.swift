@@ -19,9 +19,10 @@ extension RightSidebarMode {
         }
     }
 
+    @MainActor
     static func availableModes(defaults: UserDefaults = .standard) -> [RightSidebarMode] {
         availableModes(
-            feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
+            feedEnabled: CmuxFeatureFlags.shared.isFeedUIEnabled,
             dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults)
         )
     }
@@ -30,9 +31,10 @@ extension RightSidebarMode {
         allCases.filter { $0 != .customSidebar && $0.isAvailable(feedEnabled: feedEnabled, dockEnabled: dockEnabled) }
     }
 
+    @MainActor
     func isAvailable(defaults: UserDefaults = .standard) -> Bool {
         isAvailable(
-            feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
+            feedEnabled: CmuxFeatureFlags.shared.isFeedUIEnabled,
             dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults)
         )
     }

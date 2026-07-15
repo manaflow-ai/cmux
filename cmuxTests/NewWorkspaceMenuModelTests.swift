@@ -11,6 +11,26 @@ import Testing
 /// Plus-button menu section model: section classification/ordering and the
 /// always-present management tail.
 struct NewWorkspaceMenuModelTests {
+    @Test func feedGetsDedicatedCreateSection() {
+        let model = NewWorkspaceMenuModel.build(
+            newWorkspaceContextMenuItems: [],
+            agentChatAction: nil,
+            feedSectionEnabled: true,
+            cloudSectionEnabled: false,
+            templateNames: [],
+            loadedActions: [],
+            newWorkspaceActionID: nil,
+            deletable: { _ in false },
+            sectionOrder: .customFirst
+        )
+
+        #expect(model.sections.count == 2)
+        guard case .feed = model.sections[0], case .management = model.sections[1] else {
+            Issue.record("Expected Feed followed by workspace management, got \(model.sections)")
+            return
+        }
+    }
+
 
     @MainActor
     private func loadStore(globalJSON: String) throws -> (store: CmuxConfigStore, root: URL) {

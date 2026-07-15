@@ -2228,6 +2228,10 @@ struct ContentView: View {
         }
 
         sidebarSelectionState.selection = .tabs
+        if mode == .feed {
+            _ = AppDelegate.shared?.feedOpeningCoordinator.openPane(in: workspace)
+            return
+        }
         workspace.clearSplitZoom()
         _ = workspace.openOrFocusRightSidebarToolSurface(inPane: paneId, mode: mode, focus: true)
     }

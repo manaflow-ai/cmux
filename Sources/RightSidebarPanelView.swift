@@ -56,7 +56,7 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
 }
 
 extension RightSidebarMode {
-    static let paneModes: [RightSidebarMode] = [.files, .find, .sessions]
+    static let paneModes: [RightSidebarMode] = [.files, .find, .sessions, .feed]
 
     var canOpenAsPane: Bool {
         Self.paneModes.contains(self)
@@ -82,10 +82,12 @@ enum FileExplorerRootSyncPolicy {
 }
 
 extension RightSidebarMode {
+    @MainActor
     static func modeShortcut(for event: NSEvent) -> RightSidebarMode? {
         modeShortcut(for: event, allowingAction: { _ in true })
     }
 
+    @MainActor
     static func modeShortcut(
         for event: NSEvent,
         allowingAction: (KeyboardShortcutSettings.Action) -> Bool
@@ -132,10 +134,9 @@ struct RightSidebarPanelView: View {
     private let focusShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarFocusHintX
     private let focusShortcutHintYOffset = ShortcutHintDebugSettings.defaultRightSidebarFocusHintY
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
-    @AppStorage(RightSidebarBetaFeatureSettings.feedEnabledKey)
-    private var feedEnabled = RightSidebarBetaFeatureSettings.defaultFeedEnabled
     @AppStorage(RightSidebarBetaFeatureSettings.dockEnabledKey)
     private var dockEnabled = RightSidebarBetaFeatureSettings.defaultDockEnabled
+    private let featureFlags = CmuxFeatureFlags.shared
 
     // Re-reading the observable store inside modeBar causes SwiftUI to
     // track the pending count so the badge updates live when hooks push
@@ -145,7 +146,10 @@ struct RightSidebarPanelView: View {
     }
 
     private var availableModes: [RightSidebarMode] {
-        RightSidebarMode.availableModes(feedEnabled: feedEnabled, dockEnabled: dockEnabled)
+        RightSidebarMode.availableModes(
+            feedEnabled: featureFlags.isFeedUIEnabled,
+            dockEnabled: dockEnabled
+        )
     }
 
     private var modeBarItems: [RightSidebarModeBarItem] {
@@ -209,7 +213,7 @@ struct RightSidebarPanelView: View {
         .onChange(of: fileExplorerState.isVisible) { _, visible in
             if visible { hasMountedRightSidebarContent = true }
         }
-        .onChange(of: feedEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
+        .onChange(of: featureFlags.isFeedUIEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onChange(of: dockEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
     }
 

@@ -508,6 +508,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Owns the About Titlebar Debug subsystem (CmuxAppKitSupportUI); composition-root
     /// owned and created lazily so the window-decoration seam can point back at `self`.
     lazy var debugWindowsCoordinator = DebugWindowsCoordinator(decorator: self)
+    lazy var feedOpeningCoordinator = FeedOpeningCoordinator(
+        isEnabled: { CmuxFeatureFlags.shared.isFeedUIEnabled }
+    )
     /// About Titlebar Debug options store, applied by the About/Acknowledgments windows.
     var aboutTitlebarDebugStore: AboutTitlebarDebugStore { debugWindowsCoordinator.aboutTitlebarStore }
     /// Coordinates remote tmux (`ssh … tmux -CC`) mirroring; composition-root owned.
@@ -7376,6 +7379,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     createdWorkspaceHandler?(workspace)
                     if focusInitialBrowserAddressBarOnCreate {
                         focusInitialBrowserAddressBar(in: workspace)
+                    }
+                case .feed:
+                    if let workspace = feedOpeningCoordinator.openPinnedWorkspace(
+                        in: context.tabManager
+                    ) {
+                        closeInitialWorkspaceIfNeeded(
+                            initialWorkspaceId: initialWorkspace?.id,
+                            in: context
+                        )
+                        createdWorkspaceHandler?(workspace)
                     }
                 case .cloudVMLoading:
                     let workspace = context.tabManager.addWorkspace(initialSurface: .cloudVMLoading)
