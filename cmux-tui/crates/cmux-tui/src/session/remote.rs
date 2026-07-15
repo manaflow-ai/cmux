@@ -554,7 +554,6 @@ impl RemoteSession {
                     return;
                 }
                 self.tree_stale.store(true, Ordering::Release);
-                self.emit(MuxEvent::TreeChanged);
                 self.start_subscription_recovery();
             }
             Some("status") => {
@@ -590,14 +589,21 @@ impl RemoteSession {
         let session = self.clone();
         let spawn =
             std::thread::Builder::new().name("remote-resubscribe".into()).spawn(move || {
-                let result = session
-                    .request(json!({"cmd": "subscribe"}))
-                    .or_else(|_| session.request(json!({"cmd": "subscribe"})));
+                let first = session.request(json!({"cmd": "subscribe"}));
+                let result = match first {
+                    Err(error) if Self::subscription_recovery_is_retryable(&error) => {
+                        session.request(json!({"cmd": "subscribe"}))
+                    }
+                    result => result,
+                };
                 session.subscription_recovery_in_flight.store(false, Ordering::Release);
                 match result {
-                    Ok(_) => session.emit(MuxEvent::Status(
-                        "event subscription overflowed; resubscribed".to_string(),
-                    )),
+                    Ok(_) => {
+                        session.emit(MuxEvent::Status(
+                            "event subscription overflowed; resubscribed".to_string(),
+                        ));
+                        session.emit(MuxEvent::TreeChanged);
+                    }
                     Err(error) => {
                         session.emit(MuxEvent::Status(format!(
                             "event subscription overflowed; resubscribe failed: {error}"
@@ -611,6 +617,10 @@ impl RemoteSession {
                 "event subscription overflowed; resubscribe failed: {error}"
             )));
         }
+    }
+
+    fn subscription_recovery_is_retryable(error: &anyhow::Error) -> bool {
+        matches!(error.downcast_ref::<RemoteRequestError>(), Some(RemoteRequestError::Rejected(_)))
     }
 
     fn log_frame(&self, surface: SurfaceId, line: String) {
@@ -1288,9 +1298,15 @@ mod tests {
         assert_eq!(command.get("cmd").and_then(Value::as_str), Some("subscribe"));
         session.handle_line(json!({"id": command["id"], "ok": true, "data": {}}));
         assert!(session.tree_is_stale());
-        let received = events.try_iter().collect::<Vec<_>>();
-        assert!(received.iter().any(|event| matches!(event, MuxEvent::Status(_))));
-        assert!(received.iter().any(|event| matches!(event, MuxEvent::TreeChanged)));
+        let mut saw_status = false;
+        loop {
+            match events.recv_timeout(Duration::from_secs(1)).unwrap() {
+                MuxEvent::Status(_) => saw_status = true,
+                MuxEvent::TreeChanged => break,
+                _ => {}
+            }
+        }
+        assert!(saw_status);
     }
 
     #[cfg(unix)]
@@ -1330,6 +1346,17 @@ mod tests {
             }
         }
         assert!(!session.subscription_recovery_in_flight.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn subscription_recovery_retries_only_explicit_rejection() {
+        let rejected = anyhow::Error::new(RemoteRequestError::Rejected("no capacity".to_string()));
+        let timeout = anyhow::Error::new(RemoteRequestError::Timeout);
+        let shutdown = anyhow::Error::new(RemoteRequestError::Shutdown);
+
+        assert!(RemoteSession::subscription_recovery_is_retryable(&rejected));
+        assert!(!RemoteSession::subscription_recovery_is_retryable(&timeout));
+        assert!(!RemoteSession::subscription_recovery_is_retryable(&shutdown));
     }
 
     #[cfg(unix)]
