@@ -5,141 +5,201 @@ import QuartzCore
 /// scroller preference and layout lifecycle.
 @MainActor
 final class SidebarScrollIndicatorVisibilityController {
-    static var associationKey: UInt8 = 0
+  typealias FadeAnimator =
+    @MainActor (
+      _ scroller: NSScroller,
+      _ duration: TimeInterval,
+      _ completion: @escaping @MainActor () -> Void
+    ) -> Void
 
-    private static let fadeDelay: Duration = .seconds(1)
-    private static let fadeDuration: TimeInterval = 0.35
+  static var associationKey: UInt8 = 0
 
-    private weak var scrollView: NSScrollView?
-    let indicatorView: SidebarScrollIndicatorView
-    private let notificationCenter: NotificationCenter
-    private let sleep: @Sendable (Duration) async throws -> Void
-    private var fadeTask: Task<Void, Never>?
-    private var fadeGeneration = 0
-    private var lastContentOrigin: CGPoint
-    // Main-actor-owned until deinit, where removing the now-unreachable
-    // controller's observer tokens is safe from the nonisolated destructor.
-    private nonisolated(unsafe) var observerTokens: [any NSObjectProtocol] = []
+  private static let fadeDelay: Duration = .seconds(1)
 
-    init(
-        scrollView: NSScrollView,
-        notificationCenter: NotificationCenter = .default,
-        sleep: @escaping @Sendable (Duration) async throws -> Void = { duration in
-            try await ContinuousClock().sleep(for: duration)
+  private weak var scrollView: NSScrollView?
+  private(set) weak var indicatorScroller: NSScroller?
+  private let notificationCenter: NotificationCenter
+  private let sleep: @Sendable (Duration) async throws -> Void
+  private let fadeDuration: TimeInterval
+  private let fadeAnimator: FadeAnimator
+  private var fadeTask: Task<Void, Never>?
+  private var fadeGeneration = 0
+  private var indicatorIsActive = false
+  private var lastContentOrigin: CGPoint
+  // Main-actor-owned until deinit, where removing the now-unreachable
+  // controller's observer tokens is safe from the nonisolated destructor.
+  private nonisolated(unsafe) var observerTokens: [any NSObjectProtocol] = []
+
+  init(
+    scrollView: NSScrollView,
+    notificationCenter: NotificationCenter = .default,
+    sleep: @escaping @Sendable (Duration) async throws -> Void = { duration in
+      try await ContinuousClock().sleep(for: duration)
+    },
+    fadeDuration: TimeInterval = 0.35,
+    fadeAnimator: @escaping FadeAnimator = { scroller, duration, completion in
+      NSAnimationContext.runAnimationGroup { context in
+        context.duration = duration
+        context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        scroller.animator().alphaValue = 0
+      } completionHandler: {
+        Task { @MainActor in completion() }
+      }
+    }
+  ) {
+    self.scrollView = scrollView
+    self.notificationCenter = notificationCenter
+    self.sleep = sleep
+    self.fadeDuration = fadeDuration
+    self.fadeAnimator = fadeAnimator
+    self.lastContentOrigin = scrollView.contentView.bounds.origin
+
+    synchronizeIndicator()
+    observeScrollView()
+  }
+
+  deinit {
+    fadeTask?.cancel()
+    for token in observerTokens {
+      notificationCenter.removeObserver(token)
+    }
+  }
+
+  func synchronizeIndicator() {
+    guard let scrollView else { return }
+    var configurationChanged = false
+    if scrollView.hasHorizontalScroller {
+      scrollView.hasHorizontalScroller = false
+      configurationChanged = true
+    }
+    if scrollView.scrollerStyle != .overlay {
+      scrollView.scrollerStyle = .overlay
+      configurationChanged = true
+    }
+    if scrollView.autohidesScrollers {
+      scrollView.autohidesScrollers = false
+      configurationChanged = true
+    }
+    if !scrollView.hasVerticalScroller {
+      scrollView.hasVerticalScroller = true
+      configurationChanged = true
+    }
+    guard let scroller = scrollView.verticalScroller else { return }
+    let scrollerChanged = indicatorScroller !== scroller
+    if configurationChanged || scrollerChanged {
+      scrollView.reflectScrolledClipView(scrollView.contentView)
+    }
+    if scrollerChanged {
+      indicatorScroller = scroller
+      applyIndicatorState(to: scroller)
+    } else if !indicatorIsActive, !scroller.isHidden {
+      scroller.alphaValue = 0
+      scroller.isHidden = true
+    }
+  }
+
+  private func observeScrollView() {
+    guard let scrollView else { return }
+    let contentView = scrollView.contentView
+    contentView.postsBoundsChangedNotifications = true
+    observerTokens.append(
+      notificationCenter.addObserver(
+        forName: NSView.boundsDidChangeNotification,
+        object: contentView,
+        queue: .main
+      ) { [weak self] _ in
+        Task { @MainActor [weak self] in
+          self?.handleScrollPositionChange()
         }
-    ) {
-        self.scrollView = scrollView
-        self.notificationCenter = notificationCenter
-        self.sleep = sleep
-        self.indicatorView = SidebarScrollIndicatorView(scrollView: scrollView)
-        self.lastContentOrigin = scrollView.contentView.bounds.origin
-
-        installIndicator(in: scrollView)
-        observeScrollPosition()
-    }
-
-    deinit {
-        fadeTask?.cancel()
-        for token in observerTokens {
-            notificationCenter.removeObserver(token)
+      }
+    )
+    observerTokens.append(
+      notificationCenter.addObserver(
+        forName: NSScroller.preferredScrollerStyleDidChangeNotification,
+        object: nil,
+        queue: .main
+      ) { [weak self] _ in
+        // Run after AppKit's synchronous per-scroll-view preference
+        // reset regardless of observer registration order.
+        Task { @MainActor [weak self] in
+          self?.synchronizeIndicator()
         }
-    }
+      }
+    )
+  }
 
-    func synchronizeIndicator() {
-        guard let scrollView else { return }
-        if indicatorView.superview !== scrollView {
-            installIndicator(in: scrollView)
-        }
-        updateIndicatorFrame(in: scrollView)
-        indicatorView.updateGeometry()
-    }
+  private func handleScrollPositionChange() {
+    guard let currentOrigin = scrollView?.contentView.bounds.origin,
+      currentOrigin != lastContentOrigin
+    else { return }
+    lastContentOrigin = currentOrigin
+    showThenFadeIndicator()
+  }
 
-    private func installIndicator(in scrollView: NSScrollView) {
-        indicatorView.removeFromSuperview()
-        scrollView.addSubview(indicatorView, positioned: .above, relativeTo: scrollView.contentView)
-        indicatorView.autoresizingMask = [.minXMargin, .height]
-        updateIndicatorFrame(in: scrollView)
-        indicatorView.updateGeometry()
-    }
+  private func showThenFadeIndicator() {
+    showIndicator()
+    scheduleIndicatorFade()
+  }
 
-    private func updateIndicatorFrame(in scrollView: NSScrollView) {
-        let viewportFrame = scrollView.contentView.frame
-        indicatorView.frame = CGRect(
-            x: viewportFrame.maxX - 9,
-            y: viewportFrame.minY + 3,
-            width: 6,
-            height: max(0, viewportFrame.height - 6)
-        )
+  private func showIndicator() {
+    guard let scrollView,
+      let documentView = scrollView.documentView,
+      documentView.bounds.height - scrollView.contentView.bounds.height > 1,
+      let indicatorScroller
+    else {
+      hideIndicatorImmediately()
+      return
     }
+    fadeGeneration &+= 1
+    indicatorIsActive = true
+    scrollView.reflectScrolledClipView(scrollView.contentView)
+    indicatorScroller.isHidden = false
+    indicatorScroller.layer?.removeAllAnimations()
+    indicatorScroller.alphaValue = 1
+  }
 
-    private func observeScrollPosition() {
-        guard let scrollView else { return }
-        let contentView = scrollView.contentView
-        contentView.postsBoundsChangedNotifications = true
-        observerTokens.append(
-            notificationCenter.addObserver(
-                forName: NSView.boundsDidChangeNotification,
-                object: contentView,
-                queue: .main
-            ) { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    self?.handleScrollPositionChange()
-                }
-            }
-        )
+  private func scheduleIndicatorFade() {
+    guard indicatorIsActive else { return }
+    fadeTask?.cancel()
+    let sleep = sleep
+    fadeTask = Task { @MainActor [weak self, sleep] in
+      do {
+        try await sleep(Self.fadeDelay)
+      } catch {
+        return
+      }
+      guard !Task.isCancelled else { return }
+      self?.fadeIndicator()
     }
+  }
 
-    private func handleScrollPositionChange() {
-        guard let currentOrigin = scrollView?.contentView.bounds.origin,
-              currentOrigin != lastContentOrigin else { return }
-        lastContentOrigin = currentOrigin
-        showThenFadeIndicator()
+  private func fadeIndicator() {
+    guard indicatorIsActive, let indicatorScroller else { return }
+    fadeGeneration &+= 1
+    let generation = fadeGeneration
+    fadeAnimator(indicatorScroller, fadeDuration) { [weak self, weak indicatorScroller] in
+      guard let self,
+        self.fadeGeneration == generation,
+        let indicatorScroller
+      else { return }
+      self.indicatorIsActive = false
+      indicatorScroller.isHidden = true
     }
+  }
 
-    private func showThenFadeIndicator() {
-        showIndicator()
-        scheduleIndicatorFade()
-    }
+  private func hideIndicatorImmediately() {
+    fadeTask?.cancel()
+    fadeGeneration &+= 1
+    indicatorIsActive = false
+    guard let indicatorScroller else { return }
+    indicatorScroller.layer?.removeAllAnimations()
+    indicatorScroller.alphaValue = 0
+    indicatorScroller.isHidden = true
+  }
 
-    private func showIndicator() {
-        guard indicatorView.updateGeometry() else {
-            indicatorView.isHidden = true
-            return
-        }
-        fadeGeneration &+= 1
-        indicatorView.isHidden = false
-        indicatorView.layer?.removeAllAnimations()
-        indicatorView.alphaValue = 1
-    }
-
-    private func scheduleIndicatorFade() {
-        guard !indicatorView.isHidden else { return }
-        fadeTask?.cancel()
-        let sleep = sleep
-        fadeTask = Task { @MainActor [weak self, sleep] in
-            do {
-                try await sleep(Self.fadeDelay)
-            } catch {
-                return
-            }
-            guard !Task.isCancelled else { return }
-            self?.fadeIndicator()
-        }
-    }
-
-    private func fadeIndicator() {
-        guard !indicatorView.isHidden else { return }
-        fadeGeneration &+= 1
-        let generation = fadeGeneration
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = Self.fadeDuration
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            indicatorView.animator().alphaValue = 0
-        } completionHandler: { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self, self.fadeGeneration == generation else { return }
-                self.indicatorView.isHidden = true
-            }
-        }
-    }
+  private func applyIndicatorState(to scroller: NSScroller) {
+    scroller.layer?.removeAllAnimations()
+    scroller.alphaValue = indicatorIsActive ? 1 : 0
+    scroller.isHidden = !indicatorIsActive
+  }
 }

@@ -10603,9 +10603,9 @@ struct VerticalTabsSidebar: View {
         withTransaction(transaction) { workspaceScrollContentMinHeight = contentMinHeight }
     }
 
-    // SwiftUI owns native-indicator suppression through
-    // `.scrollIndicators(.never)`. This bridge installs one cmux-owned
-    // indicator driven by actual viewport position changes (#3241).
+    // SwiftUI suppresses its automatic indicators through
+    // `.scrollIndicators(.never)`. This bridge configures AppKit's native
+    // overlay scroller, with visibility driven by viewport position changes.
     private func configureSidebarScrollView(_ scrollView: NSScrollView?) {
         guard let scrollView else { return }
         scrollView.applySidebarScrollIndicatorConfiguration()
