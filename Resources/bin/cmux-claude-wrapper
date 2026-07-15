@@ -832,18 +832,8 @@ cmux_computer_use_canonical_executable() {
 }
 
 cmux_computer_use_resolve_driver() {
-    local self_dir bundled_driver helper_driver override driver_real
+    local self_dir bundled_driver override driver_real
     self_dir="$(cd "$(dirname "$0")" && pwd)" || return 1
-    # Prefer the standalone "cmux Computer Use.app" helper bundle. Spawned
-    # non-embedded (see the config below), the driver re-execs itself as its own
-    # TCC responsible process, and because it is that bundle's main executable
-    # macOS attributes Accessibility / Screen Recording to "cmux Computer Use".
-    # Set CMUX_CUA_NO_HELPER=1 to force the bare-binary embedded path instead.
-    helper_driver="$self_dir/../../Library/cmux Computer Use.app/Contents/MacOS/cmux-cua-driver"
-    if [[ -z "${CMUX_CUA_NO_HELPER:-}" && -x "$helper_driver" ]]; then
-        printf '%s' "$helper_driver"
-        return 0
-    fi
     bundled_driver="$self_dir/cmux-cua-driver"
     if [[ -x "$bundled_driver" ]]; then
         # No wrapper-side signature/ownership gate on the bundled path, on
@@ -954,21 +944,10 @@ cmux_computer_use_config() {
     # the same surface. Falls back to the caller pid when no surface id is set;
     # the driver itself further falls back to embedded-<pid> if this is empty.
     default_session="cmux-${CMUX_SURFACE_ID:-$$}"
-    if [[ "$driver" == *"/cmux Computer Use.app/Contents/MacOS/"* ]]; then
-        # Standalone helper bundle: run non-embedded so the driver re-execs as its
-        # own TCC responsible process ("cmux Computer Use"), rather than inheriting
-        # the spawning agent's identity. Stdio is preserved across the re-exec.
-        printf '{"mcpServers":{"cmux-computer-use":{"command":"%s","args":["mcp","--no-daemon-relaunch"],"env":{"CUA_DRIVER_DEFAULT_SESSION":"%s","CUA_DRIVER_RS_TELEMETRY_ENABLED":"false","CUA_DRIVER_RS_UPDATE_CHECK":"false","CUA_DRIVER_CURSOR_GRADIENT":"#12c7f5,#2d8cff,#6c5cff","CUA_DRIVER_CURSOR_BLOOM":"#2d8cff","CUA_DRIVER_CURSOR_LABEL":"cmux","CUA_DRIVER_STATE_DIR":"%s","NODE_OPTIONS":"","BUN_OPTIONS":""}}}}' \
-            "$(cmux_computer_use_json_escape "$driver")" \
-            "$(cmux_computer_use_json_escape "$default_session")" \
-            "$(cmux_computer_use_json_escape "$state_dir")"
-    else
-        # Bare fallback binary: embedded mode, inherits the host app's permissions.
-        printf '{"mcpServers":{"cmux-computer-use":{"command":"%s","args":["--embedded"],"env":{"CUA_DRIVER_EMBEDDED":"1","CUA_DRIVER_DEFAULT_SESSION":"%s","CUA_DRIVER_RS_TELEMETRY_ENABLED":"false","CUA_DRIVER_RS_UPDATE_CHECK":"false","CUA_DRIVER_CURSOR_GRADIENT":"#12c7f5,#2d8cff,#6c5cff","CUA_DRIVER_CURSOR_BLOOM":"#2d8cff","CUA_DRIVER_CURSOR_LABEL":"cmux","CUA_DRIVER_STATE_DIR":"%s","NODE_OPTIONS":"","BUN_OPTIONS":""}}}}' \
-            "$(cmux_computer_use_json_escape "$driver")" \
-            "$(cmux_computer_use_json_escape "$default_session")" \
-            "$(cmux_computer_use_json_escape "$state_dir")"
-    fi
+    printf '{"mcpServers":{"cmux-computer-use":{"command":"%s","args":["--embedded"],"env":{"CUA_DRIVER_EMBEDDED":"1","CUA_DRIVER_DEFAULT_SESSION":"%s","CUA_DRIVER_RS_TELEMETRY_ENABLED":"false","CUA_DRIVER_RS_UPDATE_CHECK":"false","CUA_DRIVER_CURSOR_GRADIENT":"#12c7f5,#2d8cff,#6c5cff","CUA_DRIVER_CURSOR_BLOOM":"#2d8cff","CUA_DRIVER_CURSOR_LABEL":"cmux","CUA_DRIVER_STATE_DIR":"%s","NODE_OPTIONS":"","BUN_OPTIONS":""}}}}' \
+        "$(cmux_computer_use_json_escape "$driver")" \
+        "$(cmux_computer_use_json_escape "$default_session")" \
+        "$(cmux_computer_use_json_escape "$state_dir")"
 }
 
 claude_interactive_entry_flag() {
