@@ -231,9 +231,7 @@ struct MobileIrohRuntimeCompositionTests {
             ),
         ])
         let state = MobileIrohNetworkPathState(networkInterfaces: provider)
-        let profile = try #require(
-            CmxIrohNetworkProfileKey.activeTailscaleTunnel
-        )
+        let profile = CmxIrohNetworkProfileKey.activeTailscaleTunnel
 
         #expect(await state.snapshot().activeNetworkProfiles == [profile])
 

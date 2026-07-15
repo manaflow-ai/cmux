@@ -203,11 +203,15 @@ public struct PersonalIrohDeviceRegistryDecorator: DeviceRegistryRefreshing {
         team: [CmxAttachRoute],
         now: Date = Date()
     ) -> [CmxAttachRoute] {
-        let personalWithPrivatePaths = Array(
-            CmxAttachRoute
-                .addingIrohPrivatePaths(to: personal + team, observedAt: now)
-                .prefix(personal.count)
+        let decoratedRoutes = CmxAttachRoute.addingIrohPrivatePaths(
+            to: personal + team,
+            observedAt: now
         )
+        precondition(
+            decoratedRoutes.count == personal.count + team.count,
+            "Private-path decoration must preserve route count and order"
+        )
+        let personalWithPrivatePaths = Array(decoratedRoutes.prefix(personal.count))
         var merged = personalWithPrivatePaths
         var routeIDs = Set(personal.map(\.id))
         var peerIdentities = Set<CmxIrohPeerIdentity>(personal.compactMap { route in

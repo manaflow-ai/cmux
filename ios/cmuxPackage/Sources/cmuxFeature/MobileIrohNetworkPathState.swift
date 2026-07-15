@@ -34,9 +34,8 @@ actor MobileIrohNetworkPathState {
         var profiles = Set(lanProfiles.keys)
         if TailscaleStatus(
             interfaces: networkInterfaces.currentInterfaceAddresses()
-        ) == .active,
-           let tailscaleProfile = CmxIrohNetworkProfileKey.activeTailscaleTunnel {
-            profiles.insert(tailscaleProfile)
+        ) == .active {
+            profiles.insert(.activeTailscaleTunnel)
         }
         return CmxIrohNetworkPathSnapshot(
             generation: generation,
