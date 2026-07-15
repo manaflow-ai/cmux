@@ -11,7 +11,10 @@ extension SimulatorPaneCoordinator {
         guard (try? await perform(.setLocation(
             deviceID: deviceID,
             coordinate: coordinate
-        ))) != nil else { return }
+        ))) != nil else {
+            resumeLocationRouteCompletion()
+            return
+        }
         clearLocationRouteSessionState()
     }
 
@@ -21,7 +24,10 @@ extension SimulatorPaneCoordinator {
         guard let deviceID = selectedDeviceID else { return }
         let completionTask = cancelLocationRouteCompletion()
         _ = await completionTask?.value
-        guard (try? await perform(.clearLocation(deviceID: deviceID))) != nil else { return }
+        guard (try? await perform(.clearLocation(deviceID: deviceID))) != nil else {
+            resumeLocationRouteCompletion()
+            return
+        }
         clearLocationRouteSessionState()
     }
 
@@ -35,7 +41,10 @@ extension SimulatorPaneCoordinator {
         guard (try? await perform(.startLocationRoute(
             deviceID: deviceID,
             route: route
-        ))) != nil else { return }
+        ))) != nil else {
+            resumeLocationRouteCompletion()
+            return
+        }
         beginLocationRouteSession(deviceID: deviceID, route: route)
     }
 

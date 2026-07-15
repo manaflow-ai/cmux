@@ -265,6 +265,7 @@ final class SimulatorFramebuffer {
         readNativeOrientation: Bool = false,
         nativeOrientationIsAuthoritative: Bool = false
     ) -> Bool {
+        guard publishingEnabled else { return false }
         guard let display = bestDisplay(readNativeOrientation: readNativeOrientation) else {
             return false
         }

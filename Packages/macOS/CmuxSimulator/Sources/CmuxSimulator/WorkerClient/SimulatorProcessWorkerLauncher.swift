@@ -26,10 +26,14 @@ struct SimulatorProcessWorkerLauncher: SimulatorWorkerLaunching {
         let process = Process()
         process.executableURL = executableURL
         process.arguments = arguments
-        if !environment.isEmpty {
-            process.environment = ProcessInfo.processInfo.environment
-                .merging(environment) { _, replacement in replacement }
+        var workerEnvironment = ProcessInfo.processInfo.environment
+        for key in [
+            "CMUX_WORKSPACE_ID", "CMUX_TAB_ID", "CMUX_SURFACE_ID", "CMUX_PANEL_ID",
+            "CMUX_PANE_ID",
+        ] {
+            workerEnvironment.removeValue(forKey: key)
         }
+        process.environment = workerEnvironment.merging(environment) { _, replacement in replacement }
 
         let stdin = Pipe()
         let stdout = Pipe()
