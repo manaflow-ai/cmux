@@ -28,7 +28,6 @@ jobs:
           bunx vercel deploy --prod --yes --token "$VERCEL_TOKEN" \
             --build-env "CMUX_DOCS_CHANNEL=${{ inputs.channel }}" \
             --env "CMUX_DOCS_CHANNEL=${{ inputs.channel }}"
-        working-directory: web
         env:
           VERCEL_ORG_ID: ${{ secrets.vercel_org_id }}
           VERCEL_PROJECT_ID: ${{ secrets.vercel_project_id }}
