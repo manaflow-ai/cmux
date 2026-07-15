@@ -12,6 +12,7 @@ final class CEFExtensionPopoverController: NSObject,
     private var browser: CEFBrowser?
     private var isCreatingBrowser = false
     private var isClosing = false
+    private var waitingForPopoverClose = false
 
     /// Keeps the controller, browser, and host alive until CEF confirms destruction.
     private var closingRetain: CEFExtensionPopoverController?
@@ -54,6 +55,7 @@ final class CEFExtensionPopoverController: NSObject,
             self.isCreatingBrowser = false
             guard let browser else {
                 if self.popover?.isShown == true {
+                    self.beginClosing(waitingForPopoverClose: true)
                     self.popover?.performClose(nil)
                 } else if !self.isClosing {
                     self.beginClosing()
@@ -70,16 +72,18 @@ final class CEFExtensionPopoverController: NSObject,
 
     func close() {
         guard !isClosing else { return }
-        if popover?.isShown == true {
+        let popoverIsShown = popover?.isShown == true
+        beginClosing(waitingForPopoverClose: popoverIsShown)
+        if popoverIsShown {
             popover?.performClose(nil)
-        } else {
-            beginClosing()
         }
     }
 
     func popoverDidClose(_ notification: Notification) {
         _ = notification
+        waitingForPopoverClose = false
         beginClosing()
+        finishClosingIfPossible()
     }
 
     func browserDidClose(_ browser: CEFBrowser) {
@@ -88,9 +92,10 @@ final class CEFExtensionPopoverController: NSObject,
         finishClosingIfPossible()
     }
 
-    private func beginClosing() {
+    private func beginClosing(waitingForPopoverClose: Bool = false) {
         guard !isClosing else { return }
         isClosing = true
+        self.waitingForPopoverClose = waitingForPopoverClose
         closingRetain = self
         if let browser {
             browser.setFocus(false)
@@ -101,11 +106,24 @@ final class CEFExtensionPopoverController: NSObject,
     }
 
     private func finishClosingIfPossible() {
-        guard isClosing, !isCreatingBrowser, browser == nil else { return }
+        guard isClosing, !waitingForPopoverClose, !isCreatingBrowser, browser == nil else { return }
         popover?.delegate = nil
         popover?.contentViewController = nil
         popover = nil
         containerView = nil
         closingRetain = nil
+    }
+
+    func beginClosingForTesting(waitingForPopoverClose: Bool) {
+        beginClosing(waitingForPopoverClose: waitingForPopoverClose)
+    }
+
+    var isRetainedForClosingForTesting: Bool {
+        closingRetain === self
+    }
+
+    func completePopoverCloseForTesting() {
+        waitingForPopoverClose = false
+        finishClosingIfPossible()
     }
 }

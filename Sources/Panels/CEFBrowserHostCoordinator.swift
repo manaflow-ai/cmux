@@ -5,6 +5,7 @@ import CEFKit
 @MainActor
 final class CEFBrowserHostCoordinator {
     private let registrationID: ObjectIdentifier
+    private let registration: Registration
     static let usesSharedEventMonitor = true
 
     private final class Registration {
@@ -25,10 +26,12 @@ final class CEFBrowserHostCoordinator {
         onRequestPanelFocus: @escaping () -> Void
     ) {
         registrationID = ObjectIdentifier(containerView)
-        Self.registrations[registrationID] = Registration(
+        let registration = Registration(
             containerView: containerView,
             onRequestPanelFocus: onRequestPanelFocus
         )
+        self.registration = registration
+        Self.registrations[registrationID] = registration
         Self.installEventMonitorIfNeeded()
     }
 
@@ -55,7 +58,11 @@ final class CEFBrowserHostCoordinator {
         }
     }
 
-    private static func unregister(_ registrationID: ObjectIdentifier) {
+    private static func unregister(
+        _ registrationID: ObjectIdentifier,
+        registration: Registration
+    ) {
+        guard registrations[registrationID] === registration else { return }
         registrations.removeValue(forKey: registrationID)
         if registrations.isEmpty, let eventMonitor {
             NSEvent.removeMonitor(eventMonitor)
@@ -65,8 +72,13 @@ final class CEFBrowserHostCoordinator {
 
     deinit {
         let registrationID = registrationID
+        let registration = registration
         Task { @MainActor in
-            Self.unregister(registrationID)
+            Self.unregister(registrationID, registration: registration)
         }
+    }
+
+    static func hasRegistrationForTesting(_ containerView: CEFBrowserContainerView) -> Bool {
+        registrations[ObjectIdentifier(containerView)]?.containerView === containerView
     }
 }
