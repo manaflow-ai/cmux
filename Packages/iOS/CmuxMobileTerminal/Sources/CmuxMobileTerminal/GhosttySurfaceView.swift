@@ -1914,28 +1914,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         processOutput(data, completion: nil)
     }
 
-    /// Process terminal output and return after the output has been applied.
-    ///
-    /// The call still performs libghostty output processing on the serial
-    /// background output queue. The returned async boundary lets callers apply
-    /// per-surface backpressure without blocking the main actor while Ghostty
-    /// consumes the chunk.
-    /// - Parameter data: VT or PTY bytes to feed into the surface.
-    /// - Returns: `true` when the bytes reached the current surface generation,
-    ///   or `false` when the caller should reset its delivery queue and replay.
-    @discardableResult
-    public func processOutputAndWait(_ data: Data) async -> Bool {
-        return await withCheckedContinuation { continuation in
-            let operationID = registerPendingOutputApply(
-                byteCount: data.count,
-                continuation: continuation
-            )
-            processOutput(data) { [weak self] applied in
-                self?.completePendingOutputApply(id: operationID, returning: applied)
-            }
-        }
-    }
-
     func makeSurfaceOperationID() -> UInt64 {
         nextSurfaceOperationID &+= 1
         return nextSurfaceOperationID
