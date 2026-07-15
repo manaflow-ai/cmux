@@ -399,19 +399,18 @@ type Stream struct {
 	conn     *jsonLineConn
 	timeout  time.Duration
 	buffered []Event
-	closed   bool
+	closed   atomic.Bool
 }
 
 func (s *Stream) Close() error {
-	if s.closed {
+	if !s.closed.CompareAndSwap(false, true) {
 		return nil
 	}
-	s.closed = true
 	return s.conn.Close()
 }
 
 func (s *Stream) Recv(ctx context.Context) (Event, error) {
-	if s.closed {
+	if s.closed.Load() {
 		return nil, io.EOF
 	}
 	if len(s.buffered) > 0 {

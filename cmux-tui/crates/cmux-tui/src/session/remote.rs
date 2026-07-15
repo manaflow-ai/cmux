@@ -608,6 +608,7 @@ impl RemoteSession {
                         session.emit(MuxEvent::Status(format!(
                             "event subscription overflowed; resubscribe failed: {error}"
                         )));
+                        session.emit(MuxEvent::Empty);
                     }
                 }
             });
@@ -616,6 +617,7 @@ impl RemoteSession {
             self.emit(MuxEvent::Status(format!(
                 "event subscription overflowed; resubscribe failed: {error}"
             )));
+            self.emit(MuxEvent::Empty);
         }
     }
 
@@ -1311,7 +1313,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn rejected_subscription_recovery_retries_then_surfaces_failure() {
+    fn rejected_subscription_recovery_retries_then_closes_session() {
         let (client, server) = UnixStream::pair().unwrap();
         let session = socket_test_session(client);
         let events = session.subscribe();
@@ -1338,11 +1340,8 @@ mod tests {
         }));
 
         loop {
-            match events.recv_timeout(Duration::from_secs(1)).unwrap() {
-                MuxEvent::Status(message) if message.contains("resubscribe failed") => {
-                    break;
-                }
-                _ => {}
+            if matches!(events.recv_timeout(Duration::from_secs(1)).unwrap(), MuxEvent::Empty) {
+                break;
             }
         }
         assert!(!session.subscription_recovery_in_flight.load(Ordering::Acquire));

@@ -23,7 +23,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -416,12 +416,16 @@ struct Response {
 }
 
 const STREAM_DISCONNECT_POLL: Duration = Duration::from_millis(100);
+const STREAM_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
+const OUTBOUND_CAPACITY: usize = 256;
+const OUTBOUND_CONTROL_RESERVE: usize = 256;
 
 trait MessageSink: Send + Sync {
     fn send(&self, value: &Value) -> std::io::Result<()>;
     fn send_terminal(&self, value: &Value) -> std::io::Result<()> {
         self.send(value)
     }
+    fn is_open(&self) -> bool;
     fn close(&self);
 }
 
@@ -460,7 +464,7 @@ impl MessageWriter {
     }
 
     fn is_open(&self) -> bool {
-        self.open.load(Ordering::Acquire)
+        self.open.load(Ordering::Acquire) && self.sink.is_open()
     }
 
     fn close(&self) {
@@ -470,50 +474,35 @@ impl MessageWriter {
     }
 }
 
-struct LineSink(Arc<Mutex<Box<dyn transport::Stream>>>);
-
-impl MessageSink for LineSink {
-    fn send(&self, value: &Value) -> std::io::Result<()> {
-        let mut bytes = serde_json::to_vec(value)?;
-        bytes.push(b'\n');
-        let mut stream = self.0.lock().unwrap();
-        stream.write_all(&bytes)
-    }
-
-    fn close(&self) {}
-}
-
-const WEBSOCKET_OUTBOUND_CAPACITY: usize = 256;
-const WEBSOCKET_CONTROL_RESERVE: usize = 256;
-
-struct WebSocketSink {
-    outbound: Arc<WebSocketOutbound>,
+#[derive(Default)]
+struct BoundedOutbound {
+    state: Mutex<BoundedOutboundState>,
+    changed: Condvar,
 }
 
 #[derive(Default)]
-struct WebSocketOutbound {
-    state: Mutex<WebSocketOutboundState>,
-}
-
-#[derive(Default)]
-struct WebSocketOutboundState {
+struct BoundedOutboundState {
     queue: VecDeque<(String, bool)>,
     regular_count: usize,
+    closed: bool,
 }
 
-impl WebSocketOutbound {
+impl BoundedOutbound {
     fn push(&self, text: String, terminal: bool) -> std::io::Result<()> {
         let mut state = self.state.lock().unwrap();
-        let total_capacity = WEBSOCKET_OUTBOUND_CAPACITY + WEBSOCKET_CONTROL_RESERVE;
+        if state.closed {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        let total_capacity = OUTBOUND_CAPACITY + OUTBOUND_CONTROL_RESERVE;
         if state.queue.len() >= total_capacity
-            || (!terminal && state.regular_count >= WEBSOCKET_OUTBOUND_CAPACITY)
+            || (!terminal && state.regular_count >= OUTBOUND_CAPACITY)
         {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::WouldBlock,
                 if terminal {
-                    "WebSocket control reserve overflowed"
+                    "outbound control reserve overflowed"
                 } else {
-                    "WebSocket outbound queue overflowed"
+                    "outbound queue overflowed"
                 },
             ));
         }
@@ -521,20 +510,51 @@ impl WebSocketOutbound {
             state.regular_count += 1;
         }
         state.queue.push_back((text, terminal));
+        self.changed.notify_one();
         Ok(())
     }
 
-    fn pop(&self) -> Option<String> {
+    fn try_pop(&self) -> Option<String> {
         let mut state = self.state.lock().unwrap();
+        Self::pop_locked(&mut state)
+    }
+
+    fn recv(&self) -> Option<String> {
+        let mut state = self.state.lock().unwrap();
+        loop {
+            if let Some(text) = Self::pop_locked(&mut state) {
+                return Some(text);
+            }
+            if state.closed {
+                return None;
+            }
+            state = self.changed.wait(state).unwrap();
+        }
+    }
+
+    fn pop_locked(state: &mut BoundedOutboundState) -> Option<String> {
         let (text, terminal) = state.queue.pop_front()?;
         if !terminal {
             state.regular_count -= 1;
         }
         Some(text)
     }
+
+    fn is_open(&self) -> bool {
+        !self.state.lock().unwrap().closed
+    }
+
+    fn close(&self) {
+        self.state.lock().unwrap().closed = true;
+        self.changed.notify_all();
+    }
 }
 
-impl MessageSink for WebSocketSink {
+struct QueuedSink {
+    outbound: Arc<BoundedOutbound>,
+}
+
+impl MessageSink for QueuedSink {
     fn send(&self, value: &Value) -> std::io::Result<()> {
         let text = serde_json::to_string(value)?;
         self.outbound.push(text, false)
@@ -545,7 +565,13 @@ impl MessageSink for WebSocketSink {
         self.outbound.push(text, true)
     }
 
-    fn close(&self) {}
+    fn is_open(&self) -> bool {
+        self.outbound.is_open()
+    }
+
+    fn close(&self) {
+        self.outbound.close();
+    }
 }
 
 /// Bind the socket and serve connections on background threads.
@@ -675,8 +701,28 @@ fn sanitize_window_title(title: &str) -> String {
 }
 
 fn handle_connection(mux: Arc<Mux>, stream: Box<dyn transport::Stream>) {
-    let Ok(write_half) = stream.try_clone_box() else { return };
-    let writer = MessageWriter::new(LineSink(Arc::new(Mutex::new(write_half))));
+    let Ok(mut write_half) = stream.try_clone_box() else { return };
+    if write_half.set_write_timeout(Some(STREAM_WRITE_TIMEOUT)).is_err() {
+        return;
+    }
+    let outbound = Arc::new(BoundedOutbound::default());
+    let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone() });
+    let writer_outbound = outbound;
+    let Ok(writer_thread) =
+        std::thread::Builder::new().name("mux-line-out".into()).spawn(move || {
+            while let Some(text) = writer_outbound.recv() {
+                if write_half.write_all(text.as_bytes()).is_err()
+                    || write_half.write_all(b"\n").is_err()
+                {
+                    writer_outbound.close();
+                    break;
+                }
+            }
+        })
+    else {
+        writer.close();
+        return;
+    };
     let reader = BufReader::new(stream);
     for line in reader.lines() {
         let Ok(line) = line else { break };
@@ -688,6 +734,7 @@ fn handle_connection(mux: Arc<Mux>, stream: Box<dyn transport::Stream>) {
         }
     }
     writer.close();
+    let _ = writer_thread.join();
 }
 
 fn handle_websocket_connection(mux: Arc<Mux>, stream: TcpStream, token: Option<&str>) {
@@ -707,11 +754,11 @@ fn handle_websocket_connection(mux: Arc<Mux>, stream: TcpStream, token: Option<&
         }
     }
     let _ = websocket.get_mut().set_read_timeout(Some(STREAM_DISCONNECT_POLL));
-    let outbound = Arc::new(WebSocketOutbound::default());
-    let writer = MessageWriter::new(WebSocketSink { outbound: outbound.clone() });
+    let outbound = Arc::new(BoundedOutbound::default());
+    let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone() });
 
     'connection: loop {
-        while let Some(text) = outbound.pop() {
+        while let Some(text) = outbound.try_pop() {
             if websocket.send(Message::Text(text.into())).is_err() {
                 break 'connection;
             }
@@ -1878,54 +1925,23 @@ pub fn cleanup(path: &Path) {
 mod tests {
     use super::*;
     use crate::SurfaceOptions;
-    use std::io::{Read, Write};
     use std::sync::mpsc::TryRecvError;
     use std::time::Duration;
-
-    struct NullStream;
-
-    impl Read for NullStream {
-        fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
-            Ok(0)
-        }
-    }
-
-    impl Write for NullStream {
-        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-            Ok(buf.len())
-        }
-
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-
-    impl transport::Stream for NullStream {
-        fn try_clone_box(&self) -> std::io::Result<Box<dyn transport::Stream>> {
-            Ok(Box::new(NullStream))
-        }
-
-        fn set_read_timeout(&self, _timeout: Option<Duration>) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
 
     fn test_mux() -> Arc<Mux> {
         Mux::new_for_test("test", SurfaceOptions::default())
     }
 
     fn test_writer() -> MessageWriter {
-        MessageWriter::new(LineSink(Arc::new(Mutex::new(
-            Box::new(NullStream) as Box<dyn transport::Stream>
-        ))))
+        MessageWriter::new(QueuedSink { outbound: Arc::new(BoundedOutbound::default()) })
     }
 
     #[test]
-    fn websocket_writer_reserves_a_terminal_overflow_lane() {
-        let outbound = Arc::new(WebSocketOutbound::default());
-        let writer = MessageWriter::new(WebSocketSink { outbound: outbound.clone() });
+    fn bounded_writer_reserves_a_terminal_overflow_lane() {
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone() });
 
-        for sequence in 0..WEBSOCKET_OUTBOUND_CAPACITY {
+        for sequence in 0..OUTBOUND_CAPACITY {
             writer.send(&json!({"event": "output", "sequence": sequence})).unwrap();
         }
         let error = writer.send(&json!({"event": "extra"})).unwrap_err();
@@ -1933,13 +1949,24 @@ mod tests {
         assert!(writer.is_open());
 
         writer.send_terminal(&subscription_overflow_json()).unwrap();
-        let drained = (0..WEBSOCKET_OUTBOUND_CAPACITY)
-            .map(|_| outbound.pop().expect("accepted output"))
+        let drained = (0..OUTBOUND_CAPACITY)
+            .map(|_| outbound.try_pop().expect("accepted output"))
             .collect::<Vec<_>>();
         assert!(drained[0].contains("\"sequence\":0"));
-        let terminal: Value = serde_json::from_str(&outbound.pop().unwrap()).unwrap();
+        let terminal: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
         assert_eq!(terminal["event"], "overflow");
         assert!(writer.is_open());
+    }
+
+    #[test]
+    fn closing_bounded_writer_wakes_a_waiting_drain() {
+        let outbound = Arc::new(BoundedOutbound::default());
+        let waiting = outbound.clone();
+        let drain = std::thread::spawn(move || waiting.recv());
+
+        outbound.close();
+
+        assert_eq!(drain.join().unwrap(), None);
     }
 
     #[test]

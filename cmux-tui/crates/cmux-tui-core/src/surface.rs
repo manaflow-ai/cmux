@@ -354,9 +354,7 @@ impl Surface {
                         let before = terminal_scroll_position(&term);
                         term.vt_write(&buf[..n]);
                         let after = terminal_scroll_position(&term);
-                        {
-                            pty.broadcast_attach_frame(AttachFrame::Output(buf[..n].to_vec()));
-                        }
+                        pty.broadcast_attach_output(&buf[..n]);
                         if title_changed.swap(false, Ordering::Relaxed) {
                             let title = term.title().unwrap_or_default();
                             *pty.title.lock().unwrap() = title.clone();
@@ -846,6 +844,15 @@ impl ChildKiller for TestChildKiller {
 }
 
 impl PtySurface {
+    fn broadcast_attach_output(&self, bytes: &[u8]) {
+        let mut taps = self.taps.lock().unwrap();
+        if taps.is_empty() {
+            return;
+        }
+        let frame = AttachFrame::Output(bytes.to_vec());
+        taps.retain(|tap| tap.try_send(frame.clone()));
+    }
+
     fn broadcast_attach_frame(&self, frame: AttachFrame) {
         self.taps.lock().unwrap().retain(|tap| tap.try_send(frame.clone()));
     }

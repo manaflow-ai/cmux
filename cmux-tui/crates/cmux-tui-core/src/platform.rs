@@ -10,6 +10,7 @@ pub mod transport {
     pub trait Stream: Read + Write + Send {
         fn try_clone_box(&self) -> io::Result<Box<dyn Stream>>;
         fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()>;
+        fn set_write_timeout(&self, timeout: Option<Duration>) -> io::Result<()>;
     }
 
     pub struct Listener {
@@ -66,6 +67,10 @@ pub mod transport {
             fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
                 UnixStream::set_read_timeout(self, timeout)
             }
+
+            fn set_write_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
+                UnixStream::set_write_timeout(self, timeout)
+            }
         }
     }
 
@@ -104,6 +109,10 @@ pub mod transport {
 
             fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
                 UnixStream::set_read_timeout(self, timeout)
+            }
+
+            fn set_write_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
+                UnixStream::set_write_timeout(self, timeout)
             }
         }
     }
