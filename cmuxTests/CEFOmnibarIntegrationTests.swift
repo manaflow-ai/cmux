@@ -259,18 +259,82 @@ struct CEFOmnibarIntegrationTests {
     }
 
     @Test
+    func dockRoundTripPreservesChromiumSurfaceKind() throws {
+        let source = Workspace()
+        let sourcePane = try #require(source.bonsplitController.allPaneIds.first)
+        let panel = CEFBrowserPanel(workspaceId: source.id)
+        source.panels[panel.id] = panel
+        source.panelTitles[panel.id] = panel.displayTitle
+        let tabID = try #require(source.bonsplitController.createTab(
+            title: panel.displayTitle,
+            icon: panel.displayIcon,
+            kind: "cefBrowser",
+            isDirty: false,
+            isLoading: false,
+            isPinned: false,
+            inPane: sourcePane
+        ))
+        source.bindSurface(tabID, toPanelId: panel.id)
+        let detached = try #require(source.detachSurface(panelId: panel.id))
+        let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        defer { dock.closeAllPanels() }
+        let dockPane = try #require(dock.bonsplitController.allPaneIds.first)
+
+        _ = try #require(dock.attachDetachedSurface(detached, inPane: dockPane, focus: false))
+        let roundTripped = try #require(dock.detachSurface(panelId: panel.id))
+
+        #expect(roundTripped.kind == "cefBrowser")
+    }
+
+    @Test
     func extensionDownloadsRequirePinnedSHA256Digests() throws {
+        let temporary = temporaryDirectory(named: "extension-digest")
+        defer { try? FileManager.default.removeItem(at: temporary) }
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let scriptURL = repositoryRoot
             .appendingPathComponent("Packages/macOS/CEFKit/scripts/fetch-extensions.sh")
-        let script = try String(contentsOf: scriptURL, encoding: .utf8)
+        let fakeBin = temporary.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: fakeBin, withIntermediateDirectories: true)
+        let payload = temporary.appendingPathComponent("corrupt.zip")
+        try Data("not the pinned extension".utf8).write(to: payload)
+        let unzipMarker = temporary.appendingPathComponent("unzip-ran")
+        let fakeCurl = fakeBin.appendingPathComponent("curl")
+        try """
+        #!/bin/sh
+        while [ "$#" -gt 0 ]; do
+          if [ "$1" = "-o" ]; then output="$2"; shift 2; else shift; fi
+        done
+        cp "$CEF_TEST_PAYLOAD" "$output"
+        """.write(to: fakeCurl, atomically: true, encoding: .utf8)
+        let fakeUnzip = fakeBin.appendingPathComponent("unzip")
+        try """
+        #!/bin/sh
+        touch "$CEF_TEST_UNZIP_MARKER"
+        exit 99
+        """.write(to: fakeUnzip, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCurl.path)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeUnzip.path)
+        let process = Process()
+        let stderr = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = [scriptURL.path]
+        process.standardError = stderr
+        process.standardOutput = Pipe()
+        process.environment = [
+            "PATH": "\(fakeBin.path):/usr/bin:/bin",
+            "CEF_TEST_PAYLOAD": payload.path,
+            "CEF_TEST_UNZIP_MARKER": unzipMarker.path,
+        ]
 
-        #expect(script.contains("UBOL_SHA256="))
-        #expect(script.contains("BITWARDEN_SHA256="))
-        #expect(script.contains("shasum -a 256 -c"))
-        #expect(script.range(of: "shasum -a 256 -c")!.lowerBound < script.range(of: "unzip -q")!.lowerBound)
+        try process.run()
+        process.waitUntilExit()
+        let errorOutput = String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+
+        #expect(process.terminationStatus != 0)
+        #expect(errorOutput.contains("SHA-256 mismatch"))
+        #expect(!FileManager.default.fileExists(atPath: unzipMarker.path))
     }
 
     @Test
