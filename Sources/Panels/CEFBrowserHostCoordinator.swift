@@ -55,11 +55,18 @@ final class CEFBrowserHostCoordinator {
         }
     }
 
-    deinit {
-        Self.registrations.removeValue(forKey: registrationID)
-        if Self.registrations.isEmpty, let eventMonitor = Self.eventMonitor {
+    private static func unregister(_ registrationID: ObjectIdentifier) {
+        registrations.removeValue(forKey: registrationID)
+        if registrations.isEmpty, let eventMonitor {
             NSEvent.removeMonitor(eventMonitor)
             Self.eventMonitor = nil
+        }
+    }
+
+    deinit {
+        let registrationID = registrationID
+        Task { @MainActor in
+            Self.unregister(registrationID)
         }
     }
 }
