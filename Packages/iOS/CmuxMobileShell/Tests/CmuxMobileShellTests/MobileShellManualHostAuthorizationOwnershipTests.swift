@@ -113,6 +113,7 @@ import Testing
 
     @Test func secondaryTrustFailureDoesNotDisconnectForegroundConnection() async throws {
         let router = LivenessHostRouter()
+        await router.setHostIdentity(deviceID: "foreground-mac", instanceTag: nil, displayName: "Foreground Mac")
         let runtime = LivenessTestRuntime(
             transportFactory: LivenessTransportFactory(router: router, box: TransportBox()),
             now: { Date() },
@@ -214,6 +215,7 @@ import Testing
 
     @Test func staleForegroundAuthorizationFailureDoesNotDisconnectReplacementClient() async throws {
         let oldRouter = LivenessHostRouter()
+        await oldRouter.setHostIdentity(deviceID: "old-mac", instanceTag: nil, displayName: "Old Mac")
         let failureGate = HeldAuthorizationFailureGate()
         let oldRuntime = LivenessTestRuntime(
             transportFactory: HeldAuthorizationFailureTransportFactory(
@@ -273,6 +275,7 @@ import Testing
 
     @Test func staleForegroundAuthorizationFailureDoesNotDisconnectNewConnectionGeneration() async throws {
         let router = LivenessHostRouter()
+        await router.setHostIdentity(deviceID: "foreground-mac", instanceTag: nil, displayName: "Foreground Mac")
         let failureGate = HeldAuthorizationFailureGate()
         let runtime = LivenessTestRuntime(
             transportFactory: HeldAuthorizationFailureTransportFactory(

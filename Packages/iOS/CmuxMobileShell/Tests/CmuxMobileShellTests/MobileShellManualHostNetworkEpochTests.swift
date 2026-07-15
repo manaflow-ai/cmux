@@ -11,6 +11,7 @@ import Testing
         let reachability = ControllablePathChangeReachability()
         let trustStore = NetworkEpochManualHostTrustStore()
         let router = LivenessHostRouter()
+        await router.setHostIdentity(deviceID: "foreground-mac", instanceTag: nil, displayName: "Foreground Mac")
         let runtime = LivenessTestRuntime(
             transportFactory: LivenessTransportFactory(router: router, box: TransportBox()),
             now: { Date() },
@@ -137,6 +138,7 @@ import Testing
                 port: 58_465,
                 route: route,
                 pairedMacDeviceID: "manual-mac",
+                instanceTagExpectation: .adopt,
                 recordsPairingAttempt: false,
                 macSwitchAttemptID: nil,
                 ifStillCurrent: nil
@@ -172,6 +174,7 @@ import Testing
         let reachability = ControllablePathChangeReachability()
         let trustStore = NetworkEpochManualHostTrustStore()
         let router = LivenessHostRouter()
+        await router.setHostIdentity(deviceID: "manual-mac", instanceTag: nil, displayName: "LAN Mac")
         let runtime = LivenessTestRuntime(
             transportFactory: LivenessTransportFactory(router: router, box: TransportBox()),
             now: { Date() },
@@ -222,6 +225,7 @@ import Testing
         let reachability = ControllablePathChangeReachability()
         let trustStore = NetworkEpochManualHostTrustStore()
         let router = LivenessHostRouter()
+        await router.setHostIdentity(deviceID: "manual-mac", instanceTag: nil, displayName: "LAN Mac")
         let runtime = LivenessTestRuntime(
             transportFactory: LivenessTransportFactory(router: router, box: TransportBox()),
             now: { Date() },
@@ -279,6 +283,7 @@ import Testing
         let reachability = ControllablePathChangeReachability()
         let trustStore = NetworkEpochManualHostTrustStore()
         let router = LivenessHostRouter()
+        await router.setHostIdentity(deviceID: "foreground-mac", instanceTag: nil, displayName: "Foreground Mac")
         let runtime = LivenessTestRuntime(
             transportFactory: LivenessTransportFactory(router: router, box: TransportBox()),
             now: { Date() },

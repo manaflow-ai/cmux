@@ -144,6 +144,7 @@ extension MobileShellComposite {
             params: [
                 "ttl_seconds": 3600,
                 "scope": "mac",
+                "target": "ticket_only",
             ]
         )
         let resultData: Data

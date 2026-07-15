@@ -2,7 +2,7 @@ public import AppKit
 public import Foundation
 public import GhosttyKit
 
-// MARK: - Surface sizing, scale, and mobile viewport caps
+// MARK: - Surface sizing and scale
 
 extension TerminalSurface {
     /// Match upstream Ghostty AppKit sizing: framebuffer dimensions are derived
@@ -136,9 +136,14 @@ extension TerminalSurface {
         let rawHpx = pixelDimension(from: resolvedBackingHeight)
         lastUncappedPixelWidth = rawWpx
         lastUncappedPixelHeight = rawHpx
-        let cappedSize = cappedByMobileViewportLimit(width: rawWpx, height: rawHpx, surface: surface)
-        let wpx = cappedSize.width
-        let hpx = cappedSize.height
+        let fittedSize = mobileViewportFittedSize(
+            width: rawWpx,
+            height: rawHpx,
+            surface: surface,
+            reason: "updateSize"
+        )
+        let wpx = fittedSize.width
+        let hpx = fittedSize.height
         guard wpx > 0, hpx > 0 else { return false }
 
         let scaleChanged = !scaleApproximatelyEqual(xScale, lastXScale) || !scaleApproximatelyEqual(yScale, lastYScale)
@@ -157,7 +162,7 @@ extension TerminalSurface {
             )
         }
 
-        guard scaleChanged || sizeChanged else { return false }
+        guard scaleChanged || sizeChanged || fittedSize.fontChanged else { return false }
 
         #if DEBUG
         if sizeChanged {
@@ -207,7 +212,10 @@ extension TerminalSurface {
                     "cell=\(currentSize.cell_width_px)x\(currentSize.cell_height_px)"
                 )
                 #endif
-                return scaleChanged
+                if fittedSize.fontChanged {
+                    ghostty_surface_refresh(surface)
+                }
+                return scaleChanged || fittedSize.fontChanged
             }
 
             // Mirror (manual-I/O) surfaces must not reflow their primary screen
@@ -232,6 +240,10 @@ extension TerminalSurface {
                     writeProcessOutputData(Self.decawmEnableSequence, to: surface)
                 }
             }
+        }
+
+        if fittedSize.fontChanged && !sizeChanged {
+            ghostty_surface_refresh(surface)
         }
 
         // Deferred from above on a DPI increase: now that set_size grew the grid,

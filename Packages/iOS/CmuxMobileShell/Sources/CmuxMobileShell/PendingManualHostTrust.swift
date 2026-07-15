@@ -9,6 +9,7 @@ enum PendingManualHostTrust {
         port: Int,
         route: CmxAttachRoute,
         pairedMacDeviceID: String?,
+        instanceTagExpectation: MobileMacInstanceTagExpectation,
         recordsPairingAttempt: Bool,
         macSwitchAttemptID: UUID?,
         ifStillCurrent: (() -> Bool)?
@@ -22,7 +23,7 @@ enum PendingManualHostTrust {
 
     var attemptID: UUID {
         switch self {
-        case let .manual(attemptID, _, _, _, _, _, _, _, _):
+        case let .manual(attemptID, _, _, _, _, _, _, _, _, _):
             attemptID
         case let .pairingURL(attemptID, _, _, _):
             attemptID
@@ -31,7 +32,7 @@ enum PendingManualHostTrust {
 
     var macSwitchAttemptID: UUID? {
         switch self {
-        case let .manual(_, _, _, _, _, _, _, macSwitchAttemptID, _):
+        case let .manual(_, _, _, _, _, _, _, _, macSwitchAttemptID, _):
             macSwitchAttemptID
         case .pairingURL:
             nil
@@ -40,7 +41,7 @@ enum PendingManualHostTrust {
 
     var ifStillCurrent: (() -> Bool)? {
         switch self {
-        case let .manual(_, _, _, _, _, _, _, _, ifStillCurrent):
+        case let .manual(_, _, _, _, _, _, _, _, _, ifStillCurrent):
             ifStillCurrent
         case .pairingURL:
             nil
@@ -49,7 +50,7 @@ enum PendingManualHostTrust {
 
     var pairedMacDeviceID: String? {
         switch self {
-        case let .manual(_, _, _, _, _, pairedMacDeviceID, _, _, _):
+        case let .manual(_, _, _, _, _, pairedMacDeviceID, _, _, _, _):
             pairedMacDeviceID
         case .pairingURL:
             nil

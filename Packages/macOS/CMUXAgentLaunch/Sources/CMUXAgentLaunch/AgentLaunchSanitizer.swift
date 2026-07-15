@@ -19,6 +19,10 @@ public enum AgentLaunchSanitizer {
     struct Policy {
         var valueOptions: Set<String>
         var optionalValueOptions: Set<String> = []; var optionalValueChoices: [String: Set<String>] = [:]; var greedyOptionalValueOptions: Set<String> = []
+        /// Flags known to never consume a value. Exactly one token wide, so the
+        /// unknown-option value heuristic can never promote a following prompt
+        /// positional to the flag's "value" and replay it on resume.
+        var booleanOptions: Set<String> = []
         var variadicOptions: Set<String> = []
         var nonRestorableCommands: Set<String>
         var droppedOptions: Set<String>
@@ -111,6 +115,8 @@ public enum AgentLaunchSanitizer {
             return preserveOptions(args, policy: grokPolicy)
         case "pi", "omp":
             return preserveOptions(args, policy: piPolicy)
+        case "campfire":
+            return preserveOptions(args, policy: campfirePolicy)
         case "amp":
             // Strip the `threads continue <id>` resume sub-subcommand if the
             // captured launch already started by resuming a thread, so we
@@ -187,6 +193,8 @@ public enum AgentLaunchSanitizer {
             return preserveOptions(args, policy: factoryPolicy)
         case "qoder":
             return preserveOptions(args, policy: qoderPolicy)
+        case "ollama":
+            return OllamaLaunchArgumentsPreserver().preservedArguments(args)
         default:
             return nil
         }

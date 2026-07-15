@@ -43,6 +43,7 @@ import Testing
         await trustStore.trust(trustScope)
         let attempts = RouteAttemptRecorder()
         let router = LivenessHostRouter()
+        await router.setHostIdentity(deviceID: "secondary-mac", instanceTag: nil, displayName: "Secondary Mac")
         let runtime = LivenessTestRuntime(
             transportFactory: SecondaryRouteFallbackTransportFactory(
                 router: router,

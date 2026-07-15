@@ -291,6 +291,8 @@ struct DockPortalReconcileTests {
             restoredUnreadIndicator: nil,
             restorableAgent: nil,
             restorableAgentResumeState: nil,
+            restoredAgentCompletedGeneration: nil,
+            shellActivityState: nil,
             restoredResumeSessionWorkingDirectory: nil,
             resumeBinding: nil,
             agentRuntime: nil,

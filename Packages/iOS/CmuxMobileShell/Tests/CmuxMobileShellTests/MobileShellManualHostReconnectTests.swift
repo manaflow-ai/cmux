@@ -109,6 +109,7 @@ import Testing
         )
         let clock = TestClock()
         let router = LivenessHostRouter()
+        await router.setHostIdentity(deviceID: "manual-mac", instanceTag: nil, displayName: "Manual Mac")
         let box = TransportBox()
         let runtime = LivenessTestRuntime(
             transportFactory: LivenessTransportFactory(router: router, box: box),
@@ -162,10 +163,12 @@ import Testing
             teamID: nil,
             now: Date()
         )
+        let clock = TestClock()
         let router = LivenessHostRouter()
+        await router.setHostIdentity(deviceID: "manual-mac", instanceTag: nil, displayName: "Manual Mac")
         let runtime = LivenessTestRuntime(
             transportFactory: LivenessTransportFactory(router: router, box: TransportBox()),
-            now: { Date() },
+            now: { clock.now },
             supportedRouteKinds: [.manualHost],
             supportsServerPushEvents: false
         )
@@ -316,6 +319,7 @@ import Testing
         let router = LivenessHostRouter()
         let box = TransportBox()
         let attempts = RouteAttemptRecorder()
+        await router.setHostIdentity(deviceID: "manual-mac", instanceTag: nil, displayName: "Manual Mac")
         let runtime = LivenessTestRuntime(
             transportFactory: ManualFallbackApprovalTransportFactory(router: router, box: box, attempts: attempts),
             now: { clock.now },
@@ -383,6 +387,7 @@ import Testing
             now: Date()
         )
         let router = LivenessHostRouter()
+        await router.setHostIdentity(deviceID: "old-mac", instanceTag: nil, displayName: "Old Mac")
         let runtime = LivenessTestRuntime(
             transportFactory: RouteSelectiveFailureTransportFactory(
                 failingRouteID: targetRoute.id,

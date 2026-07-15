@@ -9,6 +9,7 @@ private struct ManualHostReapproval {
     let port: Int
     let route: CmxAttachRoute
     let pairedMacDeviceID: String?
+    let instanceTagExpectation: MobileMacInstanceTagExpectation
 }
 
 @MainActor
@@ -163,12 +164,16 @@ extension MobileShellComposite {
             return .superseded
         }
         switch pending {
-        case let .manual(_, name, host, port, route, pairedMacDeviceID, recordsPairingAttempt, macSwitchAttemptID, ifStillCurrent):
+        case let .manual(
+            _, name, host, port, route, pairedMacDeviceID, instanceTagExpectation,
+            recordsPairingAttempt, macSwitchAttemptID, ifStillCurrent
+        ):
             let result = await connectManualHost(
                 name: name,
                 host: host,
                 port: port,
                 pairedMacDeviceID: pairedMacDeviceID,
+                instanceTagExpectation: instanceTagExpectation,
                 recordsPairingAttempt: recordsPairingAttempt,
                 route: route,
                 pendingMacSwitchAttemptID: macSwitchAttemptID,
@@ -334,6 +339,7 @@ extension MobileShellComposite {
                     port: reapproval.port,
                     route: reapproval.route,
                     pairedMacDeviceID: reapproval.pairedMacDeviceID,
+                    instanceTagExpectation: reapproval.instanceTagExpectation,
                     recordsPairingAttempt: false,
                     macSwitchAttemptID: nil,
                     ifStillCurrent: nil
@@ -349,7 +355,7 @@ extension MobileShellComposite {
     private func reissuableManualHostApproval() -> ManualHostReapproval? {
         guard manualHostTrustWarning != nil,
               case let .manual(
-                  _, name, host, port, route, pairedMacDeviceID,
+                  _, name, host, port, route, pairedMacDeviceID, instanceTagExpectation,
                   recordsPairingAttempt, macSwitchAttemptID, ifStillCurrent
               )? = pendingManualHostTrust,
               !recordsPairingAttempt,
@@ -362,7 +368,8 @@ extension MobileShellComposite {
             host: host,
             port: port,
             route: route,
-            pairedMacDeviceID: pairedMacDeviceID
+            pairedMacDeviceID: pairedMacDeviceID,
+            instanceTagExpectation: instanceTagExpectation
         )
     }
 

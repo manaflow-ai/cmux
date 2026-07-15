@@ -1,5 +1,16 @@
+import CmuxRemoteSession
 import Bonsplit
 import Foundation
+
+extension SplitOrientation {
+    var remoteTmuxOrientation: RemoteTmuxSplitOrientation {
+        self == .horizontal ? .horizontal : .vertical
+    }
+
+    var treeName: String {
+        self == .horizontal ? "horizontal" : "vertical"
+    }
+}
 
 extension RemoteTmuxWindowMirror {
     func clientGrid(contentSize: CGSize) -> (columns: Int, rows: Int)? {
@@ -19,7 +30,11 @@ extension RemoteTmuxWindowMirror {
                 height: CGFloat(geometry.surfacePadHeightPx) / geometry.scale
             ),
             tabBarHeight: appearance.tabBarHeight,
-            dividerThickness: appearance.dividerThickness
+            dividerThickness: appearance.dividerThickness,
+            paneTitleRowHeight: tmuxTitleRowPlacement != nil
+                ? CGFloat(geometry.cellHeightPx) / geometry.scale
+                : 0,
+            paneTitleRowPaneIDs: tmuxTitleRowPlacement?.paneIDs(in: renderedLayout) ?? []
         )
     }
 
@@ -41,18 +56,17 @@ extension RemoteTmuxWindowMirror {
         ).clientGrid(layout: layout, contentSize: contentSize)
     }
 
-    nonisolated static func paneTitle(command: String?, cwd: String?) -> String? {
-        let trimmedCommand = command?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !trimmedCommand.isEmpty,
-           !RemoteTmuxPaneForegroundState.plainShellCommands.contains(trimmedCommand) {
-            return trimmedCommand
-        }
-        let trimmedCwd = cwd?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !trimmedCwd.isEmpty {
-            let component = URL(fileURLWithPath: trimmedCwd).lastPathComponent
-            if !component.isEmpty { return component }
-        }
-        return nil
+    nonisolated static func windowPaneTitle(_ windowTitle: String, paneIndex: Int) -> String {
+        let trimmed = windowTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let base = trimmed.isEmpty
+            ? String(localized: "remoteTmux.tab.window", defaultValue: "tmux window")
+            : trimmed
+        guard paneIndex > 0 else { return base }
+        let formattedIndex = paneIndex.formatted()
+        return String(
+            localized: "remoteTmux.tab.windowPaneIndexed",
+            defaultValue: "\(base) [\(formattedIndex)]"
+        )
     }
 
     nonisolated static func dividerFraction(
@@ -74,7 +88,7 @@ extension RemoteTmuxWindowMirror {
         nativeLayoutMetrics()?.dividerFraction(
             first: first,
             rest: rest,
-            orientation: orientation
+            orientation: orientation.remoteTmuxOrientation
         ) ?? Self.dividerFraction(
             first: first,
             rest: rest,

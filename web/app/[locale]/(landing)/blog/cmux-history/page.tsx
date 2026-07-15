@@ -1,6 +1,7 @@
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
-import { buildAlternates } from "@/i18n/seo";
+import { buildAlternates, openGraphDefaults, twitterSummary } from "@/i18n/seo";
+import { cmuxHistorySeoCopy } from "@/i18n/audited-seo";
 import { BlogSchema } from "../blog-schema";
 import { Link } from "@/i18n/navigation";
 import { CodeBlock } from "@/app/[locale]/components/code-block";
@@ -12,47 +13,50 @@ export async function generateMetadata({
 }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "blog.cmuxHistory" });
+  const post = await getTranslations({
+    locale,
+    namespace: "blog.posts.cmuxHistory",
+  });
+  const siteMeta = await getTranslations({ locale, namespace: "meta" });
+  const alternates = buildAlternates(locale, "/blog/cmux-history");
+  const { title, description } = cmuxHistorySeoCopy(
+    locale,
+    t,
+    post,
+    siteMeta,
+  );
   return {
-    title: t("metaTitle"),
-    description: t("metaDescription"),
-    keywords: [
-      "cmux",
-      "history",
-      "reopen closed terminal",
-      "restore closed tab",
-      "reopen terminal tab",
-      "reopen closed workspace",
-      "terminal history",
-      "Cmd+Shift+T",
-      "focus history",
-      "Claude Code",
-      "Codex",
-      "OpenCode",
-      "macOS",
-      "AI coding agents",
-    ],
+    title: { absolute: title },
+    description,
     openGraph: {
-      title: t("metaTitle"),
-      description: t("metaDescription"),
-      type: "article",
+      ...openGraphDefaults(locale, "article"),
+      title,
+      description,
+      url: alternates.canonical,
       publishedTime: "2026-06-02T00:00:00Z",
     },
-    twitter: {
-      card: "summary_large_image",
-      title: t("metaTitle"),
-      description: t("metaDescription"),
-    },
-    alternates: buildAlternates(locale, "/blog/cmux-history"),
+    twitter: twitterSummary(locale, title, description),
+    alternates,
   };
 }
 
 export default function CmuxHistoryBlogPage() {
   const t = useTranslations("blog.posts.cmuxHistory");
+  const tm = useTranslations("blog.cmuxHistory");
+  const siteMeta = useTranslations("meta");
   const tc = useTranslations("common");
+  const locale = useLocale();
+  const seoCopy = cmuxHistorySeoCopy(locale, tm, t, siteMeta);
 
   return (
     <>
-      <BlogSchema postKey="cmuxHistory" path="/blog/cmux-history" datePublished="2026-06-02T00:00:00Z" />
+      <BlogSchema
+        postKey="cmuxHistory"
+        path="/blog/cmux-history"
+        datePublished="2026-06-02T00:00:00Z"
+        headline={seoCopy.title}
+        description={seoCopy.description}
+      />
       <div className="mb-8">
         <Link
           href="/blog"

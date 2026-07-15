@@ -478,7 +478,7 @@ import Testing
         )
     }
 
-    private func makeStore(
+    func makeStore(
         runtime: any MobileSyncRuntime = PairingDeadlineRuntime(),
         pairingCode: String = "",
         connectionState: MobileConnectionState = .disconnected,

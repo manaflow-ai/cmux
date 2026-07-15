@@ -284,7 +284,7 @@ import Testing
         await pairedStore.waitUntilUpsertStarted(macDeviceID: "mac-a")
         await store.forgetMac(macDeviceID: "mac-a")
         await pairedStore.releaseUpsert(macDeviceID: "mac-a")
-        await store.waitForPushedRouteSyncForTesting()
+        await store.pushedRouteSyncTask?.value
 
         #expect(try await pairedStore.loadAll(stackUserID: "user-1", teamID: "team-a").isEmpty)
         #expect(store.pairedMacs.isEmpty)
@@ -384,7 +384,7 @@ import Testing
                 rpcAuthContext: store.currentRPCAuthContext()
             )
         )
-        await store.waitForPushedRouteSyncForTesting()
+        await store.pushedRouteSyncTask?.value
 
         let duplicateRows = try await pairedStore.loadAll(stackUserID: "user-1", teamID: "team-a")
             .filter { ["mac-old", "mac-fresh"].contains($0.macDeviceID) }

@@ -64,6 +64,9 @@ extension MobileShellComposite {
                 port: port,
                 route: route,
                 pairedMacDeviceID: pairedMacDeviceID,
+                instanceTagExpectation: MobileMacInstanceTagAuthority.expectation(
+                    storedInstanceTag: activeMacInstanceTag
+                ),
                 recordsPairingAttempt: false,
                 macSwitchAttemptID: nil,
                 ifStillCurrent: nil

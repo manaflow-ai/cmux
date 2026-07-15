@@ -808,6 +808,10 @@ final class TerminalOutputCollector {
     let responses = ScriptedTransportResponses([
         try rpcErrorFrame(code: "method_not_found", message: "unknown method"),
         try rpcWorkspaceListFrame(workspaceID: "manual-workspace", title: "Manual Workspace"),
+        try rpcHostStatusFrame(
+            renderGrid: false,
+            macDeviceID: "manual-100.71.210.41:15432"
+        ),
     ])
     let runtime = testRuntime(
         supportedRouteKinds: [.manualHost],
@@ -836,7 +840,9 @@ final class TerminalOutputCollector {
     #expect(store.connectedHostName == "Work Mac")
     #expect(store.activeRoute?.kind == .manualHost)
     let requests = try await responses.sentRequests()
-    #expect(requests.map(\.method) == ["mobile.attach_ticket.create", "workspace.list"])
+    #expect(requests.map(\.method) == [
+        "mobile.attach_ticket.create", "workspace.list", "mobile.host.status",
+    ])
     #expect(requests.allSatisfy { $0.stackAccessToken == "stack-token-for-fallback" })
     #expect(requests.allSatisfy { $0.attachToken == nil })
 }
@@ -1453,6 +1459,7 @@ final class TerminalOutputCollector {
     )
     let responses = ScriptedTransportResponses([
         try rpcWorkspaceListFrame(workspaceID: workspaceID, title: "Fallback Workspace"),
+        try rpcHostStatusFrame(renderGrid: false),
     ])
     let attempts = RouteAttemptRecorder()
     let runtime = testRuntime(
@@ -2609,6 +2616,8 @@ final class TerminalOutputCollector {
     #expect(store.selectedTerminalID?.rawValue == "terminal-notes")
 }
 
+@Suite(.serialized)
+struct TerminalStreamTests {
 @MainActor
 @Test func submittedTerminalInputIncludesClientViewportAndCarriageReturn() async throws {
     let route = try CmxAttachRoute(
@@ -2631,6 +2640,7 @@ final class TerminalOutputCollector {
             title: "Live Workspace",
             terminalID: "live-terminal"
         ),
+        try rpcHostStatusFrame(renderGrid: false),
         try rpcResultFrame(result: ["accepted": true]),
     ])
     let runtime = testRuntime(
@@ -2678,6 +2688,7 @@ final class TerminalOutputCollector {
             title: "Live Workspace",
             terminalID: "live-terminal"
         ),
+        try rpcHostStatusFrame(renderGrid: false),
         try rpcResultFrame(result: ["accepted": true]),
     ])
     let runtime = testRuntime(
@@ -2725,10 +2736,22 @@ final class TerminalOutputCollector {
     let currentGridText = try terminalRenderGridReplacementText(seq: 12, text: "current")
 
     _ = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
+    // Anchor on the cold replay's DELIVERY, not just its request: submitting
+    // input while the first replay's response is still in flight races the
+    // input-triggered resync against the in-flight replay's barrier state,
+    // and one interleaving legitimately skips the second replay (the flaky
+    // iPad failure in https://github.com/manaflow-ai/cmux/issues/7820). The
+    // scenario under test is a phone SETTLED at stale content learning from
+    // an input ack that the mac is ahead.
+    for _ in 0..<4000 where !collector.lines.contains(oldGridText) {
+        try await Task.sleep(nanoseconds: 1_000_000)
+    }
+    #expect(collector.lines.last == oldGridText)
 
     await store.submitTerminalRawInput(Data("x".utf8), surfaceID: "live-terminal")
 
-    _ = try await waitForRequestCount("mobile.terminal.replay", count: 2, router: router)
+    let replayRequests = try await waitForRequestCount("mobile.terminal.replay", count: 2, router: router)
+    #expect(replayRequests.count >= 2)
     _ = try await waitForRequestCount("mobile.events.subscribe", count: 2, router: router)
     // The request-count waits only prove the second replay was REQUESTED; its
     // response still has to round-trip and deliver. The slower CI iPad leg
@@ -2925,6 +2948,7 @@ final class TerminalOutputCollector {
     #expect(replayRequest.clientID?.isEmpty == false)
     collector.unmount()
 }
+}
 
 @MainActor
 @Test func pullToRefreshAwaitsRealWorkspaceListRoundTrip() async throws {
@@ -3068,6 +3092,7 @@ private func testRuntime(
             }
             return stackAccessToken
         },
+        stackAccessTokenForStatusProvider: { stackAccessToken },
         rpcRequestTimeoutNanoseconds: rpcRequestTimeoutNanoseconds,
         pairingRequestTimeoutNanoseconds: pairingRequestTimeoutNanoseconds,
         now: now,
@@ -3238,8 +3263,9 @@ private func terminalRenderGridStyledFrame(seq: UInt64, text: String) throws -> 
 private func rpcHostStatusFrame(
     renderGrid: Bool,
     terminalBytes: Bool = true,
-    macDeviceID: String? = nil,
-    macDisplayName: String? = nil
+    macDeviceID: String? = "test-mac",
+    macDisplayName: String? = nil,
+    macInstanceTag: String? = "default"
 ) throws -> Data {
     var capabilities = ["events.v1", "terminal.replay.v1"]
     if terminalBytes {
@@ -3257,6 +3283,9 @@ private func rpcHostStatusFrame(
     }
     if let macDisplayName {
         result["mac_display_name"] = macDisplayName
+    }
+    if let macInstanceTag {
+        result["mac_instance_tag"] = macInstanceTag
     }
     return try rpcResultFrame(result: result)
 }
@@ -4430,7 +4459,7 @@ private func rpcErrorFrame(code: String? = nil, message: String) throws -> Data 
 // MARK: - Push notification deep-link
 
 /// Inert registration stub: deep-link tests exercise tap routing only.
-private struct InertPushRegistration: PushRegistering {
+struct InertPushRegistration: PushRegistering {
     var isEnabled: Bool {
         get async { false }
     }
@@ -4441,7 +4470,7 @@ private struct InertPushRegistration: PushRegistering {
     func unregisterFromServer(accessToken: String?, refreshToken: String?) async {}
 }
 
-@MainActor private func deeplinkTestStore() -> CMUXMobileShellStore {
+@MainActor func deeplinkTestStore() -> CMUXMobileShellStore {
     CMUXMobileShellStore(
         runtime: testRuntime(
             transportFactory: RecordingNeverConnectTransportFactory(dials: TransportDialRecorder())
