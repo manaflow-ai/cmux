@@ -1,6 +1,6 @@
-public extension BrowserViewportLayout {
+extension BrowserViewportLayout {
     /// How the WebView derives its logical viewport.
-    enum Mode: String, Equatable, Sendable {
+    public enum Mode: String, Equatable, Sendable {
         /// The logical viewport follows the native pane geometry.
         case native
 
