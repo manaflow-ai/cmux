@@ -5,7 +5,9 @@ import SwiftUI
 struct WorkspaceNavigationRow: View {
     let workspace: MobileWorkspacePreview
     let connectionStatus: MobileMacConnectionStatus
-    let isSelected: Bool
+    /// Whether this workspace is active on its Mac. This remains true in
+    /// compact push navigation, where there is no persistent list selection.
+    let isCurrent: Bool
     let navigationStyle: WorkspaceNavigationStyle
     let wrapWorkspaceTitles: Bool
     /// How many lines the activity preview shows (1 or 2), forwarded to the
@@ -66,7 +68,12 @@ struct WorkspaceNavigationRow: View {
         .accessibilityAddTraits(.isButton)
         .accessibilityIdentifier("MobileWorkspaceRow-\(workspace.id.rawValue)")
         .accessibilityLabel(workspace.name)
-        .accessibilityValue(workspace.accessibilitySummary(connectionStatus: connectionStatus))
+        .accessibilityValue(
+            workspace.accessibilitySummary(
+                connectionStatus: connectionStatus,
+                isCurrent: isCurrent
+            )
+        )
         .sheet(isPresented: $isRenaming) {
             WorkspaceRenameSheet(currentName: workspace.name) { newName in
                 renameWorkspace?(workspace.id, newName)
@@ -115,7 +122,8 @@ struct WorkspaceNavigationRow: View {
         WorkspaceRow(
             workspace: workspace,
             connectionStatus: connectionStatus,
-            isSelected: navigationStyle == .sidebar && isSelected,
+            isCurrent: isCurrent,
+            isSidebarSelected: navigationStyle == .sidebar && isCurrent,
             wrapWorkspaceTitles: wrapWorkspaceTitles,
             previewLineLimit: previewLineLimit,
             unreadIndicatorLeftShift: unreadIndicatorLeftShift,

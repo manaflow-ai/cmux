@@ -83,8 +83,14 @@ extension MobileWorkspacePreview {
         L10n.terminalCount(terminals.count)
     }
 
-    func accessibilitySummary(connectionStatus: MobileMacConnectionStatus) -> String {
+    func accessibilitySummary(
+        connectionStatus: MobileMacConnectionStatus,
+        isCurrent: Bool
+    ) -> String {
         var parts: [String] = []
+        if isCurrent {
+            parts.append(L10n.string("mobile.workspace.current.a11y", defaultValue: "Current workspace"))
+        }
         // The unread dot itself is accessibility-hidden; VoiceOver hears the
         // state here instead, leading like Messages does.
         if hasUnread {

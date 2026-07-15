@@ -122,6 +122,24 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testCompactCurrentWorkspaceIdentityEnglish() throws {
+        assertCompactCurrentWorkspaceIdentity(
+            language: "en",
+            locale: "en_US",
+            expectedCurrentValue: "Current workspace"
+        )
+    }
+
+    @MainActor
+    func testCompactCurrentWorkspaceIdentityJapanese() throws {
+        assertCompactCurrentWorkspaceIdentity(
+            language: "ja",
+            locale: "ja_JP",
+            expectedCurrentValue: "現在のワークスペース"
+        )
+    }
+
+    @MainActor
     func testTerminalHierarchyPreviewUsesStablePaneAndTerminalActions() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_TERMINAL_HIERARCHY_PREVIEW": "1",
@@ -2102,10 +2120,12 @@ final class cmuxUITests: XCTestCase {
     private func launchApp(
         mockData: Bool,
         clearAuth: Bool = false,
-        environment: [String: String] = [:]
+        environment: [String: String] = [:],
+        language: String = "en",
+        locale: String = "en_US"
     ) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchArguments += ["-AppleLanguages", "(\(language))", "-AppleLocale", locale]
         app.launchEnvironment["CMUX_UITEST_MOCK_DATA"] = mockData ? "1" : "0"
         for (key, value) in environment {
             app.launchEnvironment[key] = value
@@ -2115,6 +2135,41 @@ final class cmuxUITests: XCTestCase {
         }
         app.launch()
         return app
+    }
+
+    @MainActor
+    private func assertCompactCurrentWorkspaceIdentity(
+        language: String,
+        locale: String,
+        expectedCurrentValue: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let app = launchApp(
+            mockData: false,
+            environment: ["CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1"],
+            language: language,
+            locale: locale
+        )
+        defer { app.terminate() }
+
+        let currentRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
+        XCTAssertTrue(currentRow.waitForExistence(timeout: 8), file: file, line: line)
+        XCTAssertTrue(
+            String(describing: currentRow.value).contains(expectedCurrentValue),
+            "Current row value must include the localized identity. value=\(String(describing: currentRow.value))",
+            file: file,
+            line: line
+        )
+
+        let otherRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-ios"]
+        XCTAssertTrue(otherRow.exists, file: file, line: line)
+        XCTAssertFalse(
+            String(describing: otherRow.value).contains(expectedCurrentValue),
+            "Only the current workspace may expose the current identity. value=\(String(describing: otherRow.value))",
+            file: file,
+            line: line
+        )
     }
 
     @MainActor

@@ -11,7 +11,7 @@ import SwiftUI
 /// static unread row, avoiding auth and Mac pairing while keeping layout code
 /// identical to the real shell.
 public struct WorkspaceListLayoutPreviewView: View {
-    @State private var selectedWorkspaceID: MobileWorkspacePreview.ID?
+    @State private var selectedWorkspaceID: MobileWorkspacePreview.ID? = "workspace-main"
     @State private var macSelection: WorkspaceMacSelection = .all
     // Safety: DEBUG screenshot-only presenter is owned by this preview view and
     // only mutates its fired flag from the SwiftUI task that requests the banner.

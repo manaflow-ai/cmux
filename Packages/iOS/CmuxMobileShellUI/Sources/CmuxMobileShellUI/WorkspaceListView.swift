@@ -533,8 +533,7 @@ struct WorkspaceListView: View {
                     group: group,
                     hasUnread: hasUnread,
                     navigationStyle: navigationStyle,
-                    isAnchorSelected: navigationStyle == .sidebar
-                        && selectedWorkspaceID == group.anchorWorkspaceID,
+                    isAnchorCurrent: selectedWorkspaceID == group.anchorWorkspaceID,
                     selectWorkspace: { id in _ = selectWorkspaceFromList(id) },
                     createWorkspaceInGroup: canCreateWorkspaceInGroups ? createWorkspaceInGroup : nil,
                     renameGroup: anchorCapabilities.supportsGroupActions ? renameWorkspaceGroup : nil,
@@ -569,7 +568,7 @@ struct WorkspaceListView: View {
         WorkspaceNavigationRow(
             workspace: workspace,
             connectionStatus: workspace.macConnectionStatus ?? connectionStatus,
-            isSelected: navigationStyle == .sidebar && selectedWorkspaceID == workspace.id,
+            isCurrent: selectedWorkspaceID == workspace.id,
             navigationStyle: navigationStyle,
             wrapWorkspaceTitles: wrapWorkspaceTitles,
             previewLineLimit: previewLineLimit,
