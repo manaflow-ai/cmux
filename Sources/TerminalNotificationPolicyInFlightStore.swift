@@ -8,14 +8,18 @@ final class TerminalNotificationPolicyInFlightStore {
     private struct Entry {
         let request: TerminalNotificationPolicyRequest
         let generation: UInt64
+        let deliveryIdentity: TerminalNotificationPolicyDeliveryIdentity
         let onDiscard: @MainActor @Sendable () -> Void
+        var indexedTabId: UUID
         var task: Task<Void, Never>?
         var completion: (@MainActor () -> Void)?
     }
     private let maximumRequestCount = 1_024
     private var requests: [UUID: Entry] = [:]
-    private var requestOrder: [UUID] = []
-    private var requestOrderOffset = 0
+    private var evictionOrder: [UUID] = []
+    private var evictionOrderOffset = 0
+    private var requestIDsByDeliveryIdentity: [TerminalNotificationPolicyDeliveryIdentity: [UUID]] = [:]
+    private var requestOffsetByDeliveryIdentity: [TerminalNotificationPolicyDeliveryIdentity: Int] = [:]
     private var requestCountByTabId: [UUID: Int] = [:]
     private var requestCountByTabSurface: [UUID: [UUID?: Int]] = [:]
 
@@ -24,22 +28,30 @@ final class TerminalNotificationPolicyInFlightStore {
         generation: UInt64,
         onDiscard: @escaping @MainActor @Sendable () -> Void
     ) -> UUID {
-        compactRequestOrderIfNeeded()
-        while requests.count >= maximumRequestCount, requestOrderOffset < requestOrder.count {
-            discardRequest(requestOrder[requestOrderOffset])
-            requestOrderOffset += 1
+        compactEvictionOrderIfNeeded()
+        var identitiesToDrain = Set<TerminalNotificationPolicyDeliveryIdentity>()
+        while requests.count >= maximumRequestCount, evictionOrderOffset < evictionOrder.count {
+            let id = evictionOrder[evictionOrderOffset]
+            evictionOrderOffset += 1
+            if let identity = discardRequest(id) {
+                identitiesToDrain.insert(identity)
+            }
         }
-        drainCompletedRequestsInOrder()
+        identitiesToDrain.forEach(drainCompletedRequests)
         let id = UUID()
+        let deliveryIdentity = TerminalNotificationPolicyDeliveryIdentity(request: request)
         requests[id] = Entry(
             request: request,
             generation: generation,
+            deliveryIdentity: deliveryIdentity,
             onDiscard: onDiscard,
+            indexedTabId: request.tabId,
             task: nil,
             completion: nil
         )
-        incrementIndexes(for: request)
-        requestOrder.append(id)
+        incrementIndexes(for: request, tabId: request.tabId)
+        evictionOrder.append(id)
+        requestIDsByDeliveryIdentity[deliveryIdentity, default: []].append(id)
         return id
     }
 
@@ -52,18 +64,18 @@ final class TerminalNotificationPolicyInFlightStore {
     func claim(_ id: UUID?) -> Bool {
         guard let id else { return true }
         guard let entry = requests.removeValue(forKey: id) else { return false }
-        decrementIndexes(for: entry.request)
-        drainCompletedRequestsInOrder()
+        decrementIndexes(for: entry.request, tabId: entry.indexedTabId)
+        drainCompletedRequests(for: entry.deliveryIdentity)
         return true
     }
 
-    /// Completes one asynchronous policy evaluation while preserving the
-    /// registration order observed by synchronous notification callers.
+    /// Completes one asynchronous policy evaluation while preserving order
+    /// within its delivery target without blocking unrelated workspaces.
     func complete(_ id: UUID, apply: @escaping @MainActor () -> Void) {
         guard var entry = requests[id] else { return }
         entry.completion = apply
         requests[id] = entry
-        drainCompletedRequestsInOrder()
+        drainCompletedRequests(for: entry.deliveryIdentity)
     }
 
     func hasPendingRequest(forTabId tabId: UUID) -> Bool {
@@ -79,99 +91,114 @@ final class TerminalNotificationPolicyInFlightStore {
             if let generation, entry.generation > generation { return nil }
             return id
         }
-        ids.forEach(discardRequest)
-        drainCompletedRequestsInOrder()
+        let identities = Set(ids.compactMap(discardRequest))
         if generation == nil {
-            requestOrder.removeAll(keepingCapacity: true)
-            requestOrderOffset = 0
+            evictionOrder.removeAll(keepingCapacity: true)
+            evictionOrderOffset = 0
         }
+        identities.forEach(drainCompletedRequests)
     }
 
-    /// Discards requests by their delivery identity: source-confined requests
-    /// keep their original workspace key, while trusted local requests follow
-    /// their surface's live owner.
+    /// Discards requests by their current indexed owner and either canonical
+    /// surface identifier, including panel/runtime-surface aliases.
     func discard(forTabId tabId: UUID, surfaceId: UUID?, through generation: UInt64? = nil) {
-        var resolvedSurfaces = Set<UUID>()
-        var liveOwnersBySurface: [UUID: UUID] = [:]
-        var idsToDiscard: [UUID] = []
-        for (id, entry) in requests {
-            if let generation, entry.generation > generation { continue }
-            let request = entry.request
-            if !request.retargetsToLiveSurfaceOwner {
-                if let surfaceId {
-                    if request.tabId == tabId, request.surfaceId == surfaceId { idsToDiscard.append(id) }
-                } else if request.tabId == tabId {
-                    idsToDiscard.append(id)
-                }
-                continue
-            }
-            if let surfaceId {
-                if request.surfaceId == surfaceId { idsToDiscard.append(id) }
-                continue
-            }
-            guard let requestSurfaceId = request.surfaceId else {
-                if request.tabId == tabId { idsToDiscard.append(id) }
-                continue
-            }
-            let liveTabId: UUID
-            if resolvedSurfaces.insert(requestSurfaceId).inserted {
-                let owner = AppDelegate.shared?.agentNotificationDeliveryTarget(
-                    claimedTabId: request.tabId,
-                    surfaceId: requestSurfaceId
-                )?.tabId
-                if let owner { liveOwnersBySurface[requestSurfaceId] = owner }
-                liveTabId = owner ?? request.tabId
-            } else {
-                liveTabId = liveOwnersBySurface[requestSurfaceId] ?? request.tabId
-            }
-            if liveTabId == tabId { idsToDiscard.append(id) }
+        let idsToDiscard: [UUID] = requests.compactMap { id, entry in
+            if let generation, entry.generation > generation { return nil }
+            guard entry.indexedTabId == tabId else { return nil }
+            guard let surfaceId else { return id }
+            return Self.matchesSurfaceAlias(entry.request, surfaceId: surfaceId) ? id : nil
         }
-        idsToDiscard.forEach(discardRequest)
-        drainCompletedRequestsInOrder()
+        let identities = Set(idsToDiscard.compactMap(discardRequest))
+        identities.forEach(drainCompletedRequests)
     }
 
-    private func discardRequest(_ id: UUID) {
-        guard let entry = requests.removeValue(forKey: id) else { return }
-        decrementIndexes(for: entry.request)
+    /// Moves pending trusted-local work with the surface so O(1) unread and
+    /// dismissal gates always reflect the workspace that currently owns it.
+    func rebindSurface(fromTabId sourceTabId: UUID, toTabId destinationTabId: UUID, surfaceId: UUID) {
+        guard sourceTabId != destinationTabId else { return }
+        let idsToRebind = requests.compactMap { id, entry -> UUID? in
+            guard entry.indexedTabId == sourceTabId,
+                  entry.request.retargetsToLiveSurfaceOwner,
+                  Self.matchesSurfaceAlias(entry.request, surfaceId: surfaceId) else {
+                return nil
+            }
+            return id
+        }
+        for id in idsToRebind {
+            guard var entry = requests[id] else { continue }
+            decrementIndexes(for: entry.request, tabId: entry.indexedTabId)
+            entry.indexedTabId = destinationTabId
+            requests[id] = entry
+            incrementIndexes(for: entry.request, tabId: destinationTabId)
+        }
+    }
+
+    private static func matchesSurfaceAlias(
+        _ request: TerminalNotificationPolicyRequest,
+        surfaceId: UUID
+    ) -> Bool {
+        request.surfaceId == surfaceId || request.panelId == surfaceId
+    }
+
+    private func discardRequest(_ id: UUID) -> TerminalNotificationPolicyDeliveryIdentity? {
+        guard let entry = requests.removeValue(forKey: id) else { return nil }
+        decrementIndexes(for: entry.request, tabId: entry.indexedTabId)
         entry.task?.cancel()
         entry.onDiscard()
+        return entry.deliveryIdentity
     }
 
-    private func drainCompletedRequestsInOrder() {
-        while requestOrderOffset < requestOrder.count {
-            let id = requestOrder[requestOrderOffset]
+    private func drainCompletedRequests(
+        for deliveryIdentity: TerminalNotificationPolicyDeliveryIdentity
+    ) {
+        while let id = firstRequestID(for: deliveryIdentity) {
             guard let entry = requests[id] else {
-                requestOrderOffset += 1
+                advanceRequestOffset(for: deliveryIdentity)
                 continue
             }
             guard let completion = entry.completion else { break }
             requests.removeValue(forKey: id)
-            decrementIndexes(for: entry.request)
-            requestOrderOffset += 1
+            decrementIndexes(for: entry.request, tabId: entry.indexedTabId)
+            advanceRequestOffset(for: deliveryIdentity)
             completion()
         }
-        compactRequestOrderIfNeeded()
+        compactRequestOrderIfNeeded(for: deliveryIdentity)
     }
 
-    private func incrementIndexes(for request: TerminalNotificationPolicyRequest) {
-        requestCountByTabId[request.tabId, default: 0] += 1
+    private func firstRequestID(
+        for deliveryIdentity: TerminalNotificationPolicyDeliveryIdentity
+    ) -> UUID? {
+        guard let order = requestIDsByDeliveryIdentity[deliveryIdentity] else { return nil }
+        let offset = requestOffsetByDeliveryIdentity[deliveryIdentity] ?? 0
+        guard offset < order.count else { return nil }
+        return order[offset]
+    }
+
+    private func advanceRequestOffset(
+        for deliveryIdentity: TerminalNotificationPolicyDeliveryIdentity
+    ) {
+        requestOffsetByDeliveryIdentity[deliveryIdentity, default: 0] += 1
+    }
+
+    private func incrementIndexes(for request: TerminalNotificationPolicyRequest, tabId: UUID) {
+        requestCountByTabId[tabId, default: 0] += 1
         let surfaceIds = Set([request.surfaceId, request.panelId].compactMap { $0 })
         if surfaceIds.isEmpty {
-            requestCountByTabSurface[request.tabId, default: [:]][nil, default: 0] += 1
+            requestCountByTabSurface[tabId, default: [:]][nil, default: 0] += 1
         }
         for surfaceId in surfaceIds {
-            requestCountByTabSurface[request.tabId, default: [:]][surfaceId, default: 0] += 1
+            requestCountByTabSurface[tabId, default: [:]][surfaceId, default: 0] += 1
         }
     }
 
-    private func decrementIndexes(for request: TerminalNotificationPolicyRequest) {
-        Self.decrement(&requestCountByTabId, key: request.tabId)
+    private func decrementIndexes(for request: TerminalNotificationPolicyRequest, tabId: UUID) {
+        Self.decrement(&requestCountByTabId, key: tabId)
         let surfaceIds = Set([request.surfaceId, request.panelId].compactMap { $0 })
         if surfaceIds.isEmpty {
-            decrementSurfaceCount(tabId: request.tabId, surfaceId: nil)
+            decrementSurfaceCount(tabId: tabId, surfaceId: nil)
         }
         for surfaceId in surfaceIds {
-            decrementSurfaceCount(tabId: request.tabId, surfaceId: surfaceId)
+            decrementSurfaceCount(tabId: tabId, surfaceId: surfaceId)
         }
     }
 
@@ -194,9 +221,23 @@ final class TerminalNotificationPolicyInFlightStore {
         }
     }
 
-    private func compactRequestOrderIfNeeded() {
-        guard requestOrder.count > maximumRequestCount * 2 else { return }
-        requestOrder = requestOrder.dropFirst(requestOrderOffset).filter { requests[$0] != nil }
-        requestOrderOffset = 0
+    private func compactEvictionOrderIfNeeded() {
+        guard evictionOrder.count > maximumRequestCount * 2 else { return }
+        evictionOrder = evictionOrder.dropFirst(evictionOrderOffset).filter { requests[$0] != nil }
+        evictionOrderOffset = 0
+    }
+
+    private func compactRequestOrderIfNeeded(
+        for deliveryIdentity: TerminalNotificationPolicyDeliveryIdentity
+    ) {
+        guard let order = requestIDsByDeliveryIdentity[deliveryIdentity] else { return }
+        let offset = requestOffsetByDeliveryIdentity[deliveryIdentity] ?? 0
+        if offset >= order.count {
+            requestIDsByDeliveryIdentity.removeValue(forKey: deliveryIdentity)
+            requestOffsetByDeliveryIdentity.removeValue(forKey: deliveryIdentity)
+        } else if offset > 64, offset * 2 >= order.count {
+            requestIDsByDeliveryIdentity[deliveryIdentity] = Array(order.dropFirst(offset))
+            requestOffsetByDeliveryIdentity[deliveryIdentity] = 0
+        }
     }
 }

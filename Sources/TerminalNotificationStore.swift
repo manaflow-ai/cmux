@@ -159,7 +159,7 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     static let shared = TerminalNotificationStore()
-    private let notificationHookCache = CmuxNotificationHookCache()
+    let notificationHookCache = CmuxNotificationHookCache()
 
     static let categoryIdentifier = "com.cmuxterm.app.userNotification"
     static let actionShowIdentifier = "com.cmuxterm.app.userNotification.show"
@@ -814,7 +814,8 @@ final class TerminalNotificationStore: ObservableObject {
         retargetsToLiveSurfaceOwner: Bool = true,
         cooldownKey: String? = nil,
         cooldownInterval: TimeInterval? = nil,
-        clickAction: TerminalNotificationClickAction? = nil, notificationGeneration: UInt64? = nil
+        clickAction: TerminalNotificationClickAction? = nil, notificationGeneration: UInt64? = nil,
+        resolvedHooks: [CmuxResolvedNotificationHook]? = nil
     ) {
 #if DEBUG
         cmuxDebugLog(
@@ -852,29 +853,25 @@ final class TerminalNotificationStore: ObservableObject {
             title: title,
             subtitle: subtitle,
             body: body,
-            retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner
+            retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
+            resolvedHooks: resolvedHooks
         )
+        guard !policyContext.hooks.isEmpty else {
+            applyNotification(
+                request: policyContext.request,
+                effects: TerminalNotificationPolicyEffects(),
+                now: now,
+                cooldownReservation: cooldownReservation,
+                scrollPosition: policyContext.scrollPosition,
+                clickAction: clickAction
+            )
+            return
+        }
         let policyRequestId = inFlightPolicyRequests.register(policyContext.request, generation: notificationGeneration ?? TerminalMutationBus.shared.notificationGenerationSnapshot(), onDiscard: { [weak self] in self?.restoreCooldownReservation(cooldownReservation) })
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
-            let hooks = await notificationHookCache.hooks(
-                startingFrom: policyContext.hookDirectory,
-                globalConfigPath: policyContext.globalConfigPath
-            )
-            guard !Task.isCancelled else { return }
-            guard !hooks.isEmpty else {
-                self.completePolicyRequest(
-                    policyRequestId,
-                    request: policyContext.request,
-                    effects: TerminalNotificationPolicyEffects(),
-                    cooldownReservation: cooldownReservation,
-                    scrollPosition: policyContext.scrollPosition,
-                    clickAction: clickAction
-                )
-                return
-            }
             let authorizedHooks = await NotificationPolicyHookAuthorizer.authorize(
-                hooks,
+                policyContext.hooks,
                 globalConfigPath: policyContext.globalConfigPath
             )
             guard !Task.isCancelled else { return }
@@ -938,7 +935,7 @@ final class TerminalNotificationStore: ObservableObject {
     private struct NotificationPolicyContext: Sendable {
         let request: TerminalNotificationPolicyRequest
         let scrollPosition: TerminalNotificationScrollPosition?
-        let hookDirectory: String?
+        let hooks: [CmuxResolvedNotificationHook]
         let globalConfigPath: String?
     }
     private func makeCooldownReservation(
@@ -973,7 +970,8 @@ final class TerminalNotificationStore: ObservableObject {
         title: String,
         subtitle: String,
         body: String,
-        retargetsToLiveSurfaceOwner: Bool
+        retargetsToLiveSurfaceOwner: Bool,
+        resolvedHooks: [CmuxResolvedNotificationHook]?
     ) -> NotificationPolicyContext {
         let appDelegate = AppDelegate.shared
         let context = appDelegate?.contextContainingTabId(tabId)
@@ -1019,7 +1017,9 @@ final class TerminalNotificationStore: ObservableObject {
                 isFocusedPanel: isFocusedPanel
             ),
             scrollPosition: scrollPosition,
-            hookDirectory: workspace?.isRemoteWorkspace == true ? nil : cwd,
+            hooks: resolvedHooks ?? cmuxConfigStore?.notificationHooks(
+                startingFrom: workspace?.isRemoteWorkspace == true ? nil : cwd
+            ) ?? [],
             globalConfigPath: cmuxConfigStore?.globalConfigPath
         )
     }
@@ -1637,6 +1637,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     func rebindSurfaceNotifications(fromTabId sourceTabId: UUID, toTabId destinationTabId: UUID, surfaceId: UUID) {
         guard sourceTabId != destinationTabId else { return }
+        inFlightPolicyRequests.rebindSurface(fromTabId: sourceTabId, toTabId: destinationTabId, surfaceId: surfaceId)
         var didMoveNotification = false
         let updated = notifications.map { notification -> TerminalNotification in
             guard notification.retargetsToLiveSurfaceOwner,

@@ -343,6 +343,7 @@ class GhosttyApp {
 
     static let shared = GhosttyApp()
     fileprivate let titleUpdateIngress = GhosttyTitleUpdateIngress()
+    fileprivate let desktopNotificationIngress = GhosttyDesktopNotificationIngress()
 
     // MARK: Transitional terminal engine/services composition
     //
@@ -2644,27 +2645,12 @@ class GhosttyApp {
                     .flatMap { String(cString: $0) } ?? ""
                 let actionBody = action.action.desktop_notification.body
                     .flatMap { String(cString: $0) } ?? ""
-                Task { @MainActor in
-                    guard let tabManager = AppDelegate.shared?.tabManager,
-                          let tabId = tabManager.selectedTabId else {
-                        return
-                    }
-                    let owningManager = AppDelegate.shared?.tabManagerFor(tabId: tabId) ?? tabManager
-                    let surfaceId = tabManager.focusedSurfaceId(for: tabId)
-                    if let workspace = owningManager.workspacesById[tabId],
-                       workspace.suppressesRawTerminalNotification(panelId: surfaceId) {
-                        return
-                    }
-                    let tabTitle = owningManager.titleForTab(tabId) ?? "Terminal"
-                    let command = actionTitle.isEmpty ? tabTitle : actionTitle
-                    TerminalNotificationStore.shared.addNotification(
-                        tabId: tabId,
-                        surfaceId: surfaceId,
-                        title: command,
-                        subtitle: "",
-                        body: actionBody
-                    )
-                }
+                desktopNotificationIngress.submit(GhosttyDesktopNotificationRequest(
+                    tabId: nil,
+                    surfaceId: nil,
+                    title: actionTitle,
+                    body: actionBody
+                ))
                 return true
             }
 
@@ -2922,22 +2908,12 @@ class GhosttyApp {
                 .flatMap { String(cString: $0) } ?? ""
             let actionBody = action.action.desktop_notification.body
                 .flatMap { String(cString: $0) } ?? ""
-            Task { @MainActor in
-                let owningManager = AppDelegate.shared?.tabManagerFor(tabId: tabId) ?? AppDelegate.shared?.tabManager
-                if let workspace = owningManager?.workspacesById[tabId],
-                   workspace.suppressesRawTerminalNotification(panelId: surfaceId) {
-                    return
-                }
-                let tabTitle = owningManager?.titleForTab(tabId) ?? "Terminal"
-                let command = actionTitle.isEmpty ? tabTitle : actionTitle
-                TerminalNotificationStore.shared.addNotification(
-                    tabId: tabId,
-                    surfaceId: surfaceId,
-                    title: command,
-                    subtitle: "",
-                    body: actionBody
-                )
-            }
+            desktopNotificationIngress.submit(GhosttyDesktopNotificationRequest(
+                tabId: tabId,
+                surfaceId: surfaceId,
+                title: actionTitle,
+                body: actionBody
+            ))
             return true
         case GHOSTTY_ACTION_COLOR_CHANGE:
             let change = action.action.color_change
