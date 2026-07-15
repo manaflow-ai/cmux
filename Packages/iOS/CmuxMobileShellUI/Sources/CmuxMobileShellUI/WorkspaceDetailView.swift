@@ -143,8 +143,24 @@ struct WorkspaceDetailView: View {
                 TerminalTextSheetView(surfaceID: textSheetSurfaceID)
             }
             .fullScreenCover(isPresented: $isPaneMapPresented) {
-                PaneMapOverlay(workspaceName: workspace.name) {
-                    isPaneMapPresented = false
+                if let layout = workspace.layout {
+                    PaneMapOverlay(
+                        value: PaneMapValue(
+                            workspaceName: workspace.name,
+                            layout: layout,
+                            phoneSelectedSurfaceID: selectedTerminal?.id.rawValue,
+                            agentStateKindsBySurfaceID: surfaceDeckAgentStateKinds
+                        ),
+                        fetchPreviews: { selectedSurfaceIDs, remainingSurfaceIDs in
+                            await store.fetchPaneMapPreviewGrids(
+                                remoteWorkspaceID: workspace.rpcWorkspaceID.rawValue,
+                                selectedSurfaceIDs: selectedSurfaceIDs,
+                                remainingSurfaceIDs: remainingSurfaceIDs
+                            )
+                        },
+                        selectTerminal: selectTerminalFromDeck,
+                        dismiss: { isPaneMapPresented = false }
+                    )
                 }
             }
             .workspaceRenameDialog(
