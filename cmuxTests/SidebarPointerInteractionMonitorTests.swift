@@ -193,6 +193,20 @@ import Testing
         #expect(monitor.middleClickWorkspaceId(at: CGPoint(x: 100, y: 80)) == nil)
     }
 
+    @Test func middleClickDoesNotResolveGroupHeaderAnchorWorkspace() {
+        let monitor = SidebarPointerInteractionMonitor()
+        let groupId = UUID()
+        let anchorWorkspaceId = UUID()
+        monitor.updateFrame(
+            CGRect(x: 20, y: 40, width: 180, height: 28),
+            for: .group(groupId),
+            workspaceId: anchorWorkspaceId
+        )
+
+        #expect(monitor.rowId(at: CGPoint(x: 100, y: 54)) == .group(groupId))
+        #expect(monitor.middleClickWorkspaceId(at: CGPoint(x: 100, y: 54)) == nil)
+    }
+
     @Test func menuTrackingReconciliationIgnoresSubmenuEndNotifications() {
         let rootMenu = NSMenu()
         let submenu = NSMenu()
