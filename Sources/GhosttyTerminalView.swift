@@ -3374,7 +3374,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
 
-    fileprivate static func focusLog(_ message: String) {
+    static func focusLog(_ message: String) {
         guard focusDebugEnabled else { return }
         AppDelegate.shared?.focusLog.append(message)
         #if DEBUG
@@ -3838,8 +3838,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             sourceSurface: surface
         )
         if titleUpdateSurfaceKey != nextTitleUpdateSurfaceKey {
-            if let titleUpdateSurfaceKey {
-                titleUpdateIngress.retire(titleUpdateSurfaceKey)
+            if titleUpdateSurfaceKey != nil {
+                titleUpdateIngress.retireCurrentAttachment()
             }
             titleUpdateSurfaceKey = nextTitleUpdateSurfaceKey
         }
@@ -4171,7 +4171,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             yScale: yScale,
             layerScale: layerScale,
             backingSize: backingSize,
-            coalescePixelOnlyResize: isWindowLiveResizeActive && !bypassLiveResizeCoalescing
+            coalescePixelOnlyResize: isWindowLiveResizeActive && !bypassLiveResizeCoalescing,
+            // Don't pin the surface to the tmux-assigned grid mid-drag: the pin
+            // would hold it at the pre-drag (larger) size and paint past the
+            // shrinking pane. Re-pins at rest when the interactive flag clears.
+            suppressAssignedGridPin: isWindowLiveResizeActive
+                || TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive
         )
         return didChange || surfaceSizeChanged
     }
@@ -7620,8 +7625,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
     deinit {
         selectionAccessibilitySignal.finish()
-        if let titleUpdateSurfaceKey {
-            titleUpdateIngress.retire(titleUpdateSurfaceKey)
+        if titleUpdateSurfaceKey != nil {
+            titleUpdateIngress.retireCurrentAttachment()
         }
 #if DEBUG
         cmuxDebugLog(
@@ -8008,31 +8013,6 @@ extension Notification.Name {
     )
 }
 
-// MARK: - Scroll View Wrapper (Ghostty-style scrollbar)
-
-private final class GhosttyScrollView: NSScrollView {
-    weak var surfaceView: GhosttyNSView?
-
-    // Keep keyboard routing on the terminal surface; this wrapper is viewport plumbing.
-    override var acceptsFirstResponder: Bool { false }
-
-    override func scrollWheel(with event: NSEvent) {
-        guard let surfaceView else {
-            super.scrollWheel(with: event)
-            return
-        }
-
-        // Route wheel gestures to the terminal surface so Ghostty handles scrollback.
-        // Letting NSScrollView consume these events moves the wrapper viewport itself,
-        // which causes pane-content drift instead of terminal scrollback movement.
-        GhosttyNSView.focusLog("GhosttyScrollView.scrollWheel: surface scroll")
-        if window?.firstResponder !== surfaceView {
-            window?.makeFirstResponder(surfaceView)
-        }
-        surfaceView.scrollWheel(with: event)
-    }
-}
-
 private final class GhosttyFlashOverlayView: NSView {
     override var acceptsFirstResponder: Bool { false }
 
@@ -8276,6 +8256,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let flashOverlayView: GhosttyFlashOverlayView
     private let flashLayer: CAShapeLayer
     private var cloudTerminalReconnectOverlayView: CloudTerminalReconnectOverlayView?
+    private var hasVisibilityRevealRefreshScheduled = false
     var isRightSidebarDockSurface: Bool {
         surfaceView.terminalSurface?.focusPlacement == .rightSidebarDock
     }
@@ -10046,12 +10027,27 @@ final class GhosttySurfaceScrollView: NSView {
             }
         } else if !wasVisible {
             // Workspace/sidebar selection can make an already-sized terminal visible again
-            // without a portal frame delta or a focus handoff. Reuse the portal refresh
-            // path so the Metal layer is nudged immediately on plain visibility restores.
-            refreshSurfaceNow(reason: "setVisibleInUI")
+            // without a portal frame delta or a focus handoff. Nudge the Metal layer with
+            // the portal refresh path — but on the next main-queue turn: reveals arrive
+            // from inside SwiftUI update/layout (updateNSView, viewDidMoveToWindow, the
+            // geometry-callback rebind), where a synchronous display can wedge the main
+            // thread in Metal against the still-open window transaction.
+            scheduleVisibilityRevealRefresh()
             scheduleAutomaticFirstResponderApply(reason: "setVisibleInUI")
         }
     }
+
+    private func scheduleVisibilityRevealRefresh() {
+        guard !hasVisibilityRevealRefreshScheduled else { return }
+        hasVisibilityRevealRefreshScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.hasVisibilityRevealRefreshScheduled = false
+            guard self.surfaceView.isVisibleInUI else { return }
+            self.refreshSurfaceNow(reason: "setVisibleInUI.deferred")
+        }
+    }
+
     var debugPortalVisibleInUI: Bool {
         surfaceView.isVisibleInUI
     }

@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { Tree } from "cmux/browser";
 import { initialLocalSelectionState } from "../src/lib/localSelection";
-import { activeScreen, screenSelection, treeToViewModel } from "../src/lib/tree";
+import {
+  activeScreen,
+  applySurfaceTitles,
+  screenSelection,
+  SurfaceTitleReconciler,
+  treeToViewModel,
+} from "../src/lib/tree";
 
 const tree: Tree = {
   workspaces: [{
@@ -87,6 +93,61 @@ describe("treeToViewModel", () => {
 
     expect(drawerWorkspaces[0]?.screens.map(({ id }) => id)).toEqual([2, 6]);
     expect(screenSelection(drawerWorkspaces[0]!.screens[1]!)).toEqual([1, 6, 8]);
+  });
+});
+
+describe("applySurfaceTitles", () => {
+  it("coalesces authoritative titles into matching tabs with structural sharing", () => {
+    const updated = applySurfaceTitles(tree, new Map([[4, "editor"], [5, "logs"]]));
+
+    expect(updated).not.toBe(tree);
+    expect(updated.workspaces[0]?.screens[0]?.panes[0]).not.toBe(tree.workspaces[0]?.screens[0]?.panes[0]);
+    expect("tabs" in updated.workspaces[0]!.screens[0]!.panes[0]!
+      ? updated.workspaces[0]!.screens[0]!.panes[0]!.tabs.map(({ title }) => title)
+      : []).toEqual(["editor", "logs"]);
+    expect(applySurfaceTitles(tree, new Map([[99, "missing"]]))).toBe(tree);
+  });
+
+  it("keeps later title events across overlapping tree refreshes", () => {
+    const reconciler = new SurfaceTitleReconciler();
+    const olderRefresh = reconciler.beginRefresh();
+    reconciler.record(4, "newest");
+    const newerRefresh = reconciler.beginRefresh();
+
+    const newerTree = structuredClone(tree);
+    const committed = reconciler.commit(newerTree, newerRefresh);
+    expect(committed).toEqual({ tree: newerTree, applied: true });
+
+    const olderTree = structuredClone(tree);
+    expect(reconciler.commit(olderTree, olderRefresh)).toEqual({ tree: newerTree, applied: false });
+
+    const replay = new SurfaceTitleReconciler();
+    const inFlight = replay.beginRefresh();
+    replay.record(4, "newest");
+    const staleTree = structuredClone(tree);
+    const recovered = replay.commit(staleTree, inFlight).tree;
+    expect("tabs" in recovered.workspaces[0]!.screens[0]!.panes[0]!
+      ? recovered.workspaces[0]!.screens[0]!.panes[0]!.tabs[0]!.title
+      : null).toBe("newest");
+  });
+
+  it("updates only the indexed title path", () => {
+    const reconciler = new SurfaceTitleReconciler();
+    const withSibling = structuredClone(tree);
+    withSibling.workspaces.push({
+      id: 9,
+      name: "untouched",
+      active: false,
+      screens: [],
+    });
+    const untouched = withSibling.workspaces[1];
+    reconciler.apply(withSibling);
+    reconciler.record(4, "indexed");
+
+    const updated = reconciler.apply(withSibling);
+
+    expect(updated.workspaces[1]).toBe(untouched);
+    expect(updated.workspaces[0]).not.toBe(withSibling.workspaces[0]);
   });
 });
 

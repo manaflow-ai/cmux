@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 /// Owns title-churn policy before any work reaches the main actor.
@@ -16,12 +17,16 @@ actor GhosttyTitleUpdateDispatcher {
     private let coalescingInterval: Duration
     private let schedule: Scheduler
     private let publish: Publisher
+    private let attachmentGeneration: AtomicUInt64Generation
+    private var minimumAttachmentGeneration: UInt64
     private var activeSurfaceKey: GhosttyTitleUpdateSurfaceKey?
+    private var activeAttachmentGeneration: UInt64?
     private var state = GhosttyTitleUpdateSurfaceState()
     private var cancelScheduledFlush: Cancellation?
 
     init(
         coalescingInterval: Duration = .milliseconds(50),
+        attachmentGeneration: AtomicUInt64Generation = AtomicUInt64Generation(),
         schedule: @escaping Scheduler = { interval, action in
             let task = Task {
                 // This cancellable delay is the intended title-publication window, not a readiness poll.
@@ -34,17 +39,22 @@ actor GhosttyTitleUpdateDispatcher {
         publish: @escaping Publisher
     ) {
         self.coalescingInterval = coalescingInterval
+        self.attachmentGeneration = attachmentGeneration
+        minimumAttachmentGeneration = attachmentGeneration.loadRelaxed()
         self.schedule = schedule
         self.publish = publish
     }
 
     func receive(_ update: GhosttyTitleUpdate) {
+        guard update.attachmentGeneration == attachmentGeneration.loadRelaxed(),
+              update.attachmentGeneration >= minimumAttachmentGeneration else { return }
+        minimumAttachmentGeneration = update.attachmentGeneration
         let key = GhosttyTitleUpdateSurfaceKey(
             surfaceId: update.surfaceId,
             sourceSurfaceIdentifier: update.sourceSurfaceIdentifier
         )
-        if activeSurfaceKey != key {
-            reset(for: key)
+        if activeSurfaceKey != key || activeAttachmentGeneration != update.attachmentGeneration {
+            reset(for: key, attachmentGeneration: update.attachmentGeneration)
         }
         guard update != state.lastReceivedUpdate else { return }
         state.lastReceivedUpdate = update
@@ -59,9 +69,11 @@ actor GhosttyTitleUpdateDispatcher {
         await flush()
     }
 
-    func retire(_ surfaceKey: GhosttyTitleUpdateSurfaceKey) {
-        guard activeSurfaceKey == surfaceKey else { return }
-        reset(for: nil)
+    func retireUpdates(before minimumGeneration: UInt64) {
+        minimumAttachmentGeneration = max(minimumAttachmentGeneration, minimumGeneration)
+        guard let activeAttachmentGeneration,
+              activeAttachmentGeneration < minimumAttachmentGeneration else { return }
+        reset(for: nil, attachmentGeneration: nil)
     }
 
     private func scheduleFlushIfNeeded() {
@@ -79,14 +91,20 @@ actor GhosttyTitleUpdateDispatcher {
     private func flush() async {
         guard let update = state.pendingUpdate else { return }
         state.pendingUpdate = nil
+        guard update.attachmentGeneration == attachmentGeneration.loadRelaxed(),
+              update.attachmentGeneration >= minimumAttachmentGeneration else { return }
         state.lastPublishedUpdate = update
         await publish([update])
     }
 
-    private func reset(for surfaceKey: GhosttyTitleUpdateSurfaceKey?) {
+    private func reset(
+        for surfaceKey: GhosttyTitleUpdateSurfaceKey?,
+        attachmentGeneration: UInt64?
+    ) {
         cancelScheduledFlush?()
         cancelScheduledFlush = nil
         activeSurfaceKey = surfaceKey
+        activeAttachmentGeneration = attachmentGeneration
         state = GhosttyTitleUpdateSurfaceState()
     }
 }

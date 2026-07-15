@@ -59,6 +59,18 @@ describe("client config env validation", () => {
     expect(result.exitCode).toBe(0);
   });
 
+  test("allows credential-free docs channel deployments", () => {
+    const result = importEnv({
+      PATH: requiredEnv.PATH,
+      HOME: requiredEnv.HOME,
+      VERCEL: "1",
+      VERCEL_ENV: "production",
+      CMUX_DOCS_CHANNEL: "nightly",
+    });
+
+    expect(result.exitCode).toBe(0);
+  });
+
   test("requires the analytics limiter id in explicit Vercel production deployments", () => {
     const result = importEnv({
       ...requiredEnv,
@@ -83,7 +95,6 @@ describe("client config env validation", () => {
 
     expect(result.exitCode).toBe(0);
   });
-
   test("accepts the self-hosted relay path without the legacy hosted minter", () => {
     const result = importEnv({
       ...requiredEnv,
