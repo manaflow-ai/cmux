@@ -22,8 +22,17 @@ extension Workspace {
     }
 
     func forkAgentConversationContextMenuOpenAvailability(
+        forPanelId panelId: UUID
+    ) -> WorkspaceForkAgentConversationAvailability {
+        forkAgentConversationContextMenuOpenAvailability(
+            forPanelId: panelId,
+            liveAgentIndex: .shared
+        )
+    }
+
+    func forkAgentConversationContextMenuOpenAvailability(
         forPanelId panelId: UUID,
-        liveAgentIndex: SharedLiveAgentIndex = .shared
+        liveAgentIndex: SharedLiveAgentIndex
     ) -> WorkspaceForkAgentConversationAvailability {
         forkAgentConversationContextMenuOpenSelection(
             forPanelId: panelId,
@@ -32,8 +41,20 @@ extension Workspace {
     }
 
     func forkAgentConversationContextMenuOpenSelection(
+        forPanelId panelId: UUID
+    ) -> (
+        availability: WorkspaceForkAgentConversationAvailability,
+        snapshot: SessionRestorableAgentSnapshot?
+    ) {
+        forkAgentConversationContextMenuOpenSelection(
+            forPanelId: panelId,
+            liveAgentIndex: .shared
+        )
+    }
+
+    func forkAgentConversationContextMenuOpenSelection(
         forPanelId panelId: UUID,
-        liveAgentIndex: SharedLiveAgentIndex = .shared
+        liveAgentIndex: SharedLiveAgentIndex
     ) -> (
         availability: WorkspaceForkAgentConversationAvailability,
         snapshot: SessionRestorableAgentSnapshot?
