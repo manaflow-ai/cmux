@@ -72,6 +72,8 @@ extension TerminalPasteboardService: TerminalClipboardReading {
     /// Existing plain-text, HTML, and RTF flavors are retained. Rich flavors
     /// are edited to match `string` while preserving attributes on surviving
     /// content, so paste destinations cannot select stale hard-wrapped text.
+    /// The replacement item is fully materialized before the pasteboard is
+    /// changed; a failed publish restores the original item.
     ///
     /// - Parameters:
     ///   - string: The transformed text to publish through every text flavor.
@@ -79,52 +81,97 @@ extension TerminalPasteboardService: TerminalClipboardReading {
     /// - Returns: `true` when every advertised text representation was updated.
     @discardableResult
     public func rewriteTextRepresentations(_ string: String, in pasteboard: NSPasteboard) -> Bool {
-        let existingTypes = pasteboard.types ?? []
-        let richFormats: [(
-            pasteboardType: NSPasteboard.PasteboardType,
-            documentType: NSAttributedString.DocumentType
-        )] = [
-            (.html, .html),
-            (.rtf, .rtf),
-        ]
-        var richReplacements: [(type: NSPasteboard.PasteboardType, data: Data)] = []
-
-        for format in richFormats where existingTypes.contains(format.pasteboardType) {
-            guard let attributed = attributedString(
-                from: pasteboard,
-                type: format.pasteboardType,
-                documentType: format.documentType
-            ),
-                  let rewritten = attributedString(attributed, replacingTextWith: string),
-                  let data = try? rewritten.data(
-                      from: NSRange(location: 0, length: rewritten.length),
-                      documentAttributes: [
-                          .documentType: format.documentType,
-                          .characterEncoding: String.Encoding.utf8.rawValue,
-                      ]
-                  ) else { return false }
-            richReplacements.append((format.pasteboardType, data))
+        guard let items = pasteboard.pasteboardItems,
+              items.count == 1,
+              let originalItem = copiedPasteboardItem(items[0]),
+              let replacementItem = rewrittenPasteboardItem(items[0], text: string) else {
+            return false
         }
 
-        var plainTextTypes = existingTypes.filter(isPlainTextType)
-        if !plainTextTypes.contains(.string) {
-            plainTextTypes.append(.string)
+        pasteboard.clearContents()
+        guard pasteboard.writeObjects([replacementItem]) else {
+            pasteboard.clearContents()
+            _ = pasteboard.writeObjects([originalItem])
+            return false
         }
-
-        var wroteEveryRepresentation = true
-        for type in plainTextTypes {
-            wroteEveryRepresentation = pasteboard.setString(string, forType: type)
-                && wroteEveryRepresentation
-        }
-        for replacement in richReplacements {
-            wroteEveryRepresentation = pasteboard.setData(replacement.data, forType: replacement.type)
-                && wroteEveryRepresentation
-        }
-        return wroteEveryRepresentation
+        return true
     }
 }
 
 extension TerminalPasteboardService {
+    private func copiedPasteboardItem(_ source: NSPasteboardItem) -> NSPasteboardItem? {
+        let copy = NSPasteboardItem()
+        for type in source.types {
+            guard copyPasteboardRepresentation(type, from: source, to: copy) else { return nil }
+        }
+        return copy
+    }
+
+    private func rewrittenPasteboardItem(
+        _ source: NSPasteboardItem,
+        text: String
+    ) -> NSPasteboardItem? {
+        let rewritten = NSPasteboardItem()
+        for type in source.types {
+            if isPlainTextType(type) {
+                guard rewritten.setString(text, forType: type) else { return nil }
+                continue
+            }
+
+            let documentType: NSAttributedString.DocumentType?
+            switch type {
+            case .html:
+                documentType = .html
+            case .rtf:
+                documentType = .rtf
+            default:
+                documentType = nil
+            }
+            if let documentType {
+                guard let attributed = attributedString(
+                    from: source,
+                    type: type,
+                    documentType: documentType
+                ),
+                      let replacement = attributedString(
+                          attributed,
+                          replacingTextWith: text
+                      ),
+                      let data = try? replacement.data(
+                          from: NSRange(location: 0, length: replacement.length),
+                          documentAttributes: [
+                              .documentType: documentType,
+                              .characterEncoding: String.Encoding.utf8.rawValue,
+                          ]
+                      ),
+                      rewritten.setData(data, forType: type) else { return nil }
+                continue
+            }
+
+            guard copyPasteboardRepresentation(type, from: source, to: rewritten) else {
+                return nil
+            }
+        }
+        return rewritten
+    }
+
+    private func copyPasteboardRepresentation(
+        _ type: NSPasteboard.PasteboardType,
+        from source: NSPasteboardItem,
+        to destination: NSPasteboardItem
+    ) -> Bool {
+        if let data = source.data(forType: type) {
+            return destination.setData(data, forType: type)
+        }
+        if let string = source.string(forType: type) {
+            return destination.setString(string, forType: type)
+        }
+        if let propertyList = source.propertyList(forType: type) {
+            return destination.setPropertyList(propertyList, forType: type)
+        }
+        return false
+    }
+
     /// Replaces text while retaining attributes on every surviving non-whitespace token.
     /// Reflow only removes tokens and rewrites whitespace; if a future transform
     /// inserts non-whitespace content, alignment fails and the pasteboard rewrite
