@@ -16,7 +16,7 @@ struct RepositoryArchiveScriptRunner: Sendable {
         \(script)
         } >/dev/null 2>&1
         """
-        await commands.run(
+        return await commands.run(
             directory: directory,
             executable: "/bin/zsh",
             arguments: ["-l", "-c", discardedOutputScript],
