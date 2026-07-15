@@ -15,14 +15,17 @@ extension AuthCoordinator {
     /// is still stored, or token storage was unavailable because the device was
     /// locked, the failure was transient and this throws
     /// ``AuthError/networkError`` so the caller retries without signing out.
-    /// When neither token survives from available storage, the session is
-    /// genuinely gone, so this calls ``clearAuthState()`` (flipping
-    /// ``isAuthenticated`` to `false`, which routes the root scene to the
-    /// sign-in page) and throws
-    /// ``AuthError/unauthorized``.
+    /// When neither token survives from available storage, and no session
+    /// restore/revalidation owns the empty store, the session is genuinely
+    /// gone, so this calls ``clearAuthState()`` (flipping ``isAuthenticated``
+    /// to `false`, which routes the root scene to the sign-in page) and throws
+    /// ``AuthError/unauthorized``. While restore/revalidation is active, that
+    /// owner alone decides whether to preserve or clear the session, so an
+    /// overlapping empty read stays retryable instead of racing its decision.
     /// - Returns: A current access token.
     /// - Throws: ``AuthError/networkError`` on a transient failure with a
-    ///   surviving refresh token or unavailable token storage (retryable);
+    ///   surviving refresh token, unavailable token storage, or active session
+    ///   restore/revalidation (retryable);
     ///   ``AuthError/unauthorized`` once the session is definitively gone (also
     ///   clears local auth state).
     public func accessToken() async throws -> String {
@@ -138,7 +141,9 @@ extension AuthCoordinator {
     ///   refresh token was definitively rejected and cleared). The definitive
     ///   case also calls ``clearAuthState()`` so ``isAuthenticated`` flips to
     ///   `false` and the root scene routes to the sign-in page instead of
-    ///   showing a stale shell.
+    ///   showing a stale shell. An empty result overlapping session
+    ///   restore/revalidation is retryable because that flow owns the final
+    ///   preserve-or-clear decision.
     public func forceRefreshAccessToken() async throws -> String {
         do {
             return try await runTokenTouchingPhase(.forceRefreshAccessToken, timeout: timeouts.network) {

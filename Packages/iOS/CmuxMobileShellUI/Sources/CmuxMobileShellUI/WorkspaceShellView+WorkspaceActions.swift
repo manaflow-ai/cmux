@@ -153,7 +153,7 @@ extension WorkspaceShellView {
     }
 
     func createWorkspaceInCompactStack(inGroup groupID: MobileWorkspaceGroupPreview.ID?) {
-        guard canCreateWorkspaceForMacSelection else { return }
+        guard canCreateWorkspace else { return }
         let existingWorkspaceIDs = Set(store.workspaces.map(\.id))
         pendingCompactCreateNavigationWorkspaceIDs = existingWorkspaceIDs
         if store.usesLocalWorkspaceCreationFallback {

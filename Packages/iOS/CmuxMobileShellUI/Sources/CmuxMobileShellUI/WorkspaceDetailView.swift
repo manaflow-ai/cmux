@@ -19,9 +19,10 @@ struct WorkspaceDetailView: View {
     let connectionStatus: MobileMacConnectionStatus
     let workspace: MobileWorkspacePreview
     @Bindable var store: CMUXMobileShellStore
+    let openMode: WorkspaceDetailOpenMode
     let createWorkspace: () -> Void
     let canCreateWorkspace: Bool
-    let createTerminal: () -> Void
+    let createTerminal: () -> Bool
     let renameWorkspace: ((MobileWorkspacePreview.ID, String) -> Void)?
     let setWorkspaceUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)?
     /// Close this workspace on the Mac. When `nil`, the close affordance is
@@ -77,7 +78,7 @@ struct WorkspaceDetailView: View {
     #endif
     /// The active browser surface for this workspace, when a browser pane is open.
     var activeBrowser: BrowserSurfaceState? {
-        browserStore.activeBrowser(for: workspace.id.rawValue)
+        browserStore.activeBrowser(for: workspace.browserSurfaceIdentity)
     }
     #if os(iOS)
     var activeSurface: WorkspaceActiveSurface {
@@ -97,8 +98,14 @@ struct WorkspaceDetailView: View {
             .navigationTitle(systemNavigationTitle)
             .mobileTerminalNavigationChrome()
             .toolbar { workspaceDetailToolbar }
-            .task(id: chatRefreshKey) { await refreshChatSessions() }
-            .task(id: chatConversationWarmKey) { await runWarmChatConversation() }
+            .task(id: chatRefreshKey) {
+                guard openMode.showsRemoteWorkspaceControls else { return }
+                await refreshChatSessions()
+            }
+            .task(id: chatConversationWarmKey) {
+                guard openMode.showsRemoteWorkspaceControls else { return }
+                await runWarmChatConversation()
+            }
             .onChange(of: selectedTerminalID) { _, _ in
                 visibleArtifactCount = 0
                 refreshCachedChatToggleAnchor()
@@ -125,14 +132,22 @@ struct WorkspaceDetailView: View {
                 text: $renameText,
                 onSave: commitRenameFromDialog
             )
-            .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)
+            .mobileConnectionRecoveryOverlay(
+                store: store,
+                signOut: signOut,
+                isEnabled: openMode.showsRemoteWorkspaceControls
+            )
         #else
         content
             .closeWorkspaceConfirmation(
                 isPresented: $isConfirmingClose,
                 confirm: confirmCloseWorkspaceFromMenu
             )
-            .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)
+            .mobileConnectionRecoveryOverlay(
+                store: store,
+                signOut: signOut,
+                isEnabled: openMode.showsRemoteWorkspaceControls
+            )
         #endif
     }
 
@@ -150,7 +165,8 @@ struct WorkspaceDetailView: View {
         ToolbarItem(id: "workspace-title", placement: .topBarLeading) {
             workspaceTitleToolbarMenu
         }
-        if let selectedTerminalID,
+        if openMode.showsRemoteWorkspaceControls,
+           let selectedTerminalID,
            store.isAlternateScreen(surfaceID: selectedTerminalID),
            displaySettings.showAltScreenNotice {
             ToolbarItem(id: "workspace-altscreen-notice", placement: .topBarTrailing) {
@@ -159,8 +175,10 @@ struct WorkspaceDetailView: View {
                 }
             }
         }
-        ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
-            toolbarTrailingCluster
+        if openMode.showsRemoteWorkspaceControls {
+            ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
+                toolbarTrailingCluster
+            }
         }
     }
 
@@ -168,9 +186,9 @@ struct WorkspaceDetailView: View {
         WorkspaceTitleMenu(
             contentWidth: contentWidth,
             hasBackButton: backButtonConfiguration != nil,
-            hasTrailingCluster: true,
-            hasChatToggle: shouldShowChatToggle,
-            isEnabled: hasTitleMenuActions,
+            hasTrailingCluster: openMode.showsRemoteWorkspaceControls,
+            hasChatToggle: openMode.showsRemoteWorkspaceControls && shouldShowChatToggle,
+            isEnabled: openMode.showsRemoteWorkspaceControls && hasTitleMenuActions,
             menuContent: { titleMenuContent }
         ) {
             toolbarTitleLabel
@@ -598,12 +616,13 @@ struct WorkspaceDetailView: View {
     #endif
 
     private func createTerminalFromToolbar() {
-        dismissTerminalKeyboardForChrome()
-        // Creating a terminal from the (shared) chrome must surface it. If a
-        // browser pane is up, close it so `body` leaves the browser branch and
-        // shows the new terminal instead of staying on the browser.
-        browserStore.closeBrowser(for: workspace.id.rawValue)
-        createTerminal()
+        openMode.performRemoteAction {
+            dismissTerminalKeyboardForChrome()
+            guard createTerminal() else { return }
+            // Hide the browser only after creation is accepted, so a rejected
+            // duplicate request leaves the user's current surface unchanged.
+            browserStore.showNonBrowserSurface(for: workspace.browserSurfaceIdentity)
+        }
     }
 
     private func openBrowserFromToolbar() {
@@ -611,20 +630,22 @@ struct WorkspaceDetailView: View {
         // Opens (or reveals the existing) browser pane for this workspace. The
         // detail view flips to the browser because `activeBrowser` becomes
         // non-nil; the picker shows a check next to "New Browser" while it is up.
-        browserStore.openBrowser(for: workspace.id.rawValue)
+        browserStore.openBrowser(for: workspace.browserSurfaceIdentity)
     }
 
     private func selectTerminalFromPicker(_ terminalID: MobileTerminalPreview.ID) {
-        dismissTerminalKeyboardForChrome()
-        // Choosing a terminal returns from the browser pane (if up) to the
-        // terminal. Closing the browser is enough to flip the detail view back.
-        browserStore.closeBrowser(for: workspace.id.rawValue)
-        // Switching from the picker is chrome, not a typing intent, so the
-        // newly-selected surface must not grab the keyboard on attach. The
-        // store suppresses the target's autofocus (and is a no-op when it is
-        // already selected). A push-notification deep link uses the plain
-        // `selectTerminal` path instead and is allowed to autofocus.
-        store.selectTerminalFromChrome(terminalID)
+        openMode.performRemoteAction {
+            dismissTerminalKeyboardForChrome()
+            // Choosing a terminal returns from the browser pane while retaining the
+            // local browser session for a later grid selection.
+            WorkspaceTerminalSurfaceSelection(
+                store: store,
+                browserStore: browserStore
+            ).selectFromChrome(
+                terminalID: terminalID,
+                browserWorkspaceIdentity: workspace.browserSurfaceIdentity
+            )
+        }
     }
 
     func dismissTerminalKeyboardForChrome() {

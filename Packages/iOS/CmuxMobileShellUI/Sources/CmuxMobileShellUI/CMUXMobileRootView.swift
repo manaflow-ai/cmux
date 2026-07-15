@@ -1,5 +1,6 @@
 import Foundation
 import CmuxAuthRuntime
+import CmuxMobileBrowser
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -15,6 +16,7 @@ struct CMUXMobileRootView: View {
     @Bindable var store: CMUXMobileShellStore
     @Environment(\.scenePhase) private var scenePhase
     @Environment(AuthCoordinator.self) private var authManager
+    @Environment(BrowserSurfaceStore.self) private var browserStore
     @Environment(\.dogfoodAttachPreparation) private var dogfoodAttachPreparation
     private let signOutHook: MobileSignOutHook
     #if os(iOS)
@@ -121,7 +123,7 @@ struct CMUXMobileRootView: View {
             syncShellAuthentication(isAuthenticated)
             store.resumeForegroundRefresh()
             #if os(iOS)
-            pushCoordinator.bind(store: store)
+            pushCoordinator.bind(store: store, browserStore: browserStore)
             #endif
             // If the view mounts already authenticated (cached session, or a
             // mock/fixture launch), `onChange(of: isAuthenticated)` never fires,
@@ -470,6 +472,7 @@ struct CMUXMobileRootView: View {
     }
 
     private func signOut() {
+        browserStore.removeAllBrowsers()
         Task {
             // Local shell teardown first so the whole UI lands signed out
             // immediately; authManager.signOut clears the local session up

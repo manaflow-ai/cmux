@@ -2,6 +2,7 @@ import CMUXAuthCore
 import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxMobileAnalytics
+import CmuxMobileBrowser
 import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileShellModel
@@ -34,6 +35,7 @@ public struct CMUXMobileRootScene: View {
     private let auth: MobileAuthComposition
     private let reachability: any ReachabilityProviding
     private let analytics: any AnalyticsEmitting
+    private let browserStore: BrowserSurfaceStore
     private let signOutHook: MobileSignOutHook
     private let personalIrohRouteCatalog: MobileIrohRouteCatalog?
     #if os(iOS)
@@ -75,6 +77,7 @@ public struct CMUXMobileRootScene: View {
     ///     delegate) injected into the environment.
     ///   - displaySettings: The app-root mobile display settings injected into
     ///     the environment (drives workspace-title wrapping).
+    ///   - browserComposition: The process browser owner shared by every scene.
     ///   - onboardingStore: The app-root first-run onboarding "seen" flag store,
     ///     injected into the root view to gate the one-time onboarding screen.
     ///   - tailscaleStatusMonitor: The app-root tailnet detector, injected into
@@ -91,6 +94,7 @@ public struct CMUXMobileRootScene: View {
         analytics: any AnalyticsEmitting,
         pushCoordinator: MobilePushCoordinator,
         displaySettings: MobileDisplaySettings,
+        browserComposition: MobileBrowserComposition,
         onboardingStore: MobileOnboardingStore,
         tailscaleStatusMonitor: any TailscaleStatusObserving,
         personalIrohRouteCatalog: MobileIrohRouteCatalog? = nil,
@@ -103,6 +107,7 @@ public struct CMUXMobileRootScene: View {
         self.analytics = analytics
         self.pushCoordinator = pushCoordinator
         self.displaySettings = displaySettings
+        self.browserStore = browserComposition.makeSceneStore()
         self.onboardingStore = onboardingStore
         self.tailscaleStatusMonitor = tailscaleStatusMonitor
         self.personalIrohRouteCatalog = personalIrohRouteCatalog
@@ -120,12 +125,14 @@ public struct CMUXMobileRootScene: View {
         auth: MobileAuthComposition,
         reachability: any ReachabilityProviding,
         analytics: any AnalyticsEmitting,
+        browserComposition: MobileBrowserComposition,
         signOutHook: MobileSignOutHook = MobileSignOutHook()
     ) {
         self.runtime = runtime
         self.auth = auth
         self.reachability = reachability
         self.analytics = analytics
+        self.browserStore = browserComposition.makeSceneStore()
         self.signOutHook = signOutHook
         self.personalIrohRouteCatalog = nil
         self.tailscaleStatusMonitor = nil
@@ -285,6 +292,7 @@ public struct CMUXMobileRootScene: View {
         } else {
             CMUXMobileAppView(
                 store: makeStore(),
+                browserStore: browserStore,
                 onboardingStore: onboardingStore,
                 signOutHook: signOutHook
             )
@@ -292,12 +300,13 @@ public struct CMUXMobileRootScene: View {
         #else
         CMUXMobileAppView(
             store: makeStore(),
+            browserStore: browserStore,
             onboardingStore: onboardingStore,
             signOutHook: signOutHook
         )
         #endif
         #else
-        CMUXMobileAppView(store: makeStore(), signOutHook: signOutHook)
+        CMUXMobileAppView(store: makeStore(), browserStore: browserStore, signOutHook: signOutHook)
         #endif
     }
 

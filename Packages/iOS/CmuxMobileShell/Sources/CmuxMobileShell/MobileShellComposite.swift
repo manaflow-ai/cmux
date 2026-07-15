@@ -37,6 +37,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static let maxTerminalReplayFailureRetries = 2
     static let maxTerminalReplayBarrierFollowUps = 1
 
+    public enum WorkspaceOpenFailureSelectionPolicy: Sendable {
+        case clearRequestedSelection
+        case preserveSelection
+    }
+
     enum TerminalOutputTransport: Equatable {
         case hybrid
         case renderGrid
@@ -587,7 +592,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// the selection. A freshly created terminal therefore never steals the
     /// keyboard, while push-notification navigation (``selectTerminal(_:)``) is
     /// intentionally left out of the set and allowed to autofocus.
-    private var terminalAutoFocusSuppressedSurfaceIDs: Set<String> = []
+    var terminalAutoFocusSuppressedSurfaceIDs: Set<String> = []
 
     let runtime: (any MobileSyncRuntime)?
     let pairedMacStore: (any MobilePairedMacStoring)?
@@ -758,6 +763,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// switch can cancel it; its scope guards then bail before any cross-account
     /// write. Replaced (cancelling the prior) on each scheduled pass.
     private var secondaryAggregationTask: Task<Void, Never>?
+    /// Whether the visible workspace list includes a completed secondary-Mac pass.
+    public internal(set) var browserWorkspaceListIsAuthoritative = false
     /// Bumped on Stack team switches so every aggregation caller, including
     /// direct pull-to-refresh calls that are not owned by
     /// ``secondaryAggregationTask``, can reject old-team results after awaits.
@@ -3011,27 +3018,38 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// switch can cancel it (its scope guards then bail before any cross-account
     /// write). Replaces any prior in-flight pass.
     func scheduleSecondaryAggregation() {
+        browserWorkspaceListIsAuthoritative = false
         secondaryAggregationTask?.cancel()
-        secondaryAggregationTask = Task { [weak self] in await self?.refreshSecondaryMacWorkspaces() }
+        secondaryAggregationTask = Task { @MainActor [weak self] in
+            let isAuthoritative = await self?.refreshSecondaryMacWorkspaces() ?? false
+            self?.completeSecondaryWorkspaceRefresh(isAuthoritative: isAuthoritative)
+        }
     }
-    func refreshSecondaryMacWorkspaces() async {
-        guard let pairedMacStore, multiMacAggregationEnabled else { return }
+    @discardableResult
+    func refreshSecondaryMacWorkspaces() async -> Bool {
+        guard multiMacAggregationEnabled else { return true }
+        guard let pairedMacStore else { return false }
         // Require a concrete signed-in user before any load/connection: a nil/empty
         // account would make `loadAll(stackUserID: nil)` read EVERY locally stored
         // Mac across Stack accounts and publish another account's workspaces into
         // this UI (the scope guard alone passes for nil == nil). Mirrors
         // loadPairedMacs()'s account requirement.
-        guard let scope = await currentScopeSnapshot() else { return }
+        guard let scope = await currentScopeSnapshot() else { return false }
         // Pull the authoritative backup first so a secondary Mac that relaunched
         // on a new port has its route refreshed before we (re)connect.
         if let refresher = pairedMacStore as? any PairedMacBackupRefreshing {
             await refresher.refreshFromBackup(stackUserID: scope.userID)
         }
-        guard await isAggregationScopeValid(scope) else { return }
-        let loadedMacs = (try? await pairedMacStore.loadAll(stackUserID: scope.userID, teamID: scope.teamID)) ?? []
-        guard await isAggregationScopeValid(scope) else { return }
+        guard await isAggregationScopeValid(scope) else { return false }
+        let loadedMacs: [MobilePairedMac]
+        do {
+            loadedMacs = try await pairedMacStore.loadAll(stackUserID: scope.userID, teamID: scope.teamID)
+        } catch {
+            return false
+        }
+        guard await isAggregationScopeValid(scope) else { return false }
         let visibleLoadedMacs = await visibleStoredPairedMacs(from: loadedMacs, scope: scope)
-        guard await isAggregationScopeValid(scope) else { return }
+        guard await isAggregationScopeValid(scope) else { return false }
         let macs = secondaryAggregationCandidateMacs(from: visibleLoadedMacs)
         let wanted = Set(macs.map(\.macDeviceID))
         // Tear down subscriptions for Macs that are gone or are now the foreground.
@@ -3049,7 +3067,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // Re-check before each Mac so a sign-out / account/team switch
             // mid-loop stops us before we connect to or write state for another
             // scope.
-            guard await isAggregationScopeValid(scope) else { return }
+            guard await isAggregationScopeValid(scope) else { return false }
             if let existing = secondaryMacSubscriptions[mac.macDeviceID] {
                 guard MobileMacInstanceTagAuthority.sameStoredAuthority(
                     existing.storedInstanceTag,
@@ -3094,6 +3112,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     for: mac, scope: scope)
             }
         }
+        guard await isAggregationScopeValid(scope) else { return false }
+        return hasWorkspaceSnapshots(forSecondaryMacIDs: macs.map(\.macDeviceID))
+    }
+
+    func hasWorkspaceSnapshots(forSecondaryMacIDs macDeviceIDs: [String]) -> Bool {
+        macDeviceIDs.allSatisfy { workspacesByMac[$0] != nil }
     }
     private func isSecondaryRefreshStillCurrent(
         macDeviceID: String,
@@ -3388,6 +3412,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// and cancel any in-flight aggregation pass so it cannot resume and re-seed
     /// the torn-down entries for a now-signed-out / switched account.
     private func teardownSecondaryMacSubscriptions() {
+        browserWorkspaceListIsAuthoritative = false
         secondaryAggregationTask?.cancel()
         secondaryAggregationTask = nil
         for (_, subscription) in secondaryMacSubscriptions { subscription.cancel() }
@@ -3717,13 +3742,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Callers that act on a specific workspace (e.g. the "+" button on a
     /// workspace row) should pass its id so an in-flight create can't land in a
     /// different workspace if the selection drifts before the async work runs.
-    public func createTerminal(in workspaceID: MobileWorkspacePreview.ID? = nil) {
+    ///
+    /// - Returns: `true` when creation starts or completes, or `false` when rejected before starting.
+    @discardableResult
+    public func createTerminal(in workspaceID: MobileWorkspacePreview.ID? = nil) -> Bool {
         let targetWorkspaceID = workspaceID ?? selectedWorkspace?.id
         guard remoteClient == nil else {
             // Bail BEFORE pinning selection when a create is already in flight,
             // so a second "+" on another workspace can't strand the UI on that
             // workspace with no new terminal while the earlier RPC still runs.
-            guard createTerminalTask == nil else { return }
+            guard createTerminalTask == nil else { return false }
             // Pin selection to the target so the async create + the resulting
             // terminal selection stay on the workspace the caller intended.
             if let targetWorkspaceID { selectedWorkspaceID = targetWorkspaceID }
@@ -3734,10 +3762,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 guard let self else { return }
                 await self.createRemoteTerminal(in: targetWorkspaceID)
             }
-            return
+            return true
         }
         guard let workspace = workspaces.first(where: { $0.id == targetWorkspaceID }) else {
-            return
+            return false
         }
         selectedWorkspaceID = targetWorkspaceID
         let terminalIndex = workspace.terminals.count + 1
@@ -3752,52 +3780,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         selectedTerminalID = terminal.id
         suppressTerminalAutoFocusOnNextAttach(for: terminal.id)
-    }
-
-    /// Select the active terminal by id without changing workspace selection.
-    public func selectTerminal(_ id: MobileTerminalPreview.ID?) {
-        selectedTerminalID = id
+        return true
     }
 
     /// One-shot "actually navigate" deep-link intent; API in
     /// `MobileShellComposite+DeeplinkNavigation.swift` (storage must live here).
     public internal(set) var deeplinkWorkspaceNavigationRequest: DeeplinkWorkspaceNavigationRequest?
-
-    /// Selects `id` as a chrome action (the terminal picker), so the surface
-    /// that comes up does not grab the keyboard.
-    ///
-    /// Switching terminals from the picker is a navigation intent, not a typing
-    /// intent, so unlike ``selectTerminal(_:)`` (which a push-notification deep
-    /// link uses and which is allowed to autofocus) this suppresses the target
-    /// surface's next autofocus. Re-confirming the already-selected terminal is
-    /// a no-op suppression, since no surface re-attach happens.
-    public func selectTerminalFromChrome(_ id: MobileTerminalPreview.ID) {
-        if id != selectedTerminalID {
-            terminalAutoFocusSuppressedSurfaceIDs.insert(id.rawValue)
-        }
-        selectedTerminalID = id
-    }
-
-    /// Whether the surface for `terminalID` may grab the keyboard on its next
-    /// window attach. False while a one-shot suppression is pending for it.
-    public func shouldAutoFocusTerminalSurface(_ terminalID: String) -> Bool {
-        !terminalAutoFocusSuppressedSurfaceIDs.contains(terminalID)
-    }
-
-    /// Clears the one-shot autofocus suppression for `terminalID` once its
-    /// surface has mounted (and so has already attached with autofocus
-    /// disabled). Called from the surface's `onAppear`.
-    public func consumeTerminalAutoFocusSuppression(for terminalID: String) {
-        terminalAutoFocusSuppressedSurfaceIDs.remove(terminalID)
-    }
-
-    /// Marks `terminalID` so its surface does not autofocus on its next window
-    /// attach. Called by every create path the instant the new terminal becomes
-    /// the selection, so a freshly created terminal never steals the keyboard.
-    func suppressTerminalAutoFocusOnNextAttach(for terminalID: MobileTerminalPreview.ID?) {
-        guard let terminalID else { return }
-        terminalAutoFocusSuppressedSurfaceIDs.insert(terminalID.rawValue)
-    }
 
     /// Record the latest measured terminal viewport for sizing future shell RPCs.
     public func reportTerminalViewport(
@@ -3810,7 +3798,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     /// Open the workspace preview, switching the foreground Mac first when the workspace belongs to another paired Mac.
-    public func openWorkspace(_ id: MobileWorkspacePreview.ID) async {
+    ///
+    /// Commands preserve selection by default because this operation does not
+    /// own navigation state. Detail navigation explicitly requests selection
+    /// clearing because its row is selected before this async operation starts.
+    /// - Returns: The workspace's current UI row id after any Mac switch, or `nil` when opening failed.
+    @discardableResult
+    public func openWorkspace(
+        _ id: MobileWorkspacePreview.ID,
+        failureSelectionPolicy: WorkspaceOpenFailureSelectionPolicy = .preserveSelection
+    ) async -> MobileWorkspacePreview.ID? {
         let workspace = workspaces.first { $0.id == id }
         let remoteWorkspaceID = workspace?.rpcWorkspaceID ?? id
         let ownerMacDeviceID = workspace?.macDeviceID
@@ -3823,18 +3820,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
            !macDeviceID.isEmpty,
            macDeviceID != foregroundMacDeviceID {
             // Only proceed if that Mac actually became the foreground connection.
-            // The tap already selected this workspace and pushed its detail
-            // synchronously (this runs from the detail's task), so on a failed
-            // switch ROLL BACK the selection — popping the compact stack back to the
-            // list — instead of leaving the user in a workspace whose Mac is not the
-            // live connection (terminal input would route to the wrong client). The
-            // offline row's Reconnect / the next aggregation pass recovers it.
+            // Detail navigation selects the row before this task runs and asks
+            // for rollback so a failed switch pops back to the list. Grid
+            // commands have not pushed a detail and preserve their selection.
             guard await switchToMac(macDeviceID: macDeviceID) else {
-                mobileShellLog.error("openWorkspace: switch to mac failed, popping mac=\(macDeviceID, privacy: .public)")
-                if selectedWorkspaceID == id {
+                mobileShellLog.error("openWorkspace: switch to mac failed mac=\(macDeviceID, privacy: .public)")
+                if failureSelectionPolicy == .clearRequestedSelection,
+                   selectedWorkspaceID == id {
                     setSelectedWorkspaceID(nil)
                 }
-                return
+                return nil
             }
         }
         let resolvedRowID = rowWorkspaceID(
@@ -3843,10 +3838,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         ) ?? (workspaces.contains(where: { $0.id == id }) ? id : nil)
         guard let resolvedRowID else {
             mobileShellLog.error("openWorkspace: workspace disappeared after switch id=\(remoteWorkspaceID.rawValue, privacy: .private) mac=\(ownerMacDeviceID ?? "", privacy: .public)")
-            if selectedWorkspaceID == id {
+            if failureSelectionPolicy == .clearRequestedSelection,
+               selectedWorkspaceID == id {
                 setSelectedWorkspaceID(nil)
             }
-            return
+            return nil
         }
         analytics.capture("ios_workspace_opened", [
             "terminal_count": .int(workspace?.terminals.count ?? 0),
@@ -3862,6 +3858,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if supportsWorkspaceReadStateActions, workspaceHadUnread {
             await setWorkspaceUnread(id: resolvedRowID, false)
         }
+        return resolvedRowID
     }
 
     /// Submit the current terminal input text from a synchronous UI action.
@@ -4776,10 +4773,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                             generation: generation
                         )
                     }
-                    // Aggregate the user's other Macs' workspaces in the background.
-                    // Best-effort; never blocks the foreground connect.
-                    if multiMacAggregationEnabled {
-                        self.scheduleSecondaryAggregation()
+                    if !workspaceListRequest.isScoped {
+                        foregroundWorkspaceListDidBecomeAuthoritative()
                     }
                     diagnosticLog?.record(DiagnosticEvent(.pairOk))
                     if workspaceListRequest.isScoped {
@@ -4982,6 +4977,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 response,
                 preferActiveTicketTarget: selectedWorkspaceID == nil || selectedWorkspace?.rpcWorkspaceID == activeTicketWorkspaceID
             )
+            foregroundWorkspaceListDidBecomeAuthoritative()
             return true
         } catch {
             mobileShellLog.info("full mobile workspace list unavailable after scoped attach: \(String(describing: error), privacy: .private)")
@@ -7259,7 +7255,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // workspaces created on a secondary Mac since the last fetch (the
             // read-only secondary list is a snapshot, not a live subscription).
             if self?.multiMacAggregationEnabled == true {
-                await self?.refreshSecondaryMacWorkspaces()
+                let isAuthoritative = await self?.refreshSecondaryMacWorkspaces() ?? false
+                self?.completeSecondaryWorkspaceRefresh(isAuthoritative: isAuthoritative)
             }
         }
         pullToRefreshTask = task

@@ -1,6 +1,7 @@
 #if os(iOS)
 import CMUXMobileCore
 import CmuxAuthRuntime
+import CmuxMobileBrowser
 import CmuxMobileShell
 import CmuxMobileShellModel
 import Foundation
@@ -46,12 +47,13 @@ public final class MobilePushCoordinator {
     public static let dismissSyncCategoryIdentifier = "cmux.terminal"
 
     @ObservationIgnored private weak var store: CMUXMobileShellStore?
+    @ObservationIgnored private weak var browserStore: BrowserSurfaceStore?
 
     /// A tap whose navigation could not complete yet. On a cold launch the
     /// notification-center delegate delivers the tap before the root view has
     /// mounted (no store bound yet), and even once bound the tapped workspace
     /// is not in the store until the Mac attach finishes. The tap is parked
-    /// here and re-applied from ``bind(store:)`` and ``workspacesDidChange()``
+    /// here and re-applied from ``bind(store:browserStore:)`` and ``workspacesDidChange()``
     /// until the target exists or the request expires.
     private struct PendingDeeplink {
         let workspaceId: String?
@@ -104,8 +106,9 @@ public final class MobilePushCoordinator {
     public var isEnabled: Bool { defaults.bool(forKey: Self.enabledKey) }
 
     /// Point routing at the active store (called by the root view on appear).
-    public func bind(store: CMUXMobileShellStore) {
+    public func bind(store: CMUXMobileShellStore, browserStore: BrowserSurfaceStore) {
         self.store = store
+        self.browserStore = browserStore
         applyPendingDeeplinkIfReady()
     }
 
@@ -205,6 +208,10 @@ public final class MobilePushCoordinator {
             return true
         }
         if let surfaceId {
+            if let workspace = store.selectedWorkspace,
+               browserStore?.isBrowserSelected(for: workspace.browserSurfaceIdentity) == true {
+                return true
+            }
             return store.selectedTerminalID?.rawValue != surfaceId
         }
         return false
@@ -253,7 +260,7 @@ public final class MobilePushCoordinator {
     }
 
     /// Apply the parked tap if its target can be navigated to right now;
-    /// otherwise keep it parked for the next ``bind(store:)`` or
+    /// otherwise keep it parked for the next ``bind(store:browserStore:)`` or
     /// ``workspacesDidChange()``.
     private func applyPendingDeeplinkIfReady() {
         guard let pending = pendingDeeplink else { return }
@@ -339,7 +346,19 @@ public final class MobilePushCoordinator {
             store.navigateToWorkspaceForDeeplink(workspaceTarget)
         }
         if let surfaceId = pending.surfaceId {
-            store.selectTerminal(MobileTerminalPreview.ID(rawValue: surfaceId))
+            let terminalID = MobileTerminalPreview.ID(rawValue: surfaceId)
+            if let browserStore,
+               let workspace = store.workspaces.first(where: { $0.id == workspaceTarget }) {
+                WorkspaceTerminalSurfaceSelection(
+                    store: store,
+                    browserStore: browserStore
+                ).selectFromDeeplink(
+                    terminalID: terminalID,
+                    browserWorkspaceIdentity: workspace.browserSurfaceIdentity
+                )
+            } else {
+                store.selectTerminal(terminalID)
+            }
         }
         pendingDeeplink = nil
         analytics.capture("ios_push_deeplink_resolved", [

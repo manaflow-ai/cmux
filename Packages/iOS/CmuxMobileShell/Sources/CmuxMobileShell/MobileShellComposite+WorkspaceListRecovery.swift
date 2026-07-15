@@ -3,6 +3,29 @@ import Foundation
 
 @MainActor
 extension MobileShellComposite {
+    /// Applies one complete secondary aggregation result unless its owner task
+    /// was cancelled by a newer refresh or an authentication-scope transition.
+    func completeSecondaryWorkspaceRefresh(isAuthoritative: Bool) {
+        guard !Task.isCancelled, isAuthoritative else { return }
+        browserWorkspaceListIsAuthoritative = true
+    }
+
+    /// Marks a complete foreground list ready for browser reconciliation after
+    /// including secondary Macs when that rollout is enabled.
+    func foregroundWorkspaceListDidBecomeAuthoritative() {
+        if multiMacAggregationEnabled {
+            scheduleSecondaryAggregation()
+        } else {
+            browserWorkspaceListIsAuthoritative = true
+        }
+    }
+
+    /// A foreground refresh completes authority directly in single-Mac mode.
+    func foregroundWorkspaceListDidRefresh() {
+        guard !multiMacAggregationEnabled else { return }
+        browserWorkspaceListIsAuthoritative = true
+    }
+
     /// Aggregate status for the workspace LIST chrome.
     ///
     /// `macConnectionStatus` describes the foreground RPC connection. After the

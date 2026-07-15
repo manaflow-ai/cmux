@@ -16,6 +16,8 @@ import Testing
         let state = makeState(initialURL: url)
         #expect(state.addressText == "https://example.com")
         #expect(state.currentURL == url)
+        #expect(state.securityIndicatorURL == nil)
+        #expect(state.isLoading)
         #expect(state.consumeLoadRequest() == url)
         // Consumed exactly once.
         #expect(state.consumeLoadRequest() == nil)
@@ -30,6 +32,9 @@ import Testing
         #expect(state.canGoBack == false)
         #expect(state.canGoForward == false)
         #expect(state.isAddressEditing == false)
+        #expect(state.savedInteractionState == nil)
+        #expect(state.contentModePreference == .recommended)
+        #expect(state.prefersDesktopSite == false)
     }
 
     @Test func consumeHelpersAreIdempotentWhenEmpty() {
@@ -50,7 +55,33 @@ import Testing
         state.load(url)
         #expect(state.addressText == "https://cmux.dev")
         #expect(state.lastErrorMessage == nil)
+        #expect(state.isLoading)
+        #expect(state.savedInteractionState == nil)
         #expect(state.consumeLoadRequest() == url)
+    }
+
+    @Test func saveInteractionStateKeepsLatestNonNilSnapshot() {
+        let state = makeState()
+        let first = Data([1, 2, 3])
+        let second = Data([4, 5, 6])
+
+        state.saveInteractionState(first)
+        #expect(state.savedInteractionState as? Data == first)
+
+        state.saveInteractionState(nil)
+        #expect(state.savedInteractionState as? Data == first)
+
+        state.saveInteractionState(second)
+        #expect(state.savedInteractionState as? Data == second)
+    }
+
+    @Test func loadClearsSavedInteractionState() {
+        let state = makeState()
+        state.saveInteractionState(Data([1, 2, 3]))
+
+        state.load(URL(string: "https://cmux.dev")!)
+
+        #expect(state.savedInteractionState == nil)
     }
 
     @Test func submitAddressResolvesAndRequestsLoad() {
@@ -70,25 +101,235 @@ import Testing
 
     @Test func navigationLifecycleTransitions() {
         let state = makeState()
+        let committedURL = URL(string: "https://example.com/committed")!
 
         state.navigationDidStart()
         #expect(state.isLoading)
         #expect(state.estimatedProgress == 0)
         #expect(state.lastErrorMessage == nil)
+        #expect(state.securityIndicatorURL == nil)
+
+        state.navigationDidCommit(url: committedURL)
+        #expect(state.securityIndicatorURL == committedURL)
 
         state.estimatedProgress = 0.5
-        state.navigationDidFinish()
+        state.navigationDidFinish(url: committedURL)
         #expect(state.isLoading == false)
         #expect(state.estimatedProgress == 1)
+        #expect(state.securityIndicatorURL == committedURL)
+    }
+
+    @Test func committedNavigationImmediatelyUpdatesDurableIdentity() {
+        let oldURL = URL(string: "https://example.com/old")!
+        let committedURL = URL(string: "https://example.com/committed")!
+        let state = makeState(initialURL: oldURL)
+        var immediateWrites: [Bool] = []
+        state.installPersistence { immediateWrites.append($0) }
+
+        state.navigationDidStart()
+        state.addressText = "https://example.com/provisional"
+        #expect(state.currentURL == oldURL)
+        state.navigationDidCommit(url: committedURL)
+
+        #expect(state.currentURL == committedURL)
+        #expect(state.addressText == committedURL.absoluteString)
+        #expect(immediateWrites == [true])
+    }
+
+    @Test func failureAfterCommitRetainsCommittedIdentity() {
+        let committedURL = URL(string: "https://example.com/committed")!
+        let state = makeState(initialURL: URL(string: "https://example.com/old")!)
+
+        state.navigationDidStart()
+        state.navigationDidCommit(url: committedURL)
+        state.navigationDidFail(message: "connection interrupted", url: committedURL)
+
+        #expect(state.currentURL == committedURL)
+        #expect(state.addressText == committedURL.absoluteString)
     }
 
     @Test func navigationFailureSurfacesMessageAndStopsLoading() {
         let state = makeState()
         state.navigationDidStart()
-        state.navigationDidFail(message: "no network")
+        let failedURL = URL(string: "https://unreachable.invalid")!
+        state.navigationDidCommit(url: failedURL)
+        state.navigationDidFail(message: "no network", url: failedURL)
         #expect(state.isLoading == false)
         #expect(state.estimatedProgress == 0)
         #expect(state.lastErrorMessage == "no network")
+        #expect(state.lastFailedURL == failedURL)
+        #expect(state.securityIndicatorURL == nil)
+    }
+
+    @Test func securityIndicatorNeverUsesUncommittedOrFailedDestination() {
+        let state = makeState(initialURL: URL(string: "https://initial.example")!)
+        let failedURL = URL(string: "http://failed.example")!
+
+        #expect(state.securityIndicatorURL == nil)
+        state.navigationDidStart()
+        #expect(state.securityIndicatorURL == nil)
+        state.navigationDidFail(message: "offline", url: failedURL, wasProvisional: true)
+        #expect(state.securityIndicatorURL == nil)
+    }
+
+    @Test func retryFailureQueuesExactDestinationAndClearsError() {
+        let state = makeState()
+        let failedURL = URL(string: "https://unreachable.invalid/path")!
+        state.navigationDidFail(message: "offline", url: failedURL)
+
+        state.retryFailedNavigation()
+
+        #expect(state.consumeLoadRequest() == failedURL)
+        #expect(state.addressText == failedURL.absoluteString)
+        #expect(state.lastErrorMessage == nil)
+        #expect(state.lastFailedURL == nil)
+    }
+
+    @Test func cancelledNavigationRestoresCommittedAddress() {
+        let committedURL = URL(string: "https://secure.example")!
+        let state = makeState()
+        state.navigationDidFinish(url: committedURL)
+        state.load(URL(string: "http://slow.example")!)
+
+        state.navigationDidCancel()
+
+        #expect(state.isLoading == false)
+        #expect(state.addressText == committedURL.absoluteString)
+        #expect(state.securityIndicatorURL == committedURL)
+    }
+
+    @Test func provisionalFailureRestoresCommittedSecurityIndicator() {
+        let committedURL = URL(string: "https://secure.example")!
+        let state = makeState()
+        state.navigationDidFinish(url: committedURL)
+        state.load(URL(string: "http://failed.example")!)
+
+        state.navigationDidFail(
+            message: "offline",
+            url: URL(string: "http://failed.example")!,
+            wasProvisional: true
+        )
+
+        #expect(state.securityIndicatorURL == committedURL)
+    }
+
+    @Test func dismissingProvisionalFailureRestoresCommittedAddress() {
+        let committedURL = URL(string: "https://secure.example")!
+        let failedURL = URL(string: "http://failed.example")!
+        let state = makeState()
+        state.navigationDidFinish(url: committedURL)
+        state.load(failedURL)
+        state.navigationDidFail(message: "offline", url: failedURL, wasProvisional: true)
+
+        state.clearNavigationError()
+
+        #expect(state.addressText == committedURL.absoluteString)
+        #expect(state.lastErrorMessage == nil)
+    }
+
+    @Test func laterSuccessClearsFailureAndCommitsPageIdentity() {
+        let state = makeState()
+        state.navigationDidFail(
+            message: "offline",
+            url: URL(string: "https://example.com/failed")!
+        )
+        let committedURL = URL(string: "https://example.com/success")!
+
+        state.navigationDidFinish(url: committedURL, title: "Success")
+
+        #expect(state.currentURL == committedURL)
+        #expect(state.addressText == committedURL.absoluteString)
+        #expect(state.title == "Success")
+        #expect(state.lastErrorMessage == nil)
+        #expect(state.lastFailedURL == nil)
+    }
+
+    @Test func sameDocumentNavigationUpdatesCommittedIdentity() {
+        let originalURL = URL(string: "https://example.com/first")!
+        let updatedURL = URL(string: "https://example.com/second")!
+        let state = makeState(initialURL: originalURL)
+
+        state.navigationURLDidChange(updatedURL)
+
+        #expect(state.currentURL == updatedURL)
+        #expect(state.addressText == updatedURL.absoluteString)
+    }
+
+    @Test func sameDocumentNavigationPreservesInProgressAddressEditing() {
+        let state = makeState(initialURL: URL(string: "https://example.com/first")!)
+        state.isAddressEditing = true
+        state.addressText = "typed query"
+
+        state.navigationURLDidChange(URL(string: "https://example.com/second")!)
+
+        #expect(state.currentURL == URL(string: "https://example.com/second")!)
+        #expect(state.addressText == "typed query")
+    }
+
+    @Test func sameDocumentPersistenceIsCoalescibleButFinishedNavigationIsImmediate() {
+        let state = makeState(initialURL: URL(string: "https://example.com/first")!)
+        var immediateWrites: [Bool] = []
+        state.installPersistence { immediate in
+            immediateWrites.append(immediate)
+        }
+
+        state.navigationURLDidChange(URL(string: "https://example.com/second")!)
+        state.navigationDidFinish(url: URL(string: "https://example.com/final")!)
+
+        #expect(immediateWrites == [false, true])
+    }
+
+    @Test func latePageTitleChangePersistsWithoutACompletedNavigation() {
+        let state = makeState(initialURL: URL(string: "https://example.com")!)
+        var immediateWrites: [Bool] = []
+        state.installPersistence { immediate in
+            immediateWrites.append(immediate)
+        }
+
+        state.pageTitleDidChange("Updated title")
+        state.pageTitleDidChange("Updated title")
+
+        #expect(state.title == "Updated title")
+        #expect(immediateWrites == [false])
+    }
+
+    @Test func successfulUntitledNavigationClearsPriorTitle() {
+        let state = makeState()
+        state.navigationDidFinish(
+            url: URL(string: "https://example.com/titled")!,
+            title: "Titled"
+        )
+
+        state.navigationDidStart()
+        state.pageTitleDidChange(nil)
+        #expect(state.title == "Titled")
+        state.navigationDidFinish(
+            url: URL(string: "https://example.com/untitled")!,
+            title: ""
+        )
+
+        #expect(state.title == nil)
+    }
+
+    @Test func idlePageCanClearItsTitle() {
+        let state = makeState()
+        state.navigationDidFinish(title: "Single-page app")
+
+        state.pageTitleDidChange("")
+
+        #expect(state.title == nil)
+    }
+
+    @Test func provisionalFailureRecordsRecoveryWithoutDiscardingCommittedPage() {
+        let committedURL = URL(string: "https://example.com/committed")!
+        let failedURL = URL(string: "https://example.com/failed")!
+        let state = makeState(initialURL: committedURL)
+
+        state.navigationDidFail(message: "offline", url: failedURL, wasProvisional: true)
+
+        #expect(state.currentURL == committedURL)
+        #expect(state.lastFailedURL == failedURL)
+        #expect(state.lastFailureWasProvisional)
     }
 
     @Test func commandQueueConsumedOnce() {
@@ -103,5 +344,76 @@ import Testing
         state.request(.goBack)
         state.request(.goForward)
         #expect(state.consumeCommand() == .goForward)
+    }
+
+    @Test func contentModeDefaultsToRecommended() {
+        let state = makeState()
+        #expect(state.contentModePreference == .recommended)
+        #expect(state.prefersDesktopSite == false)
+    }
+
+    @Test func recommendedResolvesToDesktopOnPadClassDevices() {
+        // On iPad, WebKit's recommended mode already loads desktop sites, so
+        // the effective preference must report desktop while .recommended and
+        // the first toggle must request the MOBILE site, not no-op to desktop.
+        let state = makeState(initialURL: URL(string: "https://example.com")!)
+        _ = state.consumeLoadRequest()
+        state.recommendedContentModeIsDesktop = true
+
+        #expect(state.contentModePreference == .recommended)
+        #expect(state.prefersDesktopSite)
+
+        state.togglePrefersDesktopSite()
+
+        #expect(state.contentModePreference == .mobile)
+        #expect(state.prefersDesktopSite == false)
+        #expect(state.consumeCommand() == .reload)
+    }
+
+    @Test func desktopSiteToggleReloadsCurrentPage() {
+        let state = makeState(initialURL: URL(string: "https://example.com")!)
+        _ = state.consumeLoadRequest()
+
+        state.togglePrefersDesktopSite()
+
+        #expect(state.contentModePreference == .desktop)
+        #expect(state.prefersDesktopSite)
+        #expect(state.consumeCommand() == .reload)
+    }
+
+    @Test func toggleBackForcesMobileNotRecommended() {
+        // On iPads the recommended mode is desktop, so "Request Mobile Site"
+        // must force .mobile rather than fall back to the device default.
+        let state = makeState(initialURL: URL(string: "https://example.com")!)
+        _ = state.consumeLoadRequest()
+
+        state.togglePrefersDesktopSite()
+        #expect(state.consumeCommand() == .reload)
+
+        state.togglePrefersDesktopSite()
+
+        #expect(state.contentModePreference == .mobile)
+        #expect(state.prefersDesktopSite == false)
+        #expect(state.consumeCommand() == .reload)
+    }
+
+    @Test func desktopSiteToggleBeforeFirstLoadDoesNotDoubleLoad() {
+        let state = makeState(initialURL: URL(string: "https://example.com")!)
+
+        state.togglePrefersDesktopSite()
+
+        #expect(state.prefersDesktopSite)
+        #expect(state.consumeCommand() == nil)
+        #expect(state.consumeLoadRequest()?.absoluteString == "https://example.com")
+    }
+
+    @Test func settingSameContentModePreferenceIsNoOp() {
+        let state = makeState(initialURL: URL(string: "https://example.com")!)
+        _ = state.consumeLoadRequest()
+
+        state.setContentModePreference(.recommended)
+
+        #expect(state.prefersDesktopSite == false)
+        #expect(state.consumeCommand() == nil)
     }
 }

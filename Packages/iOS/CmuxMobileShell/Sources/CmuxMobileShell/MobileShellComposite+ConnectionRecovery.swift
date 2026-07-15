@@ -432,6 +432,7 @@ extension MobileShellComposite {
             guard remoteClient === client, connectionState == .connected else { return false }
             applyRemoteWorkspaceList(response, preferActiveTicketTarget: false)
             syncSelectedTerminalForWorkspace()
+            foregroundWorkspaceListDidRefresh()
             return true
         } catch {
             mobileShellLog.error(

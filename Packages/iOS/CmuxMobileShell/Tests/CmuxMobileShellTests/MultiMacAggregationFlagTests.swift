@@ -43,6 +43,39 @@ struct MultiMacAggregationFlagTests {
         #expect(MultiMacAggregationFlag(environment: [:], defaults: scopedDefaults.defaults).isEnabled == value)
     }
 
+    @Test @MainActor func completeForegroundListIsAuthoritativeWhenAggregationIsDisabled() {
+        let scopedDefaults = Self.makeDefaults()
+        defer { Self.removeDefaults(scopedDefaults) }
+        scopedDefaults.defaults.set(false, forKey: "multiMacAggregation")
+        let store = MobileShellComposite(multiMacAggregationDefaults: scopedDefaults.defaults)
+
+        store.foregroundWorkspaceListDidBecomeAuthoritative()
+
+        #expect(store.browserWorkspaceListIsAuthoritative)
+    }
+
+    @Test @MainActor func successfulSecondaryRefreshRestoresBrowserWorkspaceAuthority() {
+        let scopedDefaults = Self.makeDefaults()
+        defer { Self.removeDefaults(scopedDefaults) }
+        let store = MobileShellComposite(multiMacAggregationDefaults: scopedDefaults.defaults)
+        store.browserWorkspaceListIsAuthoritative = false
+
+        store.completeSecondaryWorkspaceRefresh(isAuthoritative: true)
+
+        #expect(store.browserWorkspaceListIsAuthoritative)
+    }
+
+    @Test @MainActor func failedSecondaryRefreshPreservesExistingBrowserWorkspaceAuthority() {
+        let scopedDefaults = Self.makeDefaults()
+        defer { Self.removeDefaults(scopedDefaults) }
+        let store = MobileShellComposite(multiMacAggregationDefaults: scopedDefaults.defaults)
+        store.browserWorkspaceListIsAuthoritative = true
+
+        store.completeSecondaryWorkspaceRefresh(isAuthoritative: false)
+
+        #expect(store.browserWorkspaceListIsAuthoritative)
+    }
+
     private static func makeDefaults() -> (defaults: UserDefaults, suiteName: String) {
         let suiteName = "multi-mac-aggregation-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!

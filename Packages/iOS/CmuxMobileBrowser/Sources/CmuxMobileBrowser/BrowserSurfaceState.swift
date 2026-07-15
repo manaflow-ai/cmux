@@ -61,6 +61,48 @@ public final class BrowserSurfaceState: Identifiable {
     /// The page's current committed URL, or `nil` before the first navigation.
     public var currentURL: URL?
 
+    /// The URL WebKit explicitly committed for the security indicator.
+    ///
+    /// This is intentionally separate from ``currentURL``. Restored and pending
+    /// destinations may seed `currentURL` before the new `WKWebView` commits
+    /// them, and must never receive secure or insecure chrome prematurely.
+    private(set) var securityIndicatorURL: URL?
+    /// The last URL WebKit committed, retained while a provisional navigation
+    /// temporarily clears the visible security indicator.
+    private var committedSecurityIndicatorURL: URL?
+
+    /// The most recent WebKit interaction state for this surface.
+    ///
+    /// `WKWebView` instances are view-lifecycle objects and can be torn down
+    /// during workspace switches. This snapshot lets a fresh web view restore
+    /// the page plus its back/forward list while the in-memory surface
+    /// survives. WebKit documents `WKWebView.interactionState` as an opaque
+    /// value, so it is held as-is and only ever handed back to WebKit.
+    public var savedInteractionState: Any?
+
+    /// The content mode subsequent page loads should request. Starts as
+    /// ``BrowserContentModePreference/recommended`` and becomes an explicit mode once
+    /// the user toggles the desktop-site menu item.
+    public var contentModePreference: BrowserContentModePreference
+
+    /// Whether this device's recommended WebKit content mode is desktop
+    /// (true on iPad, false on iPhone). Injected by the hosting view when the
+    /// web view attaches, so this package stays UIKit-free and the toggle's
+    /// label and first action are correct on iPads, whose default
+    /// ``BrowserContentModePreference/recommended`` mode already loads desktop sites.
+    public var recommendedContentModeIsDesktop: Bool
+
+    /// Whether subsequent page loads request the desktop site, resolving
+    /// ``BrowserContentModePreference/recommended`` to the device default. Drives the
+    /// menu label and the toggle direction.
+    public var prefersDesktopSite: Bool {
+        switch contentModePreference {
+        case .recommended: recommendedContentModeIsDesktop
+        case .mobile: false
+        case .desktop: true
+        }
+    }
+
     /// Whether a navigation is in flight. Drives the progress indicator and the
     /// reload/stop button affordance.
     public var isLoading: Bool
@@ -79,6 +121,14 @@ public final class BrowserSurfaceState: Identifiable {
     /// `nil` when the last navigation succeeded or none has occurred.
     public var lastErrorMessage: String?
 
+    /// The destination associated with ``lastErrorMessage``, used by the
+    /// recoverable error UI for retry.
+    public var lastFailedURL: URL?
+
+    /// Whether the visible failure happened before WebKit committed the failed
+    /// destination. The previously committed page remains underneath that error.
+    public var lastFailureWasProvisional: Bool
+
     /// A pending URL the representable should load, set by ``load(_:)``. The
     /// view consumes it via ``consumeLoadRequest()`` and clears it so the same
     /// request is not replayed on re-render.
@@ -88,6 +138,11 @@ public final class BrowserSurfaceState: Identifiable {
     /// the `WKWebView` (back, forward, reload, stop). The view consumes it via
     /// ``consumeCommand()`` and clears it so the same command runs once.
     public private(set) var pendingCommand: NavigationCommand?
+
+    /// Invoked after the durable subset of this state changes. The owning
+    /// ``BrowserSurfaceStore`` installs this so workspace association and the
+    /// last committed page survive a cold app launch.
+    private var persistDurableState: (@MainActor (_ immediately: Bool) -> Void)?
 
     /// Creates a browser surface state.
     ///
@@ -101,12 +156,20 @@ public final class BrowserSurfaceState: Identifiable {
         self.isAddressEditing = false
         self.title = nil
         self.currentURL = initialURL
-        self.isLoading = false
+        self.securityIndicatorURL = nil
+        self.committedSecurityIndicatorURL = nil
+        self.savedInteractionState = nil
+        self.contentModePreference = .recommended
+        self.recommendedContentModeIsDesktop = false
+        self.isLoading = initialURL != nil
         self.estimatedProgress = 0
         self.canGoBack = false
         self.canGoForward = false
         self.lastErrorMessage = nil
+        self.lastFailedURL = nil
+        self.lastFailureWasProvisional = false
         self.loadRequest = initialURL
+        self.persistDurableState = nil
     }
 
     /// Request a navigation to `url`. Sets ``loadRequest`` for the view to pick
@@ -116,7 +179,44 @@ public final class BrowserSurfaceState: Identifiable {
     public func load(_ url: URL) {
         loadRequest = url
         addressText = url.absoluteString
+        securityIndicatorURL = nil
+        isLoading = true
+        estimatedProgress = 0
         lastErrorMessage = nil
+        lastFailedURL = nil
+        lastFailureWasProvisional = false
+        savedInteractionState = nil
+    }
+
+    /// Store a new WebKit interaction-state snapshot when WebKit provides one.
+    ///
+    /// - Parameter interactionState: The opaque `WKWebView.interactionState`
+    ///   value, or `nil` when WebKit has no restorable state yet.
+    public func saveInteractionState(_ interactionState: Any?) {
+        guard let interactionState else { return }
+        savedInteractionState = interactionState
+    }
+
+    /// Update the content-mode preference and request a reload when a page is
+    /// already loaded.
+    ///
+    /// - Parameter preference: The content mode subsequent loads should request.
+    public func setContentModePreference(_ preference: BrowserContentModePreference) {
+        guard contentModePreference != preference else { return }
+        contentModePreference = preference
+        persistDurableState?(true)
+        if loadRequest == nil, currentURL != nil {
+            request(.reload)
+        }
+    }
+
+    /// Flip the desktop-site preference relative to the current effective
+    /// mode. On iPhone the first toggle forces the desktop site; on iPad
+    /// (where ``recommendedContentModeIsDesktop`` is true) it forces the
+    /// mobile site. Explicit modes are forced, never the device default, so
+    /// the request is honored regardless of device.
+    public func togglePrefersDesktopSite() {
+        setContentModePreference(prefersDesktopSite ? .mobile : .desktop)
     }
 
     /// Resolve and load whatever is currently in the address bar, returning
@@ -173,21 +273,157 @@ public final class BrowserSurfaceState: Identifiable {
     public func navigationDidStart() {
         isLoading = true
         estimatedProgress = 0
+        securityIndicatorURL = nil
         lastErrorMessage = nil
+        lastFailedURL = nil
+        lastFailureWasProvisional = false
     }
 
-    /// Mark a successful navigation finish: loading ends and progress completes.
-    public func navigationDidFinish() {
+    /// Record and durably persist the URL from WebKit's explicit navigation-
+    /// commit callback. This boundary survives a missing finish callback while
+    /// provisional KVO changes remain excluded from the committed identity.
+    ///
+    /// - Parameter url: The committed WebKit URL, or `nil` when WebKit did not
+    ///   expose one for the commit.
+    func navigationDidCommit(url: URL?) {
+        securityIndicatorURL = url
+        committedSecurityIndicatorURL = url
+        guard let url else { return }
+        currentURL = url
+        if !isAddressEditing {
+            addressText = url.absoluteString
+        }
+        // `didFinish` may never arrive after a process death or an interrupted
+        // response. The explicit WebKit commit is the durable page boundary.
+        persistDurableState?(true)
+    }
+
+    /// Commit a URL change that WebKit reports without a full navigation
+    /// lifecycle, such as `history.pushState` or a fragment change.
+    ///
+    /// - Parameter url: The page identity currently visible in WebKit.
+    func navigationURLDidChange(_ url: URL) {
+        applyPageMetadataUpdate(.init(
+            url: url,
+            title: nil,
+            includesURL: true,
+            includesTitle: false
+        ))
+    }
+
+    /// Save a non-empty page title reported outside the navigation lifecycle.
+    ///
+    /// Single-page apps can update their title after `didFinish`, so KVO title
+    /// changes must persist independently of completed navigations.
+    /// - Parameter title: The latest page title reported by WebKit.
+    func pageTitleDidChange(_ title: String?) {
+        applyPageMetadataUpdate(.init(
+            url: nil,
+            title: title,
+            includesURL: false,
+            includesTitle: true
+        ))
+    }
+
+    /// Applies one coalesced WebKit metadata event with one durable callback.
+    func applyPageMetadataUpdate(_ update: BrowserPageMetadataUpdate) {
+        var didChange = false
+        if update.includesURL, let url = update.url, currentURL != url {
+            currentURL = url
+            if !isAddressEditing {
+                addressText = url.absoluteString
+            }
+            didChange = true
+        }
+        if update.includesTitle {
+            let normalizedTitle = update.title.flatMap { $0.isEmpty ? nil : $0 }
+            // WebKit clears `title` while a new page is provisional. Keep the
+            // committed title until success so a provisional failure restores it.
+            if (normalizedTitle != nil || !isLoading), title != normalizedTitle {
+                title = normalizedTitle
+                didChange = true
+            }
+        }
+        if didChange {
+            persistDurableState?(false)
+        }
+    }
+
+    /// Mark a successful navigation finish and save its committed identity.
+    ///
+    /// - Parameters:
+    ///   - url: The URL WebKit committed for the completed navigation.
+    ///   - title: The page title WebKit reported, when non-empty.
+    public func navigationDidFinish(url: URL? = nil, title: String? = nil) {
         isLoading = false
         estimatedProgress = 1
+        securityIndicatorURL = url
+        committedSecurityIndicatorURL = url
+        if let url {
+            currentURL = url
+            if !isAddressEditing {
+                addressText = url.absoluteString
+            }
+        }
+        self.title = title.flatMap { $0.isEmpty ? nil : $0 }
+        lastErrorMessage = nil
+        lastFailedURL = nil
+        lastFailureWasProvisional = false
+        persistDurableState?(true)
     }
 
     /// Mark a navigation failure with a user-facing message.
     ///
-    /// - Parameter message: The error description to surface in the chrome.
-    public func navigationDidFail(message: String) {
+    /// - Parameters:
+    ///   - message: The error description to surface in the chrome.
+    ///   - url: The failed destination, when known.
+    ///   - wasProvisional: Whether WebKit failed before committing the destination.
+    public func navigationDidFail(
+        message: String,
+        url: URL? = nil,
+        wasProvisional: Bool = false
+    ) {
         isLoading = false
         estimatedProgress = 0
+        if wasProvisional {
+            securityIndicatorURL = committedSecurityIndicatorURL
+        } else {
+            securityIndicatorURL = nil
+            committedSecurityIndicatorURL = nil
+        }
         lastErrorMessage = message
+        lastFailedURL = url
+        lastFailureWasProvisional = wasProvisional
+    }
+
+    /// Restores committed chrome after a cancelled provisional navigation.
+    public func navigationDidCancel() {
+        isLoading = false
+        estimatedProgress = 0
+        securityIndicatorURL = committedSecurityIndicatorURL
+        if let currentURL, !isAddressEditing {
+            addressText = currentURL.absoluteString
+        }
+    }
+
+    /// Retry the failed destination, if one was recorded.
+    public func retryFailedNavigation() {
+        guard let lastFailedURL else { return }
+        load(lastFailedURL)
+    }
+
+    /// Clear a visible navigation error without changing the committed page.
+    public func clearNavigationError() {
+        if lastFailureWasProvisional, let currentURL, !isAddressEditing {
+            addressText = currentURL.absoluteString
+        }
+        lastErrorMessage = nil
+        lastFailedURL = nil
+        lastFailureWasProvisional = false
+    }
+
+    /// Install the store-owned durable-state callback.
+    func installPersistence(_ action: @escaping @MainActor (_ immediately: Bool) -> Void) {
+        persistDurableState = action
     }
 }

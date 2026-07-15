@@ -16,6 +16,7 @@ struct WorkspaceChatPane: View {
     let session: ChatSessionDescriptor
     let conversation: ChatConversationStore
     let store: CMUXMobileShellStore
+    let browserWorkspaceIdentity: BrowserWorkspaceIdentity
     /// Composer draft, owned by the parent so it survives toggling back to
     /// the terminal and returning mid-thought.
     @Binding var draft: String
@@ -81,18 +82,15 @@ struct WorkspaceChatPane: View {
     /// chat mode so the terminal shows.
     private func openTerminal() {
         if let terminalID = session.terminalID {
-            // Leaving chat for the terminal is a chrome action, not a typing
-            // intent, so suppress the target's autofocus (matches the terminal
-            // picker). Using selectTerminalFromChrome instead of setting
-            // selectedTerminalID directly avoids a surprise keyboard pop.
-            store.selectTerminalFromChrome(MobileTerminalPreview.ID(rawValue: terminalID))
-        }
-        // Close any active browser pane for this workspace first: the detail
-        // body prefers browser over terminal, so leaving a browser open would
-        // make "Open Terminal" land back on the browser instead of the
-        // terminal the user asked for (matches the terminal-picker path).
-        if let workspaceID = session.workspaceID {
-            browserStore.closeBrowser(for: workspaceID)
+            WorkspaceTerminalSurfaceSelection(
+                store: store,
+                browserStore: browserStore
+            ).selectFromChrome(
+                terminalID: MobileTerminalPreview.ID(rawValue: terminalID),
+                browserWorkspaceIdentity: browserWorkspaceIdentity
+            )
+        } else {
+            browserStore.showNonBrowserSurface(for: browserWorkspaceIdentity)
         }
         onExitChat()
     }

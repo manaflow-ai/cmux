@@ -101,6 +101,7 @@ final class cmuxUITests: XCTestCase {
     func testWorkspaceMacPickerUsesComputerCopy() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_LEGACY_FIXTURE": "1",
         ])
         defer { app.terminate() }
 
@@ -299,6 +300,63 @@ final class cmuxUITests: XCTestCase {
                 && $0["toolbarVisible"] == "1"
         }
         assertTerminalRenderBottomAttachedToViewport(dock, context: "synthetic keyboard preview")
+    }
+
+    @MainActor
+    func testWorkspaceSurfaceGridPreviewShowsBrowserTerminalCardsAndToolbar() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.scrollViews["MobileWorkspaceSurfaceGrid"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["MobileSurfaceGridSettingsButton"].exists)
+        XCTAssertTrue(app.buttons["MobileSurfaceGridDevicesButton"].exists)
+        XCTAssertTrue(app.buttons["MobileSurfaceGridSearchButton"].exists)
+        XCTAssertTrue(app.buttons["MobileSurfaceGridAddButton"].exists)
+
+        let workspacePicker = app.buttons["MobileSurfaceGridWorkspacePicker"]
+        XCTAssertTrue(workspacePicker.exists)
+        XCTAssertLessThanOrEqual(
+            workspacePicker.frame.width,
+            190,
+            "The bottom-center workspace picker should stay bounded so long workspace names truncate."
+        )
+        XCTAssertTrue(app.buttons["MobileSurfaceGridDoneButton"].exists)
+
+        XCTAssertTrue(app.staticTexts["MobileSurfaceGridWorkspaceTitle"].exists)
+        XCTAssertTrue(app.staticTexts["Browser"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["MobileSurfaceGridCard-terminal-terminal-build"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["MobileSurfaceGridCard-terminal-terminal-agent"].exists)
+
+        tap(app.buttons["MobileSurfaceGridSearchButton"], in: app)
+        XCTAssertTrue(app.textFields["MobileSurfaceGridSearchField"].waitForExistence(timeout: 2))
+    }
+
+    @MainActor
+    func testSurfaceGridTerminalCreationLeavesLocalBrowserMode() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        defer { app.terminate() }
+        tap(app.buttons["MobileWorkspaceBackButton"], in: app)
+        XCTAssertTrue(app.scrollViews["MobileWorkspaceSurfaceGrid"].waitForExistence(timeout: 8))
+
+        tap(app.buttons["MobileSurfaceGridAddButton"], in: app)
+        tap(app.buttons["MobileSurfaceGridNewBrowserMenuItem"], in: app)
+        XCTAssertTrue(app.textFields["MobileBrowserAddressField"].waitForExistence(timeout: 4))
+
+        tap(app.buttons["MobileWorkspaceBackButton"], in: app)
+        XCTAssertTrue(app.scrollViews["MobileWorkspaceSurfaceGrid"].waitForExistence(timeout: 4))
+        tap(app.buttons["MobileSurfaceGridAddButton"], in: app)
+        tap(app.buttons["MobileSurfaceGridNewTerminalMenuItem"], in: app)
+
+        XCTAssertTrue(
+            app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8),
+            "Creating a terminal after visiting the local browser must mount the remote terminal surface."
+        )
     }
 
     @MainActor
@@ -1980,9 +2038,7 @@ final class cmuxUITests: XCTestCase {
             "CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE": "1",
         ])
         if !workspaceTitleElement(in: app).waitForExistence(timeout: 4) {
-            let row = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
-            XCTAssertTrue(row.waitForExistence(timeout: 8))
-            row.tap()
+            try? openSelectedWorkspaceIfNeeded(app)
         }
         XCTAssertTrue(workspaceTitleElement(in: app).waitForExistence(timeout: 8))
         XCTAssertTrue(app.buttons["MobileTerminalDropdown"].waitForExistence(timeout: 8))
@@ -2014,10 +2070,25 @@ final class cmuxUITests: XCTestCase {
             return
         }
 
-        let row = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
-        XCTAssertTrue(row.waitForExistence(timeout: 8))
-        row.tap()
+        let gridCard = firstSurfaceGridTerminalCard(in: app)
+        if gridCard.waitForExistence(timeout: 8) {
+            gridCard.tap()
+        } else {
+            let row = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
+            XCTAssertTrue(row.waitForExistence(timeout: 8))
+            row.tap()
+        }
         XCTAssertTrue(app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8))
+    }
+
+    @MainActor
+    private func firstSurfaceGridTerminalCard(in app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .any)
+            .matching(NSPredicate(
+                format: "identifier BEGINSWITH %@",
+                "MobileSurfaceGridCard-terminal-"
+            ))
+            .firstMatch
     }
 
     @MainActor
@@ -2085,10 +2156,12 @@ final class cmuxUITests: XCTestCase {
         line: UInt = #line
     ) {
         let workspaceRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
+        let surfaceGridCard = firstSurfaceGridTerminalCard(in: app)
+        let surfaceGrid = app.descendants(matching: .any)["MobileWorkspaceSurfaceGrid"]
         let terminalSurface = app.otherElements["MobileTerminalSurface"]
         let expectation = XCTNSPredicateExpectation(
             predicate: NSPredicate { _, _ in
-                workspaceRow.exists || terminalSurface.exists
+                workspaceRow.exists || surfaceGridCard.exists || surfaceGrid.exists || terminalSurface.exists
             },
             object: app
         )

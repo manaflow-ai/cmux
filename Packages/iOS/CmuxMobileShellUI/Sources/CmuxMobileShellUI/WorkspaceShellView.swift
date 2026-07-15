@@ -1,6 +1,8 @@
 import Foundation
+import CmuxMobileBrowser
 import CmuxMobileShell
 import CmuxMobileShellModel
+import CmuxMobileSupport
 import CmuxMobileWorkspace
 import SwiftUI
 #if os(iOS)
@@ -19,12 +21,21 @@ struct WorkspaceShellView: View {
     /// hides the add affordance.
     var showAddDevice: (() -> Void)?
     let compactNavigationPolicy = WorkspaceShellCompactNavigationPolicy()
-    @Environment(MobileDisplaySettings.self) private var displaySettings
+    @Environment(MobileDisplaySettings.self) var displaySettings
+    @Environment(BrowserSurfaceStore.self) var browserStore
     @State var compactNavigationPath: [MobileWorkspacePreview.ID] = []
+    @State var compactLocalBrowserWorkspaceID: MobileWorkspacePreview.ID?
     @State var pendingCompactCreateNavigationWorkspaceIDs: Set<MobileWorkspacePreview.ID>?
+    @State var surfaceGridTerminalOpenTask: Task<Void, Never>?
+    @State var surfaceGridTerminalOpenRequestID: UUID?
     @State private var hasPresentedSplitDetail = false
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .automatic
-    @State private var macSelection: WorkspaceMacSelection = .all
+    @State private var showingCompactSettings = false
+    @State private var showingCompactDeviceTree = false
+    @State private var showingCompactWorkspaceManager = false
+    @State var macSelection: WorkspaceMacSelection = .all
+    @State var isCreatingWorkspaceFromSurfaceGrid = false
+    @State var isCreatingTerminalFromSurfaceGrid = false
     @State var workspaceActionToast: WorkspaceActionToastContent?
     @State private var pendingMacSwitchID: String?
     @State private var pendingMacSwitchGeneration: UInt64 = 0
@@ -45,7 +56,7 @@ struct WorkspaceShellView: View {
         #endif
     }
 
-    private var listConnectionStatus: MobileMacConnectionStatus {
+    var listConnectionStatus: MobileMacConnectionStatus {
         if isInitialConnectionLoading || initialConnectionTimedOut {
             return .reconnecting
         }
@@ -105,56 +116,38 @@ struct WorkspaceShellView: View {
 
     private var stackLayout: some View {
         NavigationStack(path: $compactNavigationPath) {
-            WorkspaceListView(
+            WorkspaceSurfaceGridView(
                 workspaces: store.workspaces,
-                groups: store.workspaceGroups,
-                selectedWorkspaceID: store.selectedWorkspaceID,
-                host: store.connectedHostName,
-                connectionStatus: listConnectionStatus,
-                macUpdateHint: store.macUpdateHint,
-                macUpdateHintMacName: store.connectedHostName,
-                dismissMacUpdateHint: { store.dismissMacUpdateHint() },
-                navigationStyle: .push,
-                showsNavigationToolbar: compactNavigationPath.isEmpty,
-                wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
-                previewLineLimit: displaySettings.workspacePreviewLineCount,
-                unreadIndicatorLeftShift: displaySettings.unreadIndicatorLeftShift,
-                profilePictureLeftShift: displaySettings.profilePictureLeftShift,
-                profilePictureSize: displaySettings.profilePictureSize,
-                selectWorkspace: selectWorkspace,
-                createWorkspace: createWorkspaceInCompactStack,
-                createWorkspaceInGroup: createWorkspaceInGroupInCompactStackClosure,
-                createWorkspaceGroup: createWorkspaceGroupInCompactStackClosure,
-                canCreateWorkspace: canCreateWorkspaceForMacSelection,
-                macSelection: $macSelection,
-                switchMac: { macDeviceID in
-                    await switchMacFromWorkspacePicker(macDeviceID: macDeviceID)
-                },
-                cancelMacSwitch: cancelMacSwitchFromWorkspacePicker,
+                selectedWorkspaceID: compactSurfaceGridSelectedWorkspaceID,
+                selectedTerminalID: store.selectedTerminalID,
+                host: compactSurfaceGridHost,
+                connectionStatus: compactSurfaceGridConnectionStatus,
+                canCreateWorkspace: canCreateWorkspaceFromSurfaceGrid,
+                canCreateTerminal: canCreateTerminal,
+                selectWorkspace: selectWorkspaceFromSurfaceGrid,
+                openTerminal: openTerminalFromSurfaceGrid,
+                openBrowser: openBrowserFromSurfaceGrid,
+                closeBrowser: closeBrowserFromSurfaceGrid,
+                createWorkspace: createWorkspaceFromSurfaceGrid,
+                createTerminal: createTerminalFromSurfaceGrid,
                 refresh: refreshWorkspacesClosure,
-                rescanQR: { store.disconnectAndForgetActiveMac() },
-                signOut: signOut,
+                showSettings: { showingCompactSettings = true },
+                showDevices: { showingCompactDeviceTree = true },
+                showWorkspaceManager: { showingCompactWorkspaceManager = true },
                 reconnect: reconnectClosure,
-                showAddDevice: showAddDevice,
-                store: store,
-                renameWorkspace: renameWorkspaceClosure,
-                setPinned: setWorkspacePinnedClosure,
-                setUnread: setWorkspaceUnreadClosure,
-                closeWorkspace: closeWorkspaceClosure,
-                moveWorkspace: moveWorkspaceClosure,
-                renameWorkspaceGroup: renameWorkspaceGroupClosure,
-                setGroupPinned: setWorkspaceGroupPinnedClosure,
-                ungroupWorkspaceGroup: ungroupWorkspaceGroupClosure,
-                deleteWorkspaceGroup: deleteWorkspaceGroupClosure,
-                toggleGroupCollapsed: toggleGroupCollapsedClosure,
                 isInitialConnectionLoading: isInitialConnectionLoading,
                 initialConnectionTimedOut: initialConnectionTimedOut,
-                retryInitialConnection: retryInitialConnection
+                retryInitialConnection: retryInitialConnection,
+                showAddDevice: showAddDevice
             )
             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                 workspaceDestination(
                     for: workspaceID,
+                    openMode: compactLocalBrowserWorkspaceID == workspaceID
+                        ? .localBrowser
+                        : .remoteWorkspace,
                     createWorkspace: createWorkspaceInCompactStack,
+                    canCreateWorkspaceInContext: canCreateWorkspace,
                     backButtonConfiguration: WorkspaceBackButtonConfiguration(
                         unreadCount: unreadWorkspaceCount(excluding: workspaceID),
                         badgeContrast: .darkBackground,
@@ -168,6 +161,30 @@ struct WorkspaceShellView: View {
                     // swipe-back, so re-enable it via InteractiveSwipeBackEnabler.
                     .navigationBarBackButtonHidden(true)
                     .background(InteractiveSwipeBackEnabler())
+            }
+        }
+        .sheet(isPresented: $showingCompactSettings) {
+            MobileSettingsView(
+                connectedHostName: store.connectedHostName,
+                rescanQR: { store.disconnectAndForgetActiveMac() },
+                signOut: signOut,
+                store: store
+            )
+        }
+        .sheet(isPresented: $showingCompactDeviceTree) {
+            DeviceTreeView(store: store, selectWorkspace: openWorkspaceFromDeviceTree, showAddDevice: showAddDevice)
+        }
+        .sheet(isPresented: $showingCompactWorkspaceManager) {
+            NavigationStack {
+                compactWorkspaceManager
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button(L10n.string("mobile.common.done", defaultValue: "Done")) {
+                                showingCompactWorkspaceManager = false
+                            }
+                            .accessibilityIdentifier("MobileWorkspaceManagerDoneButton")
+                        }
+                    }
             }
         }
         .onChange(of: store.selectedWorkspaceID) { _, selectedWorkspaceID in
@@ -190,6 +207,7 @@ struct WorkspaceShellView: View {
         }
         .onChange(of: compactNavigationPath) { _, path in
             guard let selectedWorkspaceID = path.last else {
+                compactLocalBrowserWorkspaceID = nil
                 return
             }
             pendingCompactCreateNavigationWorkspaceIDs = nil
@@ -263,6 +281,7 @@ struct WorkspaceShellView: View {
             workspaceDestination(
                 for: store.selectedWorkspaceID,
                 createWorkspace: createWorkspaceIfConnected,
+                canCreateWorkspaceInContext: canCreateWorkspaceForMacSelection,
                 safeAreaContext: splitColumnVisibility == .detailOnly ? .fullWidth : .splitSidebarVisible
             )
         }
@@ -280,6 +299,7 @@ struct WorkspaceShellView: View {
         guard store.deeplinkWorkspaceNavigationRequest != nil else { return }
         guard let workspaceID = store.consumeDeeplinkWorkspaceNavigationRequest() else { return }
         guard usesCompactStack else { return }
+        compactLocalBrowserWorkspaceID = nil
         if compactNavigationPath.last != workspaceID {
             compactNavigationPath = [workspaceID]
         }
@@ -287,17 +307,46 @@ struct WorkspaceShellView: View {
 
     private func selectWorkspace(_ id: MobileWorkspacePreview.ID) {
         pendingCompactCreateNavigationWorkspaceIDs = nil
+        compactLocalBrowserWorkspaceID = nil
         store.selectedWorkspaceID = id
         if usesCompactStack, compactNavigationPath.last != id {
             compactNavigationPath = [id]
         }
     }
 
+    func selectWorkspaceFromSurfaceGrid(_ id: MobileWorkspacePreview.ID) {
+        pendingCompactCreateNavigationWorkspaceIDs = nil
+        store.selectedWorkspaceID = id
+        compactNavigationPath = []
+    }
+
+    private func openWorkspaceFromDeviceTree(_ id: MobileWorkspacePreview.ID) {
+        showingCompactDeviceTree = false
+        selectWorkspace(id)
+    }
+
+    private func openBrowserFromSurfaceGrid(_ workspaceID: MobileWorkspacePreview.ID) {
+        surfaceGridTerminalOpenTask?.cancel()
+        surfaceGridTerminalOpenTask = nil
+        surfaceGridTerminalOpenRequestID = nil
+        pendingCompactCreateNavigationWorkspaceIDs = nil
+        compactLocalBrowserWorkspaceID = workspaceID
+        store.selectedWorkspaceID = workspaceID
+        guard let workspace = store.workspaces.first(where: { $0.id == workspaceID }) else { return }
+        browserStore.openBrowser(for: workspace.browserSurfaceIdentity)
+        compactNavigationPath = [workspaceID]
+    }
+
+    private func closeBrowserFromSurfaceGrid(_ workspaceID: MobileWorkspacePreview.ID) {
+        guard let workspace = store.workspaces.first(where: { $0.id == workspaceID }) else { return }
+        browserStore.closeBrowser(for: workspace.browserSurfaceIdentity)
+    }
+
     /// Pull-to-refresh closure for the workspace list. Awaits the store's real
     /// `mobile.workspace.list` re-sync so the system refresh spinner reflects the
     /// actual round-trip. Captures `store` as a local so the closure (not a store
     /// reference) is what crosses into the `List`-hosting view.
-    private var refreshWorkspacesClosure: @Sendable () async -> Void {
+    var refreshWorkspacesClosure: @Sendable () async -> Void {
         let store = store
         // Reconnect-or-refresh: when offline, pull-to-refresh re-attempts the saved
         // active Mac or the visible unavailable workspace owner instead of
@@ -306,13 +355,33 @@ struct WorkspaceShellView: View {
     }
 
     /// Manual reconnect for the offline status row's Reconnect button.
-    private var reconnectClosure: () -> Void {
+    var reconnectClosure: () -> Void {
         let store = store
         return { Task { await store.reconnectOrRefresh() } }
     }
 
-    private var canCreateWorkspace: Bool {
+    var canCreateWorkspace: Bool {
         canCreateWorkspaceOnForegroundConnection
+    }
+
+    var compactSurfaceGridSelectedWorkspaceID: MobileWorkspacePreview.ID? {
+        compactSurfaceGridSelectedWorkspace?.id
+    }
+
+    private var compactSurfaceGridSelectedWorkspace: MobileWorkspacePreview? {
+        if let selectedWorkspaceID = store.selectedWorkspaceID,
+           let selectedWorkspace = store.workspaces.first(where: { $0.id == selectedWorkspaceID }) {
+            return selectedWorkspace
+        }
+        return store.workspaces.first
+    }
+
+    var compactSurfaceGridConnectionStatus: MobileMacConnectionStatus {
+        compactSurfaceGridSelectedWorkspace?.macConnectionStatus ?? listConnectionStatus
+    }
+
+    private var compactSurfaceGridHost: String {
+        compactSurfaceGridSelectedWorkspace?.macDisplayName ?? store.connectedHostName
     }
 
     var canCreateWorkspaceForMacSelection: Bool {
@@ -323,7 +392,7 @@ struct WorkspaceShellView: View {
     }
 
     @MainActor
-    private func switchMacFromWorkspacePicker(macDeviceID: String) async -> Bool {
+    func switchMacFromWorkspacePicker(macDeviceID: String) async -> Bool {
         pendingMacSwitchGeneration &+= 1
         let generation = pendingMacSwitchGeneration
         pendingMacSwitchID = macDeviceID
@@ -336,7 +405,7 @@ struct WorkspaceShellView: View {
     }
 
     @MainActor
-    private func cancelMacSwitchFromWorkspacePicker(restorePreviousOnCancel: Bool) async {
+    func cancelMacSwitchFromWorkspacePicker(restorePreviousOnCancel: Bool) async {
         pendingMacSwitchGeneration &+= 1
         let generation = pendingMacSwitchGeneration
         let restoreTask = store.cancelPendingMacSwitch(restorePreviousOnCancel: restorePreviousOnCancel)
@@ -382,20 +451,24 @@ struct WorkspaceShellView: View {
     private func popCompactStack() {
         guard !compactNavigationPath.isEmpty else { return }
         compactNavigationPath.removeLast()
+        compactLocalBrowserWorkspaceID = nil
     }
 
     @ViewBuilder
     private func workspaceDestination(
         for workspaceID: MobileWorkspacePreview.ID?,
+        openMode: WorkspaceDetailOpenMode = .remoteWorkspace,
         createWorkspace: @escaping () -> Void,
+        canCreateWorkspaceInContext: Bool,
         safeAreaContext: MobileTerminalSafeAreaContext = .fullWidth,
         backButtonConfiguration: WorkspaceBackButtonConfiguration? = nil
     ) -> some View {
         WorkspaceDetailContainer(
             store: store,
             workspaceID: workspaceID,
+            openMode: openMode,
             createWorkspace: createWorkspace,
-            canCreateWorkspace: canCreateWorkspaceForMacSelection,
+            canCreateWorkspace: canCreateWorkspaceInContext,
             renameWorkspace: renameWorkspaceClosure,
             setWorkspaceUnread: setWorkspaceUnreadClosure,
             closeWorkspace: closeWorkspaceClosure,
@@ -405,44 +478,3 @@ struct WorkspaceShellView: View {
         )
     }
 }
-
-#if os(iOS)
-/// Re-enables the interactive swipe-from-edge back gesture, which UIKit disables
-/// whenever a custom leading bar button replaces the system back button (we do
-/// that to fold the unread count into the back control). Owns the pop gesture's
-/// delegate and only lets it begin when there is actually a screen to pop, so it
-/// never fires on the root list.
-/// `internal` (not `private`) so `cmuxFeatureTests` can drive
-/// `GestureHostController`'s delegate decisions directly.
-struct InteractiveSwipeBackEnabler: UIViewControllerRepresentable {
-    func makeUIViewController(context: Context) -> UIViewController { GestureHostController() }
-    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
-
-    final class GestureHostController: UIViewController, UIGestureRecognizerDelegate {
-        override func didMove(toParent parent: UIViewController?) {
-            super.didMove(toParent: parent)
-            navigationController?.interactivePopGestureRecognizer?.delegate = self
-        }
-
-        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-            (navigationController?.viewControllers.count ?? 0) > 1
-        }
-
-        // The pushed workspace detail hosts surfaces with their own pan/scroll
-        // gesture recognizers — the terminal's full-bounds scroll-mechanics
-        // `UIScrollView` and the browser's `WKWebView` scroll view. Taking over
-        // the navigation controller's `interactivePopGestureRecognizer` delegate
-        // (above, so the custom back button can re-enable the swipe) drops
-        // UIKit's built-in rule that lets the edge swipe-back coexist with scroll
-        // views, so the swipe stopped popping back to the workspace list over a
-        // terminal or browser (issue #6634). Allow the pop gesture to recognize
-        // simultaneously with those surface gestures to restore it.
-        func gestureRecognizer(
-            _ gestureRecognizer: UIGestureRecognizer,
-            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
-        ) -> Bool {
-            gestureRecognizer == navigationController?.interactivePopGestureRecognizer
-        }
-    }
-}
-#endif
