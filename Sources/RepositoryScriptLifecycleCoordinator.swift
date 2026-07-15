@@ -189,9 +189,11 @@ final class RepositoryScriptLifecycleCoordinator {
             )
             content.body = String.localizedStringWithFormat(format, repositoryName)
         } else if let executionError = result.executionError {
+            #if DEBUG
             cmuxDebugLog(
                 "repositoryArchive.launch.failed repository=\(repositoryName) error=\(executionError)"
             )
+            #endif
             let format = String(
                 localized: "notification.repositoryArchive.launchFailure.body",
                 defaultValue: "%@ cleanup couldn't start."
