@@ -11,7 +11,7 @@ struct CmuxRunShellCommandBuilder {
         [[ "$(command /usr/bin/stat -f '%d:%i' .)" == \(shellQuote(approvedIdentity.shellToken)) ]] || builtin exit 125
         \(command)
         """
-        return "/bin/zsh -lc \(shellQuote(script))"
+        return "/bin/zsh -dflc \(shellQuote(script))"
     }
 
     private func shellQuote(_ value: String) -> String {

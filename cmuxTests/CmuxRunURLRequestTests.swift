@@ -92,7 +92,8 @@ struct CmuxRunURLRequestTests {
 
         #expect(launchCommand.contains("cd -- "))
         #expect(launchCommand.contains("/tmp/reviewed-directory"))
-        #expect(launchCommand.contains("|| exit"))
+        #expect(launchCommand.contains("|| builtin exit"))
+        #expect(launchCommand.hasPrefix("/bin/zsh -dflc "))
         #expect(
             launchCommand.range(of: "/tmp/reviewed-directory")!.lowerBound
                 < launchCommand.range(of: "printf reviewed")!.lowerBound
@@ -153,23 +154,30 @@ struct CmuxRunURLRequestTests {
         let root = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let marker = root.appendingPathComponent("command-ran")
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
-        try "alias exit=':'\n".write(
-            to: root.appendingPathComponent(".zshenv"),
-            atomically: true,
-            encoding: .utf8
-        )
         defer { try? fileManager.removeItem(at: root) }
 
-        let launchCommand = CmuxRunShellCommandBuilder(
-            command: "touch \(marker.path)",
-            workingDirectory: root.path,
-            approvedIdentity: .init(device: 0, inode: 0)
-        ).launchCommand
         var environment = ProcessInfo.processInfo.environment
         environment["ZDOTDIR"] = root.path
+        for startupFile in [
+            "alias exit=':'\nalias builtin=':'\nalias command=':'\n",
+            "exit() { :; }\nbuiltin() { :; }\ncommand() { print '0:0'; }\n"
+        ] {
+            try startupFile.write(
+                to: root.appendingPathComponent(".zshenv"),
+                atomically: true,
+                encoding: .utf8
+            )
+            let launchCommand = CmuxRunShellCommandBuilder(
+                command: "touch \(marker.path)",
+                workingDirectory: root.path,
+                approvedIdentity: .init(device: 0, inode: 0)
+            ).launchCommand
 
-        #expect(try runInitialTerminalCommand(launchCommand, environment: environment) == 125)
-        #expect(!fileManager.fileExists(atPath: marker.path))
+            #expect(
+                try runInitialTerminalCommand(launchCommand, environment: environment) == 125
+            )
+            #expect(!fileManager.fileExists(atPath: marker.path))
+        }
     }
 
     @Test(arguments: ["\u{0000}", "\r", "\u{202E}", "\u{2066}", "\u{2028}"])

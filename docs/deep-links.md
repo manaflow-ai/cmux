@@ -15,7 +15,9 @@ identifiers are valid only for the current app session.
 `cmux://run` runs one shell command in a newly created local terminal after the
 user reviews and approves the complete execution plan. `command` and `cwd` are
 required. `cwd` must resolve to an existing directory. cmux passes `command`
-unchanged to `/bin/zsh -lc`, so shell operators and agent CLI arguments work.
+unchanged to `/bin/zsh -dflc`, so shell operators and agent CLI arguments work.
+The child shell inherits the terminal environment but disables startup files;
+startup aliases and functions cannot replace the directory and identity guards.
 
 Create a workspace:
 
