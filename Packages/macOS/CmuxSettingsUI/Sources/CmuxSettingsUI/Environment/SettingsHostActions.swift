@@ -162,17 +162,17 @@ public protocol SettingsHostActions: AnyObject {
     /// routes locally).
     func pairComputer(deviceID: String) async -> ComputersPairResult
 
-    /// Pairs a computer from a pasted `cmux-ios://attach?…` pairing link (the
-    /// payload another Mac's pairing window shows as a QR code).
-    func pairComputerWithLink(_ link: String) async -> ComputersPairResult
+    /// Pairs a computer from the 6-digit code another Mac's "Pair This Mac"
+    /// row is showing (the registry-rendezvous claim).
+    func pairComputer(code: String) async -> ComputersPairResult
 
     /// Removes the local pairing for a computer. The registry row remains.
     func unpairComputer(deviceID: String) async
 
-    /// Mints this Mac's pairing link (the same payload the pairing window's
-    /// QR encodes) and puts it on the clipboard, so another Mac can pair by
-    /// pasting it — no camera involved.
-    func copyComputerPairingLink() async -> ComputersCopyLinkResult
+    /// Mints a short-lived 6-digit pairing code, advertises it through the
+    /// device registry, and returns it for display, so another Mac can pair
+    /// by typing it — nothing to copy between machines.
+    func mintComputerPairingCode() async -> ComputersPairingCodeMintResult
 
     /// Opens the remote-workspace viewer window for a paired computer. The
     /// host owns the window, so the package can't open it directly.
@@ -260,13 +260,13 @@ public extension SettingsHostActions {
     func pairComputer(deviceID: String) async -> ComputersPairResult { .failed }
 
     /// Default failure for hosts without a computers directory.
-    func pairComputerWithLink(_ link: String) async -> ComputersPairResult { .failed }
+    func pairComputer(code: String) async -> ComputersPairResult { .failed }
 
     /// Default no-op unpair for previews/tests.
     func unpairComputer(deviceID: String) async {}
 
     /// Default failure for hosts without a pairing listener (previews/tests).
-    func copyComputerPairingLink() async -> ComputersCopyLinkResult { .failed }
+    func mintComputerPairingCode() async -> ComputersPairingCodeMintResult { .failed }
 
     /// Default no-op viewer open for previews/tests.
     func openComputerViewer(deviceID: String) {}

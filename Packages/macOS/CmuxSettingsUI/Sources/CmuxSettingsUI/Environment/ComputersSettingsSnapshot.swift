@@ -82,13 +82,16 @@ public struct ComputersSettingsSnapshot: Sendable, Equatable {
     }
 }
 
-/// Result of a pair action (registry row or pasted link), rendered inline.
+/// Result of a pair action (registry row or entered code), rendered inline.
 public enum ComputersPairResult: Sendable, Equatable {
     /// Paired; the row list refreshes via the snapshot stream.
     case paired
     /// The pasted text is not a cmux pairing link.
     case invalidLink
-    /// Every route in the link points back at this Mac.
+    /// No computer currently advertises the entered pairing code (mistyped,
+    /// expired, or the other Mac stopped showing it).
+    case codeNotFound
+    /// Every advertised route points back at this Mac.
     case loopbackRejected
     /// The link belongs to a different account.
     case accountMismatch
@@ -98,14 +101,15 @@ public enum ComputersPairResult: Sendable, Equatable {
     case failed
 }
 
-/// Result of minting + copying this Mac's pairing link, rendered inline.
-public enum ComputersCopyLinkResult: Sendable, Equatable {
-    /// The link is on the clipboard, ready to paste on the other Mac.
-    case copied
+/// Result of minting this Mac's pairing code, rendered inline under the
+/// "Pair This Mac" row.
+public enum ComputersPairingCodeMintResult: Sendable, Equatable {
+    /// The code is being advertised; show it until `expiresAt`.
+    case minted(code: String, expiresAt: Date)
     /// This Mac has no Tailscale route another Mac could dial.
     case needsTailscale
     /// Pairing requires the Mac to be signed in.
     case signedOut
-    /// The pairing listener or ticket mint failed.
+    /// The pairing listener or registry publish failed.
     case failed
 }

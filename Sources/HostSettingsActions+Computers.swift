@@ -1,4 +1,3 @@
-import AppKit
 import CmuxHive
 import CmuxSettingsUI
 import Foundation
@@ -52,9 +51,9 @@ extension HostSettingsActions {
         return Self.pairResult(await directory.pair(deviceID: deviceID))
     }
 
-    func pairComputerWithLink(_ link: String) async -> ComputersPairResult {
+    func pairComputer(code: String) async -> ComputersPairResult {
         guard let directory = computersDirectory else { return .failed }
-        return Self.pairResult(await directory.pair(link: link))
+        return Self.pairResult(await directory.pair(code: code))
     }
 
     func unpairComputer(deviceID: String) async {
@@ -66,13 +65,13 @@ extension HostSettingsActions {
         HiveViewerWindowController.shared.show(deviceID: deviceID)
     }
 
-    /// Mints this Mac's attach link (the same payload the pairing window's QR
-    /// encodes) and copies it to the clipboard for pasting on another Mac.
+    /// Mints a short-lived 6-digit pairing code and advertises it through the
+    /// device registry (alongside this Mac's live routes), so another Mac can
+    /// pair by typing the code — nothing to copy between machines.
     ///
-    /// Prefers the Tailscale-only v2 grammar (works across machines). Dev
-    /// builds fall back to an all-routes ticket when no Tailscale route
-    /// exists, so two tagged builds on one machine can pair over loopback.
-    func copyComputerPairingLink() async -> ComputersCopyLinkResult {
+    /// The listener is brought up first so the registration carries dialable
+    /// routes for the claiming Mac to persist.
+    func mintComputerPairingCode() async -> ComputersPairingCodeMintResult {
         guard let coordinator = AppDelegate.shared?.auth?.coordinator else { return .failed }
         await coordinator.awaitBootstrapped()
         guard coordinator.isAuthenticated else { return .signedOut }
@@ -80,45 +79,11 @@ extension HostSettingsActions {
         let host = MobileHostService.shared
         let status = await host.ensureListeningAndReady()
         guard status.isRunning else { return .failed }
-        do {
-            return copyLinkToPasteboard(try await host.createAttachTicket(
-                workspaceID: "",
-                terminalID: nil,
-                ttl: 600,
-                target: .physicalDevice
-            ))
-        } catch MobileAttachTicketStoreError.noRoutes,
-                MobileAttachTicketStoreError.routeUnavailable,
-                MobileAttachTicketStoreError.invalidAttachURL {
-            #if DEBUG
-            // Same-machine dogfood: no Tailscale route, but the dev loopback
-            // route lets a second tagged build on this Mac pair.
-            do {
-                return copyLinkToPasteboard(try await host.createAttachTicket(
-                    workspaceID: "",
-                    terminalID: nil,
-                    ttl: 600,
-                    target: .ticketOnly
-                ))
-            } catch {
-                return .needsTailscale
-            }
-            #else
-            return .needsTailscale
-            #endif
-        } catch {
-            return .failed
-        }
-    }
-
-    private func copyLinkToPasteboard(_ payload: [String: Any]) -> ComputersCopyLinkResult {
-        guard let attachURL = payload["attach_url"] as? String, !attachURL.isEmpty else {
-            return .failed
-        }
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(attachURL, forType: .string)
-        return .copied
+        guard !status.routes.isEmpty else { return .needsTailscale }
+        guard let minted = await DeviceRegistryClient.shared.publishPairingCode(
+            routes: status.routes
+        ) else { return .failed }
+        return .minted(code: minted.code, expiresAt: minted.expiresAt)
     }
 
     // MARK: - Mapping (pure)
@@ -153,6 +118,7 @@ extension HostSettingsActions {
         switch outcome {
         case .paired: return .paired
         case .invalidLink: return .invalidLink
+        case .codeNotFound: return .codeNotFound
         case .loopbackRejected: return .loopbackRejected
         case .accountMismatch: return .accountMismatch
         case .noRoutes: return .noRoutes

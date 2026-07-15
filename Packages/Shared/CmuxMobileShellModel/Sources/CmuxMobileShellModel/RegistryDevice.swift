@@ -19,19 +19,38 @@ public struct RegistryAppInstance: Equatable, Sendable, Identifiable {
     /// When the registry last saw this instance register/refresh. Drives the
     /// best-effort "last seen N ago" liveness hint when no live link exists.
     public var lastSeenAt: Date
+    /// String-valued instance labels round-tripped through the registry
+    /// (`instanceLabels` on POST). Carries the Mac-to-Mac pairing-code claim
+    /// (see ``CmxPairingCode``); non-string label values are dropped at parse
+    /// time.
+    public var labels: [String: String]
 
     /// The tag is unique per device, so it doubles as the per-device row id.
     public var id: String { tag }
 
-    public init(tag: String, routes: [CmxAttachRoute], lastSeenAt: Date) {
+    public init(
+        tag: String,
+        routes: [CmxAttachRoute],
+        lastSeenAt: Date,
+        labels: [String: String] = [:]
+    ) {
         self.tag = tag
         self.routes = routes
         self.lastSeenAt = lastSeenAt
+        self.labels = labels
     }
 
     /// Whether this instance advertises at least one attach route, i.e. it is a
     /// candidate the phone could connect to.
     public var hasRoutes: Bool { !routes.isEmpty }
+
+    /// The instance's advertised Mac-to-Mac pairing code, when one is present
+    /// and unexpired at `now`. See ``CmxPairingCode/active(in:now:)``.
+    /// - Parameter now: The claim-side clock, injected for testability.
+    /// - Returns: The active code, or `nil` when absent or expired.
+    public func activePairingCode(now: Date) -> CmxPairingCode? {
+        CmxPairingCode.active(in: labels, now: now)
+    }
 }
 
 /// One registered physical machine (Mac/host) in the team-scoped device

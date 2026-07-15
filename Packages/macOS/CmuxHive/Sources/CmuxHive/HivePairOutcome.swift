@@ -7,6 +7,9 @@ public enum HivePairOutcome: Equatable, Sendable {
     case paired(deviceID: String)
     /// The pasted pairing link / code could not be decoded.
     case invalidLink
+    /// No registry instance currently advertises the entered pairing code
+    /// (mistyped, expired, or the host stopped advertising it).
+    case codeNotFound
     /// The link decoded, but every route points back at this computer
     /// (loopback), which release builds refuse to dial.
     case loopbackRejected

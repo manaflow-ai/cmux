@@ -220,10 +220,17 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
                 value = try? CmxAttachRoute(from: decoder)
             }
         }
+        struct FailableLabel: Decodable {
+            let value: String?
+            init(from decoder: any Decoder) throws {
+                value = try? decoder.singleValueContainer().decode(String.self)
+            }
+        }
         struct Instance: Decodable {
             let tag: String?
             let routes: [FailableRoute]?
             let lastSeenAt: String?
+            let labels: [String: FailableLabel]?
         }
         struct Device: Decodable {
             let deviceId: String
@@ -246,7 +253,8 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
                     tag: instance.tag?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
                         ? instance.tag! : "default",
                     routes: (instance.routes ?? []).compactMap(\.value),
-                    lastSeenAt: Self.parseTimestamp(instance.lastSeenAt)
+                    lastSeenAt: Self.parseTimestamp(instance.lastSeenAt),
+                    labels: (instance.labels ?? [:]).compactMapValues(\.value)
                 )
             }
             return RegistryDevice(
