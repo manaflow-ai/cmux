@@ -60,7 +60,7 @@ struct ChromiumViewportDocumentTests {
     }
 
     @Test
-    func forwardsTheHeldButtonDuringMouseDrag() async throws {
+    func forwardsTheHeldButtonsDuringMouseDrag() async throws {
         let webView = try await makeLoadedWebView()
         let result = try await webView.callAsyncJavaScript(
             """
@@ -73,6 +73,13 @@ struct ChromiumViewportDocumentTests {
               buttons: 2,
               bubbles: true
             }));
+            document.getElementById('viewport').dispatchEvent(new MouseEvent('mousemove', {
+              clientX: 30,
+              clientY: 40,
+              button: 0,
+              buttons: 4,
+              bubbles: true
+            }));
             return window.__cmuxTestMessages;
             """,
             arguments: [:],
@@ -80,10 +87,10 @@ struct ChromiumViewportDocumentTests {
             contentWorld: .page
         )
         let messages = try #require(result as? [[String: Any]])
-        let drag = try #require(messages.first { $0["type"] as? String == "mouse" })
+        let drags = messages.filter { $0["type"] as? String == "mouse" }
 
-        #expect(drag["event"] as? String == "mouseMoved")
-        #expect((drag["button"] as? NSNumber)?.intValue == 2)
+        #expect(drags.allSatisfy { $0["event"] as? String == "mouseMoved" })
+        #expect(drags.compactMap { ($0["button"] as? NSNumber)?.intValue } == [2, 1])
     }
 
     private func makeLoadedWebView() async throws -> WKWebView {

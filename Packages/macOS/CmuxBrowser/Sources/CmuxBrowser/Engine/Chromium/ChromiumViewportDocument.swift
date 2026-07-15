@@ -70,6 +70,14 @@ struct ChromiumViewportDocument {
               return (event.altKey ? 1 : 0) | (event.ctrlKey ? 2 : 0) |
                      (event.metaKey ? 4 : 0) | (event.shiftKey ? 8 : 0);
             }
+            function heldButton(buttons) {
+              switch (buttons) {
+              case 1: return 0;
+              case 2: return 2;
+              case 4: return 1;
+              default: return -1;
+              }
+            }
             function focusTextInput() {
               textInput.focus({ preventScroll: true });
               textInput.setSelectionRange(textInput.value.length, textInput.value.length);
@@ -87,7 +95,7 @@ struct ChromiumViewportDocument {
             });
             canvas.addEventListener('mousemove', event => {
               const p = point(event);
-              post('mouse', { event: 'mouseMoved', x: p.x, y: p.y, button: event.buttons ? event.button : -1, modifiers: modifiers(event), clickCount: 0 });
+              post('mouse', { event: 'mouseMoved', x: p.x, y: p.y, button: heldButton(event.buttons), modifiers: modifiers(event), clickCount: 0 });
             });
             canvas.addEventListener('wheel', event => {
               const p = point(event);

@@ -13,6 +13,12 @@ actor ChromiumProcessController {
         self.launchTimeout = launchTimeout
     }
 
+    /// Returns the identifier of the Chromium process while it is running.
+    func processIdentifier() -> Int32? {
+        guard let process, process.isRunning else { return nil }
+        return process.processIdentifier
+    }
+
     func start(application: BrowserApplication, userDataDirectory: URL) async throws -> URL {
         guard process == nil else {
             throw BrowserEngineSessionError.chromiumLaunch("Chromium is already running for this session.")

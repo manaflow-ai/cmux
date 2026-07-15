@@ -13,6 +13,9 @@ public final class WebKitBrowserEngineSession: BrowserEngineSession {
     /// The engine family implementing this session.
     public let kind = BrowserEngineKind.webKit
 
+    /// WebKit owns its helper processes outside this engine session.
+    public var contentProcessIdentifier: Int32? { nil }
+
     /// The wrapped WebKit view.
     public let webView: WKWebView
 

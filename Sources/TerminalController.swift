@@ -3132,7 +3132,7 @@ class TerminalController {
 
         let webContentPID = Self.resolvedBrowserContentProcessIdentifier(
             engineKind: browserPanel.engineKind,
-            chromiumProcessIdentifier: nil,
+            chromiumProcessIdentifier: browserPanel.engineSession.contentProcessIdentifier,
             webKitProcessIdentifier: CmuxWebContentProcessIdentifier.pid(for: browserPanel.webView)
         )
         let url = browserPanel.currentURL?.absoluteString ?? ""
@@ -3161,7 +3161,12 @@ class TerminalController {
         chromiumProcessIdentifier: Int32?,
         webKitProcessIdentifier: Int?
     ) -> Int? {
-        webKitProcessIdentifier
+        switch engineKind {
+        case .webKit:
+            webKitProcessIdentifier
+        case .chromium:
+            chromiumProcessIdentifier.map(Int.init)
+        }
     }
 
     private func v2TopTagNodes(for workspace: Workspace) -> [[String: Any]] {

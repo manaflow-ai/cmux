@@ -9,6 +9,9 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
     /// The engine family implementing this session.
     public let kind = BrowserEngineKind.chromium
 
+    /// The launched Chromium process used by topology and diagnostics.
+    public private(set) var contentProcessIdentifier: Int32?
+
     /// The local viewport view hosted by the browser pane portal.
     public var contentView: NSView { viewportWebView }
 
@@ -308,6 +311,7 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
         viewportInputTask = nil
         viewportInputQueue.removeAll()
         viewportInputFailed = true
+        contentProcessIdentifier = nil
         deviceMetricsTask?.cancel()
         deviceMetricsTask = nil
         deviceMetricsPending = false
@@ -343,10 +347,13 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
                     application: application,
                     userDataDirectory: userDataDirectory
                 )
+                contentProcessIdentifier = await processController.processIdentifier()
                 try await connect(to: endpoint)
             } catch is CancellationError {
                 return
             } catch {
+                contentProcessIdentifier = nil
+                await processController.close()
                 presentLaunchFailure()
             }
         }
@@ -629,6 +636,7 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
         let connection = connection
         self.connection = nil
         cdpSessionID = nil
+        contentProcessIdentifier = nil
         Task { [processController] in
             await processController.close()
             await connection?.close()

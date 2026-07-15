@@ -8,6 +8,9 @@ public protocol BrowserEngineSession: AnyObject {
     /// The engine family implementing this session.
     var kind: BrowserEngineKind { get }
 
+    /// The operating-system process identifier for an out-of-process browser engine.
+    var contentProcessIdentifier: Int32? { get }
+
     /// The native view hosted by the browser pane portal.
     var contentView: NSView { get }
 
