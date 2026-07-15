@@ -83,50 +83,99 @@ private struct BrowserExtensionsPopoverContent: View {
     }
 }
 
+private enum BrowserExtensionInstallStatus: Equatable {
+    case installing
+    case installed(String)
+    case failed(String)
+}
+
+private struct BrowserExtensionCatalogItem: Identifiable {
+    let id: String
+    let name: String
+    let detail: String
+    let icon: String
+}
+
 struct BrowserExtensionsManagerPage: View {
     @ObservedObject var panel: BrowserPanel
     let appearance: PanelAppearance
     @State private var snapshot = BrowserWebExtensionsPresentationSnapshot.loading
-    @State private var installStatus: InstallStatus?
+    @State private var installStatus: BrowserExtensionInstallStatus?
+    @State private var catalogSearch = ""
 
-    private enum InstallStatus: Equatable {
-        case installing
-        case installed(String)
-        case failed(String)
-    }
-
-    private struct CatalogItem: Identifiable {
-        let id: String
-        let name: String
-        let detail: String
-        let icon: String
-    }
-
-    private var commonExtensions: [CatalogItem] {
+    private var commonExtensions: [BrowserExtensionCatalogItem] {
         [
-            CatalogItem(
-                id: "bitwarden",
-                name: String(localized: "browser.extensions.catalog.bitwarden.name", defaultValue: "Bitwarden"),
-                detail: String(localized: "browser.extensions.catalog.bitwarden.detail", defaultValue: "Password manager and autofill"),
-                icon: "key.fill"
-            ),
-            CatalogItem(
+            BrowserExtensionCatalogItem(
                 id: "onepassword",
                 name: String(localized: "browser.extensions.catalog.onePassword.name", defaultValue: "1Password"),
                 detail: String(localized: "browser.extensions.catalog.onePassword.detail", defaultValue: "Password manager and autofill"),
                 icon: "key.viewfinder"
             ),
-            CatalogItem(
+            BrowserExtensionCatalogItem(
+                id: "bitwarden",
+                name: String(localized: "browser.extensions.catalog.bitwarden.name", defaultValue: "Bitwarden"),
+                detail: String(localized: "browser.extensions.catalog.bitwarden.detail", defaultValue: "Password manager and autofill"),
+                icon: "key.fill"
+            ),
+            BrowserExtensionCatalogItem(
+                id: "ublock-origin",
+                name: String(localized: "browser.extensions.catalog.uBlockOrigin.name", defaultValue: "uBlock Origin"),
+                detail: String(localized: "browser.extensions.catalog.uBlockOrigin.detail", defaultValue: "Content blocker"),
+                icon: "hand.raised.fill"
+            ),
+            BrowserExtensionCatalogItem(
                 id: "dark-reader",
                 name: String(localized: "browser.extensions.catalog.darkReader.name", defaultValue: "Dark Reader"),
                 detail: String(localized: "browser.extensions.catalog.darkReader.detail", defaultValue: "Dark mode for websites"),
                 icon: "moon.fill"
             ),
-            CatalogItem(
+            BrowserExtensionCatalogItem(
+                id: "privacy-badger",
+                name: String(localized: "browser.extensions.catalog.privacyBadger.name", defaultValue: "Privacy Badger"),
+                detail: String(localized: "browser.extensions.catalog.privacyBadger.detail", defaultValue: "Tracker protection"),
+                icon: "eye.slash.fill"
+            ),
+            BrowserExtensionCatalogItem(
+                id: "sponsorblock",
+                name: String(localized: "browser.extensions.catalog.sponsorBlock.name", defaultValue: "SponsorBlock"),
+                detail: String(localized: "browser.extensions.catalog.sponsorBlock.detail", defaultValue: "Skip sponsored video segments"),
+                icon: "forward.fill"
+            ),
+            BrowserExtensionCatalogItem(
+                id: "vimium",
+                name: String(localized: "browser.extensions.catalog.vimium.name", defaultValue: "Vimium"),
+                detail: String(localized: "browser.extensions.catalog.vimium.detail", defaultValue: "Keyboard navigation for the web"),
+                icon: "keyboard"
+            ),
+            BrowserExtensionCatalogItem(
+                id: "grammarly",
+                name: String(localized: "browser.extensions.catalog.grammarly.name", defaultValue: "Grammarly"),
+                detail: String(localized: "browser.extensions.catalog.grammarly.detail", defaultValue: "Writing assistance"),
+                icon: "textformat.abc"
+            ),
+            BrowserExtensionCatalogItem(
                 id: "react-devtools",
                 name: String(localized: "browser.extensions.catalog.reactDevTools.name", defaultValue: "React Developer Tools"),
                 detail: String(localized: "browser.extensions.catalog.reactDevTools.detail", defaultValue: "Inspect React component trees"),
                 icon: "atom"
+            ),
+            BrowserExtensionCatalogItem(
+                id: "redux-devtools",
+                name: String(localized: "browser.extensions.catalog.reduxDevTools.name", defaultValue: "Redux DevTools"),
+                detail: String(localized: "browser.extensions.catalog.reduxDevTools.detail", defaultValue: "Inspect Redux state changes"),
+                icon: "arrow.triangle.branch"
+            ),
+            BrowserExtensionCatalogItem(
+                id: "metamask",
+                name: String(localized: "browser.extensions.catalog.metaMask.name", defaultValue: "MetaMask"),
+                detail: String(localized: "browser.extensions.catalog.metaMask.detail", defaultValue: "Ethereum wallet"),
+                icon: "wallet.pass.fill"
+            ),
+            BrowserExtensionCatalogItem(
+                id: "json-viewer",
+                name: String(localized: "browser.extensions.catalog.jsonViewer.name", defaultValue: "JSON Viewer"),
+                detail: String(localized: "browser.extensions.catalog.jsonViewer.detail", defaultValue: "Format and inspect JSON documents"),
+                icon: "curlybraces"
             ),
         ]
     }
@@ -134,9 +183,18 @@ struct BrowserExtensionsManagerPage: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
-                header
-                installedSection
-                commonSection
+                BrowserExtensionsManagerHeader(
+                    isDisabled: installStatus == .installing || snapshot.state != .ready,
+                    chooseExtension: chooseExtension
+                )
+                BrowserExtensionCatalogSection(
+                    items: commonExtensions,
+                    searchText: $catalogSearch
+                )
+                BrowserExtensionsInstalledSection(
+                    snapshot: snapshot,
+                    installStatus: installStatus
+                )
             }
             .frame(maxWidth: 880, alignment: .leading)
             .padding(.horizontal, 32)
@@ -151,45 +209,154 @@ struct BrowserExtensionsManagerPage: View {
         }
     }
 
-    private var header: some View {
+    @MainActor
+    private func chooseExtension() {
+        let picker = NSOpenPanel()
+        picker.title = String(localized: "browser.extensions.install.pickerTitle", defaultValue: "Choose a WebExtension")
+        picker.prompt = String(localized: "browser.extensions.install.pickerPrompt", defaultValue: "Add Extension")
+        picker.message = String(localized: "browser.extensions.install.pickerMessage", defaultValue: "Choose an unpacked extension folder or a ZIP archive.")
+        picker.canChooseDirectories = true
+        picker.canChooseFiles = true
+        picker.allowsMultipleSelection = false
+        picker.begin { response in
+            guard response == .OK, let source = picker.url else { return }
+            Task { @MainActor in
+                installStatus = .installing
+                do {
+                    let receipt = try await panel.installBrowserWebExtension(from: source)
+                    installStatus = .installed(receipt.name)
+                    snapshot = await panel.browserWebExtensionsPresentationSnapshot()
+                } catch {
+                    installStatus = .failed(error.localizedDescription)
+                }
+            }
+        }
+    }
+}
+
+private struct BrowserExtensionsManagerHeader: View {
+    let isDisabled: Bool
+    let chooseExtension: @MainActor () -> Void
+
+    var body: some View {
         HStack(alignment: .center, spacing: 14) {
             Image(systemName: "puzzlepiece.extension.fill")
-                .font(.system(size: 28, weight: .semibold))
+                .font(.title.weight(.semibold))
                 .foregroundStyle(Color.accentColor)
-                .frame(width: 48, height: 48)
             VStack(alignment: .leading, spacing: 3) {
                 Text(String(localized: "browser.extensions.manager.title", defaultValue: "Browser Extensions"))
                     .font(.title2.weight(.semibold))
-                Text(String(localized: "browser.extensions.manager.subtitle", defaultValue: "Add WebExtensions to every cmux browser pane."))
+                Text(String(localized: "browser.extensions.manager.subtitle", defaultValue: "Discover and manage WebExtensions for every cmux browser pane."))
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            Button(action: chooseExtension) {
+            Menu {
+                Button(action: chooseExtension) {
+                    Label(
+                        String(localized: "browser.extensions.install.action", defaultValue: "Add from Disk…"),
+                        systemImage: "internaldrive"
+                    )
+                }
+            } label: {
                 Label(
-                    String(localized: "browser.extensions.install.action", defaultValue: "Add from Disk…"),
+                    String(localized: "browser.extensions.add", defaultValue: "Add Extension"),
                     systemImage: "plus"
                 )
-                .padding(.horizontal, 12)
-                .frame(height: 28)
-                .foregroundStyle(.white)
-                .background(Color.accentColor)
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .disabled(installStatus == .installing || snapshot.state != .ready)
+            .controlSize(.regular)
+            .disabled(isDisabled)
             .accessibilityIdentifier("BrowserExtensionsAddFromDiskButton")
         }
     }
+}
 
-    @ViewBuilder
-    private var installedSection: some View {
+private struct BrowserExtensionCatalogSection: View {
+    let items: [BrowserExtensionCatalogItem]
+    @Binding var searchText: String
+
+    private var filteredItems: [BrowserExtensionCatalogItem] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return items }
+        return items.filter {
+            $0.name.localizedCaseInsensitiveContains(query)
+                || $0.detail.localizedCaseInsensitiveContains(query)
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(String(localized: "browser.extensions.store.title", defaultValue: "Extension Store"))
+                    .font(.headline)
+                Spacer()
+                Text(String(localized: "browser.extensions.catalog.reviewPending", defaultValue: "Compatibility review pending"))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            TextField(
+                String(localized: "browser.extensions.store.search", defaultValue: "Search extensions"),
+                text: $searchText
+            )
+            .textFieldStyle(.roundedBorder)
+            .accessibilityIdentifier("BrowserExtensionsCatalogSearchField")
+
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(filteredItems) { item in
+                    BrowserExtensionCatalogRow(item: item)
+                    Divider()
+                }
+            }
+
+            if filteredItems.isEmpty {
+                ContentUnavailableView.search(text: searchText)
+            }
+
+            Text(String(localized: "browser.extensions.catalog.explanation", defaultValue: "One-click installs will appear here after each publisher, package, and requested permission set is verified."))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+private struct BrowserExtensionCatalogRow: View {
+    let item: BrowserExtensionCatalogItem
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: item.icon)
+                .font(.title3)
+                .foregroundStyle(.secondary)
+                .frame(width: 28)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.name)
+                    .font(.callout.weight(.medium))
+                Text(item.detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 12)
+            Text(String(localized: "browser.extensions.store.inReview", defaultValue: "In Review"))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 10)
+    }
+}
+
+private struct BrowserExtensionsInstalledSection: View {
+    let snapshot: BrowserWebExtensionsPresentationSnapshot
+    let installStatus: BrowserExtensionInstallStatus?
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(String(localized: "browser.extensions.installed", defaultValue: "Installed"))
                 .font(.headline)
             switch snapshot.state {
             case .unsupported:
-                statusCard(
-                    String(localized: "browser.extensions.unsupported", defaultValue: "Browser extensions require macOS 15.4 or later."),
+                BrowserExtensionStatusRow(
+                    text: String(localized: "browser.extensions.unsupported", defaultValue: "Browser extensions require macOS 15.4 or later."),
                     icon: "exclamationmark.triangle"
                 )
             case .loading:
@@ -200,18 +367,28 @@ struct BrowserExtensionsManagerPage: View {
                 }
             case .ready:
                 if snapshot.extensions.isEmpty && snapshot.failures.isEmpty {
-                    statusCard(
-                        String(localized: "browser.extensions.empty.title", defaultValue: "No extensions installed"),
+                    BrowserExtensionStatusRow(
+                        text: String(localized: "browser.extensions.empty.title", defaultValue: "No extensions installed"),
                         icon: "puzzlepiece.extension"
                     )
                 } else {
                     VStack(spacing: 0) {
                         ForEach(snapshot.extensions) { item in
-                            extensionRow(name: item.name, detail: String(localized: "browser.extensions.enabled", defaultValue: "Enabled"), icon: "checkmark.circle.fill", color: .green)
+                            BrowserInstalledExtensionRow(
+                                name: item.name,
+                                detail: String(localized: "browser.extensions.enabled", defaultValue: "Enabled"),
+                                icon: "checkmark.circle.fill",
+                                color: .green
+                            )
                             Divider()
                         }
                         ForEach(snapshot.failures) { failure in
-                            extensionRow(name: failure.entryName, detail: failure.message, icon: "exclamationmark.triangle.fill", color: .orange)
+                            BrowserInstalledExtensionRow(
+                                name: failure.entryName,
+                                detail: failure.message,
+                                icon: "exclamationmark.triangle.fill",
+                                color: .orange
+                            )
                             Divider()
                         }
                     }
@@ -240,48 +417,28 @@ struct BrowserExtensionsManagerPage: View {
                 .foregroundStyle(.secondary)
         }
     }
+}
 
-    private var commonSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(String(localized: "browser.extensions.common", defaultValue: "Common extensions"))
-                    .font(.headline)
-                Spacer()
-                Text(String(localized: "browser.extensions.catalog.reviewPending", defaultValue: "Compatibility review pending"))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 24)], spacing: 0) {
-                ForEach(commonExtensions) { item in
-                    HStack(spacing: 12) {
-                        Image(systemName: item.icon)
-                            .font(.system(size: 17, weight: .medium))
-                            .frame(width: 36, height: 36)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(item.name).font(.callout.weight(.medium))
-                            Text(item.detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                        }
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.vertical, 12)
-                    .overlay(alignment: .bottom) { Divider() }
-                }
-            }
-            Text(String(localized: "browser.extensions.catalog.explanation", defaultValue: "The cmux catalog will enable one-click installs after each publisher, package, and requested permission set is verified."))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-    }
+private struct BrowserExtensionStatusRow: View {
+    let text: String
+    let icon: String
 
-    private func statusCard(_ text: String, icon: String) -> some View {
+    var body: some View {
         Label(text, systemImage: icon)
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 12)
             .overlay(alignment: .bottom) { Divider() }
     }
+}
 
-    private func extensionRow(name: String, detail: String, icon: String, color: Color) -> some View {
+private struct BrowserInstalledExtensionRow: View {
+    let name: String
+    let detail: String
+    let icon: String
+    let color: Color
+
+    var body: some View {
         HStack(spacing: 10) {
             Image(systemName: icon).foregroundStyle(color)
             VStack(alignment: .leading, spacing: 2) {
@@ -291,30 +448,6 @@ struct BrowserExtensionsManagerPage: View {
             Spacer()
         }
         .padding(12)
-    }
-
-    @MainActor
-    private func chooseExtension() {
-        let picker = NSOpenPanel()
-        picker.title = String(localized: "browser.extensions.install.pickerTitle", defaultValue: "Choose a WebExtension")
-        picker.prompt = String(localized: "browser.extensions.install.pickerPrompt", defaultValue: "Add Extension")
-        picker.message = String(localized: "browser.extensions.install.pickerMessage", defaultValue: "Choose an unpacked extension folder or a ZIP archive.")
-        picker.canChooseDirectories = true
-        picker.canChooseFiles = true
-        picker.allowsMultipleSelection = false
-        picker.begin { response in
-            guard response == .OK, let source = picker.url else { return }
-            Task { @MainActor in
-                installStatus = .installing
-                do {
-                    let receipt = try await panel.installBrowserWebExtension(from: source)
-                    installStatus = .installed(receipt.name)
-                    snapshot = await panel.browserWebExtensionsPresentationSnapshot()
-                } catch {
-                    installStatus = .failed(error.localizedDescription)
-                }
-            }
-        }
     }
 }
 
