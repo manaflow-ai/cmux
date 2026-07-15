@@ -35,4 +35,10 @@ import CmuxTerminalCore
 
         #expect(submission.text == "one\ntwo\n")
     }
+
+    @Test func embeddedBracketedPasteEndMarkerIsRejected() {
+        let command = "echo visible\n\(TerminalCommandSubmission.bracketedPasteEnd)echo hidden"
+
+        #expect(TerminalCommandSubmission(command: command).data.isEmpty)
+    }
 }
