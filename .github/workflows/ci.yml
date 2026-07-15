@@ -26,7 +26,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          fetch-depth: 0
+          fetch-depth: 2
 
       - name: Detect CI change areas
         id: detect
@@ -34,6 +34,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          MERGE_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           emit_all_areas() {
@@ -46,8 +47,9 @@ jobs:
           }
 
           if [ "$EVENT_NAME" = "pull_request" ]; then
-            if ! MERGE_BASE="$(git merge-base "$BASE_SHA" "$HEAD_SHA")" \
-              || ! git diff --name-only "$MERGE_BASE" "$HEAD_SHA" > /tmp/cmux-ci-changed-files.txt; then
+            # Checkout depth 2 contains the synthetic merge commit and its
+            # base parent, even when base/head histories are shallow boundaries.
+            if ! git diff --name-only "$BASE_SHA" "$MERGE_SHA" > /tmp/cmux-ci-changed-files.txt; then
               echo "Could not compute PR diff; running all CI areas." >&2
               emit_all_areas
               exit 0
@@ -688,6 +690,25 @@ jobs:
             -destination "platform=macOS" \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/RemoteTmuxMirrorLayoutIdentityTests \
+            test
+
+      - name: Run socket ACL reload regression
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # The tolerant full-suite step can accept assertion failures or
+          # crash-skip late suites. Keep #7984's live reload and denial tests
+          # non-tolerant so a snapshotted socket ACL cannot pass the shard.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/SocketACLReloadRegressionTests \
             test
 
       - name: Run notification scroll restoration regression
