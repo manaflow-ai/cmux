@@ -49,6 +49,7 @@ test("Feed React surface invokes the typed permission primitive", async () => {
           codex: "data:image/png;base64,Y29kZXg=",
           opencode: "data:image/png;base64,b3BlbmNvZGU=",
         },
+        theme: { background: "#272822", foreground: "#f8f8f2", isLight: false },
         items: [{
           created_at: "2026-07-13T12:00:00Z", id: "item-1", kind: "permissionRequest",
           request_id: "request-1", source: "claude", status: "pending", tool_name: "Bash",
@@ -73,6 +74,7 @@ test("Feed React surface invokes the typed permission primitive", async () => {
   root = createRoot(container);
   flushSync(() => root?.render(<FeedApp />));
   await waitFor(() => container.textContent?.includes("Bash") === true);
+  expect(container.querySelector("main")?.getAttribute("style") ?? "").toContain("--feed-background: #272822");
   expect(container.querySelector('[data-feed-source="claude"] .feed-source-logo')).toBeTruthy();
   expect(container.querySelector('[data-feed-source="claude"]')?.textContent).toContain("Claude");
   flushSync(() => [...container.querySelectorAll("button")].find((button) => button.textContent === "All Activity")?.click());

@@ -61,6 +61,11 @@ export type FeedSnapshot = {
   isLoadingOlder: boolean;
   items: FeedItem[];
   sourceIcons: Record<string, string>;
+  theme: {
+    background: string;
+    foreground: string;
+    isLight: boolean;
+  };
 };
 
 export type FeedNativeEvent = {

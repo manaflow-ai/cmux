@@ -23,6 +23,11 @@ export function FeedApp() {
     : snapshot.items;
   const visibleItems = filter === "activity" ? items.slice(0, activityLimit) : items;
   const hasBufferedActivity = filter === "activity" && visibleItems.length < items.length;
+  const themeStyle = {
+    "--feed-background": snapshot.theme.background,
+    "--feed-foreground": snapshot.theme.foreground,
+    colorScheme: snapshot.theme.isLight ? "light" : "dark",
+  } as CSSProperties;
 
   const perform = async (method: string, params: Record<string, unknown>) => {
     setError(null);
@@ -34,7 +39,7 @@ export function FeedApp() {
   };
 
   return (
-    <main className="feed-shell">
+    <main className="feed-shell" style={themeStyle}>
       <header className="feed-header">
         <h1>{snapshot.copy.feed}</h1>
         <div className="feed-filter" role="tablist">

@@ -1,5 +1,6 @@
 import AppKit
 import CMUXAgentLaunch
+import CmuxFoundation
 import Foundation
 import Observation
 import WebKit
@@ -13,6 +14,27 @@ final class FeedSurfaceBridge: NSObject, WKScriptMessageHandlerWithReply {
 
     private static var handlerInstalledKey: UInt8 = 0
     private static var subscriptionGenerationKey: UInt8 = 0
+    private let subscribedWebViews = NSHashTable<WKWebView>.weakObjects()
+    private var themeObserver: NSObjectProtocol?
+
+    override init() {
+        super.init()
+        themeObserver = NotificationCenter.default.addObserver(
+            forName: .ghosttyDefaultBackgroundDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.publishSnapshotToSubscribers()
+            }
+        }
+    }
+
+    deinit {
+        if let themeObserver {
+            NotificationCenter.default.removeObserver(themeObserver)
+        }
+    }
 
     static func installIfNeeded(on userContentController: WKUserContentController) {
         guard objc_getAssociatedObject(userContentController, &handlerInstalledKey) == nil else {
@@ -67,7 +89,7 @@ final class FeedSurfaceBridge: NSObject, WKScriptMessageHandlerWithReply {
         return url == expected
     }
 
-    static func isLegacyPackagedFeedURL(_ url: URL?) -> Bool {
+    nonisolated static func isLegacyPackagedFeedURL(_ url: URL?) -> Bool {
         guard let url, url.isFileURL else { return false }
         return url.standardizedFileURL.path.hasSuffix(
             "/Contents/Resources/markdown-viewer/webviews-app/feed.html"
@@ -171,9 +193,16 @@ final class FeedSurfaceBridge: NSObject, WKScriptMessageHandlerWithReply {
 
     private func snapshot() -> [String: Any] {
         let store = FeedCoordinator.shared.store
+        let background = GhosttyApp.shared.defaultBackgroundColor
+        let foreground = GhosttyApp.shared.defaultForegroundColor
         return [
             "items": (store?.items ?? []).map(itemDictionary),
             "sourceIcons": Self.sourceIconDataURLs,
+            "theme": [
+                "background": background.hexString(),
+                "foreground": foreground.hexString(),
+                "isLight": cmuxReadableColorScheme(for: background) == .light,
+            ],
             "hasMore": store?.hasMorePersistedItems ?? false,
             "isLoadingOlder": store?.isLoadingOlderItems ?? false,
             "copy": [
@@ -266,6 +295,7 @@ final class FeedSurfaceBridge: NSObject, WKScriptMessageHandlerWithReply {
     }
 
     private func beginSnapshotSubscription(for webView: WKWebView) {
+        subscribedWebViews.add(webView)
         let generation = (objc_getAssociatedObject(webView, &Self.subscriptionGenerationKey) as? NSNumber)?.intValue ?? 0
         let nextGeneration = generation + 1
         objc_setAssociatedObject(
@@ -302,6 +332,12 @@ final class FeedSurfaceBridge: NSObject, WKScriptMessageHandlerWithReply {
         guard let data = try? JSONSerialization.data(withJSONObject: event),
               let json = String(data: data, encoding: .utf8) else { return }
         webView.evaluateJavaScript("window.cmuxFeedBridge?.receive(\(json));")
+    }
+
+    private func publishSnapshotToSubscribers() {
+        for webView in subscribedWebViews.allObjects {
+            publishSnapshot(to: webView)
+        }
     }
 
     private static func error(code: String) -> [String: Any] {
