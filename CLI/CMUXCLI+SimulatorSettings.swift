@@ -55,10 +55,10 @@ extension CMUXCLI {
                 "service": normalized.service,
                 "bundle_id": bundleIdentifier,
             ],
-            timeout: SimulatorOperationDeadline.clientTimeout(
+            timeout: simulatorOperationDeadlines.clientTimeout(
                 for: normalized.service == "all"
-                    ? SimulatorOperationDeadline.permissionResetAll
-                    : SimulatorOperationDeadline.permissionMutation
+                    ? simulatorOperationDeadlines.permissionResetAll
+                    : simulatorOperationDeadlines.permissionMutation
             ),
             output: .permissionsUpdated(
                 action: normalized.action,
@@ -80,8 +80,8 @@ extension CMUXCLI {
             return request(
                 "simulator.ui.status",
                 [:],
-                timeout: SimulatorOperationDeadline.clientTimeout(
-                    for: SimulatorOperationDeadline.interfaceRead
+                timeout: simulatorOperationDeadlines.clientTimeout(
+                    for: simulatorOperationDeadlines.interfaceRead
                 ),
                 output: .interfaceStatus
             )
@@ -109,8 +109,8 @@ extension CMUXCLI {
             return request(
                 "simulator.ui.status",
                 [:],
-                timeout: SimulatorOperationDeadline.clientTimeout(
-                    for: SimulatorOperationDeadline.interfaceRead
+                timeout: simulatorOperationDeadlines.clientTimeout(
+                    for: simulatorOperationDeadlines.interfaceRead
                 ),
                 output: .interfaceValue(option: option)
             )
@@ -119,8 +119,8 @@ extension CMUXCLI {
         return request(
             "simulator.ui.set",
             ["option": option, "value": value],
-            timeout: SimulatorOperationDeadline.clientTimeout(
-                for: SimulatorOperationDeadline.interfaceMutation
+            timeout: simulatorOperationDeadlines.clientTimeout(
+                for: simulatorOperationDeadlines.interfaceMutation
             ),
             output: .interfaceUpdated(option: option)
         )

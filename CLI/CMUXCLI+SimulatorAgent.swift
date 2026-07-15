@@ -18,8 +18,8 @@ extension CMUXCLI {
             return request(
                 "simulator.select_device",
                 ["device_id": value],
-                timeout: SimulatorOperationDeadline.clientTimeout(
-                    for: SimulatorOperationDeadline.selectDevice
+                timeout: simulatorOperationDeadlines.clientTimeout(
+                    for: simulatorOperationDeadlines.selectDevice
                 )
             )
         case "tap":
