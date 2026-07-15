@@ -1137,12 +1137,14 @@ struct BrowserPanelView: View {
                     // into an overflow menu and keep the popover-anchored
                     // profile/theme controls present.
                     browserOverflowMenu
+                    browserExtensionsButton
                     browserProfileButton
                     browserThemeModeButton
                 } else {
                     browserFocusModeButtonWithShortcutHint
                     screenshotPageButton
                     reactGrabButton
+                    browserExtensionsButton
                     browserProfileButton
                     browserThemeModeButton
                     developerToolsButton
@@ -1369,6 +1371,16 @@ struct BrowserPanelView: View {
         .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         .safeHelp(developerToolsButtonHelp)
         .accessibilityIdentifier("BrowserToggleDevToolsButton")
+    }
+
+    private var browserExtensionsButton: some View {
+        BrowserExtensionsToolbarButton(
+            isPresented: $panel.isBrowserExtensionsPopoverPresented,
+            iconPointSize: devToolsButtonIconSize,
+            hitSize: addressBarButtonSize,
+            loadSnapshot: { await panel.browserWebExtensionsPresentationSnapshot() },
+            openDirectory: { panel.openBrowserWebExtensionsDirectory() }
+        )
     }
 
     private var browserProfileButton: some View {

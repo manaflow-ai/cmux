@@ -248,6 +248,12 @@ struct BrowserWebExtensionsManagerTests {
         #expect(manager.loadErrors.count == 1)
         #expect(manager.loadErrors.first?.url.lastPathComponent == "broken")
         #expect(manager.loadedContexts.count == 1)
+
+        let snapshot = manager.presentationSnapshot()
+        #expect(snapshot.state == .ready)
+        #expect(snapshot.extensions.map(\.name) == ["cmux test extension"])
+        #expect(snapshot.failures.map(\.entryName) == ["broken"])
+        #expect(snapshot.directoryPath == root.path)
     }
 }
 

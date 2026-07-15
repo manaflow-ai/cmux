@@ -151,6 +151,26 @@ final class BrowserWebExtensionsManager: NSObject {
         }
     }
 
+    func presentationSnapshot() -> BrowserWebExtensionsPresentationSnapshot {
+        BrowserWebExtensionsPresentationSnapshot(
+            state: isLoaded ? .ready : .loading,
+            extensions: loadedContexts.map { context in
+                BrowserWebExtensionsPresentationSnapshot.Item(
+                    id: context.uniqueIdentifier,
+                    name: context.webExtension.displayName ?? context.uniqueIdentifier
+                )
+            },
+            failures: loadErrors.map { failure in
+                BrowserWebExtensionsPresentationSnapshot.Failure(
+                    id: failure.url.path,
+                    entryName: failure.url.lastPathComponent,
+                    message: failure.error.localizedDescription
+                )
+            },
+            directoryPath: directory.path
+        )
+    }
+
     private func grantRequestedPermissions(in context: WKWebExtensionContext, for webExtension: WKWebExtension) {
         for permission in webExtension.requestedPermissions {
             context.setPermissionStatus(.grantedExplicitly, for: permission)

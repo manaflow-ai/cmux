@@ -2928,6 +2928,7 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Per-surface browser chrome visibility. Diff and artifact viewers can hide
     /// the omnibar without changing the global browser default.
     @Published private(set) var isOmnibarVisible: Bool
+    @Published var isBrowserExtensionsPopoverPresented = false
 
     /// Semantic in-panel focus target used by split switching and transient overlays.
     private(set) var preferredFocusIntent: BrowserPanelFocusIntent = .webView
@@ -7492,6 +7493,22 @@ extension BrowserPanel {
     func toggleOmnibarVisibility() -> Bool {
         setOmnibarVisible(!isOmnibarVisible)
         return isOmnibarVisible
+    }
+
+    @discardableResult
+    func presentBrowserExtensionsPopover() -> Bool {
+        isBrowserExtensionsPopoverPresented = true
+        return true
+    }
+
+    func browserWebExtensionsPresentationSnapshot() async -> BrowserWebExtensionsPresentationSnapshot {
+        guard let browserServices else { return .unsupported }
+        return await browserServices.webExtensionsPresentationSnapshot()
+    }
+
+    @discardableResult
+    func openBrowserWebExtensionsDirectory() -> Bool {
+        browserServices?.openWebExtensionsDirectory() ?? false
     }
 
     func noteWebViewFocused() {

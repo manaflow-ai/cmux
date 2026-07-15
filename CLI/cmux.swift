@@ -13055,7 +13055,7 @@ struct CMUXCLI {
         var surfaceRaw = surfaceOpt
         var args = argsWithoutSurfaceFlag
 
-        let verbsWithoutSurface: Set<String> = ["open", "open-split", "new", "identify", "import", "profile", "profiles", "react-grab", "reactgrab", "devtools", "dev-tools", "focus-mode", "zoom", "history"]
+        let verbsWithoutSurface: Set<String> = ["open", "open-split", "new", "identify", "import", "profile", "profiles", "react-grab", "reactgrab", "devtools", "dev-tools", "extensions", "focus-mode", "zoom", "history"]
         if surfaceRaw == nil, let first = args.first {
             if !first.hasPrefix("-") && !verbsWithoutSurface.contains(first.lowercased()) {
                 surfaceRaw = first
@@ -13660,6 +13660,19 @@ struct CMUXCLI {
                 throw CLIError(message: "Unsupported browser devtools subcommand: \(verb) (expected: toggle, console)")
             }
             let payload = try client.sendV2(method: method, params: try optionalSurfaceParams())
+            output(payload, fallback: "OK")
+            return
+        }
+
+        if subcommand == "extensions" {
+            let verb = browserActionVerbArgs().first?.lowercased() ?? "show"
+            guard verb == "show" else {
+                throw CLIError(message: "Unsupported browser extensions subcommand: \(verb) (expected: show)")
+            }
+            let payload = try client.sendV2(
+                method: "browser.extensions.show",
+                params: try optionalSurfaceParams()
+            )
             output(payload, fallback: "OK")
             return
         }
@@ -16917,6 +16930,11 @@ struct CMUXCLI {
               disable | enable | status
               goto|navigate <url> [--snapshot-after]
               back|forward|reload [--snapshot-after]
+              react-grab toggle [--surface <id>] [--return-to <terminal-surface>]
+              devtools toggle|console [--surface <id>]
+              extensions show [--surface <id>]
+              focus-mode enter|exit|toggle [--surface <id>]
+              zoom in|out|reset [--surface <id>]
               url|get-url
               focus-webview | is-webview-focused
               snapshot [--interactive|-i] [--cursor] [--compact] [--max-depth <n>] [--selector <css>]
@@ -35305,6 +35323,7 @@ export default CMUXSessionRestore;
           browser back|forward|reload [--snapshot-after]
           browser react-grab toggle [--surface <id>] [--return-to <terminal-surface>]
           browser devtools toggle|console [--surface <id>]
+          browser extensions show [--surface <id>]
           browser focus-mode enter|exit|toggle [--surface <id>]
           browser zoom in|out|reset [--surface <id>]
           browser history clear --force   (clears the default profile's history; mirrors the View menu)

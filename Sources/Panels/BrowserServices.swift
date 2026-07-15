@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 /// Process-wide browser services owned by the app composition root and injected
@@ -28,6 +29,32 @@ final class BrowserServices {
             webExtensionsManager?.startLoading()
         }
         BrowserPrewarmedWebViewPool.shared.configure(browserServices: self)
+    }
+
+    func webExtensionsPresentationSnapshot() async -> BrowserWebExtensionsPresentationSnapshot {
+        guard #available(macOS 15.4, *), let webExtensionsManager else {
+            return .unsupported
+        }
+        webExtensionsManager.startLoading()
+        await webExtensionsManager.waitUntilLoaded()
+        return webExtensionsManager.presentationSnapshot()
+    }
+
+    @discardableResult
+    func openWebExtensionsDirectory() -> Bool {
+        guard #available(macOS 15.4, *), let webExtensionsManager else { return false }
+        do {
+            try FileManager.default.createDirectory(
+                at: webExtensionsManager.directory,
+                withIntermediateDirectories: true
+            )
+            return NSWorkspace.shared.open(webExtensionsManager.directory)
+        } catch {
+#if DEBUG
+            cmuxDebugLog("browser.extensions.open-directory.failed error=\(error)")
+#endif
+            return false
+        }
     }
 
     private static var defaultExtensionDirectory: URL {

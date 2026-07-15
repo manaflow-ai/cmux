@@ -2271,6 +2271,8 @@ class TerminalController {
             return v2Result(id: id, self.v2BrowserReactGrabToggle(params: params))
         case "browser.devtools.toggle":
             return v2Result(id: id, self.v2BrowserDevToolsToggle(params: params))
+        case "browser.extensions.show":
+            return v2Result(id: id, self.v2BrowserExtensionsShow(params: params))
         case "browser.console.show":
             return v2Result(id: id, self.v2BrowserConsoleShow(params: params))
         case "browser.focus_mode.set":
@@ -7941,6 +7943,41 @@ class TerminalController {
             let handled = target.panel.toggleDeveloperTools()
             result = .ok(v2BrowserActionPayload(
                 workspace: ws, surfaceId: target.surfaceId, tabManager: tabManager,
+                extra: ["handled": handled]
+            ))
+        }
+        return result
+    }
+
+    private func v2BrowserExtensionsShow(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        if let err = v2RejectUnresolvedHandles(params, ["surface_id", "workspace_id", "window_id"]) { return err }
+        var result: V2CallResult = .err(code: "not_found", message: "No browser surface found", data: nil)
+        v2MainSync {
+            let dockResolution = v2ResolveWindowDockBrowserPanelContext(params: params, tabManager: tabManager)
+            if dockResolution.handled {
+                if let error = dockResolution.error {
+                    result = error
+                    return
+                }
+                guard let context = dockResolution.context else { return }
+                let handled = context.browserPanel.presentBrowserExtensionsPopover()
+                result = .ok(v2WindowDockBrowserActionPayload(context, extra: ["handled": handled]))
+                return
+            }
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
+                  let target = v2ResolveBrowserPanelForFocusedAction(workspace: ws, params: params) else { return }
+            if ws.focusedPanelId != target.surfaceId {
+                ws.clearSplitZoom()
+                ws.focusPanel(target.surfaceId)
+            }
+            let handled = target.panel.presentBrowserExtensionsPopover()
+            result = .ok(v2BrowserActionPayload(
+                workspace: ws,
+                surfaceId: target.surfaceId,
+                tabManager: tabManager,
                 extra: ["handled": handled]
             ))
         }
