@@ -977,8 +977,9 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     @Published private(set) var isSaving = false
     @Published private(set) var focusFlashToken = 0
     @Published private(set) var previewMode: FilePreviewMode
+
     let nativeViewSessions = FilePreviewNativeViewSessions()
-    let textEditorSession = FilePreviewTextEditorSession()
+
     private var originalTextContent = ""
     private var textEncoding: String.Encoding = .utf8
     private var previewModeGeneration = 0
@@ -1027,10 +1028,10 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 
     func close() {
         nativeViewSessions.closeAll()
-        textEditorSession.close()
         textView = nil
         focusCoordinator.unregisterAll()
     }
+
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {
         _ = reason
         guard NotificationPaneFlashSettings.isEnabled() else { return }
@@ -1341,7 +1342,6 @@ struct FilePreviewPanelView: View {
             case .text:
                 FilePreviewTextEditor(
                     panel: panel,
-                    session: panel.textEditorSession,
                     isVisibleInUI: isVisibleInUI,
                     themeBackgroundColor: contentBackgroundColor,
                     themeForegroundColor: themeForegroundColor,

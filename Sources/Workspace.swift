@@ -2289,9 +2289,9 @@ final class Workspace: Identifiable, ObservableObject {
             syncPanelDerivedWorkspaceUnread()
         }
     }
-    var restoredUnreadPanelIds: Set<UUID> {
-        Set(restoredUnreadPanelIndicators.keys)
-    }
+    var restoredUnreadPanelIds: Set<UUID> { Set(restoredUnreadPanelIndicators.keys) }
+
+    var hasAnyRestoredUnreadPanelIndicator: Bool { !restoredUnreadPanelIndicators.isEmpty }
     @Published private(set) var tmuxLayoutSnapshot: LayoutSnapshot?
     @Published private(set) var tmuxWorkspaceFlashPanelId: UUID?
     @Published private(set) var tmuxWorkspaceFlashReason: WorkspaceAttentionFlashReason?
@@ -2980,8 +2980,7 @@ final class Workspace: Identifiable, ObservableObject {
         self.currentDirectory = initialDirectory
         self.surfaceTabBarDirectory = initialDirectory
 
-        // Panel models own restoration state, so hidden tabs need no parallel SwiftUI tree.
-        // Mounting only the selected tab keeps updates proportional to visible panes.
+        // Preserve terminal state and inherit tab-strip sizing without repeated config parsing.
         let initialSurfaceTabBarFontSize = GhosttyConfig.load(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).surfaceTabBarFontSize
         let appearance = Self.bonsplitAppearance(
             from: GhosttyApp.shared.defaultBackgroundColor,
@@ -2995,7 +2994,7 @@ final class Workspace: Identifiable, ObservableObject {
             allowTabReordering: true,
             allowCrossPaneTabMove: true,
             autoCloseEmptyPanes: true,
-            contentViewLifecycle: .recreateOnSwitch,
+            contentViewLifecycle: .keepAllAlive,
             newTabPosition: .current,
             appearance: appearance
         )
@@ -3129,13 +3128,18 @@ final class Workspace: Identifiable, ObservableObject {
         }
         bonsplitController.tabContextForkConversationAvailabilityProvider = { [weak self] tabId, _ in
             guard let self,
-                  let panelId = self.panelIdFromSurfaceId(tabId) else { return false }
-            return self.forkAgentConversationContextMenuAvailability(forPanelId: panelId).isAvailable
-        }
-        bonsplitController.tabContextForkConversationOpenAvailabilityProvider = { [weak self] tabId, _ in
-            guard let self,
-                  let panelId = self.panelIdFromSurfaceId(tabId) else { return false }
-            return self.forkAgentConversationContextMenuOpenAvailability(forPanelId: panelId).isAvailable
+                  let panelId = self.panelIdFromSurfaceId(tabId) else { return .hidden }
+            switch self.forkAgentConversationContextMenuPresentationAvailability(forPanelId: panelId) {
+            case .available:
+                return .available
+            case .agentIndexRefreshing:
+                return .refreshing
+            case .notTerminalPanel,
+                 .noAgentSnapshot,
+                 .unsupported,
+                 .requiresProbe:
+                return .hidden
+            }
         }
         bonsplitController.tabContextForkConversationDefaultActionProvider = { _, _ in
             AgentConversationForkDefaultSettings.current().tabContextAction
@@ -11163,35 +11167,10 @@ final class Workspace: Identifiable, ObservableObject {
         ])
     }
 
-    /// Synchronous availability check used by the tab right-click context menu to decide
-    /// whether to surface the Fork Conversation item for a given anchor tab. Restricted to
-    /// `.supportedWithoutProbe` so we never offer an item that may quietly fail; agents
-    /// requiring a probe (e.g. shell-launched OpenCode) stay reachable from the command
-    /// palette path that performs that probe first.
+    /// Synchronous availability check used by right-click entry points. Probe-required
+    /// sessions remain unavailable while their shared validation refresh is in flight.
     func canForkAgentConversationFromPanel(_ panelId: UUID) -> Bool {
-        forkAgentConversationContextMenuOpenAvailability(forPanelId: panelId).isAvailable
-    }
-
-    /// Snapshot used by the right-click fork path. Prefers restored snapshots, then asks
-    /// `SharedLiveAgentIndex` for a process-sensitive snapshot so live panel remaps do not
-    /// inherit the stale-tolerant cache used by close-history restore paths.
-    func forkableAgentSnapshot(forPanelId panelId: UUID) -> SessionRestorableAgentSnapshot? {
-        if let snapshot = restoredAgentSnapshotForContinuation(panelId: panelId) {
-            return snapshot
-        }
-        guard let snapshot = SharedLiveAgentIndex.shared.snapshotForForkAvailability(
-            workspaceId: id,
-            panelId: panelId
-        ) else {
-            return nil
-        }
-        if let observation = SharedLiveAgentIndex.shared.index?.entry(
-            workspaceId: id,
-            panelId: panelId
-        ) {
-            reconcileCompletedRestoredAgent(panelId: panelId, observation: observation)
-        }
-        return allowsAgentContinuation(forPanelId: panelId) ? snapshot : nil
+        forkAgentConversationContextMenuPresentationAvailability(forPanelId: panelId).isAvailable
     }
 
     /// Fork the panel's agent conversation into a brand-new sibling tab placed immediately
@@ -11594,9 +11573,11 @@ extension Workspace: BonsplitDelegate {
             p.unfocus()
         }
 
-        // Explicitly hide browser portals for deselected tabs in this pane. The WKWebView lives
-        // at the AppKit window level, so removing its SwiftUI host does not synchronously hide
-        // the portal layer during a tab-selection transition.
+        // Explicitly hide browser portals for deselected tabs in this pane.
+        // Bonsplit's keepAllAlive mode hides non-selected tabs via SwiftUI .opacity(0),
+        // but portal-hosted WKWebViews render at the window level in AppKit and are not
+        // affected by SwiftUI opacity. Without an explicit hide, the deselected browser's
+        // portal layer can remain visible above the newly selected tab.
         hideBrowserPortalsForDeselectedTabs(inPane: focusedPane, selectedTabId: selectedTabId)
 
         if let focusWindow = activationWindow(for: panel) {

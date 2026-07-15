@@ -76,6 +76,66 @@ final class AutomationSocketUITests: XCTestCase {
         app.terminate()
     }
 
+    func testSimulateShortcutPlainCharacterKeepsAppAlive() throws {
+        let app = configuredApp(mode: "cmuxOnly")
+        // Backgrounded apps on CI runners get App Nap throttled and can stall
+        // main-thread hops indefinitely; simulate_shortcut replies after a main hop.
+        app.launchArguments += ["-NSAppSleepDisabled", "YES"]
+        app.launch()
+        XCTAssertTrue(
+            ensureRunningAfterLaunch(app, timeout: 12.0),
+            "Expected app to launch for plain-char simulation test. state=\(app.state.rawValue)"
+        )
+
+        guard let resolvedPath = resolveSocketPath(timeout: 5.0, allowTmpFallback: false) else {
+            XCTFail("Expected control socket to exist")
+            return
+        }
+        socketPath = resolvedPath
+        XCTAssertTrue(waitForSocketPong(timeout: 5.0), "Expected socket ping at \(socketPath)")
+
+        // Backgrounded apps service main-thread hops slowly (multi-second), and
+        // simulate_shortcut dispatches on the main thread, so activate first and
+        // give the reply a generous timeout; ping is not a main-hop and stays fast.
+        app.activate()
+
+        // First launch on a clean runner can wedge the main thread for a long
+        // time (session restore, network timeouts). Prove a main-hop round trip
+        // completes before measuring the interesting command.
+        var mainHopReady = false
+        for _ in 0..<12 {
+            if ControlSocketClient(path: socketPath, responseTimeout: 10.0)
+                .sendLine("activate_app") == "OK" {
+                mainHopReady = true
+                break
+            }
+        }
+        try XCTSkipUnless(
+            mainHopReady,
+            "Main thread never serviced a socket hop on this host; main-hop verbs cannot be exercised here"
+        )
+
+        // A modifier-less key is not consumed as a shortcut, so it runs the full
+        // keyDown -> interpretKeyEvents pipeline. Synthetic events built without
+        // CGEvent backing make NSTextInputContext raise there, which terminated
+        // the app mid-reply (socket closed, no crash report).
+        let reply = ControlSocketClient(path: socketPath, responseTimeout: 30.0)
+            .sendLine("simulate_shortcut x")
+
+        // Liveness first so a regression reads as "app died", not as a nil-reply
+        // timeout; only then require the OK reply.
+        XCTAssertNotEqual(
+            app.state, .notRunning,
+            "App died processing plain-char simulation (CGEvent-less crash regressed). reply=\(reply ?? "nil")"
+        )
+        XCTAssertTrue(
+            waitForSocketPong(timeout: 10.0),
+            "Socket must still answer after plain-char simulation. reply=\(reply ?? "nil") state=\(app.state.rawValue)"
+        )
+        XCTAssertEqual(reply, "OK", "simulate_shortcut x should reply OK. state=\(app.state.rawValue)")
+        app.terminate()
+    }
+
     func testSocketDisabledWhenSettingOff() {
         let app = configuredApp(mode: "off")
         app.launch()

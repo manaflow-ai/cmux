@@ -74,11 +74,6 @@ extension Workspace {
             didMutatePanelTitle = true
         }
 
-        if panels[panelId] is TerminalPanel,
-           clearStaleAgentPIDs(panelId: panelId, refreshPorts: true) {
-            didMutate = true
-        }
-
         if didMutatePanelTitle,
            let tabId = surfaceIdFromPanelId(panelId),
            let panel = panels[panelId],

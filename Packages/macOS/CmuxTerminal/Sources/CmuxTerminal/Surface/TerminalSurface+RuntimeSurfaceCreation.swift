@@ -30,16 +30,8 @@ extension TerminalSurface {
         surfaceConfig.platform = ghostty_platform_u(macos: ghostty_platform_macos_s(
             nsview: Unmanaged.passUnretained(view as NSView).toOpaque()
         ))
-        let context = GhosttySurfaceCallbackContext(surfaceHost: view, surfaceController: self)
-        context.updateRendererProfilingState(
-            visible: desiredOcclusionVisible,
-            focused: desiredFocusState
-        )
-        let callbackContext = Unmanaged.passRetained(context)
+        let callbackContext = Unmanaged.passRetained(GhosttySurfaceCallbackContext(surfaceHost: view, surfaceController: self))
         surfaceConfig.userdata = callbackContext.toOpaque()
-        if context.rendererEventProfilingRequested {
-            surfaceConfig.renderer_event_cb = terminalRendererEventCallback
-        }
         surfaceCallbackContext?.release()
         surfaceCallbackContext = callbackContext
         surfaceConfig.scale_factor = scaleFactors.layer
@@ -295,22 +287,14 @@ extension TerminalSurface {
         envVars: inout [ghostty_env_var_s]
     ) -> ghostty_surface_t? {
         if envVars.isEmpty {
-            return GhosttyRuntimeCInterop.createSurface(
-                app: app,
-                config: &surfaceConfig,
-                scrollbackLimitBytes: TerminalScrollbackBudget.cmuxDefault.maxBytesPerSurface
-            )
+            return ghostty_surface_new(app, &surfaceConfig)
         }
 
         let envVarsCount = envVars.count
         return envVars.withUnsafeMutableBufferPointer { buffer in
             surfaceConfig.env_vars = buffer.baseAddress
             surfaceConfig.env_var_count = envVarsCount
-            return GhosttyRuntimeCInterop.createSurface(
-                app: app,
-                config: &surfaceConfig,
-                scrollbackLimitBytes: TerminalScrollbackBudget.cmuxDefault.maxBytesPerSurface
-            )
+            return ghostty_surface_new(app, &surfaceConfig)
         }
     }
 }
