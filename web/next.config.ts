@@ -7,6 +7,12 @@ import { poweredByHeader, securityHeaderRules } from "./security-headers";
 
 const withNextIntl = createNextIntlPlugin("./i18n/request.ts");
 const webRoot = path.dirname(fileURLToPath(import.meta.url));
+const docsChannel = process.env.CMUX_DOCS_CHANNEL;
+const isDocsZone = docsChannel === "release" || docsChannel === "nightly";
+const releaseDocsOrigin =
+  process.env.CMUX_RELEASE_DOCS_ORIGIN ?? "https://cmux-docs-release.vercel.app";
+const nightlyDocsOrigin =
+  process.env.CMUX_NIGHTLY_DOCS_ORIGIN ?? "https://cmux-docs-nightly.vercel.app";
 
 // Agent landing pages moved under /agents/<agent>. Keep the old top-level
 // slugs working with permanent redirects, for the bare English path and every
@@ -21,6 +27,55 @@ const agentSlugMoves: [from: string, to: string][] = [
 
 const nextConfig: NextConfig = {
   poweredByHeader,
+  assetPrefix: isDocsZone ? `/_docs-assets/${docsChannel}` : undefined,
+  async rewrites() {
+    if (isDocsZone) return [];
+    return {
+      beforeFiles: [
+        {
+          source: "/_docs-assets/release/:path*",
+          destination: `${releaseDocsOrigin}/:path*`,
+        },
+        {
+          source: "/_docs-assets/nightly/:path*",
+          destination: `${nightlyDocsOrigin}/:path*`,
+        },
+        {
+          source: "/_docs-search/release/:path*",
+          destination: `${releaseDocsOrigin}/pagefind/:path*`,
+        },
+        {
+          source: "/_docs-search/nightly/:path*",
+          destination: `${nightlyDocsOrigin}/pagefind/:path*`,
+        },
+        {
+          source: "/docs/nightly",
+          destination: `${nightlyDocsOrigin}/docs/getting-started`,
+        },
+        {
+          source: "/docs/nightly/:path*",
+          destination: `${nightlyDocsOrigin}/docs/:path*`,
+        },
+        {
+          source: "/:locale/docs/nightly",
+          destination: `${nightlyDocsOrigin}/:locale/docs/getting-started`,
+        },
+        {
+          source: "/:locale/docs/nightly/:path*",
+          destination: `${nightlyDocsOrigin}/:locale/docs/:path*`,
+        },
+        { source: "/docs", destination: `${releaseDocsOrigin}/docs` },
+        {
+          source: "/docs/:path*",
+          destination: `${releaseDocsOrigin}/docs/:path*`,
+        },
+        {
+          source: "/:locale/docs/:path*",
+          destination: `${releaseDocsOrigin}/:locale/docs/:path*`,
+        },
+      ],
+    };
+  },
   async redirects() {
     // Cover the HTML page plus its agent-readable .md/.txt variants, which were
     // live and advertised in llms.txt before the move.
@@ -46,7 +101,14 @@ const nextConfig: NextConfig = {
     );
   },
   async headers() {
-    return securityHeaderRules;
+    if (docsChannel !== "nightly") return securityHeaderRules;
+    return securityHeaderRules.map((rule) => ({
+      ...rule,
+      headers: [
+        ...rule.headers,
+        { key: "X-Robots-Tag", value: "noindex, follow" },
+      ],
+    }));
   },
   turbopack: {
     root: webRoot,

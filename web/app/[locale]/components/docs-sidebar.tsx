@@ -49,13 +49,9 @@ function SidebarLink({
 export function DocsSidebar({
   onNavigate,
   channel,
-  releaseOrigin,
-  nightlyOrigin,
 }: {
   onNavigate?: () => void;
   channel: "release" | "nightly";
-  releaseOrigin: string;
-  nightlyOrigin: string;
 }) {
   const pathname = usePathname();
   const locale = useLocale();
@@ -70,8 +66,6 @@ export function DocsSidebar({
         channel={channel}
         releaseLabel={releaseLabel}
         nightlyLabel={nightlyLabel}
-        releaseOrigin={releaseOrigin}
-        nightlyOrigin={nightlyOrigin}
       />
       <DocsSearch onNavigate={onNavigate} />
       <nav className="space-y-0.5" data-pagefind-ignore="all">

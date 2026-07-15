@@ -6,24 +6,19 @@ export function docsChannel(): DocsChannel {
   return process.env.CMUX_DOCS_CHANNEL === "nightly" ? "nightly" : "release";
 }
 
-export function releaseDocsOrigin(): string {
-  return process.env.CMUX_RELEASE_DOCS_ORIGIN ?? productionOrigin;
-}
-
-export function nightlyDocsOrigin(): string {
-  return process.env.CMUX_NIGHTLY_DOCS_ORIGIN ?? "https://nightly-docs.cmux.com";
-}
-
 export function docsCanonicalOrigin(): string {
-  // Nightly is useful to people testing main, but release docs own search results.
-  return releaseDocsOrigin();
+  return productionOrigin;
 }
 
 export function docsChannelUrl(
-  origin: string,
+  channel: DocsChannel,
   pathname: string,
   search = "",
   hash = "",
 ): string {
-  return new URL(`${pathname}${search}${hash}`, origin).toString();
+  const releasePath = pathname.replace(/\/docs\/nightly(?=\/|$)/, "/docs");
+  const targetPath = channel === "nightly"
+    ? releasePath.replace(/\/docs(?=\/|$)/, "/docs/nightly")
+    : releasePath;
+  return `${targetPath}${search}${hash}`;
 }

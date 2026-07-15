@@ -6,21 +6,19 @@ import {
   useMobileDrawer,
   MobileDrawerOverlay,
 } from "@/app/[locale]/components/mobile-drawer";
+import { DocsChannelProvider } from "@/app/[locale]/components/docs-channel-context";
 
 export function DocsNav({
   children,
   channel,
-  releaseOrigin,
-  nightlyOrigin,
 }: {
   children: React.ReactNode;
   channel: "release" | "nightly";
-  releaseOrigin: string;
-  nightlyOrigin: string;
 }) {
   const { open, toggle, close, drawerRef, buttonRef } = useMobileDrawer();
 
   return (
+    <DocsChannelProvider value={channel}>
     <div className="max-w-6xl mx-auto flex px-0 md:px-4">
       {/* Mobile menu button */}
       <button
@@ -73,8 +71,6 @@ export function DocsNav({
         <DocsSidebar
           onNavigate={close}
           channel={channel}
-          releaseOrigin={releaseOrigin}
-          nightlyOrigin={nightlyOrigin}
         />
       </aside>
 
@@ -94,5 +90,6 @@ export function DocsNav({
         </div>
       </main>
     </div>
+    </DocsChannelProvider>
   );
 }

@@ -6,14 +6,10 @@ export function DocsVersionPicker({
   channel,
   releaseLabel,
   nightlyLabel,
-  releaseOrigin,
-  nightlyOrigin,
 }: {
   channel: "release" | "nightly";
   releaseLabel: string;
   nightlyLabel: string;
-  releaseOrigin: string;
-  nightlyOrigin: string;
 }) {
   const current = channel === "release" ? releaseLabel : nightlyLabel;
 
@@ -25,9 +21,10 @@ export function DocsVersionPicker({
         className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-foreground"
         value={channel}
         onChange={(event) => {
-          const origin = event.target.value === "release" ? releaseOrigin : nightlyOrigin;
           const { pathname, search, hash } = window.location;
-          window.location.assign(docsChannelUrl(origin, pathname, search, hash));
+          window.location.assign(
+            docsChannelUrl(event.target.value as "release" | "nightly", pathname, search, hash),
+          );
         }}
       >
         <option value={channel}>{current}</option>

@@ -1,7 +1,11 @@
+"use client";
+
 import type { ComponentProps } from "react";
 import NextLink from "next/link";
 import { Link } from "../../../i18n/navigation";
 import type { Locale } from "../../../i18n/routing";
+import { docsChannelUrl } from "@/app/lib/docs-channel";
+import { useDocsChannel } from "./docs-channel-context";
 
 type SharedLinkProps = Omit<
   ComponentProps<typeof NextLink>,
@@ -23,6 +27,7 @@ type ContentLocaleLinkProps = SharedLinkProps &
   );
 
 export function ContentLocaleLink(props: ContentLocaleLinkProps) {
+  const channel = useDocsChannel();
   if (!props.contentLocales) {
     const {
       currentLocale: omittedCurrentLocale,
@@ -31,7 +36,10 @@ export function ContentLocaleLink(props: ContentLocaleLinkProps) {
     } = props;
     void omittedCurrentLocale;
     void omittedContentLocales;
-    return <Link {...linkProps} />;
+    const href = typeof linkProps.href === "string"
+      ? docsChannelUrl(channel, linkProps.href)
+      : linkProps.href;
+    return <Link {...linkProps} href={href} />;
   }
 
   const { currentLocale, contentLocales, href, ...linkProps } = props;
@@ -39,7 +47,10 @@ export function ContentLocaleLink(props: ContentLocaleLinkProps) {
   const contentLocale = contentLocales.includes(requestedLocale)
     ? requestedLocale
     : contentLocales[0];
-  const localizedHref = localizeContentHref(href, contentLocale);
+  const localizedHref = docsChannelUrl(
+    channel,
+    localizeContentHref(href, contentLocale),
+  );
 
   return <NextLink {...linkProps} href={localizedHref} />;
 }

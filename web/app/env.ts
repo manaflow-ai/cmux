@@ -13,16 +13,24 @@ const defaultSubrouterBaseUrl = (): string =>
     ? "https://subrouter.cmux.dev"
     : "https://subrouter-staging.cmux.dev";
 
+const isDocsZone =
+  process.env.CMUX_DOCS_CHANNEL === "release" ||
+  process.env.CMUX_DOCS_CHANNEL === "nightly";
 const skipEnvValidation =
   process.env.SKIP_ENV_VALIDATION === "1" ||
-  process.env.VERCEL_ENV === "preview";
-const allowPreviewStackPlaceholders = process.env.VERCEL_ENV === "preview";
+  process.env.VERCEL_ENV === "preview" ||
+  isDocsZone;
+const allowPreviewStackPlaceholders =
+  process.env.VERCEL_ENV === "preview" || isDocsZone;
 const isVercelNonPreviewDeployment =
   process.env.VERCEL === "1" &&
   typeof process.env.VERCEL_ENV === "string" &&
-  process.env.VERCEL_ENV !== "preview";
+  process.env.VERCEL_ENV !== "preview" &&
+  !isDocsZone;
 const isVercelProductionDeployment =
-  process.env.VERCEL === "1" && process.env.VERCEL_ENV === "production";
+  process.env.VERCEL === "1" &&
+  process.env.VERCEL_ENV === "production" &&
+  !isDocsZone;
 const requireVercelNonPreviewValue = (name: string): z.ZodType<string | undefined> =>
   z.string().min(1).optional().superRefine((value, context) => {
     if (isVercelNonPreviewDeployment && !value) {

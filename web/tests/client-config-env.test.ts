@@ -69,6 +69,18 @@ describe("client config env validation", () => {
 
     expect(result.exitCode).toBe(0);
   });
+
+  test("allows credential-free docs channel deployments", () => {
+    const result = importEnv({
+      PATH: requiredEnv.PATH,
+      HOME: requiredEnv.HOME,
+      VERCEL: "1",
+      VERCEL_ENV: "production",
+      CMUX_DOCS_CHANNEL: "nightly",
+    });
+
+    expect(result.exitCode).toBe(0);
+  });
 });
 
 function importEnv(env: Record<string, string>): { exitCode: number; stderr: string } {

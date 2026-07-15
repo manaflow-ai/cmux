@@ -2,7 +2,7 @@ import { getTranslations } from "next-intl/server";
 import { buildAlternates, openGraphDefaults } from "@/i18n/seo";
 import { DocsNav } from "./docs-nav";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
-import { docsChannel, nightlyDocsOrigin, releaseDocsOrigin } from "@/app/lib/docs-channel";
+import { docsChannel } from "@/app/lib/docs-channel";
 
 export async function generateMetadata({
   params,
@@ -34,11 +34,7 @@ export default function DocsLayout({
   return (
     <div className="min-h-screen">
       <SiteHeader section="docs" />
-      <DocsNav
-        channel={channel}
-        releaseOrigin={releaseDocsOrigin()}
-        nightlyOrigin={nightlyDocsOrigin()}
-      >
+      <DocsNav channel={channel}>
         {children}
       </DocsNav>
     </div>
