@@ -1143,6 +1143,7 @@ struct BrowserPortalSearchOverlayConfiguration {
     let panelId: UUID
     let searchState: BrowserSearchState
     let focusRequestGeneration: UInt64
+    var selectAllOnFocusRequest: Bool = false
     let canApplyFocusRequest: (UInt64) -> Bool
     let onNext: () -> Void
     let onPrevious: () -> Void
@@ -1334,9 +1335,9 @@ final class WindowBrowserSlotView: NSView {
 
         logSearchOverlayEvent("set", panelId: configuration.panelId)
         let rootView = BrowserSearchOverlay(
-            panelId: configuration.panelId,
             searchState: configuration.searchState,
             focusRequestGeneration: configuration.focusRequestGeneration,
+            selectAllOnFocusRequest: configuration.selectAllOnFocusRequest,
             canApplyFocusRequest: configuration.canApplyFocusRequest,
             onNext: configuration.onNext,
             onPrevious: configuration.onPrevious,
@@ -2048,7 +2049,8 @@ final class WindowBrowserPortal: NSObject {
         case let (lhs?, rhs?):
             return lhs.panelId == rhs.panelId &&
                 lhs.searchState === rhs.searchState &&
-                lhs.focusRequestGeneration == rhs.focusRequestGeneration
+                lhs.focusRequestGeneration == rhs.focusRequestGeneration &&
+                lhs.selectAllOnFocusRequest == rhs.selectAllOnFocusRequest
         default:
             return false
         }

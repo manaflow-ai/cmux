@@ -1687,6 +1687,12 @@ html { scroll-behavior: smooth; }
     clone.querySelectorAll('.cmux-remote-image-placeholder').forEach(function(el) {
       el.remove();
     });
+    clone.querySelectorAll('mark.__cmux-find').forEach(function(mark) {
+      var parent = mark.parentNode;
+      if (!parent) { return; }
+      parent.replaceChild(document.createTextNode(mark.textContent || ''), mark);
+      parent.normalize();
+    });
     clone.querySelectorAll('img[data-cmux-original-src]').forEach(function(el) {
       var originalSrc = el.getAttribute('data-cmux-original-src') || '';
       if (restoreImageSources && originalSrc) {

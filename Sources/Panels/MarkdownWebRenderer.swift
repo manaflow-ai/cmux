@@ -142,6 +142,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         var panelId: UUID = UUID()
         var workspaceId: UUID = UUID()
         var filePath: String = ""
+        var onRenderCompleted: (@MainActor () -> Void)?
         private var pendingMarkdown: String = ""
         private var pendingTheme: MarkdownWebTheme = .resolve(backgroundColor: GhosttyBackgroundTheme.currentColor())
         private var lastMarkdown: String? = nil
@@ -263,6 +264,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 webView.onReenterWindow = nil
             }
             self.webView = nil
+            onRenderCompleted = nil
             isLoaded = false
             isShellLoading = false
             webContentProcessRecoveryAttempts = 0
@@ -327,7 +329,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 
         func renderedHTML(markdown: String? = nil) async -> String? {
             guard isLoaded else { return nil }
-            if let markdown {
+            if let markdown, markdown != lastMarkdown {
                 guard await renderMarkdownForExport(markdown) else { return nil }
             }
             // We export an explicit "rendered HTML" getter from JS so callers
@@ -383,12 +385,15 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             NSLog("MarkdownPanel.pushMarkdown bytes=\(markdown.utf8.count)")
 #endif
             guard let js = Self.renderMarkdownScript(markdown) else { return }
-            webView.evaluateJavaScript(js) { _, error in
+            webView.evaluateJavaScript(js) { [weak self] _, error in
 #if DEBUG
                 if let error {
                     NSLog("MarkdownPanel: pushMarkdown evaluateJavaScript failed: \(error)")
                 }
 #endif
+                if error == nil {
+                    self?.onRenderCompleted?()
+                }
             }
         }
 
