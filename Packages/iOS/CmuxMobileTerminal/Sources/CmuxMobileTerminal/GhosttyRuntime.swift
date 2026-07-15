@@ -296,9 +296,18 @@ public final class GhosttyRuntime {
         cursor-style-blink = true
         \(TerminalThemeStore.current.ghosttyColorDirectives)
         """
+        // Screenshot-only background override (DEBUG). Some agent TUIs paint
+        // their content on a custom near-black background; matching Ghostty's
+        // default background keeps unpainted cells uniform for that launch.
+        var configText = defaults
+        if let bg = ProcessInfo.processInfo.environment["CMUX_UITEST_TERMINAL_BG"],
+           !bg.isEmpty {
+            let hex = bg.hasPrefix("#") ? bg : "#\(bg)"
+            configText += "\nbackground = \(hex)\npalette = 0=\(hex)\n"
+        }
         let tmpFile = FileManager.default.temporaryDirectory.appendingPathComponent("ghostty-ios-config-\(ProcessInfo.processInfo.processIdentifier)")
         do {
-            try defaults.write(to: tmpFile, atomically: true, encoding: .utf8)
+            try configText.write(to: tmpFile, atomically: true, encoding: .utf8)
             tmpFile.path.withCString { path in
                 ghostty_config_load_file(config, path)
             }

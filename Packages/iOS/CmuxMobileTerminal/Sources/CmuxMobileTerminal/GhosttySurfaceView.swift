@@ -1380,7 +1380,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private func layoutArtifactChip(using snapshot: TerminalViewportSnapshot) {
-        artifactChipHost.layout(in: bounds, toolbarTop: snapshot.toolbarFrame.minY)
+        artifactChipHost.layout(in: bounds, topInset: safeAreaInsets.top)
     }
 
     private var artifactChipShouldBeVisible: Bool {
