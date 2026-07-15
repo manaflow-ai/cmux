@@ -260,6 +260,20 @@ struct MobileTerminalScrollHandlerTests {
     @Test func replayCapturesOnlyAfterRequestedViewportSettles() async throws {
         let harness = try makeTerminalHarness()
         defer { harness.restore() }
+        harness.panel.surface.requestInputDemandSurfaceStartIfNeeded()
+        let runtimeDeadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while !harness.panel.surface.hasLiveSurface,
+              ContinuousClock.now < runtimeDeadline {
+            await Task.yield()
+        }
+        #expect(harness.panel.surface.hasLiveSurface)
+        #expect(harness.panel.surface.updateSize(
+            width: 1_800,
+            height: 1_800,
+            xScale: 1,
+            yScale: 1,
+            layerScale: 1
+        ))
         var params = harness.params(epoch: 1)
         params["viewport_columns"] = 72
         params["viewport_rows"] = 61
@@ -333,6 +347,7 @@ struct MobileTerminalScrollHandlerTests {
 
         func restore() {
             TerminalController.shared.mobileInteractionEpochsBySurfaceID[panel.id] = nil
+            TerminalController.shared.debugResetMobileViewportReportsForTesting()
             TerminalController.shared.tabManager = previousTabManager
             panel.surface.releaseSurfaceForTesting()
         }
