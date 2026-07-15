@@ -274,15 +274,7 @@ struct RemoteRuntimeStateCoordinatorTests {
             state: Data(#"{"title":"initial"}"#.utf8),
             ptySessions: Data("[]".utf8)
         ))
-        fixture.lease.release()
-        fixture.coordinator.queue.sync {
-            fixture.coordinator.daemonReady = true
-            fixture.coordinator.daemonRemotePath = "/remote/cmuxd"
-            fixture.coordinator.runtimeStateCapabilityAvailable = true
-            fixture.coordinator.remotePortScanningEnabled = false
-            fixture.coordinator.startProxyLocked()
-        }
-        fixture.coordinator.queue.sync {}
+        Self.connectThroughProductionProxy(fixture)
         await Self.drainRuntimeStatePublication(fixture)
 
         let updated = RemoteRuntimeStateDocument(
@@ -298,6 +290,75 @@ struct RemoteRuntimeStateCoordinatorTests {
 
         #expect(fixture.host.documents.map(\.revision) == [7, 8])
         #expect(fixture.coordinator.lastKnownRuntimeStateRevision == 8)
+        #expect(fixture.coordinator.runtimeStateSynchronized)
+    }
+
+    @Test("applies the latest connected-client update queued during host publication")
+    func appliesConnectedClientUpdateDuringDocumentPublication() async throws {
+        let gate = RuntimeStatePublicationGate()
+        let fixture = Self.fixture(host: RuntimeStateRecordingHost(documentGate: gate))
+        defer { fixture.stop() }
+        fixture.provider.tunnel.seedRuntimeState(RemoteRuntimeStateDocument(
+            schemaVersion: 1,
+            revision: 7,
+            updatedAtUnixMilliseconds: 1,
+            state: Data(#"{"title":"initial"}"#.utf8),
+            ptySessions: Data("[]".utf8)
+        ))
+        Self.connectThroughProductionProxy(fixture)
+        await gate.waitUntilStarted()
+
+        fixture.provider.tunnel.publishRuntimeState(RemoteRuntimeStateDocument(
+            schemaVersion: 1,
+            revision: 8,
+            updatedAtUnixMilliseconds: 2,
+            state: Data(#"{"title":"other-client"}"#.utf8),
+            ptySessions: Data("[]".utf8)
+        ))
+        fixture.coordinator.queue.sync {}
+        await gate.release()
+        await Self.drainRuntimeStatePublication(fixture)
+
+        #expect(fixture.host.documents.map(\.revision) == [7, 8])
+        #expect(fixture.coordinator.lastKnownRuntimeStateRevision == 8)
+        #expect(fixture.coordinator.runtimeStateSynchronized)
+    }
+
+    @Test("server update wins while a local revision acknowledgement is publishing")
+    func connectedClientUpdateWinsDuringRevisionPublication() async throws {
+        let gate = RuntimeStatePublicationGate()
+        let fixture = Self.fixture(host: RuntimeStateRecordingHost(revisionGate: gate))
+        defer { fixture.stop() }
+        fixture.provider.tunnel.seedRuntimeState(RemoteRuntimeStateDocument(
+            schemaVersion: 1,
+            revision: 7,
+            updatedAtUnixMilliseconds: 1,
+            state: Data(#"{"title":"initial"}"#.utf8),
+            ptySessions: Data("[]".utf8)
+        ))
+        Self.connectThroughProductionProxy(fixture)
+        await Self.drainRuntimeStatePublication(fixture)
+
+        fixture.coordinator.enqueueRuntimeState(
+            schemaVersion: 1,
+            state: Data(#"{"title":"local"}"#.utf8),
+            baseRevision: 7
+        )
+        await gate.waitUntilStarted()
+        fixture.provider.tunnel.publishRuntimeState(RemoteRuntimeStateDocument(
+            schemaVersion: 1,
+            revision: 9,
+            updatedAtUnixMilliseconds: 3,
+            state: Data(#"{"title":"other-client"}"#.utf8),
+            ptySessions: Data("[]".utf8)
+        ))
+        fixture.coordinator.queue.sync {}
+        await gate.release()
+        await Self.drainRuntimeStatePublication(fixture)
+
+        #expect(fixture.host.documents.map(\.revision) == [7, 9])
+        #expect(fixture.host.revisions == [8])
+        #expect(fixture.coordinator.lastKnownRuntimeStateRevision == 9)
         #expect(fixture.coordinator.runtimeStateSynchronized)
     }
 
@@ -479,6 +540,18 @@ struct RemoteRuntimeStateCoordinatorTests {
             fixture.coordinator.runtimeStateSynchronized = false
             fixture.coordinator.synchronizeRuntimeStateLocked()
         }
+    }
+
+    private static func connectThroughProductionProxy(_ fixture: RemoteRuntimeStateCoordinatorFixture) {
+        fixture.lease.release()
+        fixture.coordinator.queue.sync {
+            fixture.coordinator.daemonReady = true
+            fixture.coordinator.daemonRemotePath = "/remote/cmuxd"
+            fixture.coordinator.runtimeStateCapabilityAvailable = true
+            fixture.coordinator.remotePortScanningEnabled = false
+            fixture.coordinator.startProxyLocked()
+        }
+        fixture.coordinator.queue.sync {}
     }
 
     private static func drainRuntimeStatePublication(_ fixture: RemoteRuntimeStateCoordinatorFixture) async {
