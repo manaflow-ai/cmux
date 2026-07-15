@@ -224,6 +224,11 @@ impl RemoteSession {
                 "unsupported cmux-tui protocol {protocol}; this client requires protocol 6; restart the cmux-tui server"
             );
         }
+        let mut client_info = json!({"cmd": "set-client-info", "kind": "tui"});
+        if let Some(hostname) = local_hostname() {
+            client_info["name"] = json!(hostname);
+        }
+        session.request(client_info)?;
         session.request(json!({"cmd": "subscribe"}))?;
         Ok(session)
     }
@@ -544,6 +549,32 @@ impl RemoteSession {
         }
         Ok(tree)
     }
+}
+
+fn local_hostname() -> Option<String> {
+    for name in ["HOSTNAME", "COMPUTERNAME"] {
+        if let Some(value) = std::env::var_os(name).and_then(|value| value.into_string().ok())
+            && !value.is_empty()
+        {
+            return Some(value);
+        }
+    }
+
+    #[cfg(unix)]
+    {
+        use std::ffi::CStr;
+
+        let mut buffer = [0 as libc::c_char; 256];
+        if unsafe { libc::gethostname(buffer.as_mut_ptr(), buffer.len() - 1) } == 0 {
+            let hostname =
+                unsafe { CStr::from_ptr(buffer.as_ptr()) }.to_string_lossy().into_owned();
+            if !hostname.is_empty() {
+                return Some(hostname);
+            }
+        }
+    }
+
+    None
 }
 
 impl Drop for RemoteSession {
