@@ -42,6 +42,12 @@ struct SidebarTabSearchView: View {
     @State private var selectedIndex: Int = 0
     /// Bumped by the focus shortcut; the text field focuses once per new value.
     @State private var focusToken: Int = 0
+    /// Corpus + ranking index, built once per search session (first keystroke)
+    /// and reused for every later keystroke; dropped when the search clears.
+    /// Building it walks every window/workspace/surface, so rebuilding per
+    /// keystroke would be needless work.
+    @State private var cachedIndex: SidebarTabSearchIndex?
+    @State private var cachedActions: [String: () -> Void] = [:]
 
     private static let resultLimit = 40
     private static let workspaceIdPrefix = "switcher.workspace."
@@ -233,25 +239,38 @@ struct SidebarTabSearchView: View {
         selectedIndex = min(max(selectedIndex + delta, 0), orderedResults.count - 1)
     }
 
-    /// Rebuilds and ranks the corpus for the current query. Synchronous and
-    /// cheap; runs from `.onChange(of: query)`, never from `body`.
+    /// Ranks the current query against the session corpus. Ranking is cheap and
+    /// synchronous; the corpus itself is built once per search session. Runs
+    /// from `.onChange(of: query)`, never from `body`.
     private func refreshResults() {
         let searchQuery = trimmedQuery
         guard !searchQuery.isEmpty else {
             results = []
             actionsById = [:]
             selectedIndex = 0
+            cachedIndex = nil
+            cachedActions = [:]
             return
         }
-        let ranked = rank(searchQuery)
-        actionsById = ranked.actions
-        results = ranked.results
+
+        let index: SidebarTabSearchIndex
+        if let cachedIndex {
+            index = cachedIndex
+        } else {
+            let built = buildCorpus()
+            cachedIndex = built.index
+            cachedActions = built.actions
+            index = built.index
+        }
+
+        results = index.rankedResults(matching: searchQuery, limit: Self.resultLimit)
+        actionsById = cachedActions
         selectedIndex = 0
     }
 
-    /// Builds the switcher corpus and ranks it for `query`. Reused as the Enter
-    /// path so Return acts on the exact current query text.
-    private func rank(_ query: String) -> (results: [SidebarTabSearchResult], actions: [String: () -> Void]) {
+    /// Walks every window/workspace/surface to build the searchable corpus and
+    /// its ranking index. Expensive relative to ranking, hence the session cache.
+    private func buildCorpus() -> (index: SidebarTabSearchIndex, actions: [String: () -> Void]) {
         let commands = entriesProvider()
         var actions: [String: () -> Void] = [:]
         actions.reserveCapacity(commands.count)
@@ -269,9 +288,7 @@ struct SidebarTabSearchView: View {
                 kind: command.id.hasPrefix(Self.workspaceIdPrefix) ? .workspace : .tab
             )
         }
-        let ranked = SidebarTabSearchIndex(candidates: candidates)
-            .rankedResults(matching: query, limit: Self.resultLimit)
-        return (ranked, actions)
+        return (SidebarTabSearchIndex(candidates: candidates), actions)
     }
 
     private func runSelectedResult() {
@@ -279,11 +296,12 @@ struct SidebarTabSearchView: View {
             run(orderedResults[selectedIndex])
             return
         }
-        // Defensive fallback: rank synchronously if no row is selectable yet.
-        let query = trimmedQuery
-        guard !query.isEmpty else { return }
-        let ranked = rank(query)
-        guard let top = ranked.results.first, let action = ranked.actions[top.id] else { return }
+        // Defensive fallback: rank a fresh corpus if no row is selectable yet.
+        let searchQuery = trimmedQuery
+        guard !searchQuery.isEmpty else { return }
+        let built = buildCorpus()
+        guard let top = built.index.rankedResults(matching: searchQuery, limit: 1).first,
+              let action = built.actions[top.id] else { return }
         action()
         clear()
     }
@@ -308,6 +326,9 @@ struct SidebarTabSearchView: View {
         results = []
         actionsById = [:]
         selectedIndex = 0
+        // End the search session: the next search rebuilds a fresh corpus.
+        cachedIndex = nil
+        cachedActions = [:]
     }
 }
 
