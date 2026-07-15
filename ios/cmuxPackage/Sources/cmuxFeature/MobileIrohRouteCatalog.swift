@@ -198,6 +198,11 @@ public struct PersonalIrohDeviceRegistryDecorator: DeviceRegistryRefreshing {
         return await base.listDevices()
     }
 
+    public func listLiveSessionDevices() async -> DeviceRegistryListOutcome {
+        guard let base else { return .transientFailure }
+        return await base.listLiveSessionDevices()
+    }
+
     static func merged(
         personal: [CmxAttachRoute],
         team: [CmxAttachRoute]
