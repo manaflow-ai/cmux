@@ -214,6 +214,14 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var lastXScale: CGFloat = 0
     var lastYScale: CGFloat = 0
     var mobileViewportCellLimit: (columns: Int, rows: Int)?
+    /// tmux-assigned cell grid for manual-IO mirror panes. A mirror's grid
+    /// must EQUAL tmux's assignment, not merely fit it: a wider grid never
+    /// sets wrap flags where tmux wrapped (unwrapped reads split one tmux
+    /// line into many), a taller grid keeps stale rows tmux never repaints,
+    /// and a shorter grid drops assigned cells outright. The view renders
+    /// the pinned grid and clips or letterboxes the difference — the same
+    /// answer tmux gives a client whose size disagrees with the window.
+    var assignedGrid: (columns: Int, rows: Int)?
     /// Runtime font size to restore when mobile viewport fitting clears.
     var mobileFitBaseFontPointSize: Float?
     /// Last runtime font size applied by mobile viewport fitting.

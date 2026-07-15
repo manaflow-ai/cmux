@@ -106,6 +106,62 @@ extension TerminalSurface {
         )
     }
 
+    /// The pixel size that renders exactly an assigned grid: each axis is
+    /// the assignment's cells at the current cell size plus the surface's
+    /// own chrome, whether the view is shorter or longer. Pure so the
+    /// arithmetic is testable without a runtime surface.
+    static func assignedGridPinnedSize(
+        width: UInt32,
+        height: UInt32,
+        assignedColumns: Int,
+        assignedRows: Int,
+        cellWidthPx: UInt32,
+        cellHeightPx: UInt32,
+        padWidthPx: UInt32,
+        padHeightPx: UInt32
+    ) -> (width: UInt32, height: UInt32) {
+        guard cellWidthPx > 0, cellHeightPx > 0, assignedColumns > 0, assignedRows > 0 else {
+            return (width, height)
+        }
+        return (
+            UInt32(assignedColumns) * cellWidthPx + padWidthPx,
+            UInt32(assignedRows) * cellHeightPx + padHeightPx
+        )
+    }
+
+    /// Sets the tmux-assigned grid for a manual-IO mirror pane and
+    /// re-applies the current size when the pin changes the applied grid.
+    @MainActor
+    public func setAssignedGrid(columns: Int, rows: Int) {
+        let assigned = (columns: columns, rows: rows)
+        guard assignedGrid == nil
+            || assignedGrid! != assigned else { return }
+        assignedGrid = assigned
+        reapplyAssignedGrid()
+    }
+
+    /// Clears the pin (the pane left the mirror tree); the next genuine
+    /// resize re-derives the grid from the view alone.
+    @MainActor
+    public func clearAssignedGrid() {
+        guard assignedGrid != nil else { return }
+        assignedGrid = nil
+        reapplyAssignedGrid()
+    }
+
+    @MainActor
+    private func reapplyAssignedGrid() {
+        guard manualIO, lastUncappedPixelWidth > 0, lastUncappedPixelHeight > 0,
+              lastXScale > 0, lastYScale > 0 else { return }
+        _ = updateSize(
+            width: CGFloat(lastUncappedPixelWidth) / lastXScale,
+            height: CGFloat(lastUncappedPixelHeight) / lastYScale,
+            xScale: lastXScale,
+            yScale: lastYScale,
+            layerScale: lastXScale
+        )
+    }
+
     /// Applies a new backing size/scale to the runtime surface.
     ///
     /// - Parameter width: The logical surface width in points.
@@ -142,9 +198,45 @@ extension TerminalSurface {
             surface: surface,
             reason: "updateSize"
         )
-        let wpx = fittedSize.width
-        let hpx = fittedSize.height
+        var wpx = fittedSize.width
+        var hpx = fittedSize.height
         guard wpx > 0, hpx > 0 else { return false }
+
+        // The tmux-assigned grid outranks the view's points on a mirror,
+        // in BOTH directions: a wider grid never sets wrap flags where
+        // tmux wrapped, a taller grid keeps stale rows tmux never
+        // repaints, a shorter grid drops assigned cells. Pin the applied
+        // pixels to exactly the assignment and let the view clip or
+        // letterbox the difference. Skipped until the surface has real
+        // cell metrics (a pre-font surface reports zero cells).
+        if manualIO, let assigned = assignedGrid {
+            let current = ghostty_surface_size(surface)
+            if current.cell_width_px > 0, current.cell_height_px > 0 {
+                let gridWidthPx = UInt32(current.columns) * current.cell_width_px
+                let gridHeightPx = UInt32(current.rows) * current.cell_height_px
+                let pinned = Self.assignedGridPinnedSize(
+                    width: wpx,
+                    height: hpx,
+                    assignedColumns: assigned.columns,
+                    assignedRows: assigned.rows,
+                    cellWidthPx: current.cell_width_px,
+                    cellHeightPx: current.cell_height_px,
+                    padWidthPx: current.width_px > gridWidthPx ? current.width_px - gridWidthPx : 0,
+                    padHeightPx: current.height_px > gridHeightPx ? current.height_px - gridHeightPx : 0
+                )
+                #if DEBUG
+                if pinned.width != wpx || pinned.height != hpx {
+                    Self.sizeLog(
+                        "assignedGridPin surface=\(id.uuidString.prefix(8)) " +
+                        "assigned=\(assigned.columns)x\(assigned.rows) " +
+                        "view=\(wpx)x\(hpx) -> \(pinned.width)x\(pinned.height)"
+                    )
+                }
+                #endif
+                wpx = pinned.width
+                hpx = pinned.height
+            }
+        }
 
         let scaleChanged = !scaleApproximatelyEqual(xScale, lastXScale) || !scaleApproximatelyEqual(yScale, lastYScale)
         let sizeChanged = wpx != lastPixelWidth || hpx != lastPixelHeight

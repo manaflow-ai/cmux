@@ -208,6 +208,27 @@ extension RemoteTmuxWindowMirror {
     /// follow-up compares inputs and stops when nothing changed: feedback
     /// converges by fixed point, bounded by real input changes, with no
     /// retry budgets and no event dedup anywhere.
+    /// Pins every mirror pane's terminal grid to exactly its tmux-assigned
+    /// cells. A grid derived from the view diverges from tmux whenever the
+    /// plan and the assignment disagree — a starved sibling's chrome floor
+    /// leaves a pane short (dropped cells), and any surplus leaves it long
+    /// (rows tmux never repaints, wrap flags tmux set that never fire) —
+    /// and the mirror's text then reads differently than the pane it
+    /// mirrors. The grid follows tmux; the view clips or letterboxes the
+    /// difference: the same answer tmux gives a client whose size
+    /// disagrees. Surface pixels only — the claim keeps deriving from the
+    /// measured container, so nothing here can feed back.
+    func applyAssignedGrids() {
+        let leaves = renderedLayout.leavesByPaneID
+        for (paneId, panel) in panelsByPaneId {
+            if let node = leaves[paneId], node.width > 0, node.height > 0 {
+                panel.surface.setAssignedGrid(columns: node.width, rows: node.height)
+            } else {
+                panel.surface.clearAssignedGrid()
+            }
+        }
+    }
+
     func performSizingPassNow() {
         sizingPassScheduled = false
         guard !isTornDown else { return }
@@ -290,6 +311,7 @@ extension RemoteTmuxWindowMirror {
             let frameBefore = renderFrameSize
             updateRenderFrameSize()
             imposeDividerPlan(retryImposedExtents: intent == .constraintRecovery)
+            applyAssignedGrids()
             // A changed render frame applies on the NEXT SwiftUI commit —
             // after the impositions above — and AppKit's rescale then moves
             // every divider off the extents just applied, with nothing left

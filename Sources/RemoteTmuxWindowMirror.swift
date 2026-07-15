@@ -399,6 +399,13 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
             tmuxTitleRowPlacement = titleRowPlacement
         }
         reconcileBonsplitTree(from: previousRenderedLayout, to: renderedLayout)
+        // Pin every pane's grid to the fresh assignment HERE, not only in
+        // the sizing pass: the pass is visibility-gated, so a hidden
+        // window's pins would otherwise freeze at its last-visible
+        // assignment while tmux moves on, and the pinned grid would drag
+        // the mirror to a stale tree. Ingestion runs for every published
+        // layout, visible or not, and the pin touches only surface pixels.
+        applyAssignedGrids()
         // A barrier-acked divider hold deferred its verdict to this window's
         // layout fetch; once the connection holds no pending layout the fetch
         // has resolved (published — this reconcile — or dropped keeping the
