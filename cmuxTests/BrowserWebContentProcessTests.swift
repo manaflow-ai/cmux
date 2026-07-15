@@ -118,6 +118,38 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
+    func normalBrowserPageDoesNotExposeFeedNativeHandler() async throws {
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        let webView = panel.webView
+        let loadDelegate = BrowserWebContentProcessLoadDelegate()
+        webView.navigationDelegate = loadDelegate
+        defer { webView.navigationDelegate = nil }
+
+        try await loadDelegate.load(
+            """
+            <!doctype html>
+            <html><body>feed native handler probe</body></html>
+            """,
+            in: webView,
+            baseURL: URL(string: "https://example.com/")!
+        )
+
+        let handlerVisible = try await webView.evaluateJavaScript(
+            """
+            !!(
+              window.webkit &&
+              window.webkit.messageHandlers &&
+              window.webkit.messageHandlers.cmuxFeed &&
+              typeof window.webkit.messageHandlers.cmuxFeed.postMessage === "function"
+            )
+            """
+        ) as? Bool
+
+        #expect(handlerVisible == false)
+    }
+
+    @Test
     func webAuthnPageBridgeRelaysCredentialGetThroughContentWorldHandler() async throws {
         let configuration = WKWebViewConfiguration()
         BrowserPanel.configureWebViewConfiguration(
