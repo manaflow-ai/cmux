@@ -422,8 +422,11 @@ const OUTBOUND_CONTROL_RESERVE: usize = 256;
 
 trait MessageSink: Send + Sync {
     fn send(&self, value: &Value) -> std::io::Result<()>;
-    fn send_terminal(&self, value: &Value) -> std::io::Result<()> {
+    fn send_control(&self, value: &Value) -> std::io::Result<()> {
         self.send(value)
+    }
+    fn send_terminal(&self, value: &Value) -> std::io::Result<()> {
+        self.send_control(value)
     }
     fn is_open(&self) -> bool;
     fn close(&self);
@@ -463,6 +466,17 @@ impl MessageWriter {
         result
     }
 
+    fn send_control(&self, value: &Value) -> std::io::Result<()> {
+        if !self.is_open() {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        let result = self.sink.send_control(value);
+        if result.is_err() {
+            self.close();
+        }
+        result
+    }
+
     fn is_open(&self) -> bool {
         self.open.load(Ordering::Acquire) && self.sink.is_open()
     }
@@ -488,28 +502,28 @@ struct BoundedOutboundState {
 }
 
 impl BoundedOutbound {
-    fn push(&self, text: String, terminal: bool) -> std::io::Result<()> {
+    fn push(&self, text: String, control: bool) -> std::io::Result<()> {
         let mut state = self.state.lock().unwrap();
         if state.closed {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
         let total_capacity = OUTBOUND_CAPACITY + OUTBOUND_CONTROL_RESERVE;
         if state.queue.len() >= total_capacity
-            || (!terminal && state.regular_count >= OUTBOUND_CAPACITY)
+            || (!control && state.regular_count >= OUTBOUND_CAPACITY)
         {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::WouldBlock,
-                if terminal {
+                if control {
                     "outbound control reserve overflowed"
                 } else {
                     "outbound queue overflowed"
                 },
             ));
         }
-        if !terminal {
+        if !control {
             state.regular_count += 1;
         }
-        state.queue.push_back((text, terminal));
+        state.queue.push_back((text, control));
         self.changed.notify_one();
         Ok(())
     }
@@ -533,8 +547,8 @@ impl BoundedOutbound {
     }
 
     fn pop_locked(state: &mut BoundedOutboundState) -> Option<String> {
-        let (text, terminal) = state.queue.pop_front()?;
-        if !terminal {
+        let (text, control) = state.queue.pop_front()?;
+        if !control {
             state.regular_count -= 1;
         }
         Some(text)
@@ -560,7 +574,7 @@ impl MessageSink for QueuedSink {
         self.outbound.push(text, false)
     }
 
-    fn send_terminal(&self, value: &Value) -> std::io::Result<()> {
+    fn send_control(&self, value: &Value) -> std::io::Result<()> {
         let text = serde_json::to_string(value)?;
         self.outbound.push(text, true)
     }
@@ -803,7 +817,7 @@ fn handle_message(mux: &Arc<Mux>, message: &str, writer: &MessageWriter) -> bool
             Response { id: None, ok: false, data: None, error: Some(format!("bad request: {e}")) }
         }
     };
-    serde_json::to_value(&response).is_ok_and(|value| writer.send(&value).is_ok())
+    serde_json::to_value(&response).is_ok_and(|value| writer.send_control(&value).is_ok())
 }
 
 fn auth_token(message: &str) -> Option<String> {
@@ -1937,7 +1951,7 @@ mod tests {
     }
 
     #[test]
-    fn bounded_writer_reserves_a_terminal_overflow_lane() {
+    fn bounded_writer_reserves_a_control_lane_for_responses_and_overflow() {
         let outbound = Arc::new(BoundedOutbound::default());
         let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone() });
 
@@ -1948,11 +1962,14 @@ mod tests {
         assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
         assert!(writer.is_open());
 
+        writer.send_control(&json!({"id": 42, "ok": true, "data": {}})).unwrap();
         writer.send_terminal(&subscription_overflow_json()).unwrap();
         let drained = (0..OUTBOUND_CAPACITY)
             .map(|_| outbound.try_pop().expect("accepted output"))
             .collect::<Vec<_>>();
         assert!(drained[0].contains("\"sequence\":0"));
+        let response: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(response["id"], 42);
         let terminal: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
         assert_eq!(terminal["event"], "overflow");
         assert!(writer.is_open());
