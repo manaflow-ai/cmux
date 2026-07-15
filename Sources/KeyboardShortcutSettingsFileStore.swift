@@ -1,4 +1,5 @@
 import Combine
+import CmuxCore
 import CmuxFoundation
 import CmuxSettings
 import Foundation
@@ -899,6 +900,13 @@ final class CmuxSettingsFileStore {
     ) {
         let browserSearchSettings = BrowserSearchSettingsStore()
 
+        if let raw = jsonString(section["engine"]) {
+            guard let preference = BrowserEnginePreference(rawValue: raw) else {
+                logInvalid("browser.engine", sourcePath: sourcePath)
+                return
+            }
+            snapshot.managedUserDefaults[SettingCatalog().browser.engine.userDefaultsKey] = .string(preference.rawValue)
+        }
         if let raw = jsonString(section["defaultSearchEngine"]) {
             guard let engine = BrowserSearchEngine(rawValue: raw) else {
                 logInvalid("browser.defaultSearchEngine", sourcePath: sourcePath)

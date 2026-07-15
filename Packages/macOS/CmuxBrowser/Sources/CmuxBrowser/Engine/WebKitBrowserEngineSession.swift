@@ -1,0 +1,151 @@
+public import AppKit
+public import CmuxCore
+public import Foundation
+public import WebKit
+
+/// A ``BrowserEngineSession`` backed by an in-process `WKWebView`.
+@MainActor
+public final class WebKitBrowserEngineSession: BrowserEngineSession {
+    /// The engine family implementing this session.
+    public let kind = BrowserEngineKind.webKit
+
+    /// The wrapped WebKit view.
+    public let webView: WKWebView
+
+    /// The native view hosted by the browser pane portal.
+    public var contentView: NSView { webView }
+
+    /// The latest WebKit state snapshot.
+    public private(set) var state: BrowserEngineState
+
+    /// State snapshots emitted from WebKit KVO signals.
+    public let stateUpdates: AsyncStream<BrowserEngineState>
+
+    private let stateContinuation: AsyncStream<BrowserEngineState>.Continuation
+    private var observations: [NSKeyValueObservation] = []
+
+    /// Creates a WebKit engine session around an app-configured web view.
+    ///
+    /// - Parameter webView: The view whose configuration and delegates are owned by the app.
+    public init(webView: WKWebView) {
+        self.webView = webView
+        self.state = BrowserEngineState(
+            url: webView.url,
+            title: webView.title ?? "",
+            isLoading: webView.isLoading,
+            canGoBack: webView.canGoBack,
+            canGoForward: webView.canGoForward
+        )
+        (stateUpdates, stateContinuation) = AsyncStream.makeStream()
+        installObservations()
+    }
+
+    /// Loads a request in WebKit.
+    public func load(_ request: URLRequest) { webView.load(request) }
+
+    /// Traverses backward in WebKit history.
+    public func goBack() { webView.goBack() }
+
+    /// Traverses forward in WebKit history.
+    public func goForward() { webView.goForward() }
+
+    /// Reloads the current page.
+    public func reload() { webView.reload() }
+
+    /// Reloads from origin, bypassing WebKit caches.
+    public func reloadFromOrigin() { webView.reloadFromOrigin() }
+
+    /// Stops the active WebKit load.
+    public func stopLoading() { webView.stopLoading() }
+
+    /// Evaluates JavaScript in a WebKit content world.
+    public func evaluateJavaScript(
+        _ script: String,
+        in world: BrowserJavaScriptWorld
+    ) async throws -> BrowserJavaScriptValue {
+        let contentWorld: WKContentWorld = switch world {
+        case .page: .page
+        case .isolated: .defaultClient
+        }
+        return try await withCheckedThrowingContinuation { continuation in
+            webView.evaluateJavaScript(script, in: nil, in: contentWorld) { result in
+                switch result {
+                case .success(let value):
+                    do {
+                        continuation.resume(returning: try BrowserJavaScriptValue(foundationValue: value))
+                    } catch {
+                        continuation.resume(throwing: error)
+                    }
+                case .failure(let error):
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    /// Installs a WebKit user script for future documents.
+    public func addInitializationScript(_ script: String) async throws {
+        webView.configuration.userContentController.addUserScript(
+            WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: false)
+        )
+    }
+
+    /// Captures a PNG snapshot of the current WebKit viewport.
+    public func captureScreenshot() async throws -> Data {
+        let image = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<NSImage, any Error>) in
+            webView.takeSnapshot(with: nil) { image, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else if let image {
+                    continuation.resume(returning: image)
+                } else {
+                    continuation.resume(throwing: BrowserEngineSessionError.emptyScreenshot)
+                }
+            }
+        }
+        guard let tiff = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiff),
+              let png = bitmap.representation(using: NSBitmapImageRep.FileType.png, properties: [:]) else {
+            throw BrowserEngineSessionError.emptyScreenshot
+        }
+        return png
+    }
+
+    /// Stops loading and finishes the state stream.
+    public func close() {
+        observations.removeAll()
+        webView.stopLoading()
+        stateContinuation.finish()
+    }
+
+    private func installObservations() {
+        observations = [
+            webView.observe(\.url, options: [.initial, .new]) { [weak self] _, _ in
+                MainActor.assumeIsolated { self?.publishState() }
+            },
+            webView.observe(\.title, options: [.initial, .new]) { [weak self] _, _ in
+                MainActor.assumeIsolated { self?.publishState() }
+            },
+            webView.observe(\.isLoading, options: [.initial, .new]) { [weak self] _, _ in
+                MainActor.assumeIsolated { self?.publishState() }
+            },
+            webView.observe(\.canGoBack, options: [.initial, .new]) { [weak self] _, _ in
+                MainActor.assumeIsolated { self?.publishState() }
+            },
+            webView.observe(\.canGoForward, options: [.initial, .new]) { [weak self] _, _ in
+                MainActor.assumeIsolated { self?.publishState() }
+            },
+        ]
+    }
+
+    private func publishState() {
+        state = BrowserEngineState(
+            url: webView.url,
+            title: webView.title ?? "",
+            isLoading: webView.isLoading,
+            canGoBack: webView.canGoBack,
+            canGoForward: webView.canGoForward
+        )
+        stateContinuation.yield(state)
+    }
+}

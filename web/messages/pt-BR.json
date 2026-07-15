@@ -925,7 +925,8 @@
         "browser": {
           "defaultSearchEngine": "Mecanismo de busca padrão para consultas na barra de endereço do navegador que não são URLs. Use custom com customSearchEngineURLTemplate para outros provedores.",
           "customSearchEngineName": "Nome exibido quando defaultSearchEngine é custom.",
-          "customSearchEngineURLTemplate": "URL de busca usada quando defaultSearchEngine é custom. Inclua o marcador da consulta ou %s para a consulta codificada. Sem marcador, o cmux adiciona q= à URL."
+          "customSearchEngineURLTemplate": "URL de busca usada quando defaultSearchEngine é custom. Inclua o marcador da consulta ou %s para a consulta codificada. Sem marcador, o cmux adiciona q= à URL.",
+          "engine": "Mecanismo de navegador para painéis de navegador recém-criados. Auto segue a família de mecanismos do navegador padrão do macOS. Painéis com proxy remoto e páginas internas do cmux usam WebKit."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Padrão global para onde Cmd-N dentro de um grupo, o botão + do cabeçalho do grupo e ações de grupo configuradas colocam o novo workspace: `afterCurrent` (depois do workspace ativo no grupo, voltando para top), `top` (segunda posição, logo após a âncora) ou `end` (após o último membro).",

@@ -1,3 +1,4 @@
+import CmuxCore
 import CmuxSettings
 import Foundation
 
@@ -191,6 +192,7 @@ extension CmuxSettingsFileStore {
             ],
             [
                 "browser": [
+                    "engine": BrowserEnginePreference.automatic.rawValue,
                     "defaultSearchEngine": BrowserSearchSettingsStore.defaultSearchEngine.rawValue,
                     "customSearchEngineName": BrowserSearchSettingsStore.defaultCustomSearchEngineName,
                     "customSearchEngineURLTemplate": BrowserSearchSettingsStore.defaultCustomSearchEngineURLTemplate,

@@ -1,5 +1,6 @@
 import CmuxFoundation
 import AppKit
+import CmuxCore
 import CmuxSettings
 import SwiftUI
 
@@ -18,6 +19,7 @@ public struct BrowserSection: View {
     private let importAnchorID: String?
 
     @State private var disabled: DefaultsValueModel<Bool>
+    @State private var browserEngine: DefaultsValueModel<BrowserEnginePreference>
     @State private var engine: DefaultsValueModel<BrowserSearchEngine>
     @State private var customName: DefaultsValueModel<String>
     @State private var customURL: DefaultsValueModel<String>
@@ -49,6 +51,7 @@ public struct BrowserSection: View {
         self.hostActions = hostActions
         self.importAnchorID = importAnchorID
         _disabled = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.disabled))
+        _browserEngine = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.engine))
         _engine = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.defaultSearchEngine))
         _customName = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.customSearchEngineName))
         _customURL = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.customSearchEngineURLTemplate))
@@ -85,7 +88,7 @@ public struct BrowserSection: View {
             Button(String(localized: "settings.browser.history.clearDialog.cancel", defaultValue: "Cancel"), role: .cancel) {}
         } message: {
             Text(String(localized: "settings.browser.history.clearDialog.message", defaultValue: "This removes visited-page suggestions from the browser omnibar."))
-        }.task { startSettingsObservation([disabled, engine, customName, customURL, suggestions, theme, discardEnabled, discardDelay, askWhereToSaveDownloads, openTermLinks, interceptOpen, hosts, external, httpAllowlist, importHint, reactGrab]) }
+        }.task { startSettingsObservation([disabled, browserEngine, engine, customName, customURL, suggestions, theme, discardEnabled, discardDelay, askWhereToSaveDownloads, openTermLinks, interceptOpen, hosts, external, httpAllowlist, importHint, reactGrab]) }
     }
 
     @ViewBuilder
@@ -105,6 +108,9 @@ public struct BrowserSection: View {
                     .controlSize(.small)
                     .accessibilityIdentifier("BrowserEnabledToggle")
             }
+            SettingsCardDivider()
+
+            BrowserEngineSettingRow(model: browserEngine, controlWidth: Self.columnWidth)
             SettingsCardDivider()
 
             // Default Search Engine

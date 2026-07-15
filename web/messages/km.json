@@ -925,7 +925,8 @@
         "browser": {
           "defaultSearchEngine": "ម៉ាស៊ីនស្វែងរកលំនាំដើមសម្រាប់សំណួរនៅក្នុងរបារអាសយដ្ឋានដែលមិនមែនជា URL។ ប្រើ custom ជាមួយ customSearchEngineURLTemplate សម្រាប់អ្នកផ្តល់ផ្សេងៗ។",
           "customSearchEngineName": "ឈ្មោះបង្ហាញដែលប្រើនៅពេល defaultSearchEngine ជា custom។",
-          "customSearchEngineURLTemplate": "URL ស្វែងរកដែលប្រើនៅពេល defaultSearchEngine ជា custom។ ដាក់ទីតាំងជំនួសសំណួរ ឬ %s សម្រាប់ពាក្យស្វែងរកដែលបានអ៊ិនកូដ។ ប្រសិនបើគ្មានទីតាំងជំនួស cmux បន្ថែម q= ទៅ URL។"
+          "customSearchEngineURLTemplate": "URL ស្វែងរកដែលប្រើនៅពេល defaultSearchEngine ជា custom។ ដាក់ទីតាំងជំនួសសំណួរ ឬ %s សម្រាប់ពាក្យស្វែងរកដែលបានអ៊ិនកូដ។ ប្រសិនបើគ្មានទីតាំងជំនួស cmux បន្ថែម q= ទៅ URL។",
+          "engine": "ម៉ាស៊ីនកម្មវិធីរុករកសម្រាប់ផ្ទាំងកម្មវិធីរុករកដែលបានបង្កើតថ្មី។ ស្វ័យប្រវត្តិធ្វើតាមគ្រួសារម៉ាស៊ីននៃកម្មវិធីរុករកលំនាំដើម macOS ។ ផ្ទាំងប្រូកស៊ីពីចម្ងាយ និងទំព័រខាងក្នុង cmux ប្រើ WebKit ។"
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "តម្លៃលំនាំដើមសកលសម្រាប់ទីតាំងដែល Cmd-N នៅក្នុងក្រុម ប៊ូតុង + ក្នុងក្បាលក្រុម និងសកម្មភាពក្រុមដែលបានកំណត់ ដាក់ workspace ថ្មី: `afterCurrent` (បន្ទាប់ពី workspace សកម្មក្នុងក្រុម ហើយត្រឡប់ទៅ top ប្រសិនបើគ្មាន), `top` (ទីតាំងទីពីរ បន្ទាប់ពី anchor ភ្លាមៗ) ឬ `end` (បន្ទាប់ពីសមាជិកចុងក្រោយ).",

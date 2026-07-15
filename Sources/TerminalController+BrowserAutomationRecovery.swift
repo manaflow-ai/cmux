@@ -6,30 +6,31 @@ extension TerminalController {
     nonisolated func v2CaptureBrowserAutomationSnapshot(
         _ browserPanel: BrowserPanel,
         timeout: TimeInterval
-    ) -> (webViewIdentifier: ObjectIdentifier, result: BrowserAutomationSnapshotResult)? {
-        socketAwaitCallback(timeout: timeout) { finish in
+    ) -> (webViewIdentifier: ObjectIdentifier, result: BrowserAutomationSnapshotResult) {
+        let webViewIdentifier = v2MainSync { ObjectIdentifier(browserPanel.webView) }
+        let result: BrowserAutomationSnapshotResult? = socketAwaitCallback(timeout: timeout) { finish in
             v2MainSync {
-                let webViewIdentifier = ObjectIdentifier(browserPanel.webView)
                 browserPanel.captureAutomationVisibleViewportSnapshot { result in
                     switch result {
                     case .success(let image):
                         guard let data = self.v2PNGData(from: image) else {
-                            finish((webViewIdentifier, .failure(BrowserScreenshotError.invalidImageRepresentation.localizedDescription)))
+                            finish(.failure(BrowserScreenshotError.invalidImageRepresentation.localizedDescription))
                             return
                         }
-                        finish((webViewIdentifier, .success(data)))
+                        finish(.success(data))
                     case .failure(let error as BrowserScreenshotError):
                         if case .automationTimedOut = error {
-                            finish((webViewIdentifier, .timedOut))
+                            finish(.timedOut)
                         } else {
-                            finish((webViewIdentifier, .failure(error.localizedDescription)))
+                            finish(.failure(error.localizedDescription))
                         }
                     case .failure(let error):
-                        finish((webViewIdentifier, .failure(error.localizedDescription)))
+                        finish(.failure(error.localizedDescription))
                     }
                 }
             }
         }
+        return (webViewIdentifier, result ?? .timedOut)
     }
 
     nonisolated func v2RecoverTimedOutBrowserJavaScript(

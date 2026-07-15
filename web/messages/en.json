@@ -1719,6 +1719,7 @@
           "textBoxSubmitActionBackgroundColorHex": "Action color metadata as RGB or RGBA hex. The submit button fill stays white and only changes opacity between enabled and disabled states."
         },
         "browser": {
+          "engine": "Browser engine for newly created browser panes. Auto follows the engine family of the macOS default browser. Remote-proxied panes and cmux internal pages use WebKit.",
           "defaultSearchEngine": "Default search engine for non-URL browser address bar queries. Use custom with customSearchEngineURLTemplate for arbitrary providers.",
           "customSearchEngineName": "Display name used when defaultSearchEngine is custom.",
           "customSearchEngineURLTemplate": "Search URL used when defaultSearchEngine is custom. Include the query placeholder or %s for the encoded query. If omitted, cmux appends q= to the URL.",

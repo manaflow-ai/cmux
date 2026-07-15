@@ -256,6 +256,7 @@ final class DockSplitStore: BonsplitDelegate {
         tmuxStartCommand: String? = nil,
         focus: Bool = true,
         preferredProfileID: UUID? = nil,
+        browserEngineKind: BrowserEngineKind? = nil,
         bypassInsecureHTTPHostOnce: String? = nil
     ) -> UUID? {
         ensureLoaded()
@@ -268,6 +269,7 @@ final class DockSplitStore: BonsplitDelegate {
             workingDirectory: workingDirectory ?? currentBaseDirectory(),
             tmuxStartCommand: tmuxStartCommand,
             preferredProfileID: preferredProfileID,
+            browserEngineKind: browserEngineKind,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
         ) else { return nil }
         let previousFocus = focus ? nil : focusedDockPaneSelection()
@@ -438,6 +440,7 @@ final class DockSplitStore: BonsplitDelegate {
         workingDirectory: String,
         tmuxStartCommand: String? = nil,
         preferredProfileID: UUID? = nil,
+        browserEngineKind: BrowserEngineKind? = nil,
         bypassInsecureHTTPHostOnce: String? = nil
     ) -> (any Panel)? {
         switch kind {
@@ -460,6 +463,7 @@ final class DockSplitStore: BonsplitDelegate {
                 url: url,
                 initialRequest: initialRequest,
                 preferredProfileID: preferredProfileID,
+                browserEngineKind: browserEngineKind,
                 bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
             )
         }

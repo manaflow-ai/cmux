@@ -1324,6 +1324,13 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "engine": {
+          "type": "string",
+          "enum": ["auto", "webkit", "chromium"],
+          "default": "auto",
+          "descriptionKey": "schemaDescriptions.browser.engine",
+          "description": "Browser engine for newly created browser panes. Auto follows the engine family of the macOS default browser. Remote-proxied panes and cmux internal pages use WebKit."
+        },
         "defaultSearchEngine": {
           "type": "string",
           "enum": ["google", "duckduckgo", "bing", "kagi", "startpage", "brave", "perplexity", "exa", "yahoo", "ecosia", "qwant", "mojeek", "wikipedia", "github", "baidu", "yandex", "custom"],

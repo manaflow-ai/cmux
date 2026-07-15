@@ -223,6 +223,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C67540020000000000000001 /* BrowserDownloadHTTPStatusDecision.swift in Sources */ = {isa = PBXBuildFile; fileRef = C67540020000000000000002 /* BrowserDownloadHTTPStatusDecision.swift */; };
 		C67540110000000000000001 /* BrowserDownloadRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = C67540110000000000000002 /* BrowserDownloadRecord.swift */; };
 		C67540120000000000000001 /* BrowserDownloadsToolbarButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = C67540120000000000000002 /* BrowserDownloadsToolbarButton.swift */; };
+		B147E0010000000000000001 /* BrowserEngineSelection+Current.swift in Sources */ = {isa = PBXBuildFile; fileRef = B147E0010000000000000002 /* BrowserEngineSelection+Current.swift */; };
 		C2035A010000000000000001 /* BrowserErrorPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A010000000000000002 /* BrowserErrorPage.swift */; };
 		C2035A020000000000000001 /* BrowserErrorPageContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A020000000000000002 /* BrowserErrorPageContent.swift */; };
 		C2035A0C000000000000001 /* BrowserErrorPageRetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A0C000000000000002 /* BrowserErrorPageRetry.swift */; };
@@ -2200,6 +2201,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C67540020000000000000002 /* BrowserDownloadHTTPStatusDecision.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDownloadHTTPStatusDecision.swift; sourceTree = "<group>"; };
 		C67540110000000000000002 /* BrowserDownloadRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDownloadRecord.swift; sourceTree = "<group>"; };
 		C67540120000000000000002 /* BrowserDownloadsToolbarButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDownloadsToolbarButton.swift; sourceTree = "<group>"; };
+		B147E0010000000000000002 /* BrowserEngineSelection+Current.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserEngineSelection+Current.swift"; sourceTree = "<group>"; };
 		C2035A010000000000000002 /* BrowserErrorPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserErrorPage.swift; sourceTree = "<group>"; };
 		C2035A020000000000000002 /* BrowserErrorPageContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserErrorPageContent.swift; sourceTree = "<group>"; };
 		C2035A0C000000000000002 /* BrowserErrorPageRetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserErrorPageRetry.swift; sourceTree = "<group>"; };
@@ -4484,6 +4486,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C7268001000000000000002 /* Workspace+CustomSidebarSnapshot.swift */,
 				C7268002000000000000002 /* Workspace+SidebarDirectories.swift */,
 				DCDC1000000000000000B014 /* Workspace+DockBrowserLookup.swift */,
+				B147E0010000000000000002 /* BrowserEngineSelection+Current.swift */,
 				E30780000000000000000011 /* SSHPTYAttachStartupCommandBuilder.swift */,
 				EE30D5000000000000000001 /* RemoteDaemonStrings+App.swift */,
 				EE30D5000000000000000003 /* WorkspaceRemoteRelayCommandRewriter.swift */,
@@ -6429,6 +6432,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C67540020000000000000001 /* BrowserDownloadHTTPStatusDecision.swift in Sources */,
 				C67540110000000000000001 /* BrowserDownloadRecord.swift in Sources */,
 				C67540120000000000000001 /* BrowserDownloadsToolbarButton.swift in Sources */,
+				B147E0010000000000000001 /* BrowserEngineSelection+Current.swift in Sources */,
 				C2035A010000000000000001 /* BrowserErrorPage.swift in Sources */,
 				C2035A020000000000000001 /* BrowserErrorPageContent.swift in Sources */,
 				C2035A0C000000000000001 /* BrowserErrorPageRetry.swift in Sources */,

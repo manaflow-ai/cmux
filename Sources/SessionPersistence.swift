@@ -1509,6 +1509,7 @@ struct SessionTextBoxInputAttachmentSnapshot: Codable, Equatable, Sendable {
 struct SessionBrowserPanelSnapshot: Codable, Sendable {
     var urlString: String?
     var profileID: UUID?
+    var engineKind: BrowserEngineKind?
     var shouldRenderWebView: Bool
     var pageZoom: Double
     var developerToolsVisible: Bool
@@ -1528,6 +1529,7 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
     init(
         urlString: String?,
         profileID: UUID?,
+        engineKind: BrowserEngineKind? = nil,
         shouldRenderWebView: Bool,
         pageZoom: Double,
         developerToolsVisible: Bool,
@@ -1541,6 +1543,7 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
     ) {
         self.urlString = urlString
         self.profileID = profileID
+        self.engineKind = engineKind
         self.shouldRenderWebView = shouldRenderWebView
         self.pageZoom = pageZoom
         self.developerToolsVisible = developerToolsVisible
@@ -1556,6 +1559,7 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case urlString
         case profileID
+        case engineKind
         case shouldRenderWebView
         case pageZoom
         case developerToolsVisible
@@ -1572,6 +1576,7 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         urlString = try container.decodeIfPresent(String.self, forKey: .urlString)
         profileID = try container.decodeIfPresent(UUID.self, forKey: .profileID)
+        engineKind = try container.decodeIfPresent(BrowserEngineKind.self, forKey: .engineKind)
         shouldRenderWebView = try container.decode(Bool.self, forKey: .shouldRenderWebView)
         pageZoom = try container.decode(Double.self, forKey: .pageZoom)
         developerToolsVisible = try container.decode(Bool.self, forKey: .developerToolsVisible)

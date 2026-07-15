@@ -1,0 +1,77 @@
+public import AppKit
+public import CmuxCore
+public import Foundation
+
+/// A live, engine-neutral browser surface used by pane chrome and automation.
+@MainActor
+public protocol BrowserEngineSession: AnyObject {
+    /// The engine family implementing this session.
+    var kind: BrowserEngineKind { get }
+
+    /// The native view hosted by the browser pane portal.
+    var contentView: NSView { get }
+
+    /// The latest browser state snapshot.
+    var state: BrowserEngineState { get }
+
+    /// State snapshots emitted when navigation or engine lifecycle changes.
+    var stateUpdates: AsyncStream<BrowserEngineState> { get }
+
+    /// Loads a request in the current browser surface.
+    ///
+    /// - Parameter request: The top-level request to load.
+    func load(_ request: URLRequest)
+
+    /// Traverses backward in engine-native history.
+    func goBack()
+
+    /// Traverses forward in engine-native history.
+    func goForward()
+
+    /// Reloads the current page.
+    func reload()
+
+    /// Reloads the current page while bypassing cached content when supported.
+    func reloadFromOrigin()
+
+    /// Stops the current navigation.
+    func stopLoading()
+
+    /// Evaluates JavaScript in an engine-defined content world.
+    ///
+    /// - Parameters:
+    ///   - script: The JavaScript expression or program to evaluate.
+    ///   - world: The page or isolated world that should execute the script.
+    /// - Returns: A Sendable value copied from the page.
+    /// - Throws: An engine or JavaScript evaluation error.
+    func evaluateJavaScript(
+        _ script: String,
+        in world: BrowserJavaScriptWorld
+    ) async throws -> BrowserJavaScriptValue
+
+    /// Installs JavaScript that runs at document start on future navigations.
+    ///
+    /// - Parameter script: The script source to install.
+    /// - Throws: An engine error when the script cannot be installed.
+    func addInitializationScript(_ script: String) async throws
+
+    /// Captures the current page viewport as PNG data.
+    ///
+    /// - Returns: PNG-encoded viewport pixels.
+    /// - Throws: An engine or image-conversion error.
+    func captureScreenshot() async throws -> Data
+
+    /// Releases page, process, and transport resources owned by the session.
+    func close()
+}
+
+public extension BrowserEngineSession {
+    /// Evaluates JavaScript in the page's main world.
+    ///
+    /// - Parameter script: The JavaScript expression or program to evaluate.
+    /// - Returns: A Sendable value copied from the page.
+    /// - Throws: An engine or JavaScript evaluation error.
+    func evaluateJavaScript(_ script: String) async throws -> BrowserJavaScriptValue {
+        try await evaluateJavaScript(script, in: .page)
+    }
+}
