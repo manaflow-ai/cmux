@@ -146,4 +146,33 @@ import Testing
             [loopback], isPhysicalDevice: false
         ))
     }
+
+    @Test func stackAuthChannelTrustGatesTailscaleOnly() throws {
+        let tailscaleIP = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
+        let tailscaleDNS = try hostPortRoute(kind: .tailscale, host: "mini.tail1234.ts.net", port: CmxMobileDefaults.defaultHostPort)
+        let lanUnderTailscaleKind = try hostPortRoute(kind: .tailscale, host: "192.168.1.20", port: CmxMobileDefaults.defaultHostPort)
+        let loopback = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
+
+        // Fail-closed default (iOS): tailscale routes never carry the token.
+        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(tailscaleIP))
+        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(tailscaleDNS))
+
+        // The Mac viewer's opt-in trusts the tunnel — but only for hosts that
+        // are actually inside it, so a LAN host smuggled under the tailscale
+        // kind still never receives the token.
+        #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(
+            tailscaleIP, trust: .loopbackAndTailscaleTunnel
+        ))
+        #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(
+            tailscaleDNS, trust: .loopbackAndTailscaleTunnel
+        ))
+        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(
+            lanUnderTailscaleKind, trust: .loopbackAndTailscaleTunnel
+        ))
+        // Loopback stays allowed in both trust sets.
+        #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(loopback))
+        #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(
+            loopback, trust: .loopbackAndTailscaleTunnel
+        ))
+    }
 }

@@ -1,5 +1,5 @@
 public import CMUXMobileCore
-internal import CmuxMobileShellModel
+public import CmuxMobileShellModel
 internal import CmuxMobileSupport
 public import Foundation
 internal import os
@@ -17,6 +17,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     /// The attach ticket this client uses to authorize RPC requests.
     public var attachTicket: CmxAttachTicket { ticket }
     private let allowsStackAuthFallback: Bool
+    private let stackAuthChannelTrust: MobileShellRouteAuthPolicy.StackAuthChannelTrust
     // `internal` (not `private`) so `@testable import` can observe session
     // queue state from tests, instead of exposing a debug hook in production.
     let session: MobileCoreRPCSession
@@ -30,11 +31,17 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     ///   - ticket: The attach ticket authorizing requests.
     ///   - allowsStackAuthFallback: When `true`, falls back to a Stack Auth token
     ///     on routes that allow it once the attach ticket no longer covers a request.
+    ///   - stackAuthChannelTrust: The channel set trusted to carry the Stack
+    ///     bearer token; defaults to the fail-closed loopback-only iOS policy.
+    ///     The macOS remote-Mac viewer passes
+    ///     ``MobileShellRouteAuthPolicy/StackAuthChannelTrust/loopbackAndTailscaleTunnel``
+    ///     because its routes come from the account's own device registry.
     public init(
         runtime: any MobileSyncRuntime,
         route: CmxAttachRoute,
         ticket: CmxAttachTicket,
         allowsStackAuthFallback: Bool = false,
+        stackAuthChannelTrust: MobileShellRouteAuthPolicy.StackAuthChannelTrust = .loopbackOnly,
         connectAttemptRegistry: MobileRPCConnectAttemptRegistry = MobileRPCConnectAttemptRegistry(),
         stackTokenGate: RPCStackTokenGate? = nil,
         stackTokenForceRefreshGate: RPCStackTokenGate? = nil,
@@ -52,6 +59,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         )
         self.transportRequest = transportRequest
         self.allowsStackAuthFallback = allowsStackAuthFallback
+        self.stackAuthChannelTrust = stackAuthChannelTrust
         self.stackTokenGate = stackTokenGate
             ?? RPCStackTokenGate(timedOutResetNanoseconds: stackTokenGateResetNanoseconds)
         self.stackTokenForceRefreshGate = stackTokenForceRefreshGate
@@ -278,7 +286,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             // expiry), so they never reach this branch.
             if !ticket.isExpired(at: runtime.now()) {
                 auth["attach_token"] = attachToken
-            } else if !allowsStackAuthFallback || !MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) {
+            } else if !allowsStackAuthFallback || !MobileShellRouteAuthPolicy.routeAllowsStackAuth(route, trust: stackAuthChannelTrust) {
                 throw MobileShellConnectionError.attachTicketExpired
             }
         }
@@ -293,7 +301,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         let shouldSendStackAuth = requestNeedsAuth
         if shouldSendStackAuth {
             guard allowsStackAuthFallback,
-                  MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) else {
+                  MobileShellRouteAuthPolicy.routeAllowsStackAuth(route, trust: stackAuthChannelTrust) else {
                 throw MobileShellConnectionError.insecureManualRoute
             }
             do {
@@ -322,7 +330,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         if !requestNeedsAuth,
            isHostStatusRequest(request),
            allowsStackAuthFallback,
-           MobileShellRouteAuthPolicy.routeAllowsStackAuth(route),
+           MobileShellRouteAuthPolicy.routeAllowsStackAuth(route, trust: stackAuthChannelTrust),
            let stackAccessToken = try await stackAccessTokenForStatus(deadline: deadline) {
             auth["stack_access_token"] = stackAccessToken
         }
