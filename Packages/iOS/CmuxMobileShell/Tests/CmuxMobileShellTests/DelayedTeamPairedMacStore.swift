@@ -5,6 +5,7 @@ import Foundation
 actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
     private var recordsByTeam: [String: [MobilePairedMac]]
     private let blockedTeams: Set<String>
+    private var releasedTeams: Set<String> = []
     private var startedTeams: Set<String> = []
     private var startWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
     private var blockers: [String: CheckedContinuation<Void, Never>] = [:]
@@ -137,7 +138,7 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
         loadAllCount += 1
         let key = teamID ?? ""
         markStarted(key)
-        if blockedTeams.contains(key) {
+        if blockedTeams.contains(key), !releasedTeams.contains(key) {
             await withCheckedContinuation { continuation in
                 blockers[key] = continuation
             }
@@ -201,6 +202,7 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring {
 
     func release(teamID: String?) {
         let key = teamID ?? ""
+        releasedTeams.insert(key)
         blockers.removeValue(forKey: key)?.resume()
     }
 

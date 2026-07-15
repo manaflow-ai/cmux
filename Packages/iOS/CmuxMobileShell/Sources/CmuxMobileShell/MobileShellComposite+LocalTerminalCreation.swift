@@ -58,6 +58,7 @@ extension MobileShellComposite {
         let createSelectionRevision = claimForegroundCreateSelection()
         let secondarySubscription = target.macDeviceID.flatMap { secondaryMacSubscriptions[$0] }
         let secondaryRefreshStartedGeneration = secondarySubscription?.refreshStartedGeneration
+        let secondaryHierarchyMutationRevision = secondarySubscription?.hierarchyMutationRevision
         do {
             var params: [String: Any] = ["workspace_id": requestedWorkspaceID.rawValue]
             if let paneID {
@@ -89,12 +90,14 @@ extension MobileShellComposite {
                 if let macDeviceID = target.macDeviceID,
                    let secondarySubscription,
                    let secondaryRefreshStartedGeneration,
+                   let secondaryHierarchyMutationRevision,
                    applySecondaryCreateResponseIfCurrent(
                        response,
                        macID: macDeviceID,
                        remoteWorkspaceID: requestedWorkspaceID,
                        subscription: secondarySubscription,
                        refreshStartedGeneration: secondaryRefreshStartedGeneration,
+                       listStartedAtMutationRevision: secondaryHierarchyMutationRevision,
                        listStartedAtFocusRevision: focusRevision
                    ) {
                     responseOutcome = .appliedScopedResponse

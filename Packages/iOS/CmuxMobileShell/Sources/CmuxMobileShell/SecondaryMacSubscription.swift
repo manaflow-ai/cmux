@@ -28,6 +28,10 @@ final class SecondaryMacSubscription {
     var refreshStartedGeneration: UInt64 = 0
     var refreshFinishedGeneration: UInt64 = 0
     var refreshCompletedGeneration: UInt64 = 0
+    /// Advances whenever a mutation-scoped hierarchy response is installed.
+    /// Full-list reads capture this before their RPC and may install only while
+    /// it is unchanged, so a pre-mutation snapshot cannot overwrite the mutation.
+    var hierarchyMutationRevision: UInt64 = 0
 
     init(
         macDeviceID: String,

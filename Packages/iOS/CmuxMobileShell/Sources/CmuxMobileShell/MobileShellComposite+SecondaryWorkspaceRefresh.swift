@@ -19,12 +19,14 @@ extension MobileShellComposite {
         remoteWorkspaceID: MobileWorkspacePreview.ID,
         subscription: SecondaryMacSubscription,
         refreshStartedGeneration: UInt64,
+        listStartedAtMutationRevision: UInt64,
         listStartedAtFocusRevision: UInt64
     ) -> Bool {
         guard secondaryListReadIsCurrent(
             macDeviceID: macID,
             subscription: subscription,
-            refreshStartedGeneration: refreshStartedGeneration
+            refreshStartedGeneration: refreshStartedGeneration,
+            listStartedAtMutationRevision: listStartedAtMutationRevision
         ) else { return false }
         let previews = response.workspaces.map { remote -> MobileWorkspacePreview in
             var workspace = MobileWorkspacePreview(remote: remote)
@@ -44,10 +46,21 @@ extension MobileShellComposite {
         guard previews.contains(where: { $0.rpcWorkspaceID == remoteWorkspaceID }) else {
             return false
         }
+        subscription.hierarchyMutationRevision &+= 1
         mergeScopedSecondaryWorkspaceState(
             macID: macID,
             workspaces: previews,
             actionCapabilities: subscription.actionCapabilities
+        )
+        // A mutation-scoped payload may omit siblings. It is immediately useful
+        // for the target row, then one coalesced full read becomes authoritative.
+        // If an older full read is suspended, this pending bit gives its task a
+        // trailing pass after the revision check rejects the stale snapshot.
+        subscription.refreshPending = true
+        _ = scheduleSecondaryRefresh(
+            macID: macID,
+            client: subscription.client,
+            displayName: workspacesByMac[macID]?.displayName
         )
         return true
     }
@@ -57,10 +70,12 @@ extension MobileShellComposite {
     func secondaryListReadIsCurrent(
         macDeviceID: String,
         subscription: SecondaryMacSubscription,
-        refreshStartedGeneration: UInt64
+        refreshStartedGeneration: UInt64,
+        listStartedAtMutationRevision: UInt64
     ) -> Bool {
         secondaryMacSubscriptions[macDeviceID] === subscription
             && subscription.refreshStartedGeneration == refreshStartedGeneration
+            && subscription.hierarchyMutationRevision == listStartedAtMutationRevision
     }
 
     @discardableResult
@@ -69,12 +84,14 @@ extension MobileShellComposite {
         displayName: String?,
         workspaces: [MobileWorkspacePreview]?,
         subscription: SecondaryMacSubscription,
-        refreshStartedGeneration: UInt64
+        refreshStartedGeneration: UInt64,
+        listStartedAtMutationRevision: UInt64
     ) -> Bool {
         guard secondaryListReadIsCurrent(
             macDeviceID: macID,
             subscription: subscription,
-            refreshStartedGeneration: refreshStartedGeneration
+            refreshStartedGeneration: refreshStartedGeneration,
+            listStartedAtMutationRevision: listStartedAtMutationRevision
         ) else { return false }
         if let workspaces {
             installAuthoritativeSecondaryWorkspaceState(
@@ -254,6 +271,7 @@ extension MobileShellComposite {
                 subscription.refreshPending = false
                 subscription.refreshStartedGeneration &+= 1
                 let generation = subscription.refreshStartedGeneration
+                let mutationRevision = subscription.hierarchyMutationRevision
                 let previews = await self.fetchSecondaryWorkspaces(
                     on: client,
                     macDeviceID: macID
@@ -288,7 +306,13 @@ extension MobileShellComposite {
                     return
                 }
                 subscription.refreshFinishedGeneration = generation
-                if let previews {
+                let listReadIsCurrent = self.secondaryListReadIsCurrent(
+                    macDeviceID: macID,
+                    subscription: subscription,
+                    refreshStartedGeneration: generation,
+                    listStartedAtMutationRevision: mutationRevision
+                )
+                if listReadIsCurrent, let previews {
                     subscription.refreshCompletedGeneration = generation
                     self.installAuthoritativeSecondaryWorkspaceState(
                         macID: macID,
@@ -296,6 +320,10 @@ extension MobileShellComposite {
                         workspaces: previews,
                         actionCapabilities: subscription.actionCapabilities
                     )
+                } else if !listReadIsCurrent {
+                    // A scoped mutation landed after this fetch began. Keep its
+                    // hierarchy visible and run one fresh FIFO-following pass.
+                    subscription.refreshPending = true
                 }
                 guard subscription.refreshPending else { break }
             }

@@ -3074,6 +3074,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     continue
                 }
                 let refreshStartedGeneration = existing.refreshStartedGeneration
+                let listStartedAtMutationRevision = existing.hierarchyMutationRevision
                 let previews = await fetchSecondaryWorkspaces(on: existing.client, macDeviceID: mac.macDeviceID)
                 guard await isSecondaryRefreshStillCurrent(
                     macDeviceID: mac.macDeviceID,
@@ -3090,7 +3091,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 guard secondaryListReadIsCurrent(
                     macDeviceID: mac.macDeviceID,
                     subscription: existing,
-                    refreshStartedGeneration: refreshStartedGeneration
+                    refreshStartedGeneration: refreshStartedGeneration,
+                    listStartedAtMutationRevision: listStartedAtMutationRevision
                 ) else { continue }
                 if let previews {
                     installAuthoritativeSecondaryWorkspaceState(
@@ -3223,6 +3225,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         secondaryMacSubscriptions[macID] = subscription
         let displayName = mac.displayName
         let refreshStartedGeneration = subscription.refreshStartedGeneration
+        let listStartedAtMutationRevision = subscription.hierarchyMutationRevision
         let previews = await fetchSecondaryWorkspaces(on: client, macDeviceID: macID)
         // The fetch await is another sign-out window: drop the just-opened
         // connection and entry rather than seed another account's workspaces.
@@ -3245,7 +3248,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         installSecondaryListResponseIfCurrent(
             macID: macID, displayName: displayName, workspaces: previews,
-            subscription: subscription, refreshStartedGeneration: refreshStartedGeneration
+            subscription: subscription,
+            refreshStartedGeneration: refreshStartedGeneration,
+            listStartedAtMutationRevision: listStartedAtMutationRevision
         )
         await flushPendingNotificationDismisses(macDeviceID: macID)
         subscription.task = Task { @MainActor [weak self] in
