@@ -11,6 +11,8 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 EXT_DIR="${CEFKIT_EXTENSIONS_DIR:-$ROOT_DIR/third_party/extensions}"
+CURL_BIN="${CEFKIT_CURL_BIN:-curl}"
+UNZIP_BIN="${CEFKIT_UNZIP_BIN:-unzip}"
 mkdir -p "$EXT_DIR"
 
 # uBlock Origin Lite (MV3), not classic uBlock Origin (MV2): MV2's
@@ -37,13 +39,13 @@ fetch_zip() {
   local tmp
   tmp="$(mktemp -d)"
   echo "fetch-extensions: downloading $name $version"
-  curl -fsSL -o "$tmp/ext.zip" "$url"
+  "$CURL_BIN" -fsSL -o "$tmp/ext.zip" "$url"
   if ! printf '%s  %s\n' "$sha256" "$tmp/ext.zip" | shasum -a 256 -c - >/dev/null; then
     echo "fetch-extensions: $name $version SHA-256 mismatch" >&2
     rm -rf "$tmp"
     exit 1
   fi
-  unzip -q "$tmp/ext.zip" -d "$tmp/unpacked"
+  "$UNZIP_BIN" -q "$tmp/ext.zip" -d "$tmp/unpacked"
   local src="$tmp/unpacked"
   if [[ -n "$inner_dir" ]]; then
     src="$tmp/unpacked/$inner_dir"

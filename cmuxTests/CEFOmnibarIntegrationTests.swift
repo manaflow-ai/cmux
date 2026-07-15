@@ -352,8 +352,10 @@ struct CEFOmnibarIntegrationTests {
         process.standardError = stderr
         process.standardOutput = Pipe()
         process.environment = [
-            "PATH": "\(fakeBin.path):/usr/bin:/bin",
+            "PATH": "/usr/bin:/bin",
             "CEFKIT_EXTENSIONS_DIR": temporary.appendingPathComponent("extensions").path,
+            "CEFKIT_CURL_BIN": fakeCurl.path,
+            "CEFKIT_UNZIP_BIN": fakeUnzip.path,
             "CEF_TEST_PAYLOAD": payload.path,
             "CEF_TEST_UNZIP_MARKER": unzipMarker.path,
         ]
