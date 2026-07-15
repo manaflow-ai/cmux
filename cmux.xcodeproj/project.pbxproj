@@ -1039,6 +1039,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A8F801000000000000000006 /* MobileWorkspaceListProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8F801000000000000000005 /* MobileWorkspaceListProjection.swift */; };
 		A11CE0010000000000000001 /* MobileWorkspaceObserverMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11CE0010000000000000002 /* MobileWorkspaceObserverMetrics.swift */; };
 		A11CE0020000000000000001 /* MobileWorkspaceObserverMetricsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11CE0020000000000000002 /* MobileWorkspaceObserverMetricsTests.swift */; };
+		F8A805000000000000000002 /* MobileWorkspaceObserverRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8A805000000000000000001 /* MobileWorkspaceObserverRegistry.swift */; };
 		D75280030000000000000001 /* MobileWorkspaceObserverSignposts.swift in Sources */ = {isa = PBXBuildFile; fileRef = D75280030000000000000002 /* MobileWorkspaceObserverSignposts.swift */; };
 		90C33E5A98704D86832E3734 /* MobileWorkspacePaneHierarchyFidelityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8EEFCBE0D4137D01A1B4AC7 /* MobileWorkspacePaneHierarchyFidelityTests.swift */; };
 		2B8B633A97054416BC2B3978 /* MobileWorkspacePanePayloadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB5B468D09754EA18A6ACCD3 /* MobileWorkspacePanePayloadTests.swift */; };
@@ -2964,6 +2965,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A8F801000000000000000005 /* MobileWorkspaceListProjection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceListProjection.swift; sourceTree = "<group>"; };
 		A11CE0010000000000000002 /* MobileWorkspaceObserverMetrics.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceObserverMetrics.swift; sourceTree = "<group>"; };
 		A11CE0020000000000000002 /* MobileWorkspaceObserverMetricsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceObserverMetricsTests.swift; sourceTree = "<group>"; };
+		F8A805000000000000000001 /* MobileWorkspaceObserverRegistry.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceObserverRegistry.swift; sourceTree = "<group>"; };
 		D75280030000000000000002 /* MobileWorkspaceObserverSignposts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceObserverSignposts.swift; sourceTree = "<group>"; };
 		D8EEFCBE0D4137D01A1B4AC7 /* MobileWorkspacePaneHierarchyFidelityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileWorkspacePaneHierarchyFidelityTests.swift; sourceTree = "<group>"; };
 		DB5B468D09754EA18A6ACCD3 /* MobileWorkspacePanePayloadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileWorkspacePanePayloadTests.swift; sourceTree = "<group>"; };
@@ -4089,6 +4091,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C1A070000000000000000016 /* MobilePairingView+Connected.swift */,
 				5AE701F43A0B49F08835191C /* MobilePairingWindowController.swift */,
 				F8C001020000000000000002 /* MobileWorkspaceFocusEventSequenceService.swift */,
+				F8A805000000000000000001 /* MobileWorkspaceObserverRegistry.swift */,
 				F8A801000000000000000001 /* MobileWorkspaceInvalidation.swift */,
 				C9F14137954A34DFFA05C88C /* MobileWorkspaceListObserver.swift */,
 				A8F801000000000000000001 /* MobileWorkspaceHierarchyProjection.swift */,
@@ -6905,6 +6908,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A8F802000000000000000014 /* MobileWorkspaceListProjection+GroupValue.swift in Sources */,
 				A8F801000000000000000006 /* MobileWorkspaceListProjection.swift in Sources */,
 				A11CE0010000000000000001 /* MobileWorkspaceObserverMetrics.swift in Sources */,
+				F8A805000000000000000002 /* MobileWorkspaceObserverRegistry.swift in Sources */,
 				D75280030000000000000001 /* MobileWorkspaceObserverSignposts.swift in Sources */,
 					C75740020000000000000001 /* MouseDownMenuItemView.swift in Sources */,
 				596100000000000000000003 /* NativeNotificationDeliveryHooks.swift in Sources */,

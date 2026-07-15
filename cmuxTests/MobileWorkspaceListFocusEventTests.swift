@@ -12,15 +12,27 @@ import Testing
 struct MobileWorkspaceListFocusEventTests {
     @Test func focusSequencesIncreaseWhenWorkspaceMovesAcrossObservers() async throws {
         let fixture = try makeTransferredWorkspaceFixture()
-        let sourceObserver = MobileWorkspaceListObserver(tabManager: fixture.sourceManager)
-        let destinationObserver = MobileWorkspaceListObserver(tabManager: fixture.destinationManager)
+        let focusEventSequenceService = MobileWorkspaceFocusEventSequenceService()
+        let sourceObserver = MobileWorkspaceListObserver(
+            tabManager: fixture.sourceManager,
+            focusEventSequenceService: focusEventSequenceService
+        )
+        let destinationObserver = MobileWorkspaceListObserver(
+            tabManager: fixture.destinationManager,
+            focusEventSequenceService: focusEventSequenceService
+        )
         defer { withExtendedLifetime((sourceObserver, destinationObserver)) {} }
 
         await allowNotificationTasksToStart()
-        let sourceSequenceBeforeFocus = try #require(focusEventSequence(of: sourceObserver))
+        let sourceSequenceBeforeFocus = try #require(
+            focusEventSequence(of: focusEventSequenceService)
+        )
         fixture.workspace.focusPanel(fixture.firstTargetPanelID)
-        #expect(await waitForSequence(on: sourceObserver, after: sourceSequenceBeforeFocus))
-        let firstSequence = try #require(focusEventSequence(of: sourceObserver))
+        #expect(await waitForSequence(
+            on: focusEventSequenceService,
+            after: sourceSequenceBeforeFocus
+        ))
+        let firstSequence = try #require(focusEventSequence(of: focusEventSequenceService))
 
         let detached = try #require(
             fixture.sourceManager.detachWorkspace(tabId: fixture.workspace.id)
@@ -30,14 +42,14 @@ struct MobileWorkspaceListFocusEventTests {
         #expect(fixture.destinationManager.tabs.contains { $0.id == fixture.workspace.id })
 
         let destinationSequenceBeforeFocus = try #require(
-            focusEventSequence(of: destinationObserver)
+            focusEventSequence(of: focusEventSequenceService)
         )
         fixture.workspace.focusPanel(fixture.secondTargetPanelID)
         #expect(await waitForSequence(
-            on: destinationObserver,
+            on: focusEventSequenceService,
             after: destinationSequenceBeforeFocus
         ))
-        let secondSequence = try #require(focusEventSequence(of: destinationObserver))
+        let secondSequence = try #require(focusEventSequence(of: focusEventSequenceService))
 
         #expect(
             secondSequence > firstSequence,
@@ -75,29 +87,24 @@ struct MobileWorkspaceListFocusEventTests {
         )
     }
 
-    private func focusEventSequence(of observer: MobileWorkspaceListObserver) -> UInt64? {
-        let mirror = Mirror(reflecting: observer)
-        if let sequence = mirror.children.first(where: { $0.label == "focusEventSequence" })?.value as? UInt64 {
-            return sequence
-        }
-        guard let service = mirror.children.first(where: { $0.label == "focusEventSequenceService" })?.value else {
-            return nil
-        }
-        return Mirror(reflecting: service).children
+    private func focusEventSequence(
+        of service: MobileWorkspaceFocusEventSequenceService
+    ) -> UInt64? {
+        Mirror(reflecting: service).children
             .first(where: { $0.label == "sequence" })?.value as? UInt64
     }
 
     private func waitForSequence(
-        on observer: MobileWorkspaceListObserver,
+        on service: MobileWorkspaceFocusEventSequenceService,
         after previousSequence: UInt64
     ) async -> Bool {
         for _ in 0..<100 {
-            if (focusEventSequence(of: observer) ?? 0) > previousSequence {
+            if (focusEventSequence(of: service) ?? 0) > previousSequence {
                 return true
             }
             await Task.yield()
         }
-        return (focusEventSequence(of: observer) ?? 0) > previousSequence
+        return (focusEventSequence(of: service) ?? 0) > previousSequence
     }
 
     private func allowNotificationTasksToStart() async {

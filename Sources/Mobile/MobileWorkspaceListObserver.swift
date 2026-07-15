@@ -41,7 +41,11 @@ final class MobileWorkspaceListObserver {
     private let invalidationBatcher: LatestWinsBatcher<MobileWorkspaceInvalidation, Bool>
     private let emitWorkspaceUpdated: @MainActor () -> Void
 
-    convenience init(tabManager: TabManager, notificationStore: TerminalNotificationStore? = nil) {
+    convenience init(
+        tabManager: TabManager,
+        focusEventSequenceService: MobileWorkspaceFocusEventSequenceService,
+        notificationStore: TerminalNotificationStore? = nil
+    ) {
         self.init(
             tabManager: tabManager,
             notificationStore: notificationStore,
@@ -49,7 +53,7 @@ final class MobileWorkspaceListObserver {
                 quietDelay: 0.05,
                 maximumDelay: 0.16
             ),
-            focusEventSequenceService: .shared,
+            focusEventSequenceService: focusEventSequenceService,
             emitWorkspaceUpdated: {
                 MobileHostService.shared.emitEvent(topic: "workspace.updated", payload: [:])
             }
@@ -60,6 +64,7 @@ final class MobileWorkspaceListObserver {
     /// inspect its boundary effects without sleeping or replacing its model.
     convenience init(
         tabManager: TabManager,
+        focusEventSequenceService: MobileWorkspaceFocusEventSequenceService,
         notificationStore: TerminalNotificationStore? = nil,
         scheduler: @escaping DeadlineScheduler,
         emitWorkspaceUpdated: @escaping @MainActor () -> Void
@@ -72,7 +77,7 @@ final class MobileWorkspaceListObserver {
                 maximumDelay: 0.16,
                 scheduler: scheduler
             ),
-            focusEventSequenceService: .shared,
+            focusEventSequenceService: focusEventSequenceService,
             emitWorkspaceUpdated: emitWorkspaceUpdated
         )
     }

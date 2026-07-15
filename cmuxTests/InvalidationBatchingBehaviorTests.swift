@@ -61,6 +61,7 @@ struct InvalidationBatchingBehaviorTests {
         var emittedTitles: [String] = []
         let observer = MobileWorkspaceListObserver(
             tabManager: manager,
+            focusEventSequenceService: MobileWorkspaceFocusEventSequenceService(),
             scheduler: scheduler.schedule,
             emitWorkspaceUpdated: { emittedTitles.append(workspace.title) }
         )
@@ -95,6 +96,7 @@ struct InvalidationBatchingBehaviorTests {
         var emittedTitles: [String] = []
         let observer = MobileWorkspaceListObserver(
             tabManager: manager,
+            focusEventSequenceService: MobileWorkspaceFocusEventSequenceService(),
             scheduler: scheduler.schedule,
             emitWorkspaceUpdated: { emittedTitles.append(workspace.title) }
         )
