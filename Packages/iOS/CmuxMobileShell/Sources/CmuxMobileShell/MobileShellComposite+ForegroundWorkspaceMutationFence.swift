@@ -135,19 +135,24 @@ extension MobileShellComposite {
         }
         foregroundWorkspaceMutationRefreshTask = task
         foregroundWorkspaceMutationRefreshTaskID = taskID
-        let result = await task.value
+        var result = await task.value
         if foregroundWorkspaceMutationRefreshTaskID == taskID {
             foregroundWorkspaceMutationRefreshTask = nil
             foregroundWorkspaceMutationRefreshTaskID = nil
         }
-        if result.succeeded || foregroundWorkspaceListAppliedMutationEpoch >= epoch {
-            return true
+        var followedTaskIDs: Set<UUID> = [taskID]
+        while !result.succeeded,
+              foregroundWorkspaceListAppliedMutationEpoch < epoch {
+            guard foregroundWorkspaceListMutationEpoch > epoch,
+                  let latestTaskID = foregroundWorkspaceMutationRefreshTaskID,
+                  !followedTaskIDs.contains(latestTaskID),
+                  let latestTask = foregroundWorkspaceMutationRefreshTask else {
+                return false
+            }
+            followedTaskIDs.insert(latestTaskID)
+            result = await latestTask.value
         }
-        guard foregroundWorkspaceListMutationEpoch > epoch,
-              let latestTask = foregroundWorkspaceMutationRefreshTask else { return false }
-        let latestResult = await latestTask.value
-        return foregroundWorkspaceListAppliedMutationEpoch >= epoch
-            || (latestResult.epoch >= epoch && latestResult.succeeded)
+        return result.succeeded || foregroundWorkspaceListAppliedMutationEpoch >= epoch
     }
 
     /// Invalidates foreground list reads that started before a mutation response.
