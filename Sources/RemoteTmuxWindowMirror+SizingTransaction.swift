@@ -25,7 +25,20 @@ extension RemoteTmuxWindowMirror {
         // very first measurement: a never-shown mirror must still record
         // its attach-time size so the initial claim can keep tmux off its
         // 80×24 default.
-        guard isVisibleForSizing || containerSizePt == nil else { return }
+        guard isVisibleForSizing || containerSizePt == nil else {
+            // Never bank a hidden reading — but never lose it either.
+            // Geometry callbacks fire only on change, so a reading dropped
+            // here would not be re-delivered, and a reveal whose cached
+            // re-push happens to be degenerate would leave the claim
+            // derived from a pre-hide width. Park it instead: the next
+            // visible pass judges it against a real bound before anything
+            // banks, and a fresh reveal reading replaces it outright.
+            if pointSize.width > 1, pointSize.height > 1 {
+                pendingContainerSizePt = pointSize
+                pendingContainerScale = scale
+            }
+            return
+        }
         // Portal mount and teardown can report 0x0 or 1x1. Such a sample is
         // never sizing truth, including after a useful detached measurement:
         // accepting it would overwrite the pending reattach size.

@@ -532,13 +532,31 @@ extension TerminalController {
                     && mirror.lastCompletedSizingInputs != nil
                     && nativeGeometryReady
                     && portalGeometryReady
+                // Derivation parity, visible mirror only (hidden mirrors
+                // hold their attach-time claim by design). Delivery parity —
+                // claim == tmux layout — cannot see a claim that tmux
+                // honored but that no longer matches what the CURRENT
+                // container derives: the class where a stale claim settles
+                // green while the region cannot render the columns it
+                // promised. A settled visible window must be able to
+                // re-derive its own claim.
+                let derivable: (columns: Int, rows: Int)? = {
+                    guard mirror.isVisibleForSizing,
+                          let container = mirror.containerSizePt else { return nil }
+                    return mirror.clientGrid(contentSize: container)
+                }()
+                let derivationSettled = derivable.flatMap { grid in
+                    claimed.map { $0.0 == grid.columns && $0.1 == grid.rows }
+                } ?? true
                 windows.append([
                     "window": windowId,
                     "claimed": claimed.map { "\($0.0)x\($0.1)" } ?? "none",
                     "layout": "\(mirror.layout.width)x\(mirror.layout.height)",
+                    "derivable": derivable.map { "\($0.columns)x\($0.rows)" } ?? "none",
                     "settled": claimed.map {
                         guard let windowGrid else { return false }
                         return connected && publicationReady && sizingReady
+                            && derivationSettled
                             && $0.0 == windowGrid.width && $0.1 == windowGrid.height
                     } ?? false,
                     "mismatches": mismatches,
