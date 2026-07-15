@@ -1,4 +1,5 @@
 import CryptoKit
+import CEFKit
 import CmuxCommandPalette
 import CmuxSettings
 import Foundation
