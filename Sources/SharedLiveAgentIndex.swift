@@ -28,6 +28,7 @@ final class SharedLiveAgentIndex {
     private var changePending = false
     private var deferredReloadTimer: DispatchSourceTimer?
     private var hookStoreInputStamp: [HookStoreFileStamp]?
+    private var hookStoreInputStampObservedDuringInitialLoad: [HookStoreFileStamp]?
     private var latestCompletedLoadWorkloadCount = 0
     private var latestCompletedLiveAgentProcessCount = 0
 
@@ -212,7 +213,14 @@ final class SharedLiveAgentIndex {
         }.value
         guard !Task.isCancelled else { return }
         if hookStoreInputStamp == nil {
-            hookStoreInputStamp = initialHookStoreInputStamp
+            let observedInputStamp = hookStoreInputStampObservedDuringInitialLoad
+            hookStoreInputStamp = observedInputStamp ?? initialHookStoreInputStamp
+            if let initialHookStoreInputStamp,
+               let observedInputStamp,
+               observedInputStamp != initialHookStoreInputStamp {
+                changePending = true
+            }
+            hookStoreInputStampObservedDuringInitialLoad = nil
         }
         let loadedAt = dateProvider()
         latestCompletedLoadWorkloadCount = result.index.loadWorkloadCount
@@ -359,6 +367,10 @@ final class SharedLiveAgentIndex {
     }
 
     func handleHookStoreDirectoryEvent(_ currentStamp: [HookStoreFileStamp]) {
+        guard let hookStoreInputStamp else {
+            hookStoreInputStampObservedDuringInitialLoad = currentStamp
+            return
+        }
         guard currentStamp != hookStoreInputStamp else { return }
         hookStoreInputStamp = currentStamp
         handleHookStoreChange()
