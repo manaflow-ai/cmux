@@ -2907,7 +2907,8 @@ final class Workspace: Identifiable, ObservableObject {
         self.currentDirectory = initialDirectory
         self.surfaceTabBarDirectory = initialDirectory
 
-        // Preserve terminal state and inherit tab-strip sizing without repeated config parsing.
+        // Panel models own restoration state, so hidden tabs need no parallel SwiftUI tree.
+        // Mounting only the selected tab keeps updates proportional to visible panes.
         let initialSurfaceTabBarFontSize = GhosttyConfig.load(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).surfaceTabBarFontSize
         let appearance = Self.bonsplitAppearance(
             from: GhosttyApp.shared.defaultBackgroundColor,
@@ -2921,7 +2922,7 @@ final class Workspace: Identifiable, ObservableObject {
             allowTabReordering: true,
             allowCrossPaneTabMove: true,
             autoCloseEmptyPanes: true,
-            contentViewLifecycle: .keepAllAlive,
+            contentViewLifecycle: .recreateOnSwitch,
             newTabPosition: .current,
             appearance: appearance
         )
@@ -11550,11 +11551,9 @@ extension Workspace: BonsplitDelegate {
             p.unfocus()
         }
 
-        // Explicitly hide browser portals for deselected tabs in this pane.
-        // Bonsplit's keepAllAlive mode hides non-selected tabs via SwiftUI .opacity(0),
-        // but portal-hosted WKWebViews render at the window level in AppKit and are not
-        // affected by SwiftUI opacity. Without an explicit hide, the deselected browser's
-        // portal layer can remain visible above the newly selected tab.
+        // Explicitly hide browser portals for deselected tabs in this pane. The WKWebView lives
+        // at the AppKit window level, so removing its SwiftUI host does not synchronously hide
+        // the portal layer during a tab-selection transition.
         hideBrowserPortalsForDeselectedTabs(inPane: focusedPane, selectedTabId: selectedTabId)
 
         if let focusWindow = activationWindow(for: panel) {
