@@ -57,7 +57,7 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         var bytes = Data("\u{1B}[?2026h".utf8)
         bytes.append(oscColorOrResetBytes(10, reset: 110, frame.terminalForeground ?? theme?.foreground))
         bytes.append(oscColorOrResetBytes(11, reset: 111, frame.terminalBackground ?? theme?.background))
-        bytes.append(oscColorOrResetBytes(12, reset: 112, frame.terminalCursorColor ?? theme?.cursor))
+        bytes.append(oscColorOrResetBytes(12, reset: 112, frame.terminalCursorColor))
         appendPaletteRestore(to: &bytes)
         bytes.append(Data("\u{1B}[?2026l".utf8))
         return bytes
