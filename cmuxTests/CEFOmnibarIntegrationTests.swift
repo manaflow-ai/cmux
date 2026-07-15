@@ -12,6 +12,14 @@ import Testing
 @Suite("CEF omnibar integration")
 struct CEFOmnibarIntegrationTests {
     @Test
+    func xctestProcessArmsCEFExitBypass() {
+        #expect(CEFRuntimeSupport.isRunningUnderXCTest(environment: [
+            "XCTestConfigurationFilePath": "/tmp/cmuxTests.xctestconfiguration"
+        ]))
+        #expect(!CEFRuntimeSupport.isRunningUnderXCTest(environment: [:]))
+    }
+
+    @Test
     func typedNavigationUsesProfileHistoryStore() throws {
         let directory = temporaryDirectory(named: "typed")
         defer { try? FileManager.default.removeItem(at: directory) }
