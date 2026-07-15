@@ -1,8 +1,8 @@
 name: Nightly macOS build
 
 on:
-  # CI/CD pause: July 14-21, 2026. Keep Nightly available only for an explicit,
-  # necessary release; restore the main push trigger after the pause ends.
+  # CI/CD pause: keep Nightly available only for an explicit, necessary release.
+  # Restore the main push trigger when the repository-wide pause is lifted.
   workflow_dispatch:
     inputs:
       force:
