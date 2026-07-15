@@ -738,7 +738,7 @@ enum AgentResumeCommandBuilder {
     }
 }
 
-struct SessionRestorableAgentSnapshot: Codable, Equatable, Sendable {
+struct SessionRestorableAgentSnapshot: Codable, Sendable {
     static let maxInlineStartupInputBytes = 900
 
     var kind: RestorableAgentKind

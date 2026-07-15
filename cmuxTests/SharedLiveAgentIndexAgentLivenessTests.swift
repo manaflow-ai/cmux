@@ -675,7 +675,6 @@ struct SharedLiveAgentIndexAgentLivenessTests {
         (
             index: index,
             liveAgentProcessFingerprint: index.liveAgentProcessFingerprint(),
-            processDetectedAgentFingerprint: .empty,
             processScopeFingerprint: [],
             forkValidatedPanels: []
         )

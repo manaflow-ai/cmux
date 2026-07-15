@@ -4,23 +4,9 @@ struct ProcessDetectedResumeIndexes: Sendable {
     let restorableAgentIndex: RestorableAgentSessionIndex
     let surfaceResumeBindingIndex: SurfaceResumeBindingIndex
 
-    struct ProcessDetectedAgentFingerprint: Equatable, Sendable {
-        static let empty = ProcessDetectedAgentFingerprint(entries: [])
-
-        struct Entry: Equatable, Sendable {
-            let panelKey: RestorableAgentSessionIndex.PanelKey
-            let snapshot: SessionRestorableAgentSnapshot
-            let processIDs: Set<Int>
-            let agentProcessIDs: Set<Int>
-            let sessionIDSource: RestorableAgentSessionIndex.ProcessDetectedSessionIDSource
-        }
-
-        let entries: [Entry]
-    }
-
     struct AutosaveAgentIndexCache: Sendable {
         let restorableAgentIndex: RestorableAgentSessionIndex
-        let processDetectedAgentFingerprint: ProcessDetectedAgentFingerprint
+        let processScopeFingerprint: Set<String>
     }
 
     static func load(
@@ -38,9 +24,9 @@ struct ProcessDetectedResumeIndexes: Sendable {
         processSnapshotProvider: @escaping @Sendable () -> CmuxTopProcessSnapshot = {
             CmuxTopProcessSnapshot.captureCached(includeProcessDetails: true, maximumAge: 5)
         },
-        processDetectedAgentFingerprintProvider: (
-            @Sendable (CmuxTopProcessSnapshot) -> ProcessDetectedAgentFingerprint
-        )? = nil,
+        processScopeFingerprintProvider: @escaping @Sendable (CmuxTopProcessSnapshot) -> Set<String> = {
+            SharedLiveAgentIndexLoader.processScopeFingerprint(from: $0)
+        },
         fullLoad: @escaping @Sendable () async -> ProcessDetectedResumeIndexes = {
             await ProcessDetectedResumeIndexes.load()
         }
@@ -48,19 +34,10 @@ struct ProcessDetectedResumeIndexes: Sendable {
         guard let cachedAgentIndex else {
             return await fullLoad()
         }
-        let fingerprintProvider = processDetectedAgentFingerprintProvider ?? { processSnapshot in
-            let registry = CmuxVaultAgentRegistry.load(fileManager: fileManager)
-            let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
-                registry: registry,
-                fileManager: fileManager,
-                processSnapshot: processSnapshot,
-                capturedAt: Date().timeIntervalSince1970
-            )
-            return processDetectedAgentFingerprint(from: detectedSnapshots)
-        }
         let cachedResult = await Task.detached(priority: .utility) {
             let processSnapshot = processSnapshotProvider()
-            guard fingerprintProvider(processSnapshot) == cachedAgentIndex.processDetectedAgentFingerprint else {
+            let currentProcessScopeFingerprint = processScopeFingerprintProvider(processSnapshot)
+            guard currentProcessScopeFingerprint == cachedAgentIndex.processScopeFingerprint else {
                 return nil
             }
             return loadSynchronously(
@@ -73,33 +50,6 @@ struct ProcessDetectedResumeIndexes: Sendable {
             return cachedResult
         }
         return await fullLoad()
-    }
-
-    static func processDetectedAgentFingerprint(
-        from snapshots: [
-            RestorableAgentSessionIndex.PanelKey:
-                RestorableAgentSessionIndex.ProcessDetectedSnapshotEntry
-        ]
-    ) -> ProcessDetectedAgentFingerprint {
-        // detected.updatedAt is the scan time. It changes on every pass but does
-        // not participate in RestorableAgentSessionIndex's resolved entries.
-        let entries = snapshots.map { panelKey, detected in
-            ProcessDetectedAgentFingerprint.Entry(
-                panelKey: panelKey,
-                snapshot: detected.snapshot,
-                processIDs: detected.processIDs,
-                agentProcessIDs: detected.agentProcessIDs,
-                sessionIDSource: detected.sessionIDSource
-            )
-        }.sorted { lhs, rhs in
-            let lhsWorkspace = lhs.panelKey.workspaceId.uuidString
-            let rhsWorkspace = rhs.panelKey.workspaceId.uuidString
-            if lhsWorkspace != rhsWorkspace {
-                return lhsWorkspace < rhsWorkspace
-            }
-            return lhs.panelKey.panelId.uuidString < rhs.panelKey.panelId.uuidString
-        }
-        return ProcessDetectedAgentFingerprint(entries: entries)
     }
 
     static func loadSynchronously(

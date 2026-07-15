@@ -18,8 +18,6 @@ final class SharedLiveAgentIndex {
     private(set) var index: RestorableAgentSessionIndex?
     private var loadedAt: Date?
     private var liveAgentProcessFingerprint: Set<String> = []
-    private var processDetectedAgentFingerprint:
-        ProcessDetectedResumeIndexes.ProcessDetectedAgentFingerprint = .empty
     private var refreshTask: Task<Void, Never>?
     private var forkAvailabilityRefreshTask: Task<Void, Never>?
     private var validatedForkPanelProbeCompletedAt: [RestorableAgentSessionIndex.PanelKey: Date] = [:]
@@ -139,7 +137,7 @@ final class SharedLiveAgentIndex {
         guard let index else { return nil }
         return ProcessDetectedResumeIndexes.AutosaveAgentIndexCache(
             restorableAgentIndex: index,
-            processDetectedAgentFingerprint: processDetectedAgentFingerprint
+            processScopeFingerprint: processScopeFingerprint
         )
     }
 
@@ -240,19 +238,16 @@ final class SharedLiveAgentIndex {
         if forcePublish
             || hasPendingForkValidations
             || result.liveAgentProcessFingerprint != liveAgentProcessFingerprint
-            || result.processDetectedAgentFingerprint != processDetectedAgentFingerprint
             || result.processScopeFingerprint != processScopeFingerprint {
             applyReloadedIndex(
                 result.index,
                 loadedAt: loadedAt,
                 liveAgentProcessFingerprint: result.liveAgentProcessFingerprint,
-                processDetectedAgentFingerprint: result.processDetectedAgentFingerprint,
                 processScopeFingerprint: result.processScopeFingerprint,
                 forkValidatedPanels: result.forkValidatedPanels
             )
         } else {
             self.loadedAt = loadedAt
-            self.processDetectedAgentFingerprint = result.processDetectedAgentFingerprint
             self.processScopeFingerprint = result.processScopeFingerprint
             self.validatedForkPanels = result.forkValidatedPanels
             self.validatedForkPanelProbeCompletedAt = forkPanelProbeTimestamps(
@@ -267,7 +262,6 @@ final class SharedLiveAgentIndex {
         _ newIndex: RestorableAgentSessionIndex,
         loadedAt: Date,
         liveAgentProcessFingerprint: Set<String>,
-        processDetectedAgentFingerprint: ProcessDetectedResumeIndexes.ProcessDetectedAgentFingerprint,
         processScopeFingerprint: Set<String>,
         forkValidatedPanels: Set<RestorableAgentSessionIndex.PanelKey>
     ) {
@@ -280,7 +274,6 @@ final class SharedLiveAgentIndex {
         )
         validatedMissingForkPanels.removeAll()
         self.liveAgentProcessFingerprint = liveAgentProcessFingerprint
-        self.processDetectedAgentFingerprint = processDetectedAgentFingerprint
         self.processScopeFingerprint = processScopeFingerprint
     }
 
