@@ -296,12 +296,13 @@ struct VerifiedReplayPresentationTests {
             expectedGeometry: transitioned,
             observedFrameReady: true
         )
-        #expect(fence.acknowledge(
+        let accepted = fence.acknowledge(
             token: 43,
             modelIdentity: identity,
             geometryRevision: 8,
             geometry: transitioned
-        ))
+        )
+        #expect(accepted)
         #expect(fence.isSatisfied(
             modelIdentity: identity,
             presentationIdentity: identity,

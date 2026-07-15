@@ -251,7 +251,8 @@ extension GhosttySurfaceView {
         pending.fence.restart(
             expectedToken: token,
             expectedGeometryRevision: verifiedReplayGeometryRevision,
-            expectedGeometry: geometry
+            expectedGeometry: geometry,
+            observedFrameReady: pending.read == nil
         )
         pending.observedFrame = nil
         pendingVerifiedReplayPresentation = pending

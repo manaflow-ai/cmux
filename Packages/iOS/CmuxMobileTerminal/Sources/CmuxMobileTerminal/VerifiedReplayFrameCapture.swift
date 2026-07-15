@@ -49,13 +49,14 @@ nonisolated struct VerifiedReplayPresentationFence: Sendable {
     mutating func restart(
         expectedToken: UInt64,
         expectedGeometryRevision: UInt64,
-        expectedGeometry: VerifiedReplayPresentationGeometry
+        expectedGeometry: VerifiedReplayPresentationGeometry,
+        observedFrameReady: Bool = false
     ) {
         self.expectedToken = expectedToken
         self.expectedGeometryRevision = expectedGeometryRevision
         self.expectedGeometry = expectedGeometry
         acknowledgedIdentity = nil
-        observedFrameReady = false
+        self.observedFrameReady = observedFrameReady
     }
 
     mutating func acknowledge(
