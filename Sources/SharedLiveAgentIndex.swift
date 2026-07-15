@@ -26,7 +26,9 @@ final class SharedLiveAgentIndex {
     // approach continuous duty cycle as indexed history or live-agent work grows.
     private static let minEventReloadInterval: TimeInterval = 5.0
     private static let maxEventReloadInterval: TimeInterval = 30.0
-    private static let workloadUnitsPerReloadIntervalStep = 8
+    // Reach the cap near the profiled large-history fixtures, not at modest history sizes.
+    private static let indexedSessionsPerReloadIntervalStep = 45
+    private static let liveAgentsPerReloadIntervalStep = 11
 
     private var directoryWatchSource: DispatchSourceFileSystemObject?
     // DispatchSource file watching requires a delivery queue; state hops back to MainActor.
@@ -188,10 +190,19 @@ final class SharedLiveAgentIndex {
 
     private func reload(forcePublish: Bool) async {
         let indexLoader = self.indexLoader
-        let result = await Task.detached(priority: .utility) {
-            indexLoader()
+        let initialHookStoreDirectory = hookStoreInputStamp == nil
+            ? hookStoreDirectoryProvider()
+            : nil
+        let (result, initialHookStoreInputStamp) = await Task.detached(priority: .utility) {
+            let initialHookStoreInputStamp = initialHookStoreDirectory.map {
+                Self.hookStoreInputStamp(in: $0)
+            }
+            return (indexLoader(), initialHookStoreInputStamp)
         }.value
         guard !Task.isCancelled else { return }
+        if hookStoreInputStamp == nil {
+            hookStoreInputStamp = initialHookStoreInputStamp
+        }
         let loadedAt = dateProvider()
         let hasPendingForkValidations = !pendingForkValidationPanels.isEmpty
         if forcePublish
@@ -325,7 +336,6 @@ final class SharedLiveAgentIndex {
             Task { @MainActor in self?.handleHookStoreDirectoryEvent(currentStamp) }
         }
         source.setCancelHandler { Darwin.close(fd) }
-        hookStoreInputStamp = Self.hookStoreInputStamp(in: dir)
         source.resume()
         directoryWatchSource = source
         if refreshTask == nil {
@@ -368,16 +378,32 @@ final class SharedLiveAgentIndex {
         liveAgentCount: Int,
         indexedSessionCount: Int
     ) -> TimeInterval {
-        let workloadCount = max(0, max(liveAgentCount, indexedSessionCount))
         let intervalSteps = max(
             1,
-            (workloadCount + workloadUnitsPerReloadIntervalStep - 1)
-                / workloadUnitsPerReloadIntervalStep
+            max(
+                reloadIntervalSteps(
+                    workloadCount: indexedSessionCount,
+                    unitsPerStep: indexedSessionsPerReloadIntervalStep
+                ),
+                reloadIntervalSteps(
+                    workloadCount: liveAgentCount,
+                    unitsPerStep: liveAgentsPerReloadIntervalStep
+                )
+            )
         )
         return min(
             maxEventReloadInterval,
             minEventReloadInterval * TimeInterval(intervalSteps)
         )
+    }
+
+    private static func reloadIntervalSteps(
+        workloadCount: Int,
+        unitsPerStep: Int
+    ) -> Int {
+        let workloadCount = max(0, workloadCount)
+        return workloadCount / unitsPerStep
+            + (workloadCount.isMultiple(of: unitsPerStep) ? 0 : 1)
     }
 }
 
