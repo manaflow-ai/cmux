@@ -412,6 +412,65 @@ struct WorkspaceForkConversationContextMenuTests {
         #expect(WorkspaceForkAgentConversationAvailability.agentIndexRefreshing.diagnosticReason == "agent_index_refreshing")
     }
 
+    @Test
+    func validatedDirectOpenCodeSnapshotAppearsInContextMenu() async throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let snapshot = makeProbeRequiredOpenCodeSnapshot()
+        workspace.setRestoredAgentSnapshotForTesting(snapshot, panelId: panelId)
+
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-opencode-context-menu-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        try writeCustomAgentHookStore(
+            root: root,
+            agentId: "opencode",
+            sessions: [
+                snapshot.sessionId: customAgentHookRecord(
+                    agentId: "opencode",
+                    sessionId: snapshot.sessionId,
+                    workspaceId: workspace.id,
+                    panelId: panelId,
+                    cwd: try #require(snapshot.workingDirectory),
+                    executable: "/opt/homebrew/bin/opencode",
+                    updatedAt: 10
+                ),
+            ]
+        )
+
+        let liveAgentIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                SharedLiveAgentIndexLoader(
+                    homeDirectory: root.path,
+                    fileManager: fm,
+                    processSnapshotProvider: {
+                        CmuxTopProcessSnapshot(
+                            processes: [],
+                            sampledAt: Date(timeIntervalSince1970: 42),
+                            includesProcessDetails: true
+                        )
+                    },
+                    capturedAtProvider: { 42 },
+                    processArgumentsProvider: { _ in nil }
+                )
+                .loadResultSynchronously()
+            },
+            hookStoreDirectoryProvider: {
+                root.appendingPathComponent(".cmuxterm", isDirectory: true).path
+            }
+        )
+        await liveAgentIndex.refreshForkAvailabilityNow(workspaceId: workspace.id, panelId: panelId)
+        #expect(liveAgentIndex.prepareForkAvailabilityProbe(workspaceId: workspace.id, panelId: panelId))
+
+        #expect(
+            workspace.forkAgentConversationContextMenuOpenAvailability(
+                forPanelId: panelId,
+                liveAgentIndex: liveAgentIndex
+            ) == .available
+        )
+    }
+
     private func makeForkableClaudeSnapshot(
         sessionId: String = "019dad34-d218-7943-b81a-eddac5c87951",
         workingDirectory: String = "/tmp/fork repo"

@@ -22,11 +22,12 @@ extension Workspace {
     }
 
     func forkAgentConversationContextMenuOpenAvailability(
-        forPanelId panelId: UUID
+        forPanelId panelId: UUID,
+        liveAgentIndex: SharedLiveAgentIndex = .shared
     ) -> WorkspaceForkAgentConversationAvailability {
         guard panels[panelId] is TerminalPanel else { return .notTerminalPanel }
         if restoredAgentSnapshotForContinuation(panelId: panelId) == nil {
-            guard SharedLiveAgentIndex.shared.prepareForkAvailabilityProbe(
+            guard liveAgentIndex.prepareForkAvailabilityProbe(
                 workspaceId: id,
                 panelId: panelId
             ) else {
