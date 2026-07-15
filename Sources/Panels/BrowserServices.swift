@@ -1,4 +1,3 @@
-import AppKit
 import Foundation
 
 /// Process-wide browser services owned by the app composition root and injected
@@ -40,21 +39,11 @@ final class BrowserServices {
         return webExtensionsManager.presentationSnapshot()
     }
 
-    @discardableResult
-    func openWebExtensionsDirectory() -> Bool {
-        guard #available(macOS 15.4, *), let webExtensionsManager else { return false }
-        do {
-            try FileManager.default.createDirectory(
-                at: webExtensionsManager.directory,
-                withIntermediateDirectories: true
-            )
-            return NSWorkspace.shared.open(webExtensionsManager.directory)
-        } catch {
-#if DEBUG
-            cmuxDebugLog("browser.extensions.open-directory.failed error=\(error)")
-#endif
-            return false
+    func installWebExtension(from source: URL) async throws -> BrowserWebExtensionInstallReceipt {
+        guard #available(macOS 15.4, *), let webExtensionsManager else {
+            throw BrowserWebExtensionServiceError.unsupported
         }
+        return try await webExtensionsManager.installExtension(from: source)
     }
 
     private static var defaultExtensionDirectory: URL {
@@ -64,5 +53,20 @@ final class BrowserServices {
         }
         return FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".config/cmux/browser-extensions", isDirectory: true)
+    }
+}
+
+struct BrowserWebExtensionInstallReceipt: Equatable, Sendable {
+    let name: String
+}
+
+enum BrowserWebExtensionServiceError: LocalizedError {
+    case unsupported
+
+    var errorDescription: String? {
+        String(
+            localized: "browser.extensions.unsupported",
+            defaultValue: "Browser extensions require macOS 15.4 or later."
+        )
     }
 }

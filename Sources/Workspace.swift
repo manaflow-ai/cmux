@@ -8098,6 +8098,39 @@ final class Workspace: Identifiable, ObservableObject {
         return browserPanel
     }
 
+    /// Opens the browser extensions manager in its own pane. Reuses an existing
+    /// manager surface for this workspace so every toolbar and automation
+    /// entrypoint converges on one state owner.
+    @discardableResult
+    func openBrowserExtensionsManager(from sourcePanelId: UUID) -> BrowserPanel? {
+        if let existing = panels.values
+            .compactMap({ $0 as? BrowserPanel })
+            .first(where: { $0.internalPage == .extensions }) {
+            clearSplitZoom()
+            focusPanel(existing.id)
+            return existing
+        }
+        guard let managerPanel = newBrowserSplit(
+            from: sourcePanelId,
+            orientation: .horizontal,
+            preferredProfileID: (panels[sourcePanelId] as? BrowserPanel)?.profileID,
+            focus: true,
+            omnibarVisible: false
+        ) else {
+            return nil
+        }
+        managerPanel.showBrowserExtensionsManager()
+        _ = updatePanelTitle(panelId: managerPanel.id, title: managerPanel.displayTitle)
+        if let tabId = surfaceIdFromPanelId(managerPanel.id) {
+            bonsplitController.updateTab(
+                tabId,
+                icon: .some(managerPanel.displayIcon),
+                iconImageData: .some(nil)
+            )
+        }
+        return managerPanel
+    }
+
     /// Creates a sidebar extension browser tab in the requested pane and returns its panel.
     ///
     /// - Parameters:

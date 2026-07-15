@@ -22,6 +22,10 @@ import CommonCrypto
 import Security
 #endif
 
+enum BrowserInternalPage: Equatable {
+    case extensions
+}
+
 fileprivate func dedupedCanonicalURLs(_ urls: [URL]) -> [URL] {
     var seen = Set<String>()
     var result: [URL] = []
@@ -2929,6 +2933,7 @@ final class BrowserPanel: Panel, ObservableObject {
     /// the omnibar without changing the global browser default.
     @Published private(set) var isOmnibarVisible: Bool
     @Published var isBrowserExtensionsPopoverPresented = false
+    @Published private(set) var internalPage: BrowserInternalPage? = nil
 
     /// Semantic in-panel focus target used by split switching and transient overlays.
     private(set) var preferredFocusIntent: BrowserPanelFocusIntent = .webView
@@ -3138,6 +3143,9 @@ final class BrowserPanel: Panel, ObservableObject {
     private var browserThemeMode: BrowserThemeMode
 
     var displayTitle: String {
+        if internalPage == .extensions {
+            return String(localized: "browser.extensions.title", defaultValue: "Extensions")
+        }
         if !pageTitle.isEmpty {
             return pageTitle
         }
@@ -3535,7 +3543,10 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     var displayIcon: String? {
-        "globe"
+        if internalPage == .extensions {
+            return "puzzlepiece.extension"
+        }
+        return "globe"
     }
 
     var isDirty: Bool {
@@ -5658,6 +5669,10 @@ final class BrowserPanel: Panel, ObservableObject {
         preserveRestoredSessionHistory: Bool = false
     ) {
         guard let url = request.url else { return }
+        if internalPage != nil {
+            internalPage = nil
+            isOmnibarVisible = true
+        }
         cancelHiddenWebViewDiscard()
         if usesRemoteWorkspaceProxy, remoteProxyEndpoint == nil {
             pendingRemoteNavigation = PendingRemoteNavigation(
@@ -7501,14 +7516,37 @@ extension BrowserPanel {
         return true
     }
 
+    @discardableResult
+    func showBrowserExtensionsManager() -> Bool {
+        isBrowserExtensionsPopoverPresented = false
+        setOmnibarVisible(false)
+        internalPage = .extensions
+        return true
+    }
+
+    @discardableResult
+    func openBrowserExtensionsManager() -> UUID? {
+        guard let app = AppDelegate.shared else { return nil }
+        if let workspace = app.workspaceContainingPanel(
+                panelId: id,
+                preferredWorkspaceId: workspaceId
+              )?.workspace {
+            return workspace.openBrowserExtensionsManager(from: id)?.id
+        }
+        guard let manager = app.tabManagerFor(tabId: workspaceId),
+              let workspace = manager.tabs.first(where: { $0.id == workspaceId }),
+              let anchorPanelId = workspace.focusedPanelId else { return nil }
+        return workspace.openBrowserExtensionsManager(from: anchorPanelId)?.id
+    }
+
     func browserWebExtensionsPresentationSnapshot() async -> BrowserWebExtensionsPresentationSnapshot {
         guard let browserServices else { return .unsupported }
         return await browserServices.webExtensionsPresentationSnapshot()
     }
 
-    @discardableResult
-    func openBrowserWebExtensionsDirectory() -> Bool {
-        browserServices?.openWebExtensionsDirectory() ?? false
+    func installBrowserWebExtension(from source: URL) async throws -> BrowserWebExtensionInstallReceipt {
+        guard let browserServices else { throw BrowserWebExtensionServiceError.unsupported }
+        return try await browserServices.installWebExtension(from: source)
     }
 
     func noteWebViewFocused() {

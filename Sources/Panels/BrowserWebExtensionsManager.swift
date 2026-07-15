@@ -4,10 +4,11 @@ import WebKit
 /// Loads Safari Web Extensions (WebExtension `manifest.json` bundles, the same
 /// format Safari and Chrome use) into every cmux browser webview.
 ///
-/// Extensions are installed by dropping an unpacked extension directory (or a
-/// `.zip` of one) into `~/.config/cmux/browser-extensions/`. Each entry must
-/// contain a `manifest.json` at its root. Extensions are discovered once at app
-/// launch; add or remove entries and relaunch cmux to apply.
+/// Extensions are installed from the native manager or by placing an unpacked
+/// extension directory (or a `.zip` of one) in
+/// `~/.config/cmux/browser-extensions/`. Each entry must contain a
+/// `manifest.json` at its root. Manager installs load immediately; entries added
+/// outside cmux are discovered at app launch.
 ///
 /// Installing an extension into the directory is treated as consent: every
 /// permission, host match pattern, and content-script match pattern the manifest
@@ -126,20 +127,12 @@ final class BrowserWebExtensionsManager: NSObject {
         for url in candidates {
             guard !Task.isCancelled else { return }
             do {
-                let webExtension = try await WKWebExtension(resourceBaseURL: url)
-                let context = WKWebExtensionContext(for: webExtension)
-                // Stable identifier derived from the install-directory name so
-                // per-extension storage survives relaunches.
-                context.uniqueIdentifier = "cmux-browser-extension-\(url.lastPathComponent)"
-                context.isInspectable = true
-                grantRequestedPermissions(in: context, for: webExtension)
-                try controller.load(context)
-                loadedContexts.append(context)
+                let context = try await loadExtension(at: url)
 #if DEBUG
                 cmuxDebugLog(
-                    "browser.extensions.loaded name=\(webExtension.displayName ?? url.lastPathComponent) " +
-                    "permissions=\(webExtension.requestedPermissions.count) " +
-                    "patterns=\(webExtension.allRequestedMatchPatterns.count)"
+                    "browser.extensions.loaded name=\(context.webExtension.displayName ?? url.lastPathComponent) " +
+                    "permissions=\(context.webExtension.requestedPermissions.count) " +
+                    "patterns=\(context.webExtension.allRequestedMatchPatterns.count)"
                 )
 #endif
             } catch {
@@ -149,6 +142,38 @@ final class BrowserWebExtensionsManager: NSObject {
 #endif
             }
         }
+    }
+
+    func installExtension(from source: URL) async throws -> BrowserWebExtensionInstallReceipt {
+        // Serialize installs after startup discovery so the same package cannot
+        // be loaded once by each path when a user installs during app launch.
+        await waitUntilLoaded()
+        // Validate before copying. WKWebExtension accepts either a directory or
+        // ZIP archive and parses the manifest plus referenced resources.
+        _ = try await WKWebExtension(resourceBaseURL: source)
+        let destination = try await directoryRepository.installCandidate(from: source, into: directory)
+        do {
+            let context = try await loadExtension(at: destination)
+            return BrowserWebExtensionInstallReceipt(
+                name: context.webExtension.displayName ?? destination.deletingPathExtension().lastPathComponent
+            )
+        } catch {
+            await directoryRepository.removeInstalledCandidate(at: destination)
+            throw error
+        }
+    }
+
+    private func loadExtension(at url: URL) async throws -> WKWebExtensionContext {
+        let webExtension = try await WKWebExtension(resourceBaseURL: url)
+        let context = WKWebExtensionContext(for: webExtension)
+        // Stable identifier derived from the install-directory name so
+        // per-extension storage survives relaunches.
+        context.uniqueIdentifier = "cmux-browser-extension-\(url.lastPathComponent)"
+        context.isInspectable = true
+        grantRequestedPermissions(in: context, for: webExtension)
+        try controller.load(context)
+        loadedContexts.append(context)
+        return context
     }
 
     func presentationSnapshot() -> BrowserWebExtensionsPresentationSnapshot {

@@ -77,6 +77,45 @@ struct BrowserWebExtensionsManagerTests {
     }
 
     @available(macOS 15.4, *)
+    @Test func installsValidExtensionIntoManagedDirectoryAndLoadsItImmediately() async throws {
+        let sourceRoot = try Self.makeExtensionsRoot()
+        let managedRoot = try Self.makeExtensionsRoot()
+        defer {
+            try? FileManager.default.removeItem(at: sourceRoot)
+            try? FileManager.default.removeItem(at: managedRoot)
+        }
+        let source = try Self.writeExtension(named: "sample", in: sourceRoot, manifest: Self.minimalManifest)
+        try "// no-op".write(to: source.appendingPathComponent("content.js"), atomically: true, encoding: .utf8)
+        let manager = BrowserWebExtensionsManager(directory: managedRoot, controllerConfiguration: .nonPersistent())
+
+        let receipt = try await manager.installExtension(from: source)
+
+        #expect(receipt.name == "cmux test extension")
+        #expect(FileManager.default.fileExists(atPath: managedRoot.appendingPathComponent("sample/manifest.json").path))
+        #expect(manager.loadedContexts.count == 1)
+        #expect(manager.presentationSnapshot().extensions.map(\.name) == ["cmux test extension"])
+    }
+
+    @available(macOS 15.4, *)
+    @Test func duplicateInstallPreservesExistingExtension() async throws {
+        let sourceRoot = try Self.makeExtensionsRoot()
+        let managedRoot = try Self.makeExtensionsRoot()
+        defer {
+            try? FileManager.default.removeItem(at: sourceRoot)
+            try? FileManager.default.removeItem(at: managedRoot)
+        }
+        let source = try Self.writeExtension(named: "sample", in: sourceRoot, manifest: Self.minimalManifest)
+        try "// no-op".write(to: source.appendingPathComponent("content.js"), atomically: true, encoding: .utf8)
+        let manager = BrowserWebExtensionsManager(directory: managedRoot, controllerConfiguration: .nonPersistent())
+        _ = try await manager.installExtension(from: source)
+
+        await #expect(throws: BrowserWebExtensionInstallError.self) {
+            _ = try await manager.installExtension(from: source)
+        }
+        #expect(manager.loadedContexts.count == 1)
+    }
+
+    @available(macOS 15.4, *)
     @Test func contentScriptOnlyMatchPatternsAreGranted() async throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }

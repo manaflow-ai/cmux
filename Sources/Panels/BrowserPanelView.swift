@@ -249,6 +249,7 @@ struct BrowserPanelView: View {
     let isFocused: Bool
     let isVisibleInUI: Bool
     let portalPriority: Int
+    let appearance: PanelAppearance
     let onRequestPanelFocus: () -> Void
     /// Explicit pane-ownership signal for hosts whose panels are not registered
     /// in the main `Workspace` tree (e.g. the right-sidebar Dock, which owns its
@@ -351,6 +352,7 @@ struct BrowserPanelView: View {
         isFocused: Bool,
         isVisibleInUI: Bool,
         portalPriority: Int,
+        appearance: PanelAppearance,
         paneOwnershipOverride: Bool? = nil,
         onRequestPanelFocus: @escaping () -> Void
     ) {
@@ -359,6 +361,7 @@ struct BrowserPanelView: View {
         self.isFocused = isFocused
         self.isVisibleInUI = isVisibleInUI
         self.portalPriority = portalPriority
+        self.appearance = appearance
         self.paneOwnershipOverride = paneOwnershipOverride
         self.onRequestPanelFocus = onRequestPanelFocus
         self._browserChromeStyle = State(initialValue: BrowserChromeStyle.resolve(
@@ -1019,17 +1022,22 @@ struct BrowserPanelView: View {
         }
     }
 
+    @ViewBuilder
     private var browserPanelBaseView: some View {
-        // Layering contract: browser find UI is mounted in the portal-hosted AppKit
-        // container. Rendering it here can hide it behind the portal-hosted WKWebView.
-        VStack(spacing: 0) {
-            omnibarHeaderView
-            webView
+        if panel.internalPage == .extensions {
+            BrowserExtensionsManagerPage(panel: panel, appearance: appearance)
+        } else {
+            // Layering contract: browser find UI is mounted in the portal-hosted AppKit
+            // container. Rendering it here can hide it behind the portal-hosted WKWebView.
+            VStack(spacing: 0) {
+                omnibarHeaderView
+                webView
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .overlay(browserFindOverlayView)
+            .overlay(focusFlashOverlayView)
+            .overlay(omnibarSuggestionsOverlayView, alignment: .topLeading)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .overlay(browserFindOverlayView)
-        .overlay(focusFlashOverlayView)
-        .overlay(omnibarSuggestionsOverlayView, alignment: .topLeading)
     }
 
     private var browserPanelLifecycleView: some View {
@@ -1379,7 +1387,7 @@ struct BrowserPanelView: View {
             iconPointSize: devToolsButtonIconSize,
             hitSize: addressBarButtonSize,
             loadSnapshot: { await panel.browserWebExtensionsPresentationSnapshot() },
-            openDirectory: { panel.openBrowserWebExtensionsDirectory() }
+            openManager: { panel.openBrowserExtensionsManager() != nil }
         )
     }
 

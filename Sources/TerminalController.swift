@@ -7963,22 +7963,18 @@ class TerminalController {
                     return
                 }
                 guard let context = dockResolution.context else { return }
-                let handled = context.browserPanel.presentBrowserExtensionsPopover()
+                let handled = context.browserPanel.openBrowserExtensionsManager() != nil
                 result = .ok(v2WindowDockBrowserActionPayload(context, extra: ["handled": handled]))
                 return
             }
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
                   let target = v2ResolveBrowserPanelForFocusedAction(workspace: ws, params: params) else { return }
-            if ws.focusedPanelId != target.surfaceId {
-                ws.clearSplitZoom()
-                ws.focusPanel(target.surfaceId)
-            }
-            let handled = target.panel.presentBrowserExtensionsPopover()
+            guard let managerPanel = ws.openBrowserExtensionsManager(from: target.panel.id) else { return }
             result = .ok(v2BrowserActionPayload(
                 workspace: ws,
-                surfaceId: target.surfaceId,
+                surfaceId: managerPanel.id,
                 tabManager: tabManager,
-                extra: ["handled": handled]
+                extra: ["handled": true]
             ))
         }
         return result
