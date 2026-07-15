@@ -2017,7 +2017,7 @@ class TabManager: ObservableObject {
 
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
         workspace.teardownPanelsForClosePreservingRemoteRuntimeState()
-        workspace.teardownRemoteConnection()
+        workspace.teardownRemoteConnectionAfterPreservingRemoteRuntimeState()
         unwireClosedBrowserTracking(for: workspace)
         browserModel.removeClosedBrowserPanels(forWorkspaceId: workspace.id)
         workspace.owningTabManager = nil

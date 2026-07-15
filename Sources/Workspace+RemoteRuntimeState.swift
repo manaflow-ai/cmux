@@ -48,27 +48,32 @@ extension Workspace {
         }
     }
 
+    func remoteRuntimeStateSnapshot(
+        from sourceSnapshot: SessionWorkspaceSnapshot
+    ) -> SessionWorkspaceSnapshot {
+        var snapshot = sourceSnapshot
+        snapshot.remote = remoteConfiguration?.sessionSnapshot()
+        for index in snapshot.panels.indices {
+            guard var terminal = snapshot.panels[index].terminal else { continue }
+            terminal.scrollback = nil
+            snapshot.panels[index].terminal = terminal
+        }
+        return snapshot
+    }
+
     func enqueueRemoteRuntimeState(_ sourceSnapshot: SessionWorkspaceSnapshot) {
         guard !isApplyingRemoteRuntimeState,
               let configuration = remoteConfiguration,
               configuration.persistentDaemonSlot != nil,
               let controller = remoteSessionControllerForRuntimeState else { return }
 
-        var snapshot = sourceSnapshot
-        snapshot.remote = configuration.sessionSnapshot()
-        for index in snapshot.panels.indices {
-            guard var terminal = snapshot.panels[index].terminal else { continue }
-            terminal.scrollback = nil
-            snapshot.panels[index].terminal = terminal
-        }
-        let runtimeSnapshot = snapshot
+        let runtimeSnapshot = remoteRuntimeStateSnapshot(from: sourceSnapshot)
         let baseRevision = remoteRuntimeStateRevision
         let schemaVersion = SessionSnapshotSchema.currentVersion
-        remoteRuntimeStateEncodingTask?.cancel()
         // The app target remains Swift 5/Xcode 16 compatible, where
         // `@concurrent` is unavailable; a detached task keeps multi-megabyte
         // encoding off the main autosave path.
-        remoteRuntimeStateEncodingTask = Task.detached(priority: .utility) {
+        remoteRuntimeStateEncodingPipeline.enqueue {
             guard !Task.isCancelled,
                   let state = try? JSONEncoder().encode(runtimeSnapshot),
                   !Task.isCancelled else { return }

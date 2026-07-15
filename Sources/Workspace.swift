@@ -2284,7 +2284,7 @@ final class Workspace: Identifiable, ObservableObject {
     var remoteSessionControllerForRuntimeState: RemoteSessionCoordinator? { remoteSessionController }
     var remoteRuntimeStateRevision: UInt64 = 0
     var isApplyingRemoteRuntimeState = false
-    var remoteRuntimeStateEncodingTask: Task<Void, Never>?
+    let remoteRuntimeStateEncodingPipeline = RemoteRuntimeStateEncodingPipeline()
     private enum RemoteForegroundAuthenticationPhase: Equatable {
         case readyBeforeConfiguration(token: String), authenticating(token: String)
     }
@@ -5444,7 +5444,11 @@ final class Workspace: Identifiable, ObservableObject {
         configureRemoteConnection(remoteConfiguration, autoConnect: true)
     }
 
-    func disconnectRemoteConnection(clearConfiguration: Bool = false, disconnectedDetail: String? = nil) {
+    func disconnectRemoteConnection(
+        clearConfiguration: Bool = false,
+        disconnectedDetail: String? = nil,
+        waitingForPendingRemoteRuntimeState: Bool = false
+    ) {
         defer { TerminalController.shared.notifyRemotePTYControllerAvailabilityChanged() }
         let previousPresentedDirectory = presentedCurrentDirectory
         let shouldCleanupControlMaster =
@@ -5456,7 +5460,13 @@ final class Workspace: Identifiable, ObservableObject {
         let previousController = remoteSessionController
         activeRemoteSessionControllerID = nil
         remoteSessionController = nil
-        previousController?.stop()
+        if waitingForPendingRemoteRuntimeState, let previousController {
+            remoteRuntimeStateEncodingPipeline.finishPendingWork {
+                previousController.stop()
+            }
+        } else {
+            previousController?.stop()
+        }
         remoteForegroundAuthenticationPhase = nil
         remoteDisconnectPlaceholderPanelIds.formUnion(activeRemoteTerminalSurfaceIds)
         activeRemoteTerminalSurfaceIds.removeAll()
@@ -6349,6 +6359,13 @@ final class Workspace: Identifiable, ObservableObject {
 
     func teardownRemoteConnection() {
         disconnectRemoteConnection(clearConfiguration: true)
+    }
+
+    func teardownRemoteConnectionAfterPreservingRemoteRuntimeState() {
+        disconnectRemoteConnection(
+            clearConfiguration: true,
+            waitingForPendingRemoteRuntimeState: true
+        )
     }
 
     static func requestSSHControlMasterCleanupIfNeeded(configuration: WorkspaceRemoteConfiguration) {
