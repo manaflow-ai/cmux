@@ -418,6 +418,10 @@ struct Response {
 
 const STREAM_DISCONNECT_POLL: Duration = Duration::from_millis(100);
 const STREAM_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
+#[cfg(not(test))]
+const WEBSOCKET_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
+#[cfg(test)]
+const WEBSOCKET_HANDSHAKE_TIMEOUT: Duration = Duration::from_millis(100);
 const MAX_SERVER_CONNECTIONS: usize = 256;
 const OUTBOUND_CAPACITY: usize = 256;
 const OUTBOUND_CONTROL_RESERVE: usize = 256;
@@ -988,6 +992,11 @@ fn handle_connection(mux: Arc<Mux>, stream: Box<dyn transport::Stream>) {
 }
 
 fn handle_websocket_connection(mux: Arc<Mux>, stream: TcpStream, token: Option<&str>) {
+    if stream.set_read_timeout(Some(WEBSOCKET_HANDSHAKE_TIMEOUT)).is_err()
+        || stream.set_write_timeout(Some(WEBSOCKET_HANDSHAKE_TIMEOUT)).is_err()
+    {
+        return;
+    }
     let Ok(mut websocket) = accept(stream) else { return };
 
     if let Some(expected) = token {
@@ -2297,6 +2306,43 @@ mod tests {
         assert_eq!(active.load(Ordering::Acquire), MAX_SERVER_CONNECTIONS as u64);
         drop(permit);
         assert_eq!(active.load(Ordering::Acquire), MAX_SERVER_CONNECTIONS as u64 - 1);
+    }
+
+    #[test]
+    fn stalled_websocket_handshake_times_out() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (server, _) = listener.accept().unwrap();
+        let (done, finished) = std::sync::mpsc::channel();
+        let handler = std::thread::spawn(move || {
+            handle_websocket_connection(test_mux(), server, None);
+            done.send(()).unwrap();
+        });
+
+        finished
+            .recv_timeout(Duration::from_secs(1))
+            .expect("stalled handshake must not occupy a connection slot indefinitely");
+        drop(client);
+        handler.join().unwrap();
+    }
+
+    #[test]
+    fn stalled_websocket_authentication_times_out() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let client_stream = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (server, _) = listener.accept().unwrap();
+        let (done, finished) = std::sync::mpsc::channel();
+        let handler = std::thread::spawn(move || {
+            handle_websocket_connection(test_mux(), server, Some("secret"));
+            done.send(()).unwrap();
+        });
+        let (client, _) = tungstenite::client("ws://localhost/", client_stream).unwrap();
+
+        finished
+            .recv_timeout(Duration::from_secs(1))
+            .expect("stalled authentication must not occupy a connection slot indefinitely");
+        drop(client);
+        handler.join().unwrap();
     }
 
     #[test]
