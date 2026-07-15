@@ -73,7 +73,7 @@
 1290	Packages/macOS/CmuxTerminalCore/Sources/CmuxTerminalCore/Config/GhosttyConfig.swift
 1290	cmuxTests/TextBoxSubmitActionTests.swift
 1285	cmuxUITests/SidebarHelpMenuUITests.swift
-1270	cmuxTests/MobileHostAuthorizationTests.swift
+1271	cmuxTests/MobileHostAuthorizationTests.swift
 1258	Sources/Feed/FeedCoordinator.swift
 1240	cmuxTests/SidebarOrderingTests.swift
 1209	Packages/macOS/CmuxCommandPalette/Tests/CmuxCommandPaletteTests/CommandPaletteSearchEngineTests.swift
