@@ -25,6 +25,9 @@ final class TerminalMutationBus: @unchecked Sendable {
     var currentNotificationGeneration: UInt64 = 0
     private var waitingNotificationProducerCount = 0
     var reliableAdmissionsById: [UUID: ReliableTerminalNotificationAdmission] = [:]
+    static let maximumNotificationReplacementRouteCount = 256
+    var notificationReplacementRoutesByTabId: [UUID: TerminalNotificationReplacementRoute] = [:]
+    var notificationReplacementRouteOrder: [UUID] = []
     private var reliablyWaitingNotificationProducerCount = 0
     private let maxMutationsPerDrain = 16
 #if DEBUG
@@ -64,10 +67,13 @@ final class TerminalMutationBus: @unchecked Sendable {
                 waitingNotificationProducerCount -= 1
             }
 
+            let routedKey = notificationKeyFollowingReplacementRoutes(
+                QueuedTerminalNotificationKey(tabId: tabId, surfaceId: surfaceId)
+            )
             let notification = QueuedTerminalNotification(
                 id: UUID(),
                 acceptedAt: Date(),
-                key: QueuedTerminalNotificationKey(tabId: tabId, surfaceId: surfaceId),
+                key: routedKey,
                 title: title,
                 subtitle: subtitle,
                 body: body
@@ -139,10 +145,13 @@ final class TerminalMutationBus: @unchecked Sendable {
             lock.unlock()
             return nil
         }
+        let routedKey = notificationKeyFollowingReplacementRoutes(
+            QueuedTerminalNotificationKey(tabId: tabId, surfaceId: surfaceId)
+        )
         let registered = ReliableTerminalNotificationAdmission(
             id: UUID(),
             acceptedAt: Date(),
-            key: QueuedTerminalNotificationKey(tabId: tabId, surfaceId: surfaceId),
+            key: routedKey,
             notificationGeneration: currentNotificationGeneration
         )
         reliableAdmissionsById[registered.id] = registered

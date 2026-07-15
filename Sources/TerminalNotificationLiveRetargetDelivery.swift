@@ -140,11 +140,13 @@ extension TerminalMutationBus {
     /// lock, resolve each UNIQUE pending surface's live owner on the main
     /// actor (mirroring `agentNotificationDeliveryTarget`'s
     /// preferred-workspace resolution), then discard exactly the snapshotted
-    /// sequences. Repeated non-coalescing notifications for one pane share a
-    /// cached lookup, keeping the global workspace scan bounded by unique live
-    /// surfaces instead of total backlog length. Entries enqueued between
-    /// snapshot and discard are newer than the clear and are deliberately
-    /// preserved.
+    /// stable notification ids from both pending entries and reliable
+    /// admissions. Stable ids also cover an admission that becomes pending
+    /// between the two lock acquisitions. Repeated non-coalescing
+    /// notifications for one pane share a cached lookup, keeping the global
+    /// workspace scan bounded by unique live surfaces instead of total backlog
+    /// length. Entries accepted between snapshot and discard have new ids and
+    /// are deliberately preserved.
     func pendingNotificationSequencesResolvingLiveOwner(forTabId tabId: UUID) -> Set<UInt64> {
         pendingNotificationSequencesResolvingLiveOwner(
             forTabId: tabId,
@@ -188,9 +190,46 @@ extension TerminalMutationBus {
         return sequences
     }
 
+    func queuedNotificationIDsResolvingLiveOwner(
+        forTabId tabId: UUID,
+        liveOwnerResolver: (_ claimedTabId: UUID, _ surfaceId: UUID) -> UUID?
+    ) -> Set<UUID> {
+        var ids: Set<UUID> = []
+        var liveOwnerBySurfaceId: [UUID: UUID] = [:]
+        var unresolvedSurfaceIds: Set<UUID> = []
+        for entry in queuedNotificationAddressesSnapshot() {
+            guard let surfaceId = entry.surfaceId else {
+                if entry.tabId == tabId { ids.insert(entry.id) }
+                continue
+            }
+            let liveOwner: UUID?
+            if let cached = liveOwnerBySurfaceId[surfaceId] {
+                liveOwner = cached
+            } else if unresolvedSurfaceIds.contains(surfaceId) {
+                liveOwner = nil
+            } else if let resolved = liveOwnerResolver(entry.tabId, surfaceId) {
+                liveOwnerBySurfaceId[surfaceId] = resolved
+                liveOwner = resolved
+            } else {
+                unresolvedSurfaceIds.insert(surfaceId)
+                liveOwner = nil
+            }
+            if liveOwner == tabId { ids.insert(entry.id) }
+        }
+        return ids
+    }
+
     func discardPendingNotificationsResolvingLiveOwner(forTabId tabId: UUID) {
-        discardPendingNotifications(
-            sequences: pendingNotificationSequencesResolvingLiveOwner(forTabId: tabId)
+        discardQueuedNotifications(
+            ids: queuedNotificationIDsResolvingLiveOwner(
+                forTabId: tabId,
+                liveOwnerResolver: { claimedTabId, surfaceId in
+                    AppDelegate.shared?.agentNotificationDeliveryTarget(
+                        claimedTabId: claimedTabId,
+                        surfaceId: surfaceId
+                    )?.tabId
+                }
+            )
         )
     }
 }

@@ -35,6 +35,11 @@ struct ReliableTerminalNotificationAdmission {
     let notificationGeneration: UInt64
 }
 
+struct TerminalNotificationReplacementRoute {
+    let toTabId: UUID
+    let panelIdMap: [UUID: UUID]
+}
+
 enum TerminalSocketMutation {
     case deliverNotification(QueuedTerminalNotification)
     case clearAllNotifications(through: UInt64)

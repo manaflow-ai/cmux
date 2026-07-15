@@ -71,6 +71,23 @@ extension TerminalMutationBus {
         }
     }
 
+    nonisolated func queuedNotificationAddressesSnapshot() -> [(
+        id: UUID,
+        tabId: UUID,
+        surfaceId: UUID?
+    )] {
+        lock.lock()
+        defer { lock.unlock() }
+        var addresses = pending[pendingHead...].compactMap { entry -> (UUID, UUID, UUID?)? in
+            guard case .deliverNotification(let notification) = entry.mutation else { return nil }
+            return (notification.id, notification.key.tabId, notification.key.surfaceId)
+        }
+        addresses.append(contentsOf: reliableAdmissionsById.values.map {
+            ($0.id, $0.key.tabId, $0.key.surfaceId)
+        })
+        return addresses
+    }
+
     nonisolated func discardPendingNotifications(sequences: Set<UInt64>) {
         guard !sequences.isEmpty else { return }
         lock.lock()
@@ -83,6 +100,19 @@ extension TerminalMutationBus {
         lock.unlock()
     }
 
+    nonisolated func discardQueuedNotifications(ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        lock.lock()
+        reliableAdmissionsById = reliableAdmissionsById.filter { !ids.contains($0.key) }
+        compactPendingForMutation()
+        pending.removeAll { entry in
+            guard case .deliverNotification(let notification) = entry.mutation else { return false }
+            return ids.contains(notification.id)
+        }
+        lock.broadcast()
+        lock.unlock()
+    }
+
     nonisolated func transferPendingNotifications(
         fromTabId: UUID,
         toTabId: UUID,
@@ -90,26 +120,97 @@ extension TerminalMutationBus {
     ) {
         guard fromTabId != toTabId else { return }
         lock.lock()
+        installNotificationReplacementRoute(
+            fromTabId: fromTabId,
+            toTabId: toTabId,
+            panelIdMap: panelIdMap
+        )
         compactPendingForMutation()
         pending = Self.remappingPendingEntries(
             pending,
             fromTabId: fromTabId,
             toTabId: toTabId,
             panelIdMap: panelIdMap
-        )
-        let reliableIds = reliableAdmissionsById.compactMap { id, admission in
-            admission.key.tabId == fromTabId ? id : nil
-        }
-        for id in reliableIds {
+        ).map(notificationEntryFollowingReplacementRoutes)
+        for id in reliableAdmissionsById.keys {
             guard var admission = reliableAdmissionsById[id] else { continue }
-            admission.key = QueuedTerminalNotificationKey(
-                tabId: toTabId,
-                surfaceId: admission.key.surfaceId.map { panelIdMap[$0] ?? $0 }
-            )
+            admission.key = notificationKeyFollowingReplacementRoutes(admission.key)
             reliableAdmissionsById[id] = admission
         }
         lock.broadcast()
         lock.unlock()
+    }
+
+    func notificationKeyFollowingReplacementRoutes(
+        _ original: QueuedTerminalNotificationKey
+    ) -> QueuedTerminalNotificationKey {
+        // All callers hold `lock`, making route installation, admission
+        // capture, and pending enqueue one atomic routing boundary.
+        var tabId = original.tabId
+        var surfaceId = original.surfaceId
+        var visited: Set<UUID> = []
+        while visited.insert(tabId).inserted,
+              let route = notificationReplacementRoutesByTabId[tabId] {
+            surfaceId = surfaceId.map { route.panelIdMap[$0] ?? $0 }
+            tabId = route.toTabId
+        }
+        return QueuedTerminalNotificationKey(tabId: tabId, surfaceId: surfaceId)
+    }
+
+    private func installNotificationReplacementRoute(
+        fromTabId: UUID,
+        toTabId: UUID,
+        panelIdMap: [UUID: UUID]
+    ) {
+        notificationReplacementRoutesByTabId[fromTabId] = TerminalNotificationReplacementRoute(
+            toTabId: toTabId,
+            panelIdMap: panelIdMap
+        )
+        notificationReplacementRouteOrder.removeAll { $0 == fromTabId }
+        notificationReplacementRouteOrder.append(fromTabId)
+        while notificationReplacementRouteOrder.count > Self.maximumNotificationReplacementRouteCount {
+            let retiredTabId = notificationReplacementRouteOrder.removeFirst()
+            notificationReplacementRoutesByTabId.removeValue(forKey: retiredTabId)
+        }
+    }
+
+    private func notificationEntryFollowingReplacementRoutes(
+        _ entry: TerminalSocketMutationEntry
+    ) -> TerminalSocketMutationEntry {
+        let routedMutation: TerminalSocketMutation
+        switch entry.mutation {
+        case .deliverNotification(let notification):
+            routedMutation = .deliverNotification(QueuedTerminalNotification(
+                id: notification.id,
+                acceptedAt: notification.acceptedAt,
+                key: notificationKeyFollowingReplacementRoutes(notification.key),
+                title: notification.title,
+                subtitle: notification.subtitle,
+                body: notification.body
+            ))
+        case .clearNotificationsForTab(let tabId, let boundary):
+            let routed = notificationKeyFollowingReplacementRoutes(
+                QueuedTerminalNotificationKey(tabId: tabId, surfaceId: nil)
+            )
+            routedMutation = .clearNotificationsForTab(routed.tabId, through: boundary)
+        case .clearNotificationsForSurface(let tabId, let surfaceId, let boundary):
+            let routed = notificationKeyFollowingReplacementRoutes(
+                QueuedTerminalNotificationKey(tabId: tabId, surfaceId: surfaceId)
+            )
+            routedMutation = .clearNotificationsForSurface(
+                routed.tabId,
+                routed.surfaceId ?? surfaceId,
+                through: boundary
+            )
+        case .clearAllNotifications, .perform:
+            routedMutation = entry.mutation
+        }
+        return TerminalSocketMutationEntry(
+            sequence: entry.sequence,
+            mutation: routedMutation,
+            notificationGeneration: entry.notificationGeneration,
+            performReplaceKey: entry.performReplaceKey
+        )
     }
 
     private nonisolated func discardPendingNotifications(
