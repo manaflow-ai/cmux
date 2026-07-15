@@ -488,7 +488,7 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
     ]:
         assert f"      - {job_name}" in block
 
-    assert "if: ${{ always() && github.event_name == 'workflow_dispatch' }}" in block
+    assert "if: ${{ always() }}" in block
     assert 'allowed = {"success", "skipped"}' in block
 
 
@@ -499,7 +499,7 @@ def test_required_tests_status_waits_for_app_host_matrix() -> None:
     assert "      - changes" in block
     assert "      - linux-preflight" in block
     assert "      - app-host-unit-tests" in block
-    assert "if: ${{ always() && github.event_name == 'workflow_dispatch' }}" in block
+    assert "if: ${{ always() }}" in block
     assert 'preflight["result"] != "success"' in block
     assert 'macos == "true" and tests["result"] != "success"' in block
     assert 'tests["result"] not in {"success", "skipped"}' in block
@@ -543,7 +543,7 @@ def test_linux_preflight_blocks_macos_on_cheap_layer_failure() -> None:
     assert "      - react-apps-check" in block
     assert "      - web-db-migrations" in block
     assert "      - agent-session-web-resources" in block
-    assert "if: ${{ always() && github.event_name == 'workflow_dispatch' }}" in block
+    assert "if: ${{ always() }}" in block
     assert 'required = ("changes", "workflow-guard-tests")' in block
     assert 'allowed_routed = {' in block
     assert 'routed_outputs = {' in block
