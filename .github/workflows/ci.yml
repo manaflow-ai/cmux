@@ -542,11 +542,7 @@ jobs:
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
             CMUX_SKIP_ZIG_BUILD=1 \
-            -only-testing:cmuxTests/AgentNotificationRegressionTests \
-            -only-testing:cmuxTests/ClaudeHookLifecycleCleanupTests \
-            -only-testing:cmuxTests/ClaudeHookLiveDeliveryTargetTests \
-            -only-testing:cmuxTests/ClaudeHookPIDAuthenticationTests \
-            -only-testing:cmuxTests/PhonePushPresenceGateTests \
+            -only-testing:cmuxTests/SessionPersistenceResumeBindingTests \
             test
 
       - name: Run remote tmux mirror detach and placement regressions
