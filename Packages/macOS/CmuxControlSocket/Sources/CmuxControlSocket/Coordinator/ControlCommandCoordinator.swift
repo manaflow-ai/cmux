@@ -153,7 +153,7 @@ public final class ControlCommandCoordinator {
         case "simulator.context", "simulator.select_device", "simulator.recover",
              "simulator.gesture", "simulator.multi_touch", "simulator.tap", "simulator.swipe",
              "simulator.button", "simulator.rotate", "simulator.core_animation",
-             "simulator.memory_warning", "simulator.event_log",
+             "simulator.memory_warning", "simulator.event_log", "simulator.tools",
              "simulator.camera.configure", "simulator.camera.switch",
              "simulator.camera.mirror", "simulator.camera.status",
              "simulator.permissions.read", "simulator.permissions.set",

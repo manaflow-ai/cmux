@@ -13,7 +13,7 @@ extension TerminalController {
             return .failed(failure)
         case let .panel(panel):
             let coordinator = panel.coordinator
-            guard operation == .recover || operation.isDeviceSelection
+            guard operation == .recover || operation.isDeviceSelection || operation.isToolsVisibility
                     || coordinator.status == .streaming else {
                 return .unavailable(String(
                     localized: "cli.simulator.error.notStreaming",
@@ -129,6 +129,20 @@ extension TerminalController {
                 payload = .object(["completed": .bool(true)])
             case let .eventLog(limit):
                 payload = .object(["events": .array(coordinator.actionLog.prefix(limit).map(simulatorEventPayload))])
+            case let .tools(action):
+                switch action {
+                case "show": coordinator.showsTools = true
+                case "hide": coordinator.showsTools = false
+                case "toggle": coordinator.showsTools.toggle()
+                default: throw invalidSimulatorOperation(String(
+                    localized: "cli.simulator.error.invalidToolsAction",
+                    defaultValue: "Simulator tools action must be show, hide, or toggle"
+                ))
+                }
+                payload = .object([
+                    "completed": .bool(true),
+                    "visible": .bool(coordinator.showsTools),
+                ])
             case let .cameraConfigure(source, path, loops, deviceID, bundleID):
                 let configuration = try await simulatorCameraConfiguration(
                     source: source, path: path, loops: loops,
@@ -255,6 +269,7 @@ extension TerminalController {
         case .accessibility: .accessibility
         case .foregroundApplication: .foregroundApplication
         case .eventLog: nil
+        case .tools: nil
         }
     }
 
@@ -409,6 +424,11 @@ extension TerminalController {
 private extension ControlSimulatorOperation {
     var isDeviceSelection: Bool {
         if case .selectDevice = self { return true }
+        return false
+    }
+
+    var isToolsVisibility: Bool {
+        if case .tools = self { return true }
         return false
     }
 }

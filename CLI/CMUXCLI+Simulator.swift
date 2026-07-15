@@ -43,6 +43,7 @@ extension CMUXCLI {
               ca <diagnostic> <on|off>             Toggle a Core Animation diagnostic
               memory-warning                      Simulate a memory warning
               event-log [limit]                   Print recent Simulator events
+              tools <show|hide|toggle>             Control the Simulator tools inspector
               camera <configure|switch|mirror|status> ...
               permissions <list|grant|revoke|reset> ...
               ui [status|get|set] [option] [value]

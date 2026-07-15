@@ -69,6 +69,12 @@ extension ControlCommandCoordinator {
                 return invalidSimulatorOperation("limit must be between 1 and 500")
             }
             operation = .eventLog(limit: limit)
+        case "simulator.tools":
+            guard let action = simulatorToken(request.params, "action"),
+                  ["show", "hide", "toggle"].contains(action) else {
+                return invalidSimulatorOperation("action must be show, hide, or toggle")
+            }
+            operation = .tools(action)
         case "simulator.camera.configure":
             guard let camera = simulatorCameraOperation(request.params, targeted: true) else {
                 return invalidSimulatorOperation("camera source or target parameters are invalid")

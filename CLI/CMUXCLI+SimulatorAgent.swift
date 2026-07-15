@@ -97,6 +97,12 @@ extension CMUXCLI {
                 params["limit"] = limit
             }
             return request("simulator.event_log", params, output: .eventLog)
+        case "tools":
+            guard let action = oneSimulatorValue(arguments)?.lowercased(),
+                  ["show", "hide", "toggle"].contains(action) else {
+                throw simulatorArgumentsError(subcommand)
+            }
+            return request("simulator.tools", ["action": action])
         case "camera":
             return try simulatorCameraRequest(arguments)
         case "permissions":

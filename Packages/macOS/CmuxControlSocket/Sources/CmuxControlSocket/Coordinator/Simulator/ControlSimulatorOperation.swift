@@ -18,6 +18,8 @@ public enum ControlSimulatorOperation: Sendable, Equatable {
     case memoryWarning
     /// Reads up to the requested number of recent Simulator events.
     case eventLog(limit: Int)
+    /// Shows, hides, or toggles the native Simulator tools inspector.
+    case tools(String)
     /// Configures a camera source for an application or disables camera injection.
     case cameraConfigure(
         source: String,

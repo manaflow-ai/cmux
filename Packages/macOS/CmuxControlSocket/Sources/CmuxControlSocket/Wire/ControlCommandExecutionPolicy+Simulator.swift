@@ -20,6 +20,7 @@ extension ControlCommandExecutionPolicy {
         "simulator.core_animation",
         "simulator.memory_warning",
         "simulator.event_log",
+        "simulator.tools",
         "simulator.camera.configure",
         "simulator.camera.switch",
         "simulator.camera.mirror",

@@ -438,6 +438,35 @@ struct ControlCommandCoordinatorSimulatorTests {
         }
     }
 
+    @Test("Tools visibility routes only canonical actions")
+    func toolsVisibility() {
+        let context = FakeSimulatorControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let receipt = ControlSimulatorOperationReceipt()
+        receipt.complete(.success(.object(["visible": .bool(true)])))
+        context.operationResolution = .started(
+            surfaceID: UUID(), timeoutSeconds: 1, receipt: receipt
+        )
+
+        for action in ["show", "hide", "toggle"] {
+            _ = coordinator.handleSocketWorkerV2(request("simulator.tools", [
+                "action": .string(action),
+            ]), context: context)
+            #expect(context.lastOperation == .tools(action))
+        }
+
+        context.lastOperation = nil
+        guard case let .err(code, _, _) = coordinator.handleSocketWorkerV2(
+            request("simulator.tools", ["action": .string("open")]),
+            context: context
+        ) else {
+            Issue.record("Expected invalid tools action rejection")
+            return
+        }
+        #expect(code == "invalid_params")
+        #expect(context.lastOperation == nil)
+    }
+
     private func request(
         _ method: String,
         _ params: [String: JSONValue] = [:]
