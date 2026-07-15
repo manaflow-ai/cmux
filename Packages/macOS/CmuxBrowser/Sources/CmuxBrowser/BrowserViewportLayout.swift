@@ -47,11 +47,19 @@ public struct BrowserViewportLayout: Equatable, Sendable {
         guard let viewport else {
             mode = .native
             frame = containerBounds
+            // WKWebView quantizes its AppKit viewport to whole points before applying
+            // pageZoom. Mirror that ordering so native viewport RPCs report the same
+            // CSS dimensions as window.innerWidth/window.innerHeight for split widths
+            // such as 379.5 points.
+            let quantizedContainerSize = CGSize(
+                width: containerBounds.width.rounded(.down),
+                height: containerBounds.height.rounded(.down)
+            )
             bounds = CGRect(
                 origin: .zero,
                 size: CGSize(
-                    width: containerBounds.width / resolvedPageZoom,
-                    height: containerBounds.height / resolvedPageZoom
+                    width: quantizedContainerSize.width / resolvedPageZoom,
+                    height: quantizedContainerSize.height / resolvedPageZoom
                 )
             )
             webViewBounds = CGRect(origin: .zero, size: containerBounds.size)
