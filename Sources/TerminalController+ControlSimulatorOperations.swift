@@ -61,6 +61,8 @@ extension TerminalController {
         receipt: ControlSimulatorOperationReceipt
     ) async {
         do {
+            await coordinator.start()
+            try Task.checkCancellation()
             let payload: JSONValue
             switch operation {
             case .context:

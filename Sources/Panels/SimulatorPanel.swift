@@ -22,6 +22,7 @@ final class SimulatorPanel: Panel {
     private var preferredRuntimeIdentifier: String?
     private var preferredDeviceTypeIdentifier: String?
     @ObservationIgnored private var featureFlagsObserver: (any NSObjectProtocol)?
+    @ObservationIgnored private var startupTask: Task<Void, Never>?
     @ObservationIgnored private var shutdownTask: Task<Void, Never>?
     @ObservationIgnored private var featureTransitionGeneration = 0
     private var isFeatureDisabled = false
@@ -69,6 +70,7 @@ final class SimulatorPanel: Panel {
             }
         }
         reconcileRemoteFeatureFlag()
+        if !isFeatureDisabled { startCoordinator() }
     }
 
     convenience init(
@@ -91,9 +93,13 @@ final class SimulatorPanel: Panel {
         featureTransitionGeneration += 1
         rememberSelection()
         let coordinator = self.coordinator
+        let startupTask = self.startupTask
+        self.startupTask = nil
+        startupTask?.cancel()
         let previousShutdown = shutdownTask
         shutdownTask = Task {
             await previousShutdown?.value
+            _ = await startupTask?.value
             await coordinator.close()
         }
     }
@@ -117,6 +123,7 @@ final class SimulatorPanel: Panel {
                 preferredRuntimeIdentifier: self.preferredRuntimeIdentifier,
                 preferredDeviceTypeIdentifier: self.preferredDeviceTypeIdentifier
             )
+            self.startCoordinator()
         }
     }
 
@@ -129,9 +136,13 @@ final class SimulatorPanel: Panel {
             self.featureFlagsObserver = nil
         }
         let coordinator = self.coordinator
+        let startupTask = self.startupTask
+        self.startupTask = nil
+        startupTask?.cancel()
         let pendingShutdown = shutdownTask
         Task {
             await pendingShutdown?.value
+            _ = await startupTask?.value
             await coordinator.close()
         }
     }
@@ -171,6 +182,12 @@ final class SimulatorPanel: Panel {
         preferredDeviceID = selectedDeviceID
         preferredRuntimeIdentifier = selectedRuntimeIdentifier
         preferredDeviceTypeIdentifier = selectedDeviceTypeIdentifier
+    }
+
+    private func startCoordinator() {
+        guard !isClosed, !isFeatureDisabled, startupTask == nil else { return }
+        let coordinator = self.coordinator
+        startupTask = Task { await coordinator.start() }
     }
 
     private func reconcileRemoteFeatureFlag() {

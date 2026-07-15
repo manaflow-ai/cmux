@@ -32,7 +32,7 @@ public struct SimulatorOperationDeadlines: Sendable {
         inspectionRead: TimeInterval = 35,
         permissionMutation: TimeInterval = 70,
         permissionResetAll: TimeInterval = 190,
-        clientReceiptMargin: TimeInterval = 5
+        clientReceiptMargin: TimeInterval = 10
     ) {
         self.selectDevice = selectDevice
         self.recover = recover

@@ -98,6 +98,7 @@ public final class SimulatorPaneCoordinator {
     @ObservationIgnored var outgoingOverflowed = false
     @ObservationIgnored var eventsTask: Task<Void, Never>?
     @ObservationIgnored var activationTask: Task<Void, Never>?
+    @ObservationIgnored var startupTask: Task<Void, Never>?
     @ObservationIgnored var started = false
     @ObservationIgnored var closed = false
     @ObservationIgnored var geometry: SimulatorSurfaceGeometry?
@@ -188,6 +189,7 @@ public final class SimulatorPaneCoordinator {
 
     deinit {
         activationTask?.cancel()
+        startupTask?.cancel()
         chromeTask?.cancel()
         accessibilityRefreshTask?.cancel()
         liveStatusTask?.cancel()

@@ -56,8 +56,5 @@ public struct SimulatorPaneView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(backgroundColor)
-        .task {
-            await coordinator.start()
-        }
     }
 }

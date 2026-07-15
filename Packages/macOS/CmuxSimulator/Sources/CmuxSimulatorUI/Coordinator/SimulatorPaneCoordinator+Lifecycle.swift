@@ -5,6 +5,29 @@ extension SimulatorPaneCoordinator {
     /// Starts ordered command delivery, event observation, and device discovery.
     /// Calling this method more than once is harmless.
     public func start() async {
+        if let startupTask {
+            await withTaskCancellationHandler {
+                await startupTask.value
+            } onCancel: {
+                startupTask.cancel()
+            }
+            return
+        }
+        guard !closed, !started else { return }
+        let task = Task<Void, Never> { @MainActor [weak self] in
+            guard let self else { return }
+            await self.runStartup()
+        }
+        startupTask = task
+        await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
+        startupTask = nil
+    }
+
+    private func runStartup() async {
         guard !closed, !started else { return }
         started = true
         startOutgoingDelivery()
@@ -41,6 +64,10 @@ extension SimulatorPaneCoordinator {
         failPendingTextInputCompletions()
         clearWebInspectorState()
         selectionGeneration &+= 1
+        let startupTask = startupTask
+        self.startupTask = nil
+        startupTask?.cancel()
+        _ = await startupTask?.value
         let activationTask = activationTask
         self.activationTask = nil
         activationTask?.cancel()

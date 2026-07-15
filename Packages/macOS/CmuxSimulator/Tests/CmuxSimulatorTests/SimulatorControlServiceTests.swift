@@ -11,7 +11,7 @@ struct SimulatorControlServiceTests {
 
         #expect(deadlines.selectDevice >= 543)
         #expect(deadlines.recover >= 483)
-        #expect(deadlines.clientTimeout(for: deadlines.inspectionRead) == 40)
+        #expect(deadlines.clientTimeout(for: deadlines.inspectionRead) == 45)
     }
 
     @Test("Device discovery maps runtime names, state, family, and boot date")

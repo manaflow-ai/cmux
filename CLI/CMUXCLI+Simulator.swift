@@ -417,7 +417,7 @@ extension CMUXCLI {
                 maximumBytes: Self.simulatorInspectorLimit
             )
             method = "simulator.web_inspector.send"
-            responseTimeout = 25
+            responseTimeout = simulatorOperationDeadlines.clientTimeout(for: 20)
         case "highlight":
             guard parsed.positionals.count == 1,
                   !parsed.readsStandardInput,

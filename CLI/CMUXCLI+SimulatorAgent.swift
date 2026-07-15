@@ -151,15 +151,23 @@ extension CMUXCLI {
             let sourceArguments = values.count >= 2 ? Array(values.dropFirst(2)) : []
             var params = try simulatorCameraSourceParams(sourceArguments, source: source)
             params["bundle_id"] = values[0]
-            return request("simulator.camera.configure", params, timeout: 165, output: .cameraStatus)
+            return request(
+                "simulator.camera.configure",
+                params,
+                timeout: simulatorOperationDeadlines.clientTimeout(for: 160),
+                output: .cameraStatus
+            )
         case "switch":
             guard let source = values.first,
                   !["off", "disabled"].contains(source.lowercased()) else {
                 throw simulatorArgumentsError("camera switch")
             }
-            return request("simulator.camera.switch",
-                           try simulatorCameraSourceParams(Array(values.dropFirst()), source: source),
-                           timeout: 165, output: .cameraStatus)
+            return request(
+                "simulator.camera.switch",
+                try simulatorCameraSourceParams(Array(values.dropFirst()), source: source),
+                timeout: simulatorOperationDeadlines.clientTimeout(for: 160),
+                output: .cameraStatus
+            )
         case "mirror":
             guard values.count == 1, ["auto", "on", "off"].contains(values[0]) else {
                 throw simulatorArgumentsError("camera mirror")
@@ -170,8 +178,12 @@ extension CMUXCLI {
             return request("simulator.camera.status", [:], output: .cameraStatus)
         case "stop":
             guard values.isEmpty else { throw simulatorArgumentsError("camera stop") }
-            return request("simulator.camera.configure", ["source": "off"], timeout: 165,
-                           output: .cameraStatus)
+            return request(
+                "simulator.camera.configure",
+                ["source": "off"],
+                timeout: simulatorOperationDeadlines.clientTimeout(for: 160),
+                output: .cameraStatus
+            )
         default:
             throw simulatorArgumentsError("camera")
         }
@@ -206,7 +218,9 @@ extension CMUXCLI {
     }
 
     func request(
-        _ method: String, _ params: [String: Any], timeout: TimeInterval? = 40,
+        _ method: String,
+        _ params: [String: Any],
+        timeout: TimeInterval? = simulatorOperationDeadlines.clientTimeout(for: 35),
         output: SimulatorAgentOutput = .completed
     ) -> SimulatorAgentRequest {
         SimulatorAgentRequest(method: method, params: params, timeout: timeout, output: output)
