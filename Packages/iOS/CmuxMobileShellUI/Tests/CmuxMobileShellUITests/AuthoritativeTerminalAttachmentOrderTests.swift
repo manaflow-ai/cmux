@@ -44,9 +44,37 @@ import Testing
 
 @Test func viewportOnlyOrdinaryChunkStillRestoresRawRenderer() {
     #expect(AuthoritativeTerminalAttachmentOrder.shouldUseRawRenderer(
+        authoritativeGridEnabled: false,
         hasAuthoritativeGrid: false
     ))
     #expect(!AuthoritativeTerminalAttachmentOrder.shouldUseRawRenderer(
+        authoritativeGridEnabled: false,
         hasAuthoritativeGrid: true
+    ))
+}
+
+@Test func directGridStreamNeverRestoresRawRendererForFallbackOrViewportOnlyChunks() {
+    #expect(!AuthoritativeTerminalAttachmentOrder.shouldUseRawRenderer(
+        authoritativeGridEnabled: true,
+        hasAuthoritativeGrid: false
+    ))
+    #expect(!AuthoritativeTerminalAttachmentOrder.shouldUseRawRenderer(
+        authoritativeGridEnabled: true,
+        hasAuthoritativeGrid: true
+    ))
+}
+
+@Test func directGridStreamRejectsNonemptyRawFallbackButAllowsViewportPolicyOnlyChunk() {
+    #expect(AuthoritativeTerminalAttachmentOrder.acceptsRawChunk(
+        authoritativeGridEnabled: true,
+        dataIsEmpty: true
+    ))
+    #expect(!AuthoritativeTerminalAttachmentOrder.acceptsRawChunk(
+        authoritativeGridEnabled: true,
+        dataIsEmpty: false
+    ))
+    #expect(AuthoritativeTerminalAttachmentOrder.acceptsRawChunk(
+        authoritativeGridEnabled: false,
+        dataIsEmpty: false
     ))
 }
