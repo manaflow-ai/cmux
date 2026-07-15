@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import SwiftUI
 
 /// Hosts the Design Mode composer overlay above the portal-hosted WKWebView.
@@ -41,14 +42,27 @@ struct BrowserDesignModePopoverHost: View {
     var onCardFrameChange: (CGRect) -> Void = { _ in }
 
     @State private var cardFrame: CGRect = .zero
-    /// Top-leading origin of the card once the user has dragged it; nil while
-    /// still anchored to the default bottom-center position.
-    @State private var draggedOrigin: CGPoint?
+    /// Top-leading origin of the card. Set automatically next to the active
+    /// selection (Cursor-style) and overridden by manual dragging; nil falls
+    /// back to the docked bottom-center position.
+    @State private var cardOrigin: CGPoint?
     @State private var dragStartOrigin: CGPoint?
+
+    /// Identity + geometry of the active (last) selection, used to reposition
+    /// the card whenever the user selects a different element.
+    private struct SelectionAnchor: Equatable {
+        var selector: String
+        var bounds: BrowserDesignModeRect
+    }
+
+    private var activeAnchor: SelectionAnchor? {
+        guard let selection = controller.snapshot?.selections.last else { return nil }
+        return SelectionAnchor(selector: selection.selector, bounds: selection.bounds)
+    }
 
     var body: some View {
         GeometryReader { host in
-            ZStack(alignment: draggedOrigin == nil ? .bottom : .topLeading) {
+            ZStack(alignment: cardOrigin == nil ? .bottom : .topLeading) {
                 if controller.isComposerPresented {
                     BrowserDesignModePopover(controller: controller)
                         .onGeometryChange(for: CGRect.self) { proxy in
@@ -57,26 +71,46 @@ struct BrowserDesignModePopoverHost: View {
                             cardFrame = frame
                             onCardFrameChange(frame)
                         }
-                        .padding(.leading, draggedOrigin?.x ?? 0)
-                        .padding(.top, draggedOrigin?.y ?? 0)
-                        .padding(.bottom, draggedOrigin == nil ? 14 : 0)
+                        .padding(.leading, cardOrigin?.x ?? 0)
+                        .padding(.top, cardOrigin?.y ?? 0)
+                        .padding(.bottom, cardOrigin == nil ? 14 : 0)
                         .gesture(dragGesture(hostSize: host.size))
-                        .transition(
-                            .opacity.combined(with: .move(edge: .bottom)).combined(with: .scale(scale: 0.98, anchor: .bottom))
-                        )
+                        .transition(.opacity.combined(with: .scale(scale: 0.96)))
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: draggedOrigin == nil ? .bottom : .topLeading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: cardOrigin == nil ? .bottom : .topLeading)
+            .onChange(of: activeAnchor) { _, anchor in
+                // Follow each new selection unless the user is mid-drag.
+                guard let anchor, dragStartOrigin == nil else { return }
+                cardOrigin = origin(near: anchor.bounds, hostSize: host.size)
+            }
         }
         .coordinateSpace(.named(Self.hostCoordinateSpace))
         .animation(.spring(duration: 0.2), value: controller.isComposerPresented)
+        .animation(dragStartOrigin == nil ? .spring(duration: 0.25) : nil, value: cardOrigin)
         .onChange(of: controller.isComposerPresented) { _, presented in
             if !presented {
-                draggedOrigin = nil
+                cardOrigin = nil
                 dragStartOrigin = nil
                 onCardFrameChange(.zero)
             }
         }
+    }
+
+    /// Places the card centered under the element, flipping above it when
+    /// there is no room below, clamped to the pane.
+    private func origin(near bounds: BrowserDesignModeRect, hostSize: CGSize) -> CGPoint {
+        let cardWidth = cardFrame.width > 0 ? cardFrame.width : 420
+        let cardHeight = cardFrame.height > 0 ? cardFrame.height : 46
+        let gap: CGFloat = 10
+        var x = CGFloat(bounds.x + bounds.width / 2) - cardWidth / 2
+        x = min(max(x, Self.edgeInset), max(Self.edgeInset, hostSize.width - cardWidth - Self.edgeInset))
+        var y = CGFloat(bounds.y + bounds.height) + gap
+        if y + cardHeight > hostSize.height - Self.edgeInset {
+            y = CGFloat(bounds.y) - cardHeight - gap
+        }
+        y = min(max(y, Self.edgeInset), max(Self.edgeInset, hostSize.height - cardHeight - Self.edgeInset))
+        return CGPoint(x: x, y: y)
     }
 
     private func dragGesture(hostSize: CGSize) -> some Gesture {
@@ -88,7 +122,7 @@ struct BrowserDesignModePopoverHost: View {
                     x: start.x + value.translation.width,
                     y: start.y + value.translation.height
                 )
-                draggedOrigin = CGPoint(
+                cardOrigin = CGPoint(
                     x: min(max(proposed.x, Self.edgeInset), max(Self.edgeInset, hostSize.width - cardFrame.width - Self.edgeInset)),
                     y: min(max(proposed.y, Self.edgeInset), max(Self.edgeInset, hostSize.height - cardFrame.height - Self.edgeInset))
                 )
