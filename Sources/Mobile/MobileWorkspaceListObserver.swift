@@ -69,13 +69,19 @@ final class MobileWorkspaceListObserver {
         emitIfNeeded(force: true)
 
         tabsCancellable = tabManager.tabsPublisher
+            // Reconcile ownership synchronously from the published value. Deferring
+            // this behind the outbound-event throttle can seed a newly attached
+            // workspace's focus cache after its next focus mutation, making the
+            // queued focus notification look unchanged and dropping that event.
+            .handleEvents(receiveOutput: { [weak self] tabs in
+                self?.refreshPerWorkspaceSubscriptions(tabs: tabs)
+            })
             .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] tabs in
                 guard let self else { return }
                 #if DEBUG
                 cmuxDebugLog("mobile.observer tabs sink fired count=\(tabs.count)")
                 #endif
-                self.refreshPerWorkspaceSubscriptions(tabs: tabs)
                 self.emitIfNeeded(force: false)
             }
         // Selection changes (Mac user clicks a different sidebar tab) need
