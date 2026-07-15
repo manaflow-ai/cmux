@@ -1665,6 +1665,7 @@ enum Drag {
     /// Mouse reporting owned by the PTY application in this pane.
     PtyMouse {
         surface: SurfaceId,
+        handle: Option<SurfaceHandle>,
         reservation_id: u64,
         release_bytes: PtyInputBytes,
         content: Rect,
@@ -4808,8 +4809,17 @@ impl App {
         }
         self.sidebar_focused = false;
         self.selection = None;
-        let (release_capture, forwarded) =
-            self.prepare_pty_mouse_press(area.surface, area.content, x, y, button, modifiers);
+        let Some(handle) = self.session.surface(area.surface) else {
+            return PtyMousePressResult::Consumed;
+        };
+        let (release_capture, forwarded) = self.prepare_pty_mouse_press(
+            (area.surface, handle.clone()),
+            area.content,
+            x,
+            y,
+            button,
+            modifiers,
+        );
         if matches!(release_capture, PtyMouseReleaseCapture::Failed) {
             return PtyMousePressResult::Consumed;
         }
@@ -4825,6 +4835,7 @@ impl App {
         };
         self.drag = Some(Drag::PtyMouse {
             surface: area.surface,
+            handle: Some(handle),
             reservation_id,
             release_bytes,
             content: area.content,
@@ -4837,17 +4848,15 @@ impl App {
 
     fn prepare_pty_mouse_press(
         &mut self,
-        surface_id: SurfaceId,
+        route: (SurfaceId, SurfaceHandle),
         content: Rect,
         x: u16,
         y: u16,
         button: MouseButton,
         modifiers: KeyModifiers,
     ) -> (PtyMouseReleaseCapture, PtyInputForwardResult) {
+        let (surface_id, surface) = route;
         let failed = || PtyInputForwardResult { accepted: false, reservation_id: None };
-        let Some(surface) = self.session.surface(surface_id) else {
-            return (PtyMouseReleaseCapture::Failed, failed());
-        };
         let cell_width = u32::from(self.cell_pixels.0.max(1));
         let cell_height = u32::from(self.cell_pixels.1.max(1));
         let position = (
@@ -4946,13 +4955,19 @@ impl App {
         modifiers: KeyModifiers,
     ) -> bool {
         let Some(Drag::PtyMouse {
-            surface, reservation_id, release_bytes, content, button, ..
+            surface,
+            handle,
+            reservation_id,
+            release_bytes,
+            content,
+            button,
+            ..
         }) = &self.drag
         else {
             return false;
         };
-        let (surface, reservation_id, fallback, content, button) =
-            (*surface, *reservation_id, release_bytes.clone(), *content, *button);
+        let (surface, handle, reservation_id, fallback, content, button) =
+            (*surface, handle.clone(), *reservation_id, release_bytes.clone(), *content, *button);
         if reported_button != button {
             return true;
         }
@@ -4961,12 +4976,12 @@ impl App {
         self.drag = None;
         match release {
             PtyMouseReleaseCapture::Bytes(bytes) => {
-                if !self.enqueue_pty_release(surface, reservation_id, bytes) {
+                if !self.enqueue_pty_release(surface, handle, reservation_id, bytes) {
                     self.pty_input.cancel_release_reservation(reservation_id);
                 }
             }
             PtyMouseReleaseCapture::Failed => {
-                if !self.enqueue_pty_release(surface, reservation_id, fallback) {
+                if !self.enqueue_pty_release(surface, handle, reservation_id, fallback) {
                     self.pty_input.cancel_release_reservation(reservation_id);
                 }
             }
@@ -5024,10 +5039,13 @@ impl App {
     fn enqueue_pty_release(
         &mut self,
         surface_id: SurfaceId,
+        retained: Option<SurfaceHandle>,
         reservation_id: u64,
         bytes: PtyInputBytes,
     ) -> bool {
-        let Some(surface) = self.session.surface(surface_id) else { return false };
+        let Some(surface) = retained.or_else(|| self.session.surface(surface_id)) else {
+            return false;
+        };
         self.encode_buf.clear();
         self.encode_buf.extend_from_slice(bytes.as_ref());
         let (result, _) = self.pty_input.enqueue_with_reservation(PtyInputEvent::release(
@@ -5042,6 +5060,7 @@ impl App {
     fn cancel_pty_mouse_drag(&mut self) {
         let Some(Drag::PtyMouse {
             surface,
+            handle,
             reservation_id,
             release_bytes,
             content,
@@ -5052,8 +5071,9 @@ impl App {
         else {
             return;
         };
-        let (surface, reservation_id, fallback, content, button, position, modifiers) = (
+        let (surface, handle, reservation_id, fallback, content, button, position, modifiers) = (
             *surface,
+            handle.clone(),
             *reservation_id,
             release_bytes.clone(),
             *content,
@@ -5067,12 +5087,12 @@ impl App {
         self.drag = None;
         match release {
             PtyMouseReleaseCapture::Bytes(bytes) => {
-                if !self.enqueue_pty_release(surface, reservation_id, bytes) {
+                if !self.enqueue_pty_release(surface, handle, reservation_id, bytes) {
                     self.pty_input.cancel_release_reservation(reservation_id);
                 }
             }
             PtyMouseReleaseCapture::Failed => {
-                if !self.enqueue_pty_release(surface, reservation_id, fallback) {
+                if !self.enqueue_pty_release(surface, handle, reservation_id, fallback) {
                     self.pty_input.cancel_release_reservation(reservation_id);
                 }
             }
@@ -6543,6 +6563,7 @@ mod tests {
         let mut app = test_app(Session::Local(mux));
         app.drag = Some(Drag::PtyMouse {
             surface: surface.id,
+            handle: None,
             reservation_id: 41,
             release_bytes: PtyInputBytes::from_slice(b"fallback-release"),
             content: Rect { x: 1, y: 1, width: 20, height: 8 },
@@ -6567,6 +6588,7 @@ mod tests {
         let mut app = test_app(Session::Local(mux));
         app.drag = Some(Drag::PtyMouse {
             surface: 42,
+            handle: None,
             reservation_id: 1,
             release_bytes: PtyInputBytes::from_slice(b"release"),
             content: Rect { x: 1, y: 1, width: 20, height: 8 },
@@ -6655,6 +6677,7 @@ mod tests {
         let mut app = test_app(Session::Local(mux));
         app.drag = Some(Drag::PtyMouse {
             surface: 42,
+            handle: None,
             reservation_id: 1,
             release_bytes: PtyInputBytes::from_slice(b"release"),
             content: Rect { x: 1, y: 1, width: 20, height: 8 },
@@ -6683,6 +6706,7 @@ mod tests {
         let mut app = test_app(Session::Local(mux));
         app.drag = Some(Drag::PtyMouse {
             surface: 42,
+            handle: None,
             reservation_id: 7,
             release_bytes: PtyInputBytes::from_slice(b"release"),
             content: Rect { x: 1, y: 1, width: 20, height: 8 },
@@ -6711,6 +6735,7 @@ mod tests {
         let mut app = test_app(Session::Local(mux));
         app.drag = Some(Drag::PtyMouse {
             surface: 42,
+            handle: None,
             reservation_id: 9,
             release_bytes: PtyInputBytes::from_slice(b"release"),
             content: Rect { x: 1, y: 1, width: 20, height: 8 },
@@ -7666,6 +7691,7 @@ mod tests {
         app.sidebar_plugin_retry_at = Some(Instant::now() - Duration::from_millis(1));
         app.drag = Some(Drag::PtyMouse {
             surface: 42,
+            handle: None,
             reservation_id: 7,
             release_bytes: PtyInputBytes::from_slice(b"release"),
             content: Rect { x: 1, y: 1, width: 20, height: 8 },
@@ -8287,6 +8313,7 @@ mod tests {
         app.session.pending_mutations.store(1, Ordering::Release);
         app.drag = Some(Drag::PtyMouse {
             surface: 42,
+            handle: None,
             reservation_id: 1,
             release_bytes: PtyInputBytes::from_slice(b"release"),
             content: Rect { x: 2, y: 3, width: 20, height: 8 },

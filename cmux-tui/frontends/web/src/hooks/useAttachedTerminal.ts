@@ -109,6 +109,7 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
               terminal.resize(replay.cols, replay.rows);
               terminal.write(replay.data);
               terminal.options.disableStdin = false;
+              recoveryAttempt = 0;
             } else if (event.event === "output") {
               terminal.write((event as DecodedOutputEvent).data);
             } else if (event.event === "resized") {

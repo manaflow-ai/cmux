@@ -149,7 +149,7 @@ enum BrowserCommand {
     Reconfigure {
         cols: u16,
         rows: u16,
-        completion: Option<SyncSender<Result<(), String>>>,
+        completion: Option<SyncSender<Result<bool, String>>>,
     },
     #[cfg(test)]
     Hold {
@@ -778,6 +778,7 @@ fn run_browser_worker_command(
 ) {
     let is_input = command.is_input();
     let is_reconfigure = matches!(command, BrowserCommand::Reconfigure { .. });
+    let mut resize_changed = false;
     let completion = match &mut command {
         BrowserCommand::Reconfigure { completion, .. } => completion.take(),
         _ => None,
@@ -814,7 +815,9 @@ fn run_browser_worker_command(
             BrowserCommand::Reload => browser.reload_blocking(),
             BrowserCommand::Activate => browser.activate_blocking(),
             BrowserCommand::Reconfigure { cols, rows, completion: _ } => {
-                browser.reconfigure_resize_blocking(cols, rows)
+                browser.reconfigure_resize_blocking(cols, rows).map(|changed| {
+                    resize_changed = changed;
+                })
             }
             #[cfg(test)]
             BrowserCommand::Hold { entered, release } => {
@@ -825,11 +828,12 @@ fn run_browser_worker_command(
     };
     let mut completion_abandoned = false;
     if let Some(completion) = completion {
-        let outcome = result.as_ref().map(|_| ()).map_err(ToString::to_string);
+        let outcome = result.as_ref().map(|_| resize_changed).map_err(ToString::to_string);
         completion_abandoned = completion.send(outcome).is_err();
     }
     if completion_abandoned
         && is_reconfigure
+        && resize_changed
         && result.is_ok()
         && let Some(mux) = mux.upgrade()
     {
@@ -985,7 +989,6 @@ impl BrowserSurface {
     }
 
     pub(crate) fn resize_blocking(&self, cols: u16, rows: u16) -> anyhow::Result<bool> {
-        let needed = self.resize_needed(cols, rows);
         let (completion, finished) = sync_channel(1);
         self.enqueue_control(BrowserCommand::Reconfigure {
             cols: cols.max(1),
@@ -993,24 +996,22 @@ impl BrowserSurface {
             completion: Some(completion),
         })?;
         match finished.recv_timeout(BROWSER_RESIZE_COMPLETION_TIMEOUT) {
-            Ok(outcome) => outcome.map_err(anyhow::Error::msg)?,
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                return Err(BrowserResizeTimeout.into());
-            }
+            Ok(outcome) => outcome.map_err(anyhow::Error::msg),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(BrowserResizeTimeout.into()),
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                 anyhow::bail!("browser command worker closed");
             }
         }
-        Ok(needed)
     }
 
-    fn reconfigure_resize_blocking(&self, cols: u16, rows: u16) -> anyhow::Result<()> {
+    fn reconfigure_resize_blocking(&self, cols: u16, rows: u16) -> anyhow::Result<bool> {
+        let needed = self.resize_needed(cols, rows);
         let Some((width, height)) = self.update_resize_state(cols, rows) else {
-            return Ok(());
+            return Ok(false);
         };
         self.reconfigure_blocking(width, height)?;
         self.confirm_reconfigure(width, height);
-        Ok(())
+        Ok(needed)
     }
 
     pub fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) {
@@ -2463,6 +2464,7 @@ mod tests {
 
         assert!(browser.resize_blocking(10, 5).unwrap());
         assert!(!browser.resize_needed(10, 5));
+        assert!(!browser.resize_blocking(10, 5).unwrap());
     }
 
     #[test]
