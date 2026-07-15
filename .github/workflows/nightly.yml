@@ -262,7 +262,8 @@ jobs:
           set +e
           # Skip only the in-Xcode helper build; the background helper process
           # above must build the real universal Zig helper, not the CI stub.
-          CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
+          # Avoid overlapping the arm64 and x86_64 whole-module Swift frontends.
+          CMUX_SKIP_ZIG_BUILD=1 xcodebuild -jobs 1 -scheme cmux -configuration Release -derivedDataPath build-universal \
             -destination 'generic/platform=macOS' \
             -clonedSourcePackagesDirPath .spm-cache \
             -showBuildTimingSummary \
