@@ -53,7 +53,7 @@ struct SharedLiveAgentIndexAgentLivenessTests {
             options: .atomic
         )
 
-        let unrelatedWriteStartedLoad = await Self.wait(for: loadStarted, timeout: 0.5)
+        let unrelatedWriteStartedLoad = await Self.wait(for: loadStarted)
         #expect(
             !unrelatedWriteStartedLoad,
             "Writes outside *-hook-sessions.json must not reload the expensive live-agent index."
@@ -149,7 +149,7 @@ struct SharedLiveAgentIndexAgentLivenessTests {
             options: .atomic
         )
 
-        let thirdLoadStarted = await Self.wait(for: loadStarted, timeout: 0.5)
+        let thirdLoadStarted = await Self.wait(for: loadStarted)
         #expect(
             !thirdLoadStarted,
             "The latest completed 270-record workload must apply even when its index was not published."
@@ -582,7 +582,7 @@ struct SharedLiveAgentIndexAgentLivenessTests {
             options: .atomic
         )
 
-        return await Self.wait(for: loadStarted, timeout: 0.5)
+        return await Self.wait(for: loadStarted)
     }
 
     nonisolated private static func loadResult(
@@ -708,6 +708,11 @@ struct SharedLiveAgentIndexAgentLivenessTests {
         )
     }
 
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     nonisolated private static func wait(
         for semaphore: DispatchSemaphore,
         timeout: TimeInterval = 2
