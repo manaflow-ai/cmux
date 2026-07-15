@@ -3826,8 +3826,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             sourceSurface: surface
         )
         if titleUpdateSurfaceKey != nextTitleUpdateSurfaceKey {
-            if let titleUpdateSurfaceKey {
-                titleUpdateIngress.retire(titleUpdateSurfaceKey)
+            if titleUpdateSurfaceKey != nil {
+                titleUpdateIngress.retireCurrentAttachment()
             }
             titleUpdateSurfaceKey = nextTitleUpdateSurfaceKey
         }
@@ -7481,8 +7481,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
     deinit {
         selectionAccessibilitySignal.finish()
-        if let titleUpdateSurfaceKey {
-            titleUpdateIngress.retire(titleUpdateSurfaceKey)
+        if titleUpdateSurfaceKey != nil {
+            titleUpdateIngress.retireCurrentAttachment()
         }
 #if DEBUG
         cmuxDebugLog(
