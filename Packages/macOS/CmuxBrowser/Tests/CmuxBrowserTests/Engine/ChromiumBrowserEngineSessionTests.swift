@@ -81,6 +81,35 @@ struct ChromiumBrowserEngineSessionTests {
     }
 
     @Test
+    func localInputBackpressureDoesNotEndTheSession() {
+        let session = ChromiumBrowserEngineSession(
+            viewportWebView: WKWebView(),
+            application: nil,
+            userDataDirectory: FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        )
+        defer { session.close() }
+
+        for index in 0..<ChromiumViewportInputQueue.maximumPendingCommands {
+            session.handleViewportMessage([
+                "type": "key",
+                "event": "keyDown",
+                "key": String(index),
+                "code": "Key\(index)",
+            ])
+        }
+        session.handleViewportMessage([
+            "type": "key",
+            "event": "keyUp",
+            "key": "0",
+            "code": "Key0",
+        ])
+
+        #expect(session.viewportInputQueue.count == ChromiumViewportInputQueue.maximumPendingCommands)
+        #expect(session.viewportInputFailed == false)
+    }
+
+    @Test
     func rejectsNavigationRequestsWhoseSemanticsCannotBePreserved() {
         let url = URL(string: "https://example.com/submit")!
 
