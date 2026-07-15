@@ -19,7 +19,7 @@ pub mod layout;
 pub mod platform;
 pub mod server;
 
-pub use browser::{TRANSPORT_SAFE_CAPTURE_MEGAPIXELS, normalize_url};
+pub use browser::{BrowserResizeTimeout, TRANSPORT_SAFE_CAPTURE_MEGAPIXELS, normalize_url};
 pub use event_bus::{MuxEventBroadcaster, MuxEventReceiver};
 pub use layout::{
     LayoutResult, Rect, SplitEdge, SplitResize, directional_neighbor, layout_screen,

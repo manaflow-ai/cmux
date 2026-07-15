@@ -22,6 +22,10 @@ use serde_json::{Value, json};
 use super::tree::{TreeView, parse_tree};
 
 const SUPPORTED_PROTOCOL_VERSION: u64 = 7;
+#[cfg(not(test))]
+const REMOTE_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
+#[cfg(test)]
+const REMOTE_WRITE_TIMEOUT: Duration = Duration::from_millis(100);
 
 #[derive(Debug)]
 pub(crate) enum RemoteRequestError {
@@ -313,6 +317,9 @@ impl RemoteSession {
     pub fn connect(path: &Path) -> anyhow::Result<Arc<Self>> {
         let stream = transport::connect(path).map_err(|e| {
             anyhow::anyhow!("cannot connect to session socket {}: {e}", path.display())
+        })?;
+        stream.set_write_timeout(Some(REMOTE_WRITE_TIMEOUT)).map_err(|error| {
+            anyhow::anyhow!("cannot configure session socket write timeout: {error}")
         })?;
         let read_half = stream.try_clone_box()?;
         let session = Arc::new(RemoteSession {
@@ -642,10 +649,14 @@ impl RemoteSession {
 
         let (tx, rx) = channel();
         self.pending.lock().unwrap().insert(id, tx);
-        if let Err(err) = self.writer.lock().unwrap().write_all(&line) {
+        let mut writer = self.writer.lock().unwrap();
+        if let Err(err) = writer.write_all(&line) {
+            let _ = writer.shutdown();
+            drop(writer);
             self.pending.lock().unwrap().remove(&id);
             return Err(RemoteRequestError::Transport(err).into());
         }
+        drop(writer);
 
         if self.shutdown.load(Ordering::Acquire) {
             self.pending.lock().unwrap().remove(&id);
@@ -943,6 +954,7 @@ mod tests {
 
     #[cfg(unix)]
     fn socket_test_session(stream: UnixStream) -> Arc<RemoteSession> {
+        stream.set_write_timeout(Some(REMOTE_WRITE_TIMEOUT)).unwrap();
         Arc::new(RemoteSession {
             writer: Mutex::new(Box::new(stream)),
             pending: Mutex::new(HashMap::new()),
@@ -987,6 +999,24 @@ mod tests {
         assert_eq!(release["surface"], 7);
         assert_eq!(release["bytes"], "cmVsZWFzZQ==");
         assert!(release["id"].as_u64().unwrap() > first["id"].as_u64().unwrap());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stalled_remote_write_times_out_and_closes_the_transport() {
+        let (client, _server) = UnixStream::pair().unwrap();
+        let session = socket_test_session(client);
+        let payload = vec![b'x'; 4 * 1024 * 1024];
+
+        let error = session.send_bytes(7, &payload).unwrap_err();
+
+        assert!(error.downcast_ref::<RemoteRequestError>().is_some_and(|error| {
+            matches!(error, RemoteRequestError::Transport(io_error) if matches!(
+                io_error.kind(),
+                std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+            ))
+        }));
+        assert!(session.pending.lock().unwrap().is_empty());
     }
 
     #[cfg(unix)]

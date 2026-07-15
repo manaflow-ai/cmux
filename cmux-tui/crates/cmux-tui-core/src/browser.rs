@@ -151,6 +151,11 @@ enum BrowserCommand {
         rows: u16,
         completion: Option<SyncSender<Result<(), String>>>,
     },
+    #[cfg(test)]
+    Hold {
+        entered: Sender<()>,
+        release: Receiver<()>,
+    },
 }
 
 impl BrowserCommand {
@@ -217,6 +222,21 @@ const DEFAULT_CAPTURE_MEGAPIXELS: f64 = TRANSPORT_SAFE_CAPTURE_MEGAPIXELS;
 const STALL_THRESHOLD: Duration = Duration::from_secs(2);
 const BROWSER_COMMAND_QUEUE_CAPACITY: usize = 64;
 const BROWSER_NOT_RESPONDING_MESSAGE: &str = "browser is not responding";
+#[cfg(not(test))]
+const BROWSER_RESIZE_COMPLETION_TIMEOUT: Duration = Duration::from_secs(5);
+#[cfg(test)]
+const BROWSER_RESIZE_COMPLETION_TIMEOUT: Duration = Duration::from_millis(100);
+
+#[derive(Debug)]
+pub struct BrowserResizeTimeout;
+
+impl std::fmt::Display for BrowserResizeTimeout {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("browser resize completion timed out")
+    }
+}
+
+impl std::error::Error for BrowserResizeTimeout {}
 
 impl BrowserRuntime {
     pub fn connect(opts: &SurfaceOptions) -> anyhow::Result<Arc<Self>> {
@@ -757,6 +777,7 @@ fn run_browser_worker_command(
     failures: &mut BrowserWorkerErrorState,
 ) {
     let is_input = command.is_input();
+    let is_reconfigure = matches!(command, BrowserCommand::Reconfigure { .. });
     let completion = match &mut command {
         BrowserCommand::Reconfigure { completion, .. } => completion.take(),
         _ => None,
@@ -795,11 +816,25 @@ fn run_browser_worker_command(
             BrowserCommand::Reconfigure { cols, rows, completion: _ } => {
                 browser.reconfigure_resize_blocking(cols, rows)
             }
+            #[cfg(test)]
+            BrowserCommand::Hold { entered, release } => {
+                let _ = entered.send(());
+                release.recv().map_err(anyhow::Error::msg)
+            }
         }
     };
+    let mut completion_abandoned = false;
     if let Some(completion) = completion {
         let outcome = result.as_ref().map(|_| ()).map_err(ToString::to_string);
-        let _ = completion.send(outcome);
+        completion_abandoned = completion.send(outcome).is_err();
+    }
+    if completion_abandoned
+        && is_reconfigure
+        && result.is_ok()
+        && let Some(mux) = mux.upgrade()
+    {
+        let (cols, rows) = surface.size();
+        mux.emit(MuxEvent::SurfaceResized { surface: id, cols, rows });
     }
     record_browser_worker_result(surface, mux, id, is_input, result, failures);
 }
@@ -957,10 +992,15 @@ impl BrowserSurface {
             rows: rows.max(1),
             completion: Some(completion),
         })?;
-        finished
-            .recv()
-            .map_err(|_| anyhow::anyhow!("browser command worker closed"))?
-            .map_err(anyhow::Error::msg)?;
+        match finished.recv_timeout(BROWSER_RESIZE_COMPLETION_TIMEOUT) {
+            Ok(outcome) => outcome.map_err(anyhow::Error::msg)?,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                return Err(BrowserResizeTimeout.into());
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                anyhow::bail!("browser command worker closed");
+            }
+        }
         Ok(needed)
     }
 
@@ -1676,9 +1716,9 @@ fn percent_encode_query(input: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        BrowserCaptureOptions, BrowserCommand, BrowserFrame, BrowserSource, BrowserStatus,
-        capture_scale_for, new_surface, normalize_url, runtime_endpoint, scaled_pixels,
-        take_latest_worker_commands,
+        BrowserCaptureOptions, BrowserCommand, BrowserFrame, BrowserResizeTimeout, BrowserSource,
+        BrowserStatus, capture_scale_for, new_surface, normalize_url, runtime_endpoint,
+        scaled_pixels, take_latest_worker_commands,
     };
     use crate::{Mux, Surface, SurfaceOptions};
     use serde_json::{Value, json};
@@ -2081,6 +2121,28 @@ mod tests {
         browser.kill();
         assert!(browser.navigate("after-close.test").is_err());
         done.recv_timeout(Duration::from_secs(1)).expect("browser worker exited after kill");
+    }
+
+    #[test]
+    fn browser_resize_completion_wait_is_bounded() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        let done = browser.take_worker_done_for_test();
+        let (entered, started) = mpsc::channel();
+        let (release, held) = mpsc::channel();
+        browser
+            .command_sender()
+            .unwrap()
+            .send(BrowserCommand::Hold { entered, release: held })
+            .unwrap();
+        started.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let error = browser.resize_blocking(11, 5).unwrap_err();
+        assert!(error.downcast_ref::<BrowserResizeTimeout>().is_some());
+
+        release.send(()).unwrap();
+        browser.kill();
+        done.recv_timeout(Duration::from_secs(1)).expect("browser worker exited after release");
     }
 
     #[test]
