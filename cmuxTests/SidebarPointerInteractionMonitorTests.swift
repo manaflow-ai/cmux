@@ -7,6 +7,31 @@ import Testing
 #endif
 
 @Suite @MainActor struct SidebarPointerInteractionMonitorTests {
+    @Test func pointerInputDoesNotInstallSubviewIntoSwiftUIOwnedScrollView() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 320),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.acceptsMouseMovedEvents = false
+        let scrollView = NSScrollView(frame: window.contentView?.bounds ?? .zero)
+        window.contentView = scrollView
+        let originalSubviews = scrollView.subviews
+        let monitor = SidebarPointerInteractionMonitor()
+
+        monitor.attach(to: scrollView)
+        monitor.start(onMiddleClickWorkspace: { _ in })
+
+        #expect(
+            scrollView.subviews.elementsEqual(originalSubviews, by: { $0 === $1 }),
+            "Pointer input must not add a foreign subview that SwiftUI can remove during reconciliation."
+        )
+        #expect(window.acceptsMouseMovedEvents)
+
+        monitor.stop()
+    }
+
     @Test func trackingViewOwnsHostWindowMouseMovedEventDelivery() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 240, height: 320),
