@@ -29,6 +29,7 @@ import type {
   Json,
   JsonObject,
   ListAgentsResult,
+  ListClientsResult,
   NotificationLevel,
   NotifyResult,
   PaneDirection,
@@ -321,6 +322,11 @@ export class CmuxClient {
   }
 
   ping(): Promise<PingResult> { return this.request("ping"); }
+  setClientInfo(name?: string, kind?: string): Promise<EmptyResult> {
+    return this.request("set-client-info", { name, kind });
+  }
+  listClients(): Promise<ListClientsResult> { return this.request("list-clients"); }
+  detachClient(client: Id): Promise<EmptyResult> { return this.request("detach-client", { client }); }
   reloadConfig(): Promise<ReloadConfigResult> { return this.request("reload-config"); }
   setWindowTitle(title: string): Promise<EmptyResult> { return this.request("set-window-title", { title }); }
   clearWindowTitle(): Promise<EmptyResult> { return this.request("clear-window-title"); }
@@ -492,6 +498,9 @@ export class CmuxClient {
   }
 
   private matchesAttachEvent(event: UnknownEvent, surface: Id): boolean {
+    // colors-changed is scoped by its attach connection and intentionally has
+    // no surface field in protocol v6.
+    if (event.event === "colors-changed") return true;
     if (!("surface" in event) || event.surface !== surface) return false;
     return this.attachOnlyEvent(event.event)
       || event.event === "scroll-changed"
@@ -509,7 +518,11 @@ export class CmuxClient {
   }
 
   private attachOnlyEvent(event: string): boolean {
-    return event === "vt-state" || event === "output" || event === "resized" || event === "detached";
+    return event === "vt-state"
+      || event === "output"
+      || event === "resized"
+      || event === "colors-changed"
+      || event === "detached";
   }
 
   private dropUndefined(value: Record<string, unknown>): JsonObject {

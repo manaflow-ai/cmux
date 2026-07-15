@@ -4,7 +4,7 @@ import CMUXAgentLaunch
 import Darwin
 import os
 
-nonisolated enum TerminalStartupShellQuoting {
+enum TerminalStartupShellQuoting {
     static func singleQuoted(_ value: String) -> String {
         if value.utf8.contains(where: { $0 >= 0x80 }) {
             return asciiPrintfCommandSubstitution(for: value)
@@ -35,7 +35,7 @@ fileprivate func shellSingleQuoted(_ value: String) -> String {
     TerminalStartupShellQuoting.singleQuoted(value)
 }
 
-nonisolated enum TerminalStartupWorkingDirectoryPrefix {
+enum TerminalStartupWorkingDirectoryPrefix {
     static func optionalChangeDirectoryPrefix(for workingDirectory: String?) -> String? {
         guard let workingDirectory = normalized(workingDirectory) else { return nil }
         let quoted = TerminalStartupShellQuoting.singleQuoted(workingDirectory)
@@ -1026,26 +1026,26 @@ struct RestorableAgentSessionIndex: Sendable {
         )
     }
 
-    static func loadIncludingProcessDetectedSnapshots(homeDirectory: String = NSHomeDirectory(), fileManager: FileManager = .default, snapshotStore: CmuxTopProcessSnapshotStore = .shared) async -> RestorableAgentSessionIndex {
-        let processSnapshot = await snapshotStore.snapshot(
-            requirements: [.processDetails, .cmuxScope],
-            maximumAge: 3, consumer: .processDetectedResume
-        )
-        return await Task.detached(priority: .utility) {
+    static func loadIncludingProcessDetectedSnapshots(
+        homeDirectory: String = NSHomeDirectory(),
+        fileManager: FileManager = .default
+    ) async -> RestorableAgentSessionIndex {
+        await Task.detached(priority: .utility) {
             loadIncludingProcessDetectedSnapshotsSynchronously(
                 homeDirectory: homeDirectory,
-                fileManager: fileManager, processSnapshot: processSnapshot
+                fileManager: fileManager
             )
         }.value
     }
 
-    static func loadIncludingProcessDetectedSnapshotsSynchronously(homeDirectory: String, fileManager: FileManager, processSnapshot: CmuxTopProcessSnapshot) -> RestorableAgentSessionIndex {
+    static func loadIncludingProcessDetectedSnapshotsSynchronously(
+        homeDirectory: String = NSHomeDirectory(),
+        fileManager: FileManager = .default
+    ) -> RestorableAgentSessionIndex {
         let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
         let detectedSnapshots = processDetectedSnapshots(
             registry: registry,
-            fileManager: fileManager,
-            processSnapshot: processSnapshot,
-            capturedAt: processSnapshot.sampledAt.timeIntervalSince1970
+            fileManager: fileManager
         )
         return load(
             homeDirectory: homeDirectory,

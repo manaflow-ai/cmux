@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use cmux_tui_core::platform::transport;
-use cmux_tui_core::{AttachFrame, DefaultColors, Mux, MuxEvent, Rgb, SurfaceOptions};
+use cmux_tui_core::{AttachFrame, CursorShape, DefaultColors, Mux, MuxEvent, Rgb, SurfaceOptions};
 use ghostty_vt::RenderState;
 
 fn wait_for<T>(mut f: impl FnMut() -> Option<T>, timeout: Duration) -> Option<T> {
@@ -49,6 +49,33 @@ fn read_json_line(reader: &mut impl BufRead) -> Option<serde_json::Value> {
         }
         Err(e) => panic!("socket read failed: {e}"),
     }
+}
+
+fn socket_request(
+    writer: &mut impl Write,
+    reader: &mut impl BufRead,
+    request: serde_json::Value,
+) -> serde_json::Value {
+    writeln!(writer, "{request}").unwrap();
+    let response = read_json_line(reader).expect("socket response");
+    assert_eq!(response["ok"], true, "request failed: {response}");
+    response
+}
+
+fn assert_vt_state_size(
+    writer: &mut impl Write,
+    reader: &mut impl BufRead,
+    id: u64,
+    surface: u64,
+    expected: (u16, u16),
+) {
+    let response = socket_request(
+        writer,
+        reader,
+        serde_json::json!({"id": id, "cmd": "vt-state", "surface": surface}),
+    );
+    assert_eq!(response["data"]["cols"], expected.0);
+    assert_eq!(response["data"]["rows"], expected.1);
 }
 
 #[test]
@@ -96,6 +123,84 @@ fn surface_resize_reports_whether_the_size_changed() {
     assert!(!surface.resize(0, 0).unwrap());
 
     mux.close_surface(surface.id);
+}
+
+#[test]
+fn headless_creation_uses_legacy_default_then_latest_client_size() {
+    let mux = Mux::new(unique_session("test-headless-client-size"), shell_opts("sleep 30"));
+    let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
+    let stream = connect(&sock_path);
+    let mut writer = stream.try_clone_box().unwrap();
+    let mut reader = BufReader::new(stream);
+
+    let first = socket_request(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({"id": 1, "cmd": "new-workspace"}),
+    )["data"]["surface"]
+        .as_u64()
+        .unwrap();
+    assert_vt_state_size(&mut writer, &mut reader, 2, first, (80, 24));
+
+    socket_request(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({
+            "id": 3,
+            "cmd": "resize-surface",
+            "surface": first,
+            "cols": 143,
+            "rows": 40,
+        }),
+    );
+    let inherited = socket_request(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({"id": 4, "cmd": "new-workspace"}),
+    )["data"]["surface"]
+        .as_u64()
+        .unwrap();
+    assert_vt_state_size(&mut writer, &mut reader, 5, inherited, (143, 40));
+
+    let explicit = socket_request(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({
+            "id": 6,
+            "cmd": "new-workspace",
+            "cols": 97,
+            "rows": 31,
+        }),
+    )["data"]["surface"]
+        .as_u64()
+        .unwrap();
+    assert_vt_state_size(&mut writer, &mut reader, 7, explicit, (97, 31));
+
+    let inherited_explicit = socket_request(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({"id": 8, "cmd": "new-workspace"}),
+    )["data"]["surface"]
+        .as_u64()
+        .unwrap();
+    assert_vt_state_size(&mut writer, &mut reader, 9, inherited_explicit, (97, 31));
+
+    let clamped = socket_request(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({
+            "id": 10,
+            "cmd": "new-workspace",
+            "cols": 0,
+            "rows": 0,
+        }),
+    )["data"]["surface"]
+        .as_u64()
+        .unwrap();
+    assert_vt_state_size(&mut writer, &mut reader, 11, clamped, (1, 1));
+
+    mux.shutdown();
+    cmux_tui_core::server::cleanup(&sock_path);
 }
 
 #[test]
@@ -413,7 +518,7 @@ fn control_socket_set_default_colors_merges_fields() {
     assert_eq!(v["ok"], true, "set-default-colors failed: {line}");
     assert_eq!(
         mux.default_colors(),
-        DefaultColors { fg: Some(Rgb { r: 1, g: 2, b: 3 }), bg: None }
+        DefaultColors { fg: Some(Rgb { r: 1, g: 2, b: 3 }), bg: None, ..Default::default() }
     );
 
     line.clear();
@@ -426,6 +531,7 @@ fn control_socket_set_default_colors_merges_fields() {
         DefaultColors {
             fg: Some(Rgb { r: 1, g: 2, b: 3 }),
             bg: Some(Rgb { r: 0x13, g: 0x14, b: 0x15 }),
+            ..Default::default()
         }
     );
 
@@ -435,6 +541,161 @@ fn control_socket_set_default_colors_merges_fields() {
     let v: serde_json::Value = serde_json::from_str(&line).unwrap();
     assert_eq!(v["ok"], false, "bad color unexpectedly accepted: {line}");
 
+    cmux_tui_core::server::cleanup(&sock_path);
+}
+
+#[test]
+fn control_socket_attach_vt_state_includes_effective_colors() {
+    let mux = Mux::new(unique_session("test-attach-colors"), shell_opts("cat"));
+    mux.set_default_colors(DefaultColors {
+        fg: Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }),
+        bg: Some(Rgb { r: 0x13, g: 0x14, b: 0x15 }),
+        cursor_style: Some(CursorShape::Bar),
+        cursor_blink: Some(false),
+    });
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+    surface.try_with_terminal(|term| term.vt_write(b"\x1b]12;rgb:20/40/60\x07")).unwrap();
+
+    let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
+    let stream = connect(&sock_path);
+    let mut writer = stream.try_clone_box().unwrap();
+    let mut reader = BufReader::new(stream);
+
+    writeln!(writer, r#"{{"id":1,"cmd":"attach-surface","surface":{}}}"#, surface.id).unwrap();
+    let vt_state = read_json_line(&mut reader).expect("vt-state event");
+    assert_eq!(vt_state["event"], "vt-state");
+    assert_eq!(vt_state["surface"], surface.id);
+    assert_eq!(
+        vt_state["colors"],
+        serde_json::json!({
+            "fg": "#010203",
+            "bg": "#131415",
+            "cursor": "#204060",
+            "selection_bg": null,
+            "selection_fg": null,
+            "cursor_style": "bar",
+            "cursor_blink": false,
+        })
+    );
+
+    let response = read_json_line(&mut reader).expect("attach response");
+    assert_eq!(response["id"], 1);
+    assert_eq!(response["ok"], true, "attach failed: {response}");
+
+    mux.close_surface(surface.id);
+    cmux_tui_core::server::cleanup(&sock_path);
+}
+
+#[test]
+fn control_socket_attach_vt_state_cursor_is_null_without_config_or_decscusr() {
+    let mux = Mux::new(unique_session("test-attach-cursor-null"), shell_opts("cat"));
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+
+    let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
+    let stream = connect(&sock_path);
+    let mut writer = stream.try_clone_box().unwrap();
+    let mut reader = BufReader::new(stream);
+
+    writeln!(writer, r#"{{"id":1,"cmd":"attach-surface","surface":{}}}"#, surface.id).unwrap();
+    let vt_state = read_json_line(&mut reader).expect("vt-state event");
+    assert_eq!(vt_state["colors"]["cursor_style"], serde_json::Value::Null);
+    assert_eq!(vt_state["colors"]["cursor_blink"], serde_json::Value::Null);
+
+    let response = read_json_line(&mut reader).expect("attach response");
+    assert_eq!(response["ok"], true, "attach failed: {response}");
+
+    mux.close_surface(surface.id);
+    cmux_tui_core::server::cleanup(&sock_path);
+}
+
+#[test]
+fn control_socket_attach_vt_state_prefers_surface_decscusr_cursor() {
+    let mux = Mux::new(unique_session("test-attach-cursor-override"), shell_opts("cat"));
+    mux.set_default_colors(DefaultColors {
+        cursor_style: Some(CursorShape::Bar),
+        cursor_blink: Some(false),
+        ..Default::default()
+    });
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+    surface.try_with_terminal(|term| term.vt_write(b"\x1b[3 q")).unwrap();
+
+    let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
+    let stream = connect(&sock_path);
+    let mut writer = stream.try_clone_box().unwrap();
+    let mut reader = BufReader::new(stream);
+
+    writeln!(writer, r#"{{"id":1,"cmd":"attach-surface","surface":{}}}"#, surface.id).unwrap();
+    let vt_state = read_json_line(&mut reader).expect("vt-state event");
+    assert_eq!(vt_state["colors"]["cursor_style"], "underline");
+    assert_eq!(vt_state["colors"]["cursor_blink"], true);
+
+    let response = read_json_line(&mut reader).expect("attach response");
+    assert_eq!(response["ok"], true, "attach failed: {response}");
+
+    mux.close_surface(surface.id);
+    cmux_tui_core::server::cleanup(&sock_path);
+}
+
+#[test]
+fn control_socket_attach_stream_receives_merged_colors_changed() {
+    let mux = Mux::new(unique_session("test-colors-changed"), shell_opts("cat"));
+    mux.set_default_colors(DefaultColors {
+        fg: Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }),
+        bg: None,
+        cursor_style: Some(CursorShape::Bar),
+        cursor_blink: Some(false),
+    });
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+
+    let sock_path = cmux_tui_core::server::serve(mux.clone(), None).unwrap();
+    let attach_stream = connect(&sock_path);
+    attach_stream.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
+    let mut attach_writer = attach_stream.try_clone_box().unwrap();
+    let mut attach_reader = BufReader::new(attach_stream);
+
+    writeln!(attach_writer, r#"{{"id":1,"cmd":"attach-surface","surface":{}}}"#, surface.id)
+        .unwrap();
+    let vt_state = wait_for(|| read_json_line(&mut attach_reader), Duration::from_secs(5))
+        .expect("vt-state event");
+    assert_eq!(vt_state["event"], "vt-state");
+    let response = wait_for(|| read_json_line(&mut attach_reader), Duration::from_secs(5))
+        .expect("attach response");
+    assert_eq!(response["ok"], true, "attach failed: {response}");
+
+    let command_stream = connect(&sock_path);
+    let mut command_writer = command_stream.try_clone_box().unwrap();
+    let mut command_reader = BufReader::new(command_stream);
+    writeln!(command_writer, r##"{{"id":2,"cmd":"set-default-colors","bg":"#131415"}}"##).unwrap();
+    let response = read_json_line(&mut command_reader).expect("set-default-colors response");
+    assert_eq!(response["ok"], true, "set-default-colors failed: {response}");
+
+    let event = wait_for(
+        || {
+            while let Some(value) = read_json_line(&mut attach_reader) {
+                if value.get("event").and_then(|value| value.as_str()) == Some("colors-changed") {
+                    return Some(value);
+                }
+            }
+            None
+        },
+        Duration::from_secs(5),
+    )
+    .expect("colors-changed event");
+    assert_eq!(
+        event,
+        serde_json::json!({
+            "event": "colors-changed",
+            "fg": "#010203",
+            "bg": "#131415",
+            "cursor": null,
+            "selection_bg": null,
+            "selection_fg": null,
+            "cursor_style": "bar",
+            "cursor_blink": false,
+        })
+    );
+
+    mux.close_surface(surface.id);
     cmux_tui_core::server::cleanup(&sock_path);
 }
 
@@ -523,6 +784,8 @@ fn default_colors_apply_to_existing_and_future_surfaces() {
     let colors = DefaultColors {
         fg: Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }),
         bg: Some(Rgb { r: 0x13, g: 0x14, b: 0x15 }),
+        cursor_style: Some(CursorShape::Underline),
+        cursor_blink: Some(true),
     };
     mux.set_default_colors(colors);
 
@@ -532,6 +795,7 @@ fn default_colors_apply_to_existing_and_future_surfaces() {
         first_state.default_colors(),
         (Rgb { r: 0x13, g: 0x14, b: 0x15 }, Rgb { r: 0x01, g: 0x02, b: 0x03 })
     );
+    assert_eq!(first_state.cursor_visual().unwrap(), (CursorShape::Underline, true));
 
     let second = mux.new_tab(None, None, None).unwrap();
     let mut second_state = RenderState::new().unwrap();
@@ -540,6 +804,7 @@ fn default_colors_apply_to_existing_and_future_surfaces() {
         second_state.default_colors(),
         (Rgb { r: 0x13, g: 0x14, b: 0x15 }, Rgb { r: 0x01, g: 0x02, b: 0x03 })
     );
+    assert_eq!(second_state.cursor_visual().unwrap(), (CursorShape::Underline, true));
 
     mux.close_surface(first.id);
     mux.close_surface(second.id);
@@ -598,6 +863,7 @@ fn attach_stream_replays_then_streams_without_duplication() {
                         .unwrap();
                 mirror.vt_write(&replay);
             }
+            Ok(AttachFrame::ColorsChanged(_)) => {}
             Err(_) => assert!(Instant::now() < deadline, "stream never delivered output"),
         }
     }
@@ -651,6 +917,7 @@ fn attach_stream_orders_resize_between_output_frames() {
                 break;
             }
             Ok(AttachFrame::Resized { .. }) => panic!("unexpected second resize marker"),
+            Ok(AttachFrame::ColorsChanged(_)) => {}
             Ok(_) => {}
             Err(_) => assert!(Instant::now() < deadline, "after output never arrived"),
         }

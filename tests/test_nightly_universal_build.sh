@@ -28,11 +28,37 @@ if ! awk '
   in_cache && /path: build-universal\/CompilationCache\.noindex/ { saw_path=1 }
   in_cache && /key: xcode-compilation-nightly-/ { saw_key=1 }
   in_cache && /steps\.compilation-cache-key\.outputs\.toolchain/ { saw_toolchain=1 }
-  in_cache && /steps\.compilation-cache-key\.outputs\.utc_week/ { saw_week=1 }
+  in_cache && /needs\.decide\.outputs\.head_sha/ { saw_head_sha=1 }
   in_cache && /restore-keys:/ { saw_restore=1 }
-  END { exit !(saw_path && saw_key && saw_toolchain && saw_week && !saw_restore) }
+  END { exit !(saw_path && saw_key && saw_toolchain && saw_head_sha && saw_restore) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly workflow must use one toolchain-scoped cache per week without stale fallback"
+  echo "FAIL: nightly workflow must roll toolchain-scoped caches forward by source revision"
+  exit 1
+fi
+
+if ! grep -Fq 'cron: "17 */6 * * *"' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly workflow must refresh compilation caches four times daily"
+  exit 1
+fi
+
+if ! awk '
+  /^  refresh-compilation-cache:/ { in_refresh=1; next }
+  in_refresh && /^  [a-zA-Z0-9_-]+:/ { in_refresh=0 }
+  in_refresh && /if: github\.event_name == '\''schedule'\''/ { saw_schedule_gate=1 }
+  in_refresh && /^      - name: Look up Xcode compilation cache/ { saw_lookup=1 }
+  in_refresh && /uses: actions\/cache\/restore@/ { saw_restore_action=1 }
+  in_refresh && /lookup-only: true/ { saw_lookup_only=1 }
+  in_refresh && /^      - name: Cache Xcode compilation results/ { saw_cache=1 }
+  in_refresh && /^      - name: Refresh universal nightly compilation cache/ { saw_refresh=1 }
+  in_refresh && /if: steps\.compilation-cache-lookup\.outputs\.cache-hit != '\''true'\''/ { saw_change_gate=1 }
+  END { exit !(saw_schedule_gate && saw_lookup && saw_restore_action && saw_lookup_only && saw_cache && saw_refresh && saw_change_gate) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: scheduled cache refreshes must use a metadata lookup and skip cache downloads and compilation when main is unchanged"
+  exit 1
+fi
+
+if ! grep -Fq "if: needs.decide.outputs.should_build == 'true' && github.event_name != 'schedule'" "$WORKFLOW_FILE"; then
+  echo "FAIL: scheduled cache refreshes must not sign, notarize, or publish Nightly"
   exit 1
 fi
 

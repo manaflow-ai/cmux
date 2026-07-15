@@ -332,6 +332,14 @@ if "-exportArchive" in args:
     payload_root = export_path / "Payload"
     app = payload_root / "cmux.app"
     write_plist(app / "Info.plist", archived_info)
+    if os.environ.get("CMUX_FAKE_EMBED_FRAMEWORK_WITHOUT_MINIMUM_OS") == "1":
+        write_plist(
+            app / "Frameworks" / "Iroh.framework" / "Info.plist",
+            {{
+                "CFBundleIdentifier": "computer.iroh.Iroh",
+                "CFBundlePackageType": "FMWK",
+            }},
+        )
     profile_marker = "beta profile" if bundle_id == BETA_BUNDLE_ID else "fake profile"
     (app / "embedded.mobileprovision").write_text(profile_marker, encoding="utf-8")
     ipa = export_path / "cmux.ipa"
@@ -627,6 +635,33 @@ def test_upload_beta_lane_uses_beta_marketing_version(tmp: Path, fakebin: Path) 
     _check(
         info.get("CFBundleShortVersionString") == BETA_MARKETING_VERSION,
         "final signed beta IPA keeps the beta marketing version",
+    )
+
+
+def test_upload_rejects_framework_without_minimum_os_version(tmp: Path, fakebin: Path) -> None:
+    env = _base_env(tmp, fakebin)
+    env["CMUX_IOS_UPLOAD_DIR"] = str(tmp / "upload")
+    env["CMUX_FAKE_EMBED_FRAMEWORK_WITHOUT_MINIMUM_OS"] = "1"
+    result = _run(
+        [
+            "bash",
+            str(ROOT / "ios" / "scripts" / "upload-testflight.sh"),
+            "--lane",
+            "beta",
+            "--signing",
+            "manual",
+            "--export-only",
+            "--build-number",
+            "20260710041753",
+        ],
+        env=env,
+        tmp=tmp,
+        log_failure=False,
+    )
+    _check(result.returncode != 0, "upload rejects a framework without MinimumOSVersion")
+    _check(
+        "Iroh.framework is missing MinimumOSVersion" in result.stderr,
+        "framework metadata failure names the malformed framework",
     )
 
 
@@ -1266,6 +1301,9 @@ def main() -> None:
         fakebin = tmp / "bin"
         _install_fake_tools(fakebin)
         test_upload_beta_lane_uses_beta_marketing_version(tmp / "beta-upload-test", fakebin)
+        test_upload_rejects_framework_without_minimum_os_version(
+            tmp / "beta-framework-metadata-test", fakebin
+        )
         test_upload_beta_archive_path_accepts_marketing_version_override(tmp / "beta-archive-override-test", fakebin)
         test_upload_beta_auto_version_uses_checked_in_beta_floor(tmp / "beta-auto-version-test", fakebin)
         test_bump_ios_version_accepts_trailing_appstore_lane(tmp / "version-bump-test", fakebin)

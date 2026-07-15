@@ -3640,6 +3640,20 @@ impl App {
         self.session.split(pane, dir, hint)
     }
 
+    fn terminal_tab_size_hint(&self, pane: Option<PaneId>) -> Option<(u16, u16)> {
+        match pane {
+            Some(pane) => self
+                .pane_areas
+                .iter()
+                .find(|area| area.pane == pane)
+                .and_then(|area| self.size_of_rect(area.rect)),
+            None => self
+                .active_pane()
+                .and_then(|pane| self.terminal_tab_size_hint(Some(pane)))
+                .or_else(|| self.size_of_rect(self.content_area)),
+        }
+    }
+
     fn new_pane_smart(&mut self) -> anyhow::Result<()> {
         let Some((pane, dir)) =
             smart_split_target(&self.pane_areas, self.active_pane(), self.cell_pixels)
@@ -3788,7 +3802,7 @@ impl App {
                     vec![editor, path.to_string_lossy().into_owned()],
                     self.active_pane(),
                     Some(cwd),
-                    None,
+                    self.terminal_tab_size_hint(self.active_pane()),
                 )
             }
             FileCommand::OpenBrowser(path) => self.session.new_browser_tab(
@@ -3981,7 +3995,7 @@ impl App {
         let pane = self.active_pane();
         match action {
             Action::NewTab => {
-                self.session.new_tab(pane, None)?;
+                self.session.new_tab(pane, self.terminal_tab_size_hint(pane))?;
             }
             Action::NewBrowserTab => self.create_browser_tab_for_edit(pane)?,
             Action::NewPaneSmart => self.new_pane_smart()?,
@@ -4315,7 +4329,9 @@ impl App {
                     self.copy_short_id(short_id);
                 }
             }
-            MenuAction::NewTab(id) => self.session.new_tab(Some(id), None)?,
+            MenuAction::NewTab(id) => {
+                self.session.new_tab(Some(id), self.terminal_tab_size_hint(Some(id)))?;
+            }
             MenuAction::NewBrowserTab(id) => self.create_browser_tab_for_edit(Some(id))?,
             MenuAction::SplitRight(id) => self.split_pane(id, SplitDir::Right)?,
             MenuAction::SplitDown(id) => self.split_pane(id, SplitDir::Down)?,
@@ -5581,7 +5597,8 @@ impl App {
                 Hit::NewTab { pane } => {
                     self.focus_pane_after_input(pane);
                     if self.prepare_pty_input_before_mutation() {
-                        self.session.new_tab(Some(pane), None)?;
+                        self.session
+                            .new_tab(Some(pane), self.terminal_tab_size_hint(Some(pane)))?;
                     }
                 }
                 Hit::Scrollbar { surface, track } => {

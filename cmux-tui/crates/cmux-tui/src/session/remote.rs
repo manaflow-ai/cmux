@@ -4,6 +4,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
+use std::net::Shutdown;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Sender, channel};
@@ -376,6 +377,11 @@ impl RemoteSession {
                 "unsupported cmux-tui protocol {protocol}; this client requires protocol 7; restart the cmux-tui server"
             );
         }
+        let mut client_info = json!({"cmd": "set-client-info", "kind": "tui"});
+        if let Some(hostname) = local_hostname() {
+            client_info["name"] = json!(hostname);
+        }
+        session.request(client_info)?;
         session.request(json!({"cmd": "subscribe"}))?;
         Ok(session)
     }
@@ -672,7 +678,7 @@ impl RemoteSession {
         self.pending.lock().unwrap().insert(id, tx);
         let mut writer = self.writer.lock().unwrap();
         if let Err(err) = writer.write_all(&line) {
-            let _ = writer.shutdown();
+            let _ = writer.shutdown(Shutdown::Both);
             drop(writer);
             self.pending.lock().unwrap().remove(&id);
             return Err(RemoteRequestError::Transport(err).into());
@@ -912,6 +918,32 @@ impl RemoteSession {
     pub fn tree_is_stale(&self) -> bool {
         self.tree_stale.load(Ordering::Acquire)
     }
+}
+
+fn local_hostname() -> Option<String> {
+    for name in ["HOSTNAME", "COMPUTERNAME"] {
+        if let Some(value) = std::env::var_os(name).and_then(|value| value.into_string().ok())
+            && !value.is_empty()
+        {
+            return Some(value);
+        }
+    }
+
+    #[cfg(unix)]
+    {
+        use std::ffi::CStr;
+
+        let mut buffer = [0 as libc::c_char; 256];
+        if unsafe { libc::gethostname(buffer.as_mut_ptr(), buffer.len() - 1) } == 0 {
+            let hostname =
+                unsafe { CStr::from_ptr(buffer.as_ptr()) }.to_string_lossy().into_owned();
+            if !hostname.is_empty() {
+                return Some(hostname);
+            }
+        }
+    }
+
+    None
 }
 
 impl Drop for RemoteSession {

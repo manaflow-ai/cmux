@@ -15,7 +15,7 @@ use std::sync::mpsc::{
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
-use ghostty_vt::{Callbacks, RenderState, Rgb, Terminal};
+use ghostty_vt::{Callbacks, CursorShape, RenderState, Rgb, Terminal};
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 
 use crate::platform;
@@ -93,6 +93,44 @@ impl Default for SurfaceOptions {
 pub struct DefaultColors {
     pub fg: Option<Rgb>,
     pub bg: Option<Rgb>,
+    pub cursor_style: Option<CursorShape>,
+    pub cursor_blink: Option<bool>,
+}
+
+/// Effective colors exposed to attached terminal clients.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct TerminalColors {
+    pub fg: Option<Rgb>,
+    pub bg: Option<Rgb>,
+    pub cursor: Option<Rgb>,
+    pub selection_bg: Option<Rgb>,
+    pub selection_fg: Option<Rgb>,
+    pub cursor_style: Option<CursorShape>,
+    pub cursor_blink: Option<bool>,
+}
+
+impl TerminalColors {
+    fn from_terminal(term: &mut Terminal, defaults: DefaultColors) -> Self {
+        let (fg, bg, cursor) = term.effective_colors();
+        let cursor_visual = term.cursor_overridden().then(|| {
+            RenderState::new()
+                .and_then(|mut state| {
+                    state.update(term)?;
+                    state.cursor_visual()
+                })
+                .ok()
+        });
+        let cursor_visual = cursor_visual.flatten();
+        TerminalColors {
+            fg,
+            bg,
+            cursor,
+            selection_bg: None,
+            selection_fg: None,
+            cursor_style: cursor_visual.map(|(style, _)| style).or(defaults.cursor_style),
+            cursor_blink: cursor_visual.map(|(_, blink)| blink).or(defaults.cursor_blink),
+        }
+    }
 }
 
 /// Everything an attaching frontend needs to adopt a PTY surface: its
@@ -102,6 +140,7 @@ pub struct AttachStream {
     pub cols: u16,
     pub rows: u16,
     pub replay: Vec<u8>,
+    pub colors: TerminalColors,
     pub stream: AttachFrameReceiver,
     pub(crate) lifecycle: AttachLifecycle,
 }
@@ -110,6 +149,7 @@ pub struct AttachStream {
 pub enum AttachFrame {
     Output(Vec<u8>),
     Resized { cols: u16, rows: u16, replay: Vec<u8> },
+    ColorsChanged(TerminalColors),
 }
 
 const ATTACH_STREAM_CAPACITY: usize = 256;
@@ -151,6 +191,7 @@ impl AttachFrame {
             + match self {
                 Self::Output(bytes) => bytes.capacity(),
                 Self::Resized { replay, .. } => replay.capacity(),
+                Self::ColorsChanged(_) => 0,
             }
     }
 }
@@ -378,6 +419,7 @@ impl Surface {
         if let Some(mux) = mux.upgrade() {
             let colors = mux.default_colors();
             term.set_default_colors(colors.fg, colors.bg);
+            term.set_default_cursor(colors.cursor_style, colors.cursor_blink);
         }
         let surface = Arc::new(Surface::Pty(PtySurface {
             meta: SurfaceMeta { id, name: Mutex::new(None), selection: Mutex::new(None) },
@@ -490,6 +532,7 @@ impl Surface {
         if let Some(mux) = mux.upgrade() {
             let colors = mux.default_colors();
             term.set_default_colors(colors.fg, colors.bg);
+            term.set_default_cursor(colors.cursor_style, colors.cursor_blink);
         }
 
         Ok(Arc::new(Surface::Pty(PtySurface {
@@ -608,7 +651,14 @@ impl Surface {
 
     pub fn set_default_colors(&self, colors: DefaultColors) {
         if let Some(pty) = self.as_pty() {
-            pty.term.lock().unwrap().set_default_colors(colors.fg, colors.bg);
+            let mut term = pty.term.lock().unwrap();
+            term.set_default_colors(colors.fg, colors.bg);
+            term.set_default_cursor(colors.cursor_style, colors.cursor_blink);
+            let colors = TerminalColors::from_terminal(&mut term, colors);
+            let mut taps = pty.taps.lock().unwrap();
+            if !taps.is_empty() {
+                taps.retain(|tap| tap.try_send(AttachFrame::ColorsChanged(colors)));
+            }
             pty.dirty.store(true, Ordering::Release);
         }
     }
@@ -726,6 +776,8 @@ impl Surface {
         // the reader thread cannot apply bytes between the two.
         let replay = term.vt_replay_bounded(VT_REPLAY_MAX_BYTES)?;
         let (cols, rows) = (term.cols(), term.rows());
+        let defaults = pty.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
+        let colors = TerminalColors::from_terminal(&mut term, defaults);
         pty.taps.lock().unwrap().push(AttachTap {
             sender: tx,
             lifecycle: lifecycle.clone(),
@@ -736,6 +788,7 @@ impl Surface {
             cols,
             rows,
             replay,
+            colors,
             stream: AttachFrameReceiver { receiver: rx, queued_bytes },
             lifecycle,
         })

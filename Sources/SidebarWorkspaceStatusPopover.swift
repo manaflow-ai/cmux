@@ -20,6 +20,7 @@ struct WorkspaceTodoStatusLane: Equatable, Identifiable {
 
     var id: String { isNone ? "none" : (status?.rawValue ?? "auto") }
 }
+
 extension WorkspaceTodoStatusLane {
     /// The ordered lane list: Auto first, then the five status lanes, then None.
     ///
@@ -264,3 +265,4 @@ struct SidebarWorkspaceStatusPopover: View {
         return true
     }
 }
+
