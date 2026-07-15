@@ -25,12 +25,13 @@ internal import Foundation
 /// fire the legacy `cancel()` covered. Delays are identical (whole seconds,
 /// converted to milliseconds exactly).
 public final class RemoteProxyBroker: @unchecked Sendable {
-    private final class Entry {
-        let configuration: WorkspaceRemoteConfiguration
+    private final class Entry: @unchecked Sendable {
+        var configuration: WorkspaceRemoteConfiguration
         var remotePath: String
         var tunnel: (any RemoteProxyTunneling)?
         var endpoint: BrowserProxyEndpoint?
         var restartTask: Task<Void, Never>?
+        var endpointRefreshTask: Task<Void, Never>?
         var restartToken: UUID?
         var restartRetryCount = 0
         var ptyLifecycleSnapshot: RemotePTYLifecycleSnapshot?
@@ -44,6 +45,7 @@ public final class RemoteProxyBroker: @unchecked Sendable {
     }
 
     private let tunnelProvider: any RemoteProxyTunnelProviding
+    private let endpointRefresher: (any ManagedCloudDaemonEndpointRefreshing)?
     private let clock: any RemoteProxyRetryClock
     private let queue = DispatchQueue(label: "com.cmux.remote-ssh.proxy-broker", qos: .utility)
     private var entries: [String: Entry] = [:]
@@ -61,9 +63,11 @@ public final class RemoteProxyBroker: @unchecked Sendable {
     ///     default: the continuous clock).
     public init(
         tunnelProvider: any RemoteProxyTunnelProviding,
+        endpointRefresher: (any ManagedCloudDaemonEndpointRefreshing)? = nil,
         clock: any RemoteProxyRetryClock = SystemRemoteProxyRetryClock()
     ) {
         self.tunnelProvider = tunnelProvider
+        self.endpointRefresher = endpointRefresher
         self.clock = clock
     }
 
@@ -80,6 +84,9 @@ public final class RemoteProxyBroker: @unchecked Sendable {
             let entry: Entry
             if let existing = entries[key] {
                 entry = existing
+                if Self.shouldAdoptRenewedConfiguration(existing: existing.configuration, candidate: configuration) {
+                    existing.configuration = configuration
+                }
                 if existing.remotePath != remotePath {
                     existing.remotePath = remotePath
                     existing.restartRetryCount = 0
@@ -416,7 +423,63 @@ public final class RemoteProxyBroker: @unchecked Sendable {
             return
         }
         notifyLocked(entry, update: .connecting)
-        startEntryLocked(key: key, entry: entry)
+        if shouldRefreshEndpoint(entry.configuration) {
+            refreshEndpointLocked(key: key, entry: entry)
+        } else {
+            startEntryLocked(key: key, entry: entry)
+        }
+    }
+
+    private func shouldRefreshEndpoint(_ configuration: WorkspaceRemoteConfiguration) -> Bool {
+        endpointRefresher != nil &&
+            configuration.managedCloudVMID != nil &&
+            configuration.daemonWebSocketEndpoint != nil
+    }
+
+    private func refreshEndpointLocked(key: String, entry: Entry) {
+        guard entry.endpointRefreshTask == nil,
+              let endpointRefresher,
+              let managedCloudVMID = entry.configuration.managedCloudVMID else {
+            startEntryLocked(key: key, entry: entry)
+            return
+        }
+        entry.endpointRefreshTask = Task { [weak self, weak entry] in
+            let result: Result<WorkspaceRemoteWebSocketDaemonEndpoint, any Error>
+            do {
+                result = .success(try await endpointRefresher.refreshDaemonEndpoint(managedCloudVMID: managedCloudVMID))
+            } catch {
+                result = .failure(error)
+            }
+            guard let self, let entry else { return }
+            self.queue.async {
+                self.finishEndpointRefreshLocked(key: key, entry: entry, result: result)
+            }
+        }
+    }
+
+    private func finishEndpointRefreshLocked(
+        key: String,
+        entry: Entry,
+        result: Result<WorkspaceRemoteWebSocketDaemonEndpoint, any Error>
+    ) {
+        guard entries[key] === entry else { return }
+        entry.endpointRefreshTask = nil
+        guard !entry.subscribers.isEmpty else {
+            teardownEntryLocked(key: key, entry: entry)
+            return
+        }
+        switch result {
+        case .success(let endpoint):
+            entry.configuration = entry.configuration.replacingDaemonWebSocketEndpoint(endpoint)
+            startEntryLocked(key: key, entry: entry)
+        case .failure(let error):
+            let retryDelay = Self.retryDelay(baseDelay: 3.0, retry: entry.restartRetryCount + 1)
+            notifyLocked(
+                entry,
+                update: .error("Failed to refresh cloud daemon connection: \(error.localizedDescription)\(Self.retrySuffix(delay: retryDelay))")
+            )
+            scheduleRestartLocked(key: key, entry: entry, baseDelay: 3.0)
+        }
     }
 
     private func cancelRestartLocked(_ entry: Entry) {
@@ -427,6 +490,8 @@ public final class RemoteProxyBroker: @unchecked Sendable {
 
     private func teardownEntryLocked(key: String, entry: Entry) {
         cancelRestartLocked(entry)
+        entry.endpointRefreshTask?.cancel()
+        entry.endpointRefreshTask = nil
         stopEntryRuntimeLocked(entry, preservePTYLifecycle: false)
         entries.removeValue(forKey: key)
         ptyLifecycleOwnership.removeAll(forTransportKey: key)
@@ -453,6 +518,18 @@ public final class RemoteProxyBroker: @unchecked Sendable {
 
     private static func transportKey(for configuration: WorkspaceRemoteConfiguration) -> String {
         configuration.proxyBrokerTransportKey
+    }
+
+    private static func shouldAdoptRenewedConfiguration(
+        existing: WorkspaceRemoteConfiguration,
+        candidate: WorkspaceRemoteConfiguration
+    ) -> Bool {
+        guard existing.managedCloudVMID != nil,
+              existing.hasSamePersistentPTYIdentity(as: candidate),
+              let candidateEndpoint = candidate.daemonWebSocketEndpoint else {
+            return false
+        }
+        return candidateEndpoint.expiresAtUnix > (existing.daemonWebSocketEndpoint?.expiresAtUnix ?? 0)
     }
 
     private static func ptyTunnelNotReadyError() -> NSError {

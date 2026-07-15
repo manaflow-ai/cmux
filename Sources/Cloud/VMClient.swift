@@ -1,4 +1,6 @@
 import CmuxAuthRuntime
+import CmuxCore
+import CmuxRemoteWorkspace
 import Foundation
 
 enum VMClientError: Error, CustomStringConvertible {
@@ -339,6 +341,34 @@ struct VMWebSocketDaemonEndpoint {
 enum VMAttachEndpoint {
     case ssh(VMSSHEndpoint)
     case websocket(VMWebSocketPtyEndpoint)
+}
+
+struct VMClientRemoteDaemonEndpointRefresher: ManagedCloudDaemonEndpointRefreshing {
+    func refreshDaemonEndpoint(
+        managedCloudVMID: String
+    ) async throws -> WorkspaceRemoteWebSocketDaemonEndpoint {
+        guard let client = await MainActor.run(body: { VMClient.shared }) else {
+            throw VMClientError.malformedResponse("Cloud VM client is not initialized.")
+        }
+        let attach = try await client.openAttach(id: managedCloudVMID, requireDaemon: true)
+        let daemon: VMWebSocketDaemonEndpoint?
+        switch attach {
+        case .ssh(let endpoint):
+            daemon = endpoint.daemon
+        case .websocket(let endpoint):
+            daemon = endpoint.daemon
+        }
+        guard let daemon else {
+            throw VMClientError.malformedResponse("Cloud VM attach response did not include a daemon endpoint.")
+        }
+        return WorkspaceRemoteWebSocketDaemonEndpoint(
+            url: daemon.url,
+            headers: daemon.headers,
+            token: daemon.token,
+            sessionId: daemon.sessionId,
+            expiresAtUnix: daemon.expiresAtUnix
+        )
+    }
 }
 
 /// Talks to the manaflow cloud VM backend at `/api/vm/*`. Stack Auth tokens come from

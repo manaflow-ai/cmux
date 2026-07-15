@@ -196,7 +196,12 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         let normalizedIdentity = Self.normalizedIdentityPath(identityFile) ?? ""
         let normalizedLocalProxyPort = localProxyPort.map(String.init) ?? ""
         let normalizedOptions = Self.proxyBrokerSSHOptions(sshOptions).joined(separator: "\u{1f}")
-        let normalizedWebSocketDaemon = daemonWebSocketEndpoint?.proxyBrokerKeyComponent ?? ""
+        // Managed cloud credentials are renewable leases, not transport
+        // identity. Keep their URL/token/expiry out of the broker key so a
+        // replacement lease can take over the existing tunnel lifecycle.
+        let normalizedWebSocketDaemon = managedCloudVMID == nil
+            ? daemonWebSocketEndpoint?.proxyBrokerKeyComponent ?? ""
+            : ""
         let normalizedRequiredCapabilities = preserveAfterTerminalExit ? "pty.session" : ""
         let normalizedPersistentDaemonSlot = persistentDaemonSlot ?? ""
         let normalizedOwnerWorkspaceID = proxyBrokerOwnerWorkspaceKeyComponent
@@ -243,7 +248,8 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             && Self.normalizedIdentityPath(identityFile)
                 == Self.normalizedIdentityPath(other.identityFile)
             && Self.proxyBrokerSSHOptions(sshOptions) == Self.proxyBrokerSSHOptions(other.sshOptions)
-            && daemonWebSocketEndpoint?.proxyBrokerKeyComponent == other.daemonWebSocketEndpoint?.proxyBrokerKeyComponent
+            && (managedCloudVMID != nil ||
+                daemonWebSocketEndpoint?.proxyBrokerKeyComponent == other.daemonWebSocketEndpoint?.proxyBrokerKeyComponent)
     }
 
     /// Returns a copy scoped to the local workspace that owns this remote
@@ -267,6 +273,34 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             foregroundAuthToken: foregroundAuthToken,
             agentSocketPath: agentSocketPath,
             daemonWebSocketEndpoint: daemonWebSocketEndpoint,
+            preserveAfterTerminalExit: preserveAfterTerminalExit,
+            persistentDaemonSlot: persistentDaemonSlot,
+            skipDaemonBootstrap: skipDaemonBootstrap
+        )
+    }
+
+    /// Returns the same durable remote identity with a replacement short-lived
+    /// daemon WebSocket lease.
+    public func replacingDaemonWebSocketEndpoint(
+        _ endpoint: WorkspaceRemoteWebSocketDaemonEndpoint
+    ) -> WorkspaceRemoteConfiguration {
+        WorkspaceRemoteConfiguration(
+            transport: transport,
+            destination: destination,
+            port: port,
+            identityFile: identityFile,
+            sshOptions: sshOptions,
+            localProxyPort: localProxyPort,
+            relayPort: relayPort,
+            relayID: relayID,
+            relayToken: relayToken,
+            localSocketPath: localSocketPath,
+            ownerWorkspaceID: ownerWorkspaceID,
+            managedCloudVMID: managedCloudVMID,
+            terminalStartupCommand: terminalStartupCommand,
+            foregroundAuthToken: foregroundAuthToken,
+            agentSocketPath: agentSocketPath,
+            daemonWebSocketEndpoint: endpoint,
             preserveAfterTerminalExit: preserveAfterTerminalExit,
             persistentDaemonSlot: persistentDaemonSlot,
             skipDaemonBootstrap: skipDaemonBootstrap

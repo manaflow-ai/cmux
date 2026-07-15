@@ -351,7 +351,8 @@ class TerminalController {
             maximumConcurrentClaims: 32
         ),
         remoteProxyBroker: any RemoteProxyBrokering = RemoteProxyBroker(
-            tunnelProvider: RemoteDaemonProxyTunnelProvider(strings: .appLocalized, ptyBridgeStrings: AppRemotePTYBridgeStrings())
+            tunnelProvider: RemoteDaemonProxyTunnelProvider(strings: .appLocalized, ptyBridgeStrings: AppRemotePTYBridgeStrings()),
+            endpointRefresher: VMClientRemoteDaemonEndpointRefresher()
         )
     ) {
         self.passwordStore = passwordStore
