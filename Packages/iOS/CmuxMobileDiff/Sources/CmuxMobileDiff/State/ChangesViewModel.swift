@@ -1,6 +1,7 @@
 internal import CmuxMobileRPC
 internal import Foundation
 internal import Observation
+internal import os
 
 #if canImport(UIKit)
 internal import UIKit
@@ -23,6 +24,7 @@ final class ChangesViewModel {
     private var highlightTasks: [String: Task<Void, Never>] = [:]
     private var highlightScheme: DiffHighlightScheme = .light
     private var loadGeneration: UInt64 = 0
+    private let logger = Logger(subsystem: "dev.cmux.ios", category: "changes")
     private(set) var isLoadingSummary = false
     private(set) var ignoresWhitespace = false
     private(set) var error: ChangesErrorSnapshot?
@@ -121,6 +123,7 @@ final class ChangesViewModel {
             guard generation == loadGeneration else { return }
             isLoadingSummary = false
         } catch {
+            logger.error("summary load failed base=\(requestedBase.kind.rawValue, privacy: .public) error=\(String(describing: error), privacy: .public)")
             guard generation == loadGeneration else { return }
             isLoadingSummary = false
             self.error = errorSnapshot(error)
@@ -240,6 +243,7 @@ final class ChangesViewModel {
                 fileStates[path] = cancelled
             }
         } catch {
+            logger.error("file load failed path=\(path, privacy: .public) error=\(String(describing: error), privacy: .public)")
             guard generation == loadGeneration else { return }
             if var failed = fileStates[path] {
                 failed.isLoading = false
@@ -274,6 +278,7 @@ final class ChangesViewModel {
             fileStates[path] = current
             startHighlighting(path: path)
         } catch {
+            logger.error("context expansion failed path=\(path, privacy: .public) range=\(String(describing: plan.requestedRange), privacy: .public) error=\(String(describing: error), privacy: .public)")
             guard generation == loadGeneration else { return }
             guard var current = fileStates[path] else { return }
             current.errorMessage = String(localized: "diff.error.context", defaultValue: "Couldn’t expand context. Try again.", bundle: .module)
