@@ -7,17 +7,28 @@ import Foundation
 /// Safari itself consults — so anything the user installed via an app bundle
 /// (Bitwarden, 1Password, AdGuard, …) is found without configuration.
 actor BrowserWebExtensionDiscoveryService {
+    typealias PluginkitRunner = @Sendable () async throws -> String
+
     private static let pluginkitURL = URL(fileURLWithPath: "/usr/bin/pluginkit")
     private static let pluginkitTimeout: TimeInterval = 10
+    private let pluginkitRunner: PluginkitRunner?
     private var activePluginkitProcess: Process?
     private var activePluginkitStdout: Pipe?
     private var activePluginkitTimeoutTimer: DispatchSourceTimer?
     private var activePluginkitDidTimeOut = false
 
+    init(pluginkitRunner: PluginkitRunner? = nil) {
+        self.pluginkitRunner = pluginkitRunner
+    }
+
     func discoverInstalledSafariExtensions() async -> [BrowserWebExtensionCandidate] {
         let output: String
         do {
-            output = try await runPluginkit()
+            if let pluginkitRunner {
+                output = try await pluginkitRunner()
+            } else {
+                output = try await runPluginkit()
+            }
         } catch {
             return []
         }
