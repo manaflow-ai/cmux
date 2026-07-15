@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import CmuxIrohTransport
 import CmuxSettings
+import Darwin
 import Foundation
 import Testing
 
@@ -10,6 +11,7 @@ import Testing
 @testable import cmux
 #endif
 
+@Suite(.serialized)
 struct MobileHostServiceSettingsTests {
     @Test func mobileHostListenerDefaultsOffUntilIOSPairingIsEnabled() throws {
         let suiteName = "MobileHostServiceSettingsTests.\(UUID().uuidString)"
@@ -29,9 +31,51 @@ struct MobileHostServiceSettingsTests {
         let suiteName = "MobileHostServiceSettingsTests.Port.Default.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
+        Self.withoutLaunchTag {
+            let expected = SettingCatalog().mobile.iOSPairingPort.defaultValue
+            #expect(MobileHostService.configuredPort(defaults: defaults) == expected)
+        }
+    }
 
-        let expected = SettingCatalog().mobile.iOSPairingPort.defaultValue
-        #expect(MobileHostService.configuredPort(defaults: defaults) == expected)
+    #if DEBUG
+    @Test func configuredPortUsesStableTagDerivedDefaultWhenUnset() throws {
+        let suiteName = "MobileHostServiceSettingsTests.Port.Tagged.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let catalogDefault = SettingCatalog().mobile.iOSPairingPort.defaultValue
+        let nodivs = Self.withLaunchTag("nodivs") {
+            MobileHostService.configuredPort(defaults: defaults)
+        }
+        let nodivsRelaunch = Self.withLaunchTag("nodivs") {
+            MobileHostService.configuredPort(defaults: defaults)
+        }
+        let wtodo = Self.withLaunchTag("wtodo") {
+            MobileHostService.configuredPort(defaults: defaults)
+        }
+
+        #expect(nodivs == nodivsRelaunch)
+        #expect(nodivs != catalogDefault)
+        #expect(wtodo != catalogDefault)
+        #expect(nodivs != wtodo)
+        #expect((49_152...65_535).contains(nodivs))
+        #expect((49_152...65_535).contains(wtodo))
+        Self.withLaunchTag("wtodo") {
+            #expect(MobileHostService.resolvedDesiredPort(defaults: defaults) == wtodo)
+        }
+    }
+    #endif
+
+    @Test func configuredPortHonorsValidOverrideEvenWhenTagged() throws {
+        let suiteName = "MobileHostServiceSettingsTests.Port.Valid.Tagged.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(9000, forKey: MobileHostService.portDefaultsKey)
+        Self.withLaunchTag("nodivs") {
+            #expect(MobileHostService.configuredPort(defaults: defaults) == 9000)
+            #expect(MobileHostService.resolvedDesiredPort(defaults: defaults) == 9000)
+        }
     }
 
     @Test func configuredPortHonorsValidOverride() throws {
@@ -107,6 +151,35 @@ struct MobileHostServiceSettingsTests {
         #expect(MobileHostService.syncDecision(enabled: true, listenerRunning: true, desiredPort: 9000, appliedPort: 58465) == .restart)
         // Running but the applied port is unknown: restart to reconcile.
         #expect(MobileHostService.syncDecision(enabled: true, listenerRunning: true, desiredPort: 58465, appliedPort: nil) == .restart)
+    }
+
+    private static func withLaunchTag<T>(_ tag: String, _ body: () throws -> T) rethrows -> T {
+        try withEnvironmentValue(SocketControlSettings.launchTagEnvKey, value: tag, body)
+    }
+
+    private static func withoutLaunchTag<T>(_ body: () throws -> T) rethrows -> T {
+        try withEnvironmentValue(SocketControlSettings.launchTagEnvKey, value: nil, body)
+    }
+
+    private static func withEnvironmentValue<T>(
+        _ key: String,
+        value: String?,
+        _ body: () throws -> T
+    ) rethrows -> T {
+        let previous = getenv(key).map { String(cString: $0) }
+        if let value {
+            setenv(key, value, 1)
+        } else {
+            unsetenv(key)
+        }
+        defer {
+            if let previous {
+                setenv(key, previous, 1)
+            } else {
+                unsetenv(key)
+            }
+        }
+        return try body()
     }
 }
 
