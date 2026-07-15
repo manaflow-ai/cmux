@@ -2,6 +2,8 @@ public import CoreGraphics
 
 /// The AppKit frame/bounds projection for a logical browser viewport.
 public struct BrowserViewportLayout: Equatable, Sendable {
+    private static let emulatedViewportPrecisionBias: CGFloat = 0.000_001
+
     /// How the WebView derives its logical viewport.
     public enum Mode: String, Equatable, Sendable {
         /// The logical viewport follows the native pane geometry.
@@ -74,8 +76,14 @@ public struct BrowserViewportLayout: Equatable, Sendable {
         webViewBounds = CGRect(
             origin: .zero,
             size: CGSize(
-                width: viewport.size.width * resolvedPageZoom,
-                height: viewport.size.height * resolvedPageZoom
+                width: Self.emulatedWebViewDimension(
+                    viewport.size.width,
+                    pageZoom: resolvedPageZoom
+                ),
+                height: Self.emulatedWebViewDimension(
+                    viewport.size.height,
+                    pageZoom: resolvedPageZoom
+                )
             )
         )
 
@@ -103,5 +111,20 @@ public struct BrowserViewportLayout: Equatable, Sendable {
             height: displaySize.height
         )
         scale = resolvedScale
+    }
+
+    private static func emulatedWebViewDimension(
+        _ cssDimension: CGFloat,
+        pageZoom: Double
+    ) -> CGFloat {
+        let scaledDimension = cssDimension * pageZoom
+        guard pageZoom != 1 else { return scaledDimension }
+
+        // WebKit floors the raw AppKit bounds after dividing by pageZoom. AppKit can
+        // round an exactly scaled bound one ULP downward while mapping the aspect-fit
+        // host (for example, 1280 * 1.1 becomes 1407.9999999999998), which otherwise
+        // drops the logical viewport to 1279 CSS pixels. This sub-point headroom is
+        // many orders of magnitude below one CSS pixel at every supported page zoom.
+        return scaledDimension + emulatedViewportPrecisionBias
     }
 }

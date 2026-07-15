@@ -36,9 +36,25 @@ struct BrowserViewportLayoutTests {
         ))
 
         #expect(layout.bounds == CGRect(x: 0, y: 0, width: 1_280, height: 720))
-        #expect(layout.webViewBounds == CGRect(x: 0, y: 0, width: 1_600, height: 900))
+        #expect(abs(layout.webViewBounds.width - 1_600) < 0.000_01)
+        #expect(abs(layout.webViewBounds.height - 900) < 0.000_01)
         #expect(layout.frame == CGRect(x: 0, y: 75, width: 800, height: 450))
         #expect(layout.scale == 0.625)
+    }
+
+    @Test func emulatedPageZoomSurvivesDownwardAppKitRounding() throws {
+        let viewport = try #require(BrowserViewport(width: 1_280, height: 720))
+        let pageZoom = 1.1
+        let layout = try #require(BrowserViewportLayout(
+            containerBounds: CGRect(x: 0, y: 0, width: 380, height: 610),
+            viewport: viewport,
+            pageZoom: pageZoom
+        ))
+
+        let appKitRoundedWidth = layout.webViewBounds.width.nextDown
+        let appKitRoundedHeight = layout.webViewBounds.height.nextDown
+        #expect(Int((appKitRoundedWidth / pageZoom).rounded(.down)) == 1_280)
+        #expect(Int((appKitRoundedHeight / pageZoom).rounded(.down)) == 720)
     }
 
     @Test(arguments: [0.0, -Double.infinity, Double.infinity, Double.nan])
