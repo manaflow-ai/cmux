@@ -276,6 +276,7 @@ export class CmuxClient {
   private readonly streamTransportFactory?: () => Transport;
   private nextRequestId = 1;
   private protocol: number | null = null;
+  private sharedSubscriptionActive = false;
 
   constructor(options: CmuxClientOptions) {
     this.transport = options.transport;
@@ -398,6 +399,7 @@ export class CmuxClient {
       (event, dedicated) => dedicated
         || (!this.attachOnlyEvent(event.event) && !this.isSurfaceOverflow(event)),
       (event) => event.event === "overflow" && !this.isSurfaceOverflow(event),
+      true,
     );
   }
 
@@ -445,8 +447,17 @@ export class CmuxClient {
     map: (event: UnknownEvent) => T,
     accept: (event: UnknownEvent, dedicated: boolean) => boolean,
     terminal: (event: T) => boolean = () => false,
+    exclusiveSharedSubscription = false,
   ): Promise<CmuxStream<T>> {
     const dedicated = this.streamTransportFactory !== undefined;
+    if (exclusiveSharedSubscription && !dedicated) {
+      if (this.sharedSubscriptionActive) {
+        throw new CmuxProtocolError(
+          "concurrent subscriptions require streamTransportFactory",
+        );
+      }
+      this.sharedSubscriptionActive = true;
+    }
     const transport = this.streamTransportFactory?.() ?? this.transport;
     const router = dedicated ? new MessageRouter(transport) : this.router;
     let eventSubscription: Unsubscribe = () => undefined;
@@ -454,6 +465,9 @@ export class CmuxClient {
     const stream = new CmuxStream<T>(this.timeoutMs, () => {
       eventSubscription();
       terminalSubscription();
+      if (exclusiveSharedSubscription && !dedicated) {
+        this.sharedSubscriptionActive = false;
+      }
       if (dedicated) transport.close();
     });
     eventSubscription = router.onEvent((event) => {

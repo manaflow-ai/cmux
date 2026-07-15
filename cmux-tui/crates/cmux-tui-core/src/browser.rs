@@ -165,6 +165,7 @@ enum BrowserCommand {
     Reconfigure {
         cols: u16,
         rows: u16,
+        report: Option<Box<dyn FnOnce(bool) + Send>>,
     },
     #[cfg(test)]
     Hold {
@@ -186,6 +187,14 @@ impl BrowserCommand {
 
     fn is_mouse_move(&self) -> bool {
         matches!(self, BrowserCommand::Mouse { event_type, .. } if event_type == "mouseMoved")
+    }
+}
+
+fn reject_reconfigure(mut command: BrowserCommand) {
+    if let BrowserCommand::Reconfigure { report, .. } = &mut command
+        && let Some(report) = report.take()
+    {
+        report(false);
     }
 }
 
@@ -218,7 +227,6 @@ pub struct BrowserSurface {
     cell_pixels: Mutex<(u16, u16)>,
     capture_options: BrowserCaptureOptions,
     command_tx: Mutex<Option<SyncSender<BrowserCommand>>>,
-    latest_reconfigure: Arc<Mutex<Option<BrowserCommand>>>,
     latest_nav: Arc<Mutex<Option<BrowserCommand>>>,
     #[cfg(test)]
     worker_done: Mutex<Option<Receiver<()>>>,
@@ -393,7 +401,6 @@ pub(crate) fn new_surface(
     let capture_scale = capture_scale_for(pixel_w, pixel_h, capture_options);
     let capture_pixels = scaled_pixels(pixel_w, pixel_h, capture_scale);
     let (command_tx, command_rx) = sync_channel(BROWSER_COMMAND_QUEUE_CAPACITY);
-    let latest_reconfigure = Arc::new(Mutex::new(None));
     let latest_nav = Arc::new(Mutex::new(None));
     #[cfg(test)]
     let (worker_done_tx, worker_done_rx) = std::sync::mpsc::channel();
@@ -429,19 +436,11 @@ pub(crate) fn new_surface(
         cell_pixels: Mutex::new((cell_w, cell_h)),
         capture_options,
         command_tx: Mutex::new(Some(command_tx)),
-        latest_reconfigure: latest_reconfigure.clone(),
         latest_nav: latest_nav.clone(),
         #[cfg(test)]
         worker_done: Mutex::new(Some(worker_done_rx)),
     }));
-    start_browser_worker(
-        surface.clone(),
-        command_rx,
-        latest_reconfigure,
-        latest_nav,
-        mux,
-        worker_done_tx,
-    );
+    start_browser_worker(surface.clone(), command_rx, latest_nav, mux, worker_done_tx);
     surface
 }
 
@@ -726,7 +725,6 @@ fn start_surface_thread(
 fn start_browser_worker(
     surface: Arc<Surface>,
     rx: Receiver<BrowserCommand>,
-    latest_reconfigure: Arc<Mutex<Option<BrowserCommand>>>,
     latest_nav: Arc<Mutex<Option<BrowserCommand>>>,
     mux: Weak<Mux>,
     done_tx: Option<Sender<()>>,
@@ -743,15 +741,14 @@ fn start_browser_worker(
                 coalesce_worker_mouse_moves(&mut batch);
                 for command in batch {
                     if matches!(command, BrowserCommand::WakeLatest) {
-                        for command in take_latest_worker_commands(&latest_reconfigure, &latest_nav)
-                        {
+                        if let Some(command) = take_latest_worker_commands(&latest_nav) {
                             run_browser_worker_command(&surface, command, &mux, id, &mut failures);
                         }
                     } else {
                         run_browser_worker_command(&surface, command, &mux, id, &mut failures);
                     }
                 }
-                for command in take_latest_worker_commands(&latest_reconfigure, &latest_nav) {
+                if let Some(command) = take_latest_worker_commands(&latest_nav) {
                     run_browser_worker_command(&surface, command, &mux, id, &mut failures);
                 }
             }
@@ -762,12 +759,9 @@ fn start_browser_worker(
 }
 
 fn take_latest_worker_commands(
-    latest_reconfigure: &Arc<Mutex<Option<BrowserCommand>>>,
     latest_nav: &Arc<Mutex<Option<BrowserCommand>>>,
-) -> Vec<BrowserCommand> {
-    let reconfigure = latest_reconfigure.lock().unwrap().take();
-    let nav = latest_nav.lock().unwrap().take();
-    reconfigure.into_iter().chain(nav).collect()
+) -> Option<BrowserCommand> {
+    latest_nav.lock().unwrap().take()
 }
 
 fn coalesce_worker_mouse_moves(batch: &mut Vec<BrowserCommand>) {
@@ -783,15 +777,20 @@ fn coalesce_worker_mouse_moves(batch: &mut Vec<BrowserCommand>) {
 
 fn run_browser_worker_command(
     surface: &Surface,
-    command: BrowserCommand,
+    mut command: BrowserCommand,
     mux: &Weak<Mux>,
     id: SurfaceId,
     failures: &mut BrowserWorkerErrorState,
 ) {
+    if let BrowserCommand::Reconfigure { report, .. } = &mut command
+        && let Some(report) = report.take()
+    {
+        report(true);
+    }
     let is_input = command.is_input();
     let is_reconfigure = matches!(command, BrowserCommand::Reconfigure { .. });
     let reconfigure_size = match &command {
-        BrowserCommand::Reconfigure { cols, rows } => Some((*cols, *rows)),
+        BrowserCommand::Reconfigure { cols, rows, .. } => Some((*cols, *rows)),
         _ => None,
     };
     let mut resize_changed = false;
@@ -826,7 +825,7 @@ fn run_browser_worker_command(
             BrowserCommand::Forward => browser.forward_blocking(),
             BrowserCommand::Reload => browser.reload_blocking(),
             BrowserCommand::Activate => browser.activate_blocking(),
-            BrowserCommand::Reconfigure { cols, rows } => {
+            BrowserCommand::Reconfigure { cols, rows, .. } => {
                 browser.reconfigure_resize_blocking(cols, rows).map(|changed| {
                     resize_changed = changed;
                 })
@@ -1009,10 +1008,7 @@ impl BrowserSurface {
             report(false);
             return Ok(false);
         }
-        self.enqueue_latest_reconfigure_reporting(
-            BrowserCommand::Reconfigure { cols, rows },
-            report,
-        )?;
+        self.enqueue_reconfigure(BrowserCommand::Reconfigure { cols, rows, report: Some(report) })?;
         Ok(true)
     }
 
@@ -1378,34 +1374,26 @@ impl BrowserSurface {
         }
     }
 
-    fn enqueue_latest_reconfigure_reporting(
-        &self,
-        command: BrowserCommand,
-        report: Box<dyn FnOnce(bool) + Send>,
-    ) -> anyhow::Result<()> {
+    fn enqueue_reconfigure(&self, command: BrowserCommand) -> anyhow::Result<()> {
         if self.is_dead() {
-            report(false);
+            reject_reconfigure(command);
             anyhow::bail!("browser surface is closed");
         }
         let tx = match self.command_sender() {
             Ok(tx) => tx,
             Err(error) => {
-                report(false);
+                reject_reconfigure(command);
                 return Err(error);
             }
         };
-        let mut latest = self.latest_reconfigure.lock().unwrap();
-        *latest = Some(command);
-        match tx.try_send(BrowserCommand::WakeLatest) {
-            Ok(()) | Err(TrySendError::Full(_)) => {
-                // The worker must acquire `latest_reconfigure` before it can
-                // publish completion or failure, so ownership is visible first.
-                report(true);
-                Ok(())
+        match tx.try_send(command) {
+            Ok(()) => Ok(()),
+            Err(TrySendError::Full(command)) => {
+                reject_reconfigure(command);
+                anyhow::bail!("browser command queue is full; browser may be unresponsive")
             }
-            Err(TrySendError::Disconnected(_)) => {
-                *latest = None;
-                report(false);
+            Err(TrySendError::Disconnected(command)) => {
+                reject_reconfigure(command);
                 anyhow::bail!("browser command worker is closed")
             }
         }
@@ -1795,10 +1783,11 @@ mod tests {
         capture_scale_for, new_surface, normalize_url, runtime_endpoint, scaled_pixels,
         take_latest_worker_commands,
     };
-    use crate::{Mux, Surface, SurfaceOptions};
+    use crate::{Mux, MuxEvent, Surface, SurfaceOptions};
     use serde_json::{Value, json};
     use std::io::{Read, Write};
     use std::net::{TcpListener, TcpStream};
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex, Weak, mpsc};
     use std::thread;
     use std::time::{Duration, Instant};
@@ -2162,25 +2151,15 @@ mod tests {
     }
 
     #[test]
-    fn latest_reconfigure_and_nav_slots_do_not_clobber_each_other() {
-        let latest_reconfigure =
-            Arc::new(Mutex::new(Some(BrowserCommand::Reconfigure { cols: 111, rows: 222 })));
+    fn latest_navigation_slot_drains_once() {
         let latest_nav =
             Arc::new(Mutex::new(Some(BrowserCommand::Navigate("https://next.test".to_string()))));
 
-        let commands = take_latest_worker_commands(&latest_reconfigure, &latest_nav);
-        assert_eq!(commands.len(), 2);
-        match &commands[0] {
-            BrowserCommand::Reconfigure { cols, rows } => {
-                assert_eq!((*cols, *rows), (111, 222));
-            }
-            _ => panic!("reconfigure must drain before nav"),
-        }
-        match &commands[1] {
+        let command = take_latest_worker_commands(&latest_nav).expect("pending navigation");
+        match &command {
             BrowserCommand::Navigate(url) => assert_eq!(url, "https://next.test"),
             _ => panic!("nav command was lost"),
         }
-        assert!(latest_reconfigure.lock().unwrap().is_none());
         assert!(latest_nav.lock().unwrap().is_none());
     }
 
@@ -2196,10 +2175,19 @@ mod tests {
     }
 
     #[test]
-    fn browser_resize_is_nonblocking_and_latest_wins() {
-        let surface = test_surface();
+    fn browser_resizes_preserve_input_barriers_and_completion() {
+        let mux = Mux::new("ordered-browser-resize-test", SurfaceOptions::default());
+        let surface = new_surface(
+            1,
+            "https://example.test".into(),
+            (10, 5),
+            (8, 16),
+            &SurfaceOptions::default(),
+            Arc::downgrade(&mux),
+        );
         let browser = surface.as_browser().expect("browser surface");
         let done = browser.take_worker_done_for_test();
+        let events = mux.subscribe();
         let (entered, started) = mpsc::channel();
         let (release, held) = mpsc::channel();
         browser
@@ -2210,13 +2198,20 @@ mod tests {
         started.recv_timeout(Duration::from_secs(1)).unwrap();
 
         assert!(browser.resize(11, 5).unwrap());
+        browser.mouse_event("mousePressed", 1.0, 1.0, Some("left"), Some(1)).unwrap();
         assert!(browser.resize(12, 6).unwrap());
-        assert!(matches!(
-            browser.latest_reconfigure.lock().unwrap().as_ref(),
-            Some(BrowserCommand::Reconfigure { cols: 12, rows: 6 })
-        ));
 
         release.send(()).unwrap();
+        let resized = (0..2)
+            .map(|_| {
+                loop {
+                    if let MuxEvent::SurfaceResized { cols, rows, .. } = events.recv().unwrap() {
+                        break (cols, rows);
+                    }
+                }
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(resized, vec![(11, 5), (12, 6)]);
         browser.kill();
         done.recv_timeout(Duration::from_secs(1)).expect("browser worker exited after release");
     }
@@ -2239,7 +2234,7 @@ mod tests {
         );
         assert!(matches!(
             events.recv_timeout(Duration::from_secs(1)).unwrap(),
-            crate::MuxEvent::Status(message) if message == "CDP call Page.navigate timed out"
+            MuxEvent::Status(message) if message == "CDP call Page.navigate timed out"
         ));
         while events.try_recv().is_ok() {}
 
@@ -2253,7 +2248,7 @@ mod tests {
         );
         assert!(matches!(
             events.recv_timeout(Duration::from_secs(1)).unwrap(),
-            crate::MuxEvent::Status(message) if message == super::BROWSER_NOT_RESPONDING_MESSAGE
+            MuxEvent::Status(message) if message == super::BROWSER_NOT_RESPONDING_MESSAGE
         ));
         while events.try_recv().is_ok() {}
 
@@ -2297,7 +2292,7 @@ mod tests {
         );
         assert!(matches!(
             events.recv_timeout(Duration::from_secs(1)).unwrap(),
-            crate::MuxEvent::Status(message) if message == super::BROWSER_NOT_RESPONDING_MESSAGE
+            MuxEvent::Status(message) if message == super::BROWSER_NOT_RESPONDING_MESSAGE
         ));
         assert_eq!(
             browser.status(),
@@ -2318,7 +2313,7 @@ mod tests {
         );
         assert!(matches!(
             events.recv_timeout(Duration::from_secs(1)).unwrap(),
-            crate::MuxEvent::Status(message) if message == super::BROWSER_NOT_RESPONDING_MESSAGE
+            MuxEvent::Status(message) if message == super::BROWSER_NOT_RESPONDING_MESSAGE
         ));
         assert_eq!(
             browser.status(),
@@ -2538,10 +2533,20 @@ mod tests {
     }
 
     #[test]
-    fn resize_acceptance_is_reported_before_worker_can_take_command() {
+    fn resize_acceptance_is_reported_by_worker_before_execution() {
         let surface = test_surface();
         let browser = surface.as_browser().expect("browser surface");
-        let latest = browser.latest_reconfigure.clone();
+        let done = browser.take_worker_done_for_test();
+        let (entered, started) = mpsc::channel();
+        let (release, held) = mpsc::channel();
+        browser
+            .command_sender()
+            .unwrap()
+            .send(BrowserCommand::Hold { entered, release: held })
+            .unwrap();
+        started.recv_timeout(Duration::from_secs(1)).unwrap();
+        let accepted = Arc::new(AtomicBool::new(false));
+        let reported = accepted.clone();
 
         assert!(
             browser
@@ -2550,11 +2555,21 @@ mod tests {
                     5,
                     Box::new(move |accepted| {
                         assert!(accepted);
-                        assert!(latest.try_lock().is_err());
+                        reported.store(true, Ordering::Release);
                     }),
                 )
                 .unwrap()
         );
+        assert!(!accepted.load(Ordering::Acquire));
+
+        release.send(()).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while !accepted.load(Ordering::Acquire) && Instant::now() < deadline {
+            thread::yield_now();
+        }
+        assert!(accepted.load(Ordering::Acquire));
+        browser.kill();
+        done.recv_timeout(Duration::from_secs(1)).expect("browser worker exited after release");
     }
 
     #[test]

@@ -225,3 +225,22 @@ test("subscribe yields client attached, changed, and detached events", async () 
   events.close();
   await client.close();
 });
+
+test("concurrent shared subscriptions require dedicated transports", async () => {
+  const transport = new ScriptedTransport((request, connection) => {
+    assert.equal(request.cmd, "subscribe");
+    connection.emit({ id: request.id, ok: true, data: {} });
+  });
+  const client = new CmuxClient({ transport, timeoutMs: 100 });
+  const first = await client.subscribe();
+
+  await assert.rejects(
+    () => client.subscribe(),
+    /concurrent subscriptions require streamTransportFactory/,
+  );
+
+  first.close();
+  const replacement = await client.subscribe();
+  replacement.close();
+  await client.close();
+});
