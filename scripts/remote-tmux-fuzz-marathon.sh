@@ -48,6 +48,11 @@ DIR=$(mktemp -d "$LOCAL_TMP_ROOT/cmux-fuzz-marathon.XXXXXXXX") || {
   echo "could not create private marathon evidence directory" >&2
   exit 2
 }
+# The child fuzz driver snapshots the debug-log tail at the MOMENT each
+# failure is noted (per-fail files in this directory). The end-of-seed
+# capture below stays, but it cannot cover mid-seed failures — later
+# iterations churn the log past the failure window before the seed ends.
+export CMUX_FUZZ_EVIDENCE_DIR="$DIR"
 echo "marathon: $SEEDS seeds x $ITERS iters -> $DIR"
 
 app_pid() {
