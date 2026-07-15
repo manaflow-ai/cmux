@@ -805,6 +805,34 @@ final class TerminalNotificationStore: ObservableObject {
         focusedReadIndicatorByTabId[tabId]
     }
 
+    /// Reserves dismissible policy work before desktop-notification hook lookup suspends.
+    func beginDesktopNotificationHookResolution(
+        tabId: UUID,
+        surfaceId: UUID?,
+        title: String,
+        body: String
+    ) -> UUID {
+        let policyContext = makeNotificationPolicyContext(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            title: title,
+            subtitle: "",
+            body: body,
+            retargetsToLiveSurfaceOwner: true,
+            resolvedHooks: []
+        )
+        return inFlightPolicyRequests.register(
+            policyContext.request,
+            generation: TerminalMutationBus.shared.notificationGenerationSnapshot(),
+            onDiscard: {}
+        )
+    }
+
+    /// Abandons a desktop-hook reservation that cannot reach final delivery.
+    func abortDesktopNotificationHookResolution(_ policyRequestId: UUID) {
+        inFlightPolicyRequests.discard(policyRequestId)
+    }
+
     func addNotification(
         tabId: UUID,
         surfaceId: UUID?,
@@ -815,7 +843,8 @@ final class TerminalNotificationStore: ObservableObject {
         cooldownKey: String? = nil,
         cooldownInterval: TimeInterval? = nil,
         clickAction: TerminalNotificationClickAction? = nil, notificationGeneration: UInt64? = nil,
-        resolvedHooks: [CmuxResolvedNotificationHook]? = nil
+        resolvedHooks: [CmuxResolvedNotificationHook]? = nil,
+        preRegisteredPolicyRequestId: UUID? = nil
     ) {
 #if DEBUG
         cmuxDebugLog(
@@ -838,6 +867,9 @@ final class TerminalNotificationStore: ObservableObject {
                 "notification.store.add.skip workspace=\(tabId.uuidString.prefix(8)) surface=\(surfaceId?.uuidString.prefix(8) ?? "nil") reason=cooldown"
             )
 #endif
+            if let preRegisteredPolicyRequestId {
+                abortDesktopNotificationHookResolution(preRegisteredPolicyRequestId)
+            }
             return
         }
         let cooldownReservation = makeCooldownReservation(
@@ -856,7 +888,7 @@ final class TerminalNotificationStore: ObservableObject {
             retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
             resolvedHooks: resolvedHooks
         )
-        guard !policyContext.hooks.isEmpty else {
+        if policyContext.hooks.isEmpty, preRegisteredPolicyRequestId == nil {
             applyNotification(
                 request: policyContext.request,
                 effects: TerminalNotificationPolicyEffects(),
@@ -867,7 +899,25 @@ final class TerminalNotificationStore: ObservableObject {
             )
             return
         }
-        let policyRequestId = inFlightPolicyRequests.register(policyContext.request, generation: notificationGeneration ?? TerminalMutationBus.shared.notificationGenerationSnapshot(), onDiscard: { [weak self] in self?.restoreCooldownReservation(cooldownReservation) })
+        guard let policyRequestId = prepareNotificationPolicyRequestId(
+            preRegisteredPolicyRequestId: preRegisteredPolicyRequestId,
+            request: policyContext.request,
+            notificationGeneration: notificationGeneration,
+            cooldownReservation: cooldownReservation
+        ) else {
+            return
+        }
+        guard !policyContext.hooks.isEmpty else {
+            completePolicyRequest(
+                policyRequestId,
+                request: policyContext.request,
+                effects: TerminalNotificationPolicyEffects(),
+                cooldownReservation: cooldownReservation,
+                scrollPosition: policyContext.scrollPosition,
+                clickAction: clickAction
+            )
+            return
+        }
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
             let authorizedHooks = await NotificationPolicyHookAuthorizer.authorize(
@@ -938,6 +988,34 @@ final class TerminalNotificationStore: ObservableObject {
         let hooks: [CmuxResolvedNotificationHook]
         let globalConfigPath: String?
     }
+
+    private func prepareNotificationPolicyRequestId(
+        preRegisteredPolicyRequestId: UUID?,
+        request: TerminalNotificationPolicyRequest,
+        notificationGeneration: UInt64?,
+        cooldownReservation: NotificationCooldownReservation?
+    ) -> UUID? {
+        let onDiscard: @MainActor @Sendable () -> Void = { [weak self] in
+            self?.restoreCooldownReservation(cooldownReservation)
+        }
+        if let preRegisteredPolicyRequestId {
+            guard inFlightPolicyRequests.updateOnDiscard(
+                onDiscard,
+                for: preRegisteredPolicyRequestId
+            ) else {
+                restoreCooldownReservation(cooldownReservation)
+                return nil
+            }
+            return preRegisteredPolicyRequestId
+        }
+        return inFlightPolicyRequests.register(
+            request,
+            generation: notificationGeneration
+                ?? TerminalMutationBus.shared.notificationGenerationSnapshot(),
+            onDiscard: onDiscard
+        )
+    }
+
     private func makeCooldownReservation(
         key: String?,
         interval: TimeInterval?

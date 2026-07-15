@@ -7,7 +7,7 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite("Ghostty desktop notification ingress")
+@Suite("Ghostty desktop notification ingress", .serialized)
 @MainActor
 struct GhosttyDesktopNotificationIngressTests {
     @Test func terminalInteractionDuringHookResolutionPreventsLateNotification() throws {

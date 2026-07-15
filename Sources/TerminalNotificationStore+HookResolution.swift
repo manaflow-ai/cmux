@@ -1,10 +1,10 @@
 import Foundation
 
 extension TerminalNotificationStore {
-    /// Resolves callback-time project hooks off the main actor, then resolves
-    /// the live destination once for routing, suppression, and default-title
-    /// selection. Other callers keep synchronous no-hook semantics through
-    /// `addNotification`.
+    /// Registers dismissible policy work before resolving callback-time hooks,
+    /// then resolves the live destination once for routing, suppression, and
+    /// default-title selection. Other callers keep synchronous no-hook
+    /// semantics through `addNotification`.
     func addDesktopNotificationResolvingHooks(
         tabId: UUID,
         surfaceId: UUID?,
@@ -13,14 +13,31 @@ extension TerminalNotificationStore {
         title: String,
         body: String
     ) async {
-        let appDelegate = AppDelegate.shared
+        guard let appDelegate = AppDelegate.shared,
+              let initialTarget = appDelegate.agentNotificationDeliveryTarget(
+                claimedTabId: tabId,
+                surfaceId: surfaceId
+              ) else {
+            return
+        }
+        let policyRequestId = beginDesktopNotificationHookResolution(
+            tabId: initialTarget.tabId,
+            surfaceId: initialTarget.surfaceId,
+            title: title,
+            body: body
+        )
+        var ownsPolicyRequest = true
+        defer {
+            if ownsPolicyRequest {
+                abortDesktopNotificationHookResolution(policyRequestId)
+            }
+        }
         let hooks = await notificationHookCache.hooks(
             startingFrom: hookDirectory,
             globalConfigPath: globalConfigPath
         )
         guard !Task.isCancelled else { return }
-        guard let appDelegate,
-              let target = appDelegate.agentNotificationDeliveryTarget(
+        guard let target = appDelegate.agentNotificationDeliveryTarget(
                 claimedTabId: tabId,
                 surfaceId: surfaceId
               ),
@@ -33,13 +50,15 @@ extension TerminalNotificationStore {
             localized: "notification.desktop.defaultTerminalTitle",
             defaultValue: "Terminal"
         ) : title
+        ownsPolicyRequest = false
         addNotification(
             tabId: target.tabId,
             surfaceId: target.surfaceId,
             title: resolvedTitle,
             subtitle: "",
             body: body,
-            resolvedHooks: hooks
+            resolvedHooks: hooks,
+            preRegisteredPolicyRequestId: policyRequestId
         )
     }
 }

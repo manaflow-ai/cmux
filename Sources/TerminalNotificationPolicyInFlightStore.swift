@@ -9,7 +9,7 @@ final class TerminalNotificationPolicyInFlightStore {
         let request: TerminalNotificationPolicyRequest
         let generation: UInt64
         let deliveryIdentity: TerminalNotificationPolicyDeliveryIdentity
-        let onDiscard: @MainActor @Sendable () -> Void
+        var onDiscard: @MainActor @Sendable () -> Void
         var indexedTabId: UUID
         var task: Task<Void, Never>?
         var completion: (@MainActor () -> Void)?
@@ -59,6 +59,25 @@ final class TerminalNotificationPolicyInFlightStore {
         guard var entry = requests[id] else { task.cancel(); return }
         entry.task = task
         requests[id] = entry
+    }
+
+    /// Transfers cleanup ownership when an early reservation reaches policy evaluation.
+    func updateOnDiscard(
+        _ onDiscard: @escaping @MainActor @Sendable () -> Void,
+        for id: UUID
+    ) -> Bool {
+        guard var entry = requests[id] else { return false }
+        entry.onDiscard = onDiscard
+        requests[id] = entry
+        return true
+    }
+
+    /// Discards one reservation without disturbing unrelated in-flight policy work.
+    @discardableResult
+    func discard(_ id: UUID) -> Bool {
+        guard let identity = discardRequest(id) else { return false }
+        drainCompletedRequests(for: identity)
+        return true
     }
 
     func claim(_ id: UUID?) -> Bool {
