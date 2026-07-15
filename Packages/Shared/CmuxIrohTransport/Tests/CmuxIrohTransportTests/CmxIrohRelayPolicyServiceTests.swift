@@ -155,7 +155,7 @@ struct CmxIrohRelayPolicyServiceTests {
         let tcpState = RelayPolicyServiceTCPState()
         var activation: Task<Void, Never>?
 
-        CmxIrohTCPFirstActivation.start(
+        CmxIrohTCPFirstActivation(
             startTCP: { tcpState.markStarted() },
             scheduleIroh: {
                 activation = Task {
@@ -167,7 +167,7 @@ struct CmxIrohRelayPolicyServiceTests {
                     )
                 }
             }
-        )
+        ).start()
 
         await secureStore.waitUntilReadStarts()
         #expect(tcpState.started)
