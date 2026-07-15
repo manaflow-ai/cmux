@@ -152,10 +152,15 @@ enum SettingsNavigationRequest {
     private static let anchorKey = "anchor"
     private static let highlightKey = "highlight"
 
-    static func post(_ target: SettingsNavigationTarget, anchorID: String? = nil, highlight: Bool = false) {
+    static func post(
+        _ target: SettingsNavigationTarget,
+        anchorID: String? = nil,
+        highlight: Bool = false,
+        scope: String? = nil
+    ) {
         NotificationCenter.default.post(
             name: notificationName,
-            object: nil,
+            object: scope,
             userInfo: [
                 targetKey: target.rawValue,
                 anchorKey: anchorID ?? SettingsSearchIndex.sectionID(for: target),

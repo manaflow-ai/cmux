@@ -676,7 +676,7 @@ extension Workspace {
             workspaceTodoSnapshot = SessionWorkspaceTodoPanelSnapshot()
         case .extensionBrowser:
             return nil
-        case .cloudVMLoading:
+        case .cloudVMLoading, .appUtility:
             return nil
         }
         return SessionPanelSnapshot(
@@ -1670,7 +1670,7 @@ extension Workspace {
             return todoPanel.id
         case .extensionBrowser:
             return nil
-        case .cloudVMLoading:
+        case .cloudVMLoading, .appUtility:
             return nil
         }
     }
@@ -8080,7 +8080,7 @@ final class Workspace: Identifiable, ObservableObject {
             applyTabSelection(tabId: newTabId, inPane: paneId)
         } else {
             if selectWhenNotFocused {
-                hideBrowserPortalsForDeselectedTabs(inPane: paneId, selectedTabId: newTabId)
+                reconcilePortalVisibilityForTabSelection(inPane: paneId, reason: "workspace.browserTabSelection")
             }
             preserveFocusAfterNonFocusSplit(
                 preferredPanelId: previousFocusedPanelId,
@@ -9726,8 +9726,7 @@ final class Workspace: Identifiable, ObservableObject {
         guard let paneId = paneId(forPanelId: panelId) else { return false }
         guard bonsplitController.togglePaneZoom(inPane: paneId) else { return false }
         focusPanel(panelId)
-        reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
-        reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: "workspace.toggleSplitZoom")
+        reconcilePortalVisibilityForCurrentRenderedLayout(reason: "workspace.toggleSplitZoom")
         if let browserPanel = browserPanel(for: panelId) {
             browserPanel.preparePortalHostReplacementForNextDistinctClaim(
                 inPane: paneId,
@@ -10328,13 +10327,12 @@ final class Workspace: Identifiable, ObservableObject {
             }
         }
 
-        reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
+        let reason = layoutFollowUpReason ?? "workspace.layout"
+        reconcilePortalVisibilityForCurrentRenderedLayout(reason: reason)
         let terminalPortalPending = terminalPortalVisibilityNeedsFollowUp()
         clearReadyPendingReparentFocusSuppressions(reason: "workspace.layoutAttempt")
         let reparentFocusPending = !pendingReparentFocusSuppressionViews.isEmpty
 
-        let reason = layoutFollowUpReason ?? "workspace.layout"
-        reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: reason)
         let browserVisibilityPending = browserPortalVisibilityNeedsFollowUp()
 
         if let browserPanelId = layoutFollowUpBrowserPanelId {
@@ -10511,13 +10509,6 @@ final class Workspace: Identifiable, ObservableObject {
             visiblePanelIds.insert(panelId)
         }
 
-        if let focusedPanelId,
-           panels[focusedPanelId] != nil,
-           let focusedPaneId = paneId(forPanelId: focusedPanelId),
-           renderedPaneIds.contains(where: { $0.id == focusedPaneId.id }) {
-            visiblePanelIds.insert(focusedPanelId)
-        }
-
         return visiblePanelIds
     }
 
@@ -10528,17 +10519,28 @@ final class Workspace: Identifiable, ObservableObject {
 
     @discardableResult
     func reconcileTerminalPortalVisibilityForCurrentRenderedLayout() -> Bool {
-        let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
+        reconcileTerminalPortalVisibilityForCurrentRenderedLayout(
+            visiblePanelIds: renderedVisiblePanelIdsForCurrentLayout(),
+            candidatePanelIds: nil
+        )
+    }
+
+    @discardableResult
+    private func reconcileTerminalPortalVisibilityForCurrentRenderedLayout(
+        visiblePanelIds: Set<UUID>,
+        candidatePanelIds: Set<UUID>?
+    ) -> Bool {
         // Focus-exclusivity: when the right sidebar (Dock) owns input focus in this
         // window, no main terminal should be (re)marked active even if it is still
         // this workspace's focused panel — mirroring the SwiftUI `isFocused` gate so
         // a layout reconcile cannot steal focus back from the sidebar.
         let rightSidebarOwnsFocus = AppDelegate.shared?.rightSidebarOwnsInputFocus(for: self) ?? false
+        let visibleCandidatePanelIds = candidatePanelIds.map { visiblePanelIds.intersection($0) } ?? visiblePanelIds
         var didChange = agentHibernationAutoResumePresentationVisible
-            ? resumeVisibleAgentHibernationPanels(panelIds: visiblePanelIds)
+            ? resumeVisibleAgentHibernationPanels(panelIds: visibleCandidatePanelIds)
             : false
 
-        for panel in panels.values {
+        for panel in portalReconciliationCandidates(candidatePanelIds) {
             guard let terminalPanel = panel as? TerminalPanel else { continue }
             // A multi-pane remote-tmux window-tab is rendered by its
             // RemoteTmuxWindowMirrorSplitView (its own panel's surface is not mounted),
@@ -10594,10 +10596,22 @@ final class Workspace: Identifiable, ObservableObject {
 
     @discardableResult
     func reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: String) -> Bool {
-        let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
+        reconcileBrowserPortalVisibilityForCurrentRenderedLayout(
+            reason: reason,
+            visiblePanelIds: renderedVisiblePanelIdsForCurrentLayout(),
+            candidatePanelIds: nil
+        )
+    }
+
+    @discardableResult
+    private func reconcileBrowserPortalVisibilityForCurrentRenderedLayout(
+        reason: String,
+        visiblePanelIds: Set<UUID>,
+        candidatePanelIds: Set<UUID>?
+    ) -> Bool {
         var didChange = false
 
-        for panel in panels.values {
+        for panel in portalReconciliationCandidates(candidatePanelIds) {
             guard let browserPanel = panel as? BrowserPanel else { continue }
             // Canvas-inline-hosted webviews live in the pane hierarchy; portal
             // rebinds/refreshes here would steal them back into the portal.
@@ -10654,6 +10668,55 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         return didChange
+    }
+
+    /// Reconciles every window-level portal from the selected tabs in the
+    /// currently rendered bonsplit panes. Selection owns visibility; focus
+    /// only controls which visible portal is active for keyboard input.
+    @discardableResult
+    private func reconcilePortalVisibilityForCurrentRenderedLayout(reason: String) -> Bool {
+        let terminalChanged = reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
+        let browserChanged = reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: reason)
+        return terminalChanged || browserChanged
+    }
+
+    /// A tab selection can only change portal ownership inside its pane. Keep
+    /// the selection hot path proportional to that pane's tab count while
+    /// layout and zoom changes continue to use workspace-wide reconciliation.
+    private func reconcilePortalVisibilityForTabSelection(inPane pane: PaneID, reason: String) {
+        let paneTabs = bonsplitController.tabs(inPane: pane)
+        let candidatePanelIds = Set(
+            paneTabs.compactMap { panelIdFromSurfaceId($0.id) }
+        )
+        let visiblePanelIds: Set<UUID>
+        if layoutMode == .canvas {
+            visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout().intersection(candidatePanelIds)
+        } else if bonsplitController.zoomedPaneId.map({ $0 != pane }) == true {
+            visiblePanelIds = []
+        } else if let selectedTab = bonsplitController.selectedTab(inPane: pane)
+            ?? paneTabs.first,
+            let panelId = panelIdFromSurfaceId(selectedTab.id),
+            panels[panelId] != nil,
+            portalRenderingEnabled {
+            visiblePanelIds = [panelId]
+        } else {
+            visiblePanelIds = []
+        }
+
+        _ = reconcileTerminalPortalVisibilityForCurrentRenderedLayout(
+            visiblePanelIds: visiblePanelIds,
+            candidatePanelIds: candidatePanelIds
+        )
+        _ = reconcileBrowserPortalVisibilityForCurrentRenderedLayout(
+            reason: reason,
+            visiblePanelIds: visiblePanelIds,
+            candidatePanelIds: candidatePanelIds
+        )
+    }
+
+    private func portalReconciliationCandidates(_ candidatePanelIds: Set<UUID>?) -> [any Panel] {
+        guard let candidatePanelIds else { return Array(panels.values) }
+        return candidatePanelIds.compactMap { panels[$0] }
     }
 
     private func browserPortalVisibilityNeedsFollowUp() -> Bool {
@@ -11432,16 +11495,6 @@ extension Workspace: BonsplitDelegate {
         }
     }
 
-    /// Hide browser portals for tabs that are no longer selected in the given pane.
-    private func hideBrowserPortalsForDeselectedTabs(inPane pane: PaneID, selectedTabId: TabID) {
-        for tab in bonsplitController.tabs(inPane: pane) {
-            guard tab.id != selectedTabId else { continue }
-            guard let panelId = panelIdFromSurfaceId(tab.id),
-                  let browserPanel = panels[panelId] as? BrowserPanel else { continue }
-            browserPanel.hideBrowserPortalView(source: "tabDeselected")
-        }
-    }
-
     private func applyTabSelectionNow(
         tabId: TabID,
         inPane pane: PaneID,
@@ -11538,13 +11591,6 @@ extension Workspace: BonsplitDelegate {
             p.unfocus()
         }
 
-        // Explicitly hide browser portals for deselected tabs in this pane.
-        // Bonsplit's keepAllAlive mode hides non-selected tabs via SwiftUI .opacity(0),
-        // but portal-hosted WKWebViews render at the window level in AppKit and are not
-        // affected by SwiftUI opacity. Without an explicit hide, the deselected browser's
-        // portal layer can remain visible above the newly selected tab.
-        hideBrowserPortalsForDeselectedTabs(inPane: focusedPane, selectedTabId: selectedTabId)
-
         if let focusWindow = activationWindow(for: panel) {
             yieldForeignOwnedFocusIfNeeded(
                 in: focusWindow,
@@ -11558,6 +11604,7 @@ extension Workspace: BonsplitDelegate {
             focusIntent: activationIntent,
             reassertAppKitFocus: reassertAppKitFocus
         )
+        reconcilePortalVisibilityForTabSelection(inPane: focusedPane, reason: "workspace.tabSelection")
         let focusIntentAllowsBrowserOmnibarAutofocus =
             explicitFocusIntent ||
             TerminalController.socketCommandAllowsInAppFocusMutations()
@@ -12580,7 +12627,11 @@ extension Workspace: BonsplitDelegate {
             case .cloudVM:
                 _ = AppDelegate.shared?.performCloudVMAction(tabManager: owningTabManager, preferredWindow: presentingWindow, debugSource: "surfaceTabBar.cloudVM")
             case .mobileConnect:
-                MobilePairingWindowController.shared.show()
+                _ = AppDelegate.shared?.openMobilePairingPane(
+                    debugSource: "surfaceTabBar.mobileConnect",
+                    tabManager: owningTabManager,
+                    preferredWindow: presentingWindow
+                )
             case .newTerminal, .newBrowser, .splitRight, .splitDown:
                 break
             }

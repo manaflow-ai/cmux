@@ -15,6 +15,7 @@ import Testing
         #expect(SurfaceKind.project.rawValue == "project")
         #expect(SurfaceKind.extensionBrowser.rawValue == "extensionBrowser")
         #expect(SurfaceKind.cloudVMLoading.rawValue == "cloudVMLoading")
+        #expect(SurfaceKind.appUtility.rawValue == "appUtility")
     }
 }
 

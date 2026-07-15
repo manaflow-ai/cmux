@@ -1,10 +1,7 @@
 import CmuxSettings
 import SwiftUI
 
-/// Root view of the settings window, hosted in an AppKit-owned
-/// `NSWindow` by the app's `SettingsWindowFactory` (cmux issue
-/// #7777; a SwiftUI `Window` scene's `openWindow(id:)` could
-/// silently no-op and strand the open path).
+/// Root view of Settings, hosted in an AppKit window or a workspace pane.
 ///
 /// Composes a single tall `ScrollView` of stacked sections — the
 /// legacy in-app layout — with a left sidebar that scrolls to a
@@ -14,13 +11,31 @@ import SwiftUI
 public struct SettingsWindowRoot: View {
     private let runtime: SettingsRuntime
     private let searchIndex: SettingsSearchIndex
+    private let navigationRouter: SettingsNavigationNotificationRouter
+    private let presentationStyle: SettingsPresentationStyle
+    private let selectionDefaults: UserDefaults
 
-    public init(runtime: SettingsRuntime) {
+    /// Creates a Settings root for a standalone window or workspace pane.
+    public init(
+        runtime: SettingsRuntime,
+        navigationScope: String? = nil,
+        initialNavigationSection: SettingsSectionID? = nil,
+        presentationStyle: SettingsPresentationStyle = .window,
+        selectionDefaults: UserDefaults = .standard
+    ) {
         self.runtime = runtime
         self.searchIndex = runtime.searchIndex
+        self.navigationRouter = SettingsNavigationNotificationRouter(scope: navigationScope)
+        self.presentationStyle = presentationStyle
+        self.selectionDefaults = selectionDefaults
+        _sidebarModel = State(initialValue: SettingsSidebarModel(searchIndex: runtime.searchIndex))
+        let selection = SettingsInitialSelectionResolver(defaults: selectionDefaults)
+            .resolve(initialNavigationSection: initialNavigationSection)
+        _selectedSectionRaw = State(initialValue: selection.sectionRawValue)
+        _selectedSidebarEntryID = State(initialValue: selection.sidebarEntryID)
     }
 
-    @State private var searchText: String = ""
+    @State private var sidebarModel: SettingsSidebarModel
     // Legacy SettingsRootView persists two distinct pieces of state:
     // `selectedSettingsSection` (the top-level section pane shown in
     // the detail) and `selectedSettingsSidebarEntry` (the specific
@@ -29,10 +44,12 @@ public struct SettingsWindowRoot: View {
     // because under search the user can click an individual setting
     // hit and we still want the section pane to follow, but two
     // sibling hits inside one section must each be selectable.
-    // @AppStorage (not @SceneStorage): the window is AppKit-hosted, so
-    // there is no SwiftUI scene to store into (cmux issue #7777).
-    @AppStorage("selectedSettingsSection") private var selectedSectionRaw: String = SettingsSectionID.account.rawValue
-    @AppStorage("selectedSettingsSidebarEntry") private var selectedSidebarEntryID: String = "section:\(SettingsSectionID.account.rawValue)"
+    // Each root owns live selection state so Settings panes in different
+    // workspaces do not drive one another. Mutations are persisted explicitly
+    // to retain the legacy reopen-at-last-section behavior without AppStorage's
+    // cross-root live synchronization.
+    @State private var selectedSectionRaw: String
+    @State private var selectedSidebarEntryID: String
     // Legacy `SettingsRootView` binds `NavigationSplitView`'s
     // `columnVisibility` so the user can collapse the sidebar via the
     // toolbar button (or the SidebarCommands menu) and have that state
@@ -43,6 +60,7 @@ public struct SettingsWindowRoot: View {
     // legacy stores it on the transient `SettingsDraftState`, not in
     // SceneStorage.
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var isPaneSidebarVisible = true
     // Mirrors legacy SettingsView.settingsNavigationGeneration. When
     // multiple navigation requests fire in quick succession (e.g. the
     // sidebar selection changes plus an external app.cmux.settings
@@ -79,7 +97,7 @@ public struct SettingsWindowRoot: View {
     /// Whether the user currently has a non-empty search query. When
     /// false the sidebar should track section selection only; when true
     /// the per-entry selection survives.
-    private var isSearching: Bool { !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    private var isSearching: Bool { sidebarModel.isSearching }
 
     // Legacy uses a non-optional `Binding<String>` because a sidebar
     // selection always points at *some* entry (section row or setting
@@ -97,43 +115,69 @@ public struct SettingsWindowRoot: View {
     }
 
     public var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            sidebar
-        } detail: {
-            detailScroll
-        }
-        .navigationSplitViewStyle(.balanced)
+        settingsLayout
         // Inject the built search index so each SettingsCardRow can map
         // its declared cmux.json paths to scroll/highlight anchor ids,
         // and publish the active highlight so the matching row pulses.
         .environment(\.settingsSearchIndex, searchIndex)
         .environment(\.settingsSearchHighlightState, searchHighlight)
-        // Legacy SettingsRootView pins the window minimum to
-        // SettingsWindowPresenter.minimumSize (820 x 540); mirror that
-        // so the package window can shrink to the same lower bound.
-        .frame(minWidth: 820, minHeight: 540)
+        .frame(
+            minWidth: presentationStyle == .window ? 820 : nil,
+            minHeight: presentationStyle == .window ? 540 : nil
+        )
         .settingsErrorAlert(log: runtime.errorLog)
         .onReceive(NotificationCenter.default.publisher(for: Self.navigationRequestName)) { notification in
+            guard navigationRouter.accepts(notification) else { return }
             applyNavigationRequest(notification)
         }
-        .onReceive(NotificationCenter.default.publisher(for: Self.sidebarToggleRequestName)) { _ in
-            // AppKit hosts this window, so SwiftUI's SidebarCommands cannot
-            // reach the split view; the host app routes its sidebar-toggle
-            // menu command here when the Settings window is key.
-            columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
-        }
-        .onChange(of: searchText) { _, newValue in
-            // Legacy SettingsRootView resyncs the sidebar entry to the
-            // section row whenever the search text is cleared, so
-            // typing then clearing doesn't leave a stale "deep" entry
-            // selected.
-            guard newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-            selectedSidebarEntryID = sectionEntryID(for: selectedSection)
+        .onReceive(NotificationCenter.default.publisher(for: Self.sidebarToggleRequestName)) { notification in
+            guard navigationRouter.accepts(notification) else { return }
+            switch presentationStyle {
+            case .window:
+                // AppKit hosts this window, so SwiftUI's SidebarCommands cannot
+                // reach the split view; the host app routes its sidebar-toggle
+                // menu command here when the Settings window is key.
+                columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
+            case .pane:
+                isPaneSidebarVisible.toggle()
+            }
         }
     }
 
     public static let navigationRequestName = Notification.Name("cmux.settings.navigate")
     public static let sidebarToggleRequestName = Notification.Name("cmux.settings.toggleSidebar")
+
+    @ViewBuilder
+    private var settingsLayout: some View {
+        switch presentationStyle {
+        case .window:
+            NavigationSplitView(columnVisibility: $columnVisibility) {
+                SettingsNativeSidebar(
+                    model: sidebarModel,
+                    selection: sidebarSelectionBinding,
+                    onSearchCleared: resetSidebarSelectionAfterSearch
+                )
+            } detail: {
+                detailScroll
+            }
+            .navigationSplitViewStyle(.balanced)
+        case .pane:
+            HStack(spacing: 0) {
+                if isPaneSidebarVisible {
+                    SettingsPaneSidebar(
+                        model: sidebarModel,
+                        selectedEntryID: selectedSidebarEntryID,
+                        onSelect: selectSidebarEntry,
+                        onSearchCleared: resetSidebarSelectionAfterSearch
+                    )
+                    Divider()
+                }
+                SettingsPaneDetail {
+                    detailScroll
+                }
+            }
+        }
+    }
 
     /// Legacy `SettingsRootView.onReceive` only updates the selection
     /// state (sidebar entry + section pane) in response to an external
@@ -161,30 +205,6 @@ public struct SettingsWindowRoot: View {
         navigate(to: target, preferSectionSelection: !shouldPreserveSearchSelection)
     }
 
-    @ViewBuilder
-    private var sidebar: some View {
-        List(selection: sidebarSelectionBinding) {
-            let matches = sidebarEntries(matching: searchText)
-            if matches.isEmpty {
-                Text(String(localized: "settings.search.noResults", defaultValue: "No Results"))
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(matches) { entry in
-                    SettingsSidebarEntryRow(
-                        title: entry.title,
-                        symbolName: entry.symbolName,
-                        subtitle: subtitle(for: entry)
-                    )
-                    .tag(entry.id)
-                }
-            }
-        }
-        .listStyle(.sidebar)
-        .navigationTitle(String(localized: "settings.title", defaultValue: "Settings"))
-        .searchable(text: $searchText, placement: .sidebar, prompt: Text(String(localized: "settings.search.prompt", defaultValue: "Search")))
-        .navigationSplitViewColumnWidth(210)
-    }
-
     func sidebarEntries(matching query: String) -> [SettingsSearchIndex.Entry] { searchIndex.match(query) }
 
     /// Legacy `SettingsSearchEntry` populates `subtitle` with the
@@ -192,13 +212,9 @@ public struct SettingsWindowRoot: View {
     /// section-type hits, so `SettingsSidebarEntryRow` renders the
     /// section name underneath each search hit but keeps section
     /// rows single-line. Mirror that here.
-    private func subtitle(for entry: SettingsSearchIndex.Entry) -> String? {
-        switch entry.kind {
-        case .section:
-            return nil
-        case .setting(let parent):
-            return parent.title
-        }
+    private func resetSidebarSelectionAfterSearch() {
+        selectedSidebarEntryID = sectionEntryID(for: selectedSection)
+        persistSelection()
     }
 
     /// Updates both the sidebar entry selection and the underlying
@@ -229,7 +245,8 @@ public struct SettingsWindowRoot: View {
         if selectedSectionRaw != section.rawValue {
             selectedSectionRaw = section.rawValue
         }
-        postNavigationRequest(target: section, anchorID: entry.anchorID, highlight: isSearching)
+        persistSelection()
+        navigationRouter.post(target: section, anchorID: entry.anchorID, highlight: isSearching)
     }
 
     /// Maps a resolved search-index entry to its target section,
@@ -243,26 +260,6 @@ public struct SettingsWindowRoot: View {
         case .setting(let parent):
             return parent
         }
-    }
-
-    /// Posts a `cmux.settings.navigate` notification with the same
-    /// userInfo shape legacy `SettingsNavigationRequest.post` uses,
-    /// so host-side listeners and the package's own detail scroll
-    /// receive a consistent stream of navigation events.
-    private func postNavigationRequest(
-        target: SettingsSectionID,
-        anchorID: String,
-        highlight: Bool
-    ) {
-        NotificationCenter.default.post(
-            name: Self.navigationRequestName,
-            object: nil,
-            userInfo: [
-                "target": target.rawValue,
-                "anchor": anchorID,
-                "highlight": highlight
-            ]
-        )
     }
 
     /// Navigates from outside (e.g., a `cmux.settings.navigate`
@@ -279,6 +276,12 @@ public struct SettingsWindowRoot: View {
             let sectionEntry = sectionEntryID(for: target)
             if selectedSidebarEntryID != sectionEntry { selectedSidebarEntryID = sectionEntry }
         }
+        persistSelection()
+    }
+
+    private func persistSelection() {
+        selectionDefaults.set(selectedSectionRaw, forKey: "selectedSettingsSection")
+        selectionDefaults.set(selectedSidebarEntryID, forKey: "selectedSettingsSidebarEntry")
     }
 
     /// The canonical entry ID the search index uses for section header
@@ -340,13 +343,14 @@ public struct SettingsWindowRoot: View {
                     let anchor = selectedSidebarEntryID.isEmpty
                         ? sectionEntryID(for: section)
                         : searchIndex.entries.first { $0.id == selectedSidebarEntryID }?.anchorID ?? selectedSidebarEntryID
-                    postNavigationRequest(
+                    navigationRouter.post(
                         target: section,
                         anchorID: anchor,
                         highlight: false
                     )
                 }
                 .onReceive(NotificationCenter.default.publisher(for: Self.navigationRequestName)) { notification in
+                    guard navigationRouter.accepts(notification) else { return }
                     applyScrollNavigation(notification, proxy: proxy)
                 }
             }
@@ -520,5 +524,191 @@ public struct SettingsWindowRoot: View {
 
     private func anchorID(for section: SettingsSectionID) -> String {
         "section:\(section.rawValue)"
+    }
+}
+
+@MainActor
+private struct SettingsNativeSidebar: View {
+    @Bindable var model: SettingsSidebarModel
+    let selection: Binding<String>
+    let onSearchCleared: () -> Void
+
+    var body: some View {
+        List(selection: selection) {
+            SettingsSidebarResults(model: model)
+        }
+        .listStyle(.sidebar)
+        .navigationTitle(String(localized: "settings.title", defaultValue: "Settings"))
+        .searchable(
+            text: $model.searchText,
+            placement: .sidebar,
+            prompt: Text(String(localized: "settings.search.prompt", defaultValue: "Search"))
+        )
+        .navigationSplitViewColumnWidth(210)
+        .onChange(of: model.searchText) { oldValue, newValue in
+            guard
+                !oldValue.isEmpty,
+                newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else { return }
+            onSearchCleared()
+        }
+    }
+}
+
+@MainActor
+private struct SettingsPaneSidebar: View {
+    @Bindable var model: SettingsSidebarModel
+    let selectedEntryID: String
+    let onSelect: (String) -> Void
+    let onSearchCleared: () -> Void
+
+    @FocusState private var isSearchFocused: Bool
+
+    var body: some View {
+        VStack(spacing: 0) {
+            searchField
+
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    if model.visibleEntries.isEmpty {
+                        Text(String(localized: "settings.search.noResults", defaultValue: "No Results"))
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(12)
+                    } else {
+                        ForEach(model.visibleEntries) { entry in
+                            Button {
+                                onSelect(entry.id)
+                            } label: {
+                                SettingsSidebarEntryRow(
+                                    title: entry.title,
+                                    symbolName: entry.symbolName,
+                                    subtitle: sidebarSubtitle(for: entry),
+                                    isSelected: selectedEntryID == entry.id
+                                )
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 7)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .overlay(alignment: .leading) {
+                                if selectedEntryID == entry.id {
+                                    Rectangle()
+                                        .fill(Color.accentColor)
+                                        .frame(width: 2)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .frame(width: 210)
+        .onChange(of: model.searchText) { oldValue, newValue in
+            guard
+                !oldValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else { return }
+            onSearchCleared()
+        }
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+
+            TextField(
+                String(localized: "settings.search.prompt", defaultValue: "Search"),
+                text: $model.searchText
+            )
+            .textFieldStyle(.plain)
+            .focused($isSearchFocused)
+
+            if !model.searchText.isEmpty {
+                Button {
+                    model.searchText = ""
+                    isSearchFocused = true
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(String(localized: "settings.search.clear", defaultValue: "Clear Search"))
+            }
+        }
+        .padding(.horizontal, 9)
+        .frame(height: 30)
+        .background {
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(Color.primary.opacity(isSearchFocused ? 0.10 : 0.065))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .stroke(
+                    isSearchFocused ? Color.accentColor.opacity(0.9) : Color.primary.opacity(0.10),
+                    lineWidth: isSearchFocused ? 1.5 : 1
+                )
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
+    }
+}
+
+@MainActor
+private struct SettingsPaneDetail<Content: View>: View {
+    @Environment(\.dynamicTypeSize) private var inheritedTypeSize
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        content.dynamicTypeSize(inheritedTypeSize.settingsDetailStepUp)
+    }
+}
+
+private extension DynamicTypeSize {
+    var settingsDetailStepUp: DynamicTypeSize {
+        switch self {
+        case .xSmall: .small
+        case .small: .medium
+        case .medium: .large
+        case .large: .xLarge
+        case .xLarge: .xxLarge
+        case .xxLarge: .xxxLarge
+        case .xxxLarge: .accessibility1
+        case .accessibility1, .accessibility2, .accessibility3, .accessibility4, .accessibility5:
+            self
+        @unknown default:
+            self
+        }
+    }
+}
+
+@MainActor
+private struct SettingsSidebarResults: View {
+    let model: SettingsSidebarModel
+
+    var body: some View {
+        if model.visibleEntries.isEmpty {
+            Text(String(localized: "settings.search.noResults", defaultValue: "No Results"))
+                .foregroundStyle(.secondary)
+        } else {
+            ForEach(model.visibleEntries) { entry in
+                SettingsSidebarEntryRow(
+                    title: entry.title,
+                    symbolName: entry.symbolName,
+                    subtitle: sidebarSubtitle(for: entry)
+                )
+                .tag(entry.id)
+            }
+        }
+    }
+}
+
+private func sidebarSubtitle(for entry: SettingsSearchIndex.Entry) -> String? {
+    switch entry.kind {
+    case .section:
+        nil
+    case .setting(let parent):
+        parent.title
     }
 }

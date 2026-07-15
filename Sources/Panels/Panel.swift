@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import AppKit
+import Observation
 
 /// Type of panel content
 public enum PanelType: String, Codable, Sendable {
@@ -15,6 +16,7 @@ public enum PanelType: String, Codable, Sendable {
     case extensionBrowser
     case workspaceTodo
     case cloudVMLoading
+    case appUtility
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
@@ -45,6 +47,10 @@ public enum PanelType: String, Codable, Sendable {
         }
         if rawValue.lowercased() == Self.cloudVMLoading.rawValue.lowercased() {
             self = .cloudVMLoading
+            return
+        }
+        if rawValue.lowercased() == Self.appUtility.rawValue.lowercased() {
+            self = .appUtility
             return
         }
         throw DecodingError.dataCorruptedError(
@@ -380,6 +386,7 @@ extension Panel {
 }
 
 @MainActor
+@Observable
 final class CloudVMLoadingPanel: Panel {
     enum Phase {
         case loading
@@ -390,8 +397,8 @@ final class CloudVMLoadingPanel: Panel {
     let workspaceId: UUID
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .cloudVMLoading
-    @Published var startedAt: Date
-    @Published var phase: Phase = .loading
+    var startedAt: Date
+    var phase: Phase = .loading
 
     var displayTitle: String {
         String(localized: "panel.cloudVM.loading.title", defaultValue: "Cloud VM")

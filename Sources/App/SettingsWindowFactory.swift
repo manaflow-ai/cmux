@@ -110,8 +110,15 @@ extension SettingsWindowPresenter {
     /// main actor and warn under strict concurrency.
     static func handleSidebarToggleIfSettingsWindowIsKey(keyWindow: NSWindow?) -> Bool {
         guard keyWindow?.identifier?.rawValue == windowIdentifier else { return false }
-        NotificationCenter.default.post(name: SettingsWindowRoot.sidebarToggleRequestName, object: nil)
+        requestSidebarToggle()
         return true
+    }
+
+    /// Shared mutation path for the toolbar item and the app's Toggle Left
+    /// Sidebar command. The SwiftUI split view owns the visibility state and
+    /// consumes this request in ``SettingsWindowRoot``.
+    static func requestSidebarToggle(scope: String? = nil) {
+        NotificationCenter.default.post(name: SettingsWindowRoot.sidebarToggleRequestName, object: scope)
     }
 }
 

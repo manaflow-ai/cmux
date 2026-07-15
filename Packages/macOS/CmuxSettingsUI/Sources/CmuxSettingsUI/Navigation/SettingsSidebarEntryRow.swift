@@ -13,15 +13,17 @@ struct SettingsSidebarEntryRow: View {
     let title: String
     let symbolName: String
     let subtitle: String?
+    var isSelected = false
 
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: symbolName)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
                 .frame(width: 16)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
+                    .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
                     .lineLimit(1)
 
                 if let subtitle {

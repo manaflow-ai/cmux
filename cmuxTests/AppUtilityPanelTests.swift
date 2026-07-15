@@ -1,0 +1,449 @@
+import AppKit
+import Bonsplit
+import CmuxCanvasUI
+import CmuxWorkspaces
+import Foundation
+import Testing
+
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
+@MainActor
+private final class AppUtilityCanvasViewportSpy: CanvasViewportControlling {
+    var revealedPanelIds: [UUID] = []
+    var modelDidChangeCount = 0
+    var currentMagnification: CGFloat = 1
+    var currentCenterInCanvas: CGPoint = .zero
+
+    func revealPane(_ panelId: UUID, animated: Bool) { revealedPanelIds.append(panelId) }
+    func toggleOverview() {}
+    func zoom(by factor: CGFloat) {}
+    func resetZoom() {}
+    func setViewport(center: CGPoint, magnification: CGFloat?) {}
+    func modelDidChangeExternally(animated: Bool) { modelDidChangeCount += 1 }
+}
+
+@MainActor
+@Suite
+struct AppUtilityPanelTests {
+    private final class SplitRequestRecorder: BonsplitDelegate {
+        var splitRequestCount = 0
+
+        func splitTabBar(
+            _ controller: BonsplitController,
+            shouldSplitPane pane: PaneID,
+            orientation: SplitOrientation
+        ) -> Bool {
+            splitRequestCount += 1
+            return false
+        }
+    }
+
+    @Test func initialSettingsTargetDoesNotScheduleACompetingNavigationPost() {
+        let panel = AppUtilityPanel(
+            workspaceId: UUID(),
+            kind: .settings,
+            settingsNavigationTarget: .keyboardShortcuts
+        )
+
+        #expect(panel.settingsNavigationTarget == .keyboardShortcuts)
+        #expect(panel.settingsNavigationRevision == 0)
+
+        panel.requestSettingsNavigation(.browserImport)
+
+        #expect(panel.settingsNavigationTarget == .browserImport)
+        #expect(panel.settingsNavigationRevision == 1)
+    }
+
+    @Test func appUtilityPanelOwnsAndYieldsFocusWithinItsViewTree() throws {
+        let panel = AppUtilityPanel(workspaceId: UUID(), kind: .settings)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let focusRoot = NSView(frame: window.contentView?.bounds ?? .zero)
+        let anchor = RightSidebarToolFocusAnchorView(frame: .zero)
+        let settingsControl = NSTextField(frame: NSRect(x: 20, y: 20, width: 200, height: 24))
+        focusRoot.addSubview(anchor)
+        focusRoot.addSubview(settingsControl)
+        window.contentView = focusRoot
+        panel.attachFocusAnchor(anchor)
+
+        panel.focus()
+        #expect(window.firstResponder === anchor)
+
+        try #require(window.makeFirstResponder(settingsControl))
+        let responder = try #require(window.firstResponder)
+        #expect(panel.ownedFocusIntent(for: responder, in: window) == .panel)
+        #expect(panel.yieldFocusIntent(.panel, in: window))
+        #expect(window.firstResponder !== settingsControl)
+        #expect(panel.ownedFocusIntent(for: window.firstResponder ?? window, in: window) == nil)
+    }
+
+    @Test func appUtilityPanelDoesNotYieldUnownedResponder() throws {
+        let panel = AppUtilityPanel(workspaceId: UUID(), kind: .settings)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let focusRoot = NSView(frame: window.contentView?.bounds ?? .zero)
+        let anchor = RightSidebarToolFocusAnchorView(frame: .zero)
+        let foreignResponder = RightSidebarToolFocusAnchorView(frame: .zero)
+        focusRoot.addSubview(anchor)
+        window.contentView = focusRoot
+        window.contentView?.superview?.addSubview(foreignResponder)
+        panel.attachFocusAnchor(anchor)
+        try #require(window.makeFirstResponder(foreignResponder))
+
+        #expect(panel.ownedFocusIntent(for: foreignResponder, in: window) == nil)
+        #expect(!panel.yieldFocusIntent(.panel, in: window))
+        #expect(window.firstResponder === foreignResponder)
+    }
+
+    @Test func openOrFocusAppUtilityPaneCreatesRightSplitAndReusesExistingKind() throws {
+        let workspace = Workspace()
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let originalPanelId = try #require(workspace.focusedPanelId)
+
+        let firstPanel = try #require(workspace.openOrFocusAppUtilityPane(
+            fromPane: paneId,
+            kind: .settings,
+            focus: true
+        ))
+        let utilityPaneId = try #require(workspace.paneId(forPanelId: firstPanel.id))
+        let secondPanel = try #require(workspace.openOrFocusAppUtilityPane(
+            fromPane: paneId,
+            kind: .settings,
+            focus: true
+        ))
+
+        #expect(firstPanel.id == secondPanel.id)
+        #expect(utilityPaneId != paneId)
+        #expect(workspace.paneId(forPanelId: originalPanelId) == paneId)
+        #expect(workspace.bonsplitController.adjacentPane(to: paneId, direction: .right) == utilityPaneId)
+        #expect(workspace.bonsplitController.tabs(inPane: utilityPaneId).count == 1)
+        #expect(workspace.bonsplitController.allPaneIds.count == 2)
+        #expect(
+            workspace.panels.values.compactMap { $0 as? AppUtilityPanel }.filter { $0.kind == .settings }.count == 1
+        )
+        #expect(workspace.focusedPanelId == firstPanel.id)
+        #expect(
+            workspace.surfaceIdFromPanelId(firstPanel.id).flatMap { workspace.bonsplitController.tab($0)?.kind }
+                == SurfaceKind.appUtility.rawValue
+        )
+    }
+
+    @Test func focusingExistingAppUtilityPaneClearsZoomFromAnotherPane() throws {
+        let workspace = Workspace()
+        let terminalPaneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let terminalPanelId = try #require(workspace.focusedPanelId)
+        let utilityPanel = try #require(workspace.openOrFocusAppUtilityPane(
+            fromPane: terminalPaneId,
+            kind: .mobilePairing,
+            focus: true
+        ))
+
+        workspace.focusPanel(terminalPanelId)
+        #expect(workspace.toggleSplitZoom(panelId: terminalPanelId))
+        #expect(workspace.bonsplitController.zoomedPaneId == terminalPaneId)
+
+        workspace.openMobilePairingSurface(inPane: terminalPaneId)
+
+        #expect(workspace.bonsplitController.zoomedPaneId == nil)
+        #expect(workspace.focusedPanelId == utilityPanel.id)
+    }
+
+    @Test(arguments: [AppUtilityPanelKind.settings, .mobilePairing])
+    func appUtilityPaneRegistersPlacesAndRevealsInCanvas(kind: AppUtilityPanelKind) throws {
+        let workspace = Workspace()
+        let sourcePaneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let anchorPanelId = try #require(workspace.focusedPanelId)
+        workspace.setLayoutMode(.canvas)
+        let anchorFrame = try #require(workspace.canvasModel.frame(of: anchorPanelId))
+        let viewport = AppUtilityCanvasViewportSpy()
+        workspace.canvasModel.viewport = viewport
+
+        let utilityPanel = try #require(workspace.openOrFocusAppUtilityPane(
+            fromPane: sourcePaneId,
+            kind: kind,
+            focus: true
+        ))
+
+        let utilityFrame = try #require(workspace.canvasModel.frame(of: utilityPanel.id))
+        #expect(workspace.canvasModel.paneID(containing: utilityPanel.id) != nil)
+        #expect(utilityFrame.minX >= anchorFrame.maxX)
+        #expect(workspace.focusedPanelId == utilityPanel.id)
+        #expect(viewport.modelDidChangeCount == 1)
+        #expect(viewport.revealedPanelIds == [utilityPanel.id])
+        #expect(workspace.paneId(forPanelId: utilityPanel.id) != nil)
+    }
+
+    @Test func reopeningExistingCanvasUtilityPaneSelectsAndRevealsIt() throws {
+        let workspace = Workspace()
+        let sourcePaneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let terminalPanelId = try #require(workspace.focusedPanelId)
+        workspace.setLayoutMode(.canvas)
+        let utilityPanel = try #require(workspace.openOrFocusAppUtilityPane(
+            fromPane: sourcePaneId,
+            kind: .settings,
+            focus: true
+        ))
+        workspace.focusPanel(terminalPanelId)
+        let viewport = AppUtilityCanvasViewportSpy()
+        workspace.canvasModel.viewport = viewport
+
+        let reopened = try #require(workspace.openOrFocusAppUtilityPane(
+            fromPane: sourcePaneId,
+            kind: .settings,
+            focus: true
+        ))
+
+        #expect(reopened === utilityPanel)
+        #expect(workspace.focusedPanelId == utilityPanel.id)
+        #expect(workspace.canvasModel.layout.panes.first {
+            $0.panelIds.contains(where: { $0.rawValue == utilityPanel.id })
+        }?.selectedPanelId.rawValue == utilityPanel.id)
+        #expect(viewport.modelDidChangeCount == 1)
+        #expect(viewport.revealedPanelIds == [utilityPanel.id])
+    }
+
+    @Test func remoteTmuxMirrorDoesNotRequestSplitForAppUtilityPane() throws {
+        let workspace = Workspace()
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let panelsBefore = workspace.panels.count
+        let recorder = SplitRequestRecorder()
+        workspace.isRemoteTmuxMirror = true
+        workspace.bonsplitController.delegate = recorder
+
+        let panel = workspace.openOrFocusAppUtilityPane(
+            fromPane: paneId,
+            kind: .settings,
+            focus: true
+        )
+
+        #expect(panel == nil)
+        #expect(recorder.splitRequestCount == 0)
+        #expect(workspace.panels.count == panelsBefore)
+        #expect(workspace.bonsplitController.allPaneIds.count == 1)
+    }
+
+    @Test func appUtilityOpenUsesExistingLocalWorkspaceWhenRemoteMirrorIsSelected() throws {
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        let remoteWorkspace = try #require(tabManager.selectedWorkspace)
+        remoteWorkspace.isRemoteTmuxMirror = true
+        let localWorkspace = tabManager.addWorkspace(
+            inheritWorkingDirectory: false,
+            select: false,
+            autoWelcomeIfNeeded: false
+        )
+
+        let didOpen = appDelegate.openMobilePairingPane(
+            debugSource: "test.existingLocalFallback",
+            tabManager: tabManager
+        )
+
+        #expect(didOpen)
+        #expect(tabManager.tabs.count == 2)
+        #expect(tabManager.selectedWorkspace === localWorkspace)
+        #expect(remoteWorkspace.panels.values.allSatisfy { !($0 is AppUtilityPanel) })
+        #expect(localWorkspace.panels.values.contains { ($0 as? AppUtilityPanel)?.kind == .mobilePairing })
+    }
+
+    @Test func appUtilityOpenCreatesLocalWorkspaceWhenOnlyRemoteMirrorsExist() throws {
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        let remoteWorkspace = try #require(tabManager.selectedWorkspace)
+        remoteWorkspace.isRemoteTmuxMirror = true
+
+        let didOpen = appDelegate.openMobilePairingPane(
+            debugSource: "test.newLocalFallback",
+            tabManager: tabManager
+        )
+
+        let localWorkspace = try #require(tabManager.selectedWorkspace)
+        #expect(didOpen)
+        #expect(tabManager.tabs.count == 2)
+        #expect(!localWorkspace.isRemoteTmuxMirror)
+        #expect(localWorkspace !== remoteWorkspace)
+        #expect(remoteWorkspace.panels.values.allSatisfy { !($0 is AppUtilityPanel) })
+        #expect(localWorkspace.panels.values.contains { ($0 as? AppUtilityPanel)?.kind == .mobilePairing })
+    }
+
+    @Test func nonActivatingUtilityOpenUsesExistingLocalWorkspaceWithoutSelectingOrFocusingIt() throws {
+        let appDelegate = AppDelegate()
+        let windowId = appDelegate.createMainWindow(shouldActivate: false)
+        defer { appDelegate.mainWindow(for: windowId)?.close() }
+        let tabManager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+        let remoteWorkspace = try #require(tabManager.selectedWorkspace)
+        remoteWorkspace.isRemoteTmuxMirror = true
+        let localWorkspace = tabManager.addWorkspace(
+            inheritWorkingDirectory: false,
+            select: false,
+            autoWelcomeIfNeeded: false
+        )
+        let originalFocusedPanelId = try #require(localWorkspace.focusedPanelId)
+        let originalPaneId = try #require(localWorkspace.bonsplitController.focusedPaneId)
+        #expect(localWorkspace.toggleSplitZoom(panelId: originalFocusedPanelId))
+
+        let didOpen = appDelegate.openPreferencesWindow(
+            debugSource: "test.nonActivatingExistingLocalFallback",
+            activateApplication: false
+        )
+
+        #expect(didOpen)
+        #expect(tabManager.selectedWorkspace === remoteWorkspace)
+        #expect(localWorkspace.focusedPanelId == originalFocusedPanelId)
+        #expect(localWorkspace.bonsplitController.focusedPaneId == originalPaneId)
+        #expect(localWorkspace.bonsplitController.zoomedPaneId == originalPaneId)
+        #expect(localWorkspace.panels.values.contains { ($0 as? AppUtilityPanel)?.kind == .settings })
+    }
+
+    @Test func nonActivatingUtilityOpenCreatesUnselectedLocalWorkspaceWithoutFocusingUtilityPane() throws {
+        let appDelegate = AppDelegate()
+        let windowId = appDelegate.createMainWindow(shouldActivate: false)
+        defer { appDelegate.mainWindow(for: windowId)?.close() }
+        let tabManager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+        let remoteWorkspace = try #require(tabManager.selectedWorkspace)
+        remoteWorkspace.isRemoteTmuxMirror = true
+
+        let didOpen = appDelegate.openPreferencesWindow(
+            debugSource: "test.nonActivatingNewLocalFallback",
+            activateApplication: false
+        )
+
+        let localWorkspace = try #require(tabManager.tabs.first { !$0.isRemoteTmuxMirror })
+        let utilityPanel = try #require(
+            localWorkspace.panels.values.compactMap { $0 as? AppUtilityPanel }.first
+        )
+        #expect(didOpen)
+        #expect(tabManager.tabs.count == 2)
+        #expect(tabManager.selectedWorkspace === remoteWorkspace)
+        #expect(localWorkspace.focusedPanelId != utilityPanel.id)
+    }
+
+    @Test func nonActivatingUtilityPresentationOrdersAndDeminiaturizesWithoutMakingKey() {
+        let appDelegate = AppDelegate()
+        let window = AppUtilityPresentationTestWindow()
+        window.simulatesMiniaturized = true
+
+        appDelegate.presentAppUtilityHostWindow(window, activateApplication: false)
+
+        #expect(window.deminiaturizeCallCount == 1)
+        #expect(window.orderFrontRegardlessCallCount == 1)
+        #expect(window.orderFrontCallCount == 0)
+        #expect(window.makeKeyAndOrderFrontCallCount == 0)
+        #expect(window.makeKeyCallCount == 0)
+    }
+
+    @Test func appUtilityKindsCreateIndependentPanes() throws {
+        let workspace = Workspace()
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let originalFocusedPanelId = try #require(workspace.focusedPanelId)
+
+        let settingsPanel = try #require(workspace.openOrFocusAppUtilityPane(
+            fromPane: paneId,
+            kind: .settings,
+            focus: false
+        ))
+        let mobilePanel = try #require(workspace.openOrFocusAppUtilityPane(
+            fromPane: paneId,
+            kind: .mobilePairing,
+            focus: false
+        ))
+
+        #expect(settingsPanel.id != mobilePanel.id)
+        #expect(workspace.paneId(forPanelId: settingsPanel.id) != workspace.paneId(forPanelId: mobilePanel.id))
+        #expect(workspace.bonsplitController.allPaneIds.count == 3)
+        #expect(settingsPanel.displayTitle == "Settings")
+        #expect(mobilePanel.displayTitle == "Pair iPhone")
+        #expect(workspace.focusedPanelId == originalFocusedPanelId)
+    }
+
+    @Test func selectingAppUtilityTabHidesTerminalPortalInSamePane() throws {
+        let workspace = Workspace()
+        let terminalPaneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let terminalPanelId = try #require(workspace.focusedPanelId)
+        let terminalPanel = try #require(workspace.panels[terminalPanelId] as? TerminalPanel)
+        terminalPanel.hostedView.setVisibleInUI(true)
+
+        let utilityPanel = try #require(workspace.openOrFocusAppUtilityPane(
+            fromPane: terminalPaneId,
+            kind: .mobilePairing,
+            focus: false
+        ))
+        let utilityTabId = try #require(workspace.surfaceIdFromPanelId(utilityPanel.id))
+
+        #expect(workspace.bonsplitController.moveTab(utilityTabId, toPane: terminalPaneId))
+        workspace.focusPanel(utilityPanel.id)
+
+        #expect(workspace.bonsplitController.selectedTab(inPane: terminalPaneId)?.id == utilityTabId)
+        #expect(!terminalPanel.hostedView.debugPortalVisibleInUI)
+    }
+
+    @Test func selectingAppUtilityPaneDoesNotReconcilePortalInAnotherPane() throws {
+        let workspace = Workspace()
+        let terminalPaneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let terminalPanelId = try #require(workspace.focusedPanelId)
+        let terminalPanel = try #require(workspace.panels[terminalPanelId] as? TerminalPanel)
+        let utilityPanel = try #require(workspace.openOrFocusAppUtilityPane(
+            fromPane: terminalPaneId,
+            kind: .mobilePairing,
+            focus: false
+        ))
+
+        terminalPanel.hostedView.setVisibleInUI(false)
+        workspace.focusPanel(utilityPanel.id)
+
+        #expect(!terminalPanel.hostedView.debugPortalVisibleInUI)
+    }
+}
+
+@MainActor
+private final class AppUtilityPresentationTestWindow: NSWindow {
+    var simulatesMiniaturized = false
+    private(set) var deminiaturizeCallCount = 0
+    private(set) var orderFrontCallCount = 0
+    private(set) var orderFrontRegardlessCallCount = 0
+    private(set) var makeKeyAndOrderFrontCallCount = 0
+    private(set) var makeKeyCallCount = 0
+
+    init() {
+        super.init(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+    }
+
+    override var isMiniaturized: Bool { simulatesMiniaturized }
+
+    override func deminiaturize(_ sender: Any?) {
+        deminiaturizeCallCount += 1
+        simulatesMiniaturized = false
+    }
+
+    override func orderFront(_ sender: Any?) {
+        orderFrontCallCount += 1
+    }
+
+    override func orderFrontRegardless() {
+        orderFrontRegardlessCallCount += 1
+    }
+
+    override func makeKeyAndOrderFront(_ sender: Any?) {
+        makeKeyAndOrderFrontCallCount += 1
+    }
+
+    override func makeKey() {
+        makeKeyCallCount += 1
+    }
+}

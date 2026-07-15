@@ -11,6 +11,37 @@ import Testing
 @Suite("SettingsSearchIndex")
 struct SettingsSearchIndexTests {
     @MainActor
+    @Test func initialNavigationOverridesPersistedSelectionWithoutChangingDefaults() throws {
+        let suiteName = "SettingsWindowRootSelectionTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(SettingsSectionID.browser.rawValue, forKey: "selectedSettingsSection")
+        defaults.set("section:browser", forKey: "selectedSettingsSidebarEntry")
+
+        let selection = SettingsInitialSelectionResolver(defaults: defaults)
+            .resolve(initialNavigationSection: .keyboardShortcuts)
+
+        #expect(selection.sectionRawValue == SettingsSectionID.keyboardShortcuts.rawValue)
+        #expect(selection.sidebarEntryID == "section:keyboardShortcuts")
+        #expect(defaults.string(forKey: "selectedSettingsSection") == SettingsSectionID.browser.rawValue)
+    }
+
+    @MainActor
+    @Test func initialSelectionRestoresPersistedValues() throws {
+        let suiteName = "SettingsWindowRootSelectionTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(SettingsSectionID.automation.rawValue, forKey: "selectedSettingsSection")
+        defaults.set("setting:automation:workspace-auto-naming", forKey: "selectedSettingsSidebarEntry")
+
+        let selection = SettingsInitialSelectionResolver(defaults: defaults)
+            .resolve(initialNavigationSection: nil)
+
+        #expect(selection.sectionRawValue == SettingsSectionID.automation.rawValue)
+        #expect(selection.sidebarEntryID == "setting:automation:workspace-auto-naming")
+    }
+
+    @MainActor
     @Test func settingsWindowRootsReuseRuntimeCachedIndex() throws {
         let catalog = SettingCatalog()
         let suiteName = "SettingsSearchIndexTests.\(UUID().uuidString)"
@@ -49,6 +80,32 @@ struct SettingsSearchIndexTests {
         #expect(secondRoot.sidebarEntries(matching: "issue3384-cache-sentinel").contains {
             $0.id == expectedID
         })
+    }
+
+    @MainActor
+    @Test func settingsRootsKeepSearchStateIndependent() {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        let first = SettingsSidebarModel(searchIndex: index)
+        let second = SettingsSidebarModel(searchIndex: index)
+
+        first.searchText = "browser"
+
+        #expect(first.isSearching)
+        #expect(second.searchText.isEmpty)
+        #expect(!second.isSearching)
+    }
+
+    @MainActor
+    @Test func sidebarCachesMatchesUntilTheQueryChanges() {
+        let model = SettingsSidebarModel(searchIndex: SettingsSearchIndex(catalog: SettingCatalog()))
+
+        #expect(model.searchEvaluationCount == 1)
+        model.searchText = "browser"
+        #expect(model.searchEvaluationCount == 2)
+
+        model.searchText = "browser"
+        #expect(model.searchEvaluationCount == 2)
+        #expect(model.visibleEntries.contains { $0.title == "Browser" })
     }
 
     private static func makeDefaultsStore(suiteName: String) -> UserDefaultsSettingsStore {

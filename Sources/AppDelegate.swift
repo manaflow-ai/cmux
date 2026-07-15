@@ -6554,7 +6554,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return false
             }
             setActiveMainWindow(window)
-            context.sidebarState.toggle()
+            toggleSidebar(in: context)
             return true
         }
 
@@ -15429,9 +15429,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 if didStart { onExecuted?() }
                 return didStart
             case .mobileConnect:
-                MobilePairingWindowController.shared.show()
-                onExecuted?()
-                return true
+                return performConfiguredMobileConnectAction(context: context, preferredWindow: preferredWindow, onExecuted: onExecuted)
             case .newTerminal:
                 context.tabManager.newSurface()
                 onExecuted?()

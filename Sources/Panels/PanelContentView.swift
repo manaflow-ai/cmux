@@ -162,6 +162,11 @@ struct PanelContentView: View {
                 CloudVMLoadingPanelView(panel: loadingPanel)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+        case .appUtility:
+            if let appUtilityPanel = panel as? AppUtilityPanel {
+                AppUtilityPanelView(panel: appUtilityPanel)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
     }
 
@@ -179,7 +184,7 @@ struct PanelContentView: View {
     private var shouldInstallPaneDropTarget: Bool {
         guard isVisibleInUI else { return false }
         switch panel.panelType {
-        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .agentSession, .project, .extensionBrowser, .workspaceTodo, .cloudVMLoading:
+        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .agentSession, .project, .extensionBrowser, .workspaceTodo, .cloudVMLoading, .appUtility:
             return true
         case .terminal, .browser:
             return false
@@ -188,7 +193,7 @@ struct PanelContentView: View {
 }
 
 private struct CloudVMLoadingPanelView: View {
-    @ObservedObject var panel: CloudVMLoadingPanel
+    @Bindable var panel: CloudVMLoadingPanel
 
     var body: some View {
         let schedule: PeriodicTimelineSchedule = .periodic(from: panel.startedAt, by: 1)

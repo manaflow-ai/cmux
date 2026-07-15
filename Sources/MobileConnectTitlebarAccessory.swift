@@ -45,7 +45,9 @@ private struct MobileConnectTitlebarButton: View {
     var body: some View {
         if CmuxFeatureFlags.shared.isMobileConnectButtonEnabled {
             Button {
-                MobilePairingWindowController.shared.show()
+                _ = AppDelegate.shared?.openMobilePairingPane(
+                    debugSource: "titlebar.mobileConnect"
+                )
             } label: {
                 Image(systemName: "iphone")
                     .font(.system(size: 12, weight: .medium))

@@ -37,4 +37,6 @@ public struct SurfaceKind: RawRepresentable, Hashable, Sendable {
     public static let todo = SurfaceKind(rawValue: "todo")
     /// A transient Cloud VM loading pane.
     public static let cloudVMLoading = SurfaceKind(rawValue: "cloudVMLoading")
+    /// A cmux-owned utility hosted as a workspace pane.
+    public static let appUtility = SurfaceKind(rawValue: "appUtility")
 }

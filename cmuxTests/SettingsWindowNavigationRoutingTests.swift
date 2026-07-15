@@ -157,6 +157,16 @@ extension SettingsWindowSharedStateSuites {
             }
         }
 
+        @Test func sidebarToggleCanTargetOneSettingsPane() {
+            let recorder = SettingsSidebarToggleRecorder()
+
+            SettingsWindowPresenter.requestSidebarToggle(scope: "settings-pane-1")
+            recorder.stopObserving()
+
+            #expect(recorder.receivedScopes.count == 1)
+            #expect(recorder.receivedScopes[0] == "settings-pane-1")
+        }
+
         // MARK: - Helpers
 
         private func visibleSettingsWindow() -> NSWindow? {
@@ -312,6 +322,7 @@ private final class SettingsNavigationTargetRecorder: NSObject {
 @MainActor
 final class SettingsSidebarToggleRecorder: NSObject {
     private(set) var receivedCount = 0
+    private(set) var receivedScopes: [String?] = []
 
     override init() {
         super.init()
@@ -330,6 +341,7 @@ final class SettingsSidebarToggleRecorder: NSObject {
     @objc
     private func didReceive(_ notification: Notification) {
         receivedCount += 1
+        receivedScopes.append(notification.object as? String)
     }
 }
 #endif
