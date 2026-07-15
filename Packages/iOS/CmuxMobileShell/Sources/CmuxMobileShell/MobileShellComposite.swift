@@ -3648,6 +3648,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             let requestedWorkspaceID = remoteWorkspaceID(for: targetWorkspaceID)
             if recoverTerminalHierarchyForCreateIfRequired(
                 in: targetWorkspaceID,
+                target: boundMutationTarget,
+                hostDisplayName: hostDisplayName,
                 completion: completion
             ) {
                 return

@@ -1,4 +1,7 @@
+import CMUXMobileCore
+import CmuxMobilePairedMac
 import CmuxMobileShellModel
+import Foundation
 import Testing
 @testable import CmuxMobileShell
 
@@ -213,28 +216,67 @@ import Testing
         foregroundRouter: RoutingHostRouter,
         secondaryRouter: RoutingHostRouter
     ) async throws -> SecondaryRecoveryFixture {
-        let store = try await makeRecoveryStore(router: foregroundRouter)
+        let secondaryRoute = try CmxAttachRoute(
+            id: "debug_loopback_secondary-mac",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56587)
+        )
+        let pairedMacStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-a": [
+                    MobilePairedMac(
+                        macDeviceID: "secondary-mac",
+                        displayName: "Secondary Mac",
+                        routes: [secondaryRoute],
+                        createdAt: Date(timeIntervalSince1970: 1),
+                        lastSeenAt: Date(timeIntervalSince1970: 2),
+                        isActive: false,
+                        stackUserID: "user-1",
+                        teamID: "team-a"
+                    ),
+                ],
+            ],
+            blockedTeams: []
+        )
+        let store = makeRoutingMultiMacStore(
+            router: foregroundRouter,
+            pairedMacStore: pairedMacStore
+        )
         try installSecondaryClient(
             on: store,
             macDeviceID: "secondary-mac",
             router: secondaryRouter
         )
-        let sourceWorkspace = try #require(store.workspaces.first)
         let capabilities = MobileWorkspaceActionCapabilities(
             supportsTerminalCloseActions: true,
             supportsTerminalCreateInPane: true,
             supportsTerminalReorderActions: true
         )
+        var sourceWorkspace = MobileWorkspacePreview(
+            id: .init(rawValue: RoutingHostRouter.workspaceID),
+            name: "Routing Workspace",
+            terminals: [
+                MobileTerminalPreview(
+                    id: .init(rawValue: RoutingHostRouter.terminalA),
+                    name: "A"
+                ),
+                MobileTerminalPreview(
+                    id: .init(rawValue: RoutingHostRouter.terminalB),
+                    name: "B"
+                ),
+            ]
+        )
+        sourceWorkspace.actionCapabilities = capabilities
         var foregroundWorkspace = sourceWorkspace
-        foregroundWorkspace.macDeviceID = "test-mac"
+        foregroundWorkspace.macDeviceID = "foreground-mac"
         foregroundWorkspace.name = "Foreground collision"
         var secondaryWorkspace = sourceWorkspace
         secondaryWorkspace.macDeviceID = "secondary-mac"
         secondaryWorkspace.name = "Secondary collision"
         store.setWorkspaceStatesForTesting(
             [
-                "test-mac": MacWorkspaceState(
-                    macDeviceID: "test-mac",
+                "foreground-mac": MacWorkspaceState(
+                    macDeviceID: "foreground-mac",
                     displayName: "Foreground Mac",
                     workspaces: [foregroundWorkspace],
                     status: .connected,
@@ -248,7 +290,7 @@ import Testing
                     actionCapabilities: capabilities
                 ),
             ],
-            foregroundMacDeviceID: "test-mac"
+            foregroundMacDeviceID: "foreground-mac"
         )
         let secondaryWorkspaceID = try #require(
             store.workspaces.first(where: { $0.macDeviceID == "secondary-mac" })?.id

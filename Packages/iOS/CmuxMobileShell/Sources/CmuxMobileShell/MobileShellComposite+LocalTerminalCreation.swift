@@ -321,6 +321,8 @@ extension MobileShellComposite {
     /// the preceding uncertain request may already have succeeded on the Mac.
     func recoverTerminalHierarchyForCreateIfRequired(
         in workspaceID: MobileWorkspacePreview.ID,
+        target: WorkspaceMutationTarget,
+        hostDisplayName: String?,
         completion: @escaping @MainActor (Result<Void, MobileWorkspaceMutationFailure>) -> Void
     ) -> Bool {
         guard terminalReorderGate.requiresRefresh(workspaceID: workspaceID) else {
@@ -328,14 +330,14 @@ extension MobileShellComposite {
         }
         let gate = terminalReorderGate
         let recoveryFailure = MobileWorkspaceMutationFailure.appliedNeedsRefresh(
-            hostDisplayName: connectedHostName
+            hostDisplayName: hostDisplayName
         )
         guard !terminalCreationRequestOwner.isActive else {
-            completion(.failure(.busy(hostDisplayName: connectedHostName)))
+            completion(.failure(.busy(hostDisplayName: hostDisplayName)))
             return true
         }
         guard gate.beginRecovery(workspaceID: workspaceID) else {
-            completion(.failure(.busy(hostDisplayName: connectedHostName)))
+            completion(.failure(.busy(hostDisplayName: hostDisplayName)))
             return true
         }
         let started = terminalCreationRequestOwner.startIfIdle(
@@ -354,13 +356,13 @@ extension MobileShellComposite {
             }
         ) { @MainActor [weak self] in
             guard let self, !Task.isCancelled else { return .failure(recoveryFailure) }
-            return await self.refreshTerminalHierarchy(workspaceID: workspaceID)
+            return await self.refreshAfterWorkspaceMutation(target)
                 ? .success(())
                 : .failure(recoveryFailure)
         }
         if !started {
             gate.finishRecovery(workspaceID: workspaceID, succeeded: false)
-            completion(.failure(.busy(hostDisplayName: connectedHostName)))
+            completion(.failure(.busy(hostDisplayName: hostDisplayName)))
         }
         return true
     }
