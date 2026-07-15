@@ -439,8 +439,6 @@ jobs:
             PROFILE_BASE64="${IOS_BETA_PROVISIONING_PROFILE_INTERNAL_BASE64}"
             EXPECTED_APP_ID="7WLXT3NR37.dev.cmux.app.internal"
             PROFILE_TYPE="internal"
-            # Internal profile created in ASC but may lack push notifications entitlement
-            # Set to true to skip aps-environment check for internal builds
             SKIP_APS_ENVIRONMENT_CHECK=true
           else
             PROFILE_BASE64="${IOS_BETA_PROVISIONING_PROFILE_BASE64}"
