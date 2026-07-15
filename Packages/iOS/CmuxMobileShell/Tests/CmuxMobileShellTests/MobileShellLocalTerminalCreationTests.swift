@@ -1,3 +1,5 @@
+import CMUXMobileCore
+import CmuxMobilePairedMac
 import CmuxMobileRPC
 import CmuxMobileShellModel
 import Foundation
@@ -294,6 +296,98 @@ import Testing
         store.workspaces.first(where: { $0.id == foregroundRowID })?.terminals.map(\.id.rawValue)
             == ["foreground-terminal"]
     )
+}
+
+@MainActor
+@Test func secondaryPublicCreateCompletionWaitsForTrailingAuthoritativeList() async throws {
+    let router = RoutingHostRouter()
+    await router.workspaceListGate.setHoldFirst(true)
+    let macID = "secondary-create-authority"
+    let route = try CmxAttachRoute(
+        id: "debug_loopback_secondary_create_authority",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56587)
+    )
+    let pairedMacStore = DelayedTeamPairedMacStore(
+        recordsByTeam: [
+            "team-a": [
+                MobilePairedMac(
+                    macDeviceID: macID,
+                    displayName: "Secondary Mac",
+                    routes: [route],
+                    createdAt: Date(timeIntervalSince1970: 1),
+                    lastSeenAt: Date(timeIntervalSince1970: 2),
+                    isActive: false,
+                    stackUserID: "user-1",
+                    teamID: "team-a"
+                ),
+            ],
+        ],
+        blockedTeams: []
+    )
+    let store = makeRoutingMultiMacStore(router: router, pairedMacStore: pairedMacStore)
+    let capabilities = MobileWorkspaceActionCapabilities(
+        supportsTerminalCloseActions: true,
+        supportsTerminalCreateInPane: true,
+        supportsTerminalReorderActions: true
+    )
+    try installSecondaryClient(
+        on: store,
+        macDeviceID: macID,
+        router: router,
+        actionCapabilities: capabilities
+    )
+    var workspace = MobileWorkspacePreview(
+        id: .init(rawValue: RoutingHostRouter.workspaceID),
+        macDeviceID: macID,
+        name: "Routing Workspace",
+        terminals: [
+            MobileTerminalPreview(id: .init(rawValue: RoutingHostRouter.terminalA), name: "A"),
+            MobileTerminalPreview(id: .init(rawValue: RoutingHostRouter.terminalB), name: "B"),
+        ],
+        selectedTerminalID: .init(rawValue: RoutingHostRouter.terminalB)
+    )
+    workspace.actionCapabilities = capabilities
+    store.setWorkspaceStatesForTesting(
+        [macID: MacWorkspaceState(
+            macDeviceID: macID,
+            displayName: "Secondary Mac",
+            workspaces: [workspace],
+            status: .connected,
+            actionCapabilities: capabilities
+        )],
+        foregroundMacDeviceID: "foreground-mac"
+    )
+    let rowID = try #require(store.workspaces.first?.id)
+    var completions: [Result<Void, MobileWorkspaceMutationFailure>] = []
+
+    store.createTerminal(in: rowID) { result in
+        completions.append(result)
+    }
+    await router.workspaceListGate.waitUntilFirstReached()
+
+    #expect(store.workspaces.first?.terminals.contains(where: {
+        $0.id.rawValue == "terminal-route-created"
+    }) == true, "the mutation-scoped create response should remain immediately visible")
+    #expect(completions.isEmpty, "public create completion must wait for post-mutation authority")
+    #expect(store.terminalCreationRequestOwner.isActive)
+    #expect(store.terminalReorderGate.isActive(workspaceID: rowID))
+    #expect(!store.terminalReorderGate.canMutate(workspaceID: rowID))
+
+    await router.workspaceListGate.releaseFirst()
+    for _ in 0..<300 where store.terminalCreationRequestOwner.isActive {
+        try await Task.sleep(for: .milliseconds(1))
+    }
+
+    #expect(await router.workspaceListGate.requestCount() == 1)
+    #expect(completions.count == 1)
+    guard completions.count == 1 else { return }
+    guard case .success = completions[0] else {
+        Issue.record("authoritative secondary create should succeed: \(completions[0])")
+        return
+    }
+    #expect(!store.terminalCreationRequestOwner.isActive)
+    #expect(store.terminalReorderGate.canMutate(workspaceID: rowID))
 }
 
 @MainActor

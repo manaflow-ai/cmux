@@ -550,7 +550,8 @@ func installSecondaryClient(
     on store: MobileShellComposite,
     macDeviceID: String,
     router: RoutingHostRouter,
-    macScopedWorkspaceMutations: Bool = false
+    macScopedWorkspaceMutations: Bool = false,
+    actionCapabilities: MobileWorkspaceActionCapabilities = .none
 ) throws {
     let runtime = RoutingTestRuntime(
         transportFactory: RoutingTransportFactory(router: router)
@@ -581,6 +582,6 @@ func installSecondaryClient(
         route: route,
         ticket: ticket,
         supportedHostCapabilities: [],
-        actionCapabilities: .none
+        actionCapabilities: actionCapabilities
     )
 }
