@@ -97,7 +97,32 @@ extension Workspace {
             case .unsupported:
                 return (.unsupported, nil)
             case .requiresProbe:
-                break
+                let isRemoteContext = isRemoteTerminalSurface(panelId)
+                guard liveAgentIndex.prepareForkAvailabilityProbe(
+                    workspaceId: id,
+                    panelId: panelId,
+                    isRemoteContext: isRemoteContext,
+                    fallbackSnapshot: restoredSnapshot
+                ) else {
+                    return (.agentIndexRefreshing, nil)
+                }
+                if liveAgentIndex.forkSupportProbeAccepted(
+                    workspaceId: id,
+                    panelId: panelId,
+                    isRemoteContext: isRemoteContext,
+                    fallbackSnapshot: restoredSnapshot
+                ) {
+                    return (.available, restoredSnapshot)
+                }
+                if liveAgentIndex.forkSupportProbeRejected(
+                    workspaceId: id,
+                    panelId: panelId,
+                    isRemoteContext: isRemoteContext,
+                    fallbackSnapshot: restoredSnapshot
+                ) {
+                    return (.unsupported, nil)
+                }
+                return (.agentIndexRefreshing, nil)
             }
         }
 

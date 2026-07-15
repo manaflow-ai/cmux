@@ -446,6 +446,54 @@ struct WorkspaceForkConversationContextMenuTests {
     }
 
     @Test
+    func restoredDirectOpenCodeCanValidateWithoutLiveIndexEntry() async throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let snapshot = makeProbeRequiredOpenCodeSnapshot()
+        workspace.setRestoredAgentSnapshotForTesting(snapshot, panelId: panelId)
+
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-restored-opencode-fallback-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let liveAgentIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                SharedLiveAgentIndexLoader(
+                    homeDirectory: root.path,
+                    registry: CmuxVaultAgentRegistry(registrations: []),
+                    processSnapshotProvider: {
+                        CmuxTopProcessSnapshot(
+                            processes: [],
+                            sampledAt: Date(timeIntervalSince1970: 42),
+                            includesProcessDetails: true
+                        )
+                    },
+                    capturedAtProvider: { 42 },
+                    processArgumentsProvider: { _ in nil }
+                )
+                .loadResultSynchronously()
+            },
+            forkSupportProvider: { _, _ in true },
+            hookStoreDirectoryProvider: { root.path },
+            dateProvider: { Date(timeIntervalSince1970: 42) }
+        )
+
+        await liveAgentIndex.refreshForkAvailabilityNow(
+            workspaceId: workspace.id,
+            panelId: panelId,
+            fallbackSnapshot: snapshot
+        )
+
+        #expect(
+            workspace.forkAgentConversationContextMenuOpenAvailability(
+                forPanelId: panelId,
+                liveAgentIndex: liveAgentIndex
+            ) == .available
+        )
+    }
+
+    @Test
     func directOpenCodeContextMenuReconcilesLivenessAndVersionSupport() async throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
