@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestPersistentDaemonRuntimeStateIsSharedRevisionedAndObservable(t *testing.T) {
@@ -168,6 +169,41 @@ func TestRuntimeStateStoreRejectsOversizedPersistedPayload(t *testing.T) {
 
 	if _, err := newRuntimeStateStore(path); err == nil {
 		t.Fatal("oversized persisted runtime state unexpectedly loaded")
+	}
+}
+
+func TestRuntimeStateStorePutDoesNotBlockOnSlowSubscriber(t *testing.T) {
+	store, err := newRuntimeStateStore("")
+	if err != nil {
+		t.Fatalf("create runtime state store: %v", err)
+	}
+
+	subscriberStarted := make(chan struct{})
+	releaseSubscriber := make(chan struct{})
+	defer close(releaseSubscriber)
+	_, _ = store.subscribe(func(runtimeStateDocument) {
+		close(subscriberStarted)
+		<-releaseSubscriber
+	})
+
+	putDone := make(chan error, 1)
+	go func() {
+		_, err := store.put(1, json.RawMessage(`{"title":"writer"}`), nil)
+		putDone <- err
+	}()
+
+	select {
+	case <-subscriberStarted:
+	case <-time.After(time.Second):
+		t.Fatal("runtime state subscriber was not invoked")
+	}
+	select {
+	case err := <-putDone:
+		if err != nil {
+			t.Fatalf("put runtime state: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("runtime state put blocked on a slow subscriber")
 	}
 }
 

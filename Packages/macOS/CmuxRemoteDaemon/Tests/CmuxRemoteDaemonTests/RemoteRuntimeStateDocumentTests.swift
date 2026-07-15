@@ -133,6 +133,22 @@ struct RemoteRuntimeStateDocumentTests {
         }
     }
 
+    @Test("rejects oversized state before entering the RPC transport")
+    func rejectsOversizedStateBeforeTransport() throws {
+        let client = Self.makeClient()
+        let state = Data(
+            (#"{"blob":""# + String(repeating: "x", count: 3 * 1024 * 1024) + #""}"#).utf8
+        )
+
+        do {
+            _ = try client.putRuntimeState(schemaVersion: 1, state: state)
+            Issue.record("oversized runtime state unexpectedly reached the transport")
+        } catch let error as NSError {
+            #expect(error.domain == "cmux.remote.daemon.runtime-state")
+            #expect(error.code == 46)
+        }
+    }
+
     private static func makeClient() -> RemoteDaemonRPCClient {
         RemoteDaemonRPCClient(
             configuration: WorkspaceRemoteConfiguration(

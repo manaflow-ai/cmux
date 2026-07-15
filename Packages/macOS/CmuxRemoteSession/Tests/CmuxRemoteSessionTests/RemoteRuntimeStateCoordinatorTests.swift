@@ -69,6 +69,38 @@ struct RemoteRuntimeStateCoordinatorTests {
         #expect(storedState == localState)
     }
 
+    @Test("a reconnect uploads local edits when the server revision has not advanced")
+    func reconnectPreservesPendingLocalEdit() throws {
+        let fixture = Self.fixture()
+        defer { fixture.stop() }
+        let serverState = Data(#"{"title":"server"}"#.utf8)
+        fixture.provider.tunnel.seedRuntimeState(RemoteRuntimeStateDocument(
+            schemaVersion: 1,
+            revision: 7,
+            updatedAtUnixMilliseconds: 1,
+            state: serverState,
+            ptySessions: Data("[]".utf8)
+        ))
+        Self.synchronize(fixture)
+
+        fixture.coordinator.queue.sync {
+            fixture.coordinator.proxyLease = nil
+            fixture.coordinator.runtimeStateSynchronized = false
+        }
+        let offlineEdit = Data(#"{"title":"offline edit"}"#.utf8)
+        fixture.coordinator.enqueueRuntimeState(schemaVersion: 1, state: offlineEdit)
+        fixture.coordinator.queue.sync {}
+
+        Self.synchronize(fixture)
+
+        let storedDocument = try fixture.provider.tunnel.getRuntimeState()
+        let stored = try #require(storedDocument)
+        #expect(stored.revision == 8)
+        #expect(stored.state == offlineEdit)
+        #expect(fixture.host.documents.map(\.revision) == [7])
+        #expect(fixture.host.revisions == [8])
+    }
+
     private static func synchronize(_ fixture: RemoteRuntimeStateCoordinatorFixture) {
         fixture.coordinator.queue.sync {
             fixture.coordinator.proxyLease = fixture.lease
