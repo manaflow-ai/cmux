@@ -101,7 +101,7 @@ struct BrowserWebExtensionsManagerTests {
         #expect(manager.loadErrors.isEmpty)
         let context = try #require(manager.loadedContexts.first)
         let url = try #require(URL(string: "https://content-only.example/page"))
-        #expect(context.grantedPermissionMatchPatterns.contains { $0.matches(url) })
+        #expect(context.grantedPermissionMatchPatterns.keys.contains { $0.matches(url) })
     }
 
     @available(macOS 15.4, *)
@@ -284,7 +284,7 @@ private final class BrowserWebExtensionsTestClock: Clock, @unchecked Sendable {
     func sleep(until deadline: Instant, tolerance: Duration?) async throws {
         let id = UUID()
         try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
                 let waiters = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
                     if cancelledSleeperIDs.remove(id) != nil {
                         continuation.resume(throwing: CancellationError())
