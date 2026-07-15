@@ -34,6 +34,69 @@ struct MobileWorkspaceHierarchyProjectionTests {
         #expect(sampledWorkspaceIDs == [second.id])
     }
 
+    @Test func observerDigestIndexScopesSamplingAtOneThousandWorkspaces() {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        var workspaces: [Workspace] = []
+        workspaces.reserveCapacity(1_000)
+        for index in 0..<1_000 {
+            autoreleasepool {
+                workspaces.append(Workspace(
+                    title: "Scale \(index)",
+                    initialSurface: .cloudVMLoading,
+                    allowTextBoxFocusDefault: false
+                ))
+            }
+        }
+        manager.tabs = workspaces
+        manager.selectedTabId = workspaces.first?.id
+
+        var generations: [UUID: Int] = [:]
+        var sampleCounts: [UUID: Int] = [:]
+        let observer = MobileWorkspaceListObserver(
+            tabManager: manager,
+            focusEventSequenceService: MobileWorkspaceFocusEventSequenceService(),
+            workspaceDigestSampler: { workspace, previewSignature in
+                sampleCounts[workspace.id, default: 0] += 1
+                var hasher = Hasher()
+                hasher.combine(workspace.id)
+                hasher.combine(generations[workspace.id] ?? 0)
+                hasher.combine(previewSignature)
+                return hasher.finalize()
+            }
+        )
+        defer { withExtendedLifetime(observer) {} }
+
+        #expect(sampleCounts.count == 1_000)
+        #expect(sampleCounts.values.reduce(0, +) == 1_000)
+
+        let changedWorkspace = workspaces[500]
+        generations[changedWorkspace.id] = 1
+        sampleCounts.removeAll()
+        observer.emitIfNeeded(
+            force: false,
+            resamplingWorkspaceIDs: [changedWorkspace.id]
+        )
+        #expect(sampleCounts == [changedWorkspace.id: 1])
+
+        sampleCounts.removeAll()
+        manager.selectedTabId = workspaces[750].id
+        observer.emitIfNeeded(force: false, resamplingWorkspaceIDs: [])
+        #expect(
+            sampleCounts.isEmpty,
+            "selection and group-only summary changes must reuse cached workspace digests"
+        )
+
+        let newcomer = Workspace(
+            title: "Scale newcomer",
+            initialSurface: .cloudVMLoading,
+            allowTextBoxFocusDefault: false
+        )
+        sampleCounts.removeAll()
+        manager.tabs.append(newcomer)
+        observer.emitIfNeeded(force: false, resamplingWorkspaceIDs: [])
+        #expect(sampleCounts == [newcomer.id: 1])
+    }
+
     @Test func closeConfirmationFallbackIsLazyForKnownShellActivity() throws {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
