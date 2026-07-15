@@ -120,8 +120,18 @@ struct ReflowStructureTests {
         #expect(!result.contains("in.more"))
     }
 
-    @Test func decorationStrippedAtZeroIndent() {
-        #expect(reflow("▶ note here\n") == "note here\n")
+    @Test func standaloneDecorationIsPreserved() {
+        #expect(reflow("▶ note here\n") == "▶ note here\n")
+    }
+
+    @Test func decorationIsStrippedOnlyWhenWrappedParagraphJoins() {
+        let input =
+            "▶ The relevant part for your agreement is that they only supply a pseudonymized participant and the\n"
+            + "recording itself is controlled entirely on our own platform.\n"
+        #expect(
+            reflow(input)
+                == "The relevant part for your agreement is that they only supply a pseudonymized participant and the recording itself is controlled entirely on our own platform.\n"
+        )
     }
 
     @Test func indentedDecorationPreservedWhenNotJoining() {
