@@ -286,7 +286,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     guard !Task.isCancelled else { return }
                     guard let self else { return }
                     guard let surfaceView else { return }
-                    switch terminalOutputApplicationPath(for: chunk) {
+                    switch terminalOutputApplicationPath(
+                        for: chunk,
+                        expectedSurfaceID: surfaceID
+                    ) {
                     case .verifiedReplay:
                         guard let frame = chunk.sourceRenderGridFrame else { return }
                         await self.applyVerifiedRenderGrid(

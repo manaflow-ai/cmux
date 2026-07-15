@@ -225,7 +225,10 @@ struct VerifiedTerminalReplayStateMachineTests {
             streamToken: token,
             requiresVerifiedReplay: true
         )
-        #expect(terminalOutputApplicationPath(for: missingFrame) == .rejectUnverified)
+        #expect(terminalOutputApplicationPath(
+            for: missingFrame,
+            expectedSurfaceID: "surface-verified-replay"
+        ) == .rejectUnverified)
 
         let zeroRevisionFrame = try frame(
             renderEpoch: "epoch",
@@ -240,7 +243,10 @@ struct VerifiedTerminalReplayStateMachineTests {
             sourceRenderGridFrame: zeroRevisionFrame,
             requiresVerifiedReplay: true
         )
-        #expect(terminalOutputApplicationPath(for: zeroRevisionChunk) == .rejectUnverified)
+        #expect(terminalOutputApplicationPath(
+            for: zeroRevisionChunk,
+            expectedSurfaceID: "surface-verified-replay"
+        ) == .rejectUnverified)
 
         let verifiedFrame = try frame(
             renderEpoch: "epoch",
@@ -255,7 +261,10 @@ struct VerifiedTerminalReplayStateMachineTests {
             sourceRenderGridFrame: verifiedFrame,
             requiresVerifiedReplay: true
         )
-        #expect(terminalOutputApplicationPath(for: verifiedChunk) == .verifiedReplay)
+        #expect(terminalOutputApplicationPath(
+            for: verifiedChunk,
+            expectedSurfaceID: "surface-verified-replay"
+        ) == .verifiedReplay)
 
         let unnegotiatedChunk = MobileTerminalOutputChunk(
             data: verifiedFrame.vtPatchBytes(),
@@ -263,7 +272,10 @@ struct VerifiedTerminalReplayStateMachineTests {
             sourceRenderGridFrame: verifiedFrame,
             requiresVerifiedReplay: false
         )
-        #expect(terminalOutputApplicationPath(for: unnegotiatedChunk) == .legacy)
+        #expect(terminalOutputApplicationPath(
+            for: unnegotiatedChunk,
+            expectedSurfaceID: "surface-verified-replay"
+        ) == .legacy)
 
         let misroutedFrame = try frame(
             surfaceID: "another-surface",
@@ -279,7 +291,10 @@ struct VerifiedTerminalReplayStateMachineTests {
             sourceRenderGridFrame: misroutedFrame,
             requiresVerifiedReplay: true
         )
-        #expect(terminalOutputApplicationPath(for: misroutedChunk) == .rejectUnverified)
+        #expect(terminalOutputApplicationPath(
+            for: misroutedChunk,
+            expectedSurfaceID: "surface-verified-replay"
+        ) == .rejectUnverified)
     }
 
     private func commit(
