@@ -85,4 +85,20 @@ describe("device registry live sessions", () => {
     expect(liveSessionsFromLabels(labels).map((session) => session.id)).toEqual(["workspace-1"]);
     expect(publicInstanceLabels(labels)).toEqual({ channel: "stable" });
   });
+
+  test("truncates at complete Unicode code points", () => {
+    const [session] = sanitizeLiveSessions([{
+      id: "workspace-1",
+      workspaceID: "workspace-1",
+      title: `${"a".repeat(159)}🚀trailing`,
+      agent: `${"b".repeat(31)}🚀trailing`,
+      status: "working",
+      lastActivityAt: 10,
+    }]);
+
+    expect(Array.from(session.title)).toHaveLength(160);
+    expect(Array.from(session.title).at(-1)).toBe("🚀");
+    expect(Array.from(session.agent ?? "")).toHaveLength(32);
+    expect(Array.from(session.agent ?? "").at(-1)).toBe("🚀");
+  });
 });

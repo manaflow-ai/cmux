@@ -31,6 +31,7 @@ private enum MobileWorkspaceInvalidation: Hashable {
 @MainActor
 final class MobileWorkspaceListObserver {
     typealias DeadlineScheduler = LatestWinsBatcher<Bool, Bool>.Scheduler
+    typealias EmitWorkspaceUpdated = @MainActor (Set<UUID>?) -> Void
 
     private weak var tabManager: TabManager?
     /// The app-global notification store, source of each workspace's last-activity
@@ -52,7 +53,7 @@ final class MobileWorkspaceListObserver {
     /// keyed latest-wins batch also records whether subscriptions must be
     /// reconciled before hashing the final source-of-truth state.
     private let invalidationBatcher: LatestWinsBatcher<MobileWorkspaceInvalidation, Bool>
-    private let emitWorkspaceUpdated: @MainActor () -> Void
+    private let emitWorkspaceUpdated: EmitWorkspaceUpdated
 
     convenience init(tabManager: TabManager, notificationStore: TerminalNotificationStore? = nil) {
         self.init(
@@ -62,7 +63,7 @@ final class MobileWorkspaceListObserver {
                 quietDelay: 0.05,
                 maximumDelay: 0.16
             ),
-            emitWorkspaceUpdated: {
+            emitWorkspaceUpdated: { _ in
                 MobileHostService.shared.emitEvent(topic: "workspace.updated", payload: [:])
                 NotificationCenter.default.post(name: .cmuxLiveSessionsDidChange, object: nil)
             }
@@ -75,7 +76,7 @@ final class MobileWorkspaceListObserver {
         tabManager: TabManager,
         notificationStore: TerminalNotificationStore? = nil,
         scheduler: @escaping DeadlineScheduler,
-        emitWorkspaceUpdated: @escaping @MainActor () -> Void
+        emitWorkspaceUpdated: @escaping EmitWorkspaceUpdated
     ) {
         self.init(
             tabManager: tabManager,
@@ -93,7 +94,7 @@ final class MobileWorkspaceListObserver {
         tabManager: TabManager,
         notificationStore: TerminalNotificationStore?,
         invalidationBatcher: LatestWinsBatcher<MobileWorkspaceInvalidation, Bool>,
-        emitWorkspaceUpdated: @escaping @MainActor () -> Void
+        emitWorkspaceUpdated: @escaping EmitWorkspaceUpdated
     ) {
         self.tabManager = tabManager
         self.notificationStore = notificationStore
@@ -372,7 +373,7 @@ final class MobileWorkspaceListObserver {
         #if DEBUG
         cmuxDebugLog("mobile.observer EMIT workspace.updated hash=\(hash) tabs=\(tabManager.tabs.count) force=\(force)")
         #endif
-        emitWorkspaceUpdated()
+        emitWorkspaceUpdated(nil)
     }
 
     /// Stable hash of the iOS-facing shape: workspace ids + titles + their

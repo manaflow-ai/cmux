@@ -62,7 +62,7 @@ struct InvalidationBatchingBehaviorTests {
         let observer = MobileWorkspaceListObserver(
             tabManager: manager,
             scheduler: scheduler.schedule,
-            emitWorkspaceUpdated: { emittedTitles.append(workspace.title) }
+            emitWorkspaceUpdated: { _ in emittedTitles.append(workspace.title) }
         )
         defer { withExtendedLifetime(observer) {} }
 
@@ -96,7 +96,7 @@ struct InvalidationBatchingBehaviorTests {
         let observer = MobileWorkspaceListObserver(
             tabManager: manager,
             scheduler: scheduler.schedule,
-            emitWorkspaceUpdated: { emittedTitles.append(workspace.title) }
+            emitWorkspaceUpdated: { _ in emittedTitles.append(workspace.title) }
         )
         defer { withExtendedLifetime(observer) {} }
 
@@ -121,6 +121,27 @@ struct InvalidationBatchingBehaviorTests {
         #expect(emittedTitles == ["Sustained 4"])
         assertMobileTitleBurstMetrics(metrics.snapshot(), submitted: 5)
         #expect(scheduler.activeDeadlineCount == 0)
+    }
+
+    @Test func mobileWorkspaceMutationEmitsOnlyItsAffectedRegistryScope() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        let scheduler = VirtualInvalidationDeadlineScheduler()
+        var emittedScopes: [Set<UUID>?] = []
+        let observer = MobileWorkspaceListObserver(
+            tabManager: manager,
+            scheduler: scheduler.schedule,
+            emitWorkspaceUpdated: { emittedScopes.append($0) }
+        )
+        defer { withExtendedLifetime(observer) {} }
+
+        scheduler.advance(by: 1)
+        emittedScopes.removeAll()
+        workspace.title = "Scoped change"
+        scheduler.advance(by: 1)
+
+        #expect(emittedScopes.count == 1)
+        #expect(emittedScopes.first == Set([workspace.id]))
     }
 
     private func settleInitialObserverBatch(

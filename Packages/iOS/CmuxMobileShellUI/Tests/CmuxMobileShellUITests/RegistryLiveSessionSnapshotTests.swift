@@ -45,6 +45,12 @@ import Testing
                         lastSeenAt: .now,
                         sessions: [newer]
                     ),
+                    RegistryAppInstance(
+                        tag: "stale",
+                        routes: [route],
+                        lastSeenAt: Date(timeIntervalSince1970: 0),
+                        sessions: [newer]
+                    ),
                 ]
             ),
             RegistryDevice(
