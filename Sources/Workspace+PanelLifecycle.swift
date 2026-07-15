@@ -81,6 +81,12 @@ extension Workspace {
         return false
     }
 
+    private func hasAgentRuntime(forStatusKey statusKey: String, panelId: UUID) -> Bool {
+        (agentPIDKeysByPanelId[panelId] ?? []).contains {
+            agentStatusKey(forAgentPIDKey: $0) == statusKey
+        }
+    }
+
     private func removeAgentPIDOwnership(key: String) {
         if let previousPanelId = agentPIDPanelIdsByKey[key] {
             agentPIDKeysByPanelId[previousPanelId]?.remove(key)
@@ -274,7 +280,12 @@ extension Workspace {
         if let changedPanelId = ownedPanelId ?? panelId, didChange { AgentHibernationController.shared.recordAgentProcessChange(workspaceId: id, panelId: changedPanelId) }
         if let lifecyclePanelId = ownedPanelId ?? panelId {
             let lifecycleStatusKey = agentStatusKey(forAgentPIDKey: key)
-            if clearAgentLifecycle(key: lifecycleStatusKey, panelId: lifecyclePanelId) {
+            // A delayed teardown for a replaced session can arrive after the
+            // replacement registered its own PID key on this panel. Both keys
+            // share one lifecycle status key, so only the last runtime owner
+            // may clear the panel's running state.
+            if !hasAgentRuntime(forStatusKey: lifecycleStatusKey, panelId: lifecyclePanelId),
+               clearAgentLifecycle(key: lifecycleStatusKey, panelId: lifecyclePanelId) {
                 didChange = true
             }
         }
