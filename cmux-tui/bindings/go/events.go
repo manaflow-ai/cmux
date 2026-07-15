@@ -36,6 +36,11 @@ func parseEvent(raw map[string]any) Event {
 		if mustDecode(&event) {
 			return event
 		}
+	case "surface-resize-failed":
+		var event SurfaceResizeFailedEvent
+		if mustDecode(&event) {
+			return event
+		}
 	case "vt-state":
 		var event VtStateEvent
 		if mustDecode(&event) {

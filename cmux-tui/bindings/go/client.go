@@ -308,8 +308,10 @@ func (c *Client) RenameWorkspace(ctx context.Context, workspace uint64, name str
 	return c.request(ctx, "rename-workspace", map[string]any{"workspace": workspace, "name": name}, nil)
 }
 
-func (c *Client) ResizeSurface(ctx context.Context, surface uint64, cols, rows uint16) error {
-	return c.request(ctx, "resize-surface", map[string]any{"surface": surface, "cols": cols, "rows": rows}, nil)
+func (c *Client) ResizeSurface(ctx context.Context, surface uint64, cols, rows uint16) (ResizeSurfaceResult, error) {
+	var result ResizeSurfaceResult
+	err := c.request(ctx, "resize-surface", map[string]any{"surface": surface, "cols": cols, "rows": rows}, &result)
+	return result, err
 }
 
 func (c *Client) FocusPane(ctx context.Context, pane uint64) error {

@@ -2489,7 +2489,7 @@ mod tests {
     }
 
     #[test]
-    fn browser_resize_stays_retryable_until_reconfigure_completes() {
+    fn pending_browser_resize_suppresses_duplicates_until_reconfigure_completes() {
         let opts = SurfaceOptions::default();
         let surface =
             new_surface(1, "https://example.test".into(), (10, 5), (8, 16), &opts, Weak::new());
@@ -2497,9 +2497,9 @@ mod tests {
         *browser.cell_pixels.lock().unwrap() = (9, 16);
 
         let _ = browser.update_resize_state(10, 5).expect("changed geometry");
-        assert!(browser.resize_needed(10, 5));
+        assert!(!browser.resize_needed(10, 5));
 
-        assert!(browser.reconfigure_resize_blocking(10, 5).unwrap());
+        assert!(!browser.reconfigure_resize_blocking(10, 5).unwrap());
         assert!(!browser.resize_needed(10, 5));
         assert!(!browser.reconfigure_resize_blocking(10, 5).unwrap());
     }

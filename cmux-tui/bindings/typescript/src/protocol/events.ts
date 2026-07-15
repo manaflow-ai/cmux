@@ -21,6 +21,14 @@ export interface ScrollChangedEvent {
 }
 
 export interface SurfaceResizedEvent { event: "surface-resized"; surface: Id; cols: number; rows: number }
+export interface SurfaceResizeFailedEvent {
+  event: "surface-resize-failed";
+  surface: Id;
+  cols: number;
+  rows: number;
+  error: string;
+  retry_after_ms: number | null;
+}
 export interface SurfaceExitedEvent { event: "surface-exited"; surface: Id }
 export interface TitleChangedEvent { event: "title-changed"; surface: Id; title?: string }
 export interface BellEvent { event: "bell"; surface: Id }
@@ -133,6 +141,7 @@ export type KnownSubscribeEvent =
   | SurfaceOutputEvent
   | ScrollChangedEvent
   | SurfaceResizedEvent
+  | SurfaceResizeFailedEvent
   | SurfaceExitedEvent
   | TitleChangedEvent
   | BellEvent

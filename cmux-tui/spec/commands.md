@@ -1499,7 +1499,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Resizes a surface to a cell grid. PTY surfaces resize both the PTY and VT terminal state. Browser surfaces update their cell grid and CDP device metrics. `cols` and `rows` are clamped to at least 1 by the surface runtime. In protocol v6, the final pair becomes the session's latest client size even when the target was already at that size, so later creation requests without a size use the most recent client interaction; internal server resizes (such as the sidebar plugin surface tracking the TUI) never update it. The command result does not report whether the size changed.
+Resizes a surface to a cell grid. PTY surfaces resize both the PTY and VT terminal state. Browser surfaces update their cell grid and CDP device metrics asynchronously. `cols` and `rows` are clamped to at least 1 by the surface runtime. In protocol v6, the final pair becomes the session's latest client size even when the target was already at that size, so later creation requests without a size use the most recent client interaction; internal server resizes (such as the sidebar plugin surface tracking the TUI) never update it. Protocol v7 adds `accepted`: `true` means the resize was applied or queued, while `false` means the surface already has that size, the same browser resize is pending, or its retry backoff has not elapsed. A browser resize completes with `surface-resized`; asynchronous failure is reported by `surface-resize-failed`.
 
 Params:
 
@@ -1512,7 +1512,7 @@ Params:
 Result:
 
 ```text
-object{}
+object{accepted:bool}
 ```
 
 Errors:
@@ -1536,7 +1536,7 @@ Example:
 
 ```json
 {"id":21,"cmd":"resize-surface","surface":1,"cols":120,"rows":40}
-{"id":21,"ok":true,"data":{}}
+{"id":21,"ok":true,"data":{"accepted":true}}
 ```
 
 ### focus-pane
@@ -2463,7 +2463,7 @@ The following v5 behaviors are awkward for generated bindings and should be norm
 | --- | --- | --- |
 | Create commands | `new-tab`, `new-browser-tab`, `new-screen`, `new-workspace`, and `split` return only `{surface}` | Return `{surface,pane,screen,workspace}` |
 | Selection commands | `select-*` returns success for unknown targets, out-of-range indexes, and missing selector fields | Return a changed boolean or reject invalid target/index |
-| Resize command | `resize-surface` does not report whether size changed or final clamped size | Return `{changed,cols,rows}` |
+| Resize command | `resize-surface` reports acceptance but not the final clamped size | Return `{accepted,cols,rows}` |
 | Ratio command | `set-ratio` silently clamps and does not return final ratio | Return `{ratio}` after clamping |
 | Naming commands | Empty string clears pane/surface/screen names but stores an empty workspace name | Make empty string clear all optional display names, including workspace |
 | Attach response ordering | v5 `attach-surface` sends `vt-state` before the command response | v6 keeps attach as an event stream and adds `resized` replay events; clients must gate behavior by protocol |

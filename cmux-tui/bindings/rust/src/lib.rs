@@ -170,6 +170,11 @@ pub struct Size {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct ResizeSurfaceResult {
+    pub accepted: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct SurfaceEvent {
     pub surface: u64,
 }
@@ -185,6 +190,15 @@ pub struct SurfaceResizedEvent {
     pub surface: u64,
     pub cols: u16,
     pub rows: u16,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SurfaceResizeFailedEvent {
+    pub surface: u64,
+    pub cols: u16,
+    pub rows: u16,
+    pub error: String,
+    pub retry_after_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -229,6 +243,7 @@ pub enum Event {
     LayoutChanged(LayoutChangedEvent),
     SurfaceOutput(SurfaceEvent),
     SurfaceResized(SurfaceResizedEvent),
+    SurfaceResizeFailed(SurfaceResizeFailedEvent),
     SurfaceExited(SurfaceEvent),
     TitleChanged(TitleChangedEvent),
     Bell(SurfaceEvent),
@@ -459,11 +474,16 @@ impl CmuxClient {
         self.request::<Empty>("rename-workspace", params).map(|_| ())
     }
 
-    pub fn resize_surface(&mut self, surface: u64, cols: u16, rows: u16) -> Result<()> {
+    pub fn resize_surface(
+        &mut self,
+        surface: u64,
+        cols: u16,
+        rows: u16,
+    ) -> Result<ResizeSurfaceResult> {
         let mut params = surface_params(surface);
         params.insert("cols".to_string(), Value::from(cols));
         params.insert("rows".to_string(), Value::from(rows));
-        self.request::<Empty>("resize-surface", params).map(|_| ())
+        self.request("resize-surface", params)
     }
 
     pub fn focus_pane(&mut self, pane: u64) -> Result<()> {
@@ -723,6 +743,9 @@ fn parse_event(value: Value) -> Event {
         "layout-changed" => parse_typed(value).map_or_else(Event::Unknown, Event::LayoutChanged),
         "surface-output" => parse_typed(value).map_or_else(Event::Unknown, Event::SurfaceOutput),
         "surface-resized" => parse_typed(value).map_or_else(Event::Unknown, Event::SurfaceResized),
+        "surface-resize-failed" => {
+            parse_typed(value).map_or_else(Event::Unknown, Event::SurfaceResizeFailed)
+        }
         "surface-exited" => parse_typed(value).map_or_else(Event::Unknown, Event::SurfaceExited),
         "title-changed" => parse_typed(value).map_or_else(Event::Unknown, Event::TitleChanged),
         "bell" => parse_typed(value).map_or_else(Event::Unknown, Event::Bell),
@@ -796,6 +819,29 @@ mod tests {
         assert!(matches!(
             event,
             Event::Resized(ResizedEvent { surface: 7, replay, .. }) if replay == "cmVwbGF5"
+        ));
+    }
+
+    #[test]
+    fn surface_resize_failed_decodes_retry_schedule() {
+        let event = parse_event(serde_json::json!({
+            "event": "surface-resize-failed",
+            "surface": 7,
+            "cols": 120,
+            "rows": 40,
+            "error": "browser is not responding",
+            "retry_after_ms": 250,
+        }));
+
+        assert!(matches!(
+            event,
+            Event::SurfaceResizeFailed(SurfaceResizeFailedEvent {
+                surface: 7,
+                cols: 120,
+                rows: 40,
+                error,
+                retry_after_ms: Some(250),
+            }) if error == "browser is not responding"
         ));
     }
 

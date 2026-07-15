@@ -6,7 +6,7 @@ Implemented event lines can appear on two stream types:
 
 | Stream | How to start | Event names |
 | --- | --- | --- |
-| Subscribe stream | `subscribe` command | `tree-changed`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-exited`, `title-changed`, `bell`, `notification`, `config-reload-requested`, `window-title-requested`, `client-attached`, `client-changed`, `client-detached`, `empty`, `overflow` |
+| Subscribe stream | `subscribe` command | `tree-changed`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `bell`, `notification`, `config-reload-requested`, `window-title-requested`, `client-attached`, `client-changed`, `client-detached`, `empty`, `overflow` |
 | Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached`, `overflow` |
 | Attach stream v6 | `attach-surface` command | `vt-state`, `resized`, `output`, `colors-changed`, `scroll-changed`, `detached`, `overflow` |
 
@@ -232,6 +232,28 @@ Example:
 
 ```json
 {"event":"surface-resized","surface":1,"cols":120,"rows":40}
+```
+
+### surface-resize-failed
+
+| Field | Value |
+| --- | --- |
+| event | `surface-resize-failed` |
+| status | implemented |
+| since | protocol 7 |
+
+Payload:
+
+```text
+object{event:"surface-resize-failed",surface:Id,cols:uint16,rows:uint16,error:string,retry_after_ms:uint64|null}
+```
+
+Meaning: An accepted asynchronous browser resize failed. A numeric `retry_after_ms` is the delay before the session retries the same geometry. `null` means automatic retries are exhausted; a new geometry request or browser reconnection may retry it.
+
+Example:
+
+```json
+{"event":"surface-resize-failed","surface":1,"cols":120,"rows":40,"error":"browser is not responding","retry_after_ms":250}
 ```
 
 ### surface-exited

@@ -41,6 +41,20 @@ func TestParseResizedAcceptsProtocolV6DataField(t *testing.T) {
 	}
 }
 
+func TestParseSurfaceResizeFailedExposesRetrySchedule(t *testing.T) {
+	event, ok := parseEvent(map[string]any{
+		"event":          "surface-resize-failed",
+		"surface":        float64(7),
+		"cols":           float64(120),
+		"rows":           float64(40),
+		"error":          "browser is not responding",
+		"retry_after_ms": float64(250),
+	}).(SurfaceResizeFailedEvent)
+	if !ok || event.RetryAfterMS == nil || *event.RetryAfterMS != 250 {
+		t.Fatalf("surface resize failure = %#v", event)
+	}
+}
+
 func TestParseOverflowExposesRecoveryFields(t *testing.T) {
 	event, ok := parseEvent(map[string]any{
 		"event":   "overflow",

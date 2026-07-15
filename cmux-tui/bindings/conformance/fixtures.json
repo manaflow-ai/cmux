@@ -249,7 +249,7 @@
         {
           "type": "command",
           "request": { "id": 2, "cmd": "resize-surface", "surface": "$surface0", "cols": 100, "rows": 31 },
-          "expect": { "id": 2, "ok": true },
+          "expect": { "id": 2, "ok": true, "data": { "accepted": true } },
           "match": "partial"
         },
         {

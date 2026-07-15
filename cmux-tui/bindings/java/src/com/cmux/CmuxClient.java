@@ -220,11 +220,11 @@ public final class CmuxClient implements AutoCloseable {
         request("rename-workspace", params);
     }
 
-    public void resizeSurface(long surface, int cols, int rows) throws CmuxException {
+    public ResizeSurfaceResult resizeSurface(long surface, int cols, int rows) throws CmuxException {
         Map<String, Object> params = surfaceParams(surface);
         params.put("cols", cols);
         params.put("rows", rows);
-        request("resize-surface", params);
+        return new ResizeSurfaceResult(Boolean.TRUE.equals(request("resize-surface", params).get("accepted")));
     }
 
     public void closeWorkspace(long workspace) throws CmuxException {

@@ -58,6 +58,13 @@ public final class JsonTest {
         assertEquals("subscriber fell behind", overflow.error(), "overflow error");
         assertEquals("surface", overflow.scope(), "overflow scope");
         assertEquals(7L, overflow.surface(), "overflow surface");
+        SurfaceResizeFailedEvent resizeFailed = (SurfaceResizeFailedEvent) CmuxEvent.from(
+            (Map<String, Object>) Json.parse(
+                "{\"event\":\"surface-resize-failed\",\"surface\":7,\"cols\":120,\"rows\":40,\"error\":\"browser is not responding\",\"retry_after_ms\":250}"
+            )
+        );
+        assertEquals("browser is not responding", resizeFailed.error(), "resize failure error");
+        assertEquals(250L, resizeFailed.retryAfterMs(), "resize failure retry schedule");
     }
 
     private static void assertReject(String input) {

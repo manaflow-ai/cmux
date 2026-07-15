@@ -1143,6 +1143,14 @@ impl OrderedSession {
         failures.insert(surface, SurfaceResizeFailure { desired, state });
     }
 
+    fn surface_resize_retry_due(&self) -> bool {
+        let now = Instant::now();
+        self.surface_resize_failures.lock().unwrap().values().any(|failure| {
+            !failure.state.sticky_until_reconnect
+                && failure.state.retry_after.is_some_and(|retry_after| now >= retry_after)
+        })
+    }
+
     fn surface_resize_decision(
         &self,
         surface_id: SurfaceId,
@@ -2266,6 +2274,9 @@ impl App {
                 if self.browser_input.visible_resize_retry_due(&visible_surfaces) {
                     self.reassert_visible_surface_sizes();
                 }
+            }
+            if self.session.surface_resize_retry_due() {
+                self.reassert_visible_surface_sizes();
             }
             self.retry_sidebar_plugin_if_due();
             self.retry_background_refresh_if_due();
@@ -7650,6 +7661,18 @@ mod tests {
         assert!(capped.retry_after.is_none());
         assert!(capped.sticky_until_reconnect);
         assert!(super::surface_sync_failure_blocks(capped));
+    }
+
+    #[test]
+    fn due_session_resize_failure_rearms_idle_loop_retry() {
+        let mux = Mux::new("session-resize-retry-due-test", SurfaceOptions::default());
+        let app = test_app(Session::Local(mux));
+
+        app.session.note_surface_resize_failure(41, (90, 31), Some(0));
+        assert!(app.session.surface_resize_retry_due());
+
+        app.session.confirm_surface_resize(41, (90, 31));
+        assert!(!app.session.surface_resize_retry_due());
     }
 
     #[test]

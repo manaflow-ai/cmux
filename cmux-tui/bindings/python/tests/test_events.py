@@ -49,6 +49,21 @@ class EventTests(unittest.TestCase):
         self.assertEqual(event.scope, "surface")
         self.assertEqual(event.surface, 7)
 
+    def test_surface_resize_failed_exposes_retry_schedule(self) -> None:
+        event = _parse_event(
+            {
+                "event": "surface-resize-failed",
+                "surface": 7,
+                "cols": 120,
+                "rows": 40,
+                "error": "browser is not responding",
+                "retry_after_ms": 250,
+            }
+        )
+
+        self.assertEqual(event.event, "surface-resize-failed")
+        self.assertEqual(event.retry_after_ms, 250)
+
     def test_stream_yields_buffered_overflow_once_then_stops(self) -> None:
         connection = _FakeConnection()
         stream = _Stream.__new__(_Stream)

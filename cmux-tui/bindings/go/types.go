@@ -22,6 +22,10 @@ type VtStateResult struct {
 	Data string `json:"data"`
 }
 
+type ResizeSurfaceResult struct {
+	Accepted bool `json:"accepted"`
+}
+
 type Tree struct {
 	Workspaces []Workspace `json:"workspaces"`
 }
@@ -153,6 +157,16 @@ type SurfaceResizedEvent struct {
 }
 
 func (SurfaceResizedEvent) EventName() string { return "surface-resized" }
+
+type SurfaceResizeFailedEvent struct {
+	Surface      uint64  `json:"surface"`
+	Cols         uint16  `json:"cols"`
+	Rows         uint16  `json:"rows"`
+	Error        string  `json:"error"`
+	RetryAfterMS *uint64 `json:"retry_after_ms"`
+}
+
+func (SurfaceResizeFailedEvent) EventName() string { return "surface-resize-failed" }
 
 type VtStateEvent struct {
 	Surface uint64 `json:"surface"`

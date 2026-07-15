@@ -39,6 +39,11 @@ class EmptyResult:
 
 
 @dataclass(frozen=True)
+class ResizeSurfaceResult:
+    accepted: bool
+
+
+@dataclass(frozen=True)
 class IdentifyResult:
     app: str
     version: str
@@ -154,6 +159,7 @@ class Event:
     title: Optional[str] = None
     scope: Optional[str] = None
     error: Optional[str] = None
+    retry_after_ms: Optional[int] = None
 
     @property
     def bytes_data(self) -> Optional[bytes]:
@@ -486,9 +492,9 @@ class CmuxClient:
         self._request("rename-workspace", workspace=workspace, name=name)
         return EmptyResult()
 
-    def resize_surface(self, surface: int, cols: int, rows: int) -> EmptyResult:
-        self._request("resize-surface", surface=surface, cols=cols, rows=rows)
-        return EmptyResult()
+    def resize_surface(self, surface: int, cols: int, rows: int) -> ResizeSurfaceResult:
+        data = self._request("resize-surface", surface=surface, cols=cols, rows=rows)
+        return ResizeSurfaceResult(accepted=bool(data["accepted"]))
 
     def focus_pane(self, pane: int) -> EmptyResult:
         self._request("focus-pane", pane=pane)
@@ -625,4 +631,5 @@ def _parse_event(value: Dict[str, Any]) -> Event:
         title=value.get("title"),
         scope=value.get("scope"),
         error=value.get("error"),
+        retry_after_ms=value.get("retry_after_ms"),
     )
