@@ -10,6 +10,67 @@ import Testing
 @Suite("Ghostty desktop notification ingress")
 @MainActor
 struct GhosttyDesktopNotificationIngressTests {
+    @Test func terminalInteractionDuringHookResolutionPreventsLateNotification() throws {
+        let store = TerminalNotificationStore.shared
+        let originalAppDelegate = AppDelegate.shared
+        let appDelegate = originalAppDelegate ?? AppDelegate()
+        let manager = appDelegate.tabManager ?? TabManager()
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+        var deliveredNotifications: [TerminalNotification] = []
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, notification in
+            deliveredNotifications.append(notification)
+        }
+        store.configureSuppressedNotificationFeedbackHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = false
+
+        let workspace = manager.addWorkspace(select: true)
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            store.resetSuppressedNotificationFeedbackHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppDelegate.shared = originalAppDelegate
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+        }
+
+        let surfaceId = try #require(workspace.focusedPanelId)
+        let policyRequestId = store.beginDesktopNotificationHookResolution(
+            tabId: workspace.id,
+            surfaceId: surfaceId,
+            title: "Claude Code",
+            body: "Completed"
+        )
+
+        #expect(store.hasPendingNotification(forTabId: workspace.id, surfaceId: surfaceId))
+        #expect(manager.dismissNotificationOnTerminalInteraction(
+            tabId: workspace.id,
+            surfaceId: surfaceId
+        ))
+        store.addNotification(
+            tabId: workspace.id,
+            surfaceId: surfaceId,
+            title: "Claude Code",
+            subtitle: "",
+            body: "Completed",
+            resolvedHooks: [],
+            preRegisteredPolicyRequestId: policyRequestId
+        )
+
+        #expect(store.notifications.isEmpty)
+        #expect(deliveredNotifications.isEmpty)
+        #expect(!store.hasUnreadNotification(forTabId: workspace.id, surfaceId: surfaceId))
+    }
+
     @Test func overflowDropsOldestBufferedRequest() async {
         let (deliveries, deliveryContinuation) = AsyncStream<GhosttyDesktopNotificationRequest>.makeStream()
         let (releaseFirstDelivery, releaseContinuation) = AsyncStream<Void>.makeStream(
