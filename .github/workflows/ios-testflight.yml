@@ -327,6 +327,7 @@ jobs:
       CMUX_TESTFLIGHT_EXTERNAL_GROUP_ID: ${{ vars.IOS_TESTFLIGHT_EXTERNAL_GROUP_ID }}
       CMUX_TESTFLIGHT_EXTERNAL_GROUP_NAME: ${{ vars.IOS_TESTFLIGHT_EXTERNAL_GROUP_NAME }}
       CMUX_TESTFLIGHT_ASSIGN_EXTERNAL_GROUP: "0"
+      CMUX_XCODE_SOURCE_PACKAGES_DIR: ${{ github.workspace }}/.spm-cache
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -365,6 +366,17 @@ jobs:
           # falls back to a from-source build. The iOS app links GhosttyKit via
           # a local-path binaryTarget, so it must exist before package resolve.
           ./scripts/ensure-ghosttykit.sh
+
+      - name: Cache Swift package repositories
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          # Cache only bare Git repositories. The complete SourcePackages tree
+          # is ~3.1 GB and takes ~2m to restore; repositories are ~176 MB and
+          # remove dependency-network stalls without caching build artifacts or
+          # absolute-path workspace state.
+          path: .spm-cache/repositories
+          key: spm-repositories-${{ hashFiles('ios/cmuxPackage/Package.resolved') }}
+          restore-keys: spm-repositories-
 
       - name: Materialize App Store Connect API key
         env:

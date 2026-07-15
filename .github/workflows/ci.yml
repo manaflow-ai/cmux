@@ -140,6 +140,9 @@ jobs:
       - name: Validate Xcode SourcePackages cache sanitizer
         run: python3 tests/test_ci_sanitize_xcode_source_packages_cache.py
 
+      - name: Validate iOS CI source package caching
+        run: python3 tests/test_ios_ci_source_package_cache.py
+
       - name: Validate TestFlight notes generator
         run: python3 tests/test_ios_testflight_notes.py
 

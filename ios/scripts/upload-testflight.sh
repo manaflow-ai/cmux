@@ -766,6 +766,18 @@ if [[ -n "${ASC_API_KEY_ID:-}" && -n "${ASC_API_ISSUER_ID:-}" && -n "${ASC_API_K
   )
 fi
 
+# CI restores the locked Swift package sources separately from DerivedData. This
+# keeps dependency downloads reliable without reusing compiled or signed release
+# products. Local callers retain Xcode's default package directory unless they
+# opt in with CMUX_XCODE_SOURCE_PACKAGES_DIR.
+XCODE_SOURCE_PACKAGE_ARGS=()
+if [[ -n "${CMUX_XCODE_SOURCE_PACKAGES_DIR:-}" ]]; then
+  mkdir -p "$CMUX_XCODE_SOURCE_PACKAGES_DIR"
+  XCODE_SOURCE_PACKAGE_ARGS=(
+    -clonedSourcePackagesDirPath "$CMUX_XCODE_SOURCE_PACKAGES_DIR"
+  )
+fi
+
 if [[ -z "$ARCHIVE_PATH" ]]; then
   ARCHIVE_PATH="$OUT_DIR/cmux.xcarchive"
   if [[ "$SIGNING" == "automatic" ]]; then
@@ -781,6 +793,7 @@ if [[ -z "$ARCHIVE_PATH" ]]; then
       -destination "generic/platform=iOS" \
       -archivePath "$ARCHIVE_PATH" \
       -derivedDataPath "$DERIVED_DATA" \
+      "${XCODE_SOURCE_PACKAGE_ARGS[@]}" \
       -allowProvisioningUpdates \
       "${XCODE_AUTH_ARGS[@]}" \
       DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
@@ -805,6 +818,7 @@ if [[ -z "$ARCHIVE_PATH" ]]; then
       -destination "generic/platform=iOS" \
       -archivePath "$ARCHIVE_PATH" \
       -derivedDataPath "$DERIVED_DATA" \
+      "${XCODE_SOURCE_PACKAGE_ARGS[@]}" \
       DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
       PRODUCT_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
       PRODUCT_DISPLAY_NAME="$PRODUCT_DISPLAY_NAME" \
