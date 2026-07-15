@@ -15,7 +15,10 @@ extension BrowserPanel {
             return .failure(.attachedBrowserInspector)
         }
 
-        let containerBounds = webView.superview?.bounds ?? fallbackAutomationViewportContainerBounds
+        _ = webView.cmuxRestoreIntoBrowserViewportHostAfterExternalGeometryIfSafe()
+
+        let containerBounds = webView.cmuxBrowserViewportContainerBounds
+            ?? fallbackAutomationViewportContainerBounds
         guard let layout = BrowserViewportLayout(
             containerBounds: containerBounds,
             viewport: viewport,
@@ -37,8 +40,9 @@ extension BrowserPanel {
         }
         webView.cmuxApplyBrowserViewportLayout(layout)
         webView.needsLayout = true
-        webView.superview?.needsLayout = true
-        webView.superview?.layoutSubtreeIfNeeded()
+        webView.cmuxBrowserViewportPresentationView.needsLayout = true
+        webView.cmuxBrowserViewportAttachmentSuperview?.needsLayout = true
+        webView.cmuxBrowserViewportAttachmentSuperview?.layoutSubtreeIfNeeded()
         webView.layoutSubtreeIfNeeded()
         BrowserWindowPortalRegistry.refresh(webView: webView, reason: "automationViewport")
         return .success(layout)
@@ -47,7 +51,7 @@ extension BrowserPanel {
     func reapplyAutomationViewportAfterPageZoom() {
         guard !webView.cmuxIsElementFullscreenActiveOrTransitioning,
               let viewport = viewportModel.viewport,
-              let host = webView.superview else {
+              let containerBounds = webView.cmuxBrowserViewportContainerBounds else {
             return
         }
         guard BrowserViewportRenderLimits.standard.supports(
@@ -56,12 +60,14 @@ extension BrowserPanel {
         ) else {
             return
         }
-        if host.browserPortalHasVisibleWebKitCompanionSubview(for: webView) {
-            if let layout = webView.cmuxBrowserViewportLayout(in: host.bounds) {
+        if let rawHost = webView.superview,
+           rawHost.browserPortalHasVisibleWebKitCompanionSubview(for: webView) {
+            if let layout = webView.cmuxBrowserViewportLayout(in: containerBounds) {
+                webView.cmuxBrowserViewportHostView?.apply(layout, updateWebView: false)
                 webView.bounds = layout.webViewBounds
             }
         } else {
-            webView.cmuxApplyBrowserViewportLayout(in: host.bounds)
+            webView.cmuxApplyBrowserViewportLayout(in: containerBounds)
         }
     }
 
@@ -73,15 +79,50 @@ extension BrowserPanel {
         return viewportModel.resumeAfterExternalGeometry() != nil
     }
 
+    func scheduleBrowserViewportHostRestoration(
+        reason: String
+    ) {
+        browserViewportHostRestorationPending = true
+        browserViewportHostRestorationTask?.cancel()
+        let expectedWebView = webView
+        browserViewportHostRestorationTask = Task { @MainActor [weak self, weak expectedWebView] in
+            await Task.yield()
+            guard !Task.isCancelled,
+                  let self,
+                  let expectedWebView,
+                  self.webView === expectedWebView,
+                  self.browserViewportHostRestorationPending else {
+                return
+            }
+            self.browserViewportHostRestorationTask = nil
+            guard !expectedWebView.cmuxIsElementFullscreenActiveOrTransitioning else {
+                return
+            }
+
+            _ = expectedWebView.cmuxRestoreIntoBrowserViewportHostAfterExternalGeometryIfSafe()
+            guard expectedWebView.cmuxBrowserViewportUsesHost else { return }
+
+            self.browserViewportHostRestorationPending = false
+            self.reapplyAutomationViewportAfterPageZoom()
+            BrowserWindowPortalRegistry.refresh(
+                webView: expectedWebView,
+                reason: "viewportHostRestore.\(reason)"
+            )
+        }
+    }
+
     @discardableResult
     func resetAutomationViewportForAttachedBrowserInspector() -> Bool {
+        let containerBounds = webView.cmuxBrowserViewportContainerBounds ?? webView.frame
         guard let nativeLayout = viewportModel.resetForAttachedInspector(
-            webViewFrame: webView.frame,
+            containerBounds: containerBounds,
             pageZoom: Double(webView.pageZoom)
         ) else {
             return false
         }
-        webView.cmuxApplyBrowserViewportLayout(nativeLayout)
+        webView.translatesAutoresizingMaskIntoConstraints = true
+        webView.autoresizingMask = [.width, .height]
+        webView.cmuxBrowserViewportHostView?.apply(nativeLayout, updateWebView: false)
         BrowserWindowPortalRegistry.refresh(
             webView: webView,
             reason: "attachedInspectorResetAutomationViewport"

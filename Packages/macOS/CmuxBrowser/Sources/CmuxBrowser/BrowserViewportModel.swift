@@ -59,17 +59,17 @@ public final class BrowserViewportModel {
     /// Clears emulation and returns native geometry for an attached inspector transition.
     ///
     /// - Parameters:
-    ///   - webViewFrame: The page frame WebKit assigned inside its attached inspector split.
+    ///   - containerBounds: The bounds of the presentation container that owns the inspector split.
     ///   - pageZoom: Current WebKit page zoom.
-    /// - Returns: Native geometry that preserves the inspector-managed frame, or `nil` when already native.
+    /// - Returns: Native geometry for the presentation container, or `nil` when already native.
     @discardableResult
     public func resetForAttachedInspector(
-        webViewFrame: CGRect,
+        containerBounds: CGRect,
         pageZoom: Double
     ) -> BrowserViewportLayout? {
         guard setViewport(nil) else { return nil }
         return BrowserViewportLayout(
-            containerBounds: webViewFrame,
+            containerBounds: containerBounds,
             viewport: nil,
             pageZoom: pageZoom
         )

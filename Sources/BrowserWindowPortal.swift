@@ -1219,7 +1219,7 @@ final class WindowBrowserSlotView: NSView {
         paneDropTargetView.frame = bounds
         applyResolvedDropZoneOverlay()
         if let hostedWebView,
-           hostedWebView.superview === self,
+           hostedWebView.cmuxBrowserViewportPresentationView.superview === self,
            !browserPortalHasVisibleWebKitCompanionSubview(for: hostedWebView) {
             hostedWebView.cmuxApplyBrowserViewportLayout(in: bounds)
         }
@@ -1516,7 +1516,8 @@ final class WindowBrowserSlotView: NSView {
     }
 
     func pinHostedWebView(_ webView: WKWebView) {
-        guard webView.superview === self else { return }
+        let presentationView = webView.cmuxBrowserViewportPresentationView
+        guard presentationView.superview === self else { return }
 
         let hasCompanionWKSubviews = browserPortalHasVisibleWebKitCompanionSubview(for: webView)
         let needsPlainWebViewFrameReset =
@@ -1526,8 +1527,7 @@ final class WindowBrowserSlotView: NSView {
             hostedWebView !== webView ||
             !hostedWebViewConstraints.isEmpty ||
             needsPlainWebViewFrameReset ||
-            !webView.translatesAutoresizingMaskIntoConstraints ||
-            webView.autoresizingMask != [.width, .height]
+            !presentationView.translatesAutoresizingMaskIntoConstraints
         guard needsFrameHosting else {
             needsLayout = true
             layoutSubtreeIfNeeded()
@@ -1543,8 +1543,8 @@ final class WindowBrowserSlotView: NSView {
         if !hasCompanionWKSubviews {
             webView.cmuxApplyBrowserViewportLayout(in: bounds)
         } else {
-            webView.translatesAutoresizingMaskIntoConstraints = true
-            webView.autoresizingMask = [.width, .height]
+            presentationView.translatesAutoresizingMaskIntoConstraints = true
+            presentationView.autoresizingMask = [.width, .height]
         }
         needsLayout = true
         layoutSubtreeIfNeeded()
@@ -1930,7 +1930,7 @@ final class WindowBrowserPortal: NSObject {
             guard let webView = entry.webView,
                   let containerView = entry.containerView,
                   !containerView.isHidden else { continue }
-            guard webView.superview === containerView else { continue }
+            guard webView.cmuxBrowserViewportPresentationView.superview === containerView else { continue }
             invalidateHostedWebViewGeometry(
                 webView,
                 in: containerView,
@@ -2217,7 +2217,6 @@ final class WindowBrowserPortal: NSObject {
         } else {
             append(primaryTransferView)
         }
-
         for view in sourceSuperview.subviews {
             if view === primaryWebView { continue }
             let className = String(describing: type(of: view))
@@ -2575,7 +2574,7 @@ final class WindowBrowserPortal: NSObject {
         }
 #if DEBUG
         let hadContainerSuperview = (entry.containerView?.superview === hostView) ? 1 : 0
-        let hadWebSuperview = entry.webView?.superview == nil ? 0 : 1
+        let hadWebSuperview = entry.webView?.cmuxBrowserViewportAttachmentSuperview == nil ? 0 : 1
         cmuxDebugLog(
             "browser.portal.detach web=\(browserPortalDebugToken(entry.webView)) " +
             "container=\(browserPortalDebugToken(entry.containerView)) " +
@@ -2592,7 +2591,7 @@ final class WindowBrowserPortal: NSObject {
         } else {
             entry.webView?.browserPortalNotifyHidden(reason: "detach")
         }
-        entry.webView?.removeFromSuperview()
+        entry.webView?.cmuxBrowserViewportPresentationView.removeFromSuperview()
         entry.containerView?.removeFromSuperview()
     }
 
@@ -2607,7 +2606,7 @@ final class WindowBrowserPortal: NSObject {
             webViewByAnchorId.removeValue(forKey: ObjectIdentifier(anchor))
         }
 
-        let portalOwnsWebView = entry.webView?.superview === entry.containerView
+        let portalOwnsWebView = entry.webView?.cmuxBrowserViewportPresentationView.superview === entry.containerView
 #if DEBUG
         cmuxDebugLog(
             "browser.portal.discard web=\(browserPortalDebugToken(entry.webView)) " +
@@ -2615,7 +2614,7 @@ final class WindowBrowserPortal: NSObject {
             "anchor=\(browserPortalDebugToken(entry.anchorView)) " +
             "source=\(source) preserve=\(preserveCurrentSuperview ? 1 : 0) " +
             "portalOwnsWeb=\(portalOwnsWebView ? 1 : 0) " +
-            "currentSuper=\(browserPortalDebugToken(entry.webView?.superview))"
+            "currentSuper=\(browserPortalDebugToken(entry.webView?.cmuxBrowserViewportAttachmentSuperview))"
         )
 #endif
 
@@ -2629,7 +2628,7 @@ final class WindowBrowserPortal: NSObject {
             } else {
                 entry.webView?.browserPortalNotifyHidden(reason: "discard:\(source)")
             }
-            entry.webView?.removeFromSuperview()
+            entry.webView?.cmuxBrowserViewportPresentationView.removeFromSuperview()
         }
         entry.containerView?.removeFromSuperview()
     }
@@ -2894,7 +2893,7 @@ final class WindowBrowserPortal: NSObject {
             didChangeAnchor ||
             becameVisible ||
             priorityIncreased ||
-            webView.superview !== containerView ||
+            webView.cmuxBrowserViewportPresentationView.superview !== containerView ||
             containerView.superview !== hostView {
             cmuxDebugLog(
                 "browser.portal.bind web=\(browserPortalDebugToken(webView)) " +
@@ -2915,7 +2914,7 @@ final class WindowBrowserPortal: NSObject {
                 "state=\(String(describing: webView.fullscreenState))"
             )
 #endif
-        } else if webView.superview !== containerView {
+        } else if webView.cmuxBrowserViewportPresentationView.superview !== containerView {
 #if DEBUG
             cmuxDebugLog(
                 "browser.portal.reparent web=\(browserPortalDebugToken(webView)) " +
@@ -2923,7 +2922,7 @@ final class WindowBrowserPortal: NSObject {
                 "container=\(browserPortalDebugToken(containerView))"
             )
 #endif
-            if let sourceSuperview = webView.superview {
+            if let sourceSuperview = webView.cmuxBrowserViewportAttachmentSuperview {
                 moveWebKitRelatedSubviewsIfNeeded(
                     from: sourceSuperview,
                     to: containerView,
@@ -2931,7 +2930,11 @@ final class WindowBrowserPortal: NSObject {
                     reason: "bind.attachContainer"
                 )
             } else {
-                containerView.addSubview(webView, positioned: .above, relativeTo: nil)
+                containerView.addSubview(
+                    webView.cmuxBrowserViewportPresentationView,
+                    positioned: .above,
+                    relativeTo: nil
+                )
             }
             containerView.pinHostedWebView(webView)
             webView.needsLayout = true
@@ -3081,7 +3084,9 @@ final class WindowBrowserPortal: NSObject {
             // WebKit through `_exitInWindow`/`_enterInWindow`, which fires visibilitychange
             // and can trigger page reloads. Reserve the full lifecycle notify for cases
             // where the visible surface is actually leaving the window/render tree.
-            if entry.visibleInUI, !containerView.isHidden, webView.superview === containerView {
+            if entry.visibleInUI,
+               !containerView.isHidden,
+               webView.cmuxBrowserViewportPresentationView.superview === containerView {
                 notifyHostedWebKitHidden(
                     in: containerView,
                     primaryWebView: webView,
@@ -3194,7 +3199,7 @@ final class WindowBrowserPortal: NSObject {
         let shouldPreserveExternalHostForHiddenEntry =
             !shouldPreserveExternalFullscreenHost &&
             !entry.visibleInUI &&
-            webView.superview !== containerView
+            webView.cmuxBrowserViewportPresentationView.superview !== containerView
         if shouldPreserveExternalFullscreenHost {
 #if DEBUG
             cmuxDebugLog(
@@ -3212,7 +3217,7 @@ final class WindowBrowserPortal: NSObject {
                 "container=\(browserPortalDebugToken(containerView))"
             )
 #endif
-        } else if webView.superview !== containerView {
+        } else if webView.cmuxBrowserViewportPresentationView.superview !== containerView {
 #if DEBUG
             cmuxDebugLog(
                 "browser.portal.reparent web=\(browserPortalDebugToken(webView)) " +
@@ -3220,7 +3225,7 @@ final class WindowBrowserPortal: NSObject {
                 "container=\(browserPortalDebugToken(containerView))"
             )
 #endif
-            if let sourceSuperview = webView.superview {
+            if let sourceSuperview = webView.cmuxBrowserViewportAttachmentSuperview {
                 moveWebKitRelatedSubviewsIfNeeded(
                     from: sourceSuperview,
                     to: containerView,
@@ -3228,7 +3233,11 @@ final class WindowBrowserPortal: NSObject {
                     reason: "sync.attachContainer"
                 )
             } else {
-                containerView.addSubview(webView, positioned: .above, relativeTo: nil)
+                containerView.addSubview(
+                    webView.cmuxBrowserViewportPresentationView,
+                    positioned: .above,
+                    relativeTo: nil
+                )
             }
             containerView.pinHostedWebView(webView)
             refreshReasons.append("syncAttachWebView")

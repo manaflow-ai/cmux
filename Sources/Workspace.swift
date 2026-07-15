@@ -10255,7 +10255,7 @@ final class Workspace: Identifiable, ObservableObject {
     private func browserPortalReady(for browserPanel: BrowserPanel) -> Bool {
         browserPortalAnchorReady(for: browserPanel) &&
             browserPanel.webView.window != nil &&
-            browserPanel.webView.superview != nil &&
+            browserPanel.webView.cmuxBrowserViewportAttachmentSuperview != nil &&
             BrowserWindowPortalRegistry.isWebView(browserPanel.webView, boundTo: browserPanel.portalAnchorView)
     }
 
@@ -10666,7 +10666,7 @@ final class Workspace: Identifiable, ObservableObject {
                 anchorView.bounds.height > 1
             if !anchorReady ||
                 browserPanel.webView.window == nil ||
-                browserPanel.webView.superview == nil ||
+                browserPanel.webView.cmuxBrowserViewportAttachmentSuperview == nil ||
                 !BrowserWindowPortalRegistry.isWebView(browserPanel.webView, boundTo: anchorView) {
                 return true
             }

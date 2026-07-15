@@ -11,6 +11,8 @@ import WebKit
 /// find or right-sidebar file search from the current focus owner.
 final class CmuxWebView: WKWebView {
     var browserViewportModel: BrowserViewportModel?
+    var onBrowserViewportHierarchyChanged: (() -> Void)?
+
     // Some sites/WebKit paths report middle-click link activations as
     // WKNavigationAction.buttonNumber=4 instead of 2. Track a recent local
     // middle-click so navigation delegates can recover intent reliably.
@@ -25,6 +27,7 @@ final class CmuxWebView: WKWebView {
         NSUserInterfaceItemIdentifier("cmux.browserFocusMode.toggle")
     private static var pasteAsPlainTextFocusHandlerInstalledKey: UInt8 = 0
     private static var diffViewerEditableFocusHandlerInstalledKey: UInt8 = 0
+
     private static let pasteAsPlainTextSharedHelpersScriptSource = """
     const __cmuxPasteAsPlainTextHelpers = (() => {
       const existing = window.__cmuxPasteAsPlainTextHelpers;
@@ -239,6 +242,11 @@ final class CmuxWebView: WKWebView {
             webViewID: ObjectIdentifier(webView),
             uptime: ProcessInfo.processInfo.systemUptime
         )
+    }
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        onBrowserViewportHierarchyChanged?()
     }
 
     private final class ContextMenuFallbackBox: NSObject {

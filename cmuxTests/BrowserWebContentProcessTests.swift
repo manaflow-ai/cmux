@@ -238,7 +238,10 @@ struct BrowserWebContentProcessTests {
         )
         defer { panel.close() }
         let oldWebView = panel.webView
+        let viewportHost = panel.viewportHostView
         let oldInstanceID = panel.webViewInstanceID
+
+        #expect(oldWebView.superview === viewportHost)
 
         panel.debugSimulateWebContentProcessTermination()
 
@@ -247,6 +250,9 @@ struct BrowserWebContentProcessTests {
         #expect(panel.hasRecoverableWebContentTermination)
         #expect(panel.webView.navigationDelegate != nil)
         #expect(panel.webView.uiDelegate != nil)
+        #expect(panel.webView.superview === viewportHost)
+        #expect(panel.webView.cmuxBrowserViewportHostView === viewportHost)
+        #expect(oldWebView.cmuxBrowserViewportHostView == nil)
     }
 
     @Test

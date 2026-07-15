@@ -145,6 +145,12 @@ def _local_test_server() -> str:
     <button id=\"btn\" role=\"button\">Click</button>
     <ul><li class=\"row\">row-a</li><li class=\"row\">row-b</li></ul>
     <div id=\"style-target\">style</div>
+    <input id=\"far-input\" style=\"position: fixed; left: 1080px; top: 580px; width: 140px; height: 40px\" />
+    <button id=\"far-button\" style=\"position: fixed; left: 1080px; top: 640px; width: 140px; height: 50px\">Far</button>
+    <script>
+      window.__farClicks = 0;
+      document.getElementById('far-button').addEventListener('click', () => window.__farClicks++);
+    </script>
   </body>
 </html>
 """.strip(),
@@ -290,6 +296,26 @@ def main() -> int:
         ).get("value") or {}
         _must(metrics.get("width") == 1280 and metrics.get("height") == 720, f"Expected exact WKWebView viewport: {metrics}")
         _must(metrics.get("wide") is True, f"Expected responsive media query to use emulated viewport: {metrics}")
+
+        far_box = _run_cli_json(cli, ["browser", surface, "get", "box", "#far-input"]).get("value") or {}
+        _must(
+            far_box.get("left") == 1080 and far_box.get("top") == 580,
+            f"Expected far-edge control to retain logical viewport coordinates: {far_box}",
+        )
+        _run_cli_json(cli, ["browser", surface, "fill", "#far-input", "--text", "far-edge-ok"])
+        _run_cli_json(cli, ["browser", surface, "click", "#far-button"])
+        far_interaction = _run_cli_json(
+            cli,
+            [
+                "browser",
+                surface,
+                "eval",
+                "({ value: document.querySelector('#far-input').value, clicks: window.__farClicks, pointTag: document.elementFromPoint(1150, 665)?.id })",
+            ],
+        ).get("value") or {}
+        _must(far_interaction.get("value") == "far-edge-ok", f"Expected far-edge fill to persist: {far_interaction}")
+        _must(far_interaction.get("clicks") == 1, f"Expected far-edge click handler to fire once: {far_interaction}")
+        _must(far_interaction.get("pointTag") == "far-button", f"Expected viewport hit-testing at far coordinates: {far_interaction}")
 
         with tempfile.TemporaryDirectory(prefix="cmux-cli-viewport-") as screenshot_dir:
             viewport_screenshot = Path(screenshot_dir) / "viewport.png"

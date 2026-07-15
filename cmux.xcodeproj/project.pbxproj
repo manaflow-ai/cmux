@@ -325,6 +325,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		0796994CA7CCA25DB990BFEF /* BrowserSystemProxyWatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 326E7A5E13C6DF650B9F8971 /* BrowserSystemProxyWatcher.swift */; };
 		805500000000000000000004 /* BrowserValueTextFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805500000000000000000003 /* BrowserValueTextFormatter.swift */; };
 		805500000000000000000005 /* BrowserValueTextFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805500000000000000000003 /* BrowserValueTextFormatter.swift */; };
+		8056B0000000000000000002 /* BrowserViewportHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8056B0000000000000000001 /* BrowserViewportHostView.swift */; };
 		D8072A02D8072A02D8072A02 /* BrowserViewportRuntimeLoadDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8072A01D8072A01D8072A01 /* BrowserViewportRuntimeLoadDelegate.swift */; };
 		D8072A04D8072A04D8072A04 /* BrowserViewportRuntimeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8072A03D8072A03D8072A03 /* BrowserViewportRuntimeTests.swift */; };
 		805600000000000000000009 /* BrowserViewportSnapshotRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80560000000000000000000A /* BrowserViewportSnapshotRenderer.swift */; };
@@ -2304,6 +2305,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		8D828DA0070335773EBAE83F /* BrowserSystemProxyMirrorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserSystemProxyMirrorTests.swift; sourceTree = "<group>"; };
 		326E7A5E13C6DF650B9F8971 /* BrowserSystemProxyWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserSystemProxyWatcher.swift; sourceTree = "<group>"; };
 		805500000000000000000003 /* BrowserValueTextFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserValueTextFormatter.swift; sourceTree = "<group>"; };
+		8056B0000000000000000001 /* BrowserViewportHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserViewportHostView.swift"; sourceTree = "<group>"; };
 		D8072A01D8072A01D8072A01 /* BrowserViewportRuntimeLoadDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserViewportRuntimeLoadDelegate.swift; sourceTree = "<group>"; };
 		D8072A03D8072A03D8072A03 /* BrowserViewportRuntimeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserViewportRuntimeTests.swift; sourceTree = "<group>"; };
 		80560000000000000000000A /* BrowserViewportSnapshotRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserViewportSnapshotRenderer.swift"; sourceTree = "<group>"; };
@@ -4843,6 +4845,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				805600000000000000000008 /* BrowserAutomationViewportError.swift */,
 				805600000000000000000002 /* BrowserPanel+AutomationViewport.swift */,
 				80560000000000000000000A /* BrowserViewportSnapshotRenderer.swift */,
+				8056B0000000000000000001 /* BrowserViewportHostView.swift */,
 				805600000000000000000004 /* WKWebView+BrowserViewport.swift */,
 				805600000000000000000006 /* TerminalController+BrowserViewport.swift */,
 				7863A0030000000000000001 /* BrowserPanel+AddressBarFocusOwnership.swift */,
@@ -6510,6 +6513,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C67540010000000000000001 /* BrowserSubframeDownloadIntentTracker.swift in Sources */,
 				4BBF42E8A86EAAB94BC9EA16 /* BrowserSystemProxyMirror.swift in Sources */,
 				0796994CA7CCA25DB990BFEF /* BrowserSystemProxyWatcher.swift in Sources */,
+				8056B0000000000000000002 /* BrowserViewportHostView.swift in Sources */,
 				805600000000000000000009 /* BrowserViewportSnapshotRenderer.swift in Sources */,
 				A50100000000000000000002 /* BrowserWebAuthnAssertionExtensions.swift in Sources */,
 				A50100000000000000000004 /* BrowserWebAuthnAssertionPublicKeyOptions.swift in Sources */,

@@ -2738,7 +2738,10 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// The underlying web view
     private(set) var webView: WKWebView
+    let viewportHostView = BrowserViewportHostView(frame: .zero)
     let viewportModel = BrowserViewportModel()
+    var browserViewportHostRestorationTask: Task<Void, Never>?
+    var browserViewportHostRestorationPending = false
     private var websiteDataStore: WKWebsiteDataStore
     var webViewDidRequestClose: (() -> Void)?
 
@@ -3661,7 +3664,19 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func bindWebView(_ webView: CmuxWebView) {
+        browserViewportHostRestorationTask?.cancel()
+        browserViewportHostRestorationTask = nil
+        browserViewportHostRestorationPending = false
+        viewportHostView.installWebView(webView)
         webView.browserViewportModel = viewportModel
+        webView.onBrowserViewportHierarchyChanged = { [weak self, weak webView] in
+            guard let self, let webView,
+                  self.webView === webView,
+                  self.browserViewportHostRestorationPending else {
+                return
+            }
+            self.scheduleBrowserViewportHostRestoration(reason: "webViewHierarchyChanged")
+        }
         DiffCommentsBridge.associate(panelId: id, workspaceId: workspaceId, with: webView)
         webView.onMouseBackButton = { [weak self] in
             self?.goBack()
@@ -4229,19 +4244,21 @@ final class BrowserPanel: Panel, ObservableObject {
     @discardableResult
     private func ensureBackgroundPreloadHostIfNeeded(reason: String) -> Bool {
         if let preloadWindow = backgroundPreloadWindow {
+            let presentationView = webView.cmuxBrowserViewportPresentationView
             guard webView.window == nil,
-                  webView.superview == nil,
+                  presentationView.superview == nil,
                   let contentView = preloadWindow.contentView else {
                 return false
             }
-            contentView.addSubview(webView)
+            contentView.addSubview(presentationView)
             webView.cmuxApplyBrowserViewportLayout(in: contentView.bounds)
             webView.browserPortalNotifyHidden(reason: "backgroundPreload:\(reason)")
             return true
         }
 
+        let presentationView = webView.cmuxBrowserViewportPresentationView
         guard webView.window == nil else { return false }
-        guard webView.superview == nil else { return false }
+        guard presentationView.superview == nil else { return false }
 
         let frame = NSRect(x: -10_000, y: -10_000, width: 800, height: 600)
         let window = NSWindow(
@@ -4259,7 +4276,7 @@ final class BrowserPanel: Panel, ObservableObject {
         window.isExcludedFromWindowsMenu = true
 
         let contentView = NSView(frame: frame)
-        contentView.addSubview(webView)
+        contentView.addSubview(presentationView)
         webView.cmuxApplyBrowserViewportLayout(in: contentView.bounds)
         window.contentView = contentView
         backgroundPreloadWindow = window
@@ -4950,7 +4967,7 @@ final class BrowserPanel: Panel, ObservableObject {
                     reason: "fullscreenStateChanged"
                 )
                 if didChangeViewportOwnership, !isElementFullscreenActive {
-                    self.reapplyAutomationViewportAfterPageZoom()
+                    self.scheduleBrowserViewportHostRestoration(reason: "fullscreenExit")
                 }
 #if DEBUG
                 cmuxDebugLog(
@@ -6072,7 +6089,7 @@ extension BrowserPanel {
         preferredDeveloperToolsVisible ||
         hasRecoverableWebContentTermination ||
         pendingWebContentRecoveryURL != nil ||
-        webView.superview != nil
+        webView.cmuxBrowserViewportAttachmentSuperview != nil
     }
 
     func resetForWorkspaceContextChange(reason: String) {
@@ -6484,6 +6501,7 @@ extension BrowserPanel {
 
     func reevaluateHiddenWebViewDiscardAfterDeveloperToolsHidden() {
         guard !preferredDeveloperToolsVisible, !isDeveloperToolsVisible() else { return }
+        scheduleBrowserViewportHostRestoration(reason: "developerToolsHidden")
         reevaluateHiddenWebViewDiscardScheduling(reason: "developer_tools_visibility_changed")
     }
 
@@ -6854,7 +6872,8 @@ extension BrowserPanel {
         guard preferredDeveloperToolsVisible else { return false }
         guard preferredDeveloperToolsPresentation != .detached else { return false }
         guard !isDeveloperToolsTransitionInFlight else { return false }
-        guard webView.superview != nil, webView.window != nil else { return false }
+        guard webView.cmuxBrowserViewportAttachmentSuperview != nil,
+              webView.cmuxBrowserViewportAttachmentWindow != nil else { return false }
         guard let developerToolsLastAttachedHostAt else { return false }
         guard Date().timeIntervalSince(developerToolsLastAttachedHostAt) >= developerToolsAttachedManualCloseDetectionDelay else {
             return false
@@ -6989,8 +7008,8 @@ extension BrowserPanel {
                 forceDeveloperToolsRefreshOnNextAttach ||
                 developerToolsRestoreRetryWorkItem != nil ||
                 hasPendingDetachedDeveloperToolsWindowCloseResolution ||
-                webView.superview == nil ||
-                webView.window == nil
+                webView.cmuxBrowserViewportAttachmentSuperview == nil ||
+                webView.cmuxBrowserViewportAttachmentWindow == nil
             )
     }
 
@@ -7136,7 +7155,7 @@ extension BrowserPanel {
     @discardableResult
     func ensureVisualAutomationRestoreHostIfNeeded(reason: String) -> Bool {
         guard shouldUseOffscreenRenderHostForVisualAutomation else { return false }
-        guard webView.superview == nil else { return false }
+        guard webView.cmuxBrowserViewportAttachmentSuperview == nil else { return false }
         return ensureBackgroundPreloadHostIfNeeded(reason: reason)
     }
 
@@ -7900,8 +7919,8 @@ extension BrowserPanel {
         let preferred = preferredDeveloperToolsVisible ? 1 : 0
         let visible = isDeveloperToolsVisible() ? 1 : 0
         let inspector = webView.cmuxInspectorObject() == nil ? 0 : 1
-        let attached = webView.superview == nil ? 0 : 1
-        let inWindow = webView.window == nil ? 0 : 1
+        let attached = webView.cmuxBrowserViewportAttachmentSuperview == nil ? 0 : 1
+        let inWindow = webView.cmuxBrowserViewportAttachmentWindow == nil ? 0 : 1
         let forceRefresh = forceDeveloperToolsRefreshOnNextAttach ? 1 : 0
         let transitionTarget = developerToolsTransitionTargetVisible.map { $0 ? "1" : "0" } ?? "nil"
         let pendingTarget = pendingDeveloperToolsTransitionTargetVisible.map { $0 ? "1" : "0" } ?? "nil"

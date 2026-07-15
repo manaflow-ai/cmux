@@ -250,18 +250,18 @@ struct BrowserViewportModelTests {
     @Test func attachedInspectorResetsEmulatedViewport() throws {
         let model = BrowserViewportModel()
         let viewport = try #require(BrowserViewport(width: 1_280, height: 720))
-        let inspectorManagedFrame = CGRect(x: 0, y: 0, width: 900, height: 640)
+        let inspectorContainerBounds = CGRect(x: 0, y: 0, width: 900, height: 640)
 
         model.setViewport(viewport)
         let nativeLayout = try #require(model.resetForAttachedInspector(
-            webViewFrame: inspectorManagedFrame,
+            containerBounds: inspectorContainerBounds,
             pageZoom: 2
         ))
         #expect(model.viewport == nil)
-        #expect(nativeLayout.frame == inspectorManagedFrame)
+        #expect(nativeLayout.frame == inspectorContainerBounds)
         #expect(nativeLayout.webViewBounds == CGRect(x: 0, y: 0, width: 900, height: 640))
         #expect(model.resetForAttachedInspector(
-            webViewFrame: inspectorManagedFrame,
+            containerBounds: inspectorContainerBounds,
             pageZoom: 2
         ) == nil)
     }

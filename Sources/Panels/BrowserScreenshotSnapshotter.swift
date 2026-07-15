@@ -168,13 +168,14 @@ enum BrowserScreenshotWebViewSnapshotter {
         expectedURL: URL?,
         operation: () async throws -> T
     ) async throws -> T {
-        let previousSuperview = webView.superview
+        let presentationView = webView.cmuxBrowserViewportPresentationView
+        let previousSuperview = presentationView.superview
         let previousSubviews = previousSuperview?.subviews ?? []
-        let previousIndex = previousSubviews.firstIndex(of: webView)
-        let previousFrame = webView.frame
-        let previousBounds = webView.bounds
-        let previousAutoresizingMask = webView.autoresizingMask
-        let previousTranslatesAutoresizingMaskIntoConstraints = webView.translatesAutoresizingMaskIntoConstraints
+        let previousIndex = previousSubviews.firstIndex(of: presentationView)
+        let previousFrame = presentationView.frame
+        let previousBounds = presentationView.bounds
+        let previousAutoresizingMask = presentationView.autoresizingMask
+        let previousTranslatesAutoresizingMaskIntoConstraints = presentationView.translatesAutoresizingMaskIntoConstraints
         let restoreAnchor: NSView?
         let restorePosition: NSWindow.OrderingMode
         if let previousIndex, previousIndex > 0 {
@@ -213,14 +214,16 @@ enum BrowserScreenshotWebViewSnapshotter {
         window.isExcludedFromWindowsMenu = true
         let contentView = NSView(frame: NSRect(origin: .zero, size: normalizedSize))
         contentView.wantsLayer = true
-        webView.removeFromSuperview()
-        contentView.addSubview(webView)
+        presentationView.removeFromSuperview()
+        contentView.addSubview(presentationView)
         webView.cmuxApplyBrowserViewportLayout(in: contentView.bounds)
         window.contentView = contentView
         window.orderFrontRegardless()
 
         defer {
-            webView.cmuxRestoreBrowserViewportAfterTemporaryReparenting(
+            restorePresentationView(
+                presentationView,
+                webView: webView,
                 from: contentView,
                 to: previousSuperview,
                 frame: previousFrame,
@@ -247,13 +250,14 @@ enum BrowserScreenshotWebViewSnapshotter {
         operation: @escaping (@escaping (Result<T, Error>) -> Void) -> Void,
         completion: @escaping (Result<T, Error>) -> Void
     ) {
-        let previousSuperview = webView.superview
+        let presentationView = webView.cmuxBrowserViewportPresentationView
+        let previousSuperview = presentationView.superview
         let previousSubviews = previousSuperview?.subviews ?? []
-        let previousIndex = previousSubviews.firstIndex(of: webView)
-        let previousFrame = webView.frame
-        let previousBounds = webView.bounds
-        let previousAutoresizingMask = webView.autoresizingMask
-        let previousTranslatesAutoresizingMaskIntoConstraints = webView.translatesAutoresizingMaskIntoConstraints
+        let previousIndex = previousSubviews.firstIndex(of: presentationView)
+        let previousFrame = presentationView.frame
+        let previousBounds = presentationView.bounds
+        let previousAutoresizingMask = presentationView.autoresizingMask
+        let previousTranslatesAutoresizingMaskIntoConstraints = presentationView.translatesAutoresizingMaskIntoConstraints
         let restoreAnchor: NSView?
         let restorePosition: NSWindow.OrderingMode
         if let previousIndex, previousIndex > 0 {
@@ -292,8 +296,8 @@ enum BrowserScreenshotWebViewSnapshotter {
         window.isExcludedFromWindowsMenu = true
         let contentView = NSView(frame: NSRect(origin: .zero, size: normalizedSize))
         contentView.wantsLayer = true
-        webView.removeFromSuperview()
-        contentView.addSubview(webView)
+        presentationView.removeFromSuperview()
+        contentView.addSubview(presentationView)
         webView.cmuxApplyBrowserViewportLayout(in: contentView.bounds)
         window.contentView = contentView
         window.orderFrontRegardless()
@@ -305,7 +309,9 @@ enum BrowserScreenshotWebViewSnapshotter {
             didFinish = true
             timeoutTimer?.invalidate()
             timeoutTimer = nil
-            webView.cmuxRestoreBrowserViewportAfterTemporaryReparenting(
+            restorePresentationView(
+                presentationView,
+                webView: webView,
                 from: contentView,
                 to: previousSuperview,
                 frame: previousFrame,
@@ -455,7 +461,7 @@ enum BrowserScreenshotWebViewSnapshotter {
 
         let contentWidth = numberValue(value["contentWidth"])
         let contentHeight = numberValue(value["contentHeight"])
-        let containerBounds = webView.superview?.bounds
+        let containerBounds = webView.cmuxBrowserViewportContainerBounds
             ?? CGRect(origin: .zero, size: webView.bounds.size)
         let fallbackViewportSize = webView.cmuxBrowserViewportLayout(in: containerBounds)?.bounds.size
             ?? webView.bounds.size
@@ -719,12 +725,56 @@ enum BrowserScreenshotWebViewSnapshotter {
     }
 
     private static func forceAppKitLayout(for webView: WKWebView) {
+        let presentationView = webView.cmuxBrowserViewportPresentationView
         webView.needsLayout = true
-        webView.superview?.needsLayout = true
-        webView.superview?.layoutSubtreeIfNeeded()
+        presentationView.needsLayout = true
+        webView.cmuxBrowserViewportAttachmentSuperview?.needsLayout = true
+        webView.cmuxBrowserViewportAttachmentSuperview?.layoutSubtreeIfNeeded()
+        presentationView.layoutSubtreeIfNeeded()
         webView.layoutSubtreeIfNeeded()
-        webView.superview?.displayIfNeeded()
+        presentationView.displayIfNeeded()
         webView.displayIfNeeded()
+    }
+
+    private static func restorePresentationView(
+        _ presentationView: NSView,
+        webView: WKWebView,
+        from temporarySuperview: NSView,
+        to previousSuperview: NSView?,
+        frame previousFrame: NSRect,
+        bounds previousBounds: NSRect,
+        autoresizingMask previousAutoresizingMask: NSView.AutoresizingMask,
+        translatesAutoresizingMaskIntoConstraints previousTranslatesAutoresizingMaskIntoConstraints: Bool,
+        anchor: NSView?,
+        position: NSWindow.OrderingMode
+    ) {
+        let policy = BrowserViewportRestorationPolicy(
+            hasCurrentHost: presentationView.superview != nil,
+            temporaryHostIsCurrent: presentationView.superview === temporarySuperview,
+            hasPreviousHost: previousSuperview != nil,
+            hasVisibleWebKitCompanion: previousSuperview?
+                .browserPortalHasVisibleWebKitCompanionSubview(for: webView) ?? false
+        )
+        guard policy.shouldRestorePreviousHost else { return }
+
+        presentationView.removeFromSuperview()
+        if let previousSuperview {
+            if let anchor, anchor.superview === previousSuperview {
+                previousSuperview.addSubview(presentationView, positioned: position, relativeTo: anchor)
+            } else {
+                previousSuperview.addSubview(presentationView)
+            }
+        }
+
+        if policy.shouldPreservePreviousGeometry {
+            presentationView.frame = previousFrame
+            presentationView.bounds = previousBounds
+            presentationView.autoresizingMask = previousAutoresizingMask
+            presentationView.translatesAutoresizingMaskIntoConstraints =
+                previousTranslatesAutoresizingMaskIntoConstraints
+        } else if let previousSuperview {
+            webView.cmuxApplyBrowserViewportLayout(in: previousSuperview.bounds)
+        }
     }
 
     private static func numberValue(_ value: Any?) -> CGFloat {
