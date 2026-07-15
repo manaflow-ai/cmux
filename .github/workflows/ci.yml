@@ -542,6 +542,7 @@ jobs:
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
             CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/SessionPersistenceResumeBindingTests/processScopeFingerprintTracksSamePIDExecutableChanges \
             -only-testing:cmuxTests/SessionPersistenceResumeBindingTests/processScopeFingerprintIgnoresTransientChildrenOutsideForegroundOwnership \
             -only-testing:cmuxTests/SessionPersistenceResumeBindingTests/processScopeFingerprintTracksForegroundProcessGroupChanges \
             test
