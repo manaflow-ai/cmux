@@ -45,6 +45,31 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
+    func remoteWorkspaceDowngradeRestoresTheChromiumPageURL() {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            renderInitialNavigation: false,
+            engineSelection: BrowserEngineSelection(kind: .chromium)
+        )
+        defer { panel.close() }
+        let pageURL = URL(string: "https://example.com/chromium-page")!
+
+        panel.navigate(to: pageURL)
+        #expect(panel.engineSession.state.url == pageURL)
+
+        panel.reattachToWorkspace(
+            UUID(),
+            isRemoteWorkspace: true,
+            remoteWebsiteDataStoreIdentifier: UUID(),
+            proxyEndpoint: nil,
+            remoteStatus: nil
+        )
+
+        #expect(panel.engineKind == .webKit)
+        #expect(panel.currentURL == pageURL)
+    }
+
+    @Test
     func browserPanelsShareDefaultWebsiteDataStore() {
         let first = BrowserPanel(workspaceId: UUID())
         let second = BrowserPanel(workspaceId: UUID())
