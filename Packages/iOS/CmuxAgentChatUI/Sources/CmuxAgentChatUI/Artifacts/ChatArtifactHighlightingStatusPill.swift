@@ -10,7 +10,9 @@ struct ChatArtifactHighlightingStatusPill: View {
 
     var body: some View {
         Button {
-            isExpanded.toggle()
+            withAnimation(.snappy) {
+                isExpanded.toggle()
+            }
         } label: {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Image(systemName: "paintbrush.slash")
@@ -20,6 +22,7 @@ struct ChatArtifactHighlightingStatusPill: View {
                         .font(.caption)
                         .multilineTextAlignment(.leading)
                         .fixedSize(horizontal: false, vertical: true)
+                        .transition(.opacity)
                 } else {
                     Text(String(
                         localized: "chat.artifact.highlighting.off",
@@ -27,6 +30,7 @@ struct ChatArtifactHighlightingStatusPill: View {
                         bundle: .module
                     ))
                     .font(.caption.weight(.semibold))
+                    .transition(.opacity)
                 }
                 Image(systemName: isExpanded ? "xmark.circle.fill" : "chevron.right")
                     .imageScale(.small)
@@ -36,11 +40,11 @@ struct ChatArtifactHighlightingStatusPill: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .frame(maxWidth: isExpanded ? 360 : nil, alignment: .leading)
-            .background(.thinMaterial, in: Capsule())
+            .background(Color.secondary.opacity(0.12), in: Capsule())
+            .clipShape(Capsule())
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .animation(.snappy, value: isExpanded)
     }
 
     private var explanation: String {

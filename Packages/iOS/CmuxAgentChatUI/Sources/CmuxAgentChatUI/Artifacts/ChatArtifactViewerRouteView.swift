@@ -3,338 +3,44 @@ import SwiftUI
 
 #if canImport(UIKit)
 import UIKit
-#if os(iOS)
-import QuickLook
-#endif
 #elseif canImport(AppKit)
 import AppKit
 #endif
 
-/// The shared stat-driven route for every artifact entry point and folder level.
+/// Renders one immutable artifact page snapshot without contributing navigation chrome.
 struct ChatArtifactViewerRouteView: View {
-    let path: String
+    let snapshot: ChatArtifactViewerPageSnapshot
     let scope: ChatArtifactViewerScope
+    let actions: ChatArtifactViewerPageActions
     let onDone: () -> Void
     let onImageMinimumZoomChanged: (Bool) -> Void
-    private let textPreferences: ChatArtifactTextPreferences
-    private let textLayoutKind: ChatArtifactTextLayoutKind
 
-    @Environment(\.chatArtifactLoader) private var loader
     @Environment(\.colorScheme) private var colorScheme
-    @State private var model = ChatArtifactViewerModel()
-    @State private var retryGeneration = 0
-    @State private var topRequestID = 0
-    @State private var bottomRequestID = 0
-    @State private var isSearchPresented = false
-    @State private var searchQuery = ""
-    @State private var searchSummary = ChatArtifactSearchSummary.empty
-    @State private var previousSearchRequestID = 0
-    @State private var nextSearchRequestID = 0
-    @State private var showsLineNumbers = true
-    @State private var isGoToLinePresented = false
-    @State private var goToLineText = ""
-    @State private var goToLineUTF16Offset = 0
-    @State private var goToLineRequestID = 0
-    @State private var wrapsLines: Bool
-    @State private var textFontSize: Double
-    #if os(iOS)
-    @State private var fileActionPresentation: ChatArtifactFileActionPresentation?
-    @State private var isFileActionRunning = false
-    @State private var showsFileActionError = false
-    #endif
 
     init(
-        path: String,
+        snapshot: ChatArtifactViewerPageSnapshot,
         scope: ChatArtifactViewerScope,
-        textPreferences: ChatArtifactTextPreferences = ChatArtifactTextPreferences(
-            defaults: .standard
-        ),
+        actions: ChatArtifactViewerPageActions,
         onImageMinimumZoomChanged: @escaping (Bool) -> Void = { _ in },
         onDone: @escaping () -> Void
     ) {
-        self.path = path
+        self.snapshot = snapshot
         self.scope = scope
+        self.actions = actions
         self.onDone = onDone
         self.onImageMinimumZoomChanged = onImageMinimumZoomChanged
-        self.textPreferences = textPreferences
-        let layoutKind = ChatArtifactTextLayoutKind(path: path)
-        textLayoutKind = layoutKind
-        _wrapsLines = State(initialValue: textPreferences.wrapsLines(for: layoutKind))
-        _textFontSize = State(initialValue: textPreferences.fontSize(for: layoutKind))
     }
 
     var body: some View {
         content
-            .navigationTitle(displayName)
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                #if os(iOS)
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    if hasViewerActions {
-                        viewerActionsMenu
-                    }
-                    doneButton
-                }
-                #else
-                ToolbarItem(placement: .cancellationAction) {
-                    doneButton
-                }
-                #endif
-            }
-            #if os(iOS)
-            .chatArtifactFileActionPresentation($fileActionPresentation)
-            .alert(
-                String(
-                    localized: "chat.artifact.action_failed.title",
-                    defaultValue: "Couldn't complete action",
-                    bundle: .module
-                ),
-                isPresented: $showsFileActionError
-            ) {
-                Button(String(localized: "chat.artifact.ok", defaultValue: "OK", bundle: .module)) {}
-            } message: {
-                Text(String(
-                    localized: "chat.artifact.action_failed.message",
-                    defaultValue: "Check the connection to your Mac and try again.",
-                    bundle: .module
-                ))
-            }
-            #endif
-            .task(id: "\(path)\u{0}\(retryGeneration)") {
-                #if os(iOS)
-                await model.load(
-                    path: path,
-                    loader: loader,
-                    quickLookCanPreview: canQuickLookPreview
-                )
-                #else
-                await model.load(path: path, loader: loader)
-                #endif
+            .task(id: "\(path)\u{0}\(snapshot.retryGeneration)") {
+                await actions.load()
                 await waitForViewerTaskCancellation()
-                await model.cleanup()
+                await actions.cleanup()
             }
     }
 
-    private var doneButton: some View {
-        Button(String(localized: "chat.artifact.done", defaultValue: "Done", bundle: .module)) {
-            onDone()
-        }
-    }
-
-    #if os(iOS)
-    private var hasViewerActions: Bool {
-        model.hasFileActions
-            || shouldShowTextJumpControls
-            || (model.state == .markdown && model.markdownPresentation.isRenderedAvailable)
-    }
-
-    private var viewerActionsMenu: some View {
-        Menu {
-            if model.hasFileActions {
-                Section {
-                    fileActionButtons
-                }
-            }
-            if shouldShowTextJumpControls {
-                Section {
-                    textViewerActionButtons
-                }
-            }
-            if model.state == .markdown,
-               model.markdownPresentation.isRenderedAvailable {
-                Section {
-                    Picker(
-                        String(
-                            localized: "chat.artifact.markdown.view",
-                            defaultValue: "Markdown view",
-                            bundle: .module
-                        ),
-                        selection: markdownModeBinding
-                    ) {
-                        Text(String(
-                            localized: "chat.artifact.markdown.raw",
-                            defaultValue: "Raw",
-                            bundle: .module
-                        ))
-                        .tag(ChatArtifactMarkdownMode.raw)
-                        Text(String(
-                            localized: "chat.artifact.markdown.rendered",
-                            defaultValue: "Rendered",
-                            bundle: .module
-                        ))
-                        .tag(ChatArtifactMarkdownMode.rendered)
-                    }
-                }
-            }
-        } label: {
-            Label(
-                String(
-                    localized: "chat.artifact.viewer.actions",
-                    defaultValue: "Viewer actions",
-                    bundle: .module
-                ),
-                systemImage: "ellipsis.circle"
-            )
-        }
-        .disabled(isFileActionRunning)
-    }
-
-    @ViewBuilder
-    private var fileActionButtons: some View {
-        Button {
-            prepareFileAction(.share)
-        } label: {
-            Label(
-                String(localized: "chat.artifact.share", defaultValue: "Share", bundle: .module),
-                systemImage: "square.and.arrow.up"
-            )
-        }
-        Button {
-            prepareFileAction(.save)
-        } label: {
-            Label(
-                String(localized: "chat.artifact.save_to_files", defaultValue: "Save to Files", bundle: .module),
-                systemImage: "folder.badge.plus"
-            )
-        }
-        if model.isTextFile {
-            Button {
-                UIPasteboard.general.string = model.renderedText
-            } label: {
-                Label(
-                    String(localized: "chat.artifact.copy_contents", defaultValue: "Copy contents", bundle: .module),
-                    systemImage: "doc.on.doc"
-                )
-            }
-            .disabled(!model.canCopyContents)
-        }
-        Button {
-            UIPasteboard.general.string = path
-        } label: {
-            Label(
-                String(localized: "chat.artifact.copy_path", defaultValue: "Copy path", bundle: .module),
-                systemImage: "link"
-            )
-        }
-    }
-
-    @ViewBuilder
-    private var textViewerActionButtons: some View {
-        Button {
-            withAnimation(.snappy) {
-                if isSearchPresented {
-                    dismissSearch()
-                } else {
-                    dismissGoToLine()
-                    isSearchPresented = true
-                }
-            }
-        } label: {
-            Label(
-                String(
-                    localized: "chat.artifact.search.title",
-                    defaultValue: "Search",
-                    bundle: .module
-                ),
-                systemImage: "magnifyingglass"
-            )
-        }
-        Button {
-            withAnimation(.snappy) {
-                if isGoToLinePresented {
-                    dismissGoToLine()
-                } else {
-                    dismissSearch()
-                    isGoToLinePresented = true
-                }
-            }
-        } label: {
-            Label(
-                String(
-                    localized: "chat.artifact.line.goto",
-                    defaultValue: "Go to line",
-                    bundle: .module
-                ),
-                systemImage: "text.line.first.and.arrowtriangle.forward"
-            )
-        }
-        Button {
-            topRequestID += 1
-        } label: {
-            Label(
-                String(
-                    localized: "chat.artifact.jump.top",
-                    defaultValue: "Top",
-                    bundle: .module
-                ),
-                systemImage: "arrow.up.to.line"
-            )
-        }
-        Button {
-            bottomRequestID += 1
-        } label: {
-            Label(jumpToBottomTitle, systemImage: "arrow.down.to.line")
-        }
-        Button {
-            showsLineNumbers.toggle()
-        } label: {
-            Label(
-                String(
-                    localized: "chat.artifact.line.numbers",
-                    defaultValue: "Line numbers",
-                    bundle: .module
-                ),
-                systemImage: showsLineNumbers ? "checkmark" : "number"
-            )
-        }
-        Button {
-            wrapsLines.toggle()
-            textPreferences.setWrapsLines(
-                wrapsLines,
-                for: textLayoutKind
-            )
-        } label: {
-            Label(
-                String(
-                    localized: "chat.artifact.wrap",
-                    defaultValue: "Word wrap",
-                    bundle: .module
-                ),
-                systemImage: wrapsLines ? "checkmark" : "text.justify.left"
-            )
-        }
-    }
-
-    private enum PreparedFileAction {
-        case share
-        case save
-    }
-
-    private func prepareFileAction(_ action: PreparedFileAction) {
-        guard !isFileActionRunning else { return }
-        isFileActionRunning = true
-        Task {
-            do {
-                let fileURL = try await ChatArtifactFileActionStore.applicationDefault.materialize(
-                    path: path,
-                    loader: loader
-                )
-                try Task.checkCancellation()
-                fileActionPresentation = switch action {
-                case .share: .share(fileURL)
-                case .save: .save(fileURL)
-                }
-            } catch is CancellationError {
-                // The viewer is going away; no error needs presenting.
-            } catch {
-                showsFileActionError = true
-            }
-            isFileActionRunning = false
-        }
-    }
-    #endif
+    private var path: String { snapshot.path }
 
     /// Keeps cleanup structured under the SwiftUI page task after loading ends.
     private func waitForViewerTaskCancellation() async {
@@ -345,13 +51,13 @@ struct ChatArtifactViewerRouteView: View {
 
     @ViewBuilder
     private var content: some View {
-        switch model.state {
+        switch snapshot.state {
         case .loading:
             VStack(spacing: 12) {
                 ProgressView(
                     value: progressValue(
-                        fetched: model.fetchedBytes,
-                        total: model.totalBytes
+                        fetched: snapshot.fetchedBytes,
+                        total: snapshot.totalBytes
                     )
                 )
                 .progressViewStyle(.linear)
@@ -359,11 +65,11 @@ struct ChatArtifactViewerRouteView: View {
                 Text(String(localized: "chat.artifact.loading", defaultValue: "Loading preview", bundle: .module))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                if model.fetchedBytes > 0 || model.totalBytes != nil {
+                if snapshot.fetchedBytes > 0 || snapshot.totalBytes != nil {
                     Text(
                         verbatim: progressText(
-                            fetched: model.fetchedBytes,
-                            total: model.totalBytes
+                            fetched: snapshot.fetchedBytes,
+                            total: snapshot.totalBytes
                         )
                     )
                     .font(.caption.monospacedDigit())
@@ -420,7 +126,7 @@ struct ChatArtifactViewerRouteView: View {
             #endif
         case .quickLook(let fileURL):
             #if os(iOS)
-            ChatArtifactQuickLookView(fileURL: fileURL, title: displayName)
+            ChatArtifactQuickLookView(fileURL: fileURL, title: snapshot.displayName)
                 .ignoresSafeArea(.container, edges: .bottom)
             #else
             unavailableView(
@@ -430,7 +136,7 @@ struct ChatArtifactViewerRouteView: View {
             #endif
         case .text:
             VStack(spacing: 0) {
-                if !model.textReachedEOF {
+                if !snapshot.textReachedEOF {
                     streamingProgressHeader
                 }
                 searchBar
@@ -440,11 +146,11 @@ struct ChatArtifactViewerRouteView: View {
             }
         case .markdown:
             VStack(spacing: 0) {
-                if !model.textReachedEOF {
+                if !snapshot.textReachedEOF {
                     streamingProgressHeader
                 }
-                if model.markdownPresentation.mode == .rendered {
-                    ChatArtifactMarkdownView(markdown: model.renderedText)
+                if snapshot.markdownPresentation.mode == .rendered {
+                    ChatArtifactMarkdownView(markdown: snapshot.renderedText)
                 } else {
                     searchBar
                     goToLineBar
@@ -494,12 +200,12 @@ struct ChatArtifactViewerRouteView: View {
         HStack(spacing: 10) {
             ProgressView(
                 value: progressValue(
-                    fetched: model.fetchedBytes,
-                    total: model.totalBytes
+                    fetched: snapshot.fetchedBytes,
+                    total: snapshot.totalBytes
                 )
             )
             .progressViewStyle(.linear)
-            Text(verbatim: progressText(fetched: model.fetchedBytes, total: model.totalBytes))
+            Text(verbatim: progressText(fetched: snapshot.fetchedBytes, total: snapshot.totalBytes))
                 .font(.caption2.monospacedDigit())
                 .foregroundStyle(.secondary)
                 .fixedSize()
@@ -514,34 +220,27 @@ struct ChatArtifactViewerRouteView: View {
         #if canImport(UIKit)
         ChatArtifactTextView(
             documentID: path,
-            chunks: model.textChunks,
-            reachedEOF: model.textReachedEOF,
-            highlightDecision: model.textHighlightDecision,
+            chunks: snapshot.textChunks,
+            reachedEOF: snapshot.textReachedEOF,
+            highlightDecision: snapshot.textHighlightDecision,
             highlightTheme: colorScheme == .dark ? .dark : .light,
-            searchQuery: searchQuery,
-            previousSearchRequestID: previousSearchRequestID,
-            nextSearchRequestID: nextSearchRequestID,
-            onSearchSummaryChanged: { summary in
-                searchSummary = summary
-            },
-            lineIndex: model.textLineIndex,
-            showsLineNumbers: showsLineNumbers,
-            goToLineUTF16Offset: goToLineUTF16Offset,
-            goToLineRequestID: goToLineRequestID,
-            wrapsLines: wrapsLines,
-            fontPointSize: textFontSize,
-            onFontSizeChanged: { fontSize in
-                textFontSize = textPreferences.setFontSize(
-                    fontSize,
-                    for: textLayoutKind
-                )
-            },
-            topRequestID: topRequestID,
-            bottomRequestID: bottomRequestID
+            searchQuery: snapshot.searchQuery,
+            previousSearchRequestID: snapshot.previousSearchRequestID,
+            nextSearchRequestID: snapshot.nextSearchRequestID,
+            onSearchSummaryChanged: { actions.setSearchSummary($0) },
+            lineIndex: snapshot.textLineIndex,
+            showsLineNumbers: snapshot.showsLineNumbers,
+            goToLineUTF16Offset: snapshot.goToLineUTF16Offset,
+            goToLineRequestID: snapshot.goToLineRequestID,
+            wrapsLines: snapshot.wrapsLines,
+            fontPointSize: snapshot.textFontSize,
+            onFontSizeChanged: { actions.setFontSize($0) },
+            topRequestID: snapshot.topRequestID,
+            bottomRequestID: snapshot.bottomRequestID
         )
         #else
         ScrollView {
-            Text(model.renderedText)
+            Text(snapshot.renderedText)
                 .font(.system(.body, design: .monospaced))
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -552,13 +251,13 @@ struct ChatArtifactViewerRouteView: View {
 
     @ViewBuilder
     private var goToLineBar: some View {
-        if isGoToLinePresented {
+        if snapshot.isGoToLinePresented {
             ChatArtifactGoToLineBar(
-                lineText: $goToLineText,
-                onGo: goToLine,
+                lineText: goToLineTextBinding,
+                onGo: { actions.goToLine($0) },
                 onClose: {
                     withAnimation(.snappy) {
-                        dismissGoToLine()
+                        actions.dismissGoToLine()
                     }
                 }
             )
@@ -568,16 +267,16 @@ struct ChatArtifactViewerRouteView: View {
 
     @ViewBuilder
     private var searchBar: some View {
-        if isSearchPresented {
+        if snapshot.isSearchPresented {
             ChatArtifactSearchBar(
-                query: $searchQuery,
-                summary: searchSummary,
-                isStillLoading: !model.textReachedEOF,
-                onPrevious: { previousSearchRequestID += 1 },
-                onNext: { nextSearchRequestID += 1 },
+                query: searchQueryBinding,
+                summary: snapshot.searchSummary,
+                isStillLoading: !snapshot.textReachedEOF,
+                onPrevious: { actions.selectPreviousSearchResult() },
+                onNext: { actions.selectNextSearchResult() },
                 onClose: {
                     withAnimation(.snappy) {
-                        dismissSearch()
+                        actions.dismissSearch()
                     }
                 }
             )
@@ -587,8 +286,8 @@ struct ChatArtifactViewerRouteView: View {
 
     @ViewBuilder
     private var highlightingStatusPill: some View {
-        if model.textHighlightDecision.showsHighlightingOffPill,
-           let totalBytes = model.totalBytes {
+        if snapshot.textHighlightDecision.showsHighlightingOffPill,
+           let totalBytes = snapshot.totalBytes {
             HStack {
                 Spacer(minLength: 16)
                 ChatArtifactHighlightingStatusPill(
@@ -621,7 +320,7 @@ struct ChatArtifactViewerRouteView: View {
             }
             if retry {
                 Button {
-                    retryGeneration += 1
+                    actions.retry()
                 } label: {
                     Label(
                         String(localized: "chat.artifact.retry", defaultValue: "Retry", bundle: .module),
@@ -657,66 +356,17 @@ struct ChatArtifactViewerRouteView: View {
         #endif
     }
 
-    private var displayName: String {
-        URL(fileURLWithPath: path).lastPathComponent
-    }
-
-    private var markdownModeBinding: Binding<ChatArtifactMarkdownMode> {
+    private var searchQueryBinding: Binding<String> {
         Binding(
-            get: { model.markdownPresentation.mode },
-            set: { mode in
-                if mode == .rendered {
-                    dismissSearch()
-                    dismissGoToLine()
-                }
-                model.selectMarkdownMode(mode)
-            }
+            get: { snapshot.searchQuery },
+            set: { actions.setSearchQuery($0) }
         )
     }
 
-    private func dismissSearch() {
-        isSearchPresented = false
-        searchQuery = ""
-        searchSummary = .empty
-    }
-
-    private func dismissGoToLine() {
-        isGoToLinePresented = false
-        goToLineText = ""
-    }
-
-    private func goToLine(_ requestedLine: Int) {
-        let line = model.textLineIndex.clampedLine(requestedLine)
-        goToLineText = String(line)
-        goToLineUTF16Offset = model.textLineIndex.offset(forLine: line)
-        goToLineRequestID += 1
-    }
-
-    private var shouldShowTextJumpControls: Bool {
-        model.state == .text
-            || (model.state == .markdown && model.markdownPresentation.mode == .raw)
-    }
-
-    #if os(iOS)
-    private func canQuickLookPreview(_ fileURL: URL) -> Bool {
-        QLPreviewController.canPreview(
-            ChatArtifactQuickLookItem(fileURL: fileURL, title: displayName)
-        )
-    }
-    #endif
-
-    private var jumpToBottomTitle: String {
-        if model.textReachedEOF {
-            return String(
-                localized: "chat.artifact.jump.end",
-                defaultValue: "End",
-                bundle: .module
-            )
-        }
-        return String(
-            localized: "chat.artifact.jump.bottom",
-            defaultValue: "Bottom",
-            bundle: .module
+    private var goToLineTextBinding: Binding<String> {
+        Binding(
+            get: { snapshot.goToLineText },
+            set: { actions.setGoToLineText($0) }
         )
     }
 
