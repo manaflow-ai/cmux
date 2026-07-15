@@ -14,17 +14,21 @@ extension MobileShellComposite {
     ///
     /// Unlike the legacy host/port helper, this preserves Iroh peer routes. Once
     /// a supported Iroh route exists, it also pins the pairing to Iroh and drops
-    /// every raw host/port fallback. Otherwise an admission or revocation failure
-    /// could silently downgrade to a Stack-bearer Tailscale request and bypass the
-    /// Iroh device grant. Legacy Macs that never advertised Iroh keep their raw
-    /// private-network routes.
+    /// every raw host/port fallback. A numeric Tailscale route is first copied
+    /// into the pinned Iroh route as a private fallback address, so Tailscale can
+    /// still carry Iroh without receiving a Stack bearer. Otherwise an admission
+    /// or revocation failure could silently downgrade around the Iroh device
+    /// grant. Pairings without an authenticated Iroh identity remain fail-closed.
     static func storedReconnectRoutes(
         _ routes: [CmxAttachRoute],
         supportedKinds: [CmxAttachTransportKind],
         preferNonLoopback: Bool = false
     ) -> [CmxAttachRoute] {
         let supportedKinds = Set(supportedKinds)
-        var ordered = routes
+        var ordered = CmxAttachRoute.addingIrohPrivatePaths(
+            to: routes,
+            observedAt: Date()
+        )
             .filter { supportedKinds.isEmpty || supportedKinds.contains($0.kind) }
             .sorted(by: Self.routeSortsBefore)
         if preferNonLoopback, ordered.contains(where: { $0.kind != .debugLoopback }) {

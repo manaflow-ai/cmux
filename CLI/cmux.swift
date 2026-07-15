@@ -13074,6 +13074,14 @@ struct CMUXCLI {
         let subArgs = Array(args.dropFirst())
         let browserValueTextFormatter = BrowserValueTextFormatter()
 
+        // A post-action snapshot can spend 3s in document readiness, 10s in the
+        // requested action, 10s in snapshot JavaScript, and 2.5s in recovery.
+        // Keep transport headroom beyond that 25.5s app-side maximum.
+        func sendBrowserAutomationRequest(method: String, params: [String: Any]) throws -> [String: Any] {
+            let responseTimeout: TimeInterval = (params["snapshot_after"] as? Bool) == true ? 30 : 20
+            return try client.sendV2(method: method, params: params, responseTimeout: responseTimeout)
+        }
+
         func requireSurface() throws -> String {
             guard let raw = surfaceRaw else {
                 throw CLIError(message: "browser \(subcommand) requires a surface handle (use: browser <surface> \(subcommand) ... or --surface)")
@@ -13542,7 +13550,7 @@ struct CMUXCLI {
             if snapshotAfter {
                 params["snapshot_after"] = true
             }
-            let payload = try client.sendV2(method: "browser.navigate", params: params)
+            let payload = try sendBrowserAutomationRequest(method: "browser.navigate", params: params)
             output(payload, fallback: "OK")
             return
         }
@@ -13558,7 +13566,7 @@ struct CMUXCLI {
             if hasFlag(subArgs, name: "--snapshot-after") {
                 params["snapshot_after"] = true
             }
-            let payload = try client.sendV2(method: methodMap[subcommand]!, params: params)
+            let payload = try sendBrowserAutomationRequest(method: methodMap[subcommand]!, params: params)
             output(payload, fallback: "OK")
             return
         }
@@ -13758,7 +13766,7 @@ struct CMUXCLI {
                 params["max_depth"] = depth
             }
 
-            let payload = try client.sendV2(method: "browser.snapshot", params: params)
+            let payload = try sendBrowserAutomationRequest(method: "browser.snapshot", params: params)
             if effectiveJSONOutput {
                 print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
             } else {
@@ -13774,7 +13782,7 @@ struct CMUXCLI {
             guard !trimmed.isEmpty else {
                 throw CLIError(message: "browser eval requires a script")
             }
-            let payload = try client.sendV2(method: "browser.eval", params: ["surface_id": sid, "script": trimmed])
+            let payload = try sendBrowserAutomationRequest(method: "browser.eval", params: ["surface_id": sid, "script": trimmed])
             let fallback: String
             if let value = payload["value"] {
                 fallback = browserValueTextFormatter.string(from: value)
@@ -13828,7 +13836,7 @@ struct CMUXCLI {
             // Give the socket response timeout headroom beyond the wait deadline so long
             // waits are reported by the app handler instead of dying at the socket layer.
             let waitMs = (params["timeout_ms"] as? Int) ?? 5_000
-            let responseTimeout = max(10.0, Double(waitMs) / 1000.0 + 5.0)
+            let responseTimeout = max(15.0, Double(waitMs) / 1000.0 + 8.0)
             let payload = try client.sendV2(method: "browser.wait", params: params, responseTimeout: responseTimeout)
             output(payload, fallback: "OK")
             return
@@ -13856,7 +13864,7 @@ struct CMUXCLI {
             if hasFlag(subArgs, name: "--snapshot-after") {
                 params["snapshot_after"] = true
             }
-            let payload = try client.sendV2(method: methodMap[subcommand]!, params: params)
+            let payload = try sendBrowserAutomationRequest(method: methodMap[subcommand]!, params: params)
             output(payload, fallback: "OK")
             return
         }
@@ -13889,7 +13897,7 @@ struct CMUXCLI {
             if hasFlag(subArgs, name: "--snapshot-after") {
                 params["snapshot_after"] = true
             }
-            let payload = try client.sendV2(method: method, params: params)
+            let payload = try sendBrowserAutomationRequest(method: method, params: params)
             output(payload, fallback: "OK")
             return
         }
@@ -13911,7 +13919,7 @@ struct CMUXCLI {
             if hasFlag(subArgs, name: "--snapshot-after") {
                 params["snapshot_after"] = true
             }
-            let payload = try client.sendV2(method: methodMap[subcommand]!, params: params)
+            let payload = try sendBrowserAutomationRequest(method: methodMap[subcommand]!, params: params)
             output(payload, fallback: "OK")
             return
         }
@@ -13932,7 +13940,7 @@ struct CMUXCLI {
             if hasFlag(subArgs, name: "--snapshot-after") {
                 params["snapshot_after"] = true
             }
-            let payload = try client.sendV2(method: "browser.select", params: params)
+            let payload = try sendBrowserAutomationRequest(method: "browser.select", params: params)
             output(payload, fallback: "OK")
             return
         }
@@ -13966,7 +13974,7 @@ struct CMUXCLI {
                 params["snapshot_after"] = true
             }
 
-            let payload = try client.sendV2(method: "browser.scroll", params: params)
+            let payload = try sendBrowserAutomationRequest(method: "browser.scroll", params: params)
             output(payload, fallback: "OK")
             return
         }
@@ -13976,7 +13984,12 @@ struct CMUXCLI {
             let (outPathOpt, _) = parseOption(subArgs, name: "--out")
             let localJSONOutput = hasFlag(subArgs, name: "--json")
             let outputAsJSON = effectiveJSONOutput || localJSONOutput
-            var payload = try client.sendV2(method: "browser.screenshot", params: ["surface_id": sid])
+            // Leave room beyond the app's capture deadline for its liveness probe and recovery reply.
+            var payload = try client.sendV2(
+                method: "browser.screenshot",
+                params: ["surface_id": sid],
+                responseTimeout: 25
+            )
 
             func fileURL(fromPath rawPath: String) -> URL {
                 let resolvedPath = resolvePath(rawPath)
@@ -14163,7 +14176,7 @@ struct CMUXCLI {
                     "box": "browser.get.box",
                     "styles": "browser.get.styles",
                 ]
-                let payload = try client.sendV2(method: methodMap[getVerb]!, params: params)
+                let payload = try sendBrowserAutomationRequest(method: methodMap[getVerb]!, params: params)
                 if effectiveJSONOutput {
                     print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
                 } else if let value = payload["value"] {
@@ -14203,7 +14216,7 @@ struct CMUXCLI {
             guard let method = methodMap[isVerb] else {
                 throw CLIError(message: "Unsupported browser is subcommand: \(isVerb)")
             }
-            let payload = try client.sendV2(method: method, params: ["surface_id": sid, "selector": selector])
+            let payload = try sendBrowserAutomationRequest(method: method, params: ["surface_id": sid, "selector": selector])
             if effectiveJSONOutput {
                 print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
             } else if let value = payload["value"] {
@@ -14286,7 +14299,7 @@ struct CMUXCLI {
                 throw CLIError(message: "Unsupported browser find locator: \(locator)")
             }
 
-            let payload = try client.sendV2(method: method, params: params)
+            let payload = try sendBrowserAutomationRequest(method: method, params: params)
             output(payload, fallback: "OK")
             return
         }
@@ -14306,7 +14319,7 @@ struct CMUXCLI {
             guard let selector else {
                 throw CLIError(message: "browser frame requires a selector or 'main'")
             }
-            let payload = try client.sendV2(method: "browser.frame.select", params: ["surface_id": sid, "selector": selector])
+            let payload = try sendBrowserAutomationRequest(method: "browser.frame.select", params: ["surface_id": sid, "selector": selector])
             output(payload, fallback: "OK")
             return
         }
@@ -14324,10 +14337,10 @@ struct CMUXCLI {
                 if !text.isEmpty {
                     params["text"] = text
                 }
-                let payload = try client.sendV2(method: "browser.dialog.accept", params: params)
+                let payload = try sendBrowserAutomationRequest(method: "browser.dialog.accept", params: params)
                 output(payload, fallback: "OK")
             case "dismiss":
-                let payload = try client.sendV2(method: "browser.dialog.dismiss", params: ["surface_id": sid])
+                let payload = try sendBrowserAutomationRequest(method: "browser.dialog.dismiss", params: ["surface_id": sid])
                 output(payload, fallback: "OK")
             default:
                 throw CLIError(message: "Unsupported browser dialog subcommand: \(dialogVerb)")
@@ -14449,7 +14462,7 @@ struct CMUXCLI {
                 if let key = positional.first {
                     params["key"] = key
                 }
-                let payload = try client.sendV2(method: "browser.storage.get", params: params)
+                let payload = try sendBrowserAutomationRequest(method: "browser.storage.get", params: params)
                 output(payload, fallback: "OK")
             case "set":
                 guard positional.count >= 2 else {
@@ -14457,10 +14470,10 @@ struct CMUXCLI {
                 }
                 params["key"] = positional[0]
                 params["value"] = positional[1]
-                let payload = try client.sendV2(method: "browser.storage.set", params: params)
+                let payload = try sendBrowserAutomationRequest(method: "browser.storage.set", params: params)
                 output(payload, fallback: "OK")
             case "clear":
-                let payload = try client.sendV2(method: "browser.storage.clear", params: params)
+                let payload = try sendBrowserAutomationRequest(method: "browser.storage.clear", params: params)
                 output(payload, fallback: "OK")
             default:
                 throw CLIError(message: "Unsupported browser storage subcommand: \(op)")
@@ -14522,7 +14535,7 @@ struct CMUXCLI {
             if consoleVerb != "list" && consoleVerb != "clear" {
                 throw CLIError(message: "Unsupported browser console subcommand: \(consoleVerb)")
             }
-            let payload = try client.sendV2(method: method, params: ["surface_id": sid])
+            let payload = try sendBrowserAutomationRequest(method: method, params: ["surface_id": sid])
             if effectiveJSONOutput || consoleVerb == "clear" {
                 output(payload, fallback: "OK")
             } else {
@@ -14540,7 +14553,7 @@ struct CMUXCLI {
             } else if errorsVerb != "list" {
                 throw CLIError(message: "Unsupported browser errors subcommand: \(errorsVerb)")
             }
-            let payload = try client.sendV2(method: "browser.errors.list", params: params)
+            let payload = try sendBrowserAutomationRequest(method: "browser.errors.list", params: params)
             if effectiveJSONOutput || errorsVerb == "clear" {
                 output(payload, fallback: "OK")
             } else {
@@ -14556,7 +14569,7 @@ struct CMUXCLI {
             guard let selector else {
                 throw CLIError(message: "browser highlight requires a selector")
             }
-            let payload = try client.sendV2(method: "browser.highlight", params: ["surface_id": sid, "selector": selector])
+            let payload = try sendBrowserAutomationRequest(method: "browser.highlight", params: ["surface_id": sid, "selector": selector])
             output(payload, fallback: "OK")
             return
         }
@@ -14579,7 +14592,7 @@ struct CMUXCLI {
             default:
                 throw CLIError(message: "Unsupported browser state subcommand: \(stateVerb)")
             }
-            let payload = try client.sendV2(method: method, params: ["surface_id": sid, "path": path])
+            let payload = try sendBrowserAutomationRequest(method: method, params: ["surface_id": sid, "path": path])
             output(payload, fallback: "OK")
             return
         }
@@ -14593,7 +14606,7 @@ struct CMUXCLI {
             guard !content.isEmpty else {
                 throw CLIError(message: "browser \(subcommand) requires content")
             }
-            let payload = try client.sendV2(method: "browser.\(subcommand)", params: ["surface_id": sid, field: content])
+            let payload = try sendBrowserAutomationRequest(method: "browser.\(subcommand)", params: ["surface_id": sid, field: content])
             output(payload, fallback: "OK")
             return
         }

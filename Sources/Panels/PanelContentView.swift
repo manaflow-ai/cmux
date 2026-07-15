@@ -72,6 +72,10 @@ struct PanelContentView: View {
                     paneOwnershipOverride: paneOwnershipOverride,
                     onRequestPanelFocus: onRequestPanelFocus
                 )
+                // Browser chrome owns panel-scoped edit/focus state. Bonsplit reuses this
+                // structural slot when a pane selects another browser, so bind its lifetime
+                // to the panel instead of carrying the prior panel's omnibar draft forward.
+                .id(browserPanel.id)
             }
         case .markdown:
             if let markdownPanel = panel as? MarkdownPanel {

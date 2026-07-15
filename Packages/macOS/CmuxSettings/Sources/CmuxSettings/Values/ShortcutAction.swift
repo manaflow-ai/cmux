@@ -44,9 +44,17 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     // MARK: Navigation
     case nextSurface
     case prevSurface
+    /// Moves the selected surface one position left.
+    case moveSurfaceLeft
+    /// Moves the selected surface one position right.
+    case moveSurfaceRight
     case selectSurfaceByNumber
     case nextSidebarTab
     case prevSidebarTab
+    /// Moves the selected workspace one position up within its pin tier.
+    case moveWorkspaceUp
+    /// Moves the selected workspace one position down within its pin tier.
+    case moveWorkspaceDown
     case focusHistoryBack
     case focusHistoryForward
     case selectWorkspaceByNumber
@@ -177,25 +185,6 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
 }
 
 extension ShortcutAction {
-    /// Logical grouping used for sectioning the shortcuts pane.
-    public enum Group: String, CaseIterable, Sendable, Hashable {
-        case app
-        case workspace
-        case navigation
-        case panes
-        case browser
-
-        public var title: String {
-            switch self {
-            case .app: return "App"
-            case .workspace: return "Workspace"
-            case .navigation: return "Navigation"
-            case .panes: return "Panes"
-            case .browser: return "Browser & Find"
-            }
-        }
-    }
-
     /// Which group this action belongs to in the settings pane.
     public var group: Group {
         switch self {
@@ -209,8 +198,8 @@ extension ShortcutAction {
              .switchRightSidebarToSessions, .switchRightSidebarToFeed,
              .switchRightSidebarToDock, .triggerFlash:
             return .workspace
-        case .nextSurface, .prevSurface, .selectSurfaceByNumber, .nextSidebarTab,
-             .prevSidebarTab, .focusHistoryBack, .focusHistoryForward,
+        case .nextSurface, .prevSurface, .moveSurfaceLeft, .moveSurfaceRight, .selectSurfaceByNumber,
+             .nextSidebarTab, .prevSidebarTab, .moveWorkspaceUp, .moveWorkspaceDown, .focusHistoryBack, .focusHistoryForward,
              .selectWorkspaceByNumber, .renameTab, .renameWorkspace,
              .editWorkspaceDescription, .markWorkspaceDone, .cycleWorkspaceStatus, .toggleChecklistItemComplete, .closeTab, .closeOtherTabsInPane, .closeWorkspace,
              .newWorkspaceGroup, .groupSelectedWorkspaces, .toggleFocusedWorkspaceGroupCollapsed,
