@@ -13,6 +13,50 @@ import Testing
 @Suite("Shared live-agent hook-store invalidation", .serialized)
 struct SharedLiveAgentIndexHookStoreInvalidationTests {
     @Test
+    func hookEventReloadCadenceUsesScopedLoadWorkload() async {
+        let successorStarted = DispatchSemaphore(value: 0)
+        let loadCount = OSAllocatedUnfairLock(initialState: 0)
+        var now = Date(timeIntervalSince1970: 100)
+        let scopedResult: SharedLiveAgentIndex.LoadResult = (
+            index: Self.index(entryCount: 270),
+            surfaceResumeBindingIndex: .empty,
+            liveAgentProcessFingerprint: [],
+            processScopeFingerprint: [],
+            forkValidatedPanels: []
+        )
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                let invocation = loadCount.withLock { count in
+                    count += 1
+                    return count
+                }
+                if invocation > 1 {
+                    successorStarted.signal()
+                }
+                return scopedResult
+            },
+            hookStoreDirectoryProvider: {
+                FileManager.default.temporaryDirectory
+                    .appendingPathComponent("cmux-scoped-cadence-\(UUID().uuidString)").path
+            },
+            dateProvider: { now }
+        )
+
+        #expect(await sharedIndex.scopedIndexCapturedAfterRequest()?.entryCount == 270)
+        #expect(sharedIndex.index == nil)
+        #expect(sharedIndex.latestCompletedLoadResult?.index.entryCount == 270)
+
+        now.addTimeInterval(10)
+        sharedIndex.handleHookStoreChange()
+
+        #expect(
+            !(await SharedLiveAgentIndexLoadCoalescingTests.wait(for: successorStarted, timeout: 0.5)),
+            "A scoped 270-entry load must retain its completion time and 30-second backpressure."
+        )
+        #expect(loadCount.withLock { $0 } == 1)
+    }
+
+    @Test
     func hookEventReloadCadenceScalesWithIndexedSessionCount() async {
         let loadStarted = DispatchSemaphore(value: 0)
         var now = Date(timeIntervalSince1970: 100)
