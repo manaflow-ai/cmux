@@ -7,9 +7,7 @@ extension AppDelegate {
         let intentCounts = Self.cmuxExternalURLIntentCounts(in: urls)
         let admission = Self.cmuxExternalURLAdmission(
             intentCounts: intentCounts,
-            isRunBusy: isHandlingCmuxRunURLRequest
-                || pendingStartupRunURLRequest != nil
-                || NSApp.modalWindow != nil
+            isRunBusy: cmuxRunURLCoordinator.isBusy || NSApp.modalWindow != nil
         )
         switch admission {
         case .none:
@@ -136,8 +134,7 @@ extension AppDelegate {
 
         let intentCount = requests.count + errors.count
         guard intentCount > 0 else { return false }
-        guard !isHandlingCmuxRunURLRequest,
-              pendingStartupRunURLRequest == nil,
+        guard !cmuxRunURLCoordinator.isBusy,
               NSApp.modalWindow == nil else {
             CmuxRunURLConfirmationPresenter().showNonModalFailure(.busy)
             return true
@@ -151,14 +148,12 @@ extension AppDelegate {
             return true
         }
         if let request = requests.first {
-            return CmuxRunURLCoordinator(appDelegate: self).handle(request)
+            return cmuxRunURLCoordinator.handle(request)
         }
         return true
     }
 
     func flushPendingStartupRunURLRequest() {
-        guard let request = pendingStartupRunURLRequest else { return }
-        pendingStartupRunURLRequest = nil
-        _ = CmuxRunURLCoordinator(appDelegate: self).handle(request)
+        cmuxRunURLCoordinator.flushPendingStartupRequest()
     }
 }

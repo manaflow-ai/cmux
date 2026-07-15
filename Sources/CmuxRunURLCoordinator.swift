@@ -8,6 +8,12 @@ final class CmuxRunURLCoordinator {
     private unowned let appDelegate: AppDelegate
     private let directoryResolver: CmuxRunWorkingDirectoryResolver
     private let confirmationPresenter: CmuxRunURLConfirmationPresenter
+    private var pendingStartupRequest: CmuxRunURLRequest?
+    private var isHandlingRequest = false
+
+    var isBusy: Bool {
+        isHandlingRequest || pendingStartupRequest != nil
+    }
 
     init(
         appDelegate: AppDelegate,
@@ -15,9 +21,7 @@ final class CmuxRunURLCoordinator {
         confirmationPresenter: CmuxRunURLConfirmationPresenter? = nil
     ) {
         self.appDelegate = appDelegate
-        self.directoryResolver = directoryResolver ?? CmuxRunWorkingDirectoryResolver(
-            processLimiter: appDelegate.cmuxRunWorkingDirectoryProcessLimiter
-        )
+        self.directoryResolver = directoryResolver ?? CmuxRunWorkingDirectoryResolver()
         self.confirmationPresenter = confirmationPresenter ?? CmuxRunURLConfirmationPresenter()
     }
 
@@ -30,29 +34,35 @@ final class CmuxRunURLCoordinator {
             didAttemptRestore: appDelegate.didAttemptStartupSessionRestore,
             isApplyingRestore: appDelegate.isApplyingSessionRestore
         ) {
-            if appDelegate.pendingStartupRunURLRequest == nil {
-                appDelegate.pendingStartupRunURLRequest = request
+            if pendingStartupRequest == nil {
+                pendingStartupRequest = request
             } else {
                 confirmationPresenter.showNonModalFailure(.busy)
             }
             return true
         }
-        guard !appDelegate.isHandlingCmuxRunURLRequest else {
+        guard !isHandlingRequest else {
             confirmationPresenter.showNonModalFailure(.busy)
             return true
         }
         if startsBeforeStartupRestore {
             appDelegate.deferInitialMainWindowBootstrapForExternalConfirmation()
         }
-        appDelegate.isHandlingCmuxRunURLRequest = true
+        isHandlingRequest = true
         Task { [self] in
-            defer { appDelegate.isHandlingCmuxRunURLRequest = false }
+            defer { isHandlingRequest = false }
             await resolvePlanConfirmAndExecute(
                 request,
                 resumesInitialBootstrapOnEarlyExit: startsBeforeStartupRestore
             )
         }
         return true
+    }
+
+    func flushPendingStartupRequest() {
+        guard let request = pendingStartupRequest else { return }
+        pendingStartupRequest = nil
+        _ = handle(request)
     }
 
     static func shouldDeferForStartupRestore(
@@ -71,7 +81,7 @@ final class CmuxRunURLCoordinator {
                 )
             }
         }
-        let workingDirectory: String
+        let workingDirectory: CmuxRunResolvedWorkingDirectory
         switch await directoryResolver.resolveWithDeadline(request.workingDirectory) {
         case .success(let path):
             workingDirectory = path
@@ -125,7 +135,7 @@ final class CmuxRunURLCoordinator {
 
     func makePlan(
         request: CmuxRunURLRequest,
-        workingDirectory: String
+        workingDirectory: CmuxRunResolvedWorkingDirectory
     ) -> Result<CmuxRunExecutionPlan, CmuxRunURLExecutionError> {
         switch request.placement {
         case .workspace:
@@ -134,7 +144,8 @@ final class CmuxRunURLCoordinator {
                 return .success(
                     CmuxRunExecutionPlan(
                         command: request.command,
-                        workingDirectory: workingDirectory,
+                        workingDirectory: workingDirectory.path,
+                        workingDirectoryIdentity: workingDirectory.identity,
                         target: .newWindow,
                         placementDescription: String(
                             localized: "dialog.runURL.placement.workspace",
@@ -161,7 +172,8 @@ final class CmuxRunURLCoordinator {
             return .success(
                 CmuxRunExecutionPlan(
                     command: request.command,
-                    workingDirectory: workingDirectory,
+                    workingDirectory: workingDirectory.path,
+                    workingDirectoryIdentity: workingDirectory.identity,
                     target: .workspace(
                         windowId: context.windowId,
                         tabManagerIdentity: ObjectIdentifier(context.tabManager)
@@ -170,8 +182,8 @@ final class CmuxRunURLCoordinator {
                         localized: "dialog.runURL.placement.workspace",
                         defaultValue: "New workspace"
                     ),
-                    targetDescription: String(
-                        format: String(
+                    targetDescription: String.localizedStringWithFormat(
+                        String(
                             localized: "dialog.runURL.target.activeWindow",
                             defaultValue: "Window %@, current workspace: %@"
                         ),
@@ -245,8 +257,8 @@ final class CmuxRunURLCoordinator {
                 rawWorkspaceTitle,
                 fallback: workspaceFallback
             )
-            let targetDescription = String(
-                format: String(
+            let targetDescription = String.localizedStringWithFormat(
+                String(
                     localized: "dialog.runURL.target.workspacePane",
                     defaultValue: "Window %@, workspace %@, pane %@: %@"
                 ),
@@ -260,7 +272,8 @@ final class CmuxRunURLCoordinator {
                 return .success(
                     CmuxRunExecutionPlan(
                         command: request.command,
-                        workingDirectory: workingDirectory,
+                        workingDirectory: workingDirectory.path,
+                        workingDirectoryIdentity: workingDirectory.identity,
                         target: .surface(
                             windowId: windowId,
                             workspaceId: runtimeWorkspaceId,
@@ -291,7 +304,8 @@ final class CmuxRunURLCoordinator {
             return .success(
                 CmuxRunExecutionPlan(
                     command: request.command,
-                    workingDirectory: workingDirectory,
+                    workingDirectory: workingDirectory.path,
+                    workingDirectoryIdentity: workingDirectory.identity,
                     target: .pane(
                         windowId: windowId,
                         workspaceId: runtimeWorkspaceId,
@@ -299,8 +313,8 @@ final class CmuxRunURLCoordinator {
                         sourcePanelId: sourcePanelId,
                         direction: direction
                     ),
-                    placementDescription: String(
-                        format: String(
+                    placementDescription: String.localizedStringWithFormat(
+                        String(
                             localized: "dialog.runURL.placement.pane",
                             defaultValue: "New %@ split pane"
                         ),
@@ -314,7 +328,10 @@ final class CmuxRunURLCoordinator {
 
     func execute(_ plan: CmuxRunExecutionPlan) async -> Result<Void, CmuxRunURLExecutionError> {
         switch await directoryResolver.resolveWithDeadline(plan.workingDirectory) {
-        case .success(let path) where path == plan.workingDirectory:
+        case .success(let resolved) where resolved == CmuxRunResolvedWorkingDirectory(
+            path: plan.workingDirectory,
+            identity: plan.workingDirectoryIdentity
+        ):
             break
         case .success:
             return .failure(.targetChanged)
@@ -441,17 +458,13 @@ final class CmuxRunURLCoordinator {
     }
 
     private static func sanitizedWorkspaceTitle(_ title: String, fallback: String) -> String {
-        let dangerous: Set<Unicode.Scalar> = [
-            "\u{200B}", "\u{200C}", "\u{200D}", "\u{200E}", "\u{200F}",
-            "\u{202A}", "\u{202B}", "\u{202C}", "\u{202D}", "\u{202E}",
-            "\u{2066}", "\u{2067}", "\u{2068}", "\u{2069}",
-            "\u{FEFF}",
-        ]
         let visibleScalars = title.unicodeScalars.map { scalar -> Unicode.Scalar in
-            if dangerous.contains(scalar) || scalar.value < 0x20 || (0x7F...0x9F).contains(scalar.value) {
+            switch scalar.properties.generalCategory {
+            case .control, .format, .lineSeparator, .paragraphSeparator:
                 return " "
+            default:
+                return scalar
             }
-            return scalar
         }
         let sanitized = String(String.UnicodeScalarView(visibleScalars))
             .split(whereSeparator: \.isWhitespace)

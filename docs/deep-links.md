@@ -35,13 +35,21 @@ Create a split next to an existing surface:
 cmux://run?command=npm%20test&cwd=/Users/me/project&placement=pane&workspace=<workspace-uuid>&surface=<surface-uuid>&direction=right
 ```
 
-`placement` is `workspace` by default. A `surface` placement requires one
-`pane` or `surface` anchor. A `pane` placement also requires `direction` with
-the value `left`, `right`, `up`, or `down`.
+`placement` accepts only these parameter combinations:
+
+- `workspace` is the default and rejects `workspace`, `pane`, `surface`, and
+  `direction` target parameters.
+- `surface` requires `workspace` plus exactly one `pane` or `surface` anchor.
+  It rejects `direction`.
+- `pane` requires `workspace`, exactly one `pane` or `surface` anchor, and a
+  `direction` value of `left`, `right`, `up`, or `down`.
 
 cmux rejects duplicate or unknown parameters, ambiguous targets, hidden control
 characters, remote workspaces, missing directories, concurrent run requests,
-and targets that change after approval. A run link cannot reuse a terminal,
+and targets that change after approval. Approval binds the directory's
+filesystem identity as well as its canonical path. The shell checks that
+identity after entering the directory and before running the command, so a
+same-path directory replacement fails closed. A run link cannot reuse a terminal,
 inject environment variables or input, run without focus, or receive a callback.
 The user must approve every command. cmux does not remember approval for raw
 shell commands because mutable scripts and shell expansion make command or

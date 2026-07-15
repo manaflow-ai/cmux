@@ -64,10 +64,7 @@ final class CmuxRunURLConfirmationPresenter {
             label: String(localized: "dialog.runURL.field.placement", defaultValue: "Placement"),
             value: plan.placementDescription
         ))
-        stack.addArrangedSubview(detailRow(
-            label: String(localized: "dialog.runURL.field.target", defaultValue: "Target"),
-            value: plan.targetDescription
-        ))
+        stack.addArrangedSubview(targetDetailRow(value: plan.targetDescription))
         stack.addArrangedSubview(directoryDetailRow(value: plan.workingDirectory))
 
         let commandLabel = NSTextField(labelWithString: String(
@@ -157,12 +154,31 @@ final class CmuxRunURLConfirmationPresenter {
     }
 
     func directoryDetailRow(value: String) -> NSView {
+        scrollingDetailRow(
+            label: String(localized: "dialog.runURL.field.directory", defaultValue: "Directory"),
+            value: value,
+            accessibilityIdentifier: "cmux.runURL.directory"
+        )
+    }
+
+    func targetDetailRow(value: String) -> NSView {
+        scrollingDetailRow(
+            label: String(localized: "dialog.runURL.field.target", defaultValue: "Target"),
+            value: value,
+            accessibilityIdentifier: "cmux.runURL.target"
+        )
+    }
+
+    private func scrollingDetailRow(
+        label: String,
+        value: String,
+        accessibilityIdentifier: String
+    ) -> NSView {
         let row = NSStackView()
         row.orientation = .horizontal
         row.alignment = .top
         row.spacing = 8
 
-        let label = String(localized: "dialog.runURL.field.directory", defaultValue: "Directory")
         let labelField = NSTextField(labelWithString: "\(label):")
         labelField.font = .boldSystemFont(ofSize: NSFont.smallSystemFontSize)
         labelField.setContentHuggingPriority(.required, for: .horizontal)
@@ -173,7 +189,7 @@ final class CmuxRunURLConfirmationPresenter {
         scrollView.autohidesScrollers = false
         scrollView.borderType = .bezelBorder
         scrollView.translatesAutoresizingMaskIntoConstraints = false
-        scrollView.setAccessibilityIdentifier("cmux.runURL.directory")
+        scrollView.setAccessibilityIdentifier(accessibilityIdentifier)
         scrollView.setAccessibilityValue(value)
         scrollView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
@@ -237,23 +253,45 @@ final class CmuxRunURLConfirmationPresenter {
         case .unsupportedURLShape:
             return String(localized: "dialog.runURL.error.shape", defaultValue: "The command link has an unsupported URL shape.")
         case .missingParameter(let parameter):
-            return String(format: String(localized: "dialog.runURL.error.missing", defaultValue: "The command link is missing the required %@ parameter."), parameter)
+            return String.localizedStringWithFormat(
+                String(localized: "dialog.runURL.error.missing", defaultValue: "The command link is missing the required %@ parameter."),
+                parameter
+            )
         case .emptyParameter(let parameter):
-            return String(format: String(localized: "dialog.runURL.error.empty", defaultValue: "The %@ parameter cannot be empty."), parameter)
+            return String.localizedStringWithFormat(
+                String(localized: "dialog.runURL.error.empty", defaultValue: "The %@ parameter cannot be empty."),
+                parameter
+            )
         case .valueTooLong(let parameter, let maxLength):
-            return String(format: String(localized: "dialog.runURL.error.tooLong", defaultValue: "The %@ parameter exceeds the %d-byte limit."), parameter, maxLength)
+            return String.localizedStringWithFormat(
+                String(localized: "dialog.runURL.error.tooLong", defaultValue: "The %@ parameter exceeds the %d-byte limit."),
+                parameter,
+                maxLength
+            )
         case .unsafeCharacters(let parameter):
-            return String(format: String(localized: "dialog.runURL.error.unsafe", defaultValue: "The %@ parameter contains hidden or unsupported characters."), parameter)
+            return String.localizedStringWithFormat(
+                String(localized: "dialog.runURL.error.unsafe", defaultValue: "The %@ parameter contains hidden or unsupported characters."),
+                parameter
+            )
         case .duplicateParameter(let parameter):
-            return String(format: String(localized: "dialog.runURL.error.duplicate", defaultValue: "The %@ parameter appears more than once."), parameter)
+            return String.localizedStringWithFormat(
+                String(localized: "dialog.runURL.error.duplicate", defaultValue: "The %@ parameter appears more than once."),
+                parameter
+            )
         case .unsupportedParameter(let parameter):
-            return String(format: String(localized: "dialog.runURL.error.unsupported", defaultValue: "The %@ parameter is not supported."), parameter)
+            return String.localizedStringWithFormat(
+                String(localized: "dialog.runURL.error.unsupported", defaultValue: "The %@ parameter is not supported."),
+                parameter
+            )
         case .invalidPlacement:
             return String(localized: "dialog.runURL.error.placement", defaultValue: "The placement must be workspace, surface, or pane.")
         case .invalidDirection:
             return String(localized: "dialog.runURL.error.direction", defaultValue: "A pane direction must be left, right, up, or down.")
         case .invalidIdentifier(let parameter):
-            return String(format: String(localized: "dialog.runURL.error.identifier", defaultValue: "The %@ parameter is not a valid UUID."), parameter)
+            return String.localizedStringWithFormat(
+                String(localized: "dialog.runURL.error.identifier", defaultValue: "The %@ parameter is not a valid UUID."),
+                parameter
+            )
         case .invalidTargetCombination:
             return String(localized: "dialog.runURL.error.targetCombination", defaultValue: "The placement and target parameters are inconsistent.")
         case .multipleLinks:

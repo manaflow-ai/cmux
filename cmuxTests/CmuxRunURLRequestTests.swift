@@ -69,10 +69,11 @@ struct CmuxRunURLRequestTests {
 
     @Test func shellWrapperPreservesQuotesAndExpansion() {
         let command = "printf '%s\\n' \"$HOME\""
-        let launchCommand = CmuxRunShellCommandBuilder.launchCommand(
-            for: command,
-            workingDirectory: "/tmp/project's"
-        )
+        let launchCommand = CmuxRunShellCommandBuilder(
+            command: command,
+            workingDirectory: "/tmp/project's",
+            approvedIdentity: .init(device: 1, inode: 2)
+        ).launchCommand
         #expect(launchCommand.contains("/tmp/project"))
         #expect(launchCommand.contains("printf"))
         #expect(launchCommand.contains("%s\\n"))
@@ -83,6 +84,7 @@ struct CmuxRunURLRequestTests {
         let launchCommand = CmuxRunExecutionPlan(
             command: "printf reviewed",
             workingDirectory: "/tmp/reviewed-directory",
+            workingDirectoryIdentity: .init(device: 1, inode: 2),
             target: .newWindow,
             placementDescription: "New workspace",
             targetDescription: "New window"
@@ -98,10 +100,11 @@ struct CmuxRunURLRequestTests {
     }
 
     @Test func shellWrapperRevalidatesApprovedDirectoryIdentityAfterEntering() {
-        let launchCommand = CmuxRunShellCommandBuilder.launchCommand(
-            for: "printf reviewed",
-            workingDirectory: "/tmp/reviewed-directory"
-        )
+        let launchCommand = CmuxRunShellCommandBuilder(
+            command: "printf reviewed",
+            workingDirectory: "/tmp/reviewed-directory",
+            approvedIdentity: .init(device: 1, inode: 2)
+        ).launchCommand
 
         #expect(launchCommand.contains("builtin cd -- "))
         #expect(launchCommand.contains("/usr/bin/stat -f"))
@@ -109,6 +112,29 @@ struct CmuxRunURLRequestTests {
             launchCommand.range(of: "/usr/bin/stat -f")!.lowerBound
                 < launchCommand.range(of: "printf reviewed")!.lowerBound
         )
+    }
+
+    @Test func shellWrapperBlocksSamePathDirectoryReplacement() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let approved = root.appendingPathComponent("approved", isDirectory: true)
+        let displaced = root.appendingPathComponent("displaced", isDirectory: true)
+        try fileManager.createDirectory(at: approved, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let resolved = try CmuxRunWorkingDirectoryResolver().resolve(approved.path).get()
+        let launchCommand = CmuxRunShellCommandBuilder(
+            command: "true",
+            workingDirectory: resolved.path,
+            approvedIdentity: resolved.identity
+        ).launchCommand
+
+        #expect(try runInitialTerminalCommand(launchCommand) == EXIT_SUCCESS)
+
+        try fileManager.moveItem(at: approved, to: displaced)
+        try fileManager.createDirectory(at: approved, withIntermediateDirectories: false)
+
+        #expect(try runInitialTerminalCommand(launchCommand) == 125)
     }
 
     @Test(arguments: ["\u{0000}", "\r", "\u{202E}", "\u{2066}", "\u{2028}"])
@@ -361,9 +387,12 @@ struct CmuxRunURLRequestTests {
         try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
         defer { try? FileManager.default.removeItem(at: root) }
 
-        #expect(CmuxRunWorkingDirectoryResolver().resolve(link.path) == .success(real.path))
         #expect(
-            await CmuxRunWorkingDirectoryResolver().resolveWithDeadline(link.path)
+            CmuxRunWorkingDirectoryResolver().resolve(link.path).map(\.path)
+                == .success(real.path)
+        )
+        #expect(
+            await CmuxRunWorkingDirectoryResolver().resolveWithDeadline(link.path).map(\.path)
                 == .success(real.path)
         )
     }
@@ -500,5 +529,16 @@ struct CmuxRunURLRequestTests {
             return .failure(.unsupportedURLShape)
         }
         return CmuxRunURLRequest.parse(url, supportedSchemes: [scheme])
+    }
+
+    private func runInitialTerminalCommand(_ command: String) throws -> Int32 {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-lc", command]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+        return process.terminationStatus
     }
 }

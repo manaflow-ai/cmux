@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 // Safety: stored state is immutable; FileManager is used only by synchronous
@@ -27,7 +28,9 @@ struct CmuxRunWorkingDirectoryResolver: @unchecked Sendable {
         self.processLimiter = processLimiter
     }
 
-    func resolve(_ requestedPath: String) -> Result<String, CmuxRunURLExecutionError> {
+    func resolve(
+        _ requestedPath: String
+    ) -> Result<CmuxRunResolvedWorkingDirectory, CmuxRunURLExecutionError> {
         let expanded: String
         switch validatedExpandedPath(requestedPath) {
         case .success(let path):
@@ -48,13 +51,13 @@ struct CmuxRunWorkingDirectoryResolver: @unchecked Sendable {
               isDirectory.boolValue else {
             return .failure(.workingDirectoryNotFound)
         }
-        return .success(resolved)
+        return resolvedDirectory(at: resolved)
     }
 
     func resolveWithDeadline(
         _ requestedPath: String,
         timeout: Duration = defaultResolutionTimeout
-    ) async -> Result<String, CmuxRunURLExecutionError> {
+    ) async -> Result<CmuxRunResolvedWorkingDirectory, CmuxRunURLExecutionError> {
         let expanded: String
         switch validatedExpandedPath(requestedPath) {
         case .success(let path):
@@ -140,7 +143,7 @@ struct CmuxRunWorkingDirectoryResolver: @unchecked Sendable {
             if let error = canonicalPathValidationError(resolved) {
                 return .failure(error)
             }
-            return .success(resolved)
+            return resolvedDirectory(at: resolved)
         }
     }
 
@@ -167,6 +170,23 @@ struct CmuxRunWorkingDirectoryResolver: @unchecked Sendable {
             return .workingDirectoryContainsUnsafeCharacters
         }
         return nil
+    }
+
+    private func resolvedDirectory(
+        at path: String
+    ) -> Result<CmuxRunResolvedWorkingDirectory, CmuxRunURLExecutionError> {
+        var metadata = stat()
+        guard Darwin.lstat(path, &metadata) == 0,
+              metadata.st_mode & S_IFMT == S_IFDIR else {
+            return .failure(.workingDirectoryNotFound)
+        }
+        return .success(CmuxRunResolvedWorkingDirectory(
+            path: path,
+            identity: CmuxRunWorkingDirectoryIdentity(
+                device: UInt64(metadata.st_dev),
+                inode: UInt64(metadata.st_ino)
+            )
+        ))
     }
 
     private static func canonicalDirectoryCommand(

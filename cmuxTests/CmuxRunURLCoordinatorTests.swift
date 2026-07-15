@@ -73,7 +73,7 @@ struct CmuxRunURLCoordinatorTests {
         let request = try workspaceRequest()
         let result = CmuxRunURLCoordinator(appDelegate: app).makePlan(
             request: request,
-            workingDirectory: "/tmp"
+            workingDirectory: try resolvedWorkingDirectory()
         )
 
         guard case .success(let plan) = result else {
@@ -94,7 +94,7 @@ struct CmuxRunURLCoordinatorTests {
         let app = AppDelegate()
         let result = CmuxRunURLCoordinator(appDelegate: app).makePlan(
             request: try workspaceRequest(),
-            workingDirectory: "/tmp"
+            workingDirectory: try resolvedWorkingDirectory()
         )
 
         guard case .success(let plan) = result else {
@@ -133,7 +133,7 @@ struct CmuxRunURLCoordinatorTests {
 
         let result = CmuxRunURLCoordinator(appDelegate: app).makePlan(
             request: request,
-            workingDirectory: "/tmp"
+            workingDirectory: try resolvedWorkingDirectory()
         )
 
         guard case .success(let plan) = result else {
@@ -180,7 +180,7 @@ struct CmuxRunURLCoordinatorTests {
 
         let result = CmuxRunURLCoordinator(appDelegate: app).makePlan(
             request: request,
-            workingDirectory: "/tmp"
+            workingDirectory: try resolvedWorkingDirectory()
         )
         guard case .success(let plan) = result else {
             Issue.record("Expected a surface plan, saw \(result)")
@@ -230,7 +230,7 @@ struct CmuxRunURLCoordinatorTests {
         #expect(
             CmuxRunURLCoordinator(appDelegate: app).makePlan(
                 request: request,
-                workingDirectory: "/tmp"
+                workingDirectory: try resolvedWorkingDirectory()
             ) == .failure(.remoteWorkspaceUnsupported)
         )
     }
@@ -250,9 +250,11 @@ struct CmuxRunURLCoordinatorTests {
             window.close()
         }
         let initialCount = manager.tabs.count
+        let workingDirectory = try resolvedWorkingDirectory()
         let plan = CmuxRunExecutionPlan(
             command: "true",
-            workingDirectory: "/tmp",
+            workingDirectory: workingDirectory.path,
+            workingDirectoryIdentity: workingDirectory.identity,
             target: .workspace(
                 windowId: windowId,
                 tabManagerIdentity: ObjectIdentifier(manager)
@@ -272,9 +274,11 @@ struct CmuxRunURLCoordinatorTests {
 
     @Test func approvedNewWindowPlanSubmitsTheReviewedCommand() async throws {
         let app = AppDelegate()
+        let workingDirectory = try resolvedWorkingDirectory()
         let plan = CmuxRunExecutionPlan(
             command: "printf reviewed",
-            workingDirectory: "/tmp",
+            workingDirectory: workingDirectory.path,
+            workingDirectoryIdentity: workingDirectory.identity,
             target: .newWindow,
             placementDescription: "New workspace",
             targetDescription: "New window"
@@ -318,9 +322,11 @@ struct CmuxRunURLCoordinatorTests {
             app.unregisterMainWindowContextForTesting(windowId: windowId)
             window.close()
         }
+        let workingDirectory = try resolvedWorkingDirectory()
         let plan = CmuxRunExecutionPlan(
             command: "true",
-            workingDirectory: "/tmp",
+            workingDirectory: workingDirectory.path,
+            workingDirectoryIdentity: workingDirectory.identity,
             target: .surface(
                 windowId: windowId,
                 workspaceId: targetWorkspace.id,
@@ -362,9 +368,11 @@ struct CmuxRunURLCoordinatorTests {
             app.unregisterMainWindowContextForTesting(windowId: windowId)
             window.close()
         }
+        let workingDirectory = try resolvedWorkingDirectory()
         let plan = CmuxRunExecutionPlan(
             command: "true",
-            workingDirectory: "/tmp",
+            workingDirectory: workingDirectory.path,
+            workingDirectoryIdentity: workingDirectory.identity,
             target: .pane(
                 windowId: windowId,
                 workspaceId: targetWorkspace.id,
@@ -419,6 +427,22 @@ struct CmuxRunURLCoordinatorTests {
         #expect(textView.isSelectable)
     }
 
+    @Test func longApprovalTargetRemainsFullyInspectableAndCopyable() throws {
+        let target = "Window 12345678, workspace 23456789, pane 34567890: "
+            + String(repeating: "security-sensitive-workspace-title-", count: 20)
+        let row = CmuxRunURLConfirmationPresenter().targetDetailRow(value: target)
+        let scrollView = try #require(firstSubview(of: NSScrollView.self, in: row))
+        let textView = try #require(scrollView.documentView as? NSTextView)
+
+        #expect(scrollView.hasHorizontalScroller)
+        #expect(textView.string == target)
+        #expect(!textView.isEditable)
+        #expect(textView.isSelectable)
+        #expect(textView.isHorizontallyResizable)
+        #expect(textView.textContainer?.widthTracksTextView == false)
+        #expect(textView.frame.width > 560)
+    }
+
     private func workspaceRequest() throws -> CmuxRunURLRequest {
         CmuxRunURLRequest(
             originalURL: try #require(URL(string: "cmux://run")),
@@ -429,6 +453,12 @@ struct CmuxRunURLCoordinatorTests {
             anchor: nil,
             direction: nil
         )
+    }
+
+    private func resolvedWorkingDirectory(
+        _ path: String = "/tmp"
+    ) throws -> CmuxRunResolvedWorkingDirectory {
+        try CmuxRunWorkingDirectoryResolver().resolve(path).get()
     }
 
     private func targetRequest(
