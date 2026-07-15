@@ -22,6 +22,37 @@ extension ReflowOptions {
         s.contains { $0.isLetter && !$0.isLowercase && !$0.isUppercase }
     }
 
+    /// Single-token paths, filenames, hashes, and values are structured rows,
+    /// not prose continuations. A plain alphabetic word remains eligible so a
+    /// genuinely wrapped one-word tail can still rejoin.
+    func looksLikeOpaqueTokenRow(_ s: String) -> Bool {
+        let trimmed = s.trimmingLeadingWhitespaceForReflow()
+        guard !trimmed.isEmpty,
+              !trimmed.contains(where: { $0 == " " || $0 == "\t" }) else {
+            return false
+        }
+        if trimmed.count >= 7, trimmed.allSatisfy({ $0.hexDigitValue != nil }) {
+            return true
+        }
+        return trimmed.contains { !$0.isLetter }
+    }
+
+    /// Command-token continuations need syntax from the preceding row that is
+    /// unlikely to occur in ordinary status prose.
+    func hasShellCommandEvidence(_ s: String) -> Bool {
+        let trimmed = s.trimmingLeadingWhitespaceForReflow()
+        guard trimmed.first?.isLowercase == true else { return false }
+        if trimmed.contains(" | ") || trimmed.contains(" && ") || trimmed.contains(" || ") {
+            return true
+        }
+        return trimmed.split(whereSeparator: { $0 == " " || $0 == "\t" })
+            .dropFirst()
+            .contains { token in
+                guard token.first == "-" else { return false }
+                return token.dropFirst().first?.isLetter == true
+            }
+    }
+
     /// Width-only prose joins are intentionally narrower than command/indent
     /// joins: without indentation, independent log rows can look like prose. Join
     /// only when the surrounding words have a sentence-continuation shape.

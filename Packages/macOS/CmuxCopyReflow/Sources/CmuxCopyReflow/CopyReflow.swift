@@ -174,11 +174,19 @@ private extension ReflowOptions {
                         lineLength: p.prevVisibleLength,
                         terminalWidth: terminalWidth
                     )
+                    let caselessContinuation = startsCaselessLetter(content)
+                        && (commonIndent > 0 || p.hasJoined)
+                    let startsProseContinuation = startsLowercaseLetter(content)
+                        || caselessContinuation
+                    let proseContinuationShape = startsProseContinuation
+                        && !looksLikeOpaqueTokenRow(content)
+                        && !startsIndependentRecord(content, after: p.prevContent)
                     let indentationHasWrapEvidence = terminalWidth == nil
                         ? p.prevVisibleLength >= minWrapWidth
                         : previousLineReachedTerminalWidth
                     let s1 = indentationDelta > 0
                         && indentationHasWrapEvidence
+                        && proseContinuationShape
                         && !endsIndentedBlock(p.prevContent)
                         && !structuredCode
                     // s3: a wrapped bare URL continues as a spaceless path
@@ -198,22 +206,18 @@ private extension ReflowOptions {
                     let candidateMaxVisibleLength = max(p.maxVisibleLength, visLen)
                     let previousLineWasFull = p.prevVisibleLength >= minWrapWidth
                         && p.prevVisibleLength + max(0, widthTolerance) >= candidateMaxVisibleLength
-                    let caselessContinuation = startsCaselessLetter(content)
-                        && (commonIndent > 0 || p.hasJoined)
-                    let startsProseContinuation = startsLowercaseLetter(content)
-                        || caselessContinuation
-                    let proseContinuation = startsProseContinuation
+                    let proseContinuation = proseContinuationShape
                         && hasProseContinuationEvidence(
                             previous: p.prevContent,
                             current: content,
                             commonIndent: commonIndent,
                             alreadyJoined: p.hasJoined
                         )
-                        && !startsIndependentRecord(content, after: p.prevContent)
                     let reachedTerminalWidth = (terminalWidth ?? 0) >= minWrapWidth
                         && previousLineReachedTerminalWidth
                     let commandContinuation = startsCommandContinuationToken(content)
                         && reachedTerminalWidth
+                        && hasShellCommandEvidence(p.prevContent)
                         && !startsCommandContinuationToken(p.prevContent)
                         && !startsOptionLikeRow(p.prevContent)
                     let previousLooksLikeProse = p.prevHasSpace
