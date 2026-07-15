@@ -4187,7 +4187,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             yScale: yScale,
             layerScale: layerScale,
             backingSize: backingSize,
-            coalescePixelOnlyResize: isWindowLiveResizeActive && !bypassLiveResizeCoalescing
+            coalescePixelOnlyResize: isWindowLiveResizeActive && !bypassLiveResizeCoalescing,
+            // Don't pin the surface to the tmux-assigned grid mid-drag: the pin
+            // would hold it at the pre-drag (larger) size and paint past the
+            // shrinking pane. Re-pins at rest when the interactive flag clears.
+            suppressAssignedGridPin: isWindowLiveResizeActive
+                || TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive
         )
         return didChange || surfaceSizeChanged
     }

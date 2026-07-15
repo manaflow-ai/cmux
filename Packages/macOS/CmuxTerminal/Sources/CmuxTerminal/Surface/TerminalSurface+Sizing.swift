@@ -176,6 +176,12 @@ extension TerminalSurface {
     /// - Parameter layerScale: The backing scale assigned to the hosting layer.
     /// - Parameter backingSize: The precomputed backing size in pixels, if available.
     /// - Parameter coalescePixelOnlyResize: Whether same-grid pixel-only resizes should be skipped.
+    /// - Parameter suppressAssignedGridPin: Skip the tmux-assigned grid pin for this
+    ///   resize and use the view-derived size. Set while an interactive resize is
+    ///   active: the pin holds the surface at the pre-drag (larger) assignment across
+    ///   the whole drag, and presenting that oversized grid before the deferred
+    ///   reconcile clamps it paints past the shrinking pane onto siblings. The pin
+    ///   re-establishes at rest (drag end and tmux's layout reply both size the pane).
     /// - Returns: Whether a runtime size or scale change was applied.
     @discardableResult
     @MainActor
@@ -186,7 +192,8 @@ extension TerminalSurface {
         yScale: CGFloat,
         layerScale: CGFloat,
         backingSize: CGSize? = nil,
-        coalescePixelOnlyResize: Bool = false
+        coalescePixelOnlyResize: Bool = false,
+        suppressAssignedGridPin: Bool = false
     ) -> Bool {
         guard let surface = liveSurfaceForGhosttyAccess(reason: "updateSize") else { return false }
         _ = layerScale
@@ -214,7 +221,7 @@ extension TerminalSurface {
         // pixels to exactly the assignment and let the view clip or
         // letterbox the difference. Skipped until the surface has real
         // cell metrics (a pre-font surface reports zero cells).
-        if manualIO, let assigned = assignedGrid {
+        if manualIO, !suppressAssignedGridPin, let assigned = assignedGrid {
             let current = ghostty_surface_size(surface)
             if current.cell_width_px > 0, current.cell_height_px > 0 {
                 let gridWidthPx = UInt32(current.columns) * current.cell_width_px
