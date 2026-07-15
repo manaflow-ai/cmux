@@ -263,6 +263,102 @@ struct RemoteRuntimeStateCoordinatorTests {
         #expect(fixture.coordinator.runtimeStateSynchronized)
     }
 
+    @Test("keeps the coordinator queue responsive while fetching runtime state")
+    func fetchDoesNotBlockCoordinatorQueue() async {
+        let fixture = Self.fixture()
+        defer { fixture.stop() }
+        let fetchStarted = DispatchSemaphore(value: 0)
+        let releaseFetch = DispatchSemaphore(value: 0)
+        defer { releaseFetch.signal() }
+        fixture.provider.tunnel.blockNextRuntimeStateGet(
+            started: fetchStarted,
+            release: releaseFetch
+        )
+
+        Self.beginSynchronizationAsynchronously(fixture)
+        let started = await Self.wait(for: fetchStarted, timeout: 1)
+        #expect(started == .success)
+        guard started == .success else { return }
+
+        let queueReached = DispatchSemaphore(value: 0)
+        fixture.coordinator.queue.async {
+            queueReached.signal()
+        }
+        let responsive = await Self.wait(for: queueReached, timeout: 0.25)
+        #expect(responsive == .success)
+
+        releaseFetch.signal()
+        await Self.drainRuntimeStatePublication(fixture)
+    }
+
+    @Test("keeps the coordinator queue responsive while uploading runtime state")
+    func putDoesNotBlockCoordinatorQueue() async {
+        let fixture = Self.fixture()
+        defer { fixture.stop() }
+        fixture.provider.tunnel.seedRuntimeState(RemoteRuntimeStateDocument(
+            schemaVersion: 1,
+            revision: 7,
+            updatedAtUnixMilliseconds: 1,
+            state: Data(#"{"title":"server"}"#.utf8),
+            ptySessions: Data("[]".utf8)
+        ))
+        await Self.synchronize(fixture)
+
+        let putStarted = DispatchSemaphore(value: 0)
+        let releasePut = DispatchSemaphore(value: 0)
+        defer { releasePut.signal() }
+        fixture.provider.tunnel.blockNextRuntimeStatePut(
+            started: putStarted,
+            release: releasePut
+        )
+        fixture.coordinator.enqueueRuntimeState(
+            schemaVersion: 1,
+            state: Data(#"{"title":"local"}"#.utf8),
+            baseRevision: 7
+        )
+        let started = await Self.wait(for: putStarted, timeout: 1)
+        #expect(started == .success)
+        guard started == .success else { return }
+
+        let queueReached = DispatchSemaphore(value: 0)
+        fixture.coordinator.queue.async {
+            queueReached.signal()
+        }
+        let responsive = await Self.wait(for: queueReached, timeout: 0.25)
+        #expect(responsive == .success)
+
+        releasePut.signal()
+        await Self.drainRuntimeStatePublication(fixture)
+    }
+
+    @Test("suspends retries after five failures until a new edit")
+    func suspendsRetriesUntilNewEdit() async throws {
+        let clock = RuntimeStateRetryClock()
+        let fixture = Self.fixture(clock: clock)
+        defer { fixture.stop() }
+        fixture.provider.tunnel.failNextRuntimeStateGets(7)
+
+        Self.beginSynchronization(fixture)
+        for _ in 0..<5 {
+            let scheduled = await Self.wait(for: clock.sleepScheduled, timeout: 1)
+            #expect(scheduled == .success)
+            guard scheduled == .success else { return }
+            clock.advance()
+        }
+
+        let unexpectedRetry = await Self.wait(for: clock.sleepScheduled, timeout: 0.25)
+        #expect(unexpectedRetry == .timedOut)
+
+        fixture.provider.tunnel.clearRuntimeStateGetFailures()
+        clock.advance()
+        let localState = Data(#"{"title":"resume"}"#.utf8)
+        fixture.coordinator.enqueueRuntimeState(schemaVersion: 1, state: localState)
+        await Self.drainRuntimeStatePublication(fixture)
+
+        #expect(fixture.coordinator.runtimeStateSynchronized)
+        #expect(try fixture.provider.tunnel.getRuntimeState()?.state == localState)
+    }
+
     @Test("applies authoritative state committed by another connected client")
     func appliesConnectedClientUpdate() async throws {
         let fixture = Self.fixture()
@@ -542,6 +638,21 @@ struct RemoteRuntimeStateCoordinatorTests {
         }
     }
 
+    private static func beginSynchronizationAsynchronously(
+        _ fixture: RemoteRuntimeStateCoordinatorFixture
+    ) {
+        let coordinator = fixture.coordinator
+        coordinator.queue.sync {
+            coordinator.proxyLease = fixture.lease
+            coordinator.daemonReady = true
+            coordinator.runtimeStateCapabilityAvailable = true
+            coordinator.runtimeStateSynchronized = false
+        }
+        coordinator.queue.async {
+            coordinator.synchronizeRuntimeStateLocked()
+        }
+    }
+
     private static func connectThroughProductionProxy(_ fixture: RemoteRuntimeStateCoordinatorFixture) {
         fixture.lease.release()
         fixture.coordinator.queue.sync {
@@ -555,11 +666,25 @@ struct RemoteRuntimeStateCoordinatorTests {
     }
 
     private static func drainRuntimeStatePublication(_ fixture: RemoteRuntimeStateCoordinatorFixture) async {
-        while let task = fixture.coordinator.queue.sync(
-            execute: { fixture.coordinator.runtimeStatePublicationTask }
-        ) {
-            await task.value
+        while true {
+            let tasks = fixture.coordinator.queue.sync {
+                (
+                    rpc: fixture.coordinator.runtimeStateRPCTask,
+                    publication: fixture.coordinator.runtimeStatePublicationTask
+                )
+            }
+            if let task = tasks.rpc {
+                await task.value
+                fixture.coordinator.queue.sync {}
+                continue
+            }
+            if let task = tasks.publication {
+                await task.value
+                fixture.coordinator.queue.sync {}
+                continue
+            }
             fixture.coordinator.queue.sync {}
+            return
         }
     }
 

@@ -10,6 +10,8 @@ final class IntentionalCleanupTestTunnel: RemoteProxyTunneling, @unchecked Senda
     private var runtimeState: RemoteRuntimeStateDocument?
     private var runtimeStateGetFailuresRemaining = 0
     private var runtimeStatePutFailuresRemaining = 0
+    private var runtimeStateGetBlock: (started: DispatchSemaphore, release: DispatchSemaphore)?
+    private var runtimeStatePutBlock: (started: DispatchSemaphore, release: DispatchSemaphore)?
     private var runtimeStateSubscriber: (@Sendable (RemoteRuntimeStateDocument) -> Void)?
 
     func start() throws {}
@@ -86,7 +88,13 @@ final class IntentionalCleanupTestTunnel: RemoteProxyTunneling, @unchecked Senda
     ) throws {}
 
     func getRuntimeState() throws -> RemoteRuntimeStateDocument? {
-        try lock.withLock {
+        let block = lock.withLock {
+            defer { runtimeStateGetBlock = nil }
+            return runtimeStateGetBlock
+        }
+        block?.started.signal()
+        block?.release.wait()
+        return try lock.withLock {
             if runtimeStateGetFailuresRemaining > 0 {
                 runtimeStateGetFailuresRemaining -= 1
                 throw NSError(domain: "test.runtime-state", code: 2)
@@ -100,6 +108,12 @@ final class IntentionalCleanupTestTunnel: RemoteProxyTunneling, @unchecked Senda
         state: Data,
         expectedRevision: UInt64?
     ) throws -> RemoteRuntimeStateDocument {
+        let block = lock.withLock {
+            defer { runtimeStatePutBlock = nil }
+            return runtimeStatePutBlock
+        }
+        block?.started.signal()
+        block?.release.wait()
         let (document, subscriber) = try lock.withLock {
             if runtimeStatePutFailuresRemaining > 0 {
                 runtimeStatePutFailuresRemaining -= 1
@@ -142,11 +156,38 @@ final class IntentionalCleanupTestTunnel: RemoteProxyTunneling, @unchecked Senda
     }
 
     func failNextRuntimeStateGet() {
-        lock.withLock { runtimeStateGetFailuresRemaining += 1 }
+        failNextRuntimeStateGets(1)
+    }
+
+    func failNextRuntimeStateGets(_ count: Int) {
+        precondition(count >= 0)
+        lock.withLock { runtimeStateGetFailuresRemaining += count }
+    }
+
+    func clearRuntimeStateGetFailures() {
+        lock.withLock { runtimeStateGetFailuresRemaining = 0 }
     }
 
     func failNextRuntimeStatePut() {
         lock.withLock { runtimeStatePutFailuresRemaining += 1 }
+    }
+
+    func blockNextRuntimeStateGet(
+        started: DispatchSemaphore,
+        release: DispatchSemaphore
+    ) {
+        lock.withLock {
+            runtimeStateGetBlock = (started: started, release: release)
+        }
+    }
+
+    func blockNextRuntimeStatePut(
+        started: DispatchSemaphore,
+        release: DispatchSemaphore
+    ) {
+        lock.withLock {
+            runtimeStatePutBlock = (started: started, release: release)
+        }
     }
 
     func publishRuntimeState(_ document: RemoteRuntimeStateDocument) {
