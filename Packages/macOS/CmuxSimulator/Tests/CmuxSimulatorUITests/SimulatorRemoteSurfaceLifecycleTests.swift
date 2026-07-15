@@ -181,6 +181,34 @@ struct SimulatorRemoteSurfaceLifecycleTests {
         #expect(view.display == nil)
     }
 
+    @Test("Temporary window detachment preserves a reusable surface")
+    func temporaryWindowDetachmentIsNotTerminal() throws {
+        let firstDescriptor = simulatorFrameTransportDescriptor(47)
+        let secondDescriptor = simulatorFrameTransportDescriptor(48)
+        var requestedDescriptors: [SimulatorFrameTransportDescriptor] = []
+        let view = SimulatorRemoteSurfaceView(frameSourceFactory: { descriptor in
+            requestedDescriptors.append(descriptor)
+            return EmptySimulatorFrameSurfaceSource()
+        })
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 900))
+        let window = NSWindow(
+            contentRect: root.bounds,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = root
+        root.addSubview(view)
+        view.update(frameTransport: firstDescriptor, display: simulatorTestDisplay, chrome: nil)
+
+        view.removeFromSuperview()
+        root.addSubview(view)
+        view.update(frameTransport: secondDescriptor, display: simulatorTestDisplay, chrome: nil)
+
+        #expect(requestedDescriptors == [firstDescriptor, secondDescriptor])
+        #expect(view.frameLayer?.superlayer === view.layer)
+    }
+
     @Test("A replacement view can retain a recovered worker frame ring")
     func replacementViewHostsRecoveredContext() throws {
         let firstDescriptor = simulatorFrameTransportDescriptor(7)

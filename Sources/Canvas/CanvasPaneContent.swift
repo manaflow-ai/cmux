@@ -1,6 +1,6 @@
 import AppKit
 import CmuxCanvasUI
-import Combine
+import Observation
 
 /// How a panel's content view mounts into a canvas pane.
 ///
@@ -18,9 +18,10 @@ enum CanvasPaneContent {
 }
 
 @MainActor
-final class CanvasHostedPanelPresentation: ObservableObject {
-    @Published private(set) var allowsPointerInput: Bool
-    private weak var pointerInputOwner: NSView?
+@Observable
+final class CanvasHostedPanelPresentation {
+    private(set) var allowsPointerInput: Bool
+    @ObservationIgnored private weak var pointerInputOwner: NSView?
 
     init(allowsPointerInput: Bool, pointerInputOwner: NSView) {
         self.allowsPointerInput = allowsPointerInput

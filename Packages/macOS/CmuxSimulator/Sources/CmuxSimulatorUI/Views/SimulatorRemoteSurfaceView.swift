@@ -172,17 +172,12 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     }
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
-        let isBeingRemoved = window != nil && newWindow == nil
         if window !== newWindow {
             cancelInputs()
             removeStagePointerMonitor()
             NotificationCenter.default.removeObserver(self)
         }
         super.viewWillMove(toWindow: newWindow)
-        if isBeingRemoved {
-            teardown()
-            return
-        }
         if let newWindow {
             NotificationCenter.default.addObserver(
                 self,
