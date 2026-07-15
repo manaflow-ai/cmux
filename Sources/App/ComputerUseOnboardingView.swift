@@ -22,7 +22,7 @@ struct ComputerUseOnboardingView: View {
     @State private var screenRecordingGranted = false
     @State private var restartRequired = false
 
-    private var helperName: String { ComputerUsePermissionService.helperAppName }
+    private var helperName: String { permissionService.helperDisplayName }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -51,7 +51,7 @@ struct ComputerUseOnboardingView: View {
                 .foregroundStyle(.tint)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
-                Text(String(localized: "computerUse.onboarding.title", defaultValue: "\(ComputerUsePermissionService.helperAppName) Setup"))
+                Text(String(localized: "computerUse.onboarding.title", defaultValue: "\(helperName) Setup"))
                     .font(.title2.weight(.semibold))
                 if step < 3 {
                     Text(String(localized: "computerUse.onboarding.step", defaultValue: "Step \(step + 1) of 3"))
@@ -110,11 +110,11 @@ struct ComputerUseOnboardingView: View {
         VStack(alignment: .leading, spacing: 18) {
             Text(String(localized: "computerUse.onboarding.overview.title", defaultValue: "Agents can work across apps on this Mac"))
                 .font(.title3.weight(.semibold))
-            Text(String(localized: "computerUse.onboarding.overview.detail", defaultValue: "Supported agent sessions can see and drive local apps when a task needs more than the terminal. Permissions are granted to a separate \(ComputerUsePermissionService.helperAppName) helper, so you never have to restart cmux to enable them."))
+            Text(String(localized: "computerUse.onboarding.overview.detail", defaultValue: "Supported agent sessions can see and drive local apps when a task needs more than the terminal. Permissions are granted to a separate \(helperName) helper, so you never have to restart cmux to enable them."))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             Label(
-                String(localized: "computerUse.onboarding.overview.separateApp", defaultValue: "Runs as a separate \(ComputerUsePermissionService.helperAppName) helper with its own permissions"),
+                String(localized: "computerUse.onboarding.overview.separateApp", defaultValue: "Runs as a separate \(helperName) helper with its own permissions"),
                 systemImage: "square.on.square"
             )
             Label(
@@ -203,7 +203,7 @@ struct ComputerUseOnboardingView: View {
             guard let url else { return NSItemProvider() }
             return NSItemProvider(contentsOf: url) ?? NSItemProvider()
         }
-        .help(String(localized: "computerUse.onboarding.dragTooltip", defaultValue: "Drag \(ComputerUsePermissionService.helperAppName) into the permission list"))
+        .help(String(localized: "computerUse.onboarding.dragTooltip", defaultValue: "Drag \(helperName) into the permission list"))
     }
 
     private var done: some View {
@@ -221,7 +221,7 @@ struct ComputerUseOnboardingView: View {
                 .font(.title3.weight(.semibold))
             Text(
                 restartRequired
-                    ? String(localized: "computerUse.onboarding.done.detailRestartRequired", defaultValue: "The \(ComputerUsePermissionService.helperAppName) helper started before these permissions were granted. Restart the helper (not cmux) so it picks up the new permissions.")
+                    ? String(localized: "computerUse.onboarding.done.detailRestartRequired", defaultValue: "The \(helperName) helper started before these permissions were granted. Restart the helper (not cmux) so it picks up the new permissions.")
                     : accessibilityGranted && screenRecordingGranted
                     ? String(localized: "computerUse.onboarding.done.detailReady", defaultValue: "Both permissions are granted. Supported agent sessions can now use local computer-use tools.")
                     : String(localized: "computerUse.onboarding.done.detailIncomplete", defaultValue: "You can finish now and grant any missing permission later from Computer Use settings.")

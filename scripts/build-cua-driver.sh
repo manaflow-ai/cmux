@@ -289,14 +289,26 @@ if [ -n "${_cua_contents:-}" ] && [ "$(basename "$_cua_contents")" = "Contents" 
   if [ -f "$_cua_contents/Resources/AppIcon.icns" ]; then
     cp "$_cua_contents/Resources/AppIcon.icns" "$HELPER_APP/Contents/Resources/AppIcon.icns"
   fi
-  cat > "$HELPER_APP/Contents/Info.plist" <<'PLIST'
+  # Derive the helper's identity from the HOST app so a dev/tagged cmux
+  # ("cmux DEV <tag>" / com.cmuxterm.cmux.dev.<tag>) produces a distinctly named
+  # helper with its OWN TCC identity — separate from a release "cmux Computer Use"
+  # so their System Settings grants never collide. The .app DIRECTORY name stays
+  # constant ("cmux Computer Use.app") so the wrappers' and app's fixed lookup
+  # paths keep resolving; only the display name and bundle id vary.
+  _host_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$_cua_contents/Info.plist" 2>/dev/null || true)"
+  _host_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$_cua_contents/Info.plist" 2>/dev/null || true)"
+  [ -n "$_host_id" ] || _host_id="com.cmuxterm"
+  [ -n "$_host_name" ] || _host_name="cmux"
+  HELPER_ID="${_host_id}.computer-use"
+  HELPER_DISPLAY="${_host_name} Computer Use"
+  cat > "$HELPER_APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key><string>cmux Computer Use</string>
-  <key>CFBundleDisplayName</key><string>cmux Computer Use</string>
-  <key>CFBundleIdentifier</key><string>com.cmuxterm.computer-use</string>
+  <key>CFBundleName</key><string>${HELPER_DISPLAY}</string>
+  <key>CFBundleDisplayName</key><string>${HELPER_DISPLAY}</string>
+  <key>CFBundleIdentifier</key><string>${HELPER_ID}</string>
   <key>CFBundleExecutable</key><string>cmux-cua-driver</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
@@ -305,13 +317,13 @@ if [ -n "${_cua_contents:-}" ] && [ "$(basename "$_cua_contents")" = "Contents" 
   <key>CFBundleVersion</key><string>1</string>
   <key>LSUIElement</key><true/>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
-  <key>NSAccessibilityUsageDescription</key><string>cmux Computer Use inspects and controls the apps you ask an agent to drive.</string>
-  <key>NSScreenCaptureUsageDescription</key><string>cmux Computer Use captures app windows so it can act on what is visible on screen.</string>
+  <key>NSAccessibilityUsageDescription</key><string>${HELPER_DISPLAY} inspects and controls the apps you ask an agent to drive.</string>
+  <key>NSScreenCaptureUsageDescription</key><string>${HELPER_DISPLAY} captures app windows so it can act on what is visible on screen.</string>
 </dict>
 </plist>
 PLIST
   /usr/bin/codesign --force --deep --sign - --timestamp=none "$HELPER_APP" 2>/dev/null || true
-  echo "cmux Computer Use.app assembled at: $HELPER_APP"
+  echo "$HELPER_DISPLAY.app assembled at: $HELPER_APP (id $HELPER_ID)"
 fi
 # Launchability probe. Deliberately NOT `doctor --json`: doctor's macOS
 # platform probes are mutating (they `launchctl unload` + delete a legacy

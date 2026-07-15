@@ -17,9 +17,10 @@ import Foundation
 /// cmux's own TCC.
 @MainActor
 final class ComputerUsePermissionService {
-    /// Display name of the bundled computer-use helper app the user grants
-    /// permissions to. Accessibility / Screen Recording appear under this name in
-    /// System Settings — separate from cmux.
+    /// The bundled helper's `.app` DIRECTORY name inside cmux.app. Constant
+    /// across release and dev/tagged builds so fixed lookup paths (here and in the
+    /// agent wrappers) keep resolving. The user-facing name shown in System
+    /// Settings can differ per build — read it via ``helperDisplayName``.
     static let helperAppName = "cmux Computer Use"
 
     /// Shared snapshot of the HELPER's TCC status, refreshed by
@@ -36,6 +37,22 @@ final class ComputerUsePermissionService {
         let url = Bundle.main.bundleURL
             .appendingPathComponent("Contents/Library/\(Self.helperAppName).app")
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    /// The helper's actual user-facing name, read from its bundle so onboarding
+    /// text matches exactly what the user sees in System Settings — including the
+    /// dev/tagged suffix a non-release cmux gives its helper (e.g.
+    /// "cmux DEV my-tag Computer Use"). Falls back to the directory name.
+    var helperDisplayName: String {
+        guard
+            let helperAppURL,
+            let plist = NSDictionary(
+                contentsOf: helperAppURL.appendingPathComponent("Contents/Info.plist")
+            ),
+            let name = (plist["CFBundleDisplayName"] ?? plist["CFBundleName"]) as? String,
+            !name.isEmpty
+        else { return Self.helperAppName }
+        return name
     }
 
     /// The helper's driver executable, when the bundle is present and runnable.
