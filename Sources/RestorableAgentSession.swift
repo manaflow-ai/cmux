@@ -4,7 +4,7 @@ import CMUXAgentLaunch
 import Darwin
 import os
 
-nonisolated enum TerminalStartupShellQuoting {
+enum TerminalStartupShellQuoting {
     static func singleQuoted(_ value: String) -> String {
         if value.utf8.contains(where: { $0 >= 0x80 }) {
             return asciiPrintfCommandSubstitution(for: value)
@@ -35,7 +35,7 @@ fileprivate func shellSingleQuoted(_ value: String) -> String {
     TerminalStartupShellQuoting.singleQuoted(value)
 }
 
-nonisolated enum TerminalStartupWorkingDirectoryPrefix {
+enum TerminalStartupWorkingDirectoryPrefix {
     static func optionalChangeDirectoryPrefix(for workingDirectory: String?) -> String? {
         guard let workingDirectory = normalized(workingDirectory) else { return nil }
         let quoted = TerminalStartupShellQuoting.singleQuoted(workingDirectory)
