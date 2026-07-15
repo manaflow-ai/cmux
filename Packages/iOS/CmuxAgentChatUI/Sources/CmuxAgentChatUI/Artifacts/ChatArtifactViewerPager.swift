@@ -86,15 +86,11 @@ struct ChatArtifactViewerPager: View {
     private var pagerContent: some View {
         #if os(iOS)
         if model.usesPaging {
-            TabView(selection: selectionBinding) {
-                ForEach(model.pageSnapshots) { snapshot in
-                    viewer(snapshot: snapshot)
-                        .id(snapshot.path)
-                        .tag(snapshot.path)
-                }
-            }
-            .tabViewStyle(.page(indexDisplayMode: .never))
-            .scrollDisabled(zoomedPath != nil)
+            ChatArtifactPageViewController(
+                pages: model.pageModels.map(hostedPage),
+                selectedPath: selectionBinding,
+                isPagingEnabled: zoomedPath == nil
+            )
         } else {
             viewer(snapshot: model.toolbarSnapshot)
                 .id(model.toolbarSnapshot.path)
@@ -104,6 +100,26 @@ struct ChatArtifactViewerPager: View {
             .id(model.toolbarSnapshot.path)
         #endif
     }
+
+    #if os(iOS)
+    private func hostedPage(model: ChatArtifactViewerPageModel) -> ChatArtifactViewerHostedPage {
+        ChatArtifactViewerHostedPage(
+            model: model,
+            scope: scope,
+            loader: loader,
+            onImageMinimumZoomChanged: { path, isAtMinimum in
+                if isAtMinimum {
+                    if zoomedPath == path {
+                        zoomedPath = nil
+                    }
+                } else {
+                    zoomedPath = path
+                }
+            },
+            onDone: onDone
+        )
+    }
+    #endif
 
     private func viewer(snapshot: ChatArtifactViewerPageSnapshot) -> some View {
         ChatArtifactViewerRouteView(

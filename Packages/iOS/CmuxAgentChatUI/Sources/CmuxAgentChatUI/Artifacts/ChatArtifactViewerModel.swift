@@ -191,14 +191,32 @@ final class ChatArtifactViewerModel {
             size: stat.size
         ) { chunk in
             try Task.checkCancellation()
-            let decoded = try await decoder.decode(chunk.data, eof: chunk.eof)
+            let decodedBatches = try await decoder.decodeBatches(chunk.data, eof: chunk.eof)
             try Task.checkCancellation()
-            await self.receiveText(
-                decoded,
-                chunk: chunk,
-                path: path,
-                isMarkdown: isMarkdown
-            )
+            if decodedBatches.isEmpty {
+                await self.receiveText(
+                    "",
+                    chunk: chunk,
+                    path: path,
+                    isMarkdown: isMarkdown,
+                    isFinalBatch: true
+                )
+            } else {
+                for (index, decoded) in decodedBatches.enumerated() {
+                    try Task.checkCancellation()
+                    let isFinalBatch = index == decodedBatches.index(before: decodedBatches.endIndex)
+                    await self.receiveText(
+                        decoded,
+                        chunk: chunk,
+                        path: path,
+                        isMarkdown: isMarkdown,
+                        isFinalBatch: isFinalBatch
+                    )
+                    if !isFinalBatch {
+                        await Task.yield()
+                    }
+                }
+            }
         }
     }
 
@@ -206,15 +224,18 @@ final class ChatArtifactViewerModel {
         _ text: String,
         chunk: ChatArtifactChunk,
         path: String,
-        isMarkdown: Bool
+        isMarkdown: Bool,
+        isFinalBatch: Bool
     ) {
         guard path == activePath else { return }
         if !text.isEmpty {
             textChunks.append(text)
             textLineIndex.append(text)
         }
-        updateProgress(for: chunk)
-        textReachedEOF = chunk.eof
+        if isFinalBatch {
+            updateProgress(for: chunk)
+            textReachedEOF = chunk.eof
+        }
         state = isMarkdown ? .markdown : .text
     }
 

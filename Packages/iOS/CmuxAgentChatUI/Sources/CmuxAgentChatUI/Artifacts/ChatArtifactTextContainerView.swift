@@ -16,6 +16,8 @@ final class ChatArtifactTextContainerView: UIView {
         super.init(frame: frame)
 
         backgroundColor = .clear
+        isAccessibilityElement = true
+        accessibilityTraits = [.staticText, .allowsDirectInteraction]
         textView.layoutManager.allowsNonContiguousLayout = true
         textView.isEditable = false
         textView.isSelectable = true
@@ -28,6 +30,9 @@ final class ChatArtifactTextContainerView: UIView {
         )
         textView.textContainerInset = UIEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
         textView.textContainer.lineFragmentPadding = 0
+        textView.isAccessibilityElement = false
+        textView.accessibilityElementsHidden = true
+        gutterView.accessibilityElementsHidden = true
 
         gutterView.textView = textView
         gutterView.translatesAutoresizingMaskIntoConstraints = false
@@ -44,6 +49,22 @@ final class ChatArtifactTextContainerView: UIView {
             textView.topAnchor.constraint(equalTo: topAnchor),
             textView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
+    }
+
+    /// Exposes one bounded element so accessibility never enumerates TextKit line fragments.
+    func updateAccessibility(
+        documentID: String,
+        content: ChatArtifactTextAccessibilityContent
+    ) {
+        accessibilityLabel = URL(fileURLWithPath: documentID).lastPathComponent
+        accessibilityValue = content.excerpt
+        accessibilityHint = content.isTruncated
+            ? String(
+                localized: "chat.artifact.accessibility.large_text_truncated",
+                defaultValue: "Only the beginning of this large document is exposed to assistive technologies.",
+                bundle: .module
+            )
+            : nil
     }
 
     required init?(coder: NSCoder) {

@@ -90,6 +90,31 @@ final class ChatArtifactViewerPageModel {
         await viewerModel.cleanup()
     }
 
+    func actions(
+        loader: ChatArtifactLoader,
+        quickLookCanPreview: @escaping @MainActor (URL) -> Bool
+    ) -> ChatArtifactViewerPageActions {
+        ChatArtifactViewerPageActions(
+            load: {
+                await self.load(
+                    loader: loader,
+                    quickLookCanPreview: quickLookCanPreview
+                )
+            },
+            cleanup: { await self.cleanup() },
+            retry: { self.retry() },
+            setSearchQuery: { self.setSearchQuery($0) },
+            setSearchSummary: { self.setSearchSummary($0) },
+            selectPreviousSearchResult: { self.selectPreviousSearchResult() },
+            selectNextSearchResult: { self.selectNextSearchResult() },
+            dismissSearch: { self.dismissSearch() },
+            setGoToLineText: { self.setGoToLineText($0) },
+            goToLine: { self.goToLine($0) },
+            dismissGoToLine: { self.dismissGoToLine() },
+            setFontSize: { self.setFontSize($0) }
+        )
+    }
+
     func retry() {
         retryGeneration += 1
     }

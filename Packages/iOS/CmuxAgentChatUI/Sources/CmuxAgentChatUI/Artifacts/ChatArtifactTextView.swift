@@ -44,6 +44,7 @@ struct ChatArtifactTextView: UIViewRepresentable {
         if isNewDocument {
             context.coordinator.resetHighlighting()
             context.coordinator.resetSearch()
+            context.coordinator.resetAccessibilityContent()
             textView.textStorage.setAttributedString(NSAttributedString())
             textView.selectedRange = NSRange(location: 0, length: 0)
             context.coordinator.documentID = documentID
@@ -57,6 +58,7 @@ struct ChatArtifactTextView: UIViewRepresentable {
             context.coordinator.appliedChunkCount = 0
             context.coordinator.resetHighlighting()
             context.coordinator.resetSearch()
+            context.coordinator.resetAccessibilityContent()
             textView.textStorage.setAttributedString(NSAttributedString())
         }
 
@@ -82,12 +84,21 @@ struct ChatArtifactTextView: UIViewRepresentable {
             textView.selectedRange = selection
             textView.setContentOffset(contentOffset, animated: false)
             context.coordinator.appliedChunkCount += 1
+            context.coordinator.appendAccessibilityContent(chunk)
         }
 
+        let updatePlan = ChatArtifactTextUpdatePlan(
+            reachedEOF: reachedEOF,
+            highlightDecision: highlightDecision,
+            searchQuery: searchQuery
+        )
+        let fullText = updatePlan.requiresFullTextSnapshot
+            ? textView.textStorage.string
+            : nil
         context.coordinator.updateHighlighting(
             in: textView,
             documentID: documentID,
-            text: textView.textStorage.string,
+            text: fullText,
             reachedEOF: reachedEOF,
             decision: highlightDecision,
             theme: highlightTheme
@@ -95,7 +106,8 @@ struct ChatArtifactTextView: UIViewRepresentable {
         context.coordinator.updateSearch(
             in: textView,
             documentID: documentID,
-            text: textView.textStorage.string,
+            text: fullText,
+            textLength: textView.textStorage.length,
             query: searchQuery,
             reachedEOF: reachedEOF,
             previousRequestID: previousSearchRequestID,
@@ -103,6 +115,10 @@ struct ChatArtifactTextView: UIViewRepresentable {
             onSummaryChanged: onSearchSummaryChanged
         )
         containerView.updateLineNumbers(index: lineIndex, isVisible: showsLineNumbers)
+        containerView.updateAccessibility(
+            documentID: documentID,
+            content: context.coordinator.accessibilityContent
+        )
 
         if isNewDocument {
             Self.scrollToTop(textView, animated: false)

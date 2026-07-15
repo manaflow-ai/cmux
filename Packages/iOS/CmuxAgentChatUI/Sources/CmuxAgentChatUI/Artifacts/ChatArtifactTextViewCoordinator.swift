@@ -11,6 +11,7 @@ final class ChatArtifactTextViewCoordinator: NSObject, UITextViewDelegate {
     var handledBottomRequestID = 0
     var handledGoToLineRequestID = 0
     var onFontSizeChanged: ((Double) -> Void)?
+    private(set) var accessibilityContent = ChatArtifactTextAccessibilityContent()
     private weak var containerView: ChatArtifactTextContainerView?
     private let syntaxHighlighter = ChatArtifactSyntaxHighlighter()
     private var highlightTask: Task<Void, Never>?
@@ -153,15 +154,24 @@ final class ChatArtifactTextViewCoordinator: NSObject, UITextViewDelegate {
         publishSearchSummary(.empty)
     }
 
+    func resetAccessibilityContent() {
+        accessibilityContent = ChatArtifactTextAccessibilityContent()
+    }
+
+    func appendAccessibilityContent(_ text: String) {
+        accessibilityContent.append(text)
+    }
+
     func updateHighlighting(
         in textView: UITextView,
         documentID: String,
-        text: String,
+        text: String?,
         reachedEOF: Bool,
         decision: ChatArtifactHighlightDecision,
         theme: ChatArtifactHighlightTheme
     ) {
-        guard reachedEOF,
+        guard let text,
+              reachedEOF,
               case .highlight(let language) = decision,
               !text.isEmpty else {
             highlightTask?.cancel()
@@ -221,7 +231,8 @@ final class ChatArtifactTextViewCoordinator: NSObject, UITextViewDelegate {
     func updateSearch(
         in textView: UITextView,
         documentID: String,
-        text: String,
+        text: String?,
+        textLength: Int,
         query: String,
         reachedEOF: Bool,
         previousRequestID: Int,
@@ -236,7 +247,7 @@ final class ChatArtifactTextViewCoordinator: NSObject, UITextViewDelegate {
             clearSearchHighlight(in: textView)
             searchModel = ChatArtifactSearchModel()
             searchedDocumentID = documentID
-            searchedTextLength = text.utf16.count
+            searchedTextLength = textLength
             pendingSearchDocumentID = nil
             pendingSearchTextLength = 0
             pendingSearchQuery = ""
@@ -246,6 +257,7 @@ final class ChatArtifactTextViewCoordinator: NSObject, UITextViewDelegate {
             return
         }
 
+        guard let text else { return }
         let textLength = text.utf16.count
         let hasCurrentResults = searchedDocumentID == documentID
             && searchedTextLength == textLength

@@ -286,7 +286,7 @@ struct ChatArtifactViewerRouteView: View {
 
     @ViewBuilder
     private var highlightingStatusPill: some View {
-        if snapshot.textHighlightDecision.showsHighlightingOffPill,
+        if snapshot.showsHighlightingStatusPill,
            let totalBytes = snapshot.totalBytes {
             HStack {
                 Spacer(minLength: 16)

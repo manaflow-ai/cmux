@@ -51,4 +51,10 @@ struct ChatArtifactViewerPageSnapshot: Identifiable, Equatable {
             || shouldShowTextJumpControls
             || (state == .markdown && markdownPresentation.isRenderedAvailable)
     }
+
+    var showsHighlightingStatusPill: Bool {
+        shouldShowTextJumpControls
+            && textHighlightDecision.showsHighlightingOffPill
+            && totalBytes != nil
+    }
 }

@@ -34,6 +34,10 @@ final class ChatArtifactViewerPagerModel {
         pagePaths.compactMap { pagesByPath[$0]?.snapshot }
     }
 
+    var pageModels: [ChatArtifactViewerPageModel] {
+        pagePaths.compactMap { pagesByPath[$0] }
+    }
+
     var toolbarSnapshot: ChatArtifactViewerPageSnapshot {
         selectedPageModel.snapshot
     }
@@ -73,24 +77,9 @@ final class ChatArtifactViewerPagerModel {
         let page = path == selectedPath
             ? selectedPageModel
             : pagesByPath[path]!
-        return ChatArtifactViewerPageActions(
-            load: {
-                await page.load(
-                    loader: loader,
-                    quickLookCanPreview: quickLookCanPreview
-                )
-            },
-            cleanup: { await page.cleanup() },
-            retry: { page.retry() },
-            setSearchQuery: { page.setSearchQuery($0) },
-            setSearchSummary: { page.setSearchSummary($0) },
-            selectPreviousSearchResult: { page.selectPreviousSearchResult() },
-            selectNextSearchResult: { page.selectNextSearchResult() },
-            dismissSearch: { page.dismissSearch() },
-            setGoToLineText: { page.setGoToLineText($0) },
-            goToLine: { page.goToLine($0) },
-            dismissGoToLine: { page.dismissGoToLine() },
-            setFontSize: { page.setFontSize($0) }
+        return page.actions(
+            loader: loader,
+            quickLookCanPreview: quickLookCanPreview
         )
     }
 

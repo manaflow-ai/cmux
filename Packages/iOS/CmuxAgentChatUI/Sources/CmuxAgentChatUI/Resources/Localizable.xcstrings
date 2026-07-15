@@ -32,6 +32,13 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "操作を完了できませんでした" } }
       }
     },
+    "chat.artifact.accessibility.large_text_truncated" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Only the beginning of this large document is exposed to assistive technologies." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "この大きな書類では、先頭部分のみが支援技術に公開されます。" } }
+      }
+    },
     "chat.artifact.actions.title" : {
       "extractionState" : "manual",
       "localizations" : {
