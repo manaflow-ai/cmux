@@ -331,7 +331,7 @@ final class MobileHostService {
     /// restart. `nil` while stopped.
     private var appliedPreferredPort: Int?
     private var activeConnections: [UUID: MobileHostConnection] = [:]
-    private var clientIDsByConnectionID: [UUID: Set<String>] = [:]
+    var viewPresenceState = MobileViewPresenceState()
     private var lastErrorDescription: String?
     /// Watches for network path changes while the listener is bound, so the
     /// advertised route set (and the team device registry that
@@ -434,32 +434,6 @@ final class MobileHostService {
     /// Lock-free aggregate demand check for Ghostty's terminal-output hot path.
     nonisolated static func hasTerminalOutputSubscribers() -> Bool {
         MobileHostEventSubscriptionTracker.hasTerminalOutputSubscribers()
-    }
-
-    /// Versioned presence for identified views attached to this runtime.
-    ///
-    /// A client can issue many requests over one transport, and a reconnect can
-    /// briefly overlap the prior transport. Grouping the existing
-    /// connection-to-client map by stable `client_id` keeps the snapshot cheap
-    /// and tells views when the same device currently owns multiple transports.
-    func viewPresencePayload() -> [String: Any] {
-        var connectionCountByClientID: [String: Int] = [:]
-        for clientIDs in clientIDsByConnectionID.values {
-            for clientID in clientIDs {
-                connectionCountByClientID[clientID, default: 0] += 1
-            }
-        }
-        let views: [[String: Any]] = connectionCountByClientID.keys.sorted().compactMap { clientID in
-            guard let connectionCount = connectionCountByClientID[clientID] else { return nil }
-            return [
-                "client_id": clientID,
-                "connection_count": connectionCount,
-            ]
-        }
-        return [
-            "version": 1,
-            "views": views,
-        ]
     }
 
     /// User-default key for the opt-in Mac-side iOS pairing listener.
@@ -1054,10 +1028,11 @@ final class MobileHostService {
                 )
             },
             onAuthorizedRequest: { request in
-                guard let clientID = Self.clientID(from: request.params) else {
-                    return
-                }
-                await MobileHostService.shared.recordClientID(clientID, for: id)
+                await MobileHostService.shared.recordViewPresence(
+                    for: request,
+                    connectionID: id,
+                    authorization: authorization
+                )
             },
             handleRequest: { request in
                 if request.method == "mobile.host.status" {
@@ -1232,8 +1207,7 @@ final class MobileHostService {
         // Drop this connection's sticky viewport reports so a disconnected
         // device stops pinning the shared grid (and its macOS viewport border
         // clears) even though it never sent an explicit clear.
-        let clientIDs = clientIDsByConnectionID[id] ?? []
-        clientIDsByConnectionID.removeValue(forKey: id)
+        let clientIDs = viewPresenceState.removeConnection(id: id)
         if !clientIDs.isEmpty {
             TerminalController.shared.clearMobileViewportReports(
                 clientIDs: clientIDs,
@@ -1242,20 +1216,6 @@ final class MobileHostService {
             Self.emitEvent(topic: "workspace.updated", payload: ["reason": "view_presence"])
         }
         MobileHostRequestActivity.endConnection()
-    }
-
-    func recordClientID(_ clientID: String, for connectionID: UUID) {
-        var clientIDs = clientIDsByConnectionID[connectionID] ?? []
-        let inserted = clientIDs.insert(clientID).inserted
-        clientIDsByConnectionID[connectionID] = clientIDs
-        if inserted {
-            Self.emitEvent(topic: "workspace.updated", payload: ["reason": "view_presence"])
-        }
-    }
-
-    private nonisolated static func clientID(from params: [String: Any]) -> String? {
-        let trimmed = (params["client_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed?.isEmpty == false ? trimmed : nil
     }
 
     func debugAuthorizationError(for request: MobileHostRPCRequest) async -> MobileHostRPCResult? {
@@ -1566,7 +1526,7 @@ extension MobileHostService {
         listenerUsesEphemeralFallback = false
         listenerPort = nil
         activeConnections.removeAll()
-        clientIDsByConnectionID.removeAll()
+        viewPresenceState.removeAll()
         MobileHostRequestActivity.resetForTesting()
         MobileHostEventSubscriptionTracker.resetForTesting()
     }
@@ -1576,7 +1536,7 @@ extension MobileHostService {
     }
 
     func debugTrackedClientIDsForTesting(connectionID: UUID) -> Set<String>? {
-        clientIDsByConnectionID[connectionID]
+        viewPresenceState.clientIDs(for: connectionID)
     }
 
     func debugSetListenerStateForTesting(
@@ -1951,16 +1911,12 @@ actor MobileHostConnection {
             guard !isClosed, !Task.isCancelled else {
                 return
             }
-            // Record optional view identity before intercepting subscription
-            // plumbing. Newer clients identify themselves on their first
-            // `mobile.events.subscribe`, before terminal input/viewport traffic,
-            // so presence becomes visible as soon as the view attaches.
-            await onAuthorizedRequest(request)
-            guard !isClosed, !Task.isCancelled else {
-                return
-            }
             if let intercepted = await handleSubscriptionRPC(request) {
                 _ = await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: request.id, result: intercepted))
+                return
+            }
+            await onAuthorizedRequest(request)
+            guard !isClosed, !Task.isCancelled else {
                 return
             }
             let result = await handleRequest(request)
@@ -2006,6 +1962,13 @@ actor MobileHostConnection {
                 topics: topics,
                 transport: selectedTransport
             )
+            if !alreadySubscribed {
+                // Presence was commonly recorded by the initial workspace list,
+                // before this connection could observe its own update. Re-run the
+                // authorized-request hook only for a newly installed subscription
+                // so it emits one authoritative catch-up without liveness polling.
+                await onAuthorizedRequest(request)
+            }
             #if DEBUG
             cmuxDebugLog("mobile.subscribe streamID=\(streamID) topics=\(topics.sorted()) existing=\(alreadySubscribed) connID=\(self.id.uuidString)")
             #endif

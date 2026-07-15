@@ -103,13 +103,15 @@ struct MobileRicherRemoteStateTests {
         let service = MobileHostService.shared
         let firstConnectionID = UUID()
         let secondConnectionID = UUID()
+        let thirdConnectionID = UUID()
         service.debugResetMobileLifecycleStateForTesting()
         defer { service.debugResetMobileLifecycleStateForTesting() }
 
         service.recordClientID("phone-1", for: firstConnectionID)
         service.recordClientID("phone-1", for: firstConnectionID)
         service.recordClientID("phone-1", for: secondConnectionID)
-        service.recordClientID("mac-2", for: secondConnectionID)
+        service.recordClientID("spoofed-client", for: secondConnectionID)
+        service.recordClientID("mac-2", for: thirdConnectionID)
 
         let payload = service.viewPresencePayload()
         #expect(payload["version"] as? Int == 1)
@@ -120,12 +122,42 @@ struct MobileRicherRemoteStateTests {
 
         service.debugRemoveConnectionForTesting(id: secondConnectionID)
         let remaining = try #require(service.viewPresencePayload()["views"] as? [[String: Any]])
-        #expect(remaining.count == 1)
-        #expect(remaining.first?["client_id"] as? String == "phone-1")
-        #expect(remaining.first?["connection_count"] as? Int == 1)
+        #expect(remaining.count == 2)
+        #expect(remaining.first { $0["client_id"] as? String == "phone-1" }?["connection_count"] as? Int == 1)
     }
 
-    @Test func authorizedEventSubscriptionIsRecordedBeforeInterception() async throws {
+    @Test func unauthenticatedStatusAndInvalidIDsDoNotRegisterPresence() {
+        let service = MobileHostService.shared
+        let connectionID = UUID()
+        service.debugResetMobileLifecycleStateForTesting()
+        defer { service.debugResetMobileLifecycleStateForTesting() }
+
+        service.recordViewPresence(
+            for: MobileHostRPCRequest(
+                id: "status",
+                method: "mobile.host.status",
+                params: ["client_id": "spoofed-client"],
+                auth: nil
+            ),
+            connectionID: connectionID,
+            authorization: .stackBearer
+        )
+        service.recordViewPresence(
+            for: MobileHostRPCRequest(
+                id: "list",
+                method: "workspace.list",
+                params: ["client_id": String(repeating: "x", count: 129)],
+                auth: nil
+            ),
+            connectionID: connectionID,
+            authorization: .stackBearer
+        )
+
+        let views = service.viewPresencePayload()["views"] as? [[String: Any]]
+        #expect(views?.isEmpty == true)
+    }
+
+    @Test func freshEventSubscriptionRunsCatchupAfterInstallation() async throws {
         let requestRecorder = MobileHostConnectionRequestRecorder()
         let authorizedRequestRecorded = AsyncTestSignal()
         let socket = try MobileHostStartedTestSocket()
@@ -142,7 +174,7 @@ struct MobileRicherRemoteStateTests {
             onClose: { _ in }
         )
         let frame = try MobileSyncFrameCodec.encodeFrame(
-            Data(#"{"id":"subscribe","method":"mobile.events.subscribe","params":{"stream_id":"events","topics":["workspace.updated"],"client_id":"phone-1"}}"#.utf8)
+            Data(#"{"id":"subscribe","method":"mobile.events.subscribe","params":{"stream_id":"events","topics":["workspace.updated"]}}"#.utf8)
         )
 
         await session.debugHandleReceiveDataForTesting(frame)
