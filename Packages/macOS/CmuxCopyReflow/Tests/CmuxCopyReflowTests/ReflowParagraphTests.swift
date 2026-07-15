@@ -149,6 +149,13 @@ struct ReflowParagraphTests {
         )
     }
 
+    @Test func independentPathRowAfterLongOutputIsNotJoined() {
+        let input =
+            "echo completed artifact generation for release candidate output\n"
+            + "/tmp/report.txt\n"
+        #expect(reflow(input) == input)
+    }
+
     @Test func shellPipelineCommandRejoinsWrappedContinuation() {
         let input =
             "find . -name \"*.log\" -mtime +7 -delete | tee /tmp/deleted-log-files.txt\n"
