@@ -285,9 +285,19 @@ if [ -n "${_cua_contents:-}" ] && [ "$(basename "$_cua_contents")" = "Contents" 
   mkdir -p "$HELPER_APP/Contents/MacOS" "$HELPER_APP/Contents/Resources"
   cp "$OUTPUT" "$HELPER_APP/Contents/MacOS/cmux-cua-driver"
   chmod 0755 "$HELPER_APP/Contents/MacOS/cmux-cua-driver"
-  # Reuse the host app's compiled cmux icon so the helper shares the cmux logo.
-  if [ -f "$_cua_contents/Resources/AppIcon.icns" ]; then
+  # Give the helper its own icon: the cmux-blue agent cursor (the shape the
+  # driver paints while steering the pointer), so System Settings shows a
+  # recognizable computer-use glyph rather than a blank placeholder. Prefer the
+  # dedicated asset; fall back to the host app's compiled icon. (The host's icon
+  # is AppIcon-Debug.icns in Debug builds, so the old AppIcon.icns-only copy left
+  # the helper icon blank.)
+  _helper_icon="$ROOT/Resources/ComputerUseHelperIcon.icns"
+  if [ -f "$_helper_icon" ]; then
+    cp "$_helper_icon" "$HELPER_APP/Contents/Resources/AppIcon.icns"
+  elif [ -f "$_cua_contents/Resources/AppIcon.icns" ]; then
     cp "$_cua_contents/Resources/AppIcon.icns" "$HELPER_APP/Contents/Resources/AppIcon.icns"
+  elif [ -f "$_cua_contents/Resources/AppIcon-Debug.icns" ]; then
+    cp "$_cua_contents/Resources/AppIcon-Debug.icns" "$HELPER_APP/Contents/Resources/AppIcon.icns"
   fi
   # Derive the helper's identity from the HOST app so a dev/tagged cmux
   # ("cmux DEV <tag>" / com.cmuxterm.cmux.dev.<tag>) produces a distinctly named
