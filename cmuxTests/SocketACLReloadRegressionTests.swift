@@ -175,6 +175,47 @@ struct SocketACLReloadRegressionTests {
         #expect(FileManager.default.fileExists(atPath: secondPath))
     }
 
+    @Test func reconcilePathChangeSupersedesPendingRearm() throws {
+        let controller = TerminalController.shared
+        controller.stop()
+
+        let directory = shortTemporaryDirectory(prefix: "salp")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let stalePath = directory.appendingPathComponent("stale.sock").path
+        let configuredPath = directory.appendingPathComponent("configured.sock").path
+        defer {
+            controller.stop()
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        _ = controller.socketServer.updateConfiguredPreferredSocketPath(stalePath)
+        controller.socketServer.withListenerState { state in
+            // Mirrors the retained state after accept recovery parks a rearm.
+            state.socketPath = stalePath
+            state.pendingAcceptLoopRearmGeneration = 42
+        }
+
+        controller.reconcileSocketConfiguration(
+            SocketControlServerConfiguration(
+                accessMode: .automation,
+                preferredSocketPath: configuredPath
+            ),
+            preferredTabManager: TabManager(),
+            source: "test.pending_rearm_path_change"
+        )
+
+        #expect(controller.socketServer.isRunning)
+        #expect(controller.socketServer.currentSocketPath == configuredPath)
+        #expect(!FileManager.default.fileExists(atPath: stalePath))
+        #expect(FileManager.default.fileExists(atPath: configuredPath))
+        #expect(controller.socketServer.claimPendingRearm(
+            generation: 42,
+            errnoCode: EMFILE,
+            consecutiveFailures: 1,
+            delayMs: 100
+        ) == nil)
+    }
+
     @Test func reconcilePreservesIntentionalFallbackForSamePreferredPath() throws {
         let controller = TerminalController.shared
         controller.stop()
