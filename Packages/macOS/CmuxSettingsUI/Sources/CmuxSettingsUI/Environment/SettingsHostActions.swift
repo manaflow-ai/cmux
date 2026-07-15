@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxSettings
 import Foundation
 
@@ -134,6 +135,10 @@ public protocol SettingsHostActions: AnyObject {
     /// bound-port indicator and connection count stay live without polling.
     func mobilePairingStatusUpdates() -> AsyncStream<MobilePairingStatusSnapshot>
 
+    /// Cross-platform Iroh and private-network settings controller supplied by
+    /// the host app. `nil` in previews and hosts without the Iroh runtime.
+    func irohSettingsController() -> (any CmxIrohSettingsControlling)?
+
     /// The Mac's system name (e.g. `Host.current().localizedName`) used as the
     /// iOS pairing display name when the user sets no override. The Mobile
     /// section shows it as the display-name field placeholder. Empty when
@@ -179,6 +184,9 @@ public protocol SettingsHostActions: AnyObject {
     /// A live map of configured extension IDs to host-side load failures.
     func browserWebExtensionLoadErrorUpdates() -> AsyncStream<[String: String]>
 
+    /// Invalidates host-owned shortcut caches after Settings persists a shortcut change.
+    func notifyShortcutSettingsDidChange()
+
     /// Applies the host-side OS `AppleLanguages` override for a changed app
     /// language selection.
     func applyLanguageOverride(_ language: AppLanguage)
@@ -187,6 +195,9 @@ public protocol SettingsHostActions: AnyObject {
 public extension SettingsHostActions {
     /// Default no-op for hosts with no app-owned reset side effects.
     func resetAllSettingsSideEffects() {}
+
+    /// Default no-op for hosts with no app-owned shortcut caches.
+    func notifyShortcutSettingsDidChange() {}
 
     /// Default no-op for package previews and tests without host layout editing.
     func customizeWorkspaceLayouts() {}
@@ -229,6 +240,8 @@ public extension SettingsHostActions {
     func mobilePairingStatusUpdates() -> AsyncStream<MobilePairingStatusSnapshot> {
         AsyncStream { $0.finish() }
     }
+
+    func irohSettingsController() -> (any CmxIrohSettingsControlling)? { nil }
 
     /// Default: empty, for hosts that cannot resolve the Mac's system name.
     func mobilePairingDefaultDisplayName() -> String { "" }

@@ -22,6 +22,23 @@ if test "$_cmux_integration_enabled" != 0
     set -g _CMUX_TTY_REPORTED 0
     set -g _CMUX_PWD_LAST_PWD ""
 
+    function _cmux_restore_scrollback_once
+        set -l path "$CMUX_RESTORE_SCROLLBACK_FILE"
+        test -n "$path"; or return 0
+        set -e CMUX_RESTORE_SCROLLBACK_FILE
+        set -l token (string replace -r '^.*/' '' -- "$path")
+        set -l host (/bin/hostname)
+
+        printf '\033]1337;CurrentDir=kitty-shell-cwd://%s/.cmux/session-scrollback-replay/%s/start\007' "$host" "$token"
+        if test -r "$path"
+            /bin/cat -- "$path" 2>/dev/null; or true
+            /bin/rm -f -- "$path" >/dev/null 2>&1; or true
+        end
+        printf '\033]1337;CurrentDir=kitty-shell-cwd://%s/.cmux/session-scrollback-replay/%s/end\007' "$host" "$token"
+        printf '\033]1337;CurrentDir=kitty-shell-cwd://%s%s\007' "$host" "$PWD"
+    end
+    _cmux_restore_scrollback_once
+
     function _cmux_now
         if test -n "$EPOCHSECONDS"
             printf '%s\n' "$EPOCHSECONDS"

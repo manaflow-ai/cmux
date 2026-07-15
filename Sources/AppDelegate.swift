@@ -187,7 +187,7 @@ enum CmuxTypingTiming {
         guard event.timestamp > 0 else { return }
         let delayMs = max(0, (ProcessInfo.processInfo.systemUptime - event.timestamp) * 1000.0)
         guard shouldLog(delayMs: delayMs, elapsedMs: nil) else { return }
-        cmuxDebugLog("typing.delay path=\(path) delayMs=\(format(delayMs)) \(eventFields(event))")
+        cmuxDebugLog("typing.delay probe=\(path) delayMs=\(format(delayMs)) \(eventFields(event))")
     }
 
     @inline(__always)
@@ -200,7 +200,7 @@ enum CmuxTypingTiming {
             return max(0, (ProcessInfo.processInfo.systemUptime - event.timestamp) * 1000.0)
         }()
         guard shouldLog(delayMs: delayMs, elapsedMs: elapsedMs) else { return }
-        var line = "typing.timing path=\(path) elapsedMs=\(format(elapsedMs))"
+        var line = "typing.timing probe=\(path) elapsedMs=\(format(elapsedMs))"
         if let event {
             line += " \(eventFields(event))"
             if let delayMs {
@@ -231,7 +231,7 @@ enum CmuxTypingTiming {
         guard isVerboseProbeEnabled || totalMs >= thresholdMs || hasSlowPart || (delayMs ?? 0) >= delayLogThresholdMs else {
             return
         }
-        var line = "typing.phase path=\(path) totalMs=\(format(totalMs))"
+        var line = "typing.phase probe=\(path) totalMs=\(format(totalMs))"
         if let event {
             line += " \(eventFields(event))"
         }
@@ -670,22 +670,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// not alive (windows then built hostless panels with no extension support).
     var browserWebExtensionHost: (any BrowserWebExtensionHosting)?
 
-    /// Notification jump/open navigation, extracted into `CmuxNotifications`.
-    /// `AppDelegate` is the composition root: it conforms to every seam (see
-    /// `AppDelegate+NotificationNavSeams.swift`) and injects itself. Built lazily
-    /// because the seams read late-bound state (`notificationStore`,
-    /// `mainWindowContexts`) that is `nil` until startup wiring completes; the
-    /// seam contracts already degrade to empty/no-op when that state is absent.
-    /// Performs notification click actions (currently reveal-in-Finder). The
-    /// path-resolution logic lives in the package; `AppDelegate` only supplies
-    /// the `NSWorkspace`/`FileManager` side effect through `FinderRevealing`. The
-    /// single instance is shared by both the navigation coordinator and the
-    /// `UNUserNotificationCenter` delivery coordinator.
-    /// Weak-owner adapter that satisfies every notification-nav seam by
-    /// forwarding to `AppDelegate` helpers. The coordinator and click performer
-    /// strong-ref this adapter; the adapter weak-refs `AppDelegate`, so there is
-    /// no `AppDelegate → coordinator → AppDelegate` retain cycle (which would pin
-    /// the app-host test instance). See `AppDelegate+NotificationNavSeams.swift`.
+    /// Notification jump/open navigation, extracted into `CmuxNotifications`. `AppDelegate` is the
+    /// composition root: it conforms to every seam (see `AppDelegate+NotificationNavSeams.swift`)
+    /// and injects itself. Built lazily because the seams read late-bound state (`notificationStore`,
+    /// `mainWindowContexts`) that is `nil` until startup wiring completes; the seam contracts already
+    /// degrade to empty/no-op when that state is absent. Performs notification click actions
+    /// (currently reveal-in-Finder). The path-resolution logic lives in the package; `AppDelegate`
+    /// only supplies the `NSWorkspace`/`FileManager` side effect through `FinderRevealing`. The single
+    /// instance is shared by both the navigation coordinator and the `UNUserNotificationCenter`
+    /// delivery coordinator. Weak-owner adapter that satisfies every notification-nav seam by
+    /// forwarding to `AppDelegate` helpers. The coordinator and click performer strong-ref this
+    /// adapter; the adapter weak-refs `AppDelegate`, so there is no `AppDelegate → coordinator →
+    /// AppDelegate` retain cycle (which would pin the app-host test instance). See `AppDelegate+NotificationNavSeams.swift`.
     lazy var notificationNavSeams = NotificationNavSeamAdapter(owner: self)
 
     lazy var notificationClickPerformer = NotificationClickPerformer(finder: notificationNavSeams)
@@ -770,20 +766,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
     // The open-routing trio (`openNotification` / `openNotificationInContext` /
-    // `openNotificationFallback`) intentionally stays in `AppDelegate`, reached
-    // through the open-routing seam (`openRouted` / `openInWindow` /
-    // `openInActiveWindowFallback`). Those three methods weave ~15 branch-specific
-    // `#if DEBUG` jump-unread UI-test recorder payloads through their control flow
-    // (per early-return and per success path); re-homing them as injected closures
-    // could not preserve byte-identical payloads/ordering without risking a
-    // changed or duplicated payload that the jump-unread XCUITest asserts on, so
-    // they are left app-side per the wave brief's escape hatch. The coordinator's
-    // `onDidFocusForJumpUnread` hook is therefore left unwired (wiring it would
-    // double-record). The recorder-FREE members of the open/click cluster did
-    // move into the package this wave: the reveal-in-Finder side effect now lives
-    // in `NotificationClickPerformer` (behind `FinderRevealing`), and the entire
-    // focused-mark state machine lives in `FocusedNotificationMarker` (behind
-    // `FocusedNotificationResolving`).
+    // `openNotificationFallback`) intentionally stays in `AppDelegate`, reached through the
+    // open-routing seam (`openRouted` / `openInWindow` / `openInActiveWindowFallback`). Those three
+    // methods weave ~15 branch-specific `#if DEBUG` jump-unread UI-test recorder payloads through
+    // their control flow (per early-return and per success path); re-homing them as injected
+    // closures could not preserve byte-identical payloads/ordering without risking a changed or
+    // duplicated payload that the jump-unread XCUITest asserts on, so they are left app-side per
+    // the wave brief's escape hatch. The coordinator's `onDidFocusForJumpUnread` hook is therefore
+    // left unwired (wiring it would double-record). The recorder-FREE members of the open/click
+    // cluster did move into the package this wave: the reveal-in-Finder side effect now lives in
+    // `NotificationClickPerformer` (behind `FinderRevealing`), and the entire focused-mark state
+    // machine lives in `FocusedNotificationMarker` (behind `FocusedNotificationResolving`).
     /// The auth graph, injected once via `configure(...)` at app startup.
     private(set) var auth: MacAuthComposition?
     /// Strongly-held observers for every active TabManager. Each observer owns
@@ -1554,7 +1547,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 #endif
     }
-
 
 #if DEBUG
     private func writeUITestDiagnosticsIfNeeded(stage: String) {
@@ -3797,16 +3789,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         lifecycleSnapshotObservers.append(sessionResignObserver)
 
-        let didWakeObserver = workspaceCenter.addObserver(
-            forName: NSWorkspace.didWakeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
+        let remotePowerObservers = RemoteSessionPowerObserver().install(
+            in: workspaceCenter,
+            onWillSleep: { [weak self] in self?.prepareRemoteSessionsForSystemSleep() },
+            onDidWake: { [weak self] in
                 self?.restartSocketListenerIfEnabled(source: "workspace.didWake")
+                self?.rearmRemoteSessionsAfterSystemWake()
             }
-        }
-        lifecycleSnapshotObservers.append(didWakeObserver)
+        )
+        lifecycleSnapshotObservers.append(contentsOf: remotePowerObservers)
 
         registerDisplayReconfigurationCallbackIfNeeded()
         let displayReconfigurationObserver = NotificationCenter.default.addObserver(
@@ -4165,6 +4156,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         let timingStart = CmuxTypingTiming.start()
         let phaseStart = ProcessInfo.processInfo.systemUptime
+        var loadMs: Double = 0
         var fingerprintMs: Double = 0
         var saveMs: Double = 0
         defer {
@@ -4175,6 +4167,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 totalMs: totalMs,
                 thresholdMs: 2.0,
                 parts: [
+                    // loadMs is await wall time on a detached utility task, not
+                    // main-thread blocking; fingerprintMs and saveMs are the
+                    // synchronous main-thread portions.
+                    ("loadMs", loadMs),
                     ("fingerprintMs", fingerprintMs),
                     ("saveMs", saveMs),
                 ],
@@ -4192,9 +4188,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let now = Date()
 #if DEBUG
-        let fingerprintStart = ProcessInfo.processInfo.systemUptime
+        let loadStart = ProcessInfo.processInfo.systemUptime
 #endif
         let resumeIndexes = await ProcessDetectedResumeIndexes.load()
+#if DEBUG
+        loadMs = (ProcessInfo.processInfo.systemUptime - loadStart) * 1000.0
+        let fingerprintStart = ProcessInfo.processInfo.systemUptime
+#endif
         guard !isTerminatingApp,
               isCurrentProcessDetectedSessionSaveGeneration(generation) else {
 #if DEBUG
@@ -13559,15 +13559,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Surface navigation: Cmd+Shift+] / Cmd+Shift+[
-        if matchConfiguredShortcut(event: event, action: .nextSurface) {
-            (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?.selectNextSurface()
-            return true
-        }
-        if matchConfiguredShortcut(event: event, action: .prevSurface) {
-            (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?.selectPreviousSurface()
-            return true
-        }
+        if handleAdjacentNavigationShortcut(event: event) { return true }
 
         if matchConfiguredShortcut(event: event, action: .toggleTerminalCopyMode) {
             let handled = tabManager?.toggleFocusedTerminalCopyMode() ?? false
@@ -13688,6 +13680,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return requestEditWorkspaceDescriptionViaCommandPalette(
                 preferredWindow: commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow
             )
+        }
+
+        if matchConfiguredShortcut(event: event, action: .markWorkspaceDone) {
+            return handleMarkWorkspaceDoneShortcut(preferredWindow: commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow)
+        }
+
+        if matchConfiguredShortcut(event: event, action: .cycleWorkspaceStatus) {
+            return handleCycleWorkspaceStatusShortcut(preferredWindow: commandPaletteTargetWindow ?? event.window ?? shortcutRoutingActiveWindow)
         }
 
         if matchConfiguredShortcut(event: event, action: .closeOtherTabsInPane) {
@@ -15104,7 +15104,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Resolves a right-sidebar mode shortcut after applying the action's
     /// effective `when` clause.
     func rightSidebarModeShortcut(for event: NSEvent) -> RightSidebarMode? {
-        RightSidebarMode.modeShortcut(for: event) { [self] action in
+        KeyboardShortcutSettingsObserver.shared.rightSidebarModeShortcutMatcher.modeShortcut(for: event) { [self] action in
             shortcutWhenClauseAllows(action: action, event: event)
         }
     }
@@ -16345,17 +16345,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @MainActor
     func openTerminalNotification(_ notification: TerminalNotification) -> Bool {
         notificationNavigation.openNotification(
-            NotificationNavSnapshot(
-                id: notification.id,
-                tabId: notification.tabId,
-                surfaceId: notification.surfaceId,
-                panelId: notification.panelId,
-                retargetsToLiveSurfaceOwner: notification.retargetsToLiveSurfaceOwner,
-                isRead: notification.isRead,
-                clickAction: notification.clickAction.map(Self.navClickAction),
-                scrollRow: notification.scrollPosition?.row,
-                scrollTotalRows: notification.scrollPosition?.totalRows
-            )
+            notification.notificationNavigationSnapshot
         )
     }
     /// Performs a notification click action. Forwards to the shared
@@ -16367,7 +16357,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     @MainActor
     func performTerminalNotificationClickAction(_ action: TerminalNotificationClickAction) -> Bool {
-        notificationClickPerformer.perform(Self.navClickAction(action))
+        notificationClickPerformer.perform(action.notificationNavigationAction)
     }
 
 #if DEBUG
