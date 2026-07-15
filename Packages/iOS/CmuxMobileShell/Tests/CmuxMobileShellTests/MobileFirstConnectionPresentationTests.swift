@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import CmuxMobileShell
 
@@ -42,5 +43,18 @@ import Testing
             connectingSavedComputerID: nil,
             pendingHandoffID: "session-a"
         ).canStartConnection)
+    }
+
+    @Test func registryRefreshesBeforeLiveSessionLeaseExpires() {
+        let now = Date(timeIntervalSince1970: 1_000)
+
+        #expect(!MobileFirstConnectionRegistryRefreshPolicy.shouldRefresh(
+            lastRefreshAt: now.addingTimeInterval(-89),
+            now: now
+        ))
+        #expect(MobileFirstConnectionRegistryRefreshPolicy.shouldRefresh(
+            lastRefreshAt: now.addingTimeInterval(-90),
+            now: now
+        ))
     }
 }
