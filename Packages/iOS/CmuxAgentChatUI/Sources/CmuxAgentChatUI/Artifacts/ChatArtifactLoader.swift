@@ -79,6 +79,7 @@ public struct ChatArtifactLoader: Sendable {
     public let supportsArtifacts: Bool
     /// Whether directory stat results may route into a navigable folder browser.
     public let supportsDirectoryBrowsing: Bool
+    /// Authorization and cache namespace for artifact operations.
     public let scope: ChatArtifactLoaderScope
 
     private let statHandler: @Sendable (_ path: String) async throws -> ChatArtifactStat
@@ -272,7 +273,8 @@ public struct ChatArtifactLoader: Sendable {
         size: Int64? = nil,
         onChunk: @escaping @Sendable (ChatArtifactChunk) async throws -> Void
     ) async throws {
-        guard let key = ChatArtifactContentCache.key(
+        guard scope != .unsupported,
+              let key = ChatArtifactContentCache.key(
             scopeKey: scope.cacheNamespace,
             path: path,
             modifiedAt: modifiedAt,

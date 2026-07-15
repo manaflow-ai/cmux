@@ -95,6 +95,32 @@ struct ChatArtifactContentCacheTests {
         #expect(await source.fetchCount(for: "artifact") == 1)
     }
 
+    @Test("unsupported loader scopes never share cached bytes")
+    func unsupportedScopeBypassesCache() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let bytes = Data("fixture".utf8)
+        let source = CountingContentSource(values: ["fixture": bytes])
+        let loader = ChatArtifactLoader(
+            supportsArtifacts: true,
+            contentCache: ChatArtifactContentCache(directory: directory),
+            stream: { _, receive in
+                try await source.fetch(key: "fixture", receive: receive)
+            }
+        )
+
+        for _ in 0..<2 {
+            try await loader.stream(
+                path: "/tmp/fixture.txt",
+                modifiedAt: Date(timeIntervalSince1970: 100),
+                size: Int64(bytes.count),
+                onChunk: { _ in }
+            )
+        }
+
+        #expect(await source.fetchCount(for: "fixture") == 2)
+    }
+
     private func stream(
         key: String,
         at seconds: TimeInterval,
