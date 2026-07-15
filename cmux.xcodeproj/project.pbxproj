@@ -204,6 +204,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D7032A070000000000000001 /* BrowserAuthPromptTextFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7032A070000000000000002 /* BrowserAuthPromptTextFormatter.swift */; };
 		B3770BA00000000000000001 /* BrowserAutomation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3770BA00000000000000002 /* BrowserAutomation.swift */; };
 		8054A0050000000000000005 /* BrowserAutomationProbeChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8054A0060000000000000006 /* BrowserAutomationProbeChannel.swift */; };
+		8054B0030000000000000003 /* BrowserAutomationRecoveryLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8054B0040000000000000004 /* BrowserAutomationRecoveryLifecycleTests.swift */; };
 		8054A0070000000000000007 /* BrowserAutomationSnapshotResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8054A0080000000000000008 /* BrowserAutomationSnapshotResult.swift */; };
 		BCBC0A0E0000000000000C01 /* BrowserChromeMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCBC0A0E0000000000000C02 /* BrowserChromeMetrics.swift */; };
 		BCBC0A0E0000000000000D01 /* BrowserChromeMetricsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCBC0A0E0000000000000D02 /* BrowserChromeMetricsTests.swift */; };
@@ -2175,6 +2176,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D7032A070000000000000002 /* BrowserAuthPromptTextFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserAuthPromptTextFormatter.swift; sourceTree = "<group>"; };
 		B3770BA00000000000000002 /* BrowserAutomation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserAutomation.swift; sourceTree = "<group>"; };
 		8054A0060000000000000006 /* BrowserAutomationProbeChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserAutomationProbeChannel.swift; sourceTree = "<group>"; };
+		8054B0040000000000000004 /* BrowserAutomationRecoveryLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserAutomationRecoveryLifecycleTests.swift; sourceTree = "<group>"; };
 		8054A0080000000000000008 /* BrowserAutomationSnapshotResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserAutomationSnapshotResult.swift; sourceTree = "<group>"; };
 		BCBC0A0E0000000000000C02 /* BrowserChromeMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserChromeMetrics.swift; sourceTree = "<group>"; };
 		BCBC0A0E0000000000000D02 /* BrowserChromeMetricsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserChromeMetricsTests.swift; sourceTree = "<group>"; };
@@ -5492,6 +5494,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B6585002B6585002B6585002 /* BrowserHiddenWebViewDiscardMemoryPressureTests.swift */,
 				B75040020000000000000002 /* BrowserDiscardedWebViewRestoreRetryTests.swift */,
 				B75040030000000000000002 /* BrowserDiscardRestoreHealPredicateTests.swift */,
+				8054B0040000000000000004 /* BrowserAutomationRecoveryLifecycleTests.swift */,
 				B75040040000000000000002 /* BrowserInsecureHTTPAlertTestSupport.swift */,
 				B6585002B6585002B658PW02 /* BrowserPrewarmedWebViewPoolTests.swift */,
 				58C7B1B978620BE162CC057E /* BrowserPanelTests.swift */,
@@ -7644,6 +7647,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				74AB3F34FE3B4974A3A5D264 /* AutoNamingHookPayloadAdapterTests.swift in Sources */,
 				C0DE35870000000000000001 /* BackgroundWorkspacePrimeCoordinatorTests.swift in Sources */,
 				D3622000A1B2C3D4E5F60718 /* BrowserArrowKeyForwardingTests.swift in Sources */,
+				8054B0030000000000000003 /* BrowserAutomationRecoveryLifecycleTests.swift in Sources */,
 				BCBC0A0E0000000000000D01 /* BrowserChromeMetricsTests.swift in Sources */,
 				D7032A030000000000000001 /* BrowserClientCertificateCredentialPickerTests.swift in Sources */,
 				E12E88F82733EC42F32C36A3 /* BrowserConfigTests.swift in Sources */,

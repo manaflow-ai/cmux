@@ -218,6 +218,100 @@ struct BrowserAutomationWatchdogTests {
         followerJoinsContinuation.finish()
     }
 
+    @Test("Cancelling a joined check does not retain it until the leader finishes")
+    func followerCancellationDoesNotWaitForLeader() async {
+        var probeCompletion: (@MainActor @Sendable () -> Void)?
+        let (probeStarts, probeStartsContinuation) = AsyncStream.makeStream(of: Void.self)
+        var probeStartsIterator = probeStarts.makeAsyncIterator()
+        let (followerJoins, followerJoinsContinuation) = AsyncStream.makeStream(of: Void.self)
+        var followerJoinsIterator = followerJoins.makeAsyncIterator()
+        let watchdog = BrowserAutomationWatchdog()
+        let observedInstanceID = UUID()
+        let probe: BrowserAutomationWatchdog.Probe = { finish in
+            probeCompletion = finish
+            probeStartsContinuation.yield()
+        }
+
+        let leader = Task { @MainActor in
+            await watchdog.recoverIfUnresponsive(
+                observedInstanceID: observedInstanceID,
+                probes: [probe],
+                recover: { true }
+            )
+        }
+        let probeStarted: Void? = await probeStartsIterator.next()
+        #expect(probeStarted != nil)
+
+        let follower = Task { @MainActor in
+            followerJoinsContinuation.yield()
+            return await watchdog.recoverIfUnresponsive(
+                observedInstanceID: observedInstanceID,
+                probes: [probe],
+                recover: { true }
+            )
+        }
+        let followerJoined: Void? = await followerJoinsIterator.next()
+        #expect(followerJoined != nil)
+        follower.cancel()
+
+        #expect(await follower.value == .cancelled)
+        probeCompletion?()
+        #expect(await leader.value == .responsive)
+        probeStartsContinuation.finish()
+        followerJoinsContinuation.finish()
+    }
+
+    @Test("Owner invalidation cancels joined checks without recovering the stale instance")
+    func ownerInvalidationSupersedesSharedRecovery() async {
+        var probeCompletion: (@MainActor @Sendable () -> Void)?
+        var recoveryCount = 0
+        let (probeStarts, probeStartsContinuation) = AsyncStream.makeStream(of: Void.self)
+        var probeStartsIterator = probeStarts.makeAsyncIterator()
+        let (followerJoins, followerJoinsContinuation) = AsyncStream.makeStream(of: Void.self)
+        var followerJoinsIterator = followerJoins.makeAsyncIterator()
+        let watchdog = BrowserAutomationWatchdog()
+        let observedInstanceID = UUID()
+        let probe: BrowserAutomationWatchdog.Probe = { finish in
+            probeCompletion = finish
+            probeStartsContinuation.yield()
+        }
+
+        let leader = Task { @MainActor in
+            await watchdog.recoverIfUnresponsive(
+                observedInstanceID: observedInstanceID,
+                probes: [probe],
+                recover: {
+                    recoveryCount += 1
+                    return true
+                }
+            )
+        }
+        let probeStarted: Void? = await probeStartsIterator.next()
+        #expect(probeStarted != nil)
+
+        let follower = Task { @MainActor in
+            followerJoinsContinuation.yield()
+            return await watchdog.recoverIfUnresponsive(
+                observedInstanceID: observedInstanceID,
+                probes: [probe],
+                recover: {
+                    recoveryCount += 1
+                    return true
+                }
+            )
+        }
+        let followerJoined: Void? = await followerJoinsIterator.next()
+        #expect(followerJoined != nil)
+        watchdog.invalidate()
+
+        #expect(await follower.value == .cancelled)
+        probeCompletion?()
+        #expect(await leader.value == .superseded)
+        #expect(recoveryCount == 0)
+        probeStartsContinuation.finish()
+        followerJoinsContinuation.finish()
+    }
+
     @Test("A newer browser instance supersedes every caller checking the old instance")
     func newerInstanceSupersedesOldRecovery() async {
         var firstProbeCount = 0

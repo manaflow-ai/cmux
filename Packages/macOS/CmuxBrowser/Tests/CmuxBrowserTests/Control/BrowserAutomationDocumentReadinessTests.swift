@@ -84,4 +84,27 @@ struct BrowserAutomationDocumentReadinessTests {
         #expect(!readiness.hasCommittedDocument(for: instanceID))
         registrationContinuation.finish()
     }
+
+    @Test("Invalidating document readiness cancels a pending commit wait")
+    func invalidationCancelsWaiter() async {
+        let (registrations, registrationContinuation) = AsyncStream.makeStream(of: Void.self)
+        var registrationIterator = registrations.makeAsyncIterator()
+        let readiness = BrowserAutomationDocumentReadiness {
+            registrationContinuation.yield()
+        }
+        let instanceID = UUID()
+        readiness.bind(to: instanceID, hasCommittedDocument: false)
+
+        let wait = Task { @MainActor in
+            await readiness.waitForCommit(instanceID: instanceID)
+        }
+        let registered: Void? = await registrationIterator.next()
+        #expect(registered != nil)
+        readiness.invalidate()
+
+        #expect(await wait.value == .cancelled)
+        #expect(!readiness.hasCommittedDocument(for: instanceID))
+        #expect(await readiness.waitForCommit(instanceID: instanceID) == .superseded)
+        registrationContinuation.finish()
+    }
 }
