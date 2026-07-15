@@ -5033,6 +5033,23 @@
         }
       }
     },
+    "mobile.settings.showMissingFiles": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show missing files"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "見つからないファイルを表示"
+          }
+        }
+      }
+    },
     "mobile.settings.wrapTitles": {
       "extractionState": "manual",
       "localizations": {

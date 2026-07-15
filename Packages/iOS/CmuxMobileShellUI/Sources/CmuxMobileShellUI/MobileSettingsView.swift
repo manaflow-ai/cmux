@@ -204,6 +204,14 @@ struct MobileSettingsView: View {
                 #endif
 
                 Section(L10n.string("mobile.settings.display", defaultValue: "Display")) {
+                    Toggle(isOn: $displaySettings.showMissingFiles) {
+                        Text(L10n.string(
+                            "mobile.settings.showMissingFiles",
+                            defaultValue: "Show missing files"
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsShowMissingFiles")
+
                     Toggle(isOn: $displaySettings.wrapWorkspaceTitles) {
                         Text(L10n.string("mobile.settings.wrapTitles", defaultValue: "Wrap Workspace Titles"))
                     }

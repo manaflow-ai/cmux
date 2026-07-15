@@ -5,31 +5,54 @@ public struct ChatArtifactGalleryPresentation: Sendable, Equatable {
     /// Created, Attached, and Referenced groups in their fixed display order.
     public let groups: [ChatArtifactGalleryGroup]
 
+    /// Whether every projected group has no visible rows.
+    public var isEmpty: Bool { groups.allSatisfy(\.items.isEmpty) }
+
     /// Creates a grouped presentation without changing the source snapshot.
     ///
     /// - Parameters:
     ///   - snapshot: Accumulated gallery rows to project.
     ///   - filter: Sheet-wide kind filter.
     ///   - sort: Ordering applied independently within each group.
+    ///   - includesMissingFiles: Whether rows absent from the Mac remain visible.
     ///   - classifier: Classifier used for extension-based buckets.
     public init(
         snapshot: ChatArtifactGallerySnapshot,
         filter: ChatArtifactGalleryFilter = .all,
         sort: ChatArtifactGallerySort = .recent,
+        includesMissingFiles: Bool = false,
         classifier: ChatArtifactGalleryClassifier = ChatArtifactGalleryClassifier()
     ) {
         groups = [
             ChatArtifactGalleryGroup(
                 kind: .created,
-                items: Self.project(snapshot.created, filter: filter, sort: sort, classifier: classifier)
+                items: Self.project(
+                    snapshot.created,
+                    filter: filter,
+                    sort: sort,
+                    includesMissingFiles: includesMissingFiles,
+                    classifier: classifier
+                )
             ),
             ChatArtifactGalleryGroup(
                 kind: .attached,
-                items: Self.project(snapshot.attached, filter: filter, sort: sort, classifier: classifier)
+                items: Self.project(
+                    snapshot.attached,
+                    filter: filter,
+                    sort: sort,
+                    includesMissingFiles: includesMissingFiles,
+                    classifier: classifier
+                )
             ),
             ChatArtifactGalleryGroup(
                 kind: .referenced,
-                items: Self.project(snapshot.referenced, filter: filter, sort: sort, classifier: classifier)
+                items: Self.project(
+                    snapshot.referenced,
+                    filter: filter,
+                    sort: sort,
+                    includesMissingFiles: includesMissingFiles,
+                    classifier: classifier
+                )
             ),
         ]
     }
@@ -46,11 +69,13 @@ public struct ChatArtifactGalleryPresentation: Sendable, Equatable {
         _ items: [ChatArtifactGalleryItem],
         filter: ChatArtifactGalleryFilter,
         sort: ChatArtifactGallerySort,
+        includesMissingFiles: Bool,
         classifier: ChatArtifactGalleryClassifier
     ) -> [ChatArtifactGalleryItem] {
+        let visible = includesMissingFiles ? items : items.filter(\.exists)
         let filtered = filter == .all
-            ? items
-            : items.filter { classifier.filter(for: $0) == filter }
+            ? visible
+            : visible.filter { classifier.filter(for: $0) == filter }
         switch sort {
         case .recent:
             return filtered

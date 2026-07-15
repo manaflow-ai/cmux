@@ -70,6 +70,34 @@ struct ChatArtifactGalleryPresentationTests {
         #expect(presentation.items(in: .created).map(\.displayName) == ["present.txt"])
         #expect(presentation.items(in: .attached).isEmpty)
         #expect(presentation.items(in: .referenced).map(\.displayName) == ["present.log"])
+        #expect(ChatArtifactGallerySwipeOrder(groups: presentation.groups).paths == [
+            "/created/present.txt",
+            "/referenced/present.log",
+        ])
+    }
+
+    @Test("missing files can be restored across every group")
+    func includesMissingFilesOnRequest() {
+        let missingCreated = item("/created/missing.txt", kind: .text, size: nil, exists: false)
+        let missingAttached = item("/attached/missing.png", kind: .image, size: nil, exists: false)
+        let missingReferenced = item("/referenced/missing.log", kind: .text, size: nil, exists: false)
+        let presentation = ChatArtifactGalleryPresentation(
+            snapshot: gallerySnapshot(
+                created: [missingCreated],
+                attached: [missingAttached],
+                referenced: [missingReferenced]
+            ),
+            includesMissingFiles: true
+        )
+
+        #expect(presentation.items(in: .created) == [missingCreated])
+        #expect(presentation.items(in: .attached) == [missingAttached])
+        #expect(presentation.items(in: .referenced) == [missingReferenced])
+        #expect(ChatArtifactGallerySwipeOrder(groups: presentation.groups).paths == [
+            missingCreated.path,
+            missingAttached.path,
+            missingReferenced.path,
+        ])
     }
 
     private func gallerySnapshot(

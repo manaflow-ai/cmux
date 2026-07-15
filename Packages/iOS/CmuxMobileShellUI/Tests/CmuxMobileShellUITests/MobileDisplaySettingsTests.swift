@@ -42,6 +42,22 @@ import Testing
         #expect(MobileDisplaySettings(defaults: defaults).showAltScreenNotice)
     }
 
+    @Test func showMissingFilesDefaultsToFalseWithoutAWrite() throws {
+        let defaults = try makeDefaults("showMissingFilesDefaults")
+        let settings = MobileDisplaySettings(defaults: defaults)
+        #expect(!settings.showMissingFiles)
+        #expect(defaults.object(forKey: "cmux.mobile.showMissingFiles") == nil)
+    }
+
+    @Test func showMissingFilesPersistsAcrossInstances() throws {
+        let defaults = try makeDefaults("showMissingFilesPersists")
+        let settings = MobileDisplaySettings(defaults: defaults)
+        settings.showMissingFiles = true
+        #expect(MobileDisplaySettings(defaults: defaults).showMissingFiles)
+        settings.showMissingFiles = false
+        #expect(!MobileDisplaySettings(defaults: defaults).showMissingFiles)
+    }
+
     @Test func previewLineCountPersistsAcrossInstances() throws {
         let defaults = try makeDefaults("persists")
         let settings = MobileDisplaySettings(defaults: defaults)

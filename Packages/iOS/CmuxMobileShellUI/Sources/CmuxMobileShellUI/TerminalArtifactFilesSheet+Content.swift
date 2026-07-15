@@ -146,7 +146,16 @@ extension TerminalArtifactFilesSheet {
         case .failed:
             failureView { await loadFirstSessionPage(query: nil) }
         case .loaded(let snapshot):
-            if snapshot.isEmpty {
+            let visibleSnapshotIsEmpty = displaySettings.showMissingFiles
+                ? snapshot.isEmpty
+                : ChatArtifactGalleryPresentation(snapshot: snapshot).isEmpty
+            let presentation = ChatArtifactGalleryPresentation(
+                snapshot: snapshot,
+                filter: galleryFilter,
+                sort: gallerySort,
+                includesMissingFiles: displaySettings.showMissingFiles
+            )
+            if visibleSnapshotIsEmpty {
                 ScrollView {
                     ContentUnavailableView(
                         String(
@@ -162,11 +171,6 @@ extension TerminalArtifactFilesSheet {
                     await loadFirstSessionPage(query: nil, preservingContent: true)
                 }
             } else {
-                let presentation = ChatArtifactGalleryPresentation(
-                    snapshot: snapshot,
-                    filter: galleryFilter,
-                    sort: gallerySort
-                )
                 let created = presentation.items(in: .created)
                 let attached = presentation.items(in: .attached)
                 let referenced = presentation.items(in: .referenced)
@@ -183,7 +187,9 @@ extension TerminalArtifactFilesSheet {
                                 defaultValue: "Created by agent",
                                 bundle: .module
                             ),
-                            count: usesCompleteSessionSnapshot ? created.count : snapshot.createdTotal,
+                            count: displaySettings.showMissingFiles
+                                ? (usesCompleteSessionSnapshot ? created.count : snapshot.createdTotal)
+                                : nil,
                             items: created,
                             expanded: $createdExpanded,
                             swipeOrder: swipeOrder
@@ -194,7 +200,9 @@ extension TerminalArtifactFilesSheet {
                                 defaultValue: "You attached",
                                 bundle: .module
                             ),
-                            count: usesCompleteSessionSnapshot ? attached.count : snapshot.attachedTotal,
+                            count: displaySettings.showMissingFiles
+                                ? (usesCompleteSessionSnapshot ? attached.count : snapshot.attachedTotal)
+                                : nil,
                             items: attached,
                             expanded: $attachedExpanded,
                             swipeOrder: swipeOrder
@@ -205,9 +213,11 @@ extension TerminalArtifactFilesSheet {
                                 defaultValue: "Referenced",
                                 bundle: .module
                             ),
-                            count: usesCompleteSessionSnapshot
-                                ? referenced.count
-                                : snapshot.referencedTotal,
+                            count: displaySettings.showMissingFiles
+                                ? (usesCompleteSessionSnapshot
+                                    ? referenced.count
+                                    : snapshot.referencedTotal)
+                                : nil,
                             items: referenced,
                             expanded: $referencedExpanded,
                             swipeOrder: swipeOrder,
@@ -281,7 +291,8 @@ extension TerminalArtifactFilesSheet {
             let presentation = ChatArtifactGalleryPresentation(
                 snapshot: snapshot,
                 filter: galleryFilter,
-                sort: gallerySort
+                sort: gallerySort,
+                includesMissingFiles: displaySettings.showMissingFiles
             )
             let items = presentation.items(in: .referenced)
             let swipeOrder = ChatArtifactGallerySwipeOrder(items: items)
@@ -349,7 +360,7 @@ extension TerminalArtifactFilesSheet {
 
     private func artifactSection(
         title: String,
-        count: Int,
+        count: Int?,
         items: [ChatArtifactGalleryItem],
         expanded: Binding<Bool>,
         swipeOrder: ChatArtifactGallerySwipeOrder,
@@ -400,7 +411,7 @@ extension TerminalArtifactFilesSheet {
                 .padding(.vertical, 12)
             }
         } label: {
-            Text(verbatim: "\(title) (\(count))")
+            Text(verbatim: count.map { "\(title) (\($0))" } ?? title)
                 .font(.headline)
         }
         .padding(.horizontal, 16)

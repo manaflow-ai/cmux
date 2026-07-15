@@ -48,6 +48,7 @@ struct TerminalArtifactFilesSheet: View {
     @State var liveRefreshState = ChatArtifactGalleryLiveRefreshState()
     @State var sessionViewportIsAtTopOrFits = true
     @State var lastHandledRefreshSignal: TerminalArtifactGalleryRefreshSignal
+    @Environment(MobileDisplaySettings.self) var displaySettings
     @Environment(\.dismiss) private var dismiss
 
     init(
@@ -332,6 +333,7 @@ struct TerminalArtifactFilesSheet: View {
 
         let expectedFilter = galleryFilter
         let expectedSort = gallerySort
+        let expectedShowMissingFiles = displaySettings.showMissingFiles
         let expectedQuery = query
         eagerPagingState = .loading
         do {
@@ -358,6 +360,7 @@ struct TerminalArtifactFilesSheet: View {
             guard !Task.isCancelled,
                   galleryFilter == expectedFilter,
                   gallerySort == expectedSort,
+                  displaySettings.showMissingFiles == expectedShowMissingFiles,
                   queryIsCurrent else { return }
             let currentState = query == nil ? sessionState : searchState
             guard case .loaded(let currentSnapshot) = currentState,
@@ -463,7 +466,9 @@ struct TerminalArtifactFilesSheet: View {
     static let pageSize = 60
 
     var usesCompleteSessionSnapshot: Bool {
-        galleryFilter != .all || gallerySort != .recent
+        galleryFilter != .all
+            || gallerySort != .recent
+            || !displaySettings.showMissingFiles
     }
 
     var eagerPagingTaskID: String {
@@ -478,6 +483,7 @@ struct TerminalArtifactFilesSheet: View {
         return [
             galleryFilter.rawValue,
             gallerySort.rawValue,
+            String(displaySettings.showMissingFiles),
             query,
             cursor,
             String(eagerPagingRevision),
