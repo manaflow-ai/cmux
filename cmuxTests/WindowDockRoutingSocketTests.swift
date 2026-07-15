@@ -101,24 +101,6 @@ struct WindowDockRoutingSocketTests {
         try body(manager, workspace, windowId)
     }
 
-    @Test("Design Mode resolves a window Dock panel to the selected workspace")
-    @MainActor
-    func designModeResolvesWindowDockWorkspace() throws {
-        try withSocketAppContext { _, workspace, windowId in
-            let appDelegate = try #require(AppDelegate.shared)
-            let dock = appDelegate.windowDock(forWindowId: windowId)
-            let panel = TerminalPanel(workspaceId: dock.workspaceId)
-            dock.panels[panel.id] = panel
-
-            let resolved = appDelegate.workspaceForBrowserDesignModePanel(
-                panelId: panel.id,
-                preferredWorkspaceId: panel.workspaceId
-            )
-
-            #expect(resolved === workspace)
-        }
-    }
-
     @Test("Legacy global Dock alias workspace_id routes to the caller window's Dock")
     @MainActor
     func legacyDockAliasRoutesToCallerWindowDock() throws {

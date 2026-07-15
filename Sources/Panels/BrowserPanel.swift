@@ -3005,14 +3005,14 @@ final class BrowserPanel: Panel, ObservableObject {
         ),
         javaScriptEvaluator: BrowserDesignModeJavaScriptEvaluator(),
         screenshotEvaluator: BrowserDesignModeScreenshotEvaluator(),
-        canEnable: { [weak self] in
-            self?.shouldRenderWebView == true
+        canEnable: { [weak self] in self?.shouldRenderWebView == true
                 && self?.isMainFrameProvisionalNavigationActive == false
                 && self?.webView.url != nil
         },
-        promptSender: { [weak self] prompt, replacingUnknownDraft, operationIsCurrent in
-            guard let self else { throw BrowserDesignModeSendError.terminalUnavailable }
-            try await self.sendDesignModePromptToAgent(prompt, replacingUnknownDraft: replacingUnknownDraft, operationIsCurrent: operationIsCurrent)
+        clipboardWriter: { prompt in
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            return pasteboard.setString(prompt, forType: .string)
         },
         onActivityChanged: { [weak self] in self?.reevaluateHiddenWebViewDiscardScheduling(reason: "design_mode_changed") }
     )

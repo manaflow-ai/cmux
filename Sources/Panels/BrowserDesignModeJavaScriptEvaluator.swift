@@ -31,7 +31,7 @@ final class BrowserDesignModeJavaScriptEvaluator {
                     Task { @MainActor [weak self] in
                         self?.finish(
                             operationID,
-                            throwing: BrowserDesignModeSendError.operationTimedOut
+                            throwing: BrowserDesignModeError.operationTimedOut
                         )
                     }
                 }

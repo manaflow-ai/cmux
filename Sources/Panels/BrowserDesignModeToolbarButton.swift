@@ -9,7 +9,7 @@ struct BrowserDesignModeToolbarButton: View {
     var body: some View {
         Button {
             Task { @MainActor in
-                await controller.presentEditor(reason: "toolbar")
+                await controller.toggle(reason: "toolbar")
             }
         } label: {
             CmuxSystemSymbolImage(
@@ -23,7 +23,6 @@ struct BrowserDesignModeToolbarButton: View {
         .buttonStyle(OmnibarAddressButtonStyle())
         .frame(width: hitSize, height: hitSize, alignment: .center)
         .disabled(controller.phase == .activating || controller.phase == .deactivating)
-        .browserDesignModeEditorPopover(controller: controller)
         .safeHelp(
             String(
                 format: String(
@@ -34,19 +33,5 @@ struct BrowserDesignModeToolbarButton: View {
             )
         )
         .accessibilityIdentifier("BrowserDesignModeButton")
-    }
-}
-
-extension View {
-    func browserDesignModeEditorPopover(controller: BrowserDesignModeController) -> some View {
-        popover(
-            isPresented: Binding(
-                get: { controller.editorPresented },
-                set: { controller.editorPresented = $0 }
-            ),
-            arrowEdge: .bottom
-        ) {
-            BrowserDesignModeEditor(controller: controller)
-        }
     }
 }

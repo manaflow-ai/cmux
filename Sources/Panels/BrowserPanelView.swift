@@ -1416,7 +1416,6 @@ struct BrowserPanelView: View {
         .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         .safeHelp(String(localized: "browser.moreActions", defaultValue: "More Actions"))
         .accessibilityIdentifier("BrowserOverflowMenu")
-        .browserDesignModeEditorPopover(controller: panel.designModeController)
     }
 
     private var browserThemeModeButton: some View {

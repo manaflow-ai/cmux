@@ -31,6 +31,7 @@
   const maxStyleValueCharacters = 512;
   const maxSnippetCharacters = 2400;
   const maxSnippetNodes = 512;
+  const maxRequestedChangeCharacters = 4000;
   const maxSelectionRecoveryAttempts = 8;
   const mutationEmissionInterval = 100;
   const redactedValue = "<redacted>";
@@ -58,6 +59,12 @@
   let mutationEmissionFrame = 0;
   let lastMutationEmissionAt = 0;
   let lastMutationEmissionSignature = "";
+  let composerStrings = {};
+  let requestedChange = "";
+  let copyState = "idle";
+  let copyResultMessage = "";
+  let copyInFlight = false;
+  let composerNeedsFocus = false;
   const edits = new Map();
   const styleOriginals = new Map();
   const textOriginals = new Map();
@@ -701,11 +708,10 @@
     if (overlayHost?.isConnected) return;
     overlayHost = document.createElement("div");
     overlayHost.setAttribute("data-cmux-design-mode", "overlay");
-    overlayHost.setAttribute("aria-hidden", "true");
     overlayHost.style.setProperty("all", "initial", "important");
     overlayHost.style.setProperty("position", "fixed", "important");
     overlayHost.style.setProperty("inset", "0", "important");
-    overlayHost.style.setProperty("pointer-events", "none", "important");
+    overlayHost.style.setProperty("pointer-events", "auto", "important");
     overlayHost.style.setProperty("z-index", "2147483647", "important");
     const shadow = overlayHost.attachShadow({ mode: "closed" });
 
@@ -743,16 +749,194 @@
       textOverflow: "ellipsis",
     });
 
-    shadow.append(shield, margin, border, padding, content, badge);
+    const style = document.createElement("style");
+    style.textContent = `
+      .cmux-composer {
+        display: none;
+        position: fixed;
+        align-items: center;
+        gap: 8px;
+        width: min(640px, calc(100vw - 16px));
+        min-height: 48px;
+        padding: 6px 7px;
+        border: 1px solid rgba(255, 255, 255, 0.13);
+        border-radius: 15px;
+        box-sizing: border-box;
+        color: rgb(244, 244, 245);
+        background: rgba(30, 30, 32, 0.98);
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.30), 0 2px 8px rgba(0, 0, 0, 0.28);
+        font: 13px/1.4 -apple-system, BlinkMacSystemFont, sans-serif;
+        pointer-events: auto;
+        z-index: 2;
+      }
+      .cmux-composer-header {
+        display: flex;
+        align-items: center;
+        flex: 0 0 auto;
+        min-height: 34px;
+      }
+      .cmux-element-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        max-width: 180px;
+        height: 34px;
+        padding: 0 2px 0 5px;
+        border: 0;
+        box-sizing: border-box;
+        color: rgb(128, 177, 255);
+        background: transparent;
+        font: 500 13px/1 -apple-system, BlinkMacSystemFont, sans-serif;
+      }
+      .cmux-element-icon {
+        color: rgb(120, 170, 255);
+        font: 600 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      .cmux-element-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .cmux-remove {
+        width: 20px;
+        height: 20px;
+        padding: 0;
+        border: 0;
+        border-radius: 5px;
+        color: rgb(162, 162, 168);
+        background: transparent;
+        font: 16px/20px -apple-system, BlinkMacSystemFont, sans-serif;
+        cursor: pointer;
+      }
+      .cmux-remove:hover { color: white; background: rgba(255, 255, 255, 0.10); }
+      .cmux-request {
+        display: block;
+        flex: 1 1 auto;
+        min-width: 0;
+        width: auto;
+        min-height: 34px;
+        max-height: 112px;
+        padding: 7px 0 6px;
+        border: 0;
+        box-sizing: border-box;
+        color: rgb(245, 245, 247);
+        background: transparent;
+        font: 13px/1.45 -apple-system, BlinkMacSystemFont, sans-serif;
+        caret-color: rgb(120, 170, 255);
+        outline: none;
+        resize: none;
+      }
+      .cmux-request::placeholder { color: rgb(142, 142, 148); }
+      .cmux-composer-footer {
+        display: flex;
+        align-items: center;
+        flex: 0 0 auto;
+        gap: 8px;
+        min-height: 34px;
+      }
+      .cmux-copy-status {
+        min-width: 0;
+        flex: 1;
+        color: rgb(166, 166, 172);
+        font-size: 11px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .cmux-copy-status[data-state="copied"] { color: rgb(112, 205, 143); }
+      .cmux-copy-status[data-state="failed"] { color: rgb(255, 128, 128); }
+      .cmux-copy-status:empty { display: none; }
+      .cmux-shortcut { color: rgb(130, 130, 136); font-size: 11px; }
+      .cmux-copy {
+        min-width: 58px;
+        height: 32px;
+        padding: 0 12px;
+        border: 0;
+        border-radius: 10px;
+        color: white;
+        background: rgb(64, 122, 235);
+        font: 600 12px/1 -apple-system, BlinkMacSystemFont, sans-serif;
+        cursor: pointer;
+      }
+      .cmux-copy:hover:not(:disabled) { background: rgb(76, 135, 247); }
+      .cmux-copy:disabled { color: rgb(165, 165, 170); background: rgba(255, 255, 255, 0.08); cursor: default; }
+      .cmux-remove:focus-visible, .cmux-copy:focus-visible {
+        outline: 2px solid rgb(120, 170, 255);
+        outline-offset: 1px;
+      }
+    `;
+
+    const composer = document.createElement("div");
+    composer.className = "cmux-composer";
+    composer.setAttribute("role", "dialog");
+    composer.setAttribute("aria-modal", "false");
+
+    const composerHeader = document.createElement("div");
+    composerHeader.className = "cmux-composer-header";
+    const elementChip = document.createElement("div");
+    elementChip.className = "cmux-element-chip";
+    const elementIcon = document.createElement("span");
+    elementIcon.className = "cmux-element-icon";
+    elementIcon.textContent = "<>";
+    const elementName = document.createElement("span");
+    elementName.className = "cmux-element-name";
+    const removeSelection = document.createElement("button");
+    removeSelection.className = "cmux-remove";
+    removeSelection.type = "button";
+    removeSelection.textContent = "×";
+    elementChip.append(elementIcon, elementName, removeSelection);
+    composerHeader.append(elementChip);
+
+    const request = document.createElement("textarea");
+    request.className = "cmux-request";
+    request.rows = 1;
+    request.maxLength = maxRequestedChangeCharacters;
+    request.spellcheck = true;
+
+    const composerFooter = document.createElement("div");
+    composerFooter.className = "cmux-composer-footer";
+    const copyStatus = document.createElement("span");
+    copyStatus.className = "cmux-copy-status";
+    copyStatus.setAttribute("aria-live", "polite");
+    const copyShortcut = document.createElement("span");
+    copyShortcut.className = "cmux-shortcut";
+    const copyButton = document.createElement("button");
+    copyButton.className = "cmux-copy";
+    copyButton.type = "button";
+    composerFooter.append(copyStatus, copyShortcut, copyButton);
+    composer.append(composerHeader, request, composerFooter);
+
+    request.addEventListener("input", () => {
+      requestedChange = bounded(request.value, maxRequestedChangeCharacters);
+      if (request.value !== requestedChange) request.value = requestedChange;
+      copyState = "idle";
+      copyResultMessage = "";
+      refreshComposerControls();
+    });
+    request.addEventListener("keydown", (event) => {
+      if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+        event.preventDefault();
+        event.stopPropagation();
+        requestCopy();
+      }
+    });
+    removeSelection.addEventListener("click", () => clearSelection());
+    copyButton.addEventListener("click", () => requestCopy());
+
+    shadow.append(style, shield, margin, border, padding, content, badge, composer);
     document.documentElement.appendChild(overlayHost);
-    overlay = { shield, margin, border, padding, content, badge };
+    overlay = {
+      shield, margin, border, padding, content, badge, composer,
+      elementName, removeSelection, request, copyStatus, copyShortcut, copyButton,
+    };
   };
 
   const hideOverlay = () => {
     if (!overlay) return;
-    for (const [name, element] of Object.entries(overlay)) {
-      element.style.display = name === "shield" && enabled ? "block" : "none";
+    for (const name of ["margin", "border", "padding", "content", "badge", "composer"]) {
+      overlay[name].style.display = "none";
     }
+    overlay.shield.style.display = enabled && !captureHidden ? "block" : "none";
   };
 
   const place = (element, rect) => {
@@ -761,6 +945,69 @@
     element.style.top = `${rect.y}px`;
     element.style.width = `${Math.max(0, rect.width)}px`;
     element.style.height = `${Math.max(0, rect.height)}px`;
+  };
+
+  const composerState = () => ({
+    visible: Boolean(enabled && !captureHidden && selectedBaseline),
+    tag_name: selectedBaseline?.tag_name || null,
+    requested_change: requestedChange,
+    can_copy: Boolean(selectedBaseline && !copyInFlight),
+    copy_state: copyState,
+    focused: overlay?.request?.getRootNode()?.activeElement === overlay?.request,
+  });
+
+  const refreshComposerControls = () => {
+    if (!overlay) return;
+    const selected = resolveSelectedElement();
+    if (!enabled || captureHidden || !selected || !selectedBaseline) {
+      overlay.composer.style.display = "none";
+      return;
+    }
+    overlay.elementName.textContent = selectedBaseline.tag_name || selected.localName || "";
+    overlay.removeSelection.setAttribute("aria-label", String(composerStrings.removeSelection || ""));
+    overlay.composer.setAttribute("aria-label", String(composerStrings.describeChange || ""));
+    overlay.request.placeholder = String(composerStrings.describeChange || "");
+    overlay.request.setAttribute("aria-label", String(composerStrings.describeChange || ""));
+    if (overlay.request.value !== requestedChange) overlay.request.value = requestedChange;
+    overlay.request.readOnly = copyInFlight;
+    overlay.copyShortcut.textContent = String(composerStrings.copyShortcut || "");
+    overlay.copyButton.disabled = copyInFlight;
+
+    let buttonTitle = String(composerStrings.copy || "");
+    let status = "";
+    if (copyState === "copying") buttonTitle = String(composerStrings.copying || "");
+    if (copyState === "copied") {
+      buttonTitle = String(composerStrings.copied || "");
+      status = String(composerStrings.copied || "");
+    }
+    if (copyState === "failed") status = copyResultMessage;
+    overlay.copyButton.textContent = buttonTitle;
+    overlay.copyButton.setAttribute("aria-label", buttonTitle);
+    overlay.copyStatus.textContent = status;
+    overlay.copyStatus.dataset.state = copyState;
+  };
+
+  const placeComposer = (rect) => {
+    refreshComposerControls();
+    if (!overlay || overlay.composer.style.display === "none") return;
+    const composer = overlay.composer;
+    const inset = 8;
+    const gap = 10;
+    composer.style.visibility = "hidden";
+    composer.style.left = `${inset}px`;
+    composer.style.top = `${inset}px`;
+    const bounds = composer.getBoundingClientRect();
+    const width = bounds.width;
+    const height = bounds.height;
+    const maximumLeft = Math.max(inset, globalThis.innerWidth - width - inset);
+    const maximumTop = Math.max(inset, globalThis.innerHeight - height - inset);
+
+    let left = rect.left + ((rect.width - width) / 2);
+    let top = rect.bottom + gap;
+    if (top > maximumTop) top = rect.top - height - gap;
+    composer.style.left = `${Math.min(maximumLeft, Math.max(inset, left))}px`;
+    composer.style.top = `${Math.min(maximumTop, Math.max(inset, top))}px`;
+    composer.style.visibility = "visible";
   };
 
   const refreshOverlay = () => {
@@ -814,11 +1061,22 @@
     const selector = element === selected
       ? selectedBaseline?.selector || element.localName || "element"
       : (element.id ? `#${cssEscape(element.id)}` : classSelector(element) || element.localName || "element");
-    overlay.badge.textContent = `${selector}  ${Math.round(rect.width)} × ${Math.round(rect.height)}`;
-    overlay.badge.style.display = "block";
-    const badgeHeight = overlay.badge.getBoundingClientRect().height || 24;
-    overlay.badge.style.left = `${Math.max(8, Math.min(rect.x, globalThis.innerWidth - 220))}px`;
-    overlay.badge.style.top = `${rect.y > badgeHeight + 8 ? rect.y - badgeHeight - 5 : rect.bottom + 5}px`;
+    if (element === selected) {
+      overlay.badge.style.display = "none";
+      overlay.composer.style.display = "flex";
+      placeComposer(rect);
+      if (composerNeedsFocus) {
+        overlay.request.focus({ preventScroll: true });
+        composerNeedsFocus = false;
+      }
+    } else {
+      overlay.composer.style.display = "none";
+      overlay.badge.textContent = `${selector}  ${Math.round(rect.width)} × ${Math.round(rect.height)}`;
+      overlay.badge.style.display = "block";
+      const badgeHeight = overlay.badge.getBoundingClientRect().height || 24;
+      overlay.badge.style.left = `${Math.max(8, Math.min(rect.x, globalThis.innerWidth - 220))}px`;
+      overlay.badge.style.top = `${rect.y > badgeHeight + 8 ? rect.y - badgeHeight - 5 : rect.bottom + 5}px`;
+    }
   };
 
   const scheduleOverlayRefresh = () => {
@@ -842,6 +1100,7 @@
         selectionIdentityNeedsRefresh = false;
         selectionRecoveryAttemptsRemaining = 0;
         cancelSelectionRecovery();
+        resetComposer();
         revision += 1;
         scheduleMutationEmission();
         scheduleOverlayRefresh();
@@ -972,6 +1231,60 @@
     if (touchesSelection) scheduleMutationRefresh();
   };
 
+  const resetComposer = () => {
+    requestedChange = "";
+    copyState = "idle";
+    copyResultMessage = "";
+    copyInFlight = false;
+    composerNeedsFocus = false;
+    if (overlay?.request) overlay.request.value = "";
+  };
+
+  const clearSelection = () => {
+    if (!selectedBaseline) return snapshot();
+    restoreAll();
+    selectedElement = null;
+    selectedBaseline = null;
+    selectedIdentity = null;
+    hoveredElement = null;
+    selectionIdentityNeedsRefresh = false;
+    selectionRecoveryAttemptsRemaining = 0;
+    captureSelectionValid = true;
+    cancelSelectionRecovery();
+    resetComposer();
+    revision += 1;
+    scheduleOverlayRefresh();
+    return emit();
+  };
+
+  const requestCopy = () => {
+    const value = bounded(requestedChange.trim(), maxRequestedChangeCharacters);
+    if (!selectedBaseline || copyInFlight) return composerState();
+    requestedChange = value;
+    copyState = "copying";
+    copyResultMessage = "";
+    copyInFlight = true;
+    refreshComposerControls();
+    try {
+      if (!handler) throw new Error();
+      handler.postMessage({ type: "copy", requested_change: requestedChange });
+    } catch (_) {
+      copyState = "failed";
+      copyResultMessage = String(composerStrings.copyFailed || "");
+      copyInFlight = false;
+      refreshComposerControls();
+    }
+    return composerState();
+  };
+
+  const isComposerEvent = (event) => {
+    const composer = overlay?.composer;
+    if (!composer) return false;
+    return (event.composedPath?.() || []).some((node) => (
+      node === composer || (node?.nodeType && composer.contains(node))
+    ));
+  };
+
   const selectElement = (element) => {
     if (!element || element === overlayHost || overlayHost?.contains(element)) return snapshot();
     cancelSelectionRecovery();
@@ -983,7 +1296,11 @@
     }
     const validatedBaseline = baselineFor(element);
     if (!validatedBaseline) return snapshot();
-    if (selectedElement !== element && edits.size) restoreAll();
+    if (selectedElement !== element) {
+      if (edits.size) restoreAll();
+      resetComposer();
+      composerNeedsFocus = true;
+    }
     selectedElement = element;
     selectedBaseline = validatedBaseline;
     selectedIdentity = identityFor(element);
@@ -992,34 +1309,59 @@
     captureSelectionValid = true;
     hoveredElement = null;
     revision += 1;
-    scheduleOverlayRefresh();
+    if (composerNeedsFocus) {
+      if (overlayFrame) cancelAnimationFrame(overlayFrame);
+      overlayFrame = 0;
+      refreshOverlay();
+    } else {
+      scheduleOverlayRefresh();
+    }
     return emit();
   };
 
   const onPointerMove = (event) => {
     if (!enabled || captureHidden) return;
+    if (event.target === overlayHost) return;
+    if (isComposerEvent(event)) return;
     event.preventDefault();
     event.stopPropagation();
     event.stopImmediatePropagation();
+    if (selectedBaseline) {
+      if (hoveredElement) {
+        hoveredElement = null;
+        scheduleOverlayRefresh();
+      }
+      return;
+    }
     const candidate = elementUnderPoint(event.clientX, event.clientY);
     if (!candidate || candidate === hoveredElement) return;
     hoveredElement = candidate;
     scheduleOverlayRefresh();
   };
 
+  const onPointerLeave = () => {
+    if (!enabled || captureHidden || !hoveredElement) return;
+    hoveredElement = null;
+    scheduleOverlayRefresh();
+  };
+
   const elementUnderPoint = (x, y) => {
     const shield = overlay?.shield;
     shield?.style.setProperty("pointer-events", "none", "important");
+    overlayHost?.style.setProperty("pointer-events", "none", "important");
     try {
       const candidate = document.elementFromPoint(x, y);
       return candidate === overlayHost || overlayHost?.contains(candidate) ? null : candidate;
     } finally {
+      overlayHost?.style.setProperty("pointer-events", "auto", "important");
       shield?.style.setProperty("pointer-events", "auto", "important");
     }
   };
 
   const onPointerDown = (event) => {
     if (!enabled || captureHidden) return;
+    if (event.target === overlayHost) return;
+    if (isComposerEvent(event)) return;
     event.preventDefault();
     event.stopPropagation();
     event.stopImmediatePropagation();
@@ -1030,6 +1372,8 @@
 
   const blockPageGesture = (event) => {
     if (!enabled || captureHidden) return;
+    if (event.target === overlayHost) return;
+    if (isComposerEvent(event)) return;
     event.preventDefault();
     event.stopPropagation();
     event.stopImmediatePropagation();
@@ -1039,24 +1383,22 @@
     if (!enabled || captureHidden || event.key !== "Escape" || !selectedBaseline) return;
     event.preventDefault();
     event.stopPropagation();
-    restoreAll();
-    selectedElement = null;
-    selectedBaseline = null;
-    selectedIdentity = null;
-    selectionIdentityNeedsRefresh = false;
-    selectionRecoveryAttemptsRemaining = 0;
-    captureSelectionValid = true;
-    cancelSelectionRecovery();
-    revision += 1;
-    scheduleOverlayRefresh();
-    emit();
+    event.stopImmediatePropagation();
+    clearSelection();
   };
 
   const installListeners = () => {
     document.addEventListener("pointermove", onPointerMove, true);
+    document.addEventListener("pointerleave", onPointerLeave, true);
     document.addEventListener("pointerdown", onPointerDown, true);
-    for (const name of ["pointerup", "mousedown", "mouseup", "click", "dblclick", "contextmenu"]) {
+    document.addEventListener("click", onPointerDown, true);
+    overlay?.shield.addEventListener("pointermove", onPointerMove, true);
+    overlay?.shield.addEventListener("pointerleave", onPointerLeave, true);
+    overlay?.shield.addEventListener("pointerdown", onPointerDown, true);
+    overlay?.shield.addEventListener("click", onPointerDown, true);
+    for (const name of ["pointerup", "mousedown", "mouseup", "dblclick", "contextmenu"]) {
       document.addEventListener(name, blockPageGesture, true);
+      overlay?.shield.addEventListener(name, blockPageGesture, true);
     }
     document.addEventListener("keydown", onKeyDown, true);
     globalThis.addEventListener("scroll", scheduleOverlayRefresh, true);
@@ -1073,9 +1415,16 @@
 
   const removeListeners = () => {
     document.removeEventListener("pointermove", onPointerMove, true);
+    document.removeEventListener("pointerleave", onPointerLeave, true);
     document.removeEventListener("pointerdown", onPointerDown, true);
-    for (const name of ["pointerup", "mousedown", "mouseup", "click", "dblclick", "contextmenu"]) {
+    document.removeEventListener("click", onPointerDown, true);
+    overlay?.shield.removeEventListener("pointermove", onPointerMove, true);
+    overlay?.shield.removeEventListener("pointerleave", onPointerLeave, true);
+    overlay?.shield.removeEventListener("pointerdown", onPointerDown, true);
+    overlay?.shield.removeEventListener("click", onPointerDown, true);
+    for (const name of ["pointerup", "mousedown", "mouseup", "dblclick", "contextmenu"]) {
       document.removeEventListener(name, blockPageGesture, true);
+      overlay?.shield.removeEventListener(name, blockPageGesture, true);
     }
     document.removeEventListener("keydown", onKeyDown, true);
     globalThis.removeEventListener("scroll", scheduleOverlayRefresh, true);
@@ -1089,13 +1438,24 @@
   };
 
   const api = {
-    enable() {
+    enable(strings = {}) {
+      composerStrings = {
+        describeChange: String(strings.describeChange || ""),
+        copy: String(strings.copy || ""),
+        copying: String(strings.copying || ""),
+        copied: String(strings.copied || ""),
+        copyFailed: String(strings.copyFailed || ""),
+        removeSelection: String(strings.removeSelection || ""),
+        copyShortcut: String(strings.copyShortcut || ""),
+      };
       if (!enabled) {
         enabled = true;
         revision += 1;
         createOverlay();
         installListeners();
         scheduleOverlayRefresh();
+      } else {
+        refreshComposerControls();
       }
       return emit();
     },
@@ -1117,6 +1477,8 @@
       overlay = null;
       captureHidden = false;
       captureSelectionValid = true;
+      resetComposer();
+      composerStrings = {};
       lastMutationEmissionAt = 0;
       lastMutationEmissionSignature = "";
       const finalSnapshot = snapshot();
@@ -1130,6 +1492,28 @@
       let element = null;
       try { element = document.querySelector(String(selector || "")); } catch (_) {}
       return element ? selectElement(element) : snapshot();
+    },
+
+    setRequestedChange(value) {
+      requestedChange = bounded(String(value ?? ""), maxRequestedChangeCharacters);
+      copyState = "idle";
+      copyResultMessage = "";
+      copyInFlight = false;
+      refreshComposerControls();
+      return composerState();
+    },
+
+    composerState,
+
+    requestCopy,
+
+    setCopyResult(state, message) {
+      const next = String(state || "");
+      copyState = ["idle", "copying", "copied", "failed"].includes(next) ? next : "idle";
+      copyResultMessage = bounded(String(message || ""), 512);
+      copyInFlight = copyState === "copying";
+      refreshComposerControls();
+      return composerState();
     },
 
     applyStyle(property, value) {
