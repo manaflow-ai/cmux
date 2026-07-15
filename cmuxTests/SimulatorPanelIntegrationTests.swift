@@ -197,7 +197,7 @@ struct SimulatorPanelIntegrationTests {
     }
 
     @Test("External file drops target Simulator import instead of file previews")
-    func externalFileDropRouting() throws {
+    func externalFileDropRouting() async throws {
         let flags = CmuxFeatureFlags.shared
         let simulatorFlag = CmuxFeatureFlags.allFlags[5]
         let previousOverride = flags.overrideValue(for: simulatorFlag)
@@ -205,14 +205,31 @@ struct SimulatorPanelIntegrationTests {
         defer { flags.setOverride(previousOverride, for: simulatorFlag) }
         let workspace = Workspace()
         let terminalPanelID = try #require(workspace.focusedPanelId)
-        let panel = SimulatorPanel()
+        let client = SimulatorFeatureFlagPaneClient(devices: [SimulatorDevice(
+            id: "phone",
+            name: "iPhone",
+            runtimeIdentifier: "runtime",
+            runtimeName: "iOS 26.5",
+            deviceTypeIdentifier: "type",
+            family: .iPhone,
+            state: .booted,
+            isAvailable: true
+        )])
+        let panel = SimulatorPanel(client: client)
         defer { panel.close() }
         workspace.panels[panel.id] = panel
         let originalPanelCount = workspace.panels.count
 
         #expect(workspace.handleSimulatorExternalFileDrop(
             urls: [URL(fileURLWithPath: "/tmp/Fixture.app")], panelId: panel.id
+        ) == false)
+        await panel.coordinator.start()
+        #expect(workspace.handleSimulatorExternalFileDrop(
+            urls: [URL(fileURLWithPath: "/tmp/Fixture.app")], panelId: panel.id
         ) == true)
+        #expect(workspace.handleSimulatorExternalFileDrop(
+            urls: [URL(fileURLWithPath: "/tmp/Fixture.txt")], panelId: panel.id
+        ) == false)
         #expect(workspace.panels.count == originalPanelCount)
         #expect(workspace.handleSimulatorExternalFileDrop(urls: [], panelId: panel.id) == false)
 
@@ -380,15 +397,17 @@ private actor SimulatorFeatureFlagPaneClient: SimulatorPaneClient {
     private(set) var discoveryCount = 0
     private(set) var stopCount = 0
     private let blockStop: Bool
+    private let devices: [SimulatorDevice]
     private var stopContinuation: CheckedContinuation<Void, Never>?
 
-    init(blockStop: Bool = false) {
+    init(blockStop: Bool = false, devices: [SimulatorDevice] = []) {
         self.blockStop = blockStop
+        self.devices = devices
     }
 
     func discoverDevices() async throws -> [SimulatorDevice] {
         discoveryCount += 1
-        return []
+        return devices
     }
 
     func activateDevice(id: String, geometry: SimulatorSurfaceGeometry?) async throws {}

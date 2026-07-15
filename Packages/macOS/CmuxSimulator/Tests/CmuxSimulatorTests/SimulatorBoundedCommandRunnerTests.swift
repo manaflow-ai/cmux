@@ -140,6 +140,30 @@ struct SimulatorBoundedCommandRunnerTests {
         #expect(result.executionError?.contains("nonnegative") == true)
         #expect(!FileManager.default.fileExists(atPath: marker.path))
     }
+
+    @Test("Timeout returns only after its command process has exited")
+    func timeoutWaitsForProcessExit() async throws {
+        let processIdentifier = ProcessIdentifierRecorder()
+        let runner = SimulatorBoundedCommandRunner(
+            terminationGrace: .seconds(30),
+            sleeper: ImmediateBoundedCommandSleeper(),
+            didRunProcess: { processIdentifier.record($0) }
+        )
+
+        let result = await runner.runBounded(
+            directory: FileManager.default.currentDirectoryPath,
+            executable: "/bin/sh",
+            arguments: ["-c", "trap '' TERM; while :; do :; done"],
+            timeout: 5,
+            standardOutputLimit: 1_024,
+            standardErrorLimit: 1_024
+        )
+
+        #expect(result.timedOut)
+        let pid = try #require(processIdentifier.value)
+        #expect(Darwin.kill(pid, 0) != 0)
+        #expect(errno == ESRCH)
+    }
 }
 
 private func requireMarkerPID(_ marker: URL) async throws -> Int32 {

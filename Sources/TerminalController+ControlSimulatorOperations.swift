@@ -291,7 +291,8 @@ extension TerminalController {
                 : simulatorOperationDeadlines.permissionMutation
         }
         if case .permissionsRead = operation { return simulatorOperationDeadlines.permissionRead }
-        if case .accessibility = operation { return 35 }
+        if case .accessibility = operation { return simulatorOperationDeadlines.inspectionRead }
+        if case .foregroundApplication = operation { return simulatorOperationDeadlines.inspectionRead }
         return 35
     }
 

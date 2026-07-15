@@ -10,6 +10,7 @@ extension Workspace {
         guard CmuxFeatureFlags.shared.isSimulatorEnabled else { return false }
         guard !urls.isEmpty else { return false }
         let coordinator = panel.coordinator
+        guard coordinator.canImportDroppedFiles(urls) else { return false }
         Task { @MainActor in await coordinator.importDroppedFiles(urls) }
         return true
     }

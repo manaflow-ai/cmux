@@ -51,7 +51,7 @@ struct SimulatorBoundedCommandRunner: SimulatorBoundedCommandRunning, Sendable {
                 Task {
                     await cancellation.install(state)
                     if await cancellation.isCancelled {
-                        if let process = await state.finishImmediately(cancelledResult) {
+                        if let process = await state.requestTermination(cancelledResult) {
                             await terminate(process, state: state)
                         }
                         return
@@ -160,7 +160,7 @@ struct SimulatorBoundedCommandRunner: SimulatorBoundedCommandRunning, Sendable {
             } catch {
                 return
             }
-            if let process = await state.finishImmediately(timedOutResult) {
+            if let process = await state.requestTermination(timedOutResult) {
                 await terminate(process, state: state)
             }
         }

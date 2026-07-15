@@ -128,7 +128,9 @@ extension CMUXCLI {
             return request(
                 "simulator.foreground",
                 [:],
-                timeout: 20,
+                timeout: simulatorOperationDeadlines.clientTimeout(
+                    for: simulatorOperationDeadlines.inspectionRead
+                ),
                 output: .foregroundApplication
             )
         default:

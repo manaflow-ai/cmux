@@ -306,7 +306,17 @@ struct SimulatorPaneCoordinatorTests {
             Self.device(id: "phone", family: .iPhone, state: .booted),
         ])
         let coordinator = SimulatorPaneCoordinator(client: client)
+        #expect(!coordinator.canImportDroppedFiles([
+            URL(fileURLWithPath: "/tmp/Fixture.app"),
+        ]))
         await coordinator.start()
+
+        #expect(coordinator.canImportDroppedFiles([
+            URL(fileURLWithPath: "/tmp/Fixture.app"),
+        ]))
+        #expect(!coordinator.canImportDroppedFiles([
+            URL(fileURLWithPath: "/tmp/notes.txt"),
+        ]))
 
         await coordinator.importDroppedFiles([
             URL(fileURLWithPath: "/tmp/Fixture.app"),

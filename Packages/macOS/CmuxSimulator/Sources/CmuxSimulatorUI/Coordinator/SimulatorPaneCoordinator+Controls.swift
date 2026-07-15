@@ -2,6 +2,11 @@ import AppKit
 import CmuxSimulator
 import Foundation
 
+private let simulatorDroppedMediaExtensions = Set([
+    "png", "jpg", "jpeg", "heic", "heif", "webp", "gif", "tiff",
+    "bmp", "mov", "mp4", "m4v", "hevc", "vcf",
+])
+
 extension SimulatorPaneCoordinator {
     /// Whether the current worker negotiated a capability.
     /// - Parameter capability: The capability to test.
@@ -100,16 +105,14 @@ extension SimulatorPaneCoordinator {
     /// Simulator controls.
     /// - Parameter urls: File URLs dropped on the live device stage.
     public func importDroppedFiles(_ urls: [URL]) async {
-        guard let deviceID = selectedDeviceID else { return }
+        guard canImportDroppedFiles(urls), let deviceID = selectedDeviceID else { return }
         let applications = urls.filter {
             let extensionName = $0.pathExtension.lowercased()
             return extensionName == "app" || extensionName == "ipa"
         }
-        let mediaExtensions = Set([
-            "png", "jpg", "jpeg", "heic", "heif", "webp", "gif", "tiff",
-            "bmp", "mov", "mp4", "m4v", "hevc", "vcf",
-        ])
-        let media = urls.filter { mediaExtensions.contains($0.pathExtension.lowercased()) }
+        let media = urls.filter {
+            simulatorDroppedMediaExtensions.contains($0.pathExtension.lowercased())
+        }
         var installedApplication = false
         var installFailure: SimulatorFailure?
         for application in applications {
@@ -130,6 +133,17 @@ extension SimulatorPaneCoordinator {
             await refreshApplications()
         }
         if let installFailure { controlFailure = installFailure }
+    }
+
+    /// Returns whether this pane can accept at least one dropped application or media file.
+    public func canImportDroppedFiles(_ urls: [URL]) -> Bool {
+        guard selectedDeviceID != nil else { return false }
+        return urls.contains { url in
+            let extensionName = url.pathExtension.lowercased()
+            return extensionName == "app"
+                || extensionName == "ipa"
+                || simulatorDroppedMediaExtensions.contains(extensionName)
+        }
     }
 
     /// Reads plain text from the simulated pasteboard.

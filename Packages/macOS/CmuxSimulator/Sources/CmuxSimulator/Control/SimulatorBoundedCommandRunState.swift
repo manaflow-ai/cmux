@@ -27,13 +27,8 @@ actor SimulatorBoundedCommandRunState {
     func install(process: SimulatorProcessGroupProcess) -> Bool {
         self.process = process
         launchInProgress = false
-        if let deferredImmediateResult {
-            self.deferredImmediateResult = nil
-            completeImmediately(deferredImmediateResult)
-            return true
-        }
         completeIfReady()
-        return continuation == nil
+        return deferredImmediateResult != nil
     }
 
     func recordLaunchFailure(_ result: SimulatorBoundedCommandResult) {
@@ -64,7 +59,7 @@ actor SimulatorBoundedCommandRunState {
         completeIfReady()
     }
 
-    func finishImmediately(
+    func requestTermination(
         _ result: SimulatorBoundedCommandResult
     ) -> SimulatorProcessGroupProcess? {
         guard continuation != nil else { return process }
@@ -72,7 +67,14 @@ actor SimulatorBoundedCommandRunState {
             if deferredImmediateResult == nil { deferredImmediateResult = result }
             return nil
         }
-        completeImmediately(result)
+        guard process != nil else {
+            completeImmediately(result)
+            return nil
+        }
+        if deferredImmediateResult == nil { deferredImmediateResult = result }
+        deadlineTask?.cancel()
+        deadlineTask = nil
+        completeIfReady()
         return process
     }
 
@@ -104,15 +106,19 @@ actor SimulatorBoundedCommandRunState {
         deadlineTask = nil
         forceKillTask?.cancel()
         forceKillTask = nil
-        continuation.resume(returning: SimulatorBoundedCommandResult(
-            standardOutput: standardOutput.data,
-            standardError: standardError.data,
-            outputWasTruncated: standardOutput.truncated,
-            errorWasTruncated: standardError.truncated,
-            exitStatus: exitStatus,
-            timedOut: false,
-            executionError: nil
-        ))
+        if let deferredImmediateResult {
+            continuation.resume(returning: deferredImmediateResult)
+        } else {
+            continuation.resume(returning: SimulatorBoundedCommandResult(
+                standardOutput: standardOutput.data,
+                standardError: standardError.data,
+                outputWasTruncated: standardOutput.truncated,
+                errorWasTruncated: standardError.truncated,
+                exitStatus: exitStatus,
+                timedOut: false,
+                executionError: nil
+            ))
+        }
     }
 
     private func completeImmediately(_ result: SimulatorBoundedCommandResult) {

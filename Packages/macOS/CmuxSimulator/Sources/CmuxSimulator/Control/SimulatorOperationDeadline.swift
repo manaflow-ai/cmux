@@ -13,6 +13,8 @@ public struct SimulatorOperationDeadlines: Sendable {
     public let interfaceMutation: TimeInterval
     /// Maximum duration for reading Simulator permission state.
     public let permissionRead: TimeInterval
+    /// Maximum duration for reading worker-backed inspection state.
+    public let inspectionRead: TimeInterval
     /// Maximum duration for mutating one Simulator permission.
     public let permissionMutation: TimeInterval
     /// Maximum duration for resetting all Simulator permissions.
@@ -27,6 +29,7 @@ public struct SimulatorOperationDeadlines: Sendable {
         interfaceRead: TimeInterval = 130,
         interfaceMutation: TimeInterval = 250,
         permissionRead: TimeInterval = 35,
+        inspectionRead: TimeInterval = 35,
         permissionMutation: TimeInterval = 70,
         permissionResetAll: TimeInterval = 190,
         clientReceiptMargin: TimeInterval = 5
@@ -36,6 +39,7 @@ public struct SimulatorOperationDeadlines: Sendable {
         self.interfaceRead = interfaceRead
         self.interfaceMutation = interfaceMutation
         self.permissionRead = permissionRead
+        self.inspectionRead = inspectionRead
         self.permissionMutation = permissionMutation
         self.permissionResetAll = permissionResetAll
         self.clientReceiptMargin = clientReceiptMargin

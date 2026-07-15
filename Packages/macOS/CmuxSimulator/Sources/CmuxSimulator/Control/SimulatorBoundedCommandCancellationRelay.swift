@@ -19,6 +19,6 @@ actor SimulatorBoundedCommandCancellationRelay {
     ) async -> SimulatorProcessGroupProcess? {
         guard !cancelled else { return nil }
         cancelled = true
-        return await state?.finishImmediately(result)
+        return await state?.requestTermination(result)
     }
 }
