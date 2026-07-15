@@ -52,6 +52,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         panel.attachTextView(textView)
 
         textView.applyFilePreviewWordWrap(wordWrap, scrollView: scrollView)
+        Self.applyLineNumberRuler(on: scrollView, textView: textView, editor: self)
         Self.applyTheme(
             to: scrollView,
             backgroundColor: themeBackgroundColor,
@@ -81,6 +82,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         textView.panel = panel
         textView.applyFilePreviewTextEditorInsets()
         textView.applyFilePreviewWordWrap(wordWrap, scrollView: scrollView)
+        Self.applyLineNumberRuler(on: scrollView, textView: textView, editor: self)
         panel.attachTextView(textView)
         guard textView.string != panel.textContent else { return }
         context.coordinator.isApplyingPanelUpdate = true

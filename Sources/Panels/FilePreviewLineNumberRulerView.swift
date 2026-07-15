@@ -1,5 +1,13 @@
 import AppKit
 
+/// Gutter metrics that used to live on the editor's layout enum; the ruler is
+/// the only consumer.
+enum FilePreviewLineNumberRulerMetrics {
+    static let minimumLineNumberGutterWidth: CGFloat = 42
+    static let lineNumberFont = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+}
+
+
 extension FilePreviewTextEditor {
     static func applyLineNumberRuler(
         on scrollView: NSScrollView,
@@ -9,7 +17,7 @@ extension FilePreviewTextEditor {
         configureLineNumberRuler(
             on: scrollView,
             textView: textView,
-            showsLineNumbers: editor.showsLineNumbers,
+            showsLineNumbers: true,
             backgroundColor: editor.themeBackgroundColor,
             foregroundColor: editor.themeForegroundColor,
             drawsBackground: editor.drawsBackground
@@ -85,7 +93,7 @@ final class FilePreviewLineNumberRulerView: NSRulerView {
 
     init(scrollView: NSScrollView) {
         super.init(scrollView: scrollView, orientation: .verticalRuler)
-        ruleThickness = FilePreviewTextEditorLayout.minimumLineNumberGutterWidth
+        ruleThickness = FilePreviewLineNumberRulerMetrics.minimumLineNumberGutterWidth
         clientView = scrollView.documentView
     }
 
@@ -105,10 +113,10 @@ final class FilePreviewLineNumberRulerView: NSRulerView {
     override var requiredThickness: CGFloat {
         rebuildLineStartsIfNeeded()
         let digits = max(2, String(max(1, lineStarts.count)).count)
-        let font = FilePreviewTextEditorLayout.lineNumberFont
+        let font = FilePreviewLineNumberRulerMetrics.lineNumberFont
         let sample = String(repeating: "8", count: digits) as NSString
         let width = sample.size(withAttributes: [.font: font]).width
-        return max(FilePreviewTextEditorLayout.minimumLineNumberGutterWidth, ceil(width + 18))
+        return max(FilePreviewLineNumberRulerMetrics.minimumLineNumberGutterWidth, ceil(width + 18))
     }
 
     func attach(to scrollView: NSScrollView, textView: NSTextView) {
@@ -259,11 +267,11 @@ final class FilePreviewLineNumberRulerView: NSRulerView {
         rebuildLineStartsIfNeeded()
 
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: FilePreviewTextEditorLayout.lineNumberFont,
+            .font: FilePreviewLineNumberRulerMetrics.lineNumberFont,
             .foregroundColor: foregroundColor,
         ]
         let currentLineAttributes: [NSAttributedString.Key: Any] = [
-            .font: FilePreviewTextEditorLayout.lineNumberFont,
+            .font: FilePreviewLineNumberRulerMetrics.lineNumberFont,
             .foregroundColor: currentLineForegroundColor,
         ]
         let currentLineIndex = self.currentLineIndex(in: textView)
