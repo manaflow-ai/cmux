@@ -211,7 +211,7 @@ struct TerminalHierarchySheet: View {
     }
 
     private func terminalSection(_ pane: TerminalHierarchyPaneSnapshot) -> some View {
-        let canMutate = reorderGate.canMutate(workspaceID: snapshot.workspaceID)
+        let canMutate = mutationAffordancePolicy.canMutate
         return TerminalHierarchyPaneSection(
             pane: pane,
             closeEnabled: canMutate,
@@ -238,7 +238,7 @@ struct TerminalHierarchySheet: View {
         ToolbarItemGroup(placement: .primaryAction) {
             if snapshot.canReorder, snapshot.panes.contains(where: { $0.rows.count > 1 }) {
                 EditButton()
-                    .disabled(!reorderGate.canMutate(workspaceID: snapshot.workspaceID))
+                    .disabled(!mutationAffordancePolicy.canMutate)
                     .accessibilityIdentifier("MobileTerminalHierarchyEdit")
             }
             Button(action: createAndAnnounce) {
@@ -251,7 +251,7 @@ struct TerminalHierarchySheet: View {
             }
             .disabled(
                 snapshot.connectionStatus != .connected
-                    || !reorderGate.canMutate(workspaceID: snapshot.workspaceID)
+                    || !mutationAffordancePolicy.canMutate
             )
             .accessibilityIdentifier("MobileTerminalHierarchyNewTerminal")
         }
@@ -282,6 +282,14 @@ struct TerminalHierarchySheet: View {
             : L10n.string("mobile.terminal.hierarchy.disconnected", defaultValue: "Mac Disconnected")
     }
 
+    private var mutationAffordancePolicy: TerminalHierarchyMutationAffordancePolicy {
+        TerminalHierarchyMutationAffordancePolicy(
+            reorderGateCanMutate: reorderGate.canMutate(workspaceID: snapshot.workspaceID),
+            interactionProfilingIsActive: interactionProfilingSignposts?.isActive == true,
+            hasPendingMutationProfiling: pendingMutationProfiling != nil
+        )
+    }
+
     private func select(_ row: TerminalHierarchyRowSnapshot) {
         if let selectionKind = snapshot.profilingSelectionKind(for: row.id) {
             interactionProfilingSignposts?.beginTerminalSelection(
@@ -305,7 +313,7 @@ struct TerminalHierarchySheet: View {
     }
 
     private func createAndAnnounce() {
-        guard reorderGate.canMutate(workspaceID: snapshot.workspaceID) else { return }
+        guard mutationAffordancePolicy.canMutate else { return }
         let profilingGeneration = beginProfilingMutation(
             .create(baselineTerminalIDs: Set(snapshot.panes.flatMap(\.rows).map(\.id)))
         )
@@ -340,6 +348,7 @@ struct TerminalHierarchySheet: View {
         destination: Int,
         in pane: TerminalHierarchyPaneSnapshot
     ) {
+        guard mutationAffordancePolicy.canMutate else { return }
         guard source.count == 1,
               let sourceIndex = source.first,
               pane.rows.indices.contains(sourceIndex) else {
@@ -420,7 +429,7 @@ struct TerminalHierarchySheet: View {
         in pane: TerminalHierarchyPaneSnapshot
     ) -> (() -> Void)? {
         guard snapshot.canReorder,
-              reorderGate.canMutate(workspaceID: snapshot.workspaceID),
+              mutationAffordancePolicy.canMutate,
               let rowIndex,
               let destination,
               destination >= 0,
@@ -433,6 +442,10 @@ struct TerminalHierarchySheet: View {
     }
 
     private func confirmPendingClose(_ confirmation: TerminalHierarchyCloseConfirmation) {
+        guard mutationAffordancePolicy.canMutate else {
+            presentCloseUnavailable()
+            return
+        }
         let pendingClose = confirmation.row
         let decision = TerminalHierarchyCloseReservationDecision(
             terminalID: pendingClose.id,
@@ -551,7 +564,7 @@ struct TerminalHierarchySheet: View {
     }
 
     private func requestClose(_ row: TerminalHierarchyRowSnapshot) {
-        guard reorderGate.canMutate(workspaceID: snapshot.workspaceID) else { return }
+        guard mutationAffordancePolicy.canMutate else { return }
         pendingClose = row
         closeConfirmationIncludesRunningProcess = row.requiresCloseConfirmation
         isCloseConfirmationPresented = true

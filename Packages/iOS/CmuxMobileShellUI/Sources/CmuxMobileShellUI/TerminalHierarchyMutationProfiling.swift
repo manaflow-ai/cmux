@@ -26,6 +26,17 @@ struct TerminalHierarchyMutationProfilingSnapshotState {
     }
 }
 
+struct TerminalHierarchyMutationAffordancePolicy {
+    let reorderGateCanMutate: Bool
+    let interactionProfilingIsActive: Bool
+    let hasPendingMutationProfiling: Bool
+
+    var canMutate: Bool {
+        reorderGateCanMutate
+            && !(interactionProfilingIsActive && hasPendingMutationProfiling)
+    }
+}
+
 struct TerminalHierarchyMutationProfilingPending {
     enum Operation {
         case create(baselineTerminalIDs: Set<MobileTerminalPreview.ID>)
