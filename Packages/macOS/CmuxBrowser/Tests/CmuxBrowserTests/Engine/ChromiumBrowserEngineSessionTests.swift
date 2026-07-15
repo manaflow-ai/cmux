@@ -138,6 +138,52 @@ struct ChromiumBrowserEngineSessionTests {
     }
 
     @Test
+    func navigationCompletionRevisionAdvancesOnlyForCompletedLoads() async {
+        let session = ChromiumBrowserEngineSession(
+            viewportWebView: WKWebView(),
+            application: nil,
+            userDataDirectory: FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        )
+        let transport = NavigationTestCDPTransport()
+        let connection = CDPConnection(transport: transport)
+        let sessionID = "test-session"
+        await connection.connect()
+        session.connection = connection
+        session.cdpSessionID = sessionID
+        defer { session.close() }
+
+        let initialRevision = session.state.navigationCompletionRevision
+        await session.handle(
+            CDPEvent(
+                method: "Page.loadEventFired",
+                parameters: [:],
+                sessionID: sessionID
+            ),
+            connection: connection,
+            sessionID: sessionID
+        )
+        let completedRevision = session.state.navigationCompletionRevision
+
+        await session.handle(
+            CDPEvent(
+                method: "Runtime.bindingCalled",
+                parameters: [
+                    "name": .string("__cmuxChromiumTitleChanged"),
+                    "payload": .string("Updated after load"),
+                ],
+                sessionID: sessionID
+            ),
+            connection: connection,
+            sessionID: sessionID
+        )
+
+        #expect(completedRevision == initialRevision + 1)
+        #expect(session.state.navigationCompletionRevision == completedRevision)
+        await connection.close()
+    }
+
+    @Test
     func rejectsNavigationRequestsWhoseSemanticsCannotBePreserved() {
         let url = URL(string: "https://example.com/submit")!
 
