@@ -14,6 +14,8 @@ extension TerminalController {
             "mobile.attach_ticket.create",
             "mobile.terminal.set_font",
             "mobile.workspace.list",
+            "mobile.workspace.diff_status",
+            "mobile.workspace.diff_file",
             "mobile.terminal.create",
             "mobile.terminal.input",
             "mobile.terminal.paste",

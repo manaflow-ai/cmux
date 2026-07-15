@@ -139,7 +139,7 @@ struct GitSubprocessSupervisor {
                 kevent(
                     ident: UInt(cancellationSignal.readDescriptor),
                     filter: Int16(EVFILT_READ),
-                    flags: UInt16(EV_ADD | EV_ENABLE),
+                    flags: UInt16(EV_ADD | EV_ENABLE | EV_ONESHOT),
                     fflags: 0,
                     data: 0,
                     udata: nil
