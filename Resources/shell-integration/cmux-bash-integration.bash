@@ -13,8 +13,23 @@ _cmux_detect_send_tool() {
 }
 # Detection deferred to after _cmux_fix_path (end of file).
 
+# BSD nc at /usr/bin/nc is preferred: it always supports -U, it waits for the
+# server to process the line and close (which preserves send order across a
+# batched child and keeps the peer alive through cmuxOnly ancestry checks), and
+# -w bounds its lifetime. The cached $_CMUX_SEND_TOOL clients below stay as
+# fallbacks for non-macOS shells, but they cannot be trusted first on macOS:
+# ncat's --send-only half-closes and exits before the server's peer-ancestry
+# check completes, so a detached send loses the cmuxOnly authorization race and
+# is dropped silently -- report_pwd, report_shell_state, ports_kick and git/PR
+# reports all vanish. This mirrors the zsh transport fix from #7789.
 _cmux_send() {
     local payload="$1"
+    if [[ -x /usr/bin/nc ]]; then
+        # Apple's nc defines -N as `num_probes` (not OpenBSD's shutdown-after-EOF
+        # flag), so the -N form fails option parsing; use the bounded -w form.
+        printf '%s\n' "$payload" | /usr/bin/nc -w 1 -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1 || true
+        return 0
+    fi
     case "$_CMUX_SEND_TOOL" in
         ncat)
             printf '%s\n' "$payload" | ncat -w 1 -U "$CMUX_SOCKET_PATH" --send-only
