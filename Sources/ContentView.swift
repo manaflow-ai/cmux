@@ -2572,6 +2572,10 @@ struct ContentView: View {
             reconcileMountedWorkspaceIds()
         })
 
+        view = AnyView(view.onReceive(tabManager.$mountedBackgroundWorkspaceLoadIds) { _ in
+            reconcileMountedWorkspaceIds()
+        })
+
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidSetTitle)) { notification in
             guard tabManager.shouldScheduleRawTitleRefresh(forWorkspaceId: GhosttyTitleChange(notification: notification)?.tabId) else { return }
             scheduleTitlebarTextRefresh()
@@ -3184,7 +3188,9 @@ struct ContentView: View {
         let orderedTabIds = currentTabs.map { $0.id }
         let effectiveSelectedId = selectedId ?? tabManager.selectedTabId
         let handoffPinnedIds = retiringWorkspaceId.map { Set([ $0 ]) } ?? []
-        let pinnedIds = handoffPinnedIds.union(tabManager.debugPinnedWorkspaceLoadIds)
+        let pinnedIds = handoffPinnedIds
+            .union(tabManager.mountedBackgroundWorkspaceLoadIds)
+            .union(tabManager.debugPinnedWorkspaceLoadIds)
         let isCycleHot = tabManager.isWorkspaceCycleHot
         let shouldKeepHandoffPair = isCycleHot && !handoffPinnedIds.isEmpty
         let baseMaxMounted = shouldKeepHandoffPair
@@ -7758,10 +7764,10 @@ struct ContentView: View {
             tabManager.selectPreviousTab()
         }
         registry.register(commandId: "palette.moveWorkspaceUp") {
-            moveSelectedWorkspace(by: -1)
+            tabManager.moveSelectedWorkspace(by: -1)
         }
         registry.register(commandId: "palette.moveWorkspaceDown") {
-            moveSelectedWorkspace(by: 1)
+            tabManager.moveSelectedWorkspace(by: 1)
         }
         registry.register(commandId: "palette.moveWorkspaceToTop") {
             guard let workspace = tabManager.selectedWorkspace else {
@@ -9069,15 +9075,6 @@ struct ContentView: View {
         return tabManager.tabs.firstIndex { $0.id == workspace.id }
     }
 
-    private func moveSelectedWorkspace(by delta: Int) {
-        guard let workspace = tabManager.selectedWorkspace,
-              let currentIndex = selectedWorkspaceIndex() else { return }
-        let targetIndex = currentIndex + delta
-        guard targetIndex >= 0, targetIndex < tabManager.tabs.count else { return }
-        _ = tabManager.reorderWorkspace(tabId: workspace.id, toIndex: targetIndex)
-        tabManager.selectWorkspace(workspace)
-    }
-
     private func closeWorkspaceIds(_ workspaceIds: [UUID], allowPinned: Bool) {
         tabManager.closeWorkspacesWithConfirmation(workspaceIds, allowPinned: allowPinned)
     }
@@ -9893,6 +9890,7 @@ struct VerticalTabsSidebar: View {
     @Binding var lastSidebarSelectionIndex: Int?
     @Binding var sidebarRenderWorkerClient: RenderWorkerClient?
     @State var modifierKeyMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
+    @State var pointerInteractionMonitor = SidebarPointerInteractionMonitor()
     @StateObject var dragAutoScrollController = SidebarDragAutoScrollController()
     @StateObject private var dragFailsafeMonitor = SidebarDragFailsafeMonitor()
     @StateObject private var tabItemSettingsStore = SidebarTabItemSettingsStore(
@@ -10368,6 +10366,13 @@ struct VerticalTabsSidebar: View {
             .frame(width: 0, height: 0)
         )
         .onAppear {
+            pointerInteractionMonitor.start { workspaceId in
+                guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
+#if DEBUG
+                cmuxDebugLog("sidebar.close workspace=\(workspaceId.uuidString.prefix(5)) method=middleClick")
+#endif
+                tabManager.closeWorkspaceWithConfirmation(workspace)
+            }
             if showModifierHoldHints {
                 modifierKeyMonitor.setHostWindow(observedWindow)
                 modifierKeyMonitor.start()
@@ -10391,6 +10396,7 @@ struct VerticalTabsSidebar: View {
             )
         }
         .onDisappear {
+            pointerInteractionMonitor.stop()
             modifierKeyMonitor.stop()
             dragAutoScrollController.stop()
             dragFailsafeMonitor.stop()
@@ -10475,7 +10481,9 @@ struct VerticalTabsSidebar: View {
             ScrollView(.vertical) {
                 workspaceScrollContent(renderContext: renderContext, minHeight: workspaceScrollContentMinHeight)
             }
+            .coordinateSpace(name: SidebarPointerInteractionMonitor.coordinateSpaceName)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .sidebarPointerEventHost(pointerInteractionMonitor)
             .background(
                 SidebarScrollViewResolver { scrollView in
                     configureSidebarScrollView(scrollView)
@@ -12215,6 +12223,7 @@ struct VerticalTabsSidebar: View {
                 frozenShortcutHintsTabId = nil
             }
         }
+        let isPointerHovering = pointerInteractionMonitor.hoveredRowId == .workspace(tab.id)
 
         // Per-row drag/drop snapshots. Reading `dragState` here in the parent
         // is intentional: the parent owns the @Observable store, and these
@@ -12300,6 +12309,7 @@ struct VerticalTabsSidebar: View {
             selectedTabIds: $selectedTabIds,
             lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
             showsModifierShortcutHints: resolvedShowsModifierShortcutHints,
+            isPointerHovering: isPointerHovering,
             dragAutoScrollController: dragAutoScrollController,
             isBeingDragged: isBeingDragged,
             topDropIndicatorVisible: topDropIndicatorVisible,
@@ -12330,8 +12340,16 @@ struct VerticalTabsSidebar: View {
         .accessibilityIdentifier("sidebarWorkspace.\(tab.id.uuidString)")
 
         let _ = SidebarProfilingSignposts.end(signpost)
+        let rowId = SidebarWorkspaceRenderItemID.workspace(tab.id)
+        let workspaceId = tab.id
         row
             .sidebarWorkspaceFrameAnchor(id: tab.id, isEnabled: shouldCollectWorkspaceDropTargets)
+            .sidebarPointerFrameReporting(
+                onFrameChange: { [pointerInteractionMonitor] frame in
+                    pointerInteractionMonitor.updateFrame(frame, for: rowId, workspaceId: workspaceId)
+                },
+                onDisappear: { [pointerInteractionMonitor] in pointerInteractionMonitor.removeFrame(for: rowId) }
+            )
             .padding(.leading, tab.groupId != nil ? SidebarWorkspaceGroupingMetrics.memberIndent : 0)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
@@ -12892,6 +12910,7 @@ struct TabItemView: View, Equatable {
         lhs.showsAgentActivity == rhs.showsAgentActivity &&
         lhs.rowSpacing == rhs.rowSpacing &&
         lhs.showsModifierShortcutHints == rhs.showsModifierShortcutHints &&
+        lhs.isPointerHovering == rhs.isPointerHovering &&
         lhs.contextMenuWorkspaceIds == rhs.contextMenuWorkspaceIds &&
         lhs.remoteContextMenuWorkspaceIds == rhs.remoteContextMenuWorkspaceIds &&
         lhs.allRemoteContextMenuTargetsConnecting == rhs.allRemoteContextMenuTargetsConnecting &&
@@ -12943,6 +12962,7 @@ struct TabItemView: View, Equatable {
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
     let showsModifierShortcutHints: Bool
+    let isPointerHovering: Bool
     let dragAutoScrollController: SidebarDragAutoScrollController
     // Row receives precomputed drag/drop snapshot values + action closures
     // instead of an `@Observable` store reference. This keeps TabItemView in
@@ -12997,7 +13017,7 @@ struct TabItemView: View, Equatable {
     // Row-local selection projection: selectedTabId changes update only rows whose boolean flips.
     @State private var observedIsActive: Bool?
     @State private var contextMenuState = SidebarTabItemContextMenuState()
-    @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
+    @State private var contextMenuVisible = false
     @State var workspaceFinderDirectoryOpenRequest: WorkspaceFinderDirectoryOpenRequest?
     @State private var isEditing = false
     @State private var renameDraft = ""
@@ -13198,10 +13218,10 @@ struct TabItemView: View, Equatable {
     }
 
     private var showCloseButton: Bool {
-        rowInteractionState.shouldShowCloseButton(
-            canCloseWorkspace: canCloseWorkspace,
-            shortcutHintModeActive: showsModifierShortcutHints || alwaysShowShortcutHints
-        )
+        isPointerHovering
+            && !contextMenuVisible
+            && canCloseWorkspace
+            && !(showsModifierShortcutHints || alwaysShowShortcutHints)
     }
 
     private var workspaceShortcutLabel: String? {
@@ -13753,30 +13773,7 @@ struct TabItemView: View, Equatable {
         .shortcutHintVisibilityAnimation(value: showsWorkspaceShortcutHint)
         .padding(.horizontal, SidebarWorkspaceListMetrics.rowOuterHorizontalPadding)
         .contentShape(Rectangle())
-        .sidebarWorkspaceRowHoverTracking($rowInteractionState)
         .opacity(isBeingDragged ? 0.6 : 1)
-        .overlay {
-            MiddleClickCapture {
-                #if DEBUG
-                cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=middleClick")
-                #endif
-                tabManager.closeWorkspaceWithConfirmation(tab)
-            }
-        }
-        .overlay {
-            if rowInteractionState.contextMenuVisible {
-                SidebarWorkspaceRowMenuTrackingReconciler { pointerInsideRow in
-                    guard rowInteractionState.contextMenuTrackingDidEnd(pointerInsideRow: pointerInsideRow) else {
-                        return
-                    }
-                    onContextMenuDisappear()
-                    flushDeferredWorkspaceObservationInvalidation()
-                }
-                .onAppear {
-                    rowInteractionState.contextMenuTrackingObserverDidInstall()
-                }
-            }
-        }
         .overlay(alignment: .top) {
             SidebarWorkspaceTopDropIndicator(
                 isVisible: topDropIndicatorVisible,
@@ -13882,13 +13879,13 @@ struct TabItemView: View, Equatable {
         .contextMenu {
             TabItemWorkspaceContextMenuContent(row: self)
                 .onAppear {
-                    rowInteractionState.contextMenuDidAppear()
+                    contextMenuVisible = true
                     contextMenuState.hasDeferredWorkspaceObservationInvalidation = false
                     contextMenuState.pendingWorkspaceSnapshot = nil
                     onContextMenuAppear()
                 }
                 .onDisappear {
-                    rowInteractionState.contextMenuDidDisappear()
+                    contextMenuVisible = false
                     onContextMenuDisappear()
                     flushDeferredWorkspaceObservationInvalidation()
                 }
@@ -13918,7 +13915,7 @@ struct TabItemView: View, Equatable {
             current: workspaceSnapshotStorage,
             next: nextSnapshot,
             force: force,
-            contextMenuVisible: rowInteractionState.contextMenuVisible
+            contextMenuVisible: contextMenuVisible
         )
 
         if workspaceSnapshotStorage != decision.workspaceSnapshotStorage {
@@ -13982,9 +13979,7 @@ struct TabItemView: View, Equatable {
     }
 
     func moveBy(_ delta: Int) {
-        let targetIndex = index + delta
-        guard targetIndex >= 0, targetIndex < tabManager.tabs.count else { return }
-        guard tabManager.reorderWorkspace(tabId: tab.id, toIndex: targetIndex) else { return }
+        guard tabManager.reorderWorkspace(tabId: tab.id, by: delta) else { return }
         selectedTabIds = [tab.id]
         lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == tab.id }
         tabManager.selectTab(tab)
