@@ -81,12 +81,13 @@ struct ComputerUseOnboardingView: View {
                 title: String(localized: "computerUse.onboarding.accessibility.title", defaultValue: "Grant Accessibility"),
                 detail: String(localized: "computerUse.onboarding.accessibility.detail", defaultValue: "Accessibility lets the computer-use helper inspect controls, click buttons, and type in apps you ask an agent to use."),
                 granted: accessibilityGranted,
-                grant: {
-                    permissionService.requestAccessibility()
+                openSettings: {
+                    // Open the pane; the drag tile + Reveal button add the helper's
+                    // OWN identity to the list. No system prompt: cmux never
+                    // requests computer-use permissions for its own identity.
                     permissionService.openAccessibilitySettings()
                     refreshPermissions()
-                },
-                openSettings: permissionService.openAccessibilitySettings
+                }
             )
         case 2:
             permissionStep(
@@ -94,12 +95,10 @@ struct ComputerUseOnboardingView: View {
                 title: String(localized: "computerUse.onboarding.screenRecording.title", defaultValue: "Grant Screen Recording"),
                 detail: String(localized: "computerUse.onboarding.screenRecording.detail", defaultValue: "Screen Recording lets the computer-use helper see app windows and screen content so it can act on what is visible."),
                 granted: screenRecordingGranted,
-                grant: {
-                    permissionService.requestScreenRecording()
+                openSettings: {
                     permissionService.openScreenRecordingSettings()
                     refreshPermissions()
-                },
-                openSettings: permissionService.openScreenRecordingSettings
+                }
             )
         default:
             done
@@ -129,7 +128,6 @@ struct ComputerUseOnboardingView: View {
         title: String,
         detail: String,
         granted: Bool,
-        grant: @escaping () -> Void,
         openSettings: @escaping () -> Void
     ) -> some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -154,7 +152,6 @@ struct ComputerUseOnboardingView: View {
                 HStack(spacing: 10) {
                     Button(String(localized: "computerUse.onboarding.openSystemSettings", defaultValue: "Open System Settings"), action: openSettings)
                         .buttonStyle(.borderedProminent)
-                    Button(String(localized: "computerUse.onboarding.grant", defaultValue: "Prompt & Open Settings"), action: grant)
                     if permissionService.helperAppURL != nil {
                         Button(String(localized: "computerUse.onboarding.reveal", defaultValue: "Reveal Helper in Finder")) {
                             permissionService.revealHelperInFinder()

@@ -90,35 +90,24 @@ final class ComputerUsePermissionService {
         return (Self.cachedAccessibility, Self.cachedScreenRecording)
     }
 
-    /// Raise the helper's own Accessibility prompt (attributed to
-    /// "cmux Computer Use"), then open the pane so the user can toggle it on.
+    /// Guide the user to grant the HELPER Accessibility: open the pane and reveal
+    /// the helper in Finder so they can drag it into the list. This deliberately
+    /// does NOT raise a system prompt: the only process that can request a grant
+    /// for the helper's identity is the helper itself, and a short-lived probe
+    /// exits before macOS shows the async dialog — so the prompt would misattribute
+    /// to cmux. Dragging the helper bundle in adds ITS identity, and a real
+    /// computer-use session (a long-lived helper) prompts under its own name.
+    /// cmux never requests computer-use permissions for its own identity.
     func requestAccessibility() {
-        raiseHelperPromptsAndRefresh()
         openAccessibilitySettings()
+        revealHelperInFinder()
     }
 
-    /// Raise the helper's own Screen Recording prompt, then open the pane.
+    /// Guide the user to grant the HELPER Screen Recording (see
+    /// ``requestAccessibility()`` for why this uses drag-drop, not a prompt).
     func requestScreenRecording() {
-        raiseHelperPromptsAndRefresh()
         openScreenRecordingSettings()
-    }
-
-    /// Ask the helper to request its missing grants under its own identity — this
-    /// both raises the system dialogs as "cmux Computer Use" and adds it to the
-    /// System Settings permission lists — then refresh the cached status. When no
-    /// helper bundle is present the driver runs embedded, so prompt cmux itself.
-    private func raiseHelperPromptsAndRefresh() {
-        if let binary = helperBinaryURL {
-            Task { [weak self] in
-                _ = await Self.queryHelper(binary: binary, prompt: true)
-                await self?.refreshHelperStatus()
-            }
-        } else {
-            let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
-            _ = AXIsProcessTrustedWithOptions(options)
-            _ = CGRequestScreenCaptureAccess()
-            Task { [weak self] in await self?.refreshHelperStatus() }
-        }
+        revealHelperInFinder()
     }
 
     func openAccessibilitySettings() {
