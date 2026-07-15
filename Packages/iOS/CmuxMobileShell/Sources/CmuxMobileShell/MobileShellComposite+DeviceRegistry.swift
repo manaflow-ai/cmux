@@ -72,10 +72,10 @@ extension MobileShellComposite {
         sessionID: String,
         expectedAgentSessionID: String?
     ) async -> MobileWorkspacePreview.ID? {
-        guard let scope = await currentScopeSnapshot() else { return nil }
         let requestID = beginRegistrySessionHandoffAttempt()
         defer { finishRegistrySessionHandoffAttempt(requestID) }
         isRegistryHandoffFailurePresented = false
+        guard let scope = await currentScopeSnapshot() else { return nil }
         guard await isRegistrySessionHandoffAttemptCurrent(requestID, scope: scope) else {
             return nil
         }
@@ -112,6 +112,7 @@ extension MobileShellComposite {
     }
 
     func beginRegistrySessionHandoffAttempt() -> UUID {
+        invalidateRegistrySessionHandoffAttempt()
         let requestID = UUID()
         registrySessionHandoffAttemptID = requestID
         return requestID
@@ -126,7 +127,8 @@ extension MobileShellComposite {
         scope: MobileShellScopeSnapshot
     ) async -> Bool {
         guard isRegistrySessionHandoffAttemptCurrent(requestID) else { return false }
-        return await isScopeCurrent(scope)
+        let scopeIsCurrent = await isScopeCurrent(scope)
+        return scopeIsCurrent && isRegistrySessionHandoffAttemptCurrent(requestID)
     }
 
     func finishRegistrySessionHandoffAttempt(_ requestID: UUID) {
@@ -135,8 +137,8 @@ extension MobileShellComposite {
     }
 
     func invalidateRegistrySessionHandoffAttempt() {
-        guard registrySessionHandoffAttemptID != nil else { return }
         registrySessionHandoffAttemptID = nil
+        deeplinkWorkspaceNavigationRequest = nil
         registrySessionHandoffNavigationRequest = nil
     }
 

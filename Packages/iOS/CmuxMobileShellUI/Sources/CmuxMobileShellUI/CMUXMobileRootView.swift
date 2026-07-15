@@ -160,6 +160,7 @@ struct CMUXMobileRootView: View {
             // the team-bound state (presence, registry, paired-Mac backup,
             // aggregation) to the new team without dropping the live terminal.
             store.currentTeamDidChange()
+            reconnectStoredMacIfNeeded()
         }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { store.suspendForegroundRefresh(); return }
