@@ -285,6 +285,10 @@ extension MobileShellComposite {
                     preparedBytes: deferred.preparedBytes
                 ) else {
                     deferredTerminalRenderGridEventsBySurfaceID.removeValue(forKey: surfaceID)
+                    if let renderRevision {
+                        acceptGridlessTerminalRenderRevision(renderRevision, surfaceID: surfaceID)
+                        equalRevisionTerminalRecoveryReplaysBySurfaceID[surfaceID] = renderRevision
+                    }
                     MobileDebugLog.anchormux("sync.render_grid_deferred_delivery_failed surface=\(surfaceID)")
                     requestTerminalReplay(surfaceID: surfaceID)
                     return true
