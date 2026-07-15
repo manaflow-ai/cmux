@@ -69,7 +69,9 @@ struct TerminationResumeIndexCoordinatorInvalidationTests {
             hookStoreDirectoryProvider: { directory.path }
         )
 
-        _ = await app.terminationResumeIndexCoordinator.load(coordinatedBy: sharedIndex)
+        _ = await app.terminationResumeIndexCoordinator.prepareForUpdateRelaunch(
+            coordinatedBy: sharedIndex
+        )
         #expect(
             Self.checkpoint(
                 in: app.terminationResumeIndexCoordinator.current(),

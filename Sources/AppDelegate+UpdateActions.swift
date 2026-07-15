@@ -8,11 +8,11 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
     }
 
     func updaterPreparesToRelaunchApplication() async {
-        _ = await terminationResumeIndexCoordinator.loadForNewTerminationAttempt()
+        _ = await terminationResumeIndexCoordinator.prepareForUpdateRelaunch()
     }
 
     func updaterAbandonsRelaunchPreparation() {
-        terminationResumeIndexCoordinator.invalidate()
+        terminationResumeIndexCoordinator.abandonUpdateRelaunchPreparation()
     }
 
     func updaterWillRelaunchApplication() {
