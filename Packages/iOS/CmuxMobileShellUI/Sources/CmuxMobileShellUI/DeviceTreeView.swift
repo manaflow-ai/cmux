@@ -50,8 +50,8 @@ struct DeviceTreeView: View {
         MacComputerSnapshot.snapshots(from: store)
     }
 
-    /// Account-discovered sessions are immutable row snapshots; the live RPC
-    /// replaces them after a successful attach.
+    /// Account-private registry sessions are immutable row snapshots; the live
+    /// RPC replaces them after a successful attach.
     private var handoffSessions: [RegistryLiveSessionSnapshot] {
         RegistryLiveSessionSnapshot.snapshots(from: store.registryDevices)
     }

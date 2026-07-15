@@ -18,6 +18,8 @@ struct DisconnectedWorkspaceShellView: View {
     var setupHelpHighlight: MobileSetupGuidanceState = .signedInNeverPaired
     /// Forwarded to Settings for switching saved Macs. `nil` in previews.
     var store: CMUXMobileShellStore?
+    var registryRefreshClock: any Clock<Duration> = ContinuousClock()
+    private let registryRefreshLoop = MobileFirstConnectionRegistryRefreshLoop()
 
     @State private var showingSettings = false
 
@@ -26,12 +28,10 @@ struct DisconnectedWorkspaceShellView: View {
     @State private var computerPendingRemovalID: String?
     @State private var connectingMacID: String?
     @State private var connectFailedComputerName: String?
-    /// The account-discovered session currently attaching.
+    /// The account-private registry session currently attaching.
     @State private var pendingHandoffID: String?
     @State private var registryState: MobileFirstConnectionRegistryState = .loading
     @State private var registryRefreshScopeID: String?
-    @State private var registryLastRefreshAt: Date?
-    private let registryRefreshPolicy = MobileFirstConnectionRegistryRefreshPolicy()
     @State private var activeDiscoveryScopeID: String?
     @State private var didPresentManualPairing = false
     #endif
@@ -68,22 +68,30 @@ struct DisconnectedWorkspaceShellView: View {
                     #if os(iOS)
                     guard !Task.isCancelled, activeDiscoveryScopeID == scopeID else { return }
                     await refreshRegistryAndPresentation(scopeID: scopeID)
-                    // Presence refreshes every 10 seconds. Registry discovery
-                    // refreshes before the Mac's 60-second lease renewal cadence.
+                    // Presence polling remains independent from registry lease renewal.
                     while !Task.isCancelled {
                         try? await Task.sleep(for: .seconds(10))
                         guard !Task.isCancelled else { break }
                         await store?.refreshComputersScreen()
-                        if registryRefreshPolicy.shouldRefresh(
-                            lastRefreshAt: registryLastRefreshAt
-                        ) {
-                            await refreshRegistryAndPresentation(scopeID: scopeID)
-                        }
                     }
                     #else
                     if store?.pairedMacs.isEmpty ?? true {
                         showAddDevice()
                     }
+                    #endif
+                }
+                .task(id: discoveryScopeID) {
+                    #if os(iOS)
+                    let scopeID = discoveryScopeID
+                    await registryRefreshLoop.run(
+                        clock: registryRefreshClock,
+                        whileCurrent: {
+                            activeDiscoveryScopeID == scopeID
+                        },
+                        refresh: {
+                            await refreshRegistryAndPresentation(scopeID: scopeID)
+                        }
+                    )
                     #endif
                 }
         }
@@ -262,7 +270,6 @@ struct DisconnectedWorkspaceShellView: View {
         activeDiscoveryScopeID = scopeID
         registryState = .loading
         registryRefreshScopeID = nil
-        registryLastRefreshAt = nil
         didPresentManualPairing = false
     }
 
@@ -270,7 +277,6 @@ struct DisconnectedWorkspaceShellView: View {
         guard activeDiscoveryScopeID == scopeID,
               registryRefreshScopeID == nil else { return }
         registryRefreshScopeID = scopeID
-        registryLastRefreshAt = Date()
         defer {
             if registryRefreshScopeID == scopeID { registryRefreshScopeID = nil }
         }

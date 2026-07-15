@@ -2,7 +2,10 @@ public import CmuxMobileShellModel
 import Foundation
 
 extension MobileShellComposite {
-    /// Reload ``registryDevices`` from the account-scoped device registry.
+    /// Reload ``registryDevices`` from the current team's device registry.
+    ///
+    /// Devices and routes are team-scoped. The service filters each device's
+    /// live-session summaries to the authenticated account before returning them.
     @discardableResult
     public func loadRegistryDevices() async -> MobileRegistryLoadResult {
         guard let deviceRegistry,
@@ -36,7 +39,10 @@ extension MobileShellComposite {
         return .loaded
     }
 
-    /// Prefer account registry devices, then synthesize rows from paired Macs.
+    /// Prefer team registry devices, then synthesize rows from paired Macs.
+    ///
+    /// Registry device and route records are shared by the team, while their
+    /// live-session arrays contain only sessions visible to this account.
     public var deviceTreeDevices: [RegistryDevice] {
         if !registryDevices.isEmpty { return registryDevices }
         let connectedID = connectedMacDeviceID

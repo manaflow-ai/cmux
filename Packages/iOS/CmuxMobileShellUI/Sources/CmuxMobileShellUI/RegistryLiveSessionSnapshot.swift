@@ -2,7 +2,7 @@ import CMUXMobileCore
 import CmuxMobileShellModel
 import Foundation
 
-/// Immutable presentation snapshot for one account-discovered live session.
+/// Immutable presentation snapshot for one account-private registry session.
 struct RegistryLiveSessionSnapshot: Equatable, Identifiable {
     let id: String
     let deviceID: String

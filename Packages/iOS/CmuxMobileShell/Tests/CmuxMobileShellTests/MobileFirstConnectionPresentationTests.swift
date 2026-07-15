@@ -46,17 +46,10 @@ import Testing
     }
 
     @Test func registryRefreshesBeforeLiveSessionLeaseExpires() {
-        let now = Date(timeIntervalSince1970: 1_000)
         let policy = MobileFirstConnectionRegistryRefreshPolicy()
 
-        #expect(!policy.shouldRefresh(
-            lastRefreshAt: now.addingTimeInterval(-39),
-            now: now
-        ))
-        #expect(policy.shouldRefresh(
-            lastRefreshAt: now.addingTimeInterval(-40),
-            now: now
-        ))
+        #expect(policy.refreshInterval == .seconds(40))
+        #expect(policy.refreshInterval < .seconds(120))
     }
 
     @MainActor
@@ -64,7 +57,7 @@ import Testing
         let clock = RegistryRefreshTestClock()
         let recorder = RegistryRefreshRecorder()
         let loop = MobileFirstConnectionRegistryRefreshLoop(
-            policy: MobileFirstConnectionRegistryRefreshPolicy(refreshInterval: 40)
+            policy: MobileFirstConnectionRegistryRefreshPolicy(refreshInterval: .seconds(40))
         )
         let task = Task { @MainActor in
             await loop.run(

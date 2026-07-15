@@ -19,8 +19,9 @@ public struct RegistryAppInstance: Equatable, Sendable, Identifiable {
     /// When the registry last saw this instance register/refresh. Drives the
     /// best-effort "last seen N ago" liveness hint when no live link exists.
     public var lastSeenAt: Date
-    /// Bounded live workspace summaries used for discovery before attaching.
-    /// The full workspace/chat RPC replaces these hints after connection.
+    /// Bounded live workspace summaries for the authenticated account, used for
+    /// discovery before attaching. The full workspace/chat RPC replaces these
+    /// hints after connection.
     public var sessions: [CmxLiveSession]
 
     /// The tag is unique per device, so it doubles as the per-device row id.
