@@ -479,7 +479,7 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
         }
     }
 
-    private func handle(_ event: CDPEvent, connection: CDPConnection, sessionID: String) async {
+    func handle(_ event: CDPEvent, connection: CDPConnection, sessionID: String) async {
         switch event.method {
         case "Page.screencastFrame":
             guard let data = event.parameters["data"]?.stringValue,

@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import WebKit
+import CmuxBrowser
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -25,6 +26,22 @@ struct BrowserWebContentProcessTests {
             chromiumProcessIdentifier: 41,
             webKitProcessIdentifier: 42
         ) == 41)
+    }
+
+    @Test
+    func chromiumZoomChangesThePageEngineWithoutScalingItsCanvasTransport() {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            renderInitialNavigation: false,
+            engineSelection: BrowserEngineSelection(kind: .chromium)
+        )
+        defer { panel.close() }
+        let canvasZoom = panel.webView.pageZoom
+
+        #expect(panel.zoomIn())
+
+        #expect(panel.currentPageZoomFactor() == 1.1)
+        #expect(panel.webView.pageZoom == canvasZoom)
     }
 
     @Test

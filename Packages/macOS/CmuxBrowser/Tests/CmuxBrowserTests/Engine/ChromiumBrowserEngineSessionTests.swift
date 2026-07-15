@@ -110,6 +110,34 @@ struct ChromiumBrowserEngineSessionTests {
     }
 
     @Test
+    func runtimeTitleBindingUpdatesTheLiveEngineTitle() async {
+        let session = ChromiumBrowserEngineSession(
+            viewportWebView: WKWebView(),
+            application: nil,
+            userDataDirectory: FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        )
+        let connection = CDPConnection(url: URL(string: "ws://localhost.invalid")!)
+        defer { session.close() }
+
+        await session.handle(
+            CDPEvent(
+                method: "Runtime.bindingCalled",
+                parameters: [
+                    "name": .string("__cmuxChromiumTitleChanged"),
+                    "payload": .string("Updated by the SPA"),
+                ],
+                sessionID: "test-session"
+            ),
+            connection: connection,
+            sessionID: "test-session"
+        )
+
+        #expect(session.state.title == "Updated by the SPA")
+        await connection.close()
+    }
+
+    @Test
     func rejectsNavigationRequestsWhoseSemanticsCannotBePreserved() {
         let url = URL(string: "https://example.com/submit")!
 
