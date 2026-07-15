@@ -10,7 +10,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-EXT_DIR="$ROOT_DIR/third_party/extensions"
+EXT_DIR="${CEFKIT_EXTENSIONS_DIR:-$ROOT_DIR/third_party/extensions}"
 mkdir -p "$EXT_DIR"
 
 # uBlock Origin Lite (MV3), not classic uBlock Origin (MV2): MV2's
