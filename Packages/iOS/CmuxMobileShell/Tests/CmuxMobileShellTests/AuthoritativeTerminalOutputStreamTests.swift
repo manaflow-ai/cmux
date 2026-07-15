@@ -106,6 +106,77 @@ func staleAuthoritativeStreamTerminationPreservesReplacement() async {
 }
 
 @MainActor
+@Test("transient status failure preserves negotiated authoritative output")
+func transientStatusFailureDoesNotDowngradeAuthoritativeOutput() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+    await router.enqueueReplayRenderGrid(try renderGridFrame(
+        surfaceID: surfaceID,
+        seq: 1,
+        text: "last-good"
+    ))
+    let collector = AuthoritativeOutputCollector()
+    collector.mount(store: store, surfaceID: surfaceID)
+    defer { collector.unmount() }
+
+    let replayStarted = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay") >= 1
+    }
+    #expect(replayStarted)
+    try await waitForReplayResponsesServed(
+        1,
+        router: router,
+        "the first authoritative replay must settle before capability recovery"
+    )
+    #expect(store.supportsAuthoritativeTerminalGrid)
+    let baselineDelivered = try await pollUntil {
+        collector.renderGrids.contains { $0.plainRows().contains("last-good") }
+    }
+    #expect(baselineDelivered)
+
+    let statusCount = await router.count(of: "mobile.host.status")
+    let subscribeCount = await router.count(of: "mobile.events.subscribe")
+    await router.failNextHostStatus()
+    store.resyncTerminalOutput(
+        reason: "test_status_failure",
+        restartEventStream: true,
+        surfaceIDs: [surfaceID]
+    )
+
+    let statusFailed = await router.waitForCount(
+        of: "mobile.host.status",
+        atLeast: statusCount + 1
+    )
+    #expect(statusFailed)
+    let resubscribed = await router.waitForCount(
+        of: "mobile.events.subscribe",
+        atLeast: subscribeCount + 1
+    )
+    #expect(resubscribed)
+    #expect(store.supportsAuthoritativeTerminalGrid)
+
+    let transport = try #require(box.get())
+    await transport.deliver(try terminalBytesEventFrame(
+        surfaceID: surfaceID,
+        seq: 7,
+        text: "raw-must-stay-hidden"
+    ))
+    await transport.deliver(try renderGridEventFrame(
+        surfaceID: surfaceID,
+        seq: 7,
+        text: "authoritative-survives"
+    ))
+    let gridDelivered = try await pollUntil {
+        collector.renderGrids.contains { $0.plainRows().contains("authoritative-survives") }
+    }
+    #expect(gridDelivered)
+    #expect(collector.rawChunks.isEmpty)
+}
+
+@MainActor
 private final class AuthoritativeOutputCollector {
     private(set) var renderGrids: [MobileTerminalRenderGridFrame] = []
     private(set) var typedGridData: [Data] = []

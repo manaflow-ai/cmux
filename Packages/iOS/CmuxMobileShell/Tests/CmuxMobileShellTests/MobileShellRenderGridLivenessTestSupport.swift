@@ -33,6 +33,7 @@ actor LivenessHostRouter {
     )] = []
     private var hostStatusRequestCount = 0
     private var heldHostStatusRequestNumbers: Set<Int> = []
+    private var hostStatusFailuresRemaining = 0
     private var workspaceListRequestCount = 0
     private var heldWorkspaceListRequestNumbers: Set<Int> = []
     private var subscribeRequestCount = 0
@@ -224,6 +225,12 @@ actor LivenessHostRouter {
         heldHostStatusRequestNumbers.insert(number)
     }
 
+    /// Fail the next N status probes after they reach the host, modeling a
+    /// transient RPC failure on an otherwise live authenticated session.
+    func failNextHostStatus(count: Int = 1) {
+        hostStatusFailuresRemaining += count
+    }
+
     /// Hold the Nth workspace-list response so tests can change persisted
     /// per-Mac authority while a secondary snapshot is in flight.
     func holdWorkspaceListRequest(number: Int) {
@@ -312,6 +319,10 @@ actor LivenessHostRouter {
             if heldHostStatusRequestNumbers.contains(hostStatusRequestCount) {
                 await park()
                 return nil
+            }
+            if hostStatusFailuresRemaining > 0 {
+                hostStatusFailuresRemaining -= 1
+                return try? Self.errorFrame(id: id, message: "status unavailable")
             }
             var result: [String: Any] = ["capabilities": capabilities]
             if let terminalFidelity { result["terminal_fidelity"] = terminalFidelity }
