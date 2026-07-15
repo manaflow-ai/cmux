@@ -22,10 +22,14 @@ fn send_json(websocket: &mut WebSocket<TcpStream>, value: Value) {
 
 fn read_json(websocket: &mut WebSocket<TcpStream>) -> Value {
     loop {
-        match websocket.read().unwrap() {
-            Message::Text(text) => return serde_json::from_str(&text).unwrap(),
-            Message::Ping(data) => websocket.send(Message::Pong(data)).unwrap(),
-            message => panic!("expected a JSON text frame, got {message:?}"),
+        // valgrind's signal delivery interrupts blocking reads with EINTR.
+        match websocket.read() {
+            Ok(Message::Text(text)) => return serde_json::from_str(&text).unwrap(),
+            Ok(Message::Ping(data)) => websocket.send(Message::Pong(data)).unwrap(),
+            Ok(message) => panic!("expected a JSON text frame, got {message:?}"),
+            Err(tungstenite::Error::Io(error))
+                if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(error) => panic!("websocket read failed: {error}"),
         }
     }
 }
