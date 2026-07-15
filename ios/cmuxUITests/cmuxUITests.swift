@@ -182,6 +182,19 @@ final class cmuxUITests: XCTestCase {
         let surface = app.otherElements["MobileTerminalSurface"]
         XCTAssertTrue(surface.waitForExistence(timeout: 8))
 
+        let initialRows = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                let ids = self.scrollRowIDs(in: app)
+                return ids.count >= 8 && zip(ids, ids.dropFirst()).allSatisfy { $1 == $0 + 1 }
+            },
+            object: app
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [initialRows], timeout: 12),
+            .completed,
+            "The long-history terminal must render ordered rows before scrolling. Rows: \(terminalRowLabels(in: app))"
+        )
+
         for _ in 0..<8 {
             surface.swipeDown(velocity: .fast)
         }
@@ -191,6 +204,16 @@ final class cmuxUITests: XCTestCase {
             } else {
                 surface.swipeDown(velocity: .fast)
             }
+            let visibleIDs = scrollRowIDs(in: app)
+            XCTAssertGreaterThanOrEqual(
+                visibleIDs.count,
+                8,
+                "Every reversal must retain a populated terminal snapshot. Rows: \(terminalRowLabels(in: app))"
+            )
+            XCTAssertTrue(
+                zip(visibleIDs, visibleIDs.dropFirst()).allSatisfy { $1 == $0 + 1 },
+                "Every rendered reversal frame must keep unique consecutive rows. Rows: \(visibleIDs)"
+            )
         }
 
         let orderedRows = XCTNSPredicateExpectation(
@@ -214,10 +237,13 @@ final class cmuxUITests: XCTestCase {
         )
         let reversalStats = await server.scrollStats()
         let settledIDs = scrollRowIDs(in: app)
+        let viewportTop = try XCTUnwrap(reversalStats.viewportTop)
+        let viewportIndex = min(viewportTop, reversalStats.maxRowsBeforeViewport)
+        XCTAssertGreaterThan(settledIDs.count, viewportIndex)
         XCTAssertEqual(
-            settledIDs.first,
-            reversalStats.viewportTop.map { $0 + 1 },
-            "The rendered first row must match the Mac's authoritative viewport. Rows: \(settledIDs)"
+            settledIDs[viewportIndex],
+            viewportTop + 1,
+            "The rendered viewport must follow its prefetched rows and match the Mac's authoritative viewport. Rows: \(settledIDs)"
         )
 
         for _ in 0..<16 {
@@ -1972,6 +1998,7 @@ final class cmuxUITests: XCTestCase {
             terminalID: nil,
             macDeviceID: "ui-test-mac",
             macDisplayName: "UI Test Mac",
+            macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
             routes: [route],
             expiresAt: Date(timeIntervalSinceNow: 60 * 60),
             authToken: "ui-test-ticket"
@@ -4498,7 +4525,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
                 )
             }
             if adversarialScrollFrames, Self.isTerminalScrollRequest(payload) {
-                queue.asyncAfter(deadline: .now() + 0.25, execute: sendResponse)
+                queue.asyncAfter(deadline: .now() + 0.04, execute: sendResponse)
             } else {
                 sendResponse()
             }
@@ -4575,6 +4602,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
                 "terminal.bytes.v1",
                 "terminal.render_grid.v1",
                 "terminal.replay.v1",
+                "terminal.scroll.ordered_runs.v1",
                 "terminal.viewport.v1",
                 "workspace.actions.v1",
                 "workspace.read_state.v1",
@@ -4697,7 +4725,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         terminal.viewportTop = min(max(0, terminal.viewportTop ?? bottomTop), bottomTop)
 
         let staleFrame: [String: Any]?
-        if adversarialScrollFrames {
+        if adversarialScrollFrames, staleRenderGridEventCount < 16 {
             staleFrame = renderGridObject(
                 terminal: terminal,
                 rowsBeforeViewport: 0,
@@ -4710,9 +4738,16 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
 
         let directionalLines: [Double]
         if let runs = params["delta_runs"] as? [[String: Any]] {
-            directionalLines = runs.compactMap { ($0["lines"] as? NSNumber)?.doubleValue }
+            directionalLines = runs.compactMap { run in
+                (run["primary_rows"] as? NSNumber).map { Double($0.intValue) }
+                    ?? (run["lines"] as? NSNumber)?.doubleValue
+            }
         } else {
-            directionalLines = [(params["delta_lines"] as? NSNumber)?.doubleValue ?? 0]
+            directionalLines = [
+                (params["primary_rows"] as? NSNumber).map { Double($0.intValue) }
+                    ?? (params["delta_lines"] as? NSNumber)?.doubleValue
+                    ?? 0
+            ]
         }
         scrollDirectionalRunCount += directionalLines.count
         for delta in directionalLines {
@@ -4769,7 +4804,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
 
         if let staleFrame {
             staleRenderGridEventCount += 1
-            queue.asyncAfter(deadline: .now() + 0.30) { [weak self, weak connection] in
+            queue.asyncAfter(deadline: .now() + 0.07) { [weak self, weak connection] in
                 guard let self, let connection else { return }
                 self.sendRenderGridEvent(staleFrame, on: connection)
             }
@@ -4892,7 +4927,30 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             terminal = workspaces[0].terminals[0]
             workspaceID = workspaces[0].id
         }
-        streamOffset += 1
+        if adversarialScrollFrames {
+            let beforeRows = min(
+                max(0, (params["prefetch_before_rows"] as? NSNumber)?.intValue ?? 600),
+                600
+            )
+            let afterRows = min(
+                max(0, (params["prefetch_after_rows"] as? NSNumber)?.intValue ?? 120),
+                600
+            )
+            let frame = renderGridObject(
+                terminal: terminal,
+                rowsBeforeViewport: beforeRows,
+                rowsAfterViewport: afterRows,
+                renderRevision: nextRenderRevision()
+            )
+            return [
+                "workspace_id": workspaceID,
+                "surface_id": terminal.id,
+                "seq": streamOffset,
+                "columns": 80,
+                "rows": 24,
+                "render_grid": frame,
+            ]
+        }
         let bytes = terminalReplayBytes(for: terminal)
         return [
             "workspace_id": workspaceID,

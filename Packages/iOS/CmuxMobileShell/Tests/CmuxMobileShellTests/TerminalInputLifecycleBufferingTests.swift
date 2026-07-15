@@ -350,7 +350,7 @@ private final class InputBufferingHarness {
             prepareIntent: {},
             deliverAuthoritative: { _, _, _, _ in true },
             completeGridlessAuthoritative: { _ in true },
-            reconciliationDidComplete: {},
+            reconciliationDidComplete: { _ in },
             requestReplay: { [weak self] epoch in self?.replayEpochs.append(epoch) },
             advanceEpoch: { [weak self] in
                 guard let self else { return 0 }

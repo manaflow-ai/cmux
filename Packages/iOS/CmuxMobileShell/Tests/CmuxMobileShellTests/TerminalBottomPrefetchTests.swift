@@ -26,7 +26,7 @@ struct TerminalBottomPrefetchTests {
             prepareIntent: {},
             deliverAuthoritative: { _, _, _, _ in false },
             completeGridlessAuthoritative: { _ in true },
-            reconciliationDidComplete: {},
+            reconciliationDidComplete: { _ in },
             requestReplay: { _ in },
             advanceEpoch: { 2 }
         )

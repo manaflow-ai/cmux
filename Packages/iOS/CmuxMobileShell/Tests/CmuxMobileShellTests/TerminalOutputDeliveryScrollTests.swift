@@ -77,6 +77,109 @@ import Testing
 }
 
 @MainActor
+@Test func renderDeltaRequiresItsProducerBaseButAcceptsAQueuedBase() async throws {
+    let store = MobileShellComposite.preview()
+    let surfaceID = "terminal"
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    let baseline = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 1,
+        renderRevision: 9,
+        columns: 12,
+        rows: 2,
+        text: "base\nframe"
+    )
+    var validDelta = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 2,
+        renderRevision: 10,
+        columns: 12,
+        rows: 2,
+        text: "next\nframe",
+        full: false,
+        changedRows: [0]
+    )
+    validDelta.baseRenderRevision = 9
+
+    #expect(store.deliverAuthoritativeTerminalRenderGrid(baseline, source: "event"))
+    #expect(store.deliverAuthoritativeTerminalRenderGrid(validDelta, source: "event"))
+
+    let first = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: first.streamToken)
+    let second = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: second.streamToken)
+
+    var missingBase = validDelta
+    missingBase.renderRevision = 12
+    missingBase.baseRenderRevision = 11
+    #expect(!store.deliverAuthoritativeTerminalRenderGrid(missingBase, source: "event"))
+    #expect(store.terminalOutputQueuesBySurfaceID[surfaceID]?.isIdle == true)
+}
+
+@MainActor
+@Test func renderDeltaRejectsAnOlderProducerBaseAfterANewerFrameApplied() async throws {
+    let store = MobileShellComposite.preview()
+    let surfaceID = "terminal"
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    let baseline = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 1,
+        renderRevision: 10,
+        columns: 12,
+        rows: 2,
+        text: "newer\nbase"
+    )
+
+    #expect(store.deliverAuthoritativeTerminalRenderGrid(baseline, source: "event"))
+    let delivered = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: delivered.streamToken)
+
+    var skippedBase = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 2,
+        renderRevision: 12,
+        columns: 12,
+        rows: 2,
+        text: "unsafe\ndelta",
+        full: false,
+        changedRows: [0]
+    )
+    skippedBase.baseRenderRevision = 9
+
+    #expect(!store.deliverAuthoritativeTerminalRenderGrid(skippedBase, source: "event"))
+    #expect(store.terminalOutputQueuesBySurfaceID[surfaceID]?.isIdle == true)
+}
+
+@MainActor
+@Test func deferredFrameReappliesTheNewestOptimisticReversal() async throws {
+    let store = MobileShellComposite.preview()
+    let surfaceID = "terminal"
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 1,
+        renderRevision: 4,
+        columns: 12,
+        rows: 2,
+        text: "deferred\nframe"
+    )
+    let reversal = MobileTerminalScrollRun(lines: 7, col: 2, row: 1)
+    store.deferTerminalRenderGridEvent(frame)
+
+    store.flushDeferredTerminalRenderGridEvent(
+        surfaceID: surfaceID,
+        followingScrollRuns: [reversal]
+    )
+
+    let chunk = try #require(await iterator.next())
+    guard case .output(let operation) = chunk.mutation else {
+        Issue.record("expected deferred output")
+        return
+    }
+    #expect(operation.followingScrollRuns == [reversal])
+}
+
+@MainActor
 @Test func clickPreservesDeferredLiveFrameThroughGridlessReconciliation() async throws {
     let router = RoutingHostRouter()
     await router.setHoldFirstTerminalScroll(true)

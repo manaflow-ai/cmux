@@ -56,6 +56,22 @@ struct TerminalScrollPlanDeadlineTests {
         harness.localReceipts.removeFirst().resolve(false)
     }
 
+    @Test("a large prefetch response gets a bounded decoding allowance")
+    func prefetchPlanGetsExtendedBudget() {
+        #expect(
+            TerminalScrollSession.interactionPlanDeadlineDuration(
+                plannedRequestCount: 3,
+                includesPrefetch: true
+            ) == .milliseconds(1_400)
+        )
+        #expect(
+            TerminalScrollSession.interactionPlanDeadlineDuration(
+                plannedRequestCount: 3,
+                includesPrefetch: false
+            ) == .milliseconds(600)
+        )
+    }
+
     @Test("legacy scalar plans roll into bounded transactions without dropping their suffix")
     func legacyScalarPlanRollsDeadlineAfterThreeRequests() async throws {
         let harness = ScrollPlanDeadlineHarness()
@@ -156,7 +172,7 @@ private final class ScrollPlanDeadlineHarness {
             prepareIntent: {},
             deliverAuthoritative: { _, _, _, _ in false },
             completeGridlessAuthoritative: { _ in true },
-            reconciliationDidComplete: {},
+            reconciliationDidComplete: { _ in },
             requestReplay: { [weak self] epoch in self?.replayEpochs.append(epoch) },
             advanceEpoch: { [weak self] in
                 guard let self else { return 0 }

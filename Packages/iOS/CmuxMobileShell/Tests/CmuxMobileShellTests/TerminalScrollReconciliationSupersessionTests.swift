@@ -125,7 +125,7 @@ private final class ScrollReconciliationSupersessionHarness {
                 return true
             },
             completeGridlessAuthoritative: { _ in true },
-            reconciliationDidComplete: {},
+            reconciliationDidComplete: { _ in },
             requestReplay: { [weak self] epoch in self?.replayEpochs.append(epoch) },
             advanceEpoch: { [weak self] in
                 guard let self else { return 0 }

@@ -77,7 +77,7 @@ private final class BottomSnapRearmHarness {
             prepareIntent: {},
             deliverAuthoritative: { _, _, _, _ in true },
             completeGridlessAuthoritative: { _ in true },
-            reconciliationDidComplete: {},
+            reconciliationDidComplete: { _ in },
             requestReplay: { _ in },
             advanceEpoch: { [weak self] in
                 guard let self else { return 0 }

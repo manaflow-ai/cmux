@@ -7,12 +7,15 @@ import Testing
 @MainActor
 @Suite("Terminal interaction lane")
 struct TerminalInteractionLaneTests {
-    @Test("production interaction deadline is synchronized at 200 milliseconds")
+    @Test("ordinary interactions stay at 200 milliseconds while large prefetches get one second")
     func productionInteractionDeadlineIsBounded() {
         #expect(TerminalScrollSession.interactionDeadlineMilliseconds == 200)
+        #expect(TerminalScrollSession.prefetchInteractionDeadlineMilliseconds == 1_000)
         #expect(TerminalScrollSession.interactionDeadlineDuration == .milliseconds(200))
         #expect(TerminalScrollSession.interactionDeadlineDuration <= .milliseconds(200))
         #expect(TerminalRPCDeadlinePolicy.interaction.timeoutNanoseconds == 200_000_000)
+        #expect(TerminalRPCDeadlinePolicy.scroll(prefetch: false).timeoutNanoseconds == 200_000_000)
+        #expect(TerminalRPCDeadlinePolicy.scroll(prefetch: true).timeoutNanoseconds == 1_000_000_000)
         #expect(TerminalRPCDeadlinePolicy.input.timeoutNanoseconds == nil)
         #expect(
             TerminalRPCDeadlinePolicy.interaction.timeoutNanoseconds
@@ -357,7 +360,7 @@ private final class InteractionLaneHarness {
                 return true
             },
             completeGridlessAuthoritative: { _ in true },
-            reconciliationDidComplete: { [weak self] in
+            reconciliationDidComplete: { [weak self] _ in
                 guard let frame = self?.deferredFrame else { return }
                 self?.flushedFrames.append(frame)
                 self?.deferredFrame = nil

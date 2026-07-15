@@ -110,7 +110,7 @@ final class TerminalScrollSessionHarness {
                 }
                 return true
             },
-            reconciliationDidComplete: { [weak self] in
+            reconciliationDidComplete: { [weak self] _ in
                 self?.reconciliationCompletionCount += 1
             },
             requestReplay: { [weak self] epoch in

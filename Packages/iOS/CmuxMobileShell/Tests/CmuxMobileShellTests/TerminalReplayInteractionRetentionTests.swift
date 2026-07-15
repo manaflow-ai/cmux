@@ -198,7 +198,7 @@ struct TerminalReplayInteractionRetentionTests {
             prepareIntent: {},
             deliverAuthoritative: { _, _, _, _ in true },
             completeGridlessAuthoritative: { _ in true },
-            reconciliationDidComplete: {},
+            reconciliationDidComplete: { _ in },
             requestReplay: { _ in },
             advanceEpoch: {
                 recorder.epoch += 1
