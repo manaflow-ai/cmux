@@ -331,6 +331,9 @@ public final class PullRequestPollService: PullRequestProbing {
         let requestedBypassRepoCacheKeys = workspacePullRequestBypassRepoCacheKeys
             .intersection(requestedKeys)
         workspacePullRequestBypassRepoCacheKeys.subtract(requestedKeys)
+        let reasonAllowsRepoCache = PullRequestProbeService.refreshAllowsRepoCache(reason: reason)
+        let shouldBypassRepoCacheForWholeBatch = allowCachedResultsOverride.map { !$0 }
+            ?? (requestedBypassRepoCacheKeys.isEmpty && !reasonAllowsRepoCache)
 
         startWorkspacePullRequestRefresh(
             RefreshRequest(
@@ -342,7 +345,8 @@ public final class PullRequestPollService: PullRequestProbing {
                 allowCachedResults: !requestedBypassRepoCacheKeys.isEmpty
                     ? false
                     : (allowCachedResultsOverride
-                        ?? PullRequestProbeService.refreshAllowsRepoCache(reason: reason)),
+                        ?? reasonAllowsRepoCache),
+                shouldBypassRepoCacheForWholeBatch: shouldBypassRepoCacheForWholeBatch,
                 bypassRepoCacheKeys: requestedBypassRepoCacheKeys,
                 reason: reason
             )

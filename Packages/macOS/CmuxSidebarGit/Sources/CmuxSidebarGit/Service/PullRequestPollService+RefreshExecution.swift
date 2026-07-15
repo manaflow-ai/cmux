@@ -16,6 +16,7 @@ extension PullRequestPollService {
         let cacheBySlug: [String: WorkspacePullRequestRepoCacheEntry]
         let now: Date
         let allowCachedResults: Bool
+        let shouldBypassRepoCacheForWholeBatch: Bool
         let bypassRepoCacheKeys: Set<WorkspaceGitProbeKey>
         let reason: String
     }
@@ -109,9 +110,9 @@ extension PullRequestPollService {
             workspacePullRequestProbeStateByKey[key] = .idle
             workspacePullRequestNextPollAtByKey[key] = .distantPast
         }
-        let survivingBypassRepoCacheKeys = request.allowCachedResults
-            ? request.bypassRepoCacheKeys.intersection(survivingKeys)
-            : survivingKeys
+        let survivingBypassRepoCacheKeys = request.shouldBypassRepoCacheForWholeBatch
+            ? survivingKeys
+            : request.bypassRepoCacheKeys.intersection(survivingKeys)
         workspacePullRequestBypassRepoCacheKeys.formUnion(survivingBypassRepoCacheKeys)
 
         let pendingSeedRefresh = takePendingSeedRefresh()
@@ -122,7 +123,7 @@ extension PullRequestPollService {
         }
 
         let shouldBypassRepoCache =
-            (!survivingKeys.isEmpty && !request.allowCachedResults)
+            (!survivingKeys.isEmpty && request.shouldBypassRepoCacheForWholeBatch)
             || !survivingBypassRepoCacheKeys.isEmpty
             || pendingSeedRefresh?.shouldBypassRepoCache == true
             || pendingRefreshRequest?.shouldBypassRepoCache == true
