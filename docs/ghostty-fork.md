@@ -12,12 +12,11 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `eb500e9f4`. It advances the previous cmux pin
-`5ae712a89` through the bounded-scrollback merge `81a6daa8e`, then adds
-terminal-owned scrollbar snapshots, absolute row-space identity, OSC-boundary
-geometry, and compare-and-set absolute-row restoration for notification
-scrollback replay. The commit is reachable from fork `main` through
-`cbbddb292`.
+Current cmux pinned fork head: `eee34d0f9`. It advances the previous cmux pin
+`a6305908a` with wrap-aware explicit-URL matching for semantic prompt boundaries.
+The commit is reachable from the fork branch
+`issue-8096-wrapped-url-cmd-click`; fork `main` is protected and requires the
+patch to land through its review flow.
 
 The underlying compression, selection, and full-scrollback changes were
 published via
@@ -26,6 +25,28 @@ https://github.com/manaflow-ai/ghostty/pull/99 and
 https://github.com/manaflow-ai/ghostty/pull/104 and
 https://github.com/manaflow-ai/ghostty/pull/105 and
 https://github.com/manaflow-ai/ghostty/pull/106.
+
+### URL matching across semantic soft wraps
+
+- Commits:
+  - `e0ab6113a` (test: cover URL links across semantic soft wraps)
+  - `eee34d0f9` (fix: match URLs across semantic soft wraps)
+- Files:
+  - `src/Surface.zig`
+  - `src/config/url.zig`
+  - `src/terminal/StringMap.zig`
+- Summary:
+  - Keeps semantic prompt boundaries for path and custom-link matching, but
+    lets explicit-scheme URLs use the complete soft-wrapped logical line when
+    a semantic marker divides the line exactly at a visual row boundary.
+  - Link hover, click, preview, and copy continue to share one selection path;
+    clicking any wrapped row now yields the same complete URL.
+  - Adds a focused terminal-grid regression for both the scheme row and its
+    wrapped continuation. The red commit returned only
+    `https://github.com/manaflow-ai/c`; the fix returns the full URL.
+  - Candidate for upstreaming to `ghostty-org/ghostty`. During future upstream
+    syncs, keep the explicit-scheme guard so the wider logical-line search does
+    not undo semantic boundaries for file paths or custom matchers.
 
 ### Notification replay viewport authority
 
