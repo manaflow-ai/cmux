@@ -4,15 +4,6 @@ public import CoreGraphics
 public struct BrowserViewportLayout: Equatable, Sendable {
     private static let emulatedViewportPrecisionBias: CGFloat = 0.000_001
 
-    /// How the WebView derives its logical viewport.
-    public enum Mode: String, Equatable, Sendable {
-        /// The logical viewport follows the native pane geometry.
-        case native
-
-        /// The requested logical viewport is aspect-fitted inside the pane.
-        case emulated
-    }
-
     /// The active viewport mode.
     public let mode: Mode
 
