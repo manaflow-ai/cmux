@@ -24,6 +24,13 @@ actor GitHubPullRequestRequestCoordinator {
     private struct InFlightRequest: Sendable {
         let id: UUID
         let task: Task<WorkspacePullRequestHTTPResponse?, Never>
+        let predecessor: TransportLink?
+        var waiterIDs: Set<UUID>
+    }
+
+    private struct TransportLink: Sendable {
+        let id: UUID
+        let task: Task<WorkspacePullRequestHTTPResponse?, Never>
     }
 
     private let session: URLSession
@@ -34,7 +41,7 @@ actor GitHubPullRequestRequestCoordinator {
     private var cachedResponseKeysInInsertionOrder: [RequestKey] = []
     private var cachedResponseBodyByteCount = 0
     private var inFlightRequestByRequestKey: [RequestKey: InFlightRequest] = [:]
-    private var transportTail: Task<Void, Never>?
+    private var transportTail: TransportLink?
     private var rateLimitRetryDateByAuthorizationFingerprint: [Data: Date] = [:]
     private var rateLimitAuthorizationFingerprintsInInsertionOrder: [Data] = []
 
@@ -72,29 +79,54 @@ actor GitHubPullRequestRequestCoordinator {
         guard activeRateLimitRetryDate(
             for: requestKey.authorizationFingerprint
         ) == nil else { return nil }
+        guard !Task.isCancelled else { return nil }
 
-        if let inFlight = inFlightRequestByRequestKey[requestKey] {
-            return await inFlight.task.value
-        }
-
-        let requestID = UUID()
-        let predecessor = transportTail
-        let task = Task<WorkspacePullRequestHTTPResponse?, Never> { [weak self] in
-            _ = await predecessor?.value
-            guard let self else { return nil }
-            return await self.executeRequest(
-                requestKey: requestKey,
-                authHeader: authHeader
+        let waiterID = UUID()
+        let requestID: UUID
+        let task: Task<WorkspacePullRequestHTTPResponse?, Never>
+        if var inFlight = inFlightRequestByRequestKey[requestKey] {
+            inFlight.waiterIDs.insert(waiterID)
+            inFlightRequestByRequestKey[requestKey] = inFlight
+            requestID = inFlight.id
+            task = inFlight.task
+        } else {
+            requestID = UUID()
+            let predecessor = transportTail
+            task = Task<WorkspacePullRequestHTTPResponse?, Never> { [weak self] in
+                _ = await predecessor?.task.value
+                guard !Task.isCancelled, let self else { return nil }
+                return await self.executeRequest(
+                    requestKey: requestKey,
+                    authHeader: authHeader
+                )
+            }
+            inFlightRequestByRequestKey[requestKey] = InFlightRequest(
+                id: requestID,
+                task: task,
+                predecessor: predecessor,
+                waiterIDs: [waiterID]
             )
+            transportTail = TransportLink(id: requestID, task: task)
         }
-        inFlightRequestByRequestKey[requestKey] = InFlightRequest(id: requestID, task: task)
-        transportTail = Task { _ = await task.value }
 
-        let response = await task.value
-        if inFlightRequestByRequestKey[requestKey]?.id == requestID {
-            inFlightRequestByRequestKey.removeValue(forKey: requestKey)
+        return await withTaskCancellationHandler {
+            let response = await task.value
+            releaseWaiter(
+                waiterID,
+                requestID: requestID,
+                requestKey: requestKey
+            )
+            return Task.isCancelled ? nil : response
+        } onCancel: { [weak self] in
+            guard let self else { return }
+            Task {
+                await self.releaseWaiter(
+                    waiterID,
+                    requestID: requestID,
+                    requestKey: requestKey
+                )
+            }
         }
-        return response
     }
 
     func retryDate(authHeader: String) -> Date? {
@@ -151,6 +183,28 @@ actor GitHubPullRequestRequestCoordinator {
             return WorkspacePullRequestHTTPResponse(statusCode: httpResponse.statusCode, data: data)
         } catch {
             return nil
+        }
+    }
+
+    private func releaseWaiter(
+        _ waiterID: UUID,
+        requestID: UUID,
+        requestKey: RequestKey
+    ) {
+        guard var inFlight = inFlightRequestByRequestKey[requestKey],
+              inFlight.id == requestID,
+              inFlight.waiterIDs.remove(waiterID) != nil else {
+            return
+        }
+        guard inFlight.waiterIDs.isEmpty else {
+            inFlightRequestByRequestKey[requestKey] = inFlight
+            return
+        }
+
+        inFlightRequestByRequestKey.removeValue(forKey: requestKey)
+        inFlight.task.cancel()
+        if transportTail?.id == requestID {
+            transportTail = inFlight.predecessor
         }
     }
 
