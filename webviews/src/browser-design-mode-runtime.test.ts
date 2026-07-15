@@ -434,6 +434,23 @@ describe("browser design-mode runtime", () => {
     expect(account.selection?.text_content).not.toContain("style-secret");
   });
 
+  test("redacts accessibility labels on sensitive controls", () => {
+    const { runtime } = fixture(`
+      <main>
+        <input id="otp" type="text" autocomplete="one-time-code"
+               aria-label="Verification code sent to austin@example.com">
+      </main>
+    `);
+
+    const snapshot = runtime.select("#otp");
+    expect(snapshot.selection?.dom_snippet).not.toContain("austin@example.com");
+    expect(snapshot.selection?.dom_snippet).toContain("&lt;redacted&gt;");
+    expect(snapshot.selection?.selector).not.toContain("austin@example.com");
+    for (const selector of snapshot.selection?.selectors ?? []) {
+      expect(selector).not.toContain("austin@example.com");
+    }
+  });
+
   test("redacts editable content and URL-bearing attributes", () => {
     const { runtime } = fixture(`
       <main id="drafts">
