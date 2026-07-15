@@ -143,6 +143,46 @@ import UIKit
 }
 
 @MainActor
+@Test func remoteThemeClearsOptionalColorsFromLocalConfig() async throws {
+    let runtime = try GhosttyRuntime()
+    let localColors = """
+    bold-color = #ff0000
+    cursor-text = #00ff00
+    """
+    localColors.withCString { contents in
+        "/__cmux_ios__/local-colors.conf".withCString { path in
+            ghostty_config_load_string(
+                runtime.config,
+                contents,
+                UInt(localColors.lengthOfBytes(using: .utf8)),
+                path
+            )
+        }
+    }
+    ghostty_config_finalize(runtime.config)
+
+    let delegate = ThemeTestSurfaceDelegate()
+    var remoteTheme = TerminalTheme.monokai
+    remoteTheme.foreground = "#123456"
+    remoteTheme.boldColor = nil
+    remoteTheme.cursorText = nil
+    let view = GhosttySurfaceView(
+        runtime: runtime,
+        delegate: delegate,
+        terminalTheme: remoteTheme,
+        terminalConfigTheme: remoteTheme
+    )
+    defer { view.prepareForDismantle() }
+
+    #expect(await view.processOutputAndWait(Data("\u{1B}[1mX".utf8)))
+    let frame = try exportThemeFrame(from: view, surfaceID: "local-optional-color-reset")
+    let boldStyle = try #require(frame.styles.first(where: \.bold))
+
+    #expect(boldStyle.foreground?.lowercased() == remoteTheme.foreground.lowercased())
+    #expect(frame.terminalConfigTheme?.cursorText == nil)
+}
+
+@MainActor
 private func exportThemeFrame(
     from view: GhosttySurfaceView,
     surfaceID: String = "reverse-reset-test"
