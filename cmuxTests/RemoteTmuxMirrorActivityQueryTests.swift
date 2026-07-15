@@ -400,6 +400,66 @@ extension RemoteTmuxMirrorTargetingTests {
         }
     }
 
+    @Test func timedOutMobileRemoteCloseBoundsRecoveryCoalescedBehindSilentWindowList() async throws {
+        let deadlines = CapturingActivityQueryDeadlineScheduler()
+        try await withMobileRPCActivityHarness(deadlineScheduler: deadlines) { harness, windowID in
+            let panelID = try harness.panelID(forWindow: 1)
+            #expect(harness.connection.requestWindows())
+            #expect(harness.connection.windowListRequestInFlight)
+            #expect(harness.connection.pendingCommandKindsForTesting.first == .listWindows(
+                reorderGeneration: 0,
+                retainedPaneIDs: []
+            ))
+
+            var observedResult: TerminalController.V2CallResult?
+            let close = Task { @MainActor in
+                let result = await TerminalController.shared.v2MobileTerminalClose(params: mobileCloseParams(
+                    windowID: windowID,
+                    workspaceID: harness.workspace.id,
+                    panelID: panelID
+                ))
+                observedResult = result
+                return result
+            }
+            for _ in 0..<50 where harness.connection.windowCloseRequests.isEmpty {
+                await Task.yield()
+            }
+            let token = try #require(harness.connection.windowCloseRequests.keys.first)
+            #expect(deadlines.scheduledCount == 1)
+
+            deadlines.fireNext()
+            #expect(observedResult == nil)
+            #expect(harness.connection.windowCloseRecoveryTokensAwaitingList.contains(token))
+            #expect(harness.connection.windowListRequestDirty)
+            #expect(deadlines.scheduledCount == 2, "coalesced recovery wait must be bounded")
+            #expect(deadlines.delays == [.seconds(1), .seconds(1)])
+
+            // Never complete the older list-windows FIFO head. The independent
+            // coalesced-wait deadline must release the mutation and discard it.
+            deadlines.fireNext()
+            for _ in 0..<50 where observedResult == nil {
+                await Task.yield()
+            }
+
+            #expect(resultErrorCode(observedResult) == "result_unknown")
+            #expect(harness.connection.windowCloseRequests[token] == nil)
+            #expect(harness.connection.windowCloseDeadlineCancellations[token] == nil)
+            #expect(!harness.connection.windowCloseRecoveryTokensAwaitingList.contains(token))
+            #expect(!harness.connection.windowCloseRecoveryTokensInFlight.contains(token))
+            #expect(!harness.connection.windowListRequestInFlight)
+            #expect(!harness.connection.windowListRequestDirty)
+            #expect(harness.connection.pendingCommandKindsForTesting.isEmpty)
+            #expect(harness.connection.connectionState == .reconnecting)
+
+            if observedResult == nil {
+                // Bound the RED itself without completing the deliberately silent
+                // FIFO head that production must discard.
+                harness.connection.beginReconnecting()
+            }
+            #expect(resultErrorCode(await close.value) == "result_unknown")
+        }
+    }
+
     @Test func disconnectedMobileRemoteClosePreservesViewportAndTerminal() async throws {
         try await withMobileRPCActivityHarness { harness, windowID in
             let panelID = try harness.panelID(forWindow: 1)
@@ -664,6 +724,66 @@ extension RemoteTmuxMirrorTargetingTests {
                 #expect(harness.connection.windowOrder == orderBeforeLateReply)
                 #expect(resultErrorCode(observedResult) == "result_unknown")
             } else {
+                harness.connection.beginReconnecting()
+            }
+            #expect(resultErrorCode(await reorder.value) == "result_unknown")
+        }
+    }
+
+    @Test func mobileRemoteReorderBoundsRecoveryCoalescedBehindSilentWindowList() async throws {
+        let deadlines = CapturingActivityQueryDeadlineScheduler()
+        try await withMobileRPCActivityHarness(deadlineScheduler: deadlines) { harness, windowID in
+            let firstPanelID = try harness.panelID(forWindow: 1)
+            let paneID = try #require(harness.workspace.paneId(forPanelId: firstPanelID))
+            #expect(harness.connection.requestWindows())
+            #expect(harness.connection.windowListRequestInFlight)
+            #expect(harness.connection.pendingCommandKindsForTesting.first == .listWindows(
+                reorderGeneration: 0,
+                retainedPaneIDs: []
+            ))
+
+            var observedResult: TerminalController.V2CallResult?
+            let reorder = Task { @MainActor in
+                let result = await TerminalController.shared.v2MobileTerminalReorder(params: [
+                    "window_id": windowID.uuidString,
+                    "workspace_id": harness.workspace.id.uuidString,
+                    "pane_id": paneID.id.uuidString,
+                    "surface_id": firstPanelID.uuidString,
+                    "index": 1,
+                ])
+                observedResult = result
+                return result
+            }
+            for _ in 0..<50 where harness.connection.windowReorderVerificationGeneration == nil {
+                await Task.yield()
+            }
+            let token = try #require(harness.connection.windowReorderVerificationTokens.keys.first)
+            #expect(deadlines.scheduledCount == 1)
+
+            deadlines.fireNext()
+            #expect(observedResult == nil)
+            #expect(harness.connection.windowReorderRecoveryGeneration == 1)
+            #expect(harness.connection.windowListRequestDirty)
+            #expect(deadlines.scheduledCount == 2, "coalesced recovery wait must be bounded")
+            #expect(deadlines.delays == [.seconds(1), .seconds(1)])
+
+            deadlines.fireNext()
+            for _ in 0..<50 where observedResult == nil {
+                await Task.yield()
+            }
+
+            #expect(resultErrorCode(observedResult) == "result_unknown")
+            #expect(harness.connection.windowReorderVerificationTokens[token] == nil)
+            #expect(harness.connection.windowReorderVerificationGeneration == nil)
+            #expect(harness.connection.windowReorderVerifications.isEmpty)
+            #expect(harness.connection.windowReorderDeadlineCancellations.isEmpty)
+            #expect(harness.connection.windowReorderRecoveryGeneration == nil)
+            #expect(!harness.connection.windowListRequestInFlight)
+            #expect(!harness.connection.windowListRequestDirty)
+            #expect(harness.connection.pendingCommandKindsForTesting.isEmpty)
+            #expect(harness.connection.connectionState == .reconnecting)
+
+            if observedResult == nil {
                 harness.connection.beginReconnecting()
             }
             #expect(resultErrorCode(await reorder.value) == "result_unknown")
