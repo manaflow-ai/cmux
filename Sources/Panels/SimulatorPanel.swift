@@ -58,6 +58,20 @@ final class SimulatorPanel: Panel {
         )
     }
 
+    convenience init(
+        preferredDeviceID: String? = nil,
+        preferredRuntimeIdentifier: String? = nil,
+        preferredDeviceTypeIdentifier: String? = nil,
+        client: any SimulatorPaneClient
+    ) {
+        self.init(
+            preferredDeviceID: preferredDeviceID,
+            preferredRuntimeIdentifier: preferredRuntimeIdentifier,
+            preferredDeviceTypeIdentifier: preferredDeviceTypeIdentifier,
+            clientFactory: { client }
+        )
+    }
+
     func suspendForRemoteDisable() {
         guard !isClosed, !isFeatureDisabled else { return }
         isFeatureDisabled = true

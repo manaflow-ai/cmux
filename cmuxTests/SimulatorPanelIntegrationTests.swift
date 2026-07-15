@@ -153,6 +153,29 @@ struct SimulatorPanelIntegrationTests {
         #expect(window.firstResponder !== view)
     }
 
+    @Test("Remote disable closes the worker and re-enable replaces it")
+    func remoteFeatureFlagLifecycle() async {
+        let firstClient = SimulatorFeatureFlagPaneClient()
+        let secondClient = SimulatorFeatureFlagPaneClient()
+        var clients: [SimulatorFeatureFlagPaneClient] = [firstClient, secondClient]
+        let panel = SimulatorPanel(clientFactory: { clients.removeFirst() })
+        defer { panel.close() }
+        let firstCoordinator = panel.coordinator
+
+        panel.suspendForRemoteDisable()
+        for _ in 0..<100 {
+            if await firstClient.stopCount != 0 { break }
+            await Task.yield()
+        }
+
+        #expect(await firstClient.stopCount == 1)
+        panel.resumeAfterRemoteEnable()
+        #expect(panel.coordinator !== firstCoordinator)
+
+        await panel.coordinator.start()
+        #expect(await secondClient.discoveryCount == 1)
+    }
+
     @Test("External file drops target Simulator import instead of file previews")
     func externalFileDropRouting() {
         let workspace = Workspace()
@@ -310,6 +333,29 @@ struct SimulatorPanelIntegrationTests {
             .foregroundApplication(nil)
         ) == .object(["application": .null]))
     }
+}
+
+private actor SimulatorFeatureFlagPaneClient: SimulatorPaneClient {
+    private let events = SimulatorWorkerEventStreamSource(
+        maximumBufferedBytes: 1_024,
+        maximumBufferedEvents: 4,
+        onTermination: {}
+    )
+    private(set) var discoveryCount = 0
+    private(set) var stopCount = 0
+
+    func discoverDevices() async throws -> [SimulatorDevice] {
+        discoveryCount += 1
+        return []
+    }
+
+    func activateDevice(id: String, geometry: SimulatorSurfaceGeometry?) async throws {}
+    func shutdownDevice(id: String) async throws {}
+    func subscribe() async -> SimulatorWorkerEventStream { events.stream }
+    func send(_ message: SimulatorWorkerInbound) async {}
+    func perform(_ action: SimulatorControlAction) async throws -> SimulatorControlResult { .none }
+    func invalidateWorker() async {}
+    func stop() async { stopCount += 1 }
 }
 
 private final class TestSimulatorResponder: NSView, SimulatorInputResponder {
