@@ -659,4 +659,24 @@ mod tests {
 
         assert_ne!(first.instance_id(), second.instance_id());
     }
+
+    #[test]
+    fn bounded_vt_replay_keeps_the_latest_screen_after_large_history() {
+        let mut source = Terminal::new(80, 24, 2 * 1024 * 1024, Callbacks::default()).unwrap();
+        let wide_line = "x".repeat(2048);
+        for index in 0..500 {
+            source.vt_write(format!("history-{index:04}-{wide_line}\r\n").as_bytes());
+        }
+        source.vt_write(b"LATEST-VISIBLE-CONTENT");
+
+        let full = source.vt_replay().unwrap();
+        assert!(full.len() > 32 * 1024);
+
+        let bounded = source.vt_replay_bounded(32 * 1024).unwrap();
+        assert!(bounded.len() <= 32 * 1024);
+
+        let mut restored = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        restored.vt_write(&bounded);
+        assert!(restored.viewport_text().unwrap().contains("LATEST-VISIBLE-CONTENT"));
+    }
 }
