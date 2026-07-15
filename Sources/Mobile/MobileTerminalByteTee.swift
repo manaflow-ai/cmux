@@ -163,7 +163,7 @@ final class MobileTerminalByteTee {
         MobileTerminalRenderObserver.shared.noteTerminalBytes(surfaceID: surfaceID)
 
         if let continuations = laneContinuationsBySurfaceID[surfaceID] {
-            let chunk = OutputChunk(sequence: chunkSeq, data: data)
+            let chunk = OutputChunk(sequence: startSeq, data: data)
             var droppedIDs: [UUID] = []
             for (id, continuation) in continuations {
                 if case .dropped = continuation.yield(chunk) {
