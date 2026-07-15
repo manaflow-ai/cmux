@@ -115,16 +115,57 @@ echo "==> Ghostty build key: $GHOSTTY_KEY"
 
 LOCK_TIMEOUT=300
 LOCK_START=$SECONDS
-while ! mkdir "$LOCK_DIR" 2>/dev/null; do
+LOCK_MKDIR_ERR=""
+LOCK_ACQUIRED=0
+cleanup_lock() {
+  if [[ "$LOCK_ACQUIRED" == "1" ]]; then
+    rmdir "$LOCK_DIR" >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup_lock EXIT
+print_sanitized_lock_error() {
+  [[ -n "$LOCK_MKDIR_ERR" ]] || return 0
+
+  local line
+  while IFS= read -r line; do
+    line="${line//$LOCK_DIR/<GhosttyKit cache lock>}"
+    line="${line//$CACHE_ROOT/<GhosttyKit cache>}"
+    if [[ -n "${HOME:-}" ]]; then
+      line="${line//$HOME/~}"
+    fi
+    printf '  %s\n' "$line" >&2
+  done <<< "$LOCK_MKDIR_ERR"
+}
+lock_mkdir_failed_because_contention() {
+  if [[ -d "$LOCK_DIR" ]]; then
+    return 0
+  fi
+  [[ ! -e "$LOCK_DIR" && "$LOCK_MKDIR_ERR" =~ [Ff]ile[[:space:]]exists ]]
+}
+while true; do
+  if LOCK_MKDIR_ERR="$(mkdir "$LOCK_DIR" 2>&1)"; then
+    LOCK_ACQUIRED=1
+    break
+  fi
+  if ! lock_mkdir_failed_because_contention; then
+    echo "error: could not create the GhosttyKit cache lock." >&2
+    echo "The underlying mkdir command failed while creating the lock directory." >&2
+    print_sanitized_lock_error
+    echo "Check that the GhosttyKit cache directory is writable." >&2
+    exit 1
+  fi
   if (( SECONDS - LOCK_START > LOCK_TIMEOUT )); then
     echo "==> Lock stale (>${LOCK_TIMEOUT}s), removing and retrying..."
-    rmdir "$LOCK_DIR" 2>/dev/null || rm -rf "$LOCK_DIR"
+    if ! rmdir "$LOCK_DIR" 2>/dev/null; then
+      echo "error: the stale GhosttyKit cache lock could not be removed automatically." >&2
+      echo "Check for another setup process, then remove the stale .lock directory under the GhosttyKit cache." >&2
+      exit 1
+    fi
     continue
   fi
   echo "==> Waiting for GhosttyKit cache lock for $GHOSTTY_KEY..."
   sleep 1
 done
-trap 'rmdir "$LOCK_DIR" >/dev/null 2>&1 || true' EXIT
 
 try_fetch_prebuilt_xcframework() {
   # Only attempt when Ghostty submodule is clean — dirty trees won't match any
