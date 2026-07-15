@@ -78,6 +78,9 @@ final class AutomationSocketUITests: XCTestCase {
 
     func testSimulateShortcutPlainCharacterKeepsAppAlive() throws {
         let app = configuredApp(mode: "cmuxOnly")
+        // Backgrounded apps on CI runners get App Nap throttled and can stall
+        // main-thread hops indefinitely; simulate_shortcut replies after a main hop.
+        app.launchArguments += ["-NSAppSleepDisabled", "YES"]
         app.launch()
         XCTAssertTrue(
             ensureRunningAfterLaunch(app, timeout: 12.0),
@@ -100,15 +103,20 @@ final class AutomationSocketUITests: XCTestCase {
         // keyDown -> interpretKeyEvents pipeline. Synthetic events built without
         // CGEvent backing make NSTextInputContext raise there, which terminated
         // the app mid-reply (socket closed, no crash report).
-        let reply = ControlSocketClient(path: socketPath, responseTimeout: 20.0)
+        let reply = ControlSocketClient(path: socketPath, responseTimeout: 30.0)
             .sendLine("simulate_shortcut x")
-        XCTAssertEqual(reply, "OK", "simulate_shortcut x should complete, got \(reply ?? "nil")")
 
-        XCTAssertTrue(
-            waitForSocketPong(timeout: 5.0),
-            "Socket should still answer after plain-char simulation; a dead listener here means the app aborted in the text-input path"
+        // Liveness first so a regression reads as "app died", not as a nil-reply
+        // timeout; only then require the OK reply.
+        XCTAssertNotEqual(
+            app.state, .notRunning,
+            "App died processing plain-char simulation (CGEvent-less crash regressed). reply=\(reply ?? "nil")"
         )
-        XCTAssertNotEqual(app.state, .notRunning, "App must survive plain-char key simulation")
+        XCTAssertTrue(
+            waitForSocketPong(timeout: 10.0),
+            "Socket must still answer after plain-char simulation. reply=\(reply ?? "nil") state=\(app.state.rawValue)"
+        )
+        XCTAssertEqual(reply, "OK", "simulate_shortcut x should reply OK. state=\(app.state.rawValue)")
         app.terminate()
     }
 
