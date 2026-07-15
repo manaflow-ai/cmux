@@ -2,6 +2,8 @@ import Foundation
 
 /// Owns one browser-level Chrome DevTools Protocol WebSocket connection.
 actor CDPConnection {
+    private static let controlEventBufferCapacity = 256
+
     private let transport: any CDPWebSocketTransport
     private let requestTimeout: Duration
     private let encoder = JSONEncoder()
@@ -37,10 +39,11 @@ actor CDPConnection {
     func events(sessionID: String) -> AsyncStream<CDPEvent> {
         let subscriberID = UUID()
         // High-volume frames use their own coalescing stream below. The remaining
-        // control events are lossless because dropping one can suspend protocol state.
+        // control events are lossless until this finite queue fills. Overflow closes
+        // the connection below because dropping one can suspend protocol state.
         let (stream, continuation) = AsyncStream.makeStream(
             of: CDPEvent.self,
-            bufferingPolicy: .unbounded
+            bufferingPolicy: .bufferingOldest(Self.controlEventBufferCapacity)
         )
         guard !isClosed else {
             continuation.finish()
@@ -232,10 +235,16 @@ actor CDPConnection {
             event.sessionID == nil || event.sessionID == subscriber.sessionID {
             let yieldResult = subscriber.continuation.yield(event)
             if case .dropped(let droppedEvent) = yieldResult {
-                try await acknowledgeDroppedScreencastFrame(
-                    droppedEvent,
-                    subscriberSessionID: subscriber.sessionID
-                )
+                if method == "Page.screencastFrame" {
+                    try await acknowledgeDroppedScreencastFrame(
+                        droppedEvent,
+                        subscriberSessionID: subscriber.sessionID
+                    )
+                } else {
+                    throw BrowserEngineSessionError.chromiumProtocol(
+                        "DevTools control-event buffer overflowed."
+                    )
+                }
             }
         }
     }
