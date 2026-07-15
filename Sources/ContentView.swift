@@ -13477,9 +13477,9 @@ struct TabItemView: View, Equatable {
                     taskStatus: workspaceSnapshot.taskStatus,
                     hasManualOverride: workspaceSnapshot.hasManualTaskStatus
                 ), let taskStatus = workspaceSnapshot.taskStatus {
-                    SidebarWorkspaceTaskStatusGlyph(
+                    SidebarWorkspaceManualStatusIndicatorMenu(
                         status: taskStatus,
-                        hasOverride: true,
+                        tab: tab,
                         usesMonochrome: usesInvertedActiveForeground,
                         monochromeColor: activeSecondaryColor(0.8),
                         neutralColor: activeSecondaryColor(0.8),

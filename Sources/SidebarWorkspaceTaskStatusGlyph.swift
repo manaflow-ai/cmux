@@ -108,6 +108,87 @@ enum SidebarWorkspaceManualTaskStatusIndicatorModel {
     }
 }
 
+// MARK: - Row status menu
+
+/// The interactive wrapper used only by sidebar workspace rows with a
+/// manual status override. It keeps the restored row glyph compact while
+/// sending every selection through the shared workspace todo action path.
+struct SidebarWorkspaceManualStatusIndicatorMenu: View {
+    let status: WorkspaceTaskStatus
+    let tab: Tab
+    let usesMonochrome: Bool
+    let monochromeColor: Color
+    let neutralColor: Color
+    let fontScale: CGFloat
+
+    private var menuModel: SidebarWorkspaceCompactStatusMenuModel {
+        SidebarWorkspaceCompactStatusMenuModel.resolve(
+            inferred: tab.inferredTaskStatus,
+            override: tab.todoState.statusOverride
+        )
+    }
+
+    private var lanes: [WorkspaceTodoStatusLane] {
+        WorkspaceTodoStatusLane.lanes(
+            inferred: menuModel.inferred,
+            activeOverride: menuModel.activeOverride,
+            isHidden: false
+        )
+    }
+
+    private var labelText: String {
+        String(
+            format: String(localized: "sidebar.status.compactLabel", defaultValue: "Status: %@"),
+            locale: .current,
+            status.displayName
+        )
+    }
+
+    var body: some View {
+        Menu {
+            ForEach(lanes) { lane in
+                if lane.isNone {
+                    Divider()
+                }
+                Button {
+                    if lane.isNone {
+                        WorkspaceTodoActions.hideStatus(for: [tab])
+                    } else {
+                        WorkspaceTodoActions.applyStatusOverride(lane.status, to: [tab])
+                    }
+                } label: {
+                    if lane.isSelected {
+                        Label(lane.title, systemImage: "checkmark")
+                    } else {
+                        Text(lane.title)
+                    }
+                }
+                if lane.status == nil, !lane.isNone {
+                    Divider()
+                }
+            }
+        } label: {
+            SidebarWorkspaceTaskStatusGlyph(
+                status: status,
+                hasOverride: true,
+                usesMonochrome: usesMonochrome,
+                monochromeColor: monochromeColor,
+                neutralColor: neutralColor,
+                fontScale: fontScale
+            )
+            .padding(.horizontal, 2)
+            .padding(.vertical, 2)
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize(horizontal: true, vertical: true)
+        .safeHelp(String(localized: "sidebar.status.compactTooltip", defaultValue: "Change workspace status"))
+        .accessibilityLabel(labelText)
+        .accessibilityIdentifier("SidebarWorkspaceManualStatusIndicatorMenu")
+    }
+}
+
 // MARK: - Glyph view
 
 /// The custom-drawn circular progress-pie status glyph shown in the todo
