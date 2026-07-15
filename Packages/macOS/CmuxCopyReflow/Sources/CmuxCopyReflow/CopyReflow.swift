@@ -187,7 +187,6 @@ private extension ReflowOptions {
                     let s1 = indentationDelta > 0
                         && indentationHasWrapEvidence
                         && proseContinuationShape
-                        && !endsIndentedBlock(p.prevContent)
                         && !structuredCode
                     // s3: a wrapped bare URL continues as a spaceless path
                     //     fragment only with indentation or terminal-width
@@ -227,7 +226,9 @@ private extension ReflowOptions {
                         && !structuredCode
                         && previousLineWasFull
                         && (proseContinuation || commandContinuation)
-                    let canJoin = !p.prevEndsTerminator && (s1 || s3 || s4)
+                    let canJoin = !p.prevEndsTerminator
+                        && !endsIndentedBlock(p.prevContent)
+                        && (s1 || s3 || s4)
 
                     if canJoin {
                         let joiner = s3 ? "" : " "
