@@ -50,6 +50,12 @@ public enum UpdateState: Equatable {
         }
     }
 
+    /// Whether the signed update is prepared and the next user action should restart cmux.
+    public var isReadyToRestart: Bool {
+        if case .installing = self { return true }
+        return false
+    }
+
     /// Invokes the phase-appropriate cancellation/acknowledgement callback.
     @MainActor public func cancel() {
         switch self {
