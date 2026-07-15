@@ -4,6 +4,12 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 WORKFLOW_FILE="$ROOT_DIR/.github/workflows/nightly.yml"
+BON_SPLIT_CONTROLLER_FILE="$ROOT_DIR/vendor/bonsplit/Sources/Bonsplit/Public/BonsplitController.swift"
+
+if ! grep -Eq 'tabContextForkConversationAvailabilityProvider:.*TabContextForkConversationAvailability' "$BON_SPLIT_CONTROLLER_FILE"; then
+  echo "FAIL: the pinned Bonsplit revision must provide the fork-menu availability states used by Workspace.swift"
+  exit 1
+fi
 
 if ! awk '
   /^      - name: Build universal nightly app and Ghostty CLI helper \(Release\)/ { in_universal=1; next }
