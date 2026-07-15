@@ -148,6 +148,10 @@
   };
 
   const selectorsFor = (element) => {
+    // Redaction boundary: every form control is classified sensitive, and
+    // selection recovery depends on unique selectors, so developer-assigned
+    // identifiers (id, name, data-testid) stay usable as selector sources.
+    // User-bearing content (values, text, accessibility labels) is redacted.
     const candidates = [];
     if (element.id && element.id.length <= maxSelectorValueCharacters) {
       candidates.push(`#${cssEscape(element.id)}`);
