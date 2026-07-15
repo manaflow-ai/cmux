@@ -356,6 +356,27 @@ struct SimulatorPaneCoordinatorTests {
         })
     }
 
+    @Test("A successful media import cannot erase a failed dropped app install")
+    func mixedDropPreservesApplicationInstallFailure() async {
+        let client = SimulatorPaneClientSpy(
+            devices: [Self.device(id: "phone", family: .iPhone, state: .booted)],
+            failsApplicationInstall: true
+        )
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        await coordinator.start()
+
+        await coordinator.importDroppedFiles([
+            URL(fileURLWithPath: "/tmp/Invalid.ipa"),
+            URL(fileURLWithPath: "/tmp/photo.png"),
+        ])
+
+        #expect(coordinator.controlFailure?.code == "fixture_install_failed")
+        #expect(await client.actions().contains(.addMedia(
+            deviceID: "phone",
+            urls: [URL(fileURLWithPath: "/tmp/photo.png")]
+        )))
+    }
+
     @Test("Recoverable tool failures keep a live display interactive")
     func recoverableToolFailure() async {
         let client = SimulatorPaneClientSpy(devices: [

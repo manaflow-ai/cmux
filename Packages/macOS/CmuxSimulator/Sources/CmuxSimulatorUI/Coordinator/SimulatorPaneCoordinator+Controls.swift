@@ -128,8 +128,8 @@ extension SimulatorPaneCoordinator {
         }
         if installedApplication {
             await refreshApplications()
-            if let installFailure { controlFailure = installFailure }
         }
+        if let installFailure { controlFailure = installFailure }
     }
 
     /// Reads plain text from the simulated pasteboard.
