@@ -133,4 +133,30 @@ import Testing
         #expect(!directives.contains("background = ff8000"))
     }
 
+    @Test func decodedThemeCarriesCustomBoldColorIntoGhosttyConfig() throws {
+        let object = try #require(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(TerminalTheme.monokai)) as? [String: Any]
+        )
+        var themeObject = object
+        themeObject["boldColor"] = "#4e2a84"
+        let data = try JSONSerialization.data(withJSONObject: themeObject)
+
+        let theme = try JSONDecoder().decode(TerminalTheme.self, from: data)
+
+        #expect(theme.ghosttyColorDirectives.contains("bold-color = #4e2a84"))
+    }
+
+    @Test func decodedThemeCarriesBrightBoldColorIntoGhosttyConfig() throws {
+        let object = try #require(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(TerminalTheme.monokai)) as? [String: Any]
+        )
+        var themeObject = object
+        themeObject["boldColor"] = "bright"
+        let data = try JSONSerialization.data(withJSONObject: themeObject)
+
+        let theme = try JSONDecoder().decode(TerminalTheme.self, from: data)
+
+        #expect(theme.ghosttyColorDirectives.contains("bold-color = bright"))
+    }
+
 }
