@@ -12,6 +12,53 @@ import Testing
 // Shared fixtures live in MobileShellRenderGridLivenessTestSupport.swift.
 
 @MainActor
+@Test func shellAdmissionRebasesSequenceAndRevisionForReplacementProducer() throws {
+    let store = MobileShellComposite()
+    let surfaceID = "replacement-terminal"
+    let oldProducer = try MobileTerminalRenderGridFrame(
+        surfaceID: surfaceID,
+        stateSeq: 90,
+        producerEpoch: 7,
+        renderRevision: 90,
+        columns: 8,
+        rows: 1,
+        rowSpans: [.init(row: 0, column: 0, text: "old")]
+    )
+    let replacement = try MobileTerminalRenderGridFrame(
+        surfaceID: surfaceID,
+        stateSeq: 1,
+        producerEpoch: 8,
+        renderRevision: 1,
+        columns: 8,
+        rows: 1,
+        rowSpans: [.init(row: 0, column: 0, text: "new")]
+    )
+    let delayedOldProducer = try MobileTerminalRenderGridFrame(
+        surfaceID: surfaceID,
+        stateSeq: 91,
+        producerEpoch: 7,
+        renderRevision: 91,
+        columns: 8,
+        rows: 1,
+        rowSpans: [.init(row: 0, column: 0, text: "late")]
+    )
+
+    store.recordTerminalRenderGridDelivery(oldProducer)
+    store.markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: oldProducer.stateSeq)
+    store.pendingTerminalByteEndSeqBySurfaceID[surfaceID] = 95
+
+    #expect(store.admitsTerminalRenderGrid(replacement, source: "event"))
+    store.recordTerminalRenderGridDelivery(replacement)
+    store.markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: replacement.stateSeq)
+
+    #expect(store.terminalDeliveredRenderEpochBySurfaceID[surfaceID] == 8)
+    #expect(store.terminalDeliveredRenderRevisionBySurfaceID[surfaceID] == 1)
+    #expect(store.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == 1)
+    #expect(store.pendingTerminalByteEndSeqBySurfaceID[surfaceID] == nil)
+    #expect(!store.admitsTerminalRenderGrid(delayedOldProducer, source: "event"))
+}
+
+@MainActor
 @Test func renderGridReplayAtSameSeqDoesNotOverwriteNewerLiveGrid() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()
