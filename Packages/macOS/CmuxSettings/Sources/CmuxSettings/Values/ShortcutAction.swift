@@ -44,13 +44,17 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     // MARK: Navigation
     case nextSurface
     case prevSurface
-    /// Moves the selected surface one position left or right.
-    case moveSurfaceLeft, moveSurfaceRight
+    /// Moves the selected surface one position left.
+    case moveSurfaceLeft
+    /// Moves the selected surface one position right.
+    case moveSurfaceRight
     case selectSurfaceByNumber
     case nextSidebarTab
     case prevSidebarTab
-    /// Moves the selected workspace one position up or down within its pin tier.
-    case moveWorkspaceUp, moveWorkspaceDown
+    /// Moves the selected workspace one position up within its pin tier.
+    case moveWorkspaceUp
+    /// Moves the selected workspace one position down within its pin tier.
+    case moveWorkspaceDown
     case focusHistoryBack
     case focusHistoryForward
     case selectWorkspaceByNumber
@@ -169,25 +173,6 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
 }
 
 extension ShortcutAction {
-    /// Logical grouping used for sectioning the shortcuts pane.
-    public enum Group: String, CaseIterable, Sendable, Hashable {
-        case app
-        case workspace
-        case navigation
-        case panes
-        case browser
-
-        public var title: String {
-            switch self {
-            case .app: return "App"
-            case .workspace: return "Workspace"
-            case .navigation: return "Navigation"
-            case .panes: return "Panes"
-            case .browser: return "Browser & Find"
-            }
-        }
-    }
-
     /// Which group this action belongs to in the settings pane.
     public var group: Group {
         switch self {
