@@ -430,6 +430,16 @@ final class BrowserDesignModeController {
         )
     }
 
+    /// Test seam: places the controller in the active phase without a page runtime.
+    func activateForTesting() {
+        phase = .active
+    }
+
+    /// Test seam: drives the message-handler snapshot path without a WKWebView.
+    func receiveSnapshotDataForTesting(_ data: Data) {
+        receiveSnapshotData(data)
+    }
+
     private func receiveSnapshotData(_ data: Data) {
         guard phase == .active || phase == .activating else { return }
         guard let next = try? JSONDecoder().decode(BrowserDesignModeSnapshot.self, from: data) else { return }
