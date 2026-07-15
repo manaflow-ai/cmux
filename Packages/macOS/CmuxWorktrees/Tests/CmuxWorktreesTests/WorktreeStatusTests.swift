@@ -94,6 +94,26 @@ struct WorktreeStatusTests {
     }
 
     @Test
+    func refusesStatusForUnlistedWorktreeIdentity() async throws {
+        let fixture = try await GitTestRepository.make()
+        defer { fixture.cleanup() }
+        let stale = WorktreeIdentity(
+            host: fixture.host.id,
+            repoPath: fixture.repository.path,
+            worktreePath: fixture.path("worktrees/never-created").path
+        )
+
+        do {
+            _ = try await WorktreeService().status(worktree: stale, on: fixture.host)
+            Issue.record("Expected status to fail closed for an unlisted identity")
+        } catch let error as WorktreeServiceError {
+            #expect(error == .worktreeNotFound(stale.worktreePath))
+        } catch {
+            Issue.record("Expected WorktreeServiceError, got \(error)")
+        }
+    }
+
+    @Test
     func detectsMergeAndRebaseAdministrativeState() async throws {
         let fixture = try await GitTestRepository.make()
         defer { fixture.cleanup() }

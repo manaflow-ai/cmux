@@ -17,6 +17,9 @@ extension WorktreeService {
     ) async throws -> WorktreeStatus {
         try ensureIdentityHost(worktree, matches: host)
         try await ensureAvailable(host)
+        // Fail closed on stale identities: a removed or moved worktree's path
+        // may now belong to an unrelated repository.
+        _ = try await listedWorktree(identity: worktree, on: host)
 
         // Collapsed untracked directories keep the buffered output bounded;
         // the snapshot reports a count, not a per-file inventory.

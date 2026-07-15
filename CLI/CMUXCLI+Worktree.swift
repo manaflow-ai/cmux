@@ -124,7 +124,7 @@ extension CMUXCLI {
                     worktreeLocalizedFormat(
                         "cli.worktree.state.lockedReason",
                         defaultValue: "locked: %@",
-                        arguments: [$0]
+                        arguments: [terminalSafeWorktreeText($0)]
                     )
                 } ?? String(localized: "cli.worktree.state.locked", defaultValue: "locked"))
             }
@@ -133,12 +133,13 @@ extension CMUXCLI {
                     worktreeLocalizedFormat(
                         "cli.worktree.state.prunableReason",
                         defaultValue: "prunable: %@",
-                        arguments: [$0]
+                        arguments: [terminalSafeWorktreeText($0)]
                     )
                 } ?? String(localized: "cli.worktree.state.prunable", defaultValue: "prunable"))
             }
             let suffix = suffixes.isEmpty ? "" : " [\(suffixes.joined(separator: "; "))]"
-            print("\(marker) \(worktree.identity.worktreePath)\t\(state)\(suffix)")
+            let path = terminalSafeWorktreeText(worktree.identity.worktreePath)
+            print("\(marker) \(path)\t\(terminalSafeWorktreeText(state))\(suffix)")
         }
     }
     private func runWorktreeCreate(
@@ -185,7 +186,7 @@ extension CMUXCLI {
         if jsonOutput {
             try printWorktreeJSON(worktree)
         } else {
-            print(worktree.identity.worktreePath)
+            print(terminalSafeWorktreeText(worktree.identity.worktreePath))
             for warning in worktree.warnings {
                 cliWriteStderr(localizedWorktreeWarning(warning) + "\n")
             }
@@ -275,7 +276,7 @@ extension CMUXCLI {
             print(worktreeLocalizedFormat(
                 "cli.worktree.output.removed",
                 defaultValue: "Removed %@",
-                arguments: [result.worktree.worktreePath]
+                arguments: [terminalSafeWorktreeText(result.worktree.worktreePath)]
             ))
             if result.prunedStaleAdministrativeData {
                 print(String(
@@ -287,7 +288,10 @@ extension CMUXCLI {
                 print(worktreeLocalizedFormat(
                     "cli.worktree.output.preservedBranch",
                     defaultValue: "Preserved branch %@: %@",
-                    arguments: [branch, localizedWorktreeBranchPreservationReason(reason)]
+                    arguments: [
+                        terminalSafeWorktreeText(branch),
+                        terminalSafeWorktreeText(localizedWorktreeBranchPreservationReason(reason)),
+                    ]
                 ))
             }
         }
@@ -311,7 +315,7 @@ extension CMUXCLI {
             } else {
                 print(planned.output.isEmpty
                     ? String(localized: "cli.worktree.output.noStaleRecords", defaultValue: "No stale worktree records.")
-                    : planned.output)
+                    : terminalSafeWorktreeLines(planned.output))
             }
             return
         }
@@ -337,12 +341,19 @@ extension CMUXCLI {
         } else {
             print(result.output.isEmpty
                 ? String(localized: "cli.worktree.output.noStaleRecords", defaultValue: "No stale worktree records.")
-                : result.output)
+                : terminalSafeWorktreeLines(result.output))
         }
     }
 
+    /// Sanitizes each line of a multi-line Git output block for terminal display.
+    private func terminalSafeWorktreeLines(_ raw: String) -> String {
+        raw.split(separator: "\n", omittingEmptySubsequences: false)
+            .map { terminalSafeWorktreeText(String($0)) }
+            .joined(separator: "\n")
+    }
+
     /// Replaces C0 control characters and DEL so Git-provided values cannot
-    /// inject terminal escapes into a destructive confirmation preview.
+    /// inject terminal escapes into human-readable terminal output.
     private func terminalSafeWorktreeText(_ raw: String) -> String {
         let replacement: Unicode.Scalar = "\u{FFFD}"
         var scalars = String.UnicodeScalarView()
@@ -414,12 +425,14 @@ extension CMUXCLI {
             print(worktreeLocalizedFormat(
                 "cli.worktree.status.path",
                 defaultValue: "path: %@",
-                arguments: [status.worktree.worktreePath]
+                arguments: [terminalSafeWorktreeText(status.worktree.worktreePath)]
             ))
             print(worktreeLocalizedFormat(
                 "cli.worktree.status.branch",
                 defaultValue: "branch: %@",
-                arguments: [status.branch ?? String(localized: "cli.worktree.state.detached", defaultValue: "detached")]
+                arguments: [terminalSafeWorktreeText(
+                    status.branch ?? String(localized: "cli.worktree.state.detached", defaultValue: "detached")
+                )]
             ))
             print(worktreeLocalizedFormat(
                 "cli.worktree.status.dirtyFiles",
@@ -431,13 +444,17 @@ extension CMUXCLI {
                     print(worktreeLocalizedFormat(
                         "cli.worktree.status.upstreamGone",
                         defaultValue: "upstream: %@ (gone)",
-                        arguments: [upstream]
+                        arguments: [terminalSafeWorktreeText(upstream)]
                     ))
                 } else {
                     print(worktreeLocalizedFormat(
                         "cli.worktree.status.upstream",
                         defaultValue: "upstream: %@ (ahead %lld, behind %lld)",
-                        arguments: [upstream, Int64(status.aheadCount), Int64(status.behindCount)]
+                        arguments: [
+                            terminalSafeWorktreeText(upstream),
+                            Int64(status.aheadCount),
+                            Int64(status.behindCount),
+                        ]
                     ))
                 }
             }
@@ -579,7 +596,9 @@ extension CMUXCLI {
         print(output)
     }
     private func localizedWorktreeWarning(_ warning: WorktreeWarning) -> String {
-        let detail = warning.message.isEmpty ? String(localized: "cli.worktree.output.detailUnavailable", defaultValue: "no details available") : warning.message
+        let detail = warning.message.isEmpty
+            ? String(localized: "cli.worktree.output.detailUnavailable", defaultValue: "no details available")
+            : terminalSafeWorktreeText(warning.message)
         switch warning.kind {
         case .pushAutoSetupRemote:
             return worktreeLocalizedFormat("cli.worktree.warning.pushAutoSetupRemote", defaultValue: "Warning: Could not enable automatic upstream setup: %@", arguments: [detail])
