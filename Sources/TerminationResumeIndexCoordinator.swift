@@ -11,6 +11,47 @@ final class TerminationResumeIndexCoordinator {
     private var completed: ProcessDetectedResumeIndexes?
     private var didComplete = false
     private var pendingLoad: PendingLoad?
+    /// Sparkle prepares before stopping the terminal runtime. The next confirmed
+    /// termination consumes this token and reuses that pre-teardown capture.
+    private var reusableUpdateRelaunchPreparationId: UUID?
+
+    func prepareForUpdateRelaunch() async -> ProcessDetectedResumeIndexes? {
+        await prepareForUpdateRelaunch(coordinatedBy: .shared)
+    }
+
+    func prepareForUpdateRelaunch(
+        coordinatedBy sharedIndex: SharedLiveAgentIndex
+    ) async -> ProcessDetectedResumeIndexes? {
+        invalidate()
+        let preparationId = UUID()
+        reusableUpdateRelaunchPreparationId = preparationId
+        let result = await load(coordinatedBy: sharedIndex)
+        guard reusableUpdateRelaunchPreparationId == preparationId else {
+            return current()
+        }
+        return result
+    }
+
+    func abandonUpdateRelaunchPreparation() {
+        invalidate()
+    }
+
+    func loadForConfirmedTerminationAttempt() async -> ProcessDetectedResumeIndexes? {
+        await loadForConfirmedTerminationAttempt(coordinatedBy: .shared)
+    }
+
+    func loadForConfirmedTerminationAttempt(
+        coordinatedBy sharedIndex: SharedLiveAgentIndex
+    ) async -> ProcessDetectedResumeIndexes? {
+        guard let preparationId = reusableUpdateRelaunchPreparationId else {
+            return await loadForNewTerminationAttempt(coordinatedBy: sharedIndex)
+        }
+        let result = await load(coordinatedBy: sharedIndex)
+        if reusableUpdateRelaunchPreparationId == preparationId {
+            reusableUpdateRelaunchPreparationId = nil
+        }
+        return result
+    }
 
     func loadForNewTerminationAttempt() async -> ProcessDetectedResumeIndexes? {
         await loadForNewTerminationAttempt(coordinatedBy: .shared)
@@ -28,6 +69,7 @@ final class TerminationResumeIndexCoordinator {
         pendingLoad = nil
         completed = nil
         didComplete = false
+        reusableUpdateRelaunchPreparationId = nil
     }
 
     func load() async -> ProcessDetectedResumeIndexes? {
@@ -114,7 +156,7 @@ extension AppDelegate {
             guard let self else { return }
             await self.confirmedTerminationSessionCapture.captureBeforeTeardown(
                 using: {
-                    await self.terminationResumeIndexCoordinator.loadForNewTerminationAttempt()
+                    await self.terminationResumeIndexCoordinator.loadForConfirmedTerminationAttempt()
                 },
                 beginTeardown: {
                     self.closeAllWebInspectorsBeforeAppTeardown()
