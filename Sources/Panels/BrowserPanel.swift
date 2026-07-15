@@ -2668,11 +2668,6 @@ final class BrowserPortalAnchorView: NSView {
 
 @MainActor
 final class BrowserPanel: Panel, ObservableObject {
-    enum AutomationInitializationScriptKind {
-        case script
-        case style
-    }
-
     /// Popup windows owned by this panel (for lifecycle cleanup)
     private var popupControllers: [BrowserPopupWindowController] = []
 
@@ -2791,7 +2786,8 @@ final class BrowserPanel: Panel, ObservableObject {
     private var engineStateTask: Task<Void, Never>?
     private var lastRecordedChromiumNavigationCompletionRevision: UInt64 = 0
     var engineInitializationScripts: [String] = []
-    var engineInitializationScriptCounts: [AutomationInitializationScriptKind: Int] = [:]
+    var engineInitializationScriptCount = 0
+    var engineInitializationStyleCount = 0
 
     var engineSession: any BrowserEngineSession {
         guard let engineSessionStorage else {
@@ -7525,13 +7521,16 @@ extension BrowserPanel {
     /// Installs JavaScript at document start through the active browser engine.
     func addInitializationScript(
         _ script: String,
-        kind: AutomationInitializationScriptKind
+        wrappingStyleElement: Bool
     ) async throws -> Int {
         try await engineSession.addInitializationScript(script)
         engineInitializationScripts.append(script)
-        let count = (engineInitializationScriptCounts[kind] ?? 0) + 1
-        engineInitializationScriptCounts[kind] = count
-        return count
+        if wrappingStyleElement {
+            engineInitializationStyleCount += 1
+            return engineInitializationStyleCount
+        }
+        engineInitializationScriptCount += 1
+        return engineInitializationScriptCount
     }
 
     // MARK: - Find in Page

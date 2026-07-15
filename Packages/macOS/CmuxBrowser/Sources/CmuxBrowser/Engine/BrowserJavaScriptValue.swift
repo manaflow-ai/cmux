@@ -29,24 +29,33 @@ public enum BrowserJavaScriptValue: Equatable, Sendable {
     /// - Parameter foundationValue: A WebKit JavaScript result.
     /// - Throws: ``BrowserEngineSessionError/unsupportedJavaScriptValue`` when the result is not transferable.
     public init(foundationValue: Any?) throws {
-        switch foundationValue {
-        case nil:
+        guard let foundationValue else {
             self = .undefined
-        case is NSNull:
-            self = .null
-        case let value as NSNumber where CFGetTypeID(value) == CFBooleanGetTypeID():
-            self = .bool(value.boolValue)
-        case let value as NSNumber:
-            self = .number(value.doubleValue)
-        case let value as String:
-            self = .string(value)
-        case let values as [Any]:
-            self = try .array(values.map { try BrowserJavaScriptValue(foundationValue: $0) })
-        case let values as [String: Any]:
-            self = try .object(values.mapValues { try BrowserJavaScriptValue(foundationValue: $0) })
-        default:
-            throw BrowserEngineSessionError.unsupportedJavaScriptValue
+            return
         }
+        if foundationValue is NSNull {
+            self = .null
+            return
+        }
+        if let value = foundationValue as? NSNumber {
+            self = CFGetTypeID(value) == CFBooleanGetTypeID()
+                ? .bool(value.boolValue)
+                : .number(value.doubleValue)
+            return
+        }
+        if let value = foundationValue as? String {
+            self = .string(value)
+            return
+        }
+        if let values = foundationValue as? [Any] {
+            self = try .array(values.map { try BrowserJavaScriptValue(foundationValue: $0) })
+            return
+        }
+        if let values = foundationValue as? [String: Any] {
+            self = try .object(values.mapValues { try BrowserJavaScriptValue(foundationValue: $0) })
+            return
+        }
+        throw BrowserEngineSessionError.unsupportedJavaScriptValue
     }
 
     /// The Foundation representation expected by existing browser automation callers.

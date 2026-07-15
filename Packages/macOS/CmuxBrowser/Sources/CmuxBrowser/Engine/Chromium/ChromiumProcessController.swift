@@ -3,6 +3,7 @@ import Foundation
 
 /// Launches and owns one headless Chromium process for a browser-engine session.
 actor ChromiumProcessController {
+    private let fileManager: FileManager
     private let launchTimeout: Duration
     private let terminationTimeout: Duration
     private var process: Process?
@@ -14,9 +15,11 @@ actor ChromiumProcessController {
     private var didResolveEndpoint = false
 
     init(
+        fileManager: FileManager = .default,
         launchTimeout: Duration = .seconds(10),
         terminationTimeout: Duration = .seconds(1)
     ) {
+        self.fileManager = fileManager
         self.launchTimeout = launchTimeout
         self.terminationTimeout = terminationTimeout
     }
@@ -33,7 +36,7 @@ actor ChromiumProcessController {
         }
         didResolveEndpoint = false
         endpointContinuation = nil
-        try FileManager.default.createDirectory(
+        try fileManager.createDirectory(
             at: userDataDirectory,
             withIntermediateDirectories: true
         )

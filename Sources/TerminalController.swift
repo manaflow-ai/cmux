@@ -5966,31 +5966,25 @@ class TerminalController {
         case failure(String)
     }
 
-    private enum V2InitializationScriptResult {
-        case success(Int)
-        case failure(String)
-    }
-
     private nonisolated func v2InstallBrowserInitializationScript(
         _ browserPanel: BrowserPanel,
         script: String,
-        kind: BrowserPanel.AutomationInitializationScriptKind,
+        wrappingStyleElement: Bool,
         timeout: TimeInterval = 10.0
-    ) -> V2InitializationScriptResult {
-        let outcome: V2InitializationScriptResult? = v2AwaitCallback(timeout: timeout) { finish in
+    ) -> Result<Int, any Error>? {
+        v2AwaitCallback(timeout: timeout) { finish in
             Task { @MainActor in
                 do {
-                    let count = try await browserPanel.addInitializationScript(script, kind: kind)
+                    let count = try await browserPanel.addInitializationScript(
+                        script,
+                        wrappingStyleElement: wrappingStyleElement
+                    )
                     finish(.success(count))
                 } catch {
-                    finish(.failure(error.localizedDescription))
+                    finish(.failure(error))
                 }
             }
         }
-        return outcome ?? .failure(String(
-            localized: "browser.automation.initScript.timeout",
-            defaultValue: "Timed out installing the browser initialization script."
-        ))
     }
 
     private nonisolated func v2WebKitView(_ ctx: V2BrowserPanelContext) -> WKWebView? {
@@ -9338,18 +9332,6 @@ class TerminalController {
         ])
     }
 
-    private enum V2BrowserCookieReadResult {
-        case success([BrowserEngineCookie])
-        case timeout
-        case failure(String)
-    }
-
-    private enum V2BrowserCookieMutationResult {
-        case success
-        case timeout
-        case failure(String)
-    }
-
     private nonisolated func v2BrowserCookieDict(_ cookie: BrowserEngineCookie) -> [String: Any] {
         var out: [String: Any] = [
             "name": cookie.name,
@@ -9371,53 +9353,50 @@ class TerminalController {
     private nonisolated func v2BrowserEngineCookies(
         _ browserPanel: BrowserPanel,
         timeout: TimeInterval = 12.0
-    ) -> V2BrowserCookieReadResult {
-        let outcome: V2BrowserCookieReadResult? = v2AwaitCallback(timeout: timeout) { finish in
+    ) -> Result<[BrowserEngineCookie], any Error>? {
+        v2AwaitCallback(timeout: timeout) { finish in
             Task { @MainActor in
                 do {
                     finish(.success(try await browserPanel.engineSession.cookies()))
                 } catch {
-                    finish(.failure(error.localizedDescription))
+                    finish(.failure(error))
                 }
             }
         }
-        return outcome ?? .timeout
     }
 
     private nonisolated func v2BrowserEngineSetCookie(
         _ cookie: BrowserEngineCookie,
         browserPanel: BrowserPanel,
         timeout: TimeInterval = 12.0
-    ) -> V2BrowserCookieMutationResult {
-        let outcome: V2BrowserCookieMutationResult? = v2AwaitCallback(timeout: timeout) { finish in
+    ) -> Result<Void, any Error>? {
+        v2AwaitCallback(timeout: timeout) { finish in
             Task { @MainActor in
                 do {
                     try await browserPanel.engineSession.setCookie(cookie)
-                    finish(.success)
+                    finish(.success(()))
                 } catch {
-                    finish(.failure(error.localizedDescription))
+                    finish(.failure(error))
                 }
             }
         }
-        return outcome ?? .timeout
     }
 
     private nonisolated func v2BrowserEngineDeleteCookie(
         _ cookie: BrowserEngineCookie,
         browserPanel: BrowserPanel,
         timeout: TimeInterval = 12.0
-    ) -> V2BrowserCookieMutationResult {
-        let outcome: V2BrowserCookieMutationResult? = v2AwaitCallback(timeout: timeout) { finish in
+    ) -> Result<Void, any Error>? {
+        v2AwaitCallback(timeout: timeout) { finish in
             Task { @MainActor in
                 do {
                     try await browserPanel.engineSession.deleteCookie(cookie)
-                    finish(.success)
+                    finish(.success(()))
                 } catch {
-                    finish(.failure(error.localizedDescription))
+                    finish(.failure(error))
                 }
             }
         }
-        return outcome ?? .timeout
     }
 
     private nonisolated func v2BrowserCookieFromObject(
@@ -9455,13 +9434,14 @@ class TerminalController {
     private nonisolated func v2BrowserCookiesGet(params: [String: Any]) -> V2CallResult {
         return v2BrowserWithPanelContext(params: params) { ctx in
             var cookies: [BrowserEngineCookie]
-            switch v2BrowserEngineCookies(ctx.browserPanel) {
+            guard let cookieResult = v2BrowserEngineCookies(ctx.browserPanel) else {
+                return .err(code: "timeout", message: "Timed out reading cookies", data: nil)
+            }
+            switch cookieResult {
             case .success(let engineCookies):
                 cookies = engineCookies
-            case .timeout:
-                return .err(code: "timeout", message: "Timed out reading cookies", data: nil)
-            case .failure(let message):
-                return .err(code: "engine_error", message: message, data: nil)
+            case .failure(let error):
+                return .err(code: "engine_error", message: error.localizedDescription, data: nil)
             }
 
             if let name = v2String(params, "name") {
@@ -9512,13 +9492,17 @@ class TerminalController {
                 guard let cookie = v2BrowserCookieFromObject(raw, fallbackURL: fallbackURL) else {
                     return .err(code: "invalid_params", message: "Invalid cookie payload", data: ["cookie": raw])
                 }
-                switch v2BrowserEngineSetCookie(cookie, browserPanel: ctx.browserPanel) {
+                guard let mutationResult = v2BrowserEngineSetCookie(
+                    cookie,
+                    browserPanel: ctx.browserPanel
+                ) else {
+                    return .err(code: "timeout", message: "Timed out setting cookie", data: ["name": cookie.name])
+                }
+                switch mutationResult {
                 case .success:
                     setCount += 1
-                case .timeout:
-                    return .err(code: "timeout", message: "Timed out setting cookie", data: ["name": cookie.name])
-                case .failure(let message):
-                    return .err(code: "engine_error", message: message, data: ["name": cookie.name])
+                case .failure(let error):
+                    return .err(code: "engine_error", message: error.localizedDescription, data: ["name": cookie.name])
                 }
             }
 
@@ -9529,13 +9513,14 @@ class TerminalController {
     private nonisolated func v2BrowserCookiesClear(params: [String: Any]) -> V2CallResult {
         return v2BrowserWithPanelContext(params: params) { ctx in
             let cookies: [BrowserEngineCookie]
-            switch v2BrowserEngineCookies(ctx.browserPanel) {
+            guard let cookieResult = v2BrowserEngineCookies(ctx.browserPanel) else {
+                return .err(code: "timeout", message: "Timed out reading cookies", data: nil)
+            }
+            switch cookieResult {
             case .success(let engineCookies):
                 cookies = engineCookies
-            case .timeout:
-                return .err(code: "timeout", message: "Timed out reading cookies", data: nil)
-            case .failure(let message):
-                return .err(code: "engine_error", message: message, data: nil)
+            case .failure(let error):
+                return .err(code: "engine_error", message: error.localizedDescription, data: nil)
             }
 
             let name = v2String(params, "name")
@@ -9550,13 +9535,17 @@ class TerminalController {
 
             var removed = 0
             for cookie in targets {
-                switch v2BrowserEngineDeleteCookie(cookie, browserPanel: ctx.browserPanel) {
+                guard let mutationResult = v2BrowserEngineDeleteCookie(
+                    cookie,
+                    browserPanel: ctx.browserPanel
+                ) else {
+                    return .err(code: "timeout", message: "Timed out deleting cookie", data: ["name": cookie.name])
+                }
+                switch mutationResult {
                 case .success:
                     removed += 1
-                case .timeout:
-                    return .err(code: "timeout", message: "Timed out deleting cookie", data: ["name": cookie.name])
-                case .failure(let message):
-                    return .err(code: "engine_error", message: message, data: ["name": cookie.name])
+                case .failure(let error):
+                    return .err(code: "engine_error", message: error.localizedDescription, data: ["name": cookie.name])
                 }
             }
 
@@ -10075,13 +10064,14 @@ class TerminalController {
             }
 
             let cookies: [BrowserEngineCookie]
-            switch v2BrowserEngineCookies(ctx.browserPanel) {
+            guard let cookieResult = v2BrowserEngineCookies(ctx.browserPanel) else {
+                return .err(code: "timeout", message: "Timed out reading cookies", data: nil)
+            }
+            switch cookieResult {
             case .success(let engineCookies):
                 cookies = engineCookies
-            case .timeout:
-                return .err(code: "timeout", message: "Timed out reading cookies", data: nil)
-            case .failure(let message):
-                return .err(code: "engine_error", message: message, data: nil)
+            case .failure(let error):
+                return .err(code: "engine_error", message: error.localizedDescription, data: nil)
             }
             let stateSnapshot = v2MainSync {
                 let currentURL = ctx.engineKind == .chromium
@@ -10158,19 +10148,23 @@ class TerminalController {
                     ) else {
                         continue
                     }
-                    switch v2BrowserEngineSetCookie(cookie, browserPanel: ctx.browserPanel) {
-                    case .success:
-                        break
-                    case .timeout:
+                    guard let mutationResult = v2BrowserEngineSetCookie(
+                        cookie,
+                        browserPanel: ctx.browserPanel
+                    ) else {
                         return .err(
                             code: "timeout",
                             message: "Timed out setting cookie",
                             data: ["name": cookie.name]
                         )
-                    case .failure(let message):
+                    }
+                    switch mutationResult {
+                    case .success:
+                        break
+                    case .failure(let error):
                         return .err(
                             code: "engine_error",
-                            message: message,
+                            message: error.localizedDescription,
                             data: ["name": cookie.name]
                         )
                     }
@@ -10216,15 +10210,25 @@ class TerminalController {
         }
         return v2BrowserWithPanelContext(params: params) { ctx in
             let scriptsCount: Int
-            switch v2InstallBrowserInitializationScript(
+            guard let installationResult = v2InstallBrowserInitializationScript(
                 ctx.browserPanel,
                 script: script,
-                kind: .script
-            ) {
+                wrappingStyleElement: false
+            ) else {
+                return .err(
+                    code: "browser_error",
+                    message: String(
+                        localized: "browser.automation.initScript.timeout",
+                        defaultValue: "Timed out installing the browser initialization script."
+                    ),
+                    data: ["engine": ctx.engineKind.rawValue]
+                )
+            }
+            switch installationResult {
             case .success(let count):
                 scriptsCount = count
-            case .failure(let message):
-                return .err(code: "browser_error", message: message, data: ["engine": ctx.engineKind.rawValue])
+            case .failure(let error):
+                return .err(code: "browser_error", message: error.localizedDescription, data: ["engine": ctx.engineKind.rawValue])
             }
             _ = v2RunBrowserJavaScript(
                 ctx.webView,
@@ -10268,15 +10272,25 @@ class TerminalController {
             """
 
             let stylesCount: Int
-            switch v2InstallBrowserInitializationScript(
+            guard let installationResult = v2InstallBrowserInitializationScript(
                 ctx.browserPanel,
                 script: source,
-                kind: .style
-            ) {
+                wrappingStyleElement: true
+            ) else {
+                return .err(
+                    code: "browser_error",
+                    message: String(
+                        localized: "browser.automation.initScript.timeout",
+                        defaultValue: "Timed out installing the browser initialization script."
+                    ),
+                    data: ["engine": ctx.engineKind.rawValue]
+                )
+            }
+            switch installationResult {
             case .success(let count):
                 stylesCount = count
-            case .failure(let message):
-                return .err(code: "browser_error", message: message, data: ["engine": ctx.engineKind.rawValue])
+            case .failure(let error):
+                return .err(code: "browser_error", message: error.localizedDescription, data: ["engine": ctx.engineKind.rawValue])
             }
             _ = v2RunBrowserJavaScript(
                 ctx.webView,

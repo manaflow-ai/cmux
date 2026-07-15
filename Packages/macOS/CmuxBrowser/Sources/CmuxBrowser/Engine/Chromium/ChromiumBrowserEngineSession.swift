@@ -305,21 +305,13 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
         }
         let isolatedWorld = try await connection.send(
             method: "Page.createIsolatedWorld",
-            parameters: Self.isolatedWorldParameters(frameID: frameID),
+            parameters: ChromiumIsolatedWorldConfiguration(frameID: frameID).parameters,
             sessionID: sessionID
         )
         guard let contextID = isolatedWorld.objectValue?["executionContextId"]?.intValue else {
             throw BrowserEngineSessionError.chromiumProtocol("Chromium did not create an isolated JavaScript world.")
         }
         return contextID
-    }
-
-    static func isolatedWorldParameters(frameID: String) -> [String: CDPJSONValue] {
-        [
-            "frameId": .string(frameID),
-            "worldName": .string("cmux.browser.automation"),
-            "grantUniversalAccess": .bool(true),
-        ]
     }
 
     /// Captures the current Chromium viewport through CDP.
@@ -469,36 +461,15 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
         }
     }
 
-    static func screencastParameters(
-        viewportWidth: Int,
-        viewportHeight: Int
-    ) -> [String: CDPJSONValue] {
-        [
-            "format": .string("jpeg"),
-            "quality": .number(75),
-            "maxWidth": .number(Double(max(viewportWidth, 1) * 2)),
-            "maxHeight": .number(Double(max(viewportHeight, 1) * 2)),
-            "everyNthFrame": .number(2),
-        ]
-    }
-
-    static func screencastMethod(
-        isViewportVisible: Bool,
-        isScreencastActive: Bool
-    ) -> String? {
-        guard isViewportVisible != isScreencastActive else { return nil }
-        return isViewportVisible ? "Page.startScreencast" : "Page.stopScreencast"
-    }
-
     private func startScreencastUpdateIfNeeded() {
         guard !isClosed,
               connection != nil,
               cdpSessionID != nil,
               screencastUpdateTask == nil,
-              Self.screencastMethod(
+              ChromiumScreencastTransition(
                   isViewportVisible: isViewportVisible,
                   isScreencastActive: isScreencastActive
-              ) != nil else {
+              ).method != nil else {
             return
         }
         screencastUpdateTask = Task { [weak self] in
@@ -512,17 +483,17 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
               let connection,
               let cdpSessionID {
             let targetVisible = isViewportVisible
-            guard let method = Self.screencastMethod(
+            guard let method = ChromiumScreencastTransition(
                 isViewportVisible: targetVisible,
                 isScreencastActive: isScreencastActive
-            ) else {
+            ).method else {
                 return
             }
             let parameters = targetVisible
-                ? Self.screencastParameters(
+                ? ChromiumScreencastConfiguration(
                     viewportWidth: viewportWidth,
                     viewportHeight: viewportHeight
-                )
+                ).parameters
                 : [:]
             do {
                 _ = try await connection.send(

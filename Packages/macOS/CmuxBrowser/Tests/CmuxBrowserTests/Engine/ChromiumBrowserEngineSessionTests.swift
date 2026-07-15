@@ -8,7 +8,7 @@ import WebKit
 struct ChromiumBrowserEngineSessionTests {
     @Test
     func createsIsolatedWorldWithUniversalAccess() {
-        #expect(ChromiumBrowserEngineSession.isolatedWorldParameters(frameID: "main-frame") == [
+        #expect(ChromiumIsolatedWorldConfiguration(frameID: "main-frame").parameters == [
             "frameId": .string("main-frame"),
             "worldName": .string("cmux.browser.automation"),
             "grantUniversalAccess": .bool(true),
@@ -17,10 +17,10 @@ struct ChromiumBrowserEngineSessionTests {
 
     @Test
     func boundsScreencastFrameCadence() {
-        #expect(ChromiumBrowserEngineSession.screencastParameters(
+        #expect(ChromiumScreencastConfiguration(
             viewportWidth: 640,
             viewportHeight: 480
-        ) == [
+        ).parameters == [
             "format": .string("jpeg"),
             "quality": .number(75),
             "maxWidth": .number(1_280),
@@ -31,18 +31,18 @@ struct ChromiumBrowserEngineSessionTests {
 
     @Test
     func startsAndStopsScreencastWithViewportVisibility() {
-        #expect(ChromiumBrowserEngineSession.screencastMethod(
+        #expect(ChromiumScreencastTransition(
             isViewportVisible: false,
             isScreencastActive: false
-        ) == nil)
-        #expect(ChromiumBrowserEngineSession.screencastMethod(
+        ).method == nil)
+        #expect(ChromiumScreencastTransition(
             isViewportVisible: true,
             isScreencastActive: false
-        ) == "Page.startScreencast")
-        #expect(ChromiumBrowserEngineSession.screencastMethod(
+        ).method == "Page.startScreencast")
+        #expect(ChromiumScreencastTransition(
             isViewportVisible: false,
             isScreencastActive: true
-        ) == "Page.stopScreencast")
+        ).method == "Page.stopScreencast")
     }
 
     @Test

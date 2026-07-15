@@ -5,7 +5,8 @@ import WebKit
 extension BrowserPanel {
     func clearBrowserAutomationUserScripts() {
         engineInitializationScripts.removeAll()
-        engineInitializationScriptCounts.removeAll()
+        engineInitializationScriptCount = 0
+        engineInitializationStyleCount = 0
     }
 
     func makeReplacementWebView(

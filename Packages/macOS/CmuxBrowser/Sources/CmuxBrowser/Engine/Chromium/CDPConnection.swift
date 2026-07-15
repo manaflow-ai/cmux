@@ -1,69 +1,15 @@
 import Foundation
 
-/// Sendable transport boundary for the browser-level DevTools WebSocket.
-protocol CDPWebSocketTransport: Sendable {
-    func resume()
-    func send(_ data: Data) async throws
-    func receive() async throws -> Data
-    func cancel()
-}
-
-private final class URLSessionCDPWebSocketTransport: CDPWebSocketTransport, @unchecked Sendable {
-    private let session: URLSession
-    private let task: URLSessionWebSocketTask
-
-    init(url: URL) {
-        let configuration = URLSessionConfiguration.ephemeral
-        let session = URLSession(configuration: configuration)
-        self.session = session
-        self.task = session.webSocketTask(with: url)
-    }
-
-    func resume() {
-        task.resume()
-    }
-
-    func send(_ data: Data) async throws {
-        try await task.send(.data(data))
-    }
-
-    func receive() async throws -> Data {
-        switch try await task.receive() {
-        case .data(let data):
-            return data
-        case .string(let value):
-            return Data(value.utf8)
-        @unknown default:
-            return Data()
-        }
-    }
-
-    func cancel() {
-        task.cancel(with: .goingAway, reason: nil)
-        session.invalidateAndCancel()
-    }
-}
-
 /// Owns one browser-level Chrome DevTools Protocol WebSocket connection.
 actor CDPConnection {
-    private struct PendingRequest {
-        let continuation: CheckedContinuation<CDPJSONValue, any Error>
-        let timeoutTask: Task<Void, Never>
-    }
-
-    private struct EventSubscriber {
-        let sessionID: String
-        let continuation: AsyncStream<CDPEvent>.Continuation
-    }
-
     private let transport: any CDPWebSocketTransport
     private let requestTimeout: Duration
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
     private var receiveTask: Task<Void, Never>?
     private var nextRequestID = 1
-    private var pendingRequests: [Int: PendingRequest] = [:]
-    private var eventSubscribers: [UUID: EventSubscriber] = [:]
+    private var pendingRequests: [Int: CDPPendingRequest] = [:]
+    private var eventSubscribers: [UUID: CDPEventSubscriber] = [:]
     private var isClosed = false
 
     init(url: URL, requestTimeout: Duration = .seconds(10)) {
@@ -97,7 +43,7 @@ actor CDPConnection {
             continuation.finish()
             return stream
         }
-        eventSubscribers[subscriberID] = EventSubscriber(
+        eventSubscribers[subscriberID] = CDPEventSubscriber(
             sessionID: sessionID,
             continuation: continuation
         )
@@ -147,7 +93,7 @@ actor CDPConnection {
                         )
                     )
                 }
-                pendingRequests[requestID] = PendingRequest(
+                pendingRequests[requestID] = CDPPendingRequest(
                     continuation: continuation,
                     timeoutTask: timeoutTask
                 )

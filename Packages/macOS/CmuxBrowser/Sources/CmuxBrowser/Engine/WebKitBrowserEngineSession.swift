@@ -6,10 +6,6 @@ public import WebKit
 /// A ``BrowserEngineSession`` backed by an in-process `WKWebView`.
 @MainActor
 public final class WebKitBrowserEngineSession: BrowserEngineSession {
-    private enum CookieError: Error {
-        case invalidPayload
-    }
-
     /// The engine family implementing this session.
     public let kind = BrowserEngineKind.webKit
 
@@ -220,7 +216,7 @@ public final class WebKitBrowserEngineSession: BrowserEngineSession {
             properties[.expires] = expiresDate
         }
         guard let httpCookie = HTTPCookie(properties: properties) else {
-            throw CookieError.invalidPayload
+            throw WebKitBrowserEngineCookieError.invalidPayload
         }
         return httpCookie
     }

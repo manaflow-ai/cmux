@@ -101,6 +101,7 @@ public protocol BrowserEngineSession: AnyObject {
     func close()
 }
 
+/// Convenience behavior shared by every browser engine session.
 public extension BrowserEngineSession {
     /// Evaluates JavaScript in the page's main world.
     ///

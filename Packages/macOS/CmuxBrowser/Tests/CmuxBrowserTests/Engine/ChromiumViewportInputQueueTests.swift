@@ -7,7 +7,7 @@ import Testing
 
         queue.enqueue(mouse(type: "mouseMoved", x: 1))
         queue.enqueue(mouse(type: "mouseMoved", x: 2))
-        queue.enqueue(.key(parameters: ["type": .string("keyDown")]))
+        queue.enqueue(ChromiumViewportInputCommand(keyParameters: ["type": .string("keyDown")]))
         queue.enqueue(mouse(type: "mouseMoved", x: 3))
         queue.enqueue(mouse(type: "mouseMoved", x: 4))
 
@@ -32,7 +32,7 @@ import Testing
         var queue = ChromiumViewportInputQueue()
 
         for index in 0..<(ChromiumViewportInputQueue.maximumPendingCommands * 2) {
-            queue.enqueue(.key(parameters: [
+            queue.enqueue(ChromiumViewportInputCommand(keyParameters: [
                 "type": .string("keyDown"),
                 "key": .string(String(index)),
             ]))
@@ -102,7 +102,7 @@ import Testing
         deltaX: Double = 0,
         deltaY: Double = 0
     ) -> ChromiumViewportInputCommand {
-        .mouse(parameters: [
+        ChromiumViewportInputCommand(mouseParameters: [
             "type": .string(type),
             "x": .number(x),
             "deltaX": .number(deltaX),
@@ -111,7 +111,7 @@ import Testing
     }
 
     private func key(type: String, code: String) -> ChromiumViewportInputCommand {
-        .key(parameters: [
+        ChromiumViewportInputCommand(keyParameters: [
             "type": .string(type),
             "code": .string(code),
         ])
