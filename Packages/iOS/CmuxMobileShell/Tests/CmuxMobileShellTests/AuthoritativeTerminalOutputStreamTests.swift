@@ -82,6 +82,29 @@ import Testing
 }
 
 @MainActor
+@Test("stale same-surface teardown cannot unregister a replacement attachment")
+func staleAuthoritativeStreamTerminationPreservesReplacement() async {
+    let store = MobileShellComposite.preview()
+    let surfaceID = "terminal"
+
+    let staleStream = store.authoritativeTerminalOutputStream(surfaceID: surfaceID)
+    let staleConsumer = Task { @MainActor in
+        for await _ in staleStream {}
+    }
+    staleConsumer.cancel()
+
+    // A rotation can mount the replacement view before the cancelled view's
+    // termination cleanup returns to the main actor. The stale cleanup must be
+    // scoped to its own attachment instead of deleting the replacement sink.
+    _ = store.authoritativeTerminalOutputStream(surfaceID: surfaceID)
+    await Task.yield()
+    await Task.yield()
+
+    #expect(store.terminalByteContinuationsBySurfaceID[surfaceID] != nil)
+    #expect(store.authoritativeRenderGridSurfaceIDs.contains(surfaceID))
+}
+
+@MainActor
 private final class AuthoritativeOutputCollector {
     private(set) var renderGrids: [MobileTerminalRenderGridFrame] = []
     private(set) var typedGridData: [Data] = []
