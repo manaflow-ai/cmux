@@ -113,7 +113,7 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
                     foreground: fixture.foreground,
                     revision: UInt64(index + 1)
                   ) else { return }
-            while !store.debugDeliverTerminalRenderGrid(frame) {
+            while !store.deliverThemeParityPreviewFrame(frame) {
                 guard !Task.isCancelled else { return }
                 await Task.yield()
             }

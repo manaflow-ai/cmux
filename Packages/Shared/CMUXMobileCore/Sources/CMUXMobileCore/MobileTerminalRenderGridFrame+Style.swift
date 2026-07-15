@@ -1,23 +1,14 @@
 extension MobileTerminalRenderGridFrame {
+    /// Visual attributes and color metadata shared by render-grid cells.
     public struct Style: Codable, Equatable, Sendable {
+        /// The unstyled render-grid cell style.
         public static let `default` = Style(id: 0)
 
-        /// The terminal color source retained by a render-grid style.
-        ///
-        /// Keeping default and palette colors semantic lets a mirrored terminal
-        /// respond to later theme changes instead of baking the producer's
-        /// current resolved RGB value into every cell.
-        public enum ColorSource: String, Codable, Equatable, Sendable {
-            /// The terminal's current default foreground or background.
-            case defaultColor = "default"
-            /// An indexed terminal palette color.
-            case palette
-            /// A literal RGB color that must not change with the theme.
-            case rgb
-        }
-
+        /// Stable style identifier referenced by row spans.
         public var id: Int
+        /// Resolved foreground encoded as a hexadecimal RGB string.
         public var foreground: String?
+        /// Resolved background encoded as a hexadecimal RGB string.
         public var background: String?
         /// Semantic source for ``foreground``; `nil` denotes a legacy RGB-only frame.
         public var foregroundSource: ColorSource?
@@ -27,16 +18,26 @@ extension MobileTerminalRenderGridFrame {
         public var backgroundSource: ColorSource?
         /// Palette index when ``backgroundSource`` is ``ColorSource/palette``.
         public var backgroundPaletteIndex: Int?
+        /// Whether bold intensity is enabled.
         public var bold: Bool
+        /// Whether faint intensity is enabled.
         public var faint: Bool
+        /// Whether italic styling is enabled.
         public var italic: Bool
+        /// Whether underline styling is enabled.
         public var underline: Bool
+        /// Whether blinking is enabled.
         public var blink: Bool
+        /// Whether foreground and background are inverted.
         public var inverse: Bool
+        /// Whether glyphs are hidden.
         public var invisible: Bool
+        /// Whether strikethrough styling is enabled.
         public var strikethrough: Bool
+        /// Whether overline styling is enabled.
         public var overline: Bool
 
+        /// Creates a render-grid cell style.
         public init(
             id: Int,
             foreground: String? = nil,
@@ -73,6 +74,7 @@ extension MobileTerminalRenderGridFrame {
             self.overline = overline
         }
 
+        /// Decodes a style while preserving compatibility with legacy frames.
         public init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             self.id = try container.decode(Int.self, forKey: .id)

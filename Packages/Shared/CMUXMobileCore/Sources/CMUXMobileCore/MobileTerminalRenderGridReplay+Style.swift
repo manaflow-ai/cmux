@@ -12,7 +12,12 @@ extension MobileTerminalRenderGridReplay {
         if style.invisible { codes.append("8") }
         if style.strikethrough { codes.append("9") }
         if style.overline { codes.append("53") }
-        if style.foregroundSource == .defaultColor {
+        // Bold-color can replace or brighten the source color on the Mac, but
+        // that transformation is not representable by the semantic source fields.
+        // The frame's resolved RGB is authoritative for bold foregrounds.
+        if style.bold, let foreground = rgbComponents(style.foreground) {
+            codes.append("38;2;\(foreground.red);\(foreground.green);\(foreground.blue)")
+        } else if style.foregroundSource == .defaultColor {
             codes.append("39")
         } else if style.foregroundSource == .palette,
                   let index = style.foregroundPaletteIndex,
