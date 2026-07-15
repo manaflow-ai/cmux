@@ -61,10 +61,12 @@ extension Workspace {
                 succeeded = await owner.controller.stopAndWait(cleanupScope: .persistentSlot)
             }
             guard remoteSessionCleanupControllers[controllerID]?.controller === owner.controller else { continue }
-            if owner.configuration.persistentDaemonSlot == nil {
-                remoteSessionCleanupControllers.removeValue(forKey: controllerID)
-            } else if case .persistentSlot = cleanupScope, succeeded {
-                remoteSessionCleanupControllers.removeValue(forKey: controllerID)
+            if succeeded {
+                if owner.configuration.persistentDaemonSlot == nil {
+                    remoteSessionCleanupControllers.removeValue(forKey: controllerID)
+                } else if case .persistentSlot = cleanupScope {
+                    remoteSessionCleanupControllers.removeValue(forKey: controllerID)
+                }
             }
             guard remoteSessionTransitionID == id else { return }
             if !succeeded, hasSamePersistentIdentity || hasConflictingRelayResources {
