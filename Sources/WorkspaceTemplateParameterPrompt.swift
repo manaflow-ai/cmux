@@ -111,6 +111,8 @@ struct WorkspaceTemplateParameterPrompt {
         grid.column(at: 0).xPlacement = .trailing
         grid.column(at: 1).xPlacement = .fill
         grid.setContentHuggingPriority(.required, for: .vertical)
+        grid.layoutSubtreeIfNeeded()
+        grid.setFrameSize(grid.fittingSize)
         return grid
     }
 }
