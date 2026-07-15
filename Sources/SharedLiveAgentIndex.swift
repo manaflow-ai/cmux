@@ -19,6 +19,8 @@ final class SharedLiveAgentIndex {
     private var changePending = false
     private var deferredReloadTimer: DispatchSourceTimer?
     private var hookStoreInputStamp: [String]?
+    private var latestCompletedLoadWorkloadCount = 0
+    private var latestCompletedLiveAgentProcessCount = 0
 
     private static let cacheTTL: TimeInterval = 60.0
     private static let forkAvailabilityProbeTTL: TimeInterval = 15.0
@@ -204,6 +206,8 @@ final class SharedLiveAgentIndex {
             hookStoreInputStamp = initialHookStoreInputStamp
         }
         let loadedAt = dateProvider()
+        latestCompletedLoadWorkloadCount = result.index.loadWorkloadCount
+        latestCompletedLiveAgentProcessCount = result.index.liveAgentProcessCount
         let hasPendingForkValidations = !pendingForkValidationPanels.isEmpty
         if forcePublish
             || hasPendingForkValidations
@@ -294,8 +298,8 @@ final class SharedLiveAgentIndex {
             return
         }
         let reloadInterval = Self.hookEventReloadInterval(
-            liveAgentCount: index?.liveAgentProcessCount ?? 0,
-            historyWorkloadCount: index?.loadWorkloadCount ?? 0
+            liveAgentCount: latestCompletedLiveAgentProcessCount,
+            historyWorkloadCount: latestCompletedLoadWorkloadCount
         )
         let elapsed = loadedAt.map { dateProvider().timeIntervalSince($0) } ?? .infinity
         if elapsed >= reloadInterval {
