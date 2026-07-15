@@ -13,6 +13,19 @@ import Testing
 /// checklist display ordering/clamping policy
 /// (`SidebarWorkspaceChecklistDisplayPolicy`).
 struct WorkspaceTodoSidebarModelTests {
+    private static var repoRoot: URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent() // cmuxTests
+            .deletingLastPathComponent() // repo root
+    }
+
+    private static func sourceText(_ relativePath: String) throws -> String {
+        try String(
+            contentsOf: repoRoot.appendingPathComponent(relativePath),
+            encoding: .utf8
+        )
+    }
+
     // MARK: - Glyph model
 
     @Test
@@ -176,6 +189,23 @@ struct WorkspaceTodoSidebarModelTests {
         )
         #expect(lanes.first?.isSelected == true)
         #expect(lanes.first { $0.status == .review }?.isSelected == false)
+    }
+
+    // MARK: - Todo pane header
+
+    @Test
+    func todoPaneHeaderDoesNotRenderWorkspaceTitleAsPaneTitle() throws {
+        let source = try Self.sourceText("Sources/Panels/WorkspaceTodoPanelView.swift")
+
+        #expect(
+            !source.contains("Text(workspace.title)"),
+            """
+            The Todo pane header must render the Todo panel title, not Workspace.title. \
+            Workspace.title follows the focused surface title, so it can briefly show \
+            the terminal title during terminal-to-Todo tab switches.
+            """
+        )
+        #expect(source.contains("WorkspaceTodoPaneHeaderTitle.title"))
     }
 
     // MARK: - Checklist display policy
