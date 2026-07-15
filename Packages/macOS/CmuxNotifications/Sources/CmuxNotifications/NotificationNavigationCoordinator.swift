@@ -156,7 +156,8 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
             panelId: nil,
             notificationId: nil,
             scrollRow: nil,
-            scrollTotalRows: nil
+            scrollTotalRows: nil,
+            scrollRowSpaceRevision: nil
         )
         if didOpen {
             signalDidFocusForJumpUnread(tabId: workspaceId, surfaceId: panelId)
@@ -174,7 +175,8 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
             panelId: nil,
             notificationId: nil,
             scrollRow: nil,
-            scrollTotalRows: nil
+            scrollTotalRows: nil,
+            scrollRowSpaceRevision: nil
         )
         if didOpen {
             signalDidFocusForJumpUnread(tabId: workspaceId, surfaceId: panelId)
@@ -211,7 +213,8 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
             retargetsToLiveSurfaceOwner: notification.retargetsToLiveSurfaceOwner,
             notificationId: notification.id,
             scrollRow: notification.scrollRow,
-            scrollTotalRows: notification.scrollTotalRows
+            scrollTotalRows: notification.scrollTotalRows,
+            scrollRowSpaceRevision: notification.scrollRowSpaceRevision
         )
     }
 
@@ -267,7 +270,8 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
             panelId: nil,
             notificationId: notificationId,
             scrollRow: nil,
-            scrollTotalRows: nil
+            scrollTotalRows: nil,
+            scrollRowSpaceRevision: nil
         )
     }
 
@@ -295,7 +299,8 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
         retargetsToLiveSurfaceOwner: Bool = true,
         notificationId: UUID?,
         scrollRow: Int?,
-        scrollTotalRows: Int?
+        scrollTotalRows: Int?,
+        scrollRowSpaceRevision: UInt64? = nil
     ) -> Bool {
         openRouting.openRouted(
             tabId: tabId,
@@ -304,7 +309,8 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
             retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
             notificationId: notificationId,
             scrollRow: scrollRow,
-            scrollTotalRows: scrollTotalRows
+            scrollTotalRows: scrollTotalRows,
+            scrollRowSpaceRevision: scrollRowSpaceRevision
         )
     }
 
