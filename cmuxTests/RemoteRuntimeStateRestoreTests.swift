@@ -109,6 +109,27 @@ struct RemoteRuntimeStateRestoreTests {
     }
 
     @MainActor
+    @Test("restores a lower authoritative document after a same-slot reset")
+    func restoresLowerAuthoritativeDocumentForSameRuntimeIdentity() throws {
+        let workspace = Workspace()
+        workspace.configureRemoteConnection(Self.configuration(), autoConnect: false)
+        workspace.applyRemoteRuntimeState(try Self.document(
+            for: workspace,
+            revision: 7,
+            customTitle: "Before reset"
+        ))
+
+        workspace.applyRemoteRuntimeState(try Self.document(
+            for: workspace,
+            revision: 1,
+            customTitle: "After reset"
+        ))
+
+        #expect(workspace.customTitle == "After reset")
+        #expect(workspace.remoteRuntimeStateRevision == 1)
+    }
+
+    @MainActor
     private static func document(
         for workspace: Workspace,
         revision: UInt64,

@@ -203,6 +203,37 @@ struct RemoteRuntimeStateCoordinatorTests {
         #expect(fixture.host.revisions.isEmpty)
     }
 
+    @Test("an empty same-slot reset rebases the workspace before the next upload")
+    func emptySameSlotResetRebasesNextUpload() throws {
+        let fixture = Self.fixture()
+        defer { fixture.stop() }
+        fixture.provider.tunnel.seedRuntimeState(RemoteRuntimeStateDocument(
+            schemaVersion: 1,
+            revision: 7,
+            updatedAtUnixMilliseconds: 1,
+            state: Data(#"{"title":"before-reset"}"#.utf8),
+            ptySessions: Data("[]".utf8)
+        ))
+        Self.synchronize(fixture)
+
+        fixture.coordinator.queue.sync {
+            fixture.coordinator.proxyLease = nil
+            fixture.coordinator.runtimeStateSynchronized = false
+        }
+        fixture.provider.tunnel.seedRuntimeState(nil)
+        Self.synchronize(fixture)
+
+        fixture.coordinator.enqueueRuntimeState(
+            schemaVersion: 1,
+            state: Data(#"{"title":"after-reset"}"#.utf8),
+            baseRevision: 0
+        )
+        fixture.coordinator.queue.sync {}
+
+        #expect(fixture.host.revisions == [0, 1])
+        #expect(try fixture.provider.tunnel.getRuntimeState()?.revision == 1)
+    }
+
     private static func synchronize(_ fixture: RemoteRuntimeStateCoordinatorFixture) {
         fixture.coordinator.queue.sync {
             fixture.coordinator.proxyLease = fixture.lease
