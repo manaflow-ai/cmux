@@ -127,6 +127,111 @@ verify_ipa_bundle_identity() {
   return 0
 }
 
+resolve_ios_minimum_os_version() {
+  local app="$1"
+  local minimum_os configured_minimum_os
+
+  minimum_os="$("$PLISTBUDDY" -c 'Print :MinimumOSVersion' "$app/Info.plist" 2>/dev/null || true)"
+  if [[ -n "$minimum_os" ]]; then
+    printf '%s\n' "$minimum_os"
+    return 0
+  fi
+
+  configured_minimum_os="$(read_xcconfig_setting IPHONEOS_DEPLOYMENT_TARGET "$SHARED_XCCONFIG")"
+  if [[ -n "$configured_minimum_os" ]]; then
+    printf '%s\n' "$configured_minimum_os"
+    return 0
+  fi
+
+  echo "error: could not resolve iOS MinimumOSVersion from $app/Info.plist or IPHONEOS_DEPLOYMENT_TARGET in $SHARED_XCCONFIG" >&2
+  return 1
+}
+
+stamp_ios_framework_minimum_os_versions() {
+  local app="$1"
+  local minimum_os="$2"
+
+  if [[ ! -d "$app/Frameworks" ]]; then
+    return 0
+  fi
+
+  while IFS= read -r -d '' framework_info; do
+    local changed
+    changed="$(python3 - "$framework_info" "$minimum_os" <<'PY'
+import plistlib
+import sys
+
+plist_path, minimum_os = sys.argv[1], sys.argv[2]
+with open(plist_path, "rb") as handle:
+    info = plistlib.load(handle)
+
+current = info.get("MinimumOSVersion")
+if isinstance(current, str) and current.strip():
+    raise SystemExit(0)
+
+info["MinimumOSVersion"] = minimum_os
+with open(plist_path, "wb") as handle:
+    plistlib.dump(info, handle)
+print("1")
+PY
+)"
+    if [[ "$changed" == "1" ]]; then
+      echo "stamped MinimumOSVersion=$minimum_os on nested framework: ${framework_info#$app/}"
+    fi
+  done < <(find "$app/Frameworks" -maxdepth 2 -path '*.framework/Info.plist' -type f -print0)
+}
+
+verify_ipa_framework_minimum_os_versions() {
+  local ipa="$1"
+  local workdir app status
+
+  workdir="$(mktemp -d)"
+  if ! ( cd "$workdir" && unzip -q "$ipa" ); then
+    echo "error: could not unzip IPA to verify framework MinimumOSVersion metadata: $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  app="$(find "$workdir/Payload" -maxdepth 1 -name '*.app' -type d 2>/dev/null | head -n 1)"
+  if [[ -z "$app" || ! -d "$app" ]]; then
+    echo "error: IPA has no Payload/*.app to verify framework MinimumOSVersion metadata: $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+
+  python3 - "$app" <<'PY'
+import plistlib
+import sys
+from pathlib import Path
+
+app = Path(sys.argv[1])
+frameworks = app / "Frameworks"
+bad = []
+
+if frameworks.is_dir():
+    for plist_path in sorted(frameworks.glob("*.framework/Info.plist")):
+        try:
+            info = plistlib.loads(plist_path.read_bytes())
+        except Exception as exc:
+            bad.append(f"{plist_path.relative_to(app)}: unreadable Info.plist ({exc})")
+            continue
+        value = info.get("MinimumOSVersion")
+        if not isinstance(value, str) or not value.strip():
+            bad.append(f"{plist_path.relative_to(app)}: MinimumOSVersion is missing or empty")
+
+if bad:
+    print(
+        "error: iOS framework metadata is incomplete; App Store Connect rejects embedded frameworks without MinimumOSVersion",
+        file=sys.stderr,
+    )
+    for item in bad:
+        print(f"error: {item}", file=sys.stderr)
+    raise SystemExit(1)
+PY
+  status=$?
+  rm -rf "$workdir"
+  return "$status"
+}
+
 verify_app_store_ipa_has_no_external_purchase_links() {
   local ipa="$1"
   local workdir app matches
@@ -908,10 +1013,10 @@ fi
 #
 # This runs on the MANUAL signing path only: it re-signs with the named
 # distribution cert from the local keychain ("Apple Distribution: Manaflow,
-# Inc."), which is present for local/fleet-archive beta cuts. The cmux iOS app is
-# a single self-contained bundle (no Frameworks/, no PlugIns/, GhosttyKit is
-# static), so only the top-level .app is signed; there is no nested code to
-# re-sign. Two alternatives were ruled out: an ad-hoc archive (CODE_SIGN_IDENTITY
+# Inc."), which is present for local/fleet-archive beta cuts. Nested frameworks
+# are stamped and signed before the top-level .app so App Store Connect validates
+# their bundle metadata and the final app signature still encloses the repaired
+# payload. Two alternatives were ruled out: an ad-hoc archive (CODE_SIGN_IDENTITY
 # "-") is rejected by the iOS SDK for an entitled app, and signing on the shared
 # fleet would put distribution material on shared Macs.
 if [[ "$SIGNING" == "manual" ]]; then
@@ -939,6 +1044,8 @@ if [[ "$SIGNING" == "manual" ]]; then
     echo "error: could not find Payload/*.app inside the exported IPA to re-sign" >&2
     exit 1
   fi
+  RESIGN_MINIMUM_OS="$(resolve_ios_minimum_os_version "$RESIGN_APP")" || exit 1
+  stamp_ios_framework_minimum_os_versions "$RESIGN_APP" "$RESIGN_MINIMUM_OS"
 
   # Start from the exported app's current (profile-baseline) entitlements, then
   # MERGE the profile's authorized Entitlements dict, then every key from the
@@ -993,6 +1100,11 @@ with open(merged_path, "wb") as f:
 PY
   plutil -lint "$MERGED_ENTITLEMENTS" >/dev/null
 
+  if [[ -d "$RESIGN_APP/Frameworks" ]]; then
+    while IFS= read -r -d '' nested_framework; do
+      codesign --force --sign "$RESIGN_IDENTITY" --timestamp "$nested_framework"
+    done < <(find "$RESIGN_APP/Frameworks" -maxdepth 1 -type d -name '*.framework' -print0)
+  fi
   codesign --force --sign "$RESIGN_IDENTITY" --entitlements "$MERGED_ENTITLEMENTS" --timestamp "$RESIGN_APP"
 
   # HARD GATES on the signed .app: the entitlement we are fixing must be present,
@@ -1047,6 +1159,12 @@ else
   fi
   echo "automatic-signed IPA verified to carry aps-environment=production: $IPA_PATH"
 fi
+
+if ! verify_ipa_framework_minimum_os_versions "$IPA_PATH"; then
+  echo "error: signed IPA framework MinimumOSVersion metadata is incomplete; refusing to upload before App Store Connect rejects it" >&2
+  exit 1
+fi
+echo "signed IPA framework MinimumOSVersion metadata verified"
 
 echo "IPA_PATH=$IPA_PATH"
 

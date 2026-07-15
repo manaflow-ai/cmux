@@ -649,7 +649,11 @@ def test_upload_beta_lane_uses_beta_marketing_version(tmp: Path, fakebin: Path) 
         info.get("CFBundleShortVersionString") == BETA_MARKETING_VERSION,
         "final signed beta IPA keeps the beta marketing version",
     )
-    _assert_iroh_framework_minimum_os(ipa_path, "18.0")
+    expected_minimum_os = _read_xcconfig_setting(
+        ROOT / "ios" / "Config" / "Shared.xcconfig",
+        "IPHONEOS_DEPLOYMENT_TARGET",
+    )
+    _assert_iroh_framework_minimum_os(ipa_path, expected_minimum_os)
 
 
 def test_upload_beta_archive_path_accepts_marketing_version_override(tmp: Path, fakebin: Path) -> None:
