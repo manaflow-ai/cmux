@@ -801,6 +801,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var terminalOutputQueuesBySurfaceID: [String: TerminalOutputDeliveryQueue]
     var terminalScrollSessionsBySurfaceID: [String: TerminalScrollSession]
     var terminalInteractionEpochsBySurfaceID: [String: UInt64]
+    /// Highest revision accepted for delivery or acknowledged without a frame.
+    var observedTerminalRenderRevisionsBySurfaceID: [String: UInt64]
+    /// Exact revision represented by the pixels currently applied to a surface.
+    var appliedTerminalRenderRevisionsBySurfaceID: [String: UInt64]
     var acceptedTerminalRenderRevisionsBySurfaceID: [String: UInt64]
     var equalRevisionTerminalRecoveryReplaysBySurfaceID: [String: UInt64]
     var deferredTerminalRenderGridEventsBySurfaceID: [String: DeferredTerminalRenderGridEvent]
@@ -1024,6 +1028,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalOutputQueuesBySurfaceID = [:]
         self.terminalScrollSessionsBySurfaceID = [:]
         self.terminalInteractionEpochsBySurfaceID = [:]
+        self.observedTerminalRenderRevisionsBySurfaceID = [:]
+        self.appliedTerminalRenderRevisionsBySurfaceID = [:]
         self.acceptedTerminalRenderRevisionsBySurfaceID = [:]
         self.equalRevisionTerminalRecoveryReplaysBySurfaceID = [:]
         self.deferredTerminalRenderGridEventsBySurfaceID = [:]
@@ -5251,6 +5257,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalInteractionEpochsBySurfaceID = terminalInteractionEpochsBySurfaceID.filter {
             terminalScrollSessionsBySurfaceID[$0.key] != nil
         }
+        observedTerminalRenderRevisionsBySurfaceID = [:]
+        appliedTerminalRenderRevisionsBySurfaceID = [:]
         acceptedTerminalRenderRevisionsBySurfaceID = [:]
         equalRevisionTerminalRecoveryReplaysBySurfaceID = [:]
         deferredTerminalRenderGridEventsBySurfaceID = [:]
@@ -6152,7 +6160,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
             }
             guard let self else { return }
-            self.handleTerminalEventStreamEnded(listenerID: listenerID, client: client)
+            self.handleTerminalEventStreamEnded(
+                listenerID: listenerID,
+                client: client,
+                reason: stream.terminationReason
+            )
         }
     }
 
@@ -6194,11 +6206,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    private func handleTerminalEventStreamEnded(listenerID: UUID, client: MobileCoreRPCClient) {
+    private func handleTerminalEventStreamEnded(
+        listenerID: UUID,
+        client: MobileCoreRPCClient,
+        reason: MobileEventStreamTerminationReason?
+    ) {
         guard !Task.isCancelled,
               terminalEventListenerID == listenerID,
               remoteClient === client,
               connectionState == .connected else {
+            return
+        }
+        if reason == .bufferOverflow {
+            MobileDebugLog.anchormux("sync.stream_overflow resubscribing with authoritative replay")
+            diagnosticLog?.record(DiagnosticEvent(.streamEnded))
+            resyncTerminalOutput(reason: "eventBufferOverflow", restartEventStream: true)
             return
         }
         if terminalSubscriptionStartTask != nil {

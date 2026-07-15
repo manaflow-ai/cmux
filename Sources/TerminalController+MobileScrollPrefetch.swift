@@ -57,8 +57,14 @@ extension TerminalController {
 
     func stampMobileRenderGridFrame(
         _ frame: MobileTerminalRenderGridFrame,
-        surfaceID: UUID
+        surfaceID: UUID,
+        invalidateLiveEmissionBaseline: Bool = true
     ) -> MobileTerminalRenderGridFrame {
+        if invalidateLiveEmissionBaseline {
+            MobileTerminalRenderObserver.shared.invalidateRenderGridEmissionBaseline(
+                surfaceID: surfaceID
+            )
+        }
         var stamped = frame
         stamped.renderRevision = advanceMobileRenderRevision(surfaceID: surfaceID)
         return stamped
@@ -90,6 +96,9 @@ extension TerminalController {
         }
         let window = mobileScrollPrefetchWindow(params: params)
         guard window.before > 0 || window.after > 0 else {
+            MobileTerminalRenderObserver.shared.invalidateRenderGridEmissionBaseline(
+                surfaceID: surfaceID
+            )
             payload["render_revision"] = advanceMobileRenderRevision(surfaceID: surfaceID)
             return payload
         }

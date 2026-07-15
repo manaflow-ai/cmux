@@ -191,7 +191,8 @@ final class MobileTerminalRenderObserver {
 
         let stampedFrame = TerminalController.shared.stampMobileRenderGridFrame(
             snapshot.frame,
-            surfaceID: surfaceID
+            surfaceID: surfaceID,
+            invalidateLiveEmissionBaseline: false
         )
 
         guard let emission = try? stampedFrame.renderGridEmission(
@@ -210,6 +211,10 @@ final class MobileTerminalRenderObserver {
                 "cleared=\(frame.clearedRows.count) spans=\(frame.rowSpans.count) seq=\(frame.stateSeq)"
         )
         #endif
+    }
+
+    func invalidateRenderGridEmissionBaseline(surfaceID: UUID) {
+        renderGridStatesBySurfaceID.removeValue(forKey: surfaceID)
     }
 
     #if DEBUG

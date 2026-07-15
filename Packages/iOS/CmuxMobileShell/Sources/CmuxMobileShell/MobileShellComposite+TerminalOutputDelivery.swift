@@ -54,29 +54,33 @@ extension MobileShellComposite {
             )
             return false
         }
-        if let renderRevision = renderGrid.renderRevision,
-           let acceptedRevision = acceptedTerminalRenderRevisionsBySurfaceID[renderGrid.surfaceID],
-           renderRevision <= acceptedRevision,
-           !(source == "replay"
-               && equalRevisionTerminalRecoveryReplaysBySurfaceID[renderGrid.surfaceID] == renderRevision) {
-            MobileDebugLog.anchormux(
-                "sync.render_grid_stale_revision source=\(source) surface=\(renderGrid.surfaceID) accepted=\(acceptedRevision) frame=\(renderRevision)"
-            )
-            if let scrollReconciliation {
-                terminalScrollSessionsBySurfaceID[renderGrid.surfaceID]?.authoritativeDidApply(
-                    interactionEpoch: scrollReconciliation.interactionEpoch,
-                    clientRevision: scrollReconciliation.clientRevision
+        if let renderRevision = renderGrid.renderRevision {
+            let acceptedRevision = acceptedTerminalRenderRevisionsBySurfaceID[renderGrid.surfaceID] ?? 0
+            let observedRevision = observedTerminalRenderRevisionsBySurfaceID[renderGrid.surfaceID] ?? 0
+            let revisionFloor = max(acceptedRevision, observedRevision)
+            if renderRevision <= revisionFloor,
+               !(source == "replay"
+                   && equalRevisionTerminalRecoveryReplaysBySurfaceID[renderGrid.surfaceID] == renderRevision) {
+                MobileDebugLog.anchormux(
+                    "sync.render_grid_stale_revision source=\(source) surface=\(renderGrid.surfaceID) floor=\(revisionFloor) frame=\(renderRevision)"
                 )
-                return true
+                if let scrollReconciliation {
+                    terminalScrollSessionsBySurfaceID[renderGrid.surfaceID]?.authoritativeDidApply(
+                        interactionEpoch: scrollReconciliation.interactionEpoch,
+                        clientRevision: scrollReconciliation.clientRevision
+                    )
+                    return true
+                }
+                return false
             }
-            return false
         }
         if source == "event",
            let baseRevision = renderGrid.baseRenderRevision {
-            let acceptedRevision = acceptedTerminalRenderRevisionsBySurfaceID[renderGrid.surfaceID] ?? 0
-            let retainedRevision = terminalOutputQueuesBySurfaceID[renderGrid.surfaceID]?
-                .latestRetainedRenderRevision
-            let availableRevision = retainedRevision ?? acceptedRevision
+            let projectedRevision = terminalOutputQueuesBySurfaceID[renderGrid.surfaceID]?
+                .projectedRenderRevision
+            let availableRevision = projectedRevision
+                ?? appliedTerminalRenderRevisionsBySurfaceID[renderGrid.surfaceID]
+                ?? 0
             guard availableRevision == baseRevision else {
                 MobileDebugLog.anchormux(
                     "sync.render_grid_missing_base surface=\(renderGrid.surfaceID) base=\(baseRevision) available=\(availableRevision)"
@@ -213,6 +217,9 @@ extension MobileShellComposite {
             scrollReconciliation: scrollReconciliation,
             followingScrollRuns: followingScrollRuns
         ) else { return false }
+        if let renderRevision = renderGrid.renderRevision {
+            observeTerminalRenderRevision(renderRevision, surfaceID: renderGrid.surfaceID)
+        }
         if bypassLiveBaselineBarrier,
            terminalReplayBarrierAckStreamTokensBySurfaceID[renderGrid.surfaceID] != nil {
             cancelTerminalReplayInFlight(surfaceID: renderGrid.surfaceID)

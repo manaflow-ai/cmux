@@ -56,6 +56,8 @@ extension MobileShellComposite {
         // clearTerminalViewport captures the final interaction epoch before
         // scheduling its request. Keep the epoch fence for a same-connection
         // remount; resetTerminalOutputTracking owns connection-lifetime cleanup.
+        observedTerminalRenderRevisionsBySurfaceID.removeValue(forKey: surfaceID)
+        appliedTerminalRenderRevisionsBySurfaceID.removeValue(forKey: surfaceID)
         acceptedTerminalRenderRevisionsBySurfaceID.removeValue(forKey: surfaceID)
     }
 

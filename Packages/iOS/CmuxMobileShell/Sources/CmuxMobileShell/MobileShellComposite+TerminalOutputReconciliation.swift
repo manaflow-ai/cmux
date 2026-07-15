@@ -179,15 +179,35 @@ extension MobileShellComposite {
         }
     }
 
+    func observeTerminalRenderRevision(_ revision: UInt64, surfaceID: String) {
+        observedTerminalRenderRevisionsBySurfaceID[surfaceID] = max(
+            observedTerminalRenderRevisionsBySurfaceID[surfaceID] ?? 0,
+            revision
+        )
+    }
+
     func acceptTerminalRenderRevision(_ revision: UInt64, surfaceID: String) {
+        observeTerminalRenderRevision(revision, surfaceID: surfaceID)
         acceptedTerminalRenderRevisionsBySurfaceID[surfaceID] = max(
             acceptedTerminalRenderRevisionsBySurfaceID[surfaceID] ?? 0,
             revision
         )
+        appliedTerminalRenderRevisionsBySurfaceID[surfaceID] = revision
         if let allowedRevision = equalRevisionTerminalRecoveryReplaysBySurfaceID[surfaceID],
            revision >= allowedRevision {
             equalRevisionTerminalRecoveryReplaysBySurfaceID.removeValue(forKey: surfaceID)
         }
+    }
+
+    func acceptGridlessTerminalRenderRevision(_ revision: UInt64, surfaceID: String) {
+        observeTerminalRenderRevision(revision, surfaceID: surfaceID)
+        acceptedTerminalRenderRevisionsBySurfaceID[surfaceID] = max(
+            acceptedTerminalRenderRevisionsBySurfaceID[surfaceID] ?? 0,
+            revision
+        )
+        // The acknowledgement advances ordering without describing pixels for
+        // this revision, so no later delta can reuse the old applied baseline.
+        appliedTerminalRenderRevisionsBySurfaceID.removeValue(forKey: surfaceID)
     }
 
     func deferTerminalRenderGridEvent(
@@ -239,7 +259,7 @@ extension MobileShellComposite {
             if deferred.requiresReplay {
                 deferredTerminalRenderGridEventsBySurfaceID.removeValue(forKey: surfaceID)
                 if let renderRevision {
-                    acceptTerminalRenderRevision(renderRevision, surfaceID: surfaceID)
+                    acceptGridlessTerminalRenderRevision(renderRevision, surfaceID: surfaceID)
                     equalRevisionTerminalRecoveryReplaysBySurfaceID[surfaceID] = renderRevision
                 }
                 MobileDebugLog.anchormux("sync.render_grid_deferred_replay surface=\(surfaceID)")
@@ -250,7 +270,7 @@ extension MobileShellComposite {
                 if let renderRevision,
                    frame.renderRevision.map({ $0 < renderRevision }) ?? true {
                     deferredTerminalRenderGridEventsBySurfaceID.removeValue(forKey: surfaceID)
-                    acceptTerminalRenderRevision(renderRevision, surfaceID: surfaceID)
+                    acceptGridlessTerminalRenderRevision(renderRevision, surfaceID: surfaceID)
                     equalRevisionTerminalRecoveryReplaysBySurfaceID[surfaceID] = renderRevision
                     MobileDebugLog.anchormux(
                         "sync.render_grid_deferred_behind_ack surface=\(surfaceID) ack=\(renderRevision) deferred=\(frame.renderRevision ?? 0)"
@@ -273,7 +293,7 @@ extension MobileShellComposite {
             }
         }
         if let renderRevision {
-            acceptTerminalRenderRevision(renderRevision, surfaceID: surfaceID)
+            acceptGridlessTerminalRenderRevision(renderRevision, surfaceID: surfaceID)
         }
         return true
     }
@@ -303,6 +323,7 @@ extension MobileShellComposite {
             }
             return
         }
+        appliedTerminalRenderRevisionsBySurfaceID.removeValue(forKey: surfaceID)
         // This callback is the claimed consumer's definitive failure result.
         // Consume it before stream rotation so replay retention cannot wait for
         // a second callback that the renderer will never send.

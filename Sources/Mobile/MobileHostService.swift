@@ -168,101 +168,251 @@ private final class MobileHostConnectionRegistry: @unchecked Sendable {
     }
 }
 
-/// Preserves event order independently for each phone connection without
-/// retaining an unbounded number of large render-grid payloads. Overflow is a
-/// protocol discontinuity, so the connection is closed and the phone rebuilds
-/// from an authoritative replay instead of consuming a delta with a missing
-/// predecessor.
+/// Serializes events per phone connection and bounds retained encoded bytes.
+/// Overflow pauses only the event lane and emits a discontinuity marker; RPC
+/// responses continue over the same transport while the phone resubscribes and
+/// requests authoritative terminal replays.
 private final class MobileHostEventDeliveryQueue: @unchecked Sendable {
     static let shared = MobileHostEventDeliveryQueue()
-    /// Two waiting payloads plus at most one write currently in flight.
-    private static let maximumPendingEventCount = 2
+    static let discontinuityTopic = "mobile.events.discontinuity"
+    private static let maximumPendingEncodingCount = 64
+    private static let maximumPendingRenderGridEncodingCount = 3
+    private static let maximumRetainedEventCount = 64
+    private static let maximumRetainedRenderGridCount = 3
+    private static let maximumRetainedEventByteCount = 16 * 1_024 * 1_024
 
-    private struct PendingEvent: @unchecked Sendable {
+    private struct EncodingRequest: @unchecked Sendable {
         let topic: String
         let payload: [String: Any]
+        let connections: [MobileHostConnection]
+    }
+
+    private struct PendingEvent: Sendable {
+        let id = UUID()
+        let topic: String
+        let data: Data
+        let bypassSubscription: Bool
+
+        var isRenderGrid: Bool { topic == "terminal.render_grid" }
     }
 
     private struct ConnectionState {
         var pending: [PendingEvent] = []
+        var inFlight: PendingEvent?
         var isDraining = false
-        var isOverflowed = false
+        var isDiscontinuous = false
+
+        var retainedCount: Int { pending.count + (inFlight == nil ? 0 : 1) }
+        var retainedRenderGridCount: Int {
+            pending.reduce(inFlight?.isRenderGrid == true ? 1 : 0) {
+                $0 + ($1.isRenderGrid ? 1 : 0)
+            }
+        }
+        var retainedByteCount: Int {
+            pending.reduce(inFlight?.data.count ?? 0) { $0 + $1.data.count }
+        }
     }
 
     private let lock = NSLock()
+    private let encodingQueue = DispatchQueue(
+        label: "dev.cmux.mobile.event-encoding",
+        qos: .utility
+    )
+    private var pendingEncodingCount = 0
+    private var pendingRenderGridEncodingCount = 0
     private var states: [ObjectIdentifier: ConnectionState] = [:]
 
-    func enqueue(topic: String, payload: [String: Any], on connection: MobileHostConnection) {
-        let key = ObjectIdentifier(connection)
-        var shouldStartDrain = false
-        var didOverflow = false
-
+    func enqueue(
+        topic: String,
+        payload: [String: Any],
+        on connections: [MobileHostConnection]
+    ) {
+        guard !connections.isEmpty else { return }
+        let request = EncodingRequest(topic: topic, payload: payload, connections: connections)
+        let isRenderGrid = topic == "terminal.render_grid"
         lock.lock()
-        var state = states[key] ?? ConnectionState()
-        if state.isOverflowed {
+        guard pendingEncodingCount < Self.maximumPendingEncodingCount,
+              !isRenderGrid
+                || pendingRenderGridEncodingCount < Self.maximumPendingRenderGridEncodingCount else {
             lock.unlock()
+            for connection in connections { markDiscontinuous(connection: connection) }
             return
-        } else if state.pending.count >= Self.maximumPendingEventCount {
-            state.pending.removeAll(keepingCapacity: false)
-            state.isOverflowed = true
-            states[key] = state
-            didOverflow = true
-        } else {
-            state.pending.append(PendingEvent(topic: topic, payload: payload))
-            if !state.isDraining {
-                state.isDraining = true
-                shouldStartDrain = true
-            }
-            states[key] = state
         }
+        pendingEncodingCount += 1
+        if isRenderGrid { pendingRenderGridEncodingCount += 1 }
         lock.unlock()
 
-        if didOverflow {
-            Task {
-                await connection.close(reason: "event delivery backlog exceeded")
+        encodingQueue.async { [self, request] in
+            let envelope: [String: Any] = [
+                "kind": "event",
+                "topic": request.topic,
+                "payload": request.payload,
+            ]
+            let data = try? JSONSerialization.data(withJSONObject: envelope)
+            lock.lock()
+            pendingEncodingCount -= 1
+            if isRenderGrid { pendingRenderGridEncodingCount -= 1 }
+            lock.unlock()
+            guard let data else {
+                for connection in request.connections { markDiscontinuous(connection: connection) }
+                return
             }
-        } else if shouldStartDrain {
-            Task { [self] in
-                await drain(key: key, connection: connection)
+            let event = PendingEvent(
+                topic: request.topic,
+                data: data,
+                bypassSubscription: false
+            )
+            for connection in request.connections {
+                enqueueEncoded(event, on: connection)
             }
         }
+    }
+
+    private func enqueueEncoded(_ event: PendingEvent, on connection: MobileHostConnection) {
+        let key = ObjectIdentifier(connection)
+        var shouldStartDrain = false
+        var overflowed = false
+        lock.lock()
+        var state = states[key] ?? ConnectionState()
+        if state.isDiscontinuous {
+            lock.unlock()
+            return
+        }
+        let nextCount = state.retainedCount + 1
+        let nextRenderGridCount = state.retainedRenderGridCount + (event.isRenderGrid ? 1 : 0)
+        let nextByteCount = state.retainedByteCount + event.data.count
+        if nextCount > Self.maximumRetainedEventCount
+            || nextRenderGridCount > Self.maximumRetainedRenderGridCount
+            || nextByteCount > Self.maximumRetainedEventByteCount {
+            overflowed = true
+            transitionToDiscontinuity(&state)
+        } else {
+            state.pending.append(event)
+        }
+        if !state.isDraining {
+            state.isDraining = true
+            shouldStartDrain = true
+        }
+        states[key] = state
+        lock.unlock()
+
+        if overflowed {
+            #if DEBUG
+            cmuxDebugLog("mobile.emit discontinuity reason=event_backlog")
+            #endif
+        }
+        if shouldStartDrain {
+            Task { [self] in await drain(key: key, connection: connection) }
+        }
+    }
+
+    private func markDiscontinuous(connection: MobileHostConnection) {
+        let key = ObjectIdentifier(connection)
+        var shouldStartDrain = false
+        lock.lock()
+        var state = states[key] ?? ConnectionState()
+        guard !state.isDiscontinuous else {
+            lock.unlock()
+            return
+        }
+        transitionToDiscontinuity(&state)
+        if !state.isDraining {
+            state.isDraining = true
+            shouldStartDrain = true
+        }
+        states[key] = state
+        lock.unlock()
+        if shouldStartDrain {
+            Task { [self] in await drain(key: key, connection: connection) }
+        }
+    }
+
+    private func transitionToDiscontinuity(_ state: inout ConnectionState) {
+        state.pending.removeAll(keepingCapacity: false)
+        state.isDiscontinuous = true
+        let envelope: [String: Any] = [
+            "kind": "event",
+            "topic": Self.discontinuityTopic,
+            "payload": ["reason": "event_backlog"],
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: envelope) else { return }
+        state.pending.append(PendingEvent(
+            topic: Self.discontinuityTopic,
+            data: data,
+            bypassSubscription: true
+        ))
     }
 
     private func drain(key: ObjectIdentifier, connection: MobileHostConnection) async {
         while let event = nextEvent(for: key) {
-            let delivered = await connection.sendEvent(topic: event.topic, payload: event.payload)
+            let delivered = await connection.sendEncodedEvent(
+                topic: event.topic,
+                data: event.data,
+                bypassSubscription: event.bypassSubscription
+            )
             #if DEBUG
             cmuxDebugLog("mobile.emit -> connection delivered=\(delivered) topic=\(event.topic)")
             #endif
-            if !delivered {
-                removeState(for: key)
-                return
-            }
+            guard complete(event: event, delivered: delivered, for: key) else { return }
         }
     }
 
     private func nextEvent(for key: ObjectIdentifier) -> PendingEvent? {
         lock.lock()
         defer { lock.unlock() }
-        guard var state = states[key] else { return nil }
-        guard !state.isOverflowed else { return nil }
+        guard var state = states[key], state.inFlight == nil else { return nil }
         guard !state.pending.isEmpty else {
-            states.removeValue(forKey: key)
+            state.isDraining = false
+            if state.isDiscontinuous {
+                states[key] = state
+            } else {
+                states.removeValue(forKey: key)
+            }
             return nil
         }
         let event = state.pending.removeFirst()
+        state.inFlight = event
         states[key] = state
         return event
     }
 
-    private func removeState(for key: ObjectIdentifier) {
+    private func complete(event: PendingEvent, delivered: Bool, for key: ObjectIdentifier) -> Bool {
         lock.lock()
-        states.removeValue(forKey: key)
+        defer { lock.unlock() }
+        guard var state = states[key], state.inFlight?.id == event.id else { return false }
+        state.inFlight = nil
+        guard delivered else {
+            states.removeValue(forKey: key)
+            return false
+        }
+        states[key] = state
+        return true
+    }
+
+    @discardableResult
+    func resume(connection: MobileHostConnection) -> Bool {
+        let key = ObjectIdentifier(connection)
+        lock.lock()
+        guard var state = states[key], state.isDiscontinuous else {
+            lock.unlock()
+            return false
+        }
+        state.pending.removeAll(keepingCapacity: false)
+        state.isDiscontinuous = false
+        if state.inFlight == nil {
+            states.removeValue(forKey: key)
+        } else {
+            states[key] = state
+        }
         lock.unlock()
+        return true
     }
 
     func remove(connection: MobileHostConnection) {
-        removeState(for: ObjectIdentifier(connection))
+        let key = ObjectIdentifier(connection)
+        lock.lock()
+        states.removeValue(forKey: key)
+        lock.unlock()
     }
 }
 
@@ -573,13 +723,11 @@ final class MobileHostService {
         #if DEBUG
         cmuxDebugLog("mobile.emit topic=\(topic) connections=\(connections.count)")
         #endif
-        for connection in connections {
-            MobileHostEventDeliveryQueue.shared.enqueue(
-                topic: topic,
-                payload: payload,
-                on: connection
-            )
-        }
+        MobileHostEventDeliveryQueue.shared.enqueue(
+            topic: topic,
+            payload: payload,
+            on: connections
+        )
     }
 
     nonisolated static func hasEventSubscribers(topic: String) -> Bool {
@@ -2213,7 +2361,8 @@ actor MobileHostConnection {
             // it the registration had been lost (events emitted in the gap
             // were never delivered), so it requests a catch-up replay instead
             // of trusting delta continuity.
-            let alreadySubscribed = subscriptions[streamID] != nil
+            let recoveredDiscontinuity = MobileHostEventDeliveryQueue.shared.resume(connection: self)
+            let alreadySubscribed = subscriptions[streamID] != nil && !recoveredDiscontinuity
             subscribe(streamID: streamID, topics: topics)
             #if DEBUG
             cmuxDebugLog("mobile.subscribe streamID=\(streamID) topics=\(topics.sorted()) existing=\(alreadySubscribed) connID=\(self.id.uuidString)")
@@ -2307,6 +2456,15 @@ actor MobileHostConnection {
             "payload": payload,
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: envelope) else { return false }
+        return await sendResponse(data)
+    }
+
+    /// Writes an event envelope encoded by the bounded delivery queue.
+    func sendEncodedEvent(topic: String, data: Data, bypassSubscription: Bool) async -> Bool {
+        guard !isClosed else { return false }
+        // A subscription may change after encoding. Skipping an event with no
+        // current subscriber is successful queue progress, not transport loss.
+        guard bypassSubscription || isSubscribed(to: topic) else { return true }
         return await sendResponse(data)
     }
 

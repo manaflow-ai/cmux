@@ -62,13 +62,14 @@ struct TerminalOutputDeliveryQueue: Sendable {
         inFlight
     }
 
-    var latestRetainedRenderRevision: UInt64? {
-        var latest = inFlight?.renderGridFrame?.renderRevision
+    /// Revision represented after retained deliveries run in application order.
+    var projectedRenderRevision: UInt64? {
+        var projected = inFlight?.renderGridFrame?.renderRevision
         for index in pendingHeadIndex..<pending.count {
             guard let revision = pending[index].delivery.renderGridFrame?.renderRevision else { continue }
-            latest = max(latest ?? 0, revision)
+            projected = revision
         }
-        return latest
+        return projected
     }
 
     mutating func enqueue(_ delivery: TerminalOutputDelivery) -> TerminalOutputDelivery? {

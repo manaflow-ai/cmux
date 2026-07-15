@@ -67,7 +67,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
 
     /// Subscribe to server-pushed events. Returns a stream of envelopes
     /// matching any of the requested topics. Cancel by terminating iteration.
-    public func subscribe(to topics: Set<String>) async -> AsyncStream<MobileEventEnvelope> {
+    public func subscribe(to topics: Set<String>) async -> MobileEventStream {
         await session.addEventListener(topics: topics).stream
     }
 
