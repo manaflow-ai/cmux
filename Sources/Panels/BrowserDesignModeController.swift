@@ -22,6 +22,8 @@ final class BrowserDesignModeController {
     private(set) var snapshot: BrowserDesignModeSnapshot?
     private(set) var errorMessage: String?
     var isComposerPresented = false
+    /// Exclusive interaction mode: element selection or freehand region draw.
+    private(set) var interactionMode: BrowserDesignModeInteractionMode = .select
     var requestedChange = "" {
         didSet {
             let bounded = String(requestedChange.prefix(Self.maximumRequestedChangeCharacters))
@@ -263,6 +265,21 @@ final class BrowserDesignModeController {
         isCopying = false
     }
 
+    func setInteractionMode(_ mode: BrowserDesignModeInteractionMode) async {
+        guard phase == .active, mode != interactionMode, let webView else { return }
+        interactionMode = mode
+        do {
+            let value = try await evaluate(
+                "return globalThis.__cmuxDesignMode?.setMode(mode);",
+                arguments: ["mode": mode.rawValue],
+                in: webView
+            )
+            apply(try BrowserDesignModeSupport.decodeSnapshot(value))
+        } catch {
+            BrowserDesignModeSupport.record(error, operation: "setMode")
+        }
+    }
+
     func removeSelection(at index: Int) async {
         guard phase == .active,
               snapshot?.selections.indices.contains(index) == true,
@@ -490,6 +507,7 @@ final class BrowserDesignModeController {
         snapshot = nil
         errorMessage = nil
         isComposerPresented = false
+        interactionMode = .select
         requestedChange = ""
         isCopying = false
         didCopy = false

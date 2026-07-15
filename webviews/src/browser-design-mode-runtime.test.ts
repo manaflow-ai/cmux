@@ -48,7 +48,8 @@ type DesignRuntime = {
   destroy(): Snapshot;
   snapshot(): Snapshot;
   select(selector: string, stack?: boolean): Snapshot;
-  composerState(): { selection_count: number; selectors: string[]; can_copy: boolean };
+  composerState(): { selection_count: number; selectors: string[]; can_copy: boolean; mode: string };
+  setMode(mode: string): Snapshot;
   applyStyle(property: string, value: string): Snapshot;
   applyText(value: string): Snapshot;
   revert(id: string): Snapshot;
@@ -663,6 +664,9 @@ describe("browser design-mode runtime", () => {
       new dom.window.MouseEvent(name, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y }),
     );
 
+    expect(runtime.composerState().mode).toBe("select");
+    runtime.setMode("draw");
+
     // A freehand stroke whose farthest sweep goes beyond where the pointer is
     // released: the region must bound the WHOLE stroke, not the endpoints.
     at("pointerdown", 10, 20);
@@ -702,7 +706,7 @@ describe("browser design-mode runtime", () => {
     expect(runtime.composerState().selection_count).toBe(0);
   });
 
-  test("a sub-threshold drag still selects the element under the pointer", () => {
+  test("modes are exclusive: no marquee in select mode, no element picks in draw mode", () => {
     const { dom, runtime } = fixture(`<main><button id="b">B</button></main>`);
     const doc = dom.window.document;
     const button = doc.querySelector("#b") as HTMLElement;
@@ -711,11 +715,25 @@ describe("browser design-mode runtime", () => {
       new dom.window.MouseEvent(name, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y }),
     );
 
+    // Select mode: a drag never creates a region; pointerup picks the element.
     at("pointerdown", 10, 10);
-    at("pointermove", 12, 12);
-    at("pointerup", 12, 12);
-
+    at("pointermove", 200, 200);
+    at("pointerup", 200, 200);
     expect(runtime.snapshot().selection?.selector).toBe("#b");
+    expect(runtime.snapshot().selections?.every((entry) => entry.tag_name !== "region")).toBe(true);
+
+    // Draw mode: taps never pick elements; only strokes capture regions.
+    runtime.setMode("draw");
+    expect(runtime.composerState().mode).toBe("draw");
+    at("pointerdown", 30, 30);
+    at("pointerup", 31, 31);
+    expect(runtime.composerState().selection_count).toBe(1);
+    at("pointerdown", 40, 40);
+    at("pointermove", 140, 140);
+    at("pointerup", 140, 140);
+    const selections = runtime.snapshot().selections ?? [];
+    expect(selections).toHaveLength(1);
+    expect(selections[0]?.tag_name).toBe("region");
   });
 
   test("selection captures React component identity but never prop values", () => {

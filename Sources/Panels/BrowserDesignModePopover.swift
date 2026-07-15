@@ -16,12 +16,16 @@ struct BrowserDesignModePopover: View {
         VStack(alignment: .leading, spacing: 6) {
             if let selections = controller.snapshot?.selections, !selections.isEmpty {
                 HStack(alignment: .center, spacing: 10) {
+                    modeToggle
                     composerRow(selections)
                     copyButton
                 }
                 errorMessage
             } else {
-                emptyState
+                HStack(alignment: .center, spacing: 10) {
+                    modeToggle
+                    emptyState
+                }
             }
         }
         .padding(.leading, 16)
@@ -45,6 +49,47 @@ struct BrowserDesignModePopover: View {
             .fill(Color(red: 0.110, green: 0.110, blue: 0.118).opacity(0.98))
             .overlay(shape.strokeBorder(Color.white.opacity(0.09), lineWidth: 1))
             .shadow(color: Color.black.opacity(0.35), radius: 14, y: 5)
+    }
+
+    /// Switches between the exclusive element-select and draw-capture modes.
+    private var modeToggle: some View {
+        HStack(spacing: 2) {
+            modeButton(
+                icon: "cursorarrow",
+                mode: .select,
+                help: String(localized: "browser.designMode.mode.select", defaultValue: "Select elements")
+            )
+            modeButton(
+                icon: "scribble",
+                mode: .draw,
+                help: String(localized: "browser.designMode.mode.draw", defaultValue: "Draw a capture area")
+            )
+        }
+        .padding(2)
+        .background(Capsule().fill(Color.white.opacity(0.07)))
+    }
+
+    private func modeButton(icon: String, mode: BrowserDesignModeInteractionMode, help: String) -> some View {
+        Button {
+            Task { @MainActor in await controller.setInteractionMode(mode) }
+        } label: {
+            Image(systemName: icon)
+                .font(.system(size: 10.5, weight: .semibold))
+                .foregroundStyle(controller.interactionMode == mode ? Color.white : Color.white.opacity(0.45))
+                .frame(width: 22, height: 22)
+                .background(
+                    Circle().fill(
+                        controller.interactionMode == mode
+                            ? Color(red: 0.25, green: 0.47, blue: 0.96)
+                            : Color.clear
+                    )
+                )
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .safeHelp(help)
+        .accessibilityLabel(help)
+        .accessibilityAddTraits(controller.interactionMode == mode ? .isSelected : [])
     }
 
     private func composerRow(_ selections: [BrowserDesignModeSelection]) -> some View {

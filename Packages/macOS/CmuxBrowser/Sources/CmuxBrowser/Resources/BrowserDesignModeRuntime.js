@@ -72,6 +72,9 @@
   let marqueeActive = false;
   let marqueePoints = [];
   let suppressClicksUntil = 0;
+  // Exclusive interaction modes: "select" picks elements, "draw" captures
+  // freehand regions. Never both at once.
+  let interactionMode = "select";
 
   const number = (value) => {
     const parsed = Number.parseFloat(String(value || "0"));
@@ -909,9 +912,9 @@
       position: "fixed",
       pointerEvents: "none",
       boxSizing: "border-box",
-      border: "1px dashed rgba(10, 132, 255, 0.6)",
+      border: "1.5px dashed rgba(10, 132, 255, 0.85)",
       borderRadius: "3px",
-      background: "rgba(10, 132, 255, 0.06)",
+      background: "rgba(10, 132, 255, 0.07)",
     });
 
     // Freehand pen stroke rendered while dragging a capture region,
@@ -1003,7 +1006,7 @@
     if (!overlay) return;
     while (overlay.regionOutlines.length < regionReferences.length) {
       const outline = selectedOutline();
-      outline.style.border = "1px dashed rgba(10, 132, 255, 0.65)";
+      outline.style.border = "1.5px dashed rgba(10, 132, 255, 0.85)";
       overlay.regionOutlines.push(outline);
       overlay.selectionLayer.append(outline);
     }
@@ -1033,6 +1036,7 @@
 
   const composerState = () => ({
     visible: false,
+    mode: interactionMode,
     tag_name: selectedBaseline?.tag_name || (regionReferences.length ? "region" : null),
     selection_count: selectedReferences.length + regionReferences.length,
     selectors: selectedReferences.map((reference) => reference.baseline?.selector).filter(Boolean)
@@ -1323,7 +1327,7 @@
     event.preventDefault();
     event.stopPropagation();
     event.stopImmediatePropagation();
-    if (pendingPointer) {
+    if (pendingPointer && interactionMode === "draw") {
       const dx = event.clientX - pendingPointer.x;
       const dy = event.clientY - pendingPointer.y;
       if (marqueeActive || Math.hypot(dx, dy) > marqueeThresholdPixels) {
@@ -1335,6 +1339,7 @@
         return;
       }
     }
+    if (interactionMode === "draw") return;
     const candidate = elementUnderPoint(event.clientX, event.clientY);
     if (!candidate || candidate === hoveredElement) return;
     hoveredElement = candidate;
@@ -1429,6 +1434,8 @@
       finalizeRegion(bounds, armed.shift);
       return;
     }
+    // Draw mode never element-selects; a tap there is a no-op.
+    if (interactionMode === "draw") return;
     const candidate = elementUnderPoint(armed.x, armed.y);
     if (candidate) selectElement(candidate, armed.shift);
   };
@@ -1463,6 +1470,7 @@
     event.stopImmediatePropagation();
     if (event.button !== 0) return;
     if ((globalThis.performance?.now?.() || 0) < suppressClicksUntil) return;
+    if (interactionMode === "draw") return;
     const candidate = elementUnderPoint(event.clientX, event.clientY);
     if (candidate) selectElement(candidate, event.shiftKey === true);
   };
@@ -1581,6 +1589,24 @@
     },
 
     snapshot,
+
+    setMode(value) {
+      const mode = value === "draw" ? "draw" : "select";
+      if (mode !== interactionMode) {
+        interactionMode = mode;
+        pendingPointer = null;
+        marqueeActive = false;
+        marqueePoints = [];
+        hoveredElement = null;
+        if (overlay) {
+          overlay.marqueeBox.style.display = "none";
+          overlay.strokeSvg.style.display = "none";
+          overlay.strokePath.setAttribute("points", "");
+        }
+        scheduleOverlayRefresh();
+      }
+      return snapshot();
+    },
 
     select(selector, stack) {
       let element = null;
