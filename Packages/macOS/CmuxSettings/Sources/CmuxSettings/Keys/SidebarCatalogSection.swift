@@ -24,6 +24,14 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarShowWorkspaceDescription"
     )
 
+    /// Always show each workspace's ⌘-number in the sidebar (at reduced
+    /// opacity), instead of only while the modifier is held.
+    public let alwaysShowWorkspaceNumbers = DefaultsKey<Bool>(
+        id: "sidebar.alwaysShowWorkspaceNumbers",
+        defaultValue: false,
+        userDefaultsKey: "sidebarAlwaysShowWorkspaceNumbers"
+    )
+
     /// Bool-backed to match the legacy in-app store. The on-disk key
     /// `sidebarBranchVerticalLayout` is written as a Bool by every
     /// shipped cmux build; using an enum here would silently revert

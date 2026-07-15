@@ -212,6 +212,10 @@ enum SidebarSettingsFileMapping {
             defaultsKey: sidebar.showWorkspaceDescription.userDefaultsKey
         ),
         .init(
+            jsonKey: "alwaysShowWorkspaceNumbers",
+            defaultsKey: sidebar.alwaysShowWorkspaceNumbers.userDefaultsKey
+        ),
+        .init(
             jsonKey: "stackBranchDirectory",
             defaultsKey: sidebar.stackBranchDirectory.userDefaultsKey
         ),
@@ -405,6 +409,7 @@ extension CmuxSettingsFileStore {
         "sidebar.wrapWorkspaceTitles",
         "sidebar.showWorkspaceDescription",
         "sidebar.beta.workspaceTodos.checklistStyle",
+        "sidebar.alwaysShowWorkspaceNumbers",
         "sidebar.branchLayout",
         "sidebar.stackBranchDirectory",
         "sidebar.pathLastSegmentOnly",

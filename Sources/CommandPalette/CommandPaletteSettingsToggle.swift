@@ -555,6 +555,22 @@ enum CommandPaletteSettingsToggleCommands {
                 defaultsKey: SettingCatalog().sidebar.showWorkspaceDescription.userDefaultsKey,
                 isAvailable: sidebarDetailsAvailable
             ),
+            // Not gated on sidebarDetailsAvailable: the ⌘-number hint is a row
+            // affordance, not one of the detail rows `hideAllDetails` hides.
+            CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "alwaysShowWorkspaceNumbersInSidebar",
+                settingsKey: "sidebar.alwaysShowWorkspaceNumbers",
+                title: {
+                    String(
+                        localized: "settings.app.alwaysShowWorkspaceNumbers",
+                        defaultValue: "Always Show Workspace Numbers"
+                    )
+                },
+                sectionTitle: sidebar,
+                keywords: ["sidebar.alwaysShowWorkspaceNumbers", "sidebar", "workspace", "number", "shortcut", "hint", "cmd"],
+                defaultValue: SettingCatalog().sidebar.alwaysShowWorkspaceNumbers.defaultValue,
+                defaultsKey: SettingCatalog().sidebar.alwaysShowWorkspaceNumbers.userDefaultsKey
+            ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "sidebarBranchVerticalLayout",
                 settingsKey: "sidebar.branchLayout",
