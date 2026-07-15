@@ -1742,7 +1742,7 @@ final class CmuxConfigStore: ObservableObject {
     let globalConfigPath: String
     private let fileWatchingEnabled: Bool
 
-    nonisolated private static func defaultGlobalConfigPath() -> String {
+    nonisolated static func defaultGlobalConfigPath() -> String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         return (home as NSString).appendingPathComponent(".config/cmux/cmux.json")
     }

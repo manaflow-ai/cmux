@@ -27,6 +27,11 @@ public protocol NotificationDismissalHosting: AnyObject {
     /// Whether the notification store exists yet (legacy
     /// `AppDelegate.shared?.notificationStore` nil check).
     var hasNotificationStore: Bool { get }
+    /// O(1) aggregate gate for any unread/visible state in a workspace.
+    func storeHasDismissibleState(workspaceId: UUID) -> Bool
+    /// O(1) aggregate for panel-local indicators that intentionally do not
+    /// contribute to the notification store's workspace badge.
+    func workspaceHasDismissiblePanelState(workspaceId: UUID) -> Bool
     /// The workspace's focused panel id, if any.
     func focusedPanelId(in workspaceId: UUID) -> UUID?
     /// The workspace's focused surface id, if any. Mirrors the delivery gate's
@@ -61,6 +66,8 @@ public protocol NotificationDismissalHosting: AnyObject {
     func storeHasRestoredUnreadIndicator(workspaceId: UUID) -> Bool
     /// Whether an unread notification exists for the workspace (or surface).
     func storeHasUnreadNotification(workspaceId: UUID, surfaceId: UUID?) -> Bool
+    /// Whether policy evaluation is still pending for the workspace (or surface).
+    func storeHasPendingNotification(workspaceId: UUID, surfaceId: UUID?) -> Bool
     /// Whether a visible notification indicator exists for the workspace
     /// (or surface).
     func storeHasVisibleNotificationIndicator(workspaceId: UUID, surfaceId: UUID?) -> Bool
