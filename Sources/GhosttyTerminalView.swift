@@ -3572,8 +3572,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var keyboardCopyModeVisualLineActive: Bool {
         keyboardCopyModeVisualLineSelection != nil
     }
-    private static let copyReflowMaxBytes = 2 * 1024 * 1024
-    private static let copyReflowMaxLines = 20_000
+    // Copy runs synchronously on the AppKit event path; keep reflow below the
+    // scale where even the linear transform can become an observable hang.
+    private static let copyReflowMaxBytes = 256 * 1024
+    private static let copyReflowMaxLines = 4_000
     private static let keyboardCopyModeVisualLineFallbackMaxBytes: UInt = 2 * 1024 * 1024
     private let reflowCopySettings = UserDefaultsSettingsClient(defaults: .standard)
     private let reflowCopyKey = TerminalCatalogSection().reflowCopy
@@ -4859,8 +4861,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         reflowRequested: Bool,
         selectionMayBeRectangular: Bool
     ) {
-        guard let selectionBounds,
-              selectionBoundsFitCopyReflow(selectionBounds, surface: surface),
+        guard selectionBounds != nil,
               let original = pasteboard.string(forType: .string),
               let reflowed = reflowedCopyTextIfEligible(
                   original,
@@ -4880,25 +4881,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let selectedRows = UInt64(bottomRow - topRow) + 1
         guard selectedRows <= UInt64(Self.copyReflowMaxLines) else { return nil }
         return (topRow: topRow, bottomRow: bottomRow)
-    }
-
-    private func selectionBoundsFitCopyReflow(
-        _ selectionBounds: (topRow: UInt32, bottomRow: UInt32),
-        surface: ghostty_surface_t
-    ) -> Bool {
-        var text = ghostty_text_s()
-        let maxBytes = UInt(Self.copyReflowMaxBytes + 1)
-        guard ghostty_surface_read_screen_clipboard_text(
-            surface,
-            selectionBounds.topRow,
-            selectionBounds.bottomRow,
-            maxBytes,
-            &text
-        ) else {
-            return false
-        }
-        defer { ghostty_surface_free_text(surface, &text) }
-        return text.text_len <= UInt(Self.copyReflowMaxBytes)
     }
 
     private func shouldReflowCopiedText(_ text: String) -> Bool {

@@ -317,9 +317,9 @@ struct ReflowParagraphTests {
         )
     }
 
-    /// A selection near the copy path's 20,000-line limit must scale with its
-    /// input size. The ratio leaves ample runner noise while catching repeated
-    /// copying of the accumulated paragraph, which grows quadratically.
+    /// A 20,000-line stress selection must scale with its input size. The ratio
+    /// leaves ample runner noise while catching repeated copying of the
+    /// accumulated paragraph, which grows quadratically.
     @Test func nearLimitSelectionReflowsWithLinearScaling() {
         let smallInput = performanceInput(lineCount: 4_000)
         let largeInput = performanceInput(lineCount: 20_000)

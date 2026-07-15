@@ -72,6 +72,8 @@ extension TerminalPasteboardService: TerminalClipboardReading {
     /// Existing plain-text, HTML, and RTF flavors are retained. Rich flavors
     /// are edited to match `string` while preserving attributes on surviving
     /// content, so paste destinations cannot select stale hard-wrapped text.
+    /// For larger payloads, expensive rich flavors are dropped and the
+    /// transformed plain text remains available to every paste destination.
     /// The replacement item is fully materialized before the pasteboard is
     /// changed; a failed publish restores the original item.
     ///
@@ -84,7 +86,11 @@ extension TerminalPasteboardService: TerminalClipboardReading {
         guard let items = pasteboard.pasteboardItems,
               items.count == 1,
               let originalItem = copiedPasteboardItem(items[0]),
-              let replacementItem = rewrittenPasteboardItem(items[0], text: string) else {
+              let replacementItem = rewrittenPasteboardItem(
+                  items[0],
+                  text: string,
+                  preservingRichText: string.utf8.count <= Self.richTextRewriteByteLimit
+              ) else {
             return false
         }
 
@@ -99,6 +105,10 @@ extension TerminalPasteboardService: TerminalClipboardReading {
 }
 
 extension TerminalPasteboardService {
+    /// Keeps synchronous AppKit rich-text parsing below the interactive-copy
+    /// latency budget; larger rewrites publish the authoritative plain text.
+    private static let richTextRewriteByteLimit = 64 * 1024
+
     private func copiedPasteboardItem(_ source: NSPasteboardItem) -> NSPasteboardItem? {
         let copy = NSPasteboardItem()
         for type in source.types {
@@ -109,10 +119,14 @@ extension TerminalPasteboardService {
 
     private func rewrittenPasteboardItem(
         _ source: NSPasteboardItem,
-        text: String
+        text: String,
+        preservingRichText: Bool
     ) -> NSPasteboardItem? {
         let rewritten = NSPasteboardItem()
         for type in source.types {
+            if !preservingRichText, isRichTextType(type) {
+                continue
+            }
             if isPlainTextType(type) {
                 guard rewritten.setString(text, forType: type) else { return nil }
                 continue
