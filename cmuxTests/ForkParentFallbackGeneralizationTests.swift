@@ -179,6 +179,24 @@ struct ForkParentFallbackGeneralizationTests {
         #expect(detected[fixture.forkKey]?.sessionIDSource == .forkParentFallback)
     }
 
+    @Test func customBooleanForkMarkerEqualsFalseStaysExplicit() throws {
+        let fixture = try Fixture.make()
+        defer { fixture.cleanup() }
+        let registration = customForkerRegistration()
+        let registry = CmuxVaultAgentRegistry(registrations: [registration])
+
+        let detected = detectedSnapshots(
+            fixture: fixture,
+            registry: registry,
+            argv: ["/usr/local/bin/custom-forker", "--thread", fixture.parentCodexId, "--fork=false"],
+            launchKind: "custom-forker",
+            processName: "custom-forker",
+            processPath: "/usr/local/bin/custom-forker"
+        )
+
+        #expect(detected[fixture.forkKey]?.sessionIDSource == .explicit)
+    }
+
     @Test func customRegistryForkTemplateWithoutConstantMarkerStaysExplicit() throws {
         let fixture = try Fixture.make()
         defer { fixture.cleanup() }

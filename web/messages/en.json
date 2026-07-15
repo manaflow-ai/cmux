@@ -2469,7 +2469,7 @@
       "whatYouGetDesc": "The hooks extension lets omp report lifecycle and session information back to cmux:",
       "whatYouGet1": "Workspace busy and idle status from omp turn boundaries",
       "whatYouGet2": "Turn-end notifications in cmux",
-      "whatYouGet3": "Session tracking so closed panes can be resumed or forked from the session index with omp --session SESSION_ID, adding --fork for forks",
+      "whatYouGet3": "Session tracking so closed panes can be resumed with omp --session SESSION_ID or forked with omp --fork SESSION_ID from the session index",
       "whatYouGet4": "Workspace auto-naming, with omp available as the summarizer model",
       "whatYouGet5": "Task Manager process attribution for omp processes",
       "directories": "Directories",

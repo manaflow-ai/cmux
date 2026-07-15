@@ -6,23 +6,41 @@ extension CmuxVaultAgentRegistration {
         guard !markers.isEmpty else { return false }
         return markers.allSatisfy { marker in
             arguments.contains { argument in
-                argument.compare(marker, options: [.caseInsensitive, .literal]) == .orderedSame
-                    || (marker.hasPrefix("-") && argument.range(
-                        of: marker + "=",
+                argument.compare(marker.token, options: [.caseInsensitive, .literal]) == .orderedSame
+                    || (marker.acceptsAttachedValue && argument.range(
+                        of: marker.token + "=",
                         options: [.anchored, .caseInsensitive, .literal]
                     ) != nil)
             }
         }
     }
 
-    private func forkParentMarkerTokens() -> [String] {
+    private struct ForkParentMarker {
+        let token: String
+        let acceptsAttachedValue: Bool
+    }
+
+    private func forkParentMarkerTokens() -> [ForkParentMarker] {
         guard let forkCommand else { return [] }
         let resumeConstants = Set(Self.constantTemplateTokens(in: resumeCommand))
-        let forkConstants = Self.constantTemplateTokens(in: forkCommand)
-        let markers = forkConstants.filter { !resumeConstants.contains($0) }
+        let forkTokens = Self.splitShellWords(forkCommand)
+        let markers = forkTokens.enumerated().compactMap { index, token -> ForkParentMarker? in
+            guard !token.contains("{{"), !token.contains("}}"), !resumeConstants.contains(token) else {
+                return nil
+            }
+            let nextIndex = forkTokens.index(after: index)
+            let acceptsAttachedValue = token.hasPrefix("-")
+                && nextIndex < forkTokens.endIndex
+                && Self.isSessionPlaceholder(forkTokens[nextIndex])
+            return ForkParentMarker(token: token, acceptsAttachedValue: acceptsAttachedValue)
+        }
         // If fork and resume differ only by placeholders, the live argv carries no
         // constant marker that proves this process is a fork of its parent.
         return markers
+    }
+
+    private static func isSessionPlaceholder(_ token: String) -> Bool {
+        token.contains("{{sessionId}}") || token.contains("{{sessionPath}}")
     }
 
     private static func constantTemplateTokens(in template: String) -> [String] {

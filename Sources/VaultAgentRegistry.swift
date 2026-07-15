@@ -175,7 +175,7 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
     private func matchesPersistedBuiltInHistory(current: CmuxVaultAgentRegistration) -> Bool {
         let legacyForkCommand = "{{executable}} --session {{sessionId}} --fork"
         guard iconAssetName == nil || iconAssetName == current.iconAssetName,
-              forkCommand == nil || forkCommand == legacyForkCommand || forkCommand == current.forkCommand else {
+              forkCommand == legacyForkCommand else {
             return false
         }
         var candidate = self

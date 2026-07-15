@@ -498,8 +498,23 @@ struct WorkspaceForkConversationContextMenuTests {
             SessionRestorableAgentSnapshot.self,
             from: JSONEncoder().encode(historical)
         )
-        #expect(decodedHistorical.registration == .builtInOmp)
-        #expect(decodedHistorical.forkCommand?.contains("'--fork' '\(sessionId)'") == true)
+        #expect(decodedHistorical.registration == historicalRegistration)
+        #expect(decodedHistorical.forkCommand == nil)
+
+        var legacyWithoutIcon = legacyRegistration
+        legacyWithoutIcon.iconAssetName = nil
+        let decodedLegacyWithoutIcon = try JSONDecoder().decode(
+            SessionRestorableAgentSnapshot.self,
+            from: JSONEncoder().encode(SessionRestorableAgentSnapshot(
+                kind: .custom("omp"),
+                sessionId: sessionId,
+                workingDirectory: nil,
+                launchCommand: persisted.launchCommand,
+                registration: legacyWithoutIcon
+            ))
+        )
+        #expect(decodedLegacyWithoutIcon.registration == .builtInOmp)
+        #expect(decodedLegacyWithoutIcon.forkCommand?.contains("'--fork' '\(sessionId)'") == true)
 
         var customForkRegistration = CmuxVaultAgentRegistration.builtInOmp
         customForkRegistration.forkCommand = "{{executable}} --branch {{sessionId}}"
@@ -581,8 +596,8 @@ struct WorkspaceForkConversationContextMenuTests {
             from: JSONEncoder().encode(historicalSnapshot)
         )
         #expect(decodedHistorical.kind == .custom("pi"))
-        #expect(decodedHistorical.registration == .builtInPi)
-        #expect(decodedHistorical.forkCommand?.contains("'--fork' '\(sessionId)'") == true)
+        #expect(decodedHistorical.registration == historicalBuiltIn)
+        #expect(decodedHistorical.forkCommand == nil)
     }
 
     @Test
