@@ -176,7 +176,9 @@ private func makeDirectory(
         let directory = makeDirectory(registry: .ok([ownDevice, routeless, phone]), store: store)
         await directory.refresh()
 
-        #expect(await directory.pair(deviceID: "self-device") == .noRoutes)
+        // Self-pairing is refused outright, even though dev builds advertise
+        // routes for this device.
+        #expect(await directory.pair(deviceID: "self-device") == .loopbackRejected)
         #expect(await directory.pair(deviceID: "routeless-mac") == .noRoutes)
         #expect(await directory.pair(deviceID: "phone") == .noRoutes)
         let persisted = try await store.loadAll(stackUserID: nil, teamID: nil)
@@ -323,7 +325,7 @@ private func makeDirectory(
             ],
             expiresAt: nil
         )
-        let link = try #require(CmxPairingQRCode().encode(ticket))
+        let link = try #require(CmxPairingQRCode().encode(ticket, routeDisclosureMode: .legacyPrivateNetworkCompatibility))
         let directory = makeDirectory(registry: .ok([]), store: store)
 
         let outcome = await directory.pair(link: link)

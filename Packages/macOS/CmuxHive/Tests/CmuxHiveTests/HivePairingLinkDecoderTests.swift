@@ -29,7 +29,7 @@ import Testing
     /// The v2 pairing URL another Mac's pairing window renders as its QR.
     private func pairingLink(macUserID: String? = "owner-1") throws -> String {
         let ticket = try tailscaleTicket(macUserID: macUserID)
-        return try #require(CmxPairingQRCode().encode(ticket))
+        return try #require(CmxPairingQRCode().encode(ticket, routeDisclosureMode: .legacyPrivateNetworkCompatibility))
     }
 
     @Test func decodesSameAccountLink() throws {
@@ -101,7 +101,7 @@ import Testing
             ],
             expiresAt: nil
         )
-        let payload = try CmxAttachTicketCompactCoder().encode(loopbackTicket)
+        let payload = try CmxAttachTicketCompactCoder().encode(loopbackTicket, routeDisclosureMode: .legacyPrivateNetworkCompatibility)
         let base64 = payload.base64EncodedString()
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")

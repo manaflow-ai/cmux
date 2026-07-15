@@ -108,7 +108,8 @@ extension HostSettingsActions {
             symbolName: Self.symbolName(forPlatform: computer.platform),
             isThisMac: computer.isThisComputer,
             isPaired: computer.isPaired,
-            canPair: computer.isPairableHost && !computer.isPaired && computer.bestPairingRoutes != nil,
+            canPair: !computer.isThisComputer && computer.isPairableHost && !computer.isPaired
+                && computer.bestPairingRoutes != nil,
             presence: Self.presence(computer.presence),
             detail: Self.detail(for: computer)
         )

@@ -22,20 +22,27 @@ public struct HiveTerminalGridModel: Equatable, Sendable {
         public var style: MobileTerminalRenderGridFrame.Style
         /// The run's text.
         public var text: String
-        /// Terminal cells occupied by each character (2 for wide glyphs).
-        public var cellWidth: Int
+        /// The run's **total** width in grid cells (the wire `cell_width`
+        /// semantics): the column advance to the next span. Wider than
+        /// `text.count` when the run contains wide glyphs or host-side
+        /// padding; never a per-glyph width.
+        public var totalCellWidth: Int
 
         public init(
             column: Int,
             style: MobileTerminalRenderGridFrame.Style,
             text: String,
-            cellWidth: Int = 1
+            totalCellWidth: Int? = nil
         ) {
             self.column = column
             self.style = style
             self.text = text
-            self.cellWidth = cellWidth
+            self.totalCellWidth = totalCellWidth ?? max(1, text.renderGridEstimatedCellWidth)
         }
+
+        /// Whether every character is a plain single-cell glyph, so the whole
+        /// run can be drawn as one string at the span origin.
+        public var isUniformSingleWidth: Bool { totalCellWidth == text.count }
     }
 
     /// Grid width in columns.
@@ -93,7 +100,7 @@ public struct HiveTerminalGridModel: Equatable, Sendable {
                     column: span.column,
                     style: stylesByID[span.styleID] ?? .default,
                     text: span.text,
-                    cellWidth: max(span.cellWidth ?? 1, 1)
+                    totalCellWidth: max(span.gridCellWidth, 1)
                 )
             )
         }
@@ -121,7 +128,7 @@ public struct HiveTerminalGridModel: Equatable, Sendable {
                 column = span.column
             }
             text += span.text
-            column += span.text.count * span.cellWidth
+            column += span.totalCellWidth
         }
         return text
     }

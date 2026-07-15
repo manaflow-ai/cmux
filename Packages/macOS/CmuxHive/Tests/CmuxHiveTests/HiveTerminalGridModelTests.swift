@@ -121,13 +121,44 @@ import Testing
         #expect(grid.plainRow(0) == "hello")
     }
 
-    @Test func wideGlyphSpansAdvanceByCellWidth() throws {
+    @Test func wideGlyphSpansAdvanceByTotalCellWidth() throws {
         var grid = HiveTerminalGridModel()
+        // The wire `cell_width` is the span's TOTAL width in cells: two wide
+        // glyphs occupy columns 0-3.
         grid.apply(try fullFrame(rowSpans: [
-            .init(row: 0, column: 0, styleID: 0, text: "日本", cellWidth: 2),
+            .init(row: 0, column: 0, styleID: 0, text: "日本", cellWidth: 4),
             .init(row: 0, column: 4, styleID: 0, text: "!"),
         ]))
         // The wide span occupies columns 0-3; no gap spaces before "!".
         #expect(grid.plainRow(0) == "日本!")
+        #expect(grid.rowSpans[0].first?.totalCellWidth == 4)
+        #expect(grid.rowSpans[0].first?.isUniformSingleWidth == false)
+    }
+
+    @Test func omittedCellWidthEstimatesFromText() throws {
+        var grid = HiveTerminalGridModel()
+        // No wire cell_width: the span width is estimated from the text (wide
+        // glyphs count 2), so the following span still needs no gap fill.
+        grid.apply(try fullFrame(rowSpans: [
+            .init(row: 0, column: 0, styleID: 0, text: "日本"),
+            .init(row: 0, column: 4, styleID: 0, text: "ok"),
+        ]))
+        #expect(grid.plainRow(0) == "日本ok")
+        #expect(grid.rowSpans[0].first?.totalCellWidth == 4)
+        // Plain ASCII spans stay single-width and drawable as one run.
+        #expect(grid.rowSpans[0].last?.isUniformSingleWidth == true)
+    }
+
+    @Test func hostPaddedSpanAdvancesByWireWidth() throws {
+        var grid = HiveTerminalGridModel()
+        // The host may send cell_width wider than the text (padded run); the
+        // next column must respect the wire width, with gap fill in between.
+        grid.apply(try fullFrame(rowSpans: [
+            .init(row: 0, column: 0, styleID: 0, text: "ab", cellWidth: 6),
+            .init(row: 0, column: 8, styleID: 0, text: "cd"),
+        ]))
+        // Column after span 1 = 0 + 6; gap to column 8 = 2 spaces.
+        #expect(grid.plainRow(0) == "ab  cd")
+        #expect(grid.rowSpans[0].first?.totalCellWidth == 6)
     }
 }
