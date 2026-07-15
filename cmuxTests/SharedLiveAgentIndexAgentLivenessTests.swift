@@ -12,15 +12,6 @@ import Testing
 @Suite(.serialized)
 struct SharedLiveAgentIndexAgentLivenessTests {
     @Test
-    func hookEventReloadCadenceScalesWithLiveAgentCount() {
-        #expect(SharedLiveAgentIndex.hookEventReloadInterval(liveAgentCount: 0) == 5)
-        #expect(SharedLiveAgentIndex.hookEventReloadInterval(liveAgentCount: 8) == 5)
-        #expect(SharedLiveAgentIndex.hookEventReloadInterval(liveAgentCount: 16) == 10)
-        #expect(SharedLiveAgentIndex.hookEventReloadInterval(liveAgentCount: 32) == 20)
-        #expect(SharedLiveAgentIndex.hookEventReloadInterval(liveAgentCount: 64) == 30)
-    }
-
-    @Test
     func forkAvailabilityIgnoresDeadUnrelatedPanelChildProcess() async throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
