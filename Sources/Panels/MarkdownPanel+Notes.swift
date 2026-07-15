@@ -194,6 +194,9 @@ extension MarkdownPanel {
 
     func attachTextView(_ textView: NSTextView) {
         self.textView = textView
+        // The editor session owns view construction now; per-surface styling
+        // that used to ride the representable's parameters applies here.
+        (textView as? SavingTextView)?.highlightsCurrentLine = true
         if pendingShowFindInterface {
             pendingShowFindInterface = false
             openFindBar(on: textView)

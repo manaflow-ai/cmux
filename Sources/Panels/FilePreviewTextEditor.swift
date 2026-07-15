@@ -21,32 +21,9 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
     let themeBackgroundColor: NSColor
     let themeForegroundColor: NSColor
     let drawsBackground: Bool
+    /// Whether long lines soft-wrap at the editor's right edge. Sourced from
+    /// the persisted `fileEditor.wordWrap` setting; updates apply live.
     let wordWrap: Bool
-    let showsLineNumbers: Bool
-    let highlightsCurrentLine: Bool
-    let onPointerDown: (() -> Void)?
-
-    init(
-        panel: PanelModel,
-        isVisibleInUI: Bool,
-        themeBackgroundColor: NSColor,
-        themeForegroundColor: NSColor,
-        drawsBackground: Bool,
-        wordWrap: Bool,
-        showsLineNumbers: Bool = false,
-        highlightsCurrentLine: Bool = false,
-        onPointerDown: (() -> Void)? = nil
-    ) {
-        self.panel = panel
-        self.isVisibleInUI = isVisibleInUI
-        self.themeBackgroundColor = themeBackgroundColor
-        self.themeForegroundColor = themeForegroundColor
-        self.drawsBackground = drawsBackground
-        self.wordWrap = wordWrap
-        self.showsLineNumbers = showsLineNumbers
-        self.highlightsCurrentLine = highlightsCurrentLine
-        self.onPointerDown = onPointerDown
-    }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(panel: panel)
@@ -65,10 +42,8 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         scrollView.drawsBackground = drawsBackground
 
         textView.panel = panel
-        textView.onPointerDown = onPointerDown
         textView.delegate = context.coordinator
         textView.drawsBackground = drawsBackground
-        textView.highlightsCurrentLine = highlightsCurrentLine
         if textView.string != panel.textContent {
             context.coordinator.isApplyingPanelUpdate = true
             textView.string = panel.textContent
@@ -77,7 +52,6 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         panel.attachTextView(textView)
 
         textView.applyFilePreviewWordWrap(wordWrap, scrollView: scrollView)
-        Self.applyLineNumberRuler(on: scrollView, textView: textView, editor: self)
         Self.applyTheme(
             to: scrollView,
             backgroundColor: themeBackgroundColor,
@@ -88,9 +62,8 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
     }
 
     static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
-        guard let textView = scrollView.documentView as? SavingTextView else { return }
-        textView.onPointerDown = nil
-        guard textView.delegate === coordinator else { return }
+        guard let textView = scrollView.documentView as? SavingTextView,
+              textView.delegate === coordinator else { return }
         textView.delegate = nil
         textView.panel = nil
     }
@@ -106,17 +79,34 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         )
         guard let textView = scrollView.documentView as? SavingTextView else { return }
         textView.panel = panel
-        textView.onPointerDown = onPointerDown
-        textView.highlightsCurrentLine = highlightsCurrentLine
         textView.applyFilePreviewTextEditorInsets()
         textView.applyFilePreviewWordWrap(wordWrap, scrollView: scrollView)
-        Self.applyLineNumberRuler(on: scrollView, textView: textView, editor: self)
         panel.attachTextView(textView)
         guard textView.string != panel.textContent else { return }
         context.coordinator.isApplyingPanelUpdate = true
         textView.string = panel.textContent
-        textView.invalidateFilePreviewLineNumberRuler()
         context.coordinator.isApplyingPanelUpdate = false
+    }
+
+    static func applyTheme(
+        to scrollView: NSScrollView,
+        backgroundColor: NSColor,
+        foregroundColor: NSColor,
+        drawsBackground: Bool
+    ) {
+        let resolvedBackgroundColor = drawsBackground ? backgroundColor : .clear
+        scrollView.drawsBackground = drawsBackground
+        scrollView.backgroundColor = resolvedBackgroundColor
+        scrollView.contentView.drawsBackground = drawsBackground
+        scrollView.contentView.backgroundColor = resolvedBackgroundColor
+        if let textView = scrollView.documentView as? NSTextView {
+            textView.drawsBackground = drawsBackground
+            textView.backgroundColor = resolvedBackgroundColor
+            textView.textColor = foregroundColor
+            // Accent caret: the theme-foreground caret reads as a stray gray
+            // line against dark note backgrounds rather than a cursor.
+            textView.insertionPointColor = .controlAccentColor
+        }
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
@@ -132,24 +122,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         func textDidChange(_ notification: Notification) {
             guard !isApplyingPanelUpdate,
                   let textView = notification.object as? NSTextView else { return }
-            // Line numbers stay correct without a full invalidation here: the
-            // ruler tracks edits incrementally as the text-storage delegate.
-            // Fall back to a full rescan only if that tracking isn't live.
-            if let ruler = textView.enclosingScrollView?.verticalRulerView as? FilePreviewLineNumberRulerView,
-               !ruler.isTrackingTextStorage(textView.textStorage) {
-                ruler.invalidateLineNumbers()
-            }
             panel.updateTextContent(textView.string)
-        }
-
-        func textViewDidChangeSelection(_ notification: Notification) {
-            guard let textView = notification.object as? SavingTextView else { return }
-            if textView.highlightsCurrentLine {
-                textView.needsDisplay = true
-            }
-            if let ruler = textView.enclosingScrollView?.verticalRulerView as? FilePreviewLineNumberRulerView {
-                ruler.needsDisplay = true
-            }
         }
     }
 }
@@ -157,10 +130,59 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
 enum FilePreviewTextEditorLayout {
     static let textContainerInset = NSSize(width: 12, height: 10)
     static let lineFragmentPadding: CGFloat = 0
-    static let minimumLineNumberGutterWidth: CGFloat = 42
-    static let lineNumberFont = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
 }
 
+extension SavingTextView {
+    /// Builds the File Preview text view configured for large plain-text files.
+    ///
+    /// File Preview opens files up to `FilePreviewPanel.maximumLoadedTextBytes` (16 MB), which can
+    /// be hundreds of thousands of lines. Selection responsiveness on that content is the reason
+    /// this configuration is centralized; see `manaflow-ai/cmux#4576`.
+    static func makeFilePreviewTextView() -> SavingTextView {
+        // Build an EXPLICIT TextKit 1 stack so this view is never TextKit 2.
+        //
+        // A default `NSTextView()` is TextKit 2: selection/hit-testing then runs through
+        // `NSTextSelectionNavigation`, whose work is O(N) in line-fragment count, so clicking or
+        // drag-selecting in a large document pegs the main thread inside AppKit's modal
+        // mouse-tracking loop and freezes the whole app (`manaflow-ai/cmux#4576`, `#5255`).
+        //
+        // Merely *reading* `.layoutManager` afterward — the previous mitigation — only drops the
+        // view to TextKit 2 *compatibility* mode: `textLayoutManager` stays non-nil and the slow
+        // selection path remains active (confirmed by live `sample` captures of the hung process).
+        // Constructing the view from an `NSTextStorage` / `NSLayoutManager` / `NSTextContainer`
+        // stack is the only way to guarantee `textLayoutManager == nil`, i.e. a pure TextKit 1 view
+        // whose hit-testing uses `NSLayoutManager` (O(log N) with non-contiguous layout).
+        let textStorage = NSTextStorage()
+        let layoutManager = NSLayoutManager()
+        // Lazy glyph layout so multi-hundred-thousand-line documents still open instantly.
+        layoutManager.allowsNonContiguousLayout = true
+        textStorage.addLayoutManager(layoutManager)
+        let textContainer = NSTextContainer(
+            size: NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        )
+        // No-wrap baseline; `applyFilePreviewWordWrap(_:scrollView:)` flips this live per the
+        // `fileEditor.wordWrap` setting.
+        textContainer.widthTracksTextView = false
+        layoutManager.addTextContainer(textContainer)
+
+        let textView = SavingTextView(frame: .zero, textContainer: textContainer)
+        textView.isEditable = true
+        textView.isSelectable = true
+        textView.allowsUndo = true
+        textView.isRichText = false
+        textView.importsGraphics = false
+        textView.usesFindPanel = true
+        textView.usesFontPanel = false
+        textView.applyCurrentPreviewFont()
+        textView.minSize = NSSize(width: 0, height: 0)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = true
+        textView.autoresizingMask = [.width]
+        textView.applyFilePreviewTextEditorInsets()
+        return textView
+    }
+}
 
 extension NSTextView {
     /// Configures the text view and its scroll view for soft line wrapping
@@ -179,12 +201,7 @@ extension NSTextView {
             // avoid collapsing to a zero-width container during `makeNSView`,
             // before the clip view has a size; `updateNSView` re-runs once laid
             // out and reflows.
-            //
-            // Measure the clip view itself, not `scrollView.contentSize`: the
-            // latter ignores an installed ruler, so with the line-number
-            // gutter visible it over-reports by the gutter width and lines
-            // wrap past the right edge (manaflow-ai/cmux#4331 note editor).
-            let visibleWidth = scrollView.contentView.frame.width
+            let visibleWidth = scrollView.contentSize.width
             if visibleWidth > 0 {
                 textContainer.size = NSSize(width: visibleWidth, height: .greatestFiniteMagnitude)
                 setFrameSize(NSSize(width: visibleWidth, height: frame.height))
@@ -220,27 +237,6 @@ final class SavingTextView: NSTextView {
     ]
 
     weak var panel: (any FilePreviewTextEditingPanel)?
-    var onPointerDown: (() -> Void)?
-
-    /// Zed-style subtle background behind the line that holds the insertion
-    /// point. Off by default; the markdown/note editor opts in. Not enabled
-    /// for File Preview, whose documents can be large enough that whole-view
-    /// redraws per caret move would be wasteful.
-    var highlightsCurrentLine = false {
-        didSet {
-            guard oldValue != highlightsCurrentLine else { return }
-            needsDisplay = true
-        }
-    }
-
-    var currentLineHighlightColor: NSColor = NSColor.labelColor.withAlphaComponent(0.055) {
-        didSet {
-            if highlightsCurrentLine {
-                needsDisplay = true
-            }
-        }
-    }
-
     private var previewFontSize: CGFloat = 13
     private var pendingEditorShortcutChordPrefix: ShortcutStroke?
     private var fontMagnificationObserver: GlobalFontMagnificationChangeObserver?
@@ -291,7 +287,6 @@ final class SavingTextView: NSTextView {
         }
         return super.performKeyEquivalent(with: event)
     }
-
 
     override func magnify(with event: NSEvent) {
         let factor = 1.0 + event.magnification
