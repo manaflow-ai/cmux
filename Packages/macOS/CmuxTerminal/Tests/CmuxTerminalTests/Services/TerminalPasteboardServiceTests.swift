@@ -96,6 +96,21 @@ struct PasteboardTextContentsTests {
         #expect(!service.hasString(for: ghostty_clipboard_e(rawValue: 99)))
         #expect(service.pasteboard(for: ghostty_clipboard_e(rawValue: 99)) == nil)
     }
+
+    @Test func rewritingPlainTextPreservesRichRepresentations() throws {
+        let scratch = ScratchPasteboard()
+        let service = TerminalPasteboardService()
+        let item = NSPasteboardItem()
+        #expect(item.setString("original", forType: .string))
+        #expect(item.setString("<b>original</b>", forType: .html))
+        #expect(scratch.pasteboard.writeObjects([item]))
+
+        #expect(service.rewritePlainText("reflowed", in: scratch.pasteboard))
+
+        #expect(scratch.pasteboard.string(forType: .string) == "reflowed")
+        #expect(scratch.pasteboard.string(forType: .html) == "<b>original</b>")
+        #expect(try #require(scratch.pasteboard.types).contains(.html))
+    }
 }
 
 @Suite("Clipboard write capture")
