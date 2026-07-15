@@ -546,6 +546,7 @@ jobs:
             -only-testing:cmuxTests/ClaudeHookLifecycleCleanupTests \
             -only-testing:cmuxTests/ClaudeHookLiveDeliveryTargetTests \
             -only-testing:cmuxTests/ClaudeHookPIDAuthenticationTests \
+            -only-testing:cmuxTests/HostSettingsShortcutNotificationTests \
             -only-testing:cmuxTests/PhonePushPresenceGateTests \
             test
 
