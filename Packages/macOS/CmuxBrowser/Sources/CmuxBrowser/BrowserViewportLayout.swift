@@ -110,13 +110,19 @@ public struct BrowserViewportLayout: Equatable, Sendable {
     ) -> CGFloat {
         let scaledDimension = cssDimension * pageZoom
 
-        // WKWebView quantizes its AppKit viewport to whole points before applying
-        // pageZoom. Round fractional products upward so that quantization cannot
-        // shrink the requested CSS viewport (for example, 4096 * 1.4 is 5734.4,
-        // which WebKit otherwise truncates to 5734 and reports as 4095 CSS pixels).
+        // Observed WKWebView behavior floors its AppKit viewport to whole points,
+        // divides by pageZoom, then floors the CSS result. Test that exact
+        // projection instead of treating values near an integer as floating-point
+        // noise: a product genuinely just above an integer still needs the next
+        // whole point.
+        let quantizedDimension = scaledDimension.rounded(.down)
+        let quantizedCSSDimension =
+            (quantizedDimension / pageZoom).rounded(.down)
+        let wholePointDimension = quantizedCSSDimension >= cssDimension
+            ? quantizedDimension
+            : quantizedDimension + 1
+
         // Keep sub-point headroom above the integer for downward AppKit rounding.
-        let wholePointDimension =
-            (scaledDimension - emulatedViewportPrecisionBias).rounded(.up)
         return wholePointDimension + emulatedViewportPrecisionBias
     }
 }
