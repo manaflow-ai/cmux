@@ -169,13 +169,49 @@ import Testing
 
     scroll(to: 100, in: scrollView, notificationCenter: center)
     await waitUntil { fadeCompletions.count == 1 }
-    controller.handleIndicatorPointerEntered()
+    controller.handleIndicatorPointerPresenceChanged(true)
     fadeCompletions[0]()
 
     #expect(!indicator.isHidden)
     #expect(indicator.alphaValue == 1)
 
-    controller.handleIndicatorPointerExited()
+    controller.handleIndicatorPointerPresenceChanged(false)
+    await waitUntil { fadeCompletions.count == 2 }
+    fadeCompletions[1]()
+
+    #expect(indicator.isHidden)
+    #expect(indicator.alphaValue == 0)
+  }
+
+  @MainActor
+  @Test func dragOutsideScrollerDefersFadeUntilMouseUp() async throws {
+    let center = NotificationCenter()
+    var fadeCompletions: [@MainActor () -> Void] = []
+    let scrollView = makeScrollableScrollView()
+    let controller = SidebarScrollIndicatorVisibilityController(
+      scrollView: scrollView,
+      notificationCenter: center,
+      sleep: { _ in },
+      fadeDuration: 0,
+      fadeAnimator: { scroller, _, completion in
+        scroller.alphaValue = 0
+        fadeCompletions.append(completion)
+      }
+    )
+    let indicator = try #require(controller.indicatorScroller)
+
+    scroll(to: 100, in: scrollView, notificationCenter: center)
+    await waitUntil { fadeCompletions.count == 1 }
+    controller.handleIndicatorPointerPresenceChanged(true)
+    controller.handleIndicatorInteractionChanged(true)
+    controller.handleIndicatorPointerPresenceChanged(false)
+    fadeCompletions[0]()
+
+    #expect(!indicator.isHidden)
+    #expect(indicator.alphaValue == 1)
+    #expect(fadeCompletions.count == 1)
+
+    controller.handleIndicatorInteractionChanged(false)
     await waitUntil { fadeCompletions.count == 2 }
     fadeCompletions[1]()
 

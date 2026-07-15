@@ -4,7 +4,7 @@ import QuartzCore
 /// Owns the sidebar's scroll indicator independently of AppKit's native
 /// scroller preference and layout lifecycle.
 @MainActor
-final class SidebarScrollIndicatorVisibilityController: NSResponder {
+final class SidebarScrollIndicatorVisibilityController {
   typealias FadeAnimator =
     @MainActor (
       _ scroller: NSScroller,
@@ -25,10 +25,9 @@ final class SidebarScrollIndicatorVisibilityController: NSResponder {
   private var fadeTask: Task<Void, Never>?
   private var fadeGeneration = 0
   private var indicatorIsActive = false
+  private var indicatorInteractionIsActive = false
   private var pointerIsOverIndicator = false
   private var lastContentOrigin: CGPoint
-  private weak var trackedScroller: NSScroller?
-  private var indicatorTrackingArea: NSTrackingArea?
   // Main-actor-owned until deinit, where removing the now-unreachable
   // controller's observer tokens is safe from the nonisolated destructor.
   private nonisolated(unsafe) var observerTokens: [any NSObjectProtocol] = []
@@ -57,13 +56,8 @@ final class SidebarScrollIndicatorVisibilityController: NSResponder {
     self.fadeAnimator = fadeAnimator
     self.lastContentOrigin = scrollView.contentView.bounds.origin
 
-    super.init()
     synchronizeIndicator()
     observeScrollView()
-  }
-
-  required init?(coder: NSCoder) {
-    fatalError("init(coder:) has not been implemented")
   }
 
   deinit {
@@ -92,14 +86,33 @@ final class SidebarScrollIndicatorVisibilityController: NSResponder {
       scrollView.hasVerticalScroller = true
       configurationChanged = true
     }
-    guard let scroller = scrollView.verticalScroller else { return }
+    let nativeScroller = scrollView.verticalScroller
+    let scroller: SidebarInteractiveScroller
+    if let interactiveScroller = nativeScroller as? SidebarInteractiveScroller {
+      scroller = interactiveScroller
+    } else {
+      scroller = SidebarInteractiveScroller(frame: nativeScroller?.frame ?? .zero)
+      scroller.controlSize = nativeScroller?.controlSize ?? .regular
+      scroller.knobStyle = nativeScroller?.knobStyle ?? .default
+      scrollView.verticalScroller = scroller
+      configurationChanged = true
+    }
     let scrollerChanged = indicatorScroller !== scroller
     if configurationChanged || scrollerChanged {
       scrollView.reflectScrolledClipView(scrollView.contentView)
     }
     if scrollerChanged {
+      if let previousScroller = indicatorScroller as? SidebarInteractiveScroller {
+        previousScroller.onPointerPresenceChanged = nil
+        previousScroller.onInteractionChanged = nil
+      }
       indicatorScroller = scroller
-      installTrackingArea(on: scroller)
+      scroller.onPointerPresenceChanged = { [weak self] isPresent in
+        self?.handleIndicatorPointerPresenceChanged(isPresent)
+      }
+      scroller.onInteractionChanged = { [weak self] isActive in
+        self?.handleIndicatorInteractionChanged(isActive)
+      }
       applyIndicatorState(to: scroller)
     } else if !indicatorIsActive, !scroller.isHidden {
       scroller.alphaValue = 0
@@ -183,7 +196,11 @@ final class SidebarScrollIndicatorVisibilityController: NSResponder {
   }
 
   private func fadeIndicator() {
-    guard indicatorIsActive, !pointerIsOverIndicator, let indicatorScroller else { return }
+    guard indicatorIsActive,
+      !indicatorInteractionIsActive,
+      !pointerIsOverIndicator,
+      let indicatorScroller
+    else { return }
     fadeGeneration &+= 1
     let generation = fadeGeneration
     fadeAnimator(indicatorScroller, fadeDuration) { [weak self, weak indicatorScroller] in
@@ -200,6 +217,7 @@ final class SidebarScrollIndicatorVisibilityController: NSResponder {
     fadeTask?.cancel()
     fadeGeneration &+= 1
     indicatorIsActive = false
+    indicatorInteractionIsActive = false
     pointerIsOverIndicator = false
     guard let indicatorScroller else { return }
     indicatorScroller.layer?.removeAllAnimations()
@@ -213,35 +231,14 @@ final class SidebarScrollIndicatorVisibilityController: NSResponder {
     scroller.isHidden = !indicatorIsActive
   }
 
-  private func installTrackingArea(on scroller: NSScroller) {
-    if let indicatorTrackingArea, let trackedScroller {
-      trackedScroller.removeTrackingArea(indicatorTrackingArea)
+  func handleIndicatorPointerPresenceChanged(_ isPresent: Bool) {
+    if !isPresent {
+      pointerIsOverIndicator = false
+      if !indicatorInteractionIsActive {
+        scheduleIndicatorFade()
+      }
+      return
     }
-    let trackingArea = NSTrackingArea(
-      rect: .zero,
-      options: [
-        .activeInKeyWindow,
-        .enabledDuringMouseDrag,
-        .inVisibleRect,
-        .mouseEnteredAndExited,
-      ],
-      owner: self,
-      userInfo: nil
-    )
-    scroller.addTrackingArea(trackingArea)
-    trackedScroller = scroller
-    indicatorTrackingArea = trackingArea
-  }
-
-  override func mouseEntered(with event: NSEvent) {
-    handleIndicatorPointerEntered()
-  }
-
-  override func mouseExited(with event: NSEvent) {
-    handleIndicatorPointerExited()
-  }
-
-  func handleIndicatorPointerEntered() {
     guard indicatorIsActive, let indicatorScroller else { return }
     pointerIsOverIndicator = true
     fadeTask?.cancel()
@@ -251,9 +248,17 @@ final class SidebarScrollIndicatorVisibilityController: NSResponder {
     indicatorScroller.isHidden = false
   }
 
-  func handleIndicatorPointerExited() {
-    guard pointerIsOverIndicator else { return }
-    pointerIsOverIndicator = false
-    scheduleIndicatorFade()
+  func handleIndicatorInteractionChanged(_ isActive: Bool) {
+    indicatorInteractionIsActive = isActive
+    if isActive {
+      guard indicatorIsActive, let indicatorScroller else { return }
+      fadeTask?.cancel()
+      fadeGeneration &+= 1
+      indicatorScroller.layer?.removeAllAnimations()
+      indicatorScroller.alphaValue = 1
+      indicatorScroller.isHidden = false
+    } else if !pointerIsOverIndicator {
+      scheduleIndicatorFade()
+    }
   }
 }
