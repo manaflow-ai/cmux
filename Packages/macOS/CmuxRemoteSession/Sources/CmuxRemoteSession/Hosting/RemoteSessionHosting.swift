@@ -1,4 +1,5 @@
 public import CmuxCore
+public import CmuxRemoteDaemon
 public import Foundation
 
 /// The coordinator's one-way publish seam back to the owning workspace model.
@@ -27,4 +28,15 @@ public protocol RemoteSessionHosting: Sendable {
     /// Publish the remote TTY name resolved for the workspace's bootstrap
     /// terminal.
     func publishBootstrapRemoteTTY(_ ttyName: String)
+    /// Publish a server-authoritative workspace document for cold restore.
+    func publishRuntimeState(_ document: RemoteRuntimeStateDocument)
+    /// Publish the revision committed for a locally generated workspace snapshot.
+    func publishRuntimeStateRevision(_ revision: UInt64)
+}
+
+public extension RemoteSessionHosting {
+    /// Default for hosts that do not project remote runtime state.
+    func publishRuntimeState(_: RemoteRuntimeStateDocument) {}
+    /// Default for hosts that do not track remote runtime revisions.
+    func publishRuntimeStateRevision(_: UInt64) {}
 }

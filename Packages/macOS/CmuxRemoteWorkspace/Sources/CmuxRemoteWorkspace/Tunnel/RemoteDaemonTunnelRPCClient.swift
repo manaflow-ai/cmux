@@ -17,6 +17,14 @@ protocol RemoteDaemonTunnelRPCClient: RemotePTYLifecycleRPCClient {
     ) throws
     /// Closes a daemon-side TCP proxy stream.
     func closeStream(streamID: String)
+    /// Fetches the authoritative workspace state for this daemon slot.
+    func getRuntimeState() throws -> RemoteRuntimeStateDocument?
+    /// Replaces the authoritative workspace state for this daemon slot.
+    func putRuntimeState(
+        schemaVersion: Int,
+        state: Data,
+        expectedRevision: UInt64?
+    ) throws -> RemoteRuntimeStateDocument
 }
 
 extension RemoteDaemonRPCClient: RemoteDaemonTunnelRPCClient {}

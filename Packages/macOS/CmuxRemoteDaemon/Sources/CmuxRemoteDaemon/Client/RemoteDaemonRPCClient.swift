@@ -37,7 +37,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     // (see the isolation essay above); `writeQueue` serializes payload
     // writes; the registry is itself Sendable.
 
-    static let maxStdoutBufferBytes = 256 * 1024
+    static let maxStdoutBufferBytes = 4 * 1024 * 1024
     static let bakedVMDaemonSocketPath = "/run/cmuxd-remote.sock"
     static let socketForwardStartupGracePeriod: TimeInterval = 0.75
     static let webSocketKeepaliveInterval: TimeInterval = 5.0
@@ -62,6 +62,8 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     /// Optional wire capability for sequenced, acked PTY input
     /// (`pty.input.seq_ack`; value is test-pinned, do not change).
     public static let optionalPTYInputSeqAckCapability = RemoteDaemonCapability.ptyInputSeqAck.rawValue
+    /// Optional wire capability for revisioned server-authoritative workspace state.
+    public static let optionalRuntimeStateCapability = RemoteDaemonCapability.runtimeStateV1.rawValue
     /// Wire-pinned rpc error code the daemon returns for a sequenced
     /// `pty.write` whose seq is not exactly last+1.
     public static let ptyInputSeqGapErrorCode = "pty_input_seq_gap"

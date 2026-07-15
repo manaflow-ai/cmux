@@ -49,6 +49,10 @@ private struct SessionPaneRestoreEntry {
 }
 
 extension Workspace {
+    func shouldAutoConnectRestoredRemote(_ configuration: WorkspaceRemoteConfiguration, snapshot: SessionWorkspaceSnapshot) -> Bool {
+        sessionRestorePolicy.shouldAutoConnectRestoredRemote(foregroundAuthToken: configuration.foregroundAuthToken, snapshot: snapshot)
+    }
+
     func sessionSnapshot(
         includeScrollback: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex? = nil,
@@ -150,7 +154,7 @@ extension Workspace {
     }
 
     @discardableResult
-    func restoreSessionSnapshot(_ snapshot: SessionWorkspaceSnapshot, excludingStableIdentities: Set<UUID> = []) -> [UUID: UUID] {
+    func restoreSessionSnapshot(_ snapshot: SessionWorkspaceSnapshot, excludingStableIdentities: Set<UUID> = [], restoringRemoteRuntime: Bool = false) -> [UUID: UUID] {
         let previousSuppressClosedPanelHistory = suppressClosedPanelHistory
         suppressClosedPanelHistory = true
         defer { suppressClosedPanelHistory = previousSuppressClosedPanelHistory }
@@ -175,21 +179,7 @@ extension Workspace {
         restoredGuardedWorkingDirectoriesByPanelId.removeAll(keepingCapacity: false)
         restoredResumeSessionWorkingDirectoriesByPanelId.removeAll(keepingCapacity: false)
 
-        let restoredRemoteConfiguration = snapshot.remote?.workspaceConfiguration(
-            localSocketPath: TerminalController.shared.currentSocketPathForRemoteRestore()
-        )
-        if let restoredRemoteConfiguration {
-            let shouldAutoConnect = sessionRestorePolicy.shouldAutoConnectRestoredRemote(
-                foregroundAuthToken: restoredRemoteConfiguration.foregroundAuthToken,
-                snapshot: snapshot
-            )
-            configureRemoteConnection(
-                restoredRemoteConfiguration,
-                autoConnect: shouldAutoConnect
-            )
-        } else {
-            disconnectRemoteConnection(clearConfiguration: true)
-        }
+        restoreRemoteConfiguration(from: snapshot, preservingActiveConnection: restoringRemoteRuntime)
 
         let normalizedCurrentDirectory = snapshot.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         if !normalizedCurrentDirectory.isEmpty {
@@ -235,10 +225,7 @@ extension Workspace {
         groupId = snapshot.groupId
         restoreTodoState(from: snapshot)
 
-        // Status entries and agent PIDs are ephemeral runtime state tied to running
-        // processes (e.g. claude_code "Running"). Don't restore them across app
-        // restarts because the processes that set them are gone.
-        statusEntries.removeAll()
+        restoreStatusEntries(from: snapshot, preservingRemoteRuntimeState: restoringRemoteRuntime)
         clearAllAgentPIDs(refreshPorts: false)
         clearAllAgentLifecycleStates()
         agentListeningPorts.removeAll()
@@ -2294,6 +2281,9 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var listeningPorts: [Int] = []
     @Published private(set) var activeRemoteTerminalSessionCount: Int = 0
     private var remoteSessionController: RemoteSessionCoordinator?
+    var remoteSessionControllerForRuntimeState: RemoteSessionCoordinator? { remoteSessionController }
+    var remoteRuntimeStateRevision: UInt64 = 0
+    var isApplyingRemoteRuntimeState = false
     private enum RemoteForegroundAuthenticationPhase: Equatable {
         case readyBeforeConfiguration(token: String), authenticating(token: String)
     }
@@ -5253,6 +5243,7 @@ final class Workspace: Identifiable, ObservableObject {
         let configuration = configuration.scopedToOwnerWorkspace(id)
         defer { TerminalController.shared.notifyRemotePTYControllerAvailabilityChanged() }
         let previousConfiguration = remoteConfiguration
+        resetRemoteRuntimeStateRevision(preservingPersistentIdentity: previousConfiguration?.hasSamePersistentPTYIdentity(as: configuration) == true)
         let previousPresentedDirectory = presentedCurrentDirectory
         skipControlMasterCleanupAfterDetachedRemoteTransfer = false
         let shouldResetRemoteDisconnectOwnership = previousConfiguration.map { $0 != configuration } ?? true

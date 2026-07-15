@@ -1,6 +1,6 @@
 # Remote SSH Living Spec
 
-Last updated: June 3, 2026
+Last updated: July 14, 2026
 Tracking issue: https://github.com/manaflow-ai/cmux/issues/151
 Primary PR: https://github.com/manaflow-ai/cmux/pull/1296
 CLI relay PR: https://github.com/manaflow-ai/cmux/pull/374
@@ -20,6 +20,7 @@ This is a **living implementation spec** (also called an **execution spec**): a 
 1. durable remote terminals with reconnect/reuse
 2. browser traffic that egresses from the remote host via proxying
 3. tmux-style PTY resize semantics (`smallest screen wins`)
+4. server-authoritative workspace state that a client can reconstruct on cold attach
 
 ## 3. Current State (Implemented)
 
@@ -42,6 +43,10 @@ This is a **living implementation spec** (also called an **execution spec**): a 
 - `DONE` bootstrap installs `~/.cmux/bin/cmux` wrapper (also tries `/usr/local/bin/cmux`) so `cmux` is available in PATH on the remote.
 - `DONE` normal `cmux ssh` launches `cmuxd-remote serve --stdio --persistent --slot <slot>`, where the stdio process proxies to a long-lived authenticated daemon with slot credentials under `~/.cmux/daemon/<version>/<slot>/` and a short per-user socket path under `/tmp/cmuxd-remote-<uid>/`.
 - `DONE` persistent daemon slots advertise `pty.session.persistent_daemon`; cmux requires that capability before preserving a saved remote PTY session ID across app relaunch.
+- `DONE` `runtime.state.v1` adds slot-wide `runtime.state.get`, `runtime.state.put`, and `runtime.state.subscribe` RPCs plus `runtime.state.changed` events without changing existing PTY or proxy contracts.
+- `DONE` authoritative runtime state is atomically persisted as mode-`0600` `runtime-state.json`, capped at 3 MiB, revisioned monotonically, and shared by every connection to the slot.
+- `DONE` runtime snapshots include a daemon-authored live PTY manifest; terminal scrollback remains capped and replayed by the PTY transport instead of being duplicated in the workspace document.
+- `IN PROGRESS` the Mac publishes its existing workspace snapshot schema and cold-restores layout, panels, titles, cwd, browser/agent metadata, and status metadata while retaining the attaching Mac's live connection configuration.
 
 ### 3.5 CLI Relay (Running cmux Commands From Remote)
 - `DONE` `cmuxd-remote` includes a table-driven CLI relay (`cli` subcommand) that maps CLI args to v1 text or v2 JSON-RPC messages.
@@ -97,6 +102,17 @@ This is a **living implementation spec** (also called an **execution spec**): a 
 ### 4.4 Explicit Non-Goal
 1. Automatic mirroring of every remote listening port to local loopback is not a goal for browser support.
 
+### 4.5 Server-Authoritative Runtime State
+
+1. `runtime.state.v1` is optional and advertised through `hello`; older and baked-VM daemons continue without state synchronization.
+2. The daemon owns `protocol_version`, `revision`, `updated_at_unix_ms`, and the `pty_sessions` manifest. The client owns `schema_version` and the opaque JSON-object `state`.
+3. `runtime.state.put` increments the revision only after durable persistence. An optional `expected_revision` provides optimistic concurrency and returns `revision_conflict` when stale; omitting it implements the umbrella's v1 last-writer-wins control model.
+4. `runtime.state.subscribe` returns the current snapshot and registers that connection for full-document `runtime.state.changed` events. Disconnecting removes the subscription.
+5. Initial Mac synchronization is fetch-first. Existing server state discards any pre-sync local autosave; an empty server is seeded by the latest queued snapshot. Later autosaves publish last-writer-wins.
+6. The Mac strips inline terminal scrollback before upload because the daemon PTY remains the source of truth for capped replay bytes.
+7. Applying a server document preserves the attaching client's credentials, SSH options, relay token, socket path, and active controller. Only portable workspace presentation state comes from the server.
+8. Account-level runtime discovery, slot selection UI, and updating the baked cloud-VM daemon image are follow-up work for the hive milestones.
+
 ## 5. PTY Resize Semantics (tmux-style)
 
 ### 5.1 Core Rule
@@ -140,6 +156,7 @@ Recompute effective size on:
 | M-009 | PTY resize coordinator (`smallest screen wins`) | DONE | Daemon session RPC now tracks attachments and applies min cols/rows semantics with unit tests |
 | M-010 | Resize + proxy reconnect e2e test suites | DONE | `tests_v2/test_ssh_remote_docker_forwarding.py` validates HTTP/websocket egress plus SOCKS pipelined-payload handling; `tests_v2/test_ssh_remote_docker_reconnect.py` verifies reconnect recovery and repeats SOCKS pipelined-payload checks after host restart; `tests_v2/test_ssh_remote_proxy_bind_conflict.py` validates structured `proxy_unavailable` bind-conflict surfacing and `local_proxy_port` status retention under bind conflict; `tests_v2/test_ssh_remote_daemon_resize_stdio.py` validates session resize semantics over real stdio RPC process boundaries; `tests_v2/test_ssh_remote_cli_metadata.py` validates `workspace.remote.configure` numeric-string compatibility, explicit `null` clear semantics (including `workspace.remote.status` reflection), strict `port`/`local_proxy_port` validation (bounds/type), case-insensitive SSH option override precedence for StrictHostKeyChecking/control-socket keys, and `local_proxy_port` payload echo for deterministic bind-conflict test hook behavior |
 | M-011 | Detachable persistent `cmux ssh` PTY sessions | IN PROGRESS | Persistent remote daemon slots keep PTY sessions alive across local surface close and app relaunch; coverage includes Go daemon auth/reattach tests, Swift restore tests, CLI contract tests, and `tests_v2/test_ssh_remote_detachable_pty.py` |
+| M-012 | Server-authoritative persistent runtime state | IN PROGRESS | Go protocol/persistence and Mac fetch-first cold restore are implemented; account-level discovery/UI and baked cloud-image rollout remain |
 
 ## 7. Acceptance Test Matrix (With Status)
 
@@ -199,6 +216,19 @@ Recompute effective size on:
 | DP-004 | `cmux ssh-session-attach` reattaches to the same remote shell PID and env | IN PROGRESS |
 | DP-005 | app relaunch restores saved remote PTY session IDs only when the snapshot has a persistent daemon slot | IN PROGRESS |
 | DP-006 | `cmux ssh-session-cleanup` terminates persisted PTY sessions explicitly | DONE |
+
+### 7.6 Authoritative Runtime State
+
+| ID | Scenario | Status |
+|---|---|---|
+| RS-001 | state survives daemon connection loss and repository recreation with a monotonic revision | DONE |
+| RS-002 | multiple daemon connections share state and subscribers receive `runtime.state.changed` | DONE |
+| RS-003 | stale `expected_revision` writes fail without replacing the authoritative document | DONE |
+| RS-004 | initial Mac attach restores existing server state instead of overwriting it with a queued local snapshot | DONE |
+| RS-005 | an empty runtime is seeded from the latest queued Mac snapshot | DONE |
+| RS-006 | Mac cold restore keeps the attaching connection while applying portable workspace/status state | DONE |
+| RS-007 | a second Mac discovers and selects an existing persistent slot through product UI | TODO |
+| RS-008 | baked cloud VM daemon advertises and persists `runtime.state.v1` | TODO |
 
 ## 8. Removal Checklist (Port Mirroring)
 

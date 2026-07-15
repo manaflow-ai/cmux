@@ -1,4 +1,5 @@
 import CmuxCore
+import CmuxRemoteDaemon
 import CmuxRemoteSession
 import Foundation
 
@@ -85,6 +86,24 @@ final class WorkspaceRemoteSessionHostAdapter: RemoteSessionHosting, @unchecked 
             guard let workspace else { return }
             guard workspace.activeRemoteSessionControllerID == controllerID else { return }
             workspace.applyBootstrapRemoteTTY(ttyName)
+        }
+    }
+
+    func publishRuntimeState(_ document: RemoteRuntimeStateDocument) {
+        let controllerID = self.controllerID
+        DispatchQueue.main.async { [weak workspace] in
+            guard let workspace else { return }
+            guard workspace.activeRemoteSessionControllerID == controllerID else { return }
+            workspace.applyRemoteRuntimeState(document)
+        }
+    }
+
+    func publishRuntimeStateRevision(_ revision: UInt64) {
+        let controllerID = self.controllerID
+        DispatchQueue.main.async { [weak workspace] in
+            guard let workspace else { return }
+            guard workspace.activeRemoteSessionControllerID == controllerID else { return }
+            workspace.acknowledgeRemoteRuntimeStateRevision(revision)
         }
     }
 }

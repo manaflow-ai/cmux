@@ -41,6 +41,10 @@ When invoked as `cmux` (via wrapper/symlink installed during bootstrap), the bin
 17. `pty.detach`
 18. `pty.close`
 19. `pty.list`
+20. `runtime.state.get`
+21. `runtime.state.put`
+22. `runtime.state.subscribe`
+23. async `runtime.state.changed` events
 
 Current integration in cmux:
 1. `workspace.remote.configure` now bootstraps this binary over SSH when missing.
@@ -48,6 +52,7 @@ Current integration in cmux:
 3. Local workspace proxy broker serves SOCKS5 + HTTP CONNECT and tunnels stream traffic through `proxy.*` RPC over `serve --stdio`, using daemon-pushed stream events instead of polling reads.
 4. Daemon status/capabilities are exposed in `workspace.remote.status -> remote.daemon` (including `session.resize.min`).
 5. Persistent SSH terminals require the `pty.session.persistent_daemon` capability before cmux will restore a saved remote PTY session ID after relaunch.
+6. Daemons advertising `runtime.state.v1` hold a revisioned workspace snapshot for cold attach; the Mac client fetches before publishing and seeds only an empty runtime.
 
 ## Persistent SSH PTY daemon
 
@@ -60,6 +65,7 @@ Remote slot files:
 2. `~/.cmux/daemon/<version>/<slot>/auth.token` random 32-byte hex token, mode `0600`.
 3. `~/.cmux/daemon/<version>/<slot>/daemon.lock` single-owner lock.
 4. `~/.cmux/daemon/<version>/<slot>/daemon.log` startup and crash diagnostics.
+5. `~/.cmux/daemon/<version>/<slot>/runtime-state.json` atomically replaced authoritative workspace state, mode `0600`.
 
 PTY lifecycle:
 1. A local attach creates or reuses a named `pty.*` session in the persistent daemon.
@@ -67,6 +73,68 @@ PTY lifecycle:
 3. `cmux ssh-session-list` calls `pty.list`; `cmux ssh-session-attach` creates a new local terminal whose startup script calls `ssh-pty-attach --require-existing`.
 4. `cmux ssh-session-cleanup` calls `pty.close` to terminate a persisted PTY session explicitly.
 5. Sessions with no attachments keep their last-known size and are reaped by the daemon idle TTL.
+
+## Authoritative runtime state
+
+`runtime.state.v1` is additive and optional. A client must check the `hello`
+capabilities before calling its RPCs. The persistent daemon owns the document
+revision and update timestamp while treating the client `state` object as an
+opaque, versioned payload.
+
+An empty slot returns:
+
+```json
+{
+  "present": false,
+  "protocol_version": 1,
+  "revision": 0,
+  "pty_sessions": []
+}
+```
+
+`runtime.state.put` accepts a positive `schema_version`, a JSON-object `state`,
+and an optional non-negative `expected_revision`. Omitting the precondition is
+last-writer-wins. A stale precondition returns `revision_conflict`. The state
+object is capped at 3 MiB. Successful writes increment the slot-wide revision,
+persist before acknowledgement, and notify every subscribed daemon connection.
+
+A present snapshot returned by `get`, `put`, or `subscribe`, and in the
+`result` of a `runtime.state.changed` event, has this shape:
+
+```json
+{
+  "present": true,
+  "protocol_version": 1,
+  "schema_version": 1,
+  "revision": 8,
+  "updated_at_unix_ms": 1784070000000,
+  "state": { "workspace_id": "...", "panels": [] },
+  "pty_sessions": [
+    {
+      "session_id": "...",
+      "attachments": [],
+      "effective_cols": 120,
+      "effective_rows": 40,
+      "last_known_cols": 120,
+      "last_known_rows": 40,
+      "scrollback_bytes": 4096
+    }
+  ]
+}
+```
+
+`pty_sessions` is daemon-authored. Terminal bytes are not duplicated into the
+opaque workspace object: each PTY retains at most 1 MiB of scrollback and
+replays it through `pty.attach`. The Mac currently stores its existing
+`SessionWorkspaceSnapshot` schema as the opaque state after clearing inline
+terminal scrollback. On initial readiness it fetches first: an existing server
+document wins over queued local autosaves, while an empty server is seeded by
+the latest queued snapshot. The attaching Mac keeps its own SSH credentials,
+relay tokens, socket path, and active connection when it applies the document.
+
+This first slice does not provide account-level slot discovery or selection UI.
+Cloud VM images whose baked daemon does not yet advertise `runtime.state.v1`
+continue without runtime-state synchronization.
 
 ## Cloud WebSocket PTY transport
 

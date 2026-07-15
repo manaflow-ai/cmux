@@ -76,5 +76,6 @@ extension RemoteSessionCoordinator {
         proxyLeaseGeneration &+= 1
         proxyLease?.release()
         proxyLease = nil
+        runtimeStateSynchronized = false
     }
 }

@@ -278,7 +278,7 @@ public final class RemoteProxyBroker: @unchecked Sendable {
         }
     }
 
-    private func withReadyTunnel<T>(
+    func withReadyTunnel<T>(
         configuration: WorkspaceRemoteConfiguration,
         _ body: (any RemoteProxyTunneling) throws -> T
     ) throws -> T {

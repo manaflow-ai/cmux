@@ -82,6 +82,7 @@ type rpcEvent struct {
 	Message         string `json:"message,omitempty"`
 	Error           string `json:"error,omitempty"`
 	Seq             uint64 `json:"seq,omitempty"`
+	Result          any    `json:"result,omitempty"`
 }
 
 type rpcFrameWriter interface {
@@ -100,16 +101,18 @@ type stdioFrameWriter struct {
 }
 
 type rpcServer struct {
-	mu             sync.Mutex
-	nextStreamID   uint64
-	nextSessionID  uint64
-	streams        map[string]*streamState
-	sessions       map[string]*sessionState
-	ptyHub         *wsPTYHub
-	ownsPTYHub     bool
-	ptyAttachments map[string]*wsPTYAttachment
-	frameWriter    rpcFrameWriter
-	cliBridge      *cloudCLIBridge
+	mu                         sync.Mutex
+	nextStreamID               uint64
+	nextSessionID              uint64
+	streams                    map[string]*streamState
+	sessions                   map[string]*sessionState
+	ptyHub                     *wsPTYHub
+	ownsPTYHub                 bool
+	ptyAttachments             map[string]*wsPTYAttachment
+	frameWriter                rpcFrameWriter
+	cliBridge                  *cloudCLIBridge
+	runtimeState               *runtimeStateStore
+	runtimeStateSubscriptionID uint64
 }
 
 type sessionAttachment struct {
@@ -264,10 +267,14 @@ func usage(w io.Writer) {
 }
 
 func runStdioServer(stdin io.Reader, stdout io.Writer) error {
-	return runRPCServer(stdin, stdout, newWebSocketPTYHub(wsPTYServerConfig{}, io.Discard), true)
+	runtimeState, err := newRuntimeStateStore("")
+	if err != nil {
+		return err
+	}
+	return runRPCServer(stdin, stdout, newWebSocketPTYHub(wsPTYServerConfig{}, io.Discard), runtimeState, true)
 }
 
-func runRPCServer(stdin io.Reader, stdout io.Writer, ptyHub *wsPTYHub, ownsPTYHub bool) error {
+func runRPCServer(stdin io.Reader, stdout io.Writer, ptyHub *wsPTYHub, runtimeState *runtimeStateStore, ownsPTYHub bool) error {
 	writer := &stdioFrameWriter{
 		writer: bufio.NewWriter(stdout),
 	}
@@ -277,6 +284,7 @@ func runRPCServer(stdin io.Reader, stdout io.Writer, ptyHub *wsPTYHub, ownsPTYHu
 		streams:       map[string]*streamState{},
 		sessions:      map[string]*sessionState{},
 		ptyHub:        ptyHub,
+		runtimeState:  runtimeState,
 		ownsPTYHub:    ownsPTYHub,
 		frameWriter:   writer,
 	}
@@ -332,12 +340,13 @@ func runRPCServer(stdin io.Reader, stdout io.Writer, ptyHub *wsPTYHub, ownsPTYHu
 }
 
 type persistentDaemonPaths struct {
-	slot      string
-	root      string
-	socket    string
-	tokenFile string
-	logFile   string
-	lockFile  string
+	slot             string
+	root             string
+	socket           string
+	tokenFile        string
+	logFile          string
+	lockFile         string
+	runtimeStateFile string
 }
 
 const (
@@ -358,6 +367,7 @@ const (
 type persistentDaemonServerConfig struct {
 	emptyIdleTimeout time.Duration
 	acceptPollStep   time.Duration
+	runtimeStateFile string
 }
 
 func persistentDaemonPathsForSlot(rawSlot string) (persistentDaemonPaths, error) {
@@ -376,12 +386,13 @@ func persistentDaemonPathsForSlot(rawSlot string) (persistentDaemonPaths, error)
 	root := filepath.Join(rootBase, persistentDaemonVersionComponent(), slot)
 	socketPath := persistentDaemonSocketPath(root, slot)
 	return persistentDaemonPaths{
-		slot:      slot,
-		root:      root,
-		socket:    socketPath,
-		tokenFile: filepath.Join(root, "auth.token"),
-		logFile:   filepath.Join(root, "daemon.log"),
-		lockFile:  filepath.Join(root, "daemon.lock"),
+		slot:             slot,
+		root:             root,
+		socket:           socketPath,
+		tokenFile:        filepath.Join(root, "auth.token"),
+		logFile:          filepath.Join(root, "daemon.log"),
+		lockFile:         filepath.Join(root, "daemon.lock"),
+		runtimeStateFile: filepath.Join(root, "runtime-state.json"),
 	}, nil
 }
 
@@ -863,7 +874,10 @@ func runPersistentDaemonServer(slot string, stderr io.Writer) error {
 		listener,
 		persistentDaemonFileTokenVerifier(token, paths.tokenFile),
 		stderr,
-		persistentDaemonServerConfig{emptyIdleTimeout: persistentDaemonEmptyIdleTimeout},
+		persistentDaemonServerConfig{
+			emptyIdleTimeout: persistentDaemonEmptyIdleTimeout,
+			runtimeStateFile: paths.runtimeStateFile,
+		},
 	)
 }
 
@@ -926,6 +940,10 @@ func servePersistentDaemonWithVerifierConfig(
 ) error {
 	hub := newWebSocketPTYHub(wsPTYServerConfig{}, stderr)
 	defer hub.closeAll()
+	runtimeState, err := newRuntimeStateStore(config.runtimeStateFile)
+	if err != nil {
+		return err
+	}
 	var activeConnections int64
 	var idleSince time.Time
 	for {
@@ -962,7 +980,7 @@ func servePersistentDaemonWithVerifierConfig(
 		atomic.AddInt64(&activeConnections, 1)
 		go func() {
 			defer atomic.AddInt64(&activeConnections, -1)
-			handlePersistentDaemonConn(conn, verifier, hub)
+			handlePersistentDaemonConn(conn, verifier, hub, runtimeState)
 		}()
 	}
 }
@@ -1006,11 +1024,11 @@ func isClosedListenerError(err error) bool {
 	return strings.Contains(err.Error(), "use of closed network connection")
 }
 
-func handlePersistentDaemonConn(conn net.Conn, verifier persistentDaemonTokenVerifier, hub *wsPTYHub) {
-	handlePersistentDaemonConnWithAuthTimeout(conn, verifier, hub, persistentDaemonAuthTimeout)
+func handlePersistentDaemonConn(conn net.Conn, verifier persistentDaemonTokenVerifier, hub *wsPTYHub, runtimeState *runtimeStateStore) {
+	handlePersistentDaemonConnWithAuthTimeout(conn, verifier, hub, runtimeState, persistentDaemonAuthTimeout)
 }
 
-func handlePersistentDaemonConnWithAuthTimeout(conn net.Conn, verifier persistentDaemonTokenVerifier, hub *wsPTYHub, timeout time.Duration) {
+func handlePersistentDaemonConnWithAuthTimeout(conn net.Conn, verifier persistentDaemonTokenVerifier, hub *wsPTYHub, runtimeState *runtimeStateStore, timeout time.Duration) {
 	defer conn.Close()
 	if timeout > 0 {
 		if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
@@ -1027,7 +1045,7 @@ func handlePersistentDaemonConnWithAuthTimeout(conn net.Conn, verifier persisten
 			return
 		}
 	}
-	_ = runRPCServerWithReader(reader, writer, hub, false)
+	_ = runRPCServerWithReader(reader, writer, hub, runtimeState, false)
 }
 
 func authenticatePersistentDaemonConn(reader *bufio.Reader, writer *stdioFrameWriter, verifier persistentDaemonTokenVerifier) bool {
@@ -1088,13 +1106,14 @@ func authenticatePersistentDaemonConn(reader *bufio.Reader, writer *stdioFrameWr
 	return true
 }
 
-func runRPCServerWithReader(reader *bufio.Reader, writer *stdioFrameWriter, ptyHub *wsPTYHub, ownsPTYHub bool) error {
+func runRPCServerWithReader(reader *bufio.Reader, writer *stdioFrameWriter, ptyHub *wsPTYHub, runtimeState *runtimeStateStore, ownsPTYHub bool) error {
 	server := &rpcServer{
 		nextStreamID:  1,
 		nextSessionID: 1,
 		streams:       map[string]*streamState{},
 		sessions:      map[string]*sessionState{},
 		ptyHub:        ptyHub,
+		runtimeState:  runtimeState,
 		ownsPTYHub:    ownsPTYHub,
 		frameWriter:   writer,
 	}
@@ -1325,6 +1344,7 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 					"pty.resize.notification",
 					"pty.input.seq_ack",
 					"cli.bridge",
+					"runtime.state.v1",
 				},
 			},
 		}
@@ -1368,6 +1388,12 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 		return s.handlePTYClose(req)
 	case "pty.list":
 		return s.handlePTYList(req)
+	case "runtime.state.get":
+		return s.handleRuntimeStateGet(req)
+	case "runtime.state.put":
+		return s.handleRuntimeStatePut(req)
+	case "runtime.state.subscribe":
+		return s.handleRuntimeStateSubscribe(req)
 	case "cli.response":
 		return s.handleCLIResponse(req)
 	default:
@@ -2231,6 +2257,113 @@ func (s *rpcServer) handlePTYList(req rpcRequest) rpcResponse {
 	}
 }
 
+func (s *rpcServer) handleRuntimeStateGet(req rpcRequest) rpcResponse {
+	if s.runtimeState == nil {
+		return runtimeStateUnavailableResponse(req)
+	}
+	return rpcResponse{ID: req.ID, OK: true, Result: s.runtimeStateSnapshot(s.runtimeState.snapshot())}
+}
+
+func (s *rpcServer) handleRuntimeStatePut(req rpcRequest) rpcResponse {
+	if s.runtimeState == nil {
+		return runtimeStateUnavailableResponse(req)
+	}
+	schemaVersion, ok := getIntParam(req.Params, "schema_version")
+	if !ok || schemaVersion <= 0 {
+		return rpcResponse{ID: req.ID, OK: false, Error: &rpcError{
+			Code: "invalid_params", Message: "runtime.state.put requires schema_version greater than zero",
+		}}
+	}
+	stateValue, ok := req.Params["state"].(map[string]any)
+	if !ok {
+		return rpcResponse{ID: req.ID, OK: false, Error: &rpcError{
+			Code: "invalid_params", Message: "runtime.state.put requires state to be a JSON object",
+		}}
+	}
+	state, err := json.Marshal(stateValue)
+	if err != nil || len(state) > maxRuntimeStateBytes {
+		return rpcResponse{ID: req.ID, OK: false, Error: &rpcError{
+			Code: "invalid_params", Message: "runtime.state.put state exceeds the size limit or is invalid",
+		}}
+	}
+	var expectedRevision *uint64
+	if _, exists := req.Params["expected_revision"]; exists {
+		parsed, valid := getIntParam(req.Params, "expected_revision")
+		if !valid || parsed < 0 {
+			return rpcResponse{ID: req.ID, OK: false, Error: &rpcError{
+				Code: "invalid_params", Message: "expected_revision must be a non-negative integer",
+			}}
+		}
+		value := uint64(parsed)
+		expectedRevision = &value
+	}
+	document, err := s.runtimeState.put(schemaVersion, state, expectedRevision)
+	if errors.Is(err, errRuntimeStateRevisionConflict) {
+		return rpcResponse{ID: req.ID, OK: false, Error: &rpcError{
+			Code: "revision_conflict", Message: "runtime state revision changed",
+		}}
+	}
+	if err != nil {
+		return rpcResponse{ID: req.ID, OK: false, Error: &rpcError{
+			Code: "state_write_failed", Message: err.Error(),
+		}}
+	}
+	return rpcResponse{ID: req.ID, OK: true, Result: s.runtimeStateSnapshot(&document)}
+}
+
+func (s *rpcServer) handleRuntimeStateSubscribe(req rpcRequest) rpcResponse {
+	if s.runtimeState == nil {
+		return runtimeStateUnavailableResponse(req)
+	}
+	s.mu.Lock()
+	previousID := s.runtimeStateSubscriptionID
+	s.runtimeStateSubscriptionID = 0
+	s.mu.Unlock()
+	s.runtimeState.unsubscribe(previousID)
+
+	id, document := s.runtimeState.subscribe(func(document runtimeStateDocument) {
+		if s.frameWriter == nil {
+			return
+		}
+		_ = s.frameWriter.writeEvent(rpcEvent{
+			Event:  "runtime.state.changed",
+			Result: s.runtimeStateSnapshot(&document),
+		})
+	})
+	s.mu.Lock()
+	s.runtimeStateSubscriptionID = id
+	s.mu.Unlock()
+	return rpcResponse{ID: req.ID, OK: true, Result: s.runtimeStateSnapshot(document)}
+}
+
+func runtimeStateUnavailableResponse(req rpcRequest) rpcResponse {
+	return rpcResponse{ID: req.ID, OK: false, Error: &rpcError{
+		Code: "runtime_state_unavailable", Message: "runtime state repository is unavailable",
+	}}
+}
+
+func (s *rpcServer) runtimeStateSnapshot(document *runtimeStateDocument) runtimeStateSnapshot {
+	ptySessions := []map[string]any{}
+	if s.ptyHub != nil {
+		ptySessions = s.ptyHub.sessionSnapshots()
+	}
+	if document == nil {
+		return runtimeStateSnapshot{
+			Present: false, ProtocolVersion: runtimeStateProtocolVersion, Revision: 0, PTYSessions: ptySessions,
+		}
+	}
+	state := append(json.RawMessage(nil), document.State...)
+	return runtimeStateSnapshot{
+		Present:         true,
+		ProtocolVersion: document.ProtocolVersion,
+		SchemaVersion:   document.SchemaVersion,
+		Revision:        document.Revision,
+		UpdatedAtUnixMS: document.UpdatedAtUnixMS,
+		State:           &state,
+		PTYSessions:     ptySessions,
+	}
+}
+
 func (s *rpcServer) ptyAttachmentPump(ctx context.Context, attachment *wsPTYAttachment, sessionDone <-chan struct{}) {
 	defer s.untrackPTYAttachment(attachment)
 	for {
@@ -2449,6 +2582,8 @@ func (s *rpcServer) dropStream(streamID string) {
 
 func (s *rpcServer) closeAll() {
 	s.mu.Lock()
+	runtimeStateSubscriptionID := s.runtimeStateSubscriptionID
+	s.runtimeStateSubscriptionID = 0
 	streams := make([]net.Conn, 0, len(s.streams))
 	for id, state := range s.streams {
 		delete(s.streams, id)
@@ -2463,6 +2598,9 @@ func (s *rpcServer) closeAll() {
 		ptyAttachments = append(ptyAttachments, attachment)
 	}
 	s.mu.Unlock()
+	if s.runtimeState != nil {
+		s.runtimeState.unsubscribe(runtimeStateSubscriptionID)
+	}
 	for _, conn := range streams {
 		_ = conn.Close()
 	}

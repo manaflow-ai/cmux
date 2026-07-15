@@ -5,7 +5,8 @@ internal import Foundation
 // transport-termination cleanup. Everything in this file runs on stateQueue
 // (the `Locked` suffix and the dispatch in the transport callbacks enforce
 // it). Framing is wire-pinned: one JSON object per `\n`-terminated line, an
-// optional trailing `\r` stripped, 256 KiB buffer cap.
+// optional trailing `\r` stripped, 4 MiB buffer cap (large enough for the
+// runtime-state protocol's 3 MiB opaque document plus response metadata).
 extension RemoteDaemonRPCClient {
     func consumeStdoutData(_ data: Data) {
         guard !data.isEmpty else {

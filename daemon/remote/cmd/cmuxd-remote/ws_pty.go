@@ -38,6 +38,7 @@ type wsPTYServerConfig struct {
 	CLIBridge           *cloudCLIBridge
 	Shell               string
 	PTYHub              *wsPTYHub
+	RuntimeState        *runtimeStateStore
 	ScrollbackLimit     int
 	SessionIdleTTL      time.Duration
 }
@@ -242,6 +243,9 @@ func runWebSocketPTYServer(ctx context.Context, cfg wsPTYServerConfig, stderr io
 	if cfg.PTYHub == nil {
 		cfg.PTYHub = newWebSocketPTYHub(cfg, stderr)
 	}
+	if cfg.RuntimeState == nil {
+		cfg.RuntimeState, _ = newRuntimeStateStore("")
+	}
 	defer cfg.PTYHub.closeAll()
 	if strings.TrimSpace(cfg.RPCAuthLeaseFile) != "" {
 		if cfg.CLIBridge == nil {
@@ -280,6 +284,9 @@ func runWebSocketPTYServer(ctx context.Context, cfg wsPTYServerConfig, stderr io
 func newWebSocketPTYHandler(cfg wsPTYServerConfig, stderr io.Writer) http.Handler {
 	if cfg.PTYHub == nil {
 		cfg.PTYHub = newWebSocketPTYHub(cfg, stderr)
+	}
+	if cfg.RuntimeState == nil {
+		cfg.RuntimeState, _ = newRuntimeStateStore("")
 	}
 
 	mux := http.NewServeMux()
@@ -611,6 +618,7 @@ func handleWebSocketRPC(w http.ResponseWriter, r *http.Request, cfg wsPTYServerC
 		streams:       map[string]*streamState{},
 		sessions:      map[string]*sessionState{},
 		ptyHub:        cfg.PTYHub,
+		runtimeState:  cfg.RuntimeState,
 		ownsPTYHub:    false,
 		cliBridge:     cfg.CLIBridge,
 		frameWriter: &wsRPCFrameWriter{

@@ -1,6 +1,7 @@
 public import CmuxCore
+public import CmuxRemoteDaemon
 public import Dispatch
-internal import Foundation
+public import Foundation
 
 /// Process-wide brokering of shared remote daemon proxy tunnels, keyed by
 /// transport configuration: workspaces pointing at the same remote share one
@@ -80,6 +81,17 @@ public protocol RemoteProxyBrokering: AnyObject, Sendable {
         attachmentToken: String
     ) throws
 
+    /// Fetches the authoritative workspace state through the ready tunnel.
+    func getRuntimeState(configuration: WorkspaceRemoteConfiguration) throws -> RemoteRuntimeStateDocument?
+
+    /// Replaces the authoritative workspace state through the ready tunnel.
+    func putRuntimeState(
+        configuration: WorkspaceRemoteConfiguration,
+        schemaVersion: Int,
+        state: Data,
+        expectedRevision: UInt64?
+    ) throws -> RemoteRuntimeStateDocument
+
     /// Starts a loopback PTY bridge through the ready tunnel and returns its
     /// endpoint.
     func startPTYBridge(
@@ -90,4 +102,25 @@ public protocol RemoteProxyBrokering: AnyObject, Sendable {
         command: String?,
         requireExisting: Bool
     ) throws -> RemotePTYBridgeServer.Endpoint
+}
+
+public extension RemoteProxyBrokering {
+    /// Default for injected test brokers that do not exercise runtime state.
+    func getRuntimeState(configuration _: WorkspaceRemoteConfiguration) throws -> RemoteRuntimeStateDocument? {
+        throw NSError(domain: "cmux.remote.runtime-state", code: 1, userInfo: [
+            NSLocalizedDescriptionKey: "remote runtime state is unavailable",
+        ])
+    }
+
+    /// Default for injected test brokers that do not exercise runtime state.
+    func putRuntimeState(
+        configuration _: WorkspaceRemoteConfiguration,
+        schemaVersion _: Int,
+        state _: Data,
+        expectedRevision _: UInt64?
+    ) throws -> RemoteRuntimeStateDocument {
+        throw NSError(domain: "cmux.remote.runtime-state", code: 1, userInfo: [
+            NSLocalizedDescriptionKey: "remote runtime state is unavailable",
+        ])
+    }
 }

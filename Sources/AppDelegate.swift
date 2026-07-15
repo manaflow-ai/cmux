@@ -4018,10 +4018,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 display: primaryWindow.display
             )
         }
-
 #if DEBUG
         debugLogSessionSaveSnapshot(snapshot, includeScrollback: includeScrollback)
 #endif
+        publishRemoteRuntimeStateSnapshots(snapshot)
         persistSessionSnapshot(
             snapshot,
             removeWhenEmpty: false,

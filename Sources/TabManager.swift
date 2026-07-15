@@ -2026,9 +2026,7 @@ class TabManager: ObservableObject {
         invalidateFocusHistoryTarget(workspaceId: workspace.id, panelId: nil)
 
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
-        workspace.withClosedPanelHistorySuppressed {
-            workspace.teardownAllPanels()
-        }
+        workspace.teardownPanelsForClosePreservingRemoteRuntimeState()
         workspace.teardownRemoteConnection()
         unwireClosedBrowserTracking(for: workspace)
         browserModel.removeClosedBrowserPanels(forWorkspaceId: workspace.id)

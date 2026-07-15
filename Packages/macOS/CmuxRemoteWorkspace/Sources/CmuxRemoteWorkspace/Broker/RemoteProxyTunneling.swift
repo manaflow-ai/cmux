@@ -1,5 +1,6 @@
+public import CmuxRemoteDaemon
 public import Dispatch
-internal import Foundation
+public import Foundation
 
 /// The proxy-tunnel operations ``RemoteProxyBroker`` drives on each
 /// per-transport tunnel it owns: lifecycle plus the synchronous persistent-PTY
@@ -55,6 +56,16 @@ public protocol RemoteProxyTunneling: AnyObject {
     /// Detaches a PTY attachment, surfacing daemon-side errors.
     func detachPTY(sessionID: String, attachmentID: String, attachmentToken: String) throws
 
+    /// Fetches the daemon slot's authoritative workspace state.
+    func getRuntimeState() throws -> RemoteRuntimeStateDocument?
+
+    /// Replaces the daemon slot's authoritative workspace state.
+    func putRuntimeState(
+        schemaVersion: Int,
+        state: Data,
+        expectedRevision: UInt64?
+    ) throws -> RemoteRuntimeStateDocument
+
     /// Starts a single-use loopback PTY bridge server for a terminal attach
     /// and returns its endpoint.
     func startPTYBridge(
@@ -65,4 +76,24 @@ public protocol RemoteProxyTunneling: AnyObject {
         requireExisting: Bool,
         onLifecycleEnded: @escaping @Sendable () -> Void
     ) throws -> RemotePTYBridgeServer.Endpoint
+}
+
+public extension RemoteProxyTunneling {
+    /// Default for test doubles and transports that predate runtime state.
+    func getRuntimeState() throws -> RemoteRuntimeStateDocument? {
+        throw NSError(domain: "cmux.remote.runtime-state", code: 1, userInfo: [
+            NSLocalizedDescriptionKey: "remote runtime state is unavailable",
+        ])
+    }
+
+    /// Default for test doubles and transports that predate runtime state.
+    func putRuntimeState(
+        schemaVersion _: Int,
+        state _: Data,
+        expectedRevision _: UInt64?
+    ) throws -> RemoteRuntimeStateDocument {
+        throw NSError(domain: "cmux.remote.runtime-state", code: 1, userInfo: [
+            NSLocalizedDescriptionKey: "remote runtime state is unavailable",
+        ])
+    }
 }
