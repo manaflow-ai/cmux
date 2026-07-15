@@ -7734,8 +7734,8 @@ extension CMUXCLI {
             let descriptor = Darwin.open(leaseURL.path, O_RDWR)
             guard descriptor >= 0 else { return false }
             defer { Darwin.close(descriptor) }
-            if Darwin.flock(descriptor, LOCK_EX | LOCK_NB) == 0 {
-                _ = Darwin.flock(descriptor, LOCK_UN)
+            if flock(descriptor, LOCK_EX | LOCK_NB) == 0 {
+                _ = flock(descriptor, LOCK_UN)
                 return false
             }
             return errno == EWOULDBLOCK
@@ -7852,12 +7852,12 @@ extension CMUXCLI {
             if isLock {
                 let descriptor = Darwin.open(entry.path, O_RDWR)
                 guard descriptor >= 0 else { continue }
-                guard Darwin.flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
+                guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
                     Darwin.close(descriptor)
                     continue
                 }
                 try? FileManager.default.removeItem(at: entry)
-                _ = Darwin.flock(descriptor, LOCK_UN)
+                _ = flock(descriptor, LOCK_UN)
                 Darwin.close(descriptor)
             } else {
                 try? FileManager.default.removeItem(at: entry)
