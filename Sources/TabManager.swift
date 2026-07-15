@@ -227,6 +227,7 @@ class TabManager: ObservableObject {
     private var isRestoringSessionSnapshot: Bool = false
     @Published private(set) var isWorkspaceCycleHot: Bool = false
     @Published private(set) var pendingBackgroundWorkspaceLoadIds: Set<UUID> = []
+    @Published private(set) var mountedBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var debugPinnedWorkspaceLoadIds: Set<UUID> = []
 
     /// Global monotonically increasing counter for CMUX_PORT ordinal assignment.
@@ -448,10 +449,6 @@ class TabManager: ObservableObject {
     // default) on purpose: the cap is per process, not per window, matching
     // the legacy shared limiter; tests inject their own instance.
     private static let sharedWorkspaceGitProbeLimiter = WorkspaceGitMetadataProbeLimiter(limit: 2)
-    // Default windows share one explicit CmuxGit coordination scope and one
-    // fallback clock. Tests can still inject isolated services/coordinators.
-    private static let sharedGitTrackedChangesSnapshotScope = GitTrackedChangesSnapshotScope()
-    private static let sharedWorkspaceGitFallbackCoordinator = WorkspaceGitFallbackCoordinator()
 
     // The sidebar git/PR subsystem (extracted to CmuxSidebarGit). TabManager
     // is the per-window composition point: it constructs the concrete
@@ -467,19 +464,15 @@ class TabManager: ObservableObject {
         initialTerminalInput: String? = nil,
         autoWelcomeIfNeeded: Bool = true,
         commandRunner: any CommandRunning = CommandRunner(),
-        gitMetadataService: GitMetadataService? = nil,
+        gitMetadataService: GitMetadataService = GitMetadataService(),
         workspaceGitMetadataReader: (any WorkspaceGitMetadataReading)? = nil,
         gitPollClock: any GitPollClock = SystemGitPollClock(),
         gitProbeLimiter: WorkspaceGitMetadataProbeLimiter? = nil,
-        gitFallbackCoordinator: WorkspaceGitFallbackCoordinator? = nil,
         panelTitleUpdateCoalescer: NotificationBurstCoalescer? = nil,
         settings: any SettingsWriting = UserDefaultsSettingsClient(defaults: .standard),
         closeTabWarningDefaults: UserDefaults = .standard,
         browserServices: BrowserServices? = nil
     ) {
-        let gitMetadataService = gitMetadataService ?? GitMetadataService(
-            trackedChangesSnapshotScope: Self.sharedGitTrackedChangesSnapshotScope
-        )
         self.settings = settings
         self.browserServices = browserServices
         self.panelTitleUpdateCoalescer = panelTitleUpdateCoalescer ?? NotificationBurstCoalescer()
@@ -519,8 +512,6 @@ class TabManager: ObservableObject {
             pullRequestProbing: pullRequestPollService,
             probeLimiter: gitProbeLimiter ?? Self.sharedWorkspaceGitProbeLimiter,
             clock: gitPollClock,
-            fallbackCoordinator: gitFallbackCoordinator
-                ?? Self.sharedWorkspaceGitFallbackCoordinator,
             debugLog: sidebarGitDebugLog
         )
         // Wire the host seam before the first workspace is added so the
@@ -553,7 +544,7 @@ class TabManager: ObservableObject {
                 guard let change = GhosttyTitleChange(notification: notification),
                       let workspace = workspacesById[change.tabId],
                       workspace.owningTabManager === self,
-                      let sourceSurface = (notification.object as? TerminalSurface) ?? workspace.terminalPanel(for: change.surfaceId)?.surface else { return }
+                      let sourceSurface = (notification.object as? TerminalSurface) ?? workspace.terminalPanel(for: change.surfaceId)?.surface, change.matches(sourceSurface: sourceSurface) else { return }
                 enqueuePanelTitleUpdate(change, sourceSurface: sourceSurface)
             }
         })
@@ -1259,6 +1250,21 @@ class TabManager: ObservableObject {
         var updated = pendingBackgroundWorkspaceLoadIds
         updated.remove(workspaceId)
         pendingBackgroundWorkspaceLoadIds = updated
+        releaseBackgroundWorkspaceMount(for: workspaceId)
+    }
+
+    func retainBackgroundWorkspaceMount(for workspaceId: UUID) {
+        guard shouldRetainBackgroundWorkspaceMount(for: workspaceId) else { return }
+        var updated = mountedBackgroundWorkspaceLoadIds
+        updated.insert(workspaceId)
+        mountedBackgroundWorkspaceLoadIds = updated
+    }
+
+    func releaseBackgroundWorkspaceMount(for workspaceId: UUID) {
+        guard mountedBackgroundWorkspaceLoadIds.contains(workspaceId) else { return }
+        var updated = mountedBackgroundWorkspaceLoadIds
+        updated.remove(workspaceId)
+        mountedBackgroundWorkspaceLoadIds = updated
     }
 
     func retainDebugWorkspaceLoads(for workspaceIds: Set<UUID>) {
@@ -1281,6 +1287,10 @@ class TabManager: ObservableObject {
         let pruned = pendingBackgroundWorkspaceLoadIds.intersection(existingIds)
         if pruned != pendingBackgroundWorkspaceLoadIds {
             pendingBackgroundWorkspaceLoadIds = pruned
+        }
+        let mounted = mountedBackgroundWorkspaceLoadIds.intersection(existingIds)
+        if mounted != mountedBackgroundWorkspaceLoadIds {
+            mountedBackgroundWorkspaceLoadIds = mounted
         }
         let retained = debugPinnedWorkspaceLoadIds.intersection(existingIds)
         if retained != debugPinnedWorkspaceLoadIds {
@@ -2860,7 +2870,7 @@ class TabManager: ObservableObject {
     }
 
     func titleForTab(_ tabId: UUID) -> String? {
-        tabs.first(where: { $0.id == tabId })?.title
+        workspacesById[tabId]?.title
     }
 
     // MARK: - Panel/Surface ID Access

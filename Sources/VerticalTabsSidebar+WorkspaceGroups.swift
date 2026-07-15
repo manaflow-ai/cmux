@@ -49,6 +49,8 @@ extension VerticalTabsSidebar {
         )
         let modifierSymbol = renderContext.workspaceNumberShortcut.numberedDigitHintPrefix
         let showsHintForAnchor = showModifierHoldHints && modifierKeyMonitor.isModifierPressed
+        let rowId = SidebarWorkspaceRenderItemID.group(group.id)
+        let isPointerHovering = pointerInteractionMonitor.hoveredRowId == rowId
         let topDropIndicatorVisible = SidebarTabDropIndicatorPredicate().topVisible(
             forTabId: group.anchorWorkspaceId,
             draggedTabId: dragState.draggedTabId,
@@ -88,6 +90,7 @@ extension VerticalTabsSidebar {
             shortcutDigit: shortcutDigit,
             shortcutModifierSymbol: modifierSymbol,
             showsShortcutHint: showsHintForAnchor,
+            isPointerHovering: isPointerHovering,
             shortcutHintXOffset: settings.sidebarShortcutHintXOffset,
             shortcutHintYOffset: settings.sidebarShortcutHintYOffset,
             fontScale: settings.sidebarFontScale,
@@ -203,6 +206,14 @@ extension VerticalTabsSidebar {
             .sidebarWorkspaceFrameAnchor(
                 id: group.anchorWorkspaceId,
                 isEnabled: shouldCollectWorkspaceDropTargets
+            )
+            .sidebarPointerFrameReporting(
+                onFrameChange: { [pointerInteractionMonitor, workspaceId = group.anchorWorkspaceId] frame in
+                    pointerInteractionMonitor.updateFrame(frame, for: rowId, workspaceId: workspaceId)
+                },
+                onDisappear: { [pointerInteractionMonitor] in
+                    pointerInteractionMonitor.removeFrame(for: rowId)
+                }
             )
     }
 }

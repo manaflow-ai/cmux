@@ -2,6 +2,7 @@ import AppKit
 import UniformTypeIdentifiers
 
 enum BrowserScreenshotError: LocalizedError {
+    case automationTimedOut
     case captureAreaTooLarge
     case emptySnapshot
     case invalidSelection
@@ -11,6 +12,11 @@ enum BrowserScreenshotError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
+        case .automationTimedOut:
+            return String(
+                localized: "browser.screenshot.error.automationTimedOut",
+                defaultValue: "Timed out waiting for the browser screenshot."
+            )
         case .captureAreaTooLarge:
             return String(
                 localized: "browser.screenshot.error.captureAreaTooLarge",
