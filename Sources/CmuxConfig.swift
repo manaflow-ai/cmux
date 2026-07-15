@@ -332,6 +332,12 @@ struct CmuxResolvedNotificationHook: Sendable, Hashable {
 enum CmuxConfigTerminalCommandTarget: String, Codable, Sendable, Hashable {
     case currentTerminal
     case newTabInCurrentPane
+    /// Run the command as a headless child process: no terminal surface is
+    /// created or focused. The child receives the cmux context environment
+    /// (CMUX_WORKSPACE_ID, CMUX_SURFACE_ID of the focused terminal,
+    /// CMUX_SOCKET_PATH, CMUX_BUNDLED_CLI_PATH), so hotkey scripts can drive
+    /// the bundled CLI without flashing a tab.
+    case background
 
     static let defaultForActions: CmuxConfigTerminalCommandTarget = .newTabInCurrentPane
 }

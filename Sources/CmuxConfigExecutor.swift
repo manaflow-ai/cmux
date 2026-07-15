@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import Foundation
 
 @MainActor
@@ -116,7 +117,7 @@ struct CmuxConfigExecutor {
         guard let command = action.terminalCommand else { return false }
         let target = action.terminalCommandTarget ?? .newTabInCurrentPane
         let targetTerminal = (target == .currentTerminal) ? tabManager.selectedWorkspace?.focusedTerminalPanel : nil
-        let targetWorkspace = (target == .newTabInCurrentPane) ? tabManager.selectedWorkspace : nil
+        let targetWorkspace = (target == .currentTerminal) ? nil : tabManager.selectedWorkspace
         return prepareShellInputIfAuthorized(
             command,
             confirm: action.confirm ?? false,
@@ -135,6 +136,8 @@ struct CmuxConfigExecutor {
             case .newTabInCurrentPane:
                 targetWorkspace?.clearSplitZoom()
                 targetWorkspace?.newTerminalSurfaceInFocusedPane(focus: true, initialInput: shellInput)
+            case .background:
+                launchBackgroundProcess(shellInput, workspace: targetWorkspace)
             }
             onExecuted?()
         }
@@ -176,6 +179,71 @@ struct CmuxConfigExecutor {
             presentingWindow: presentingWindow
         ) {
             onAuthorized(shellCommand + "\n")
+        }
+    }
+
+    /// Live children spawned by `background` command actions, keyed by pid so
+    /// they stay referenced until they exit.
+    private static var backgroundProcesses: [Int32: Process] = [:]
+
+    /// Runs a `background`-target command action as a headless child process.
+    /// Mirrors the environment terminal-based actions see (workspace, focused
+    /// surface, socket, bundled CLI) so scripts can drive cmux without a tab.
+    static func launchBackgroundProcess(_ shellInput: String, workspace: Workspace?) {
+        let command = shellInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !command.isEmpty else { return }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
+
+        var environment = ProcessInfo.processInfo.environment
+        if let cliURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux"),
+           FileManager.default.isExecutableFile(atPath: cliURL.path) {
+            environment["CMUX_BUNDLED_CLI_PATH"] = cliURL.path
+        }
+        environment["CMUX_SOCKET_PATH"] = TerminalController.shared.activeSocketPath(
+            preferredPath: SocketControlSettings.socketPath()
+        )
+        environment.removeValue(forKey: "CMUX_SOCKET")
+        if let workspace {
+            environment["CMUX_WORKSPACE_ID"] = workspace.id.uuidString
+            if let surfaceId = workspace.focusedPanelId {
+                environment["CMUX_SURFACE_ID"] = surfaceId.uuidString
+            }
+        }
+        process.environment = environment
+        process.currentDirectoryURL = URL(
+            fileURLWithPath: workspace?.resolvedWorkingDirectory()
+                ?? FileManager.default.homeDirectoryForCurrentUser.path
+        )
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        process.terminationHandler = { terminated in
+            let pid = terminated.processIdentifier
+            let status = terminated.terminationStatus
+            Task { @MainActor in
+                backgroundProcesses.removeValue(forKey: pid)
+                guard status != 0 else { return }
+#if DEBUG
+                cmuxDebugLog("background action exited status=\(status)")
+#endif
+                NSSound.beep()
+            }
+        }
+
+        do {
+            try process.run()
+            backgroundProcesses[process.processIdentifier] = process
+            if !process.isRunning {
+                backgroundProcesses.removeValue(forKey: process.processIdentifier)
+            }
+        } catch {
+#if DEBUG
+            cmuxDebugLog("background action launch failed errorType=\(type(of: error))")
+#endif
+            NSSound.beep()
         }
     }
 

@@ -1836,7 +1836,7 @@
       "actionFieldKeywords": "Extra search terms for Command Palette.",
       "actionFieldPalette": "Defaults to true for custom actions. Set false to hide the action from Command Palette while keeping it callable elsewhere.",
       "actionFieldShortcut": "Optional action shortcut, using the same single-stroke or two-stroke chord syntax as settings shortcuts.",
-      "actionFieldTarget": "For command and agent actions only. Use currentTerminal or newTabInCurrentPane.",
+      "actionFieldTarget": "For command and agent actions only. Use currentTerminal or newTabInCurrentPane. Command actions also accept background, which runs the command as a headless child process (no terminal tab); the process gets CMUX_WORKSPACE_ID, CMUX_SURFACE_ID of the focused terminal, CMUX_SOCKET_PATH, and CMUX_BUNDLED_CLI_PATH.",
       "actionFieldConfirm": "Ask before running the action.",
       "actionFieldNewWorkspaceMenu": "Set true to offer any action in the new-workspace plus-button menu, or false to hide a workspace action from it.",
       "commandPaletteBehavior": "Command Palette behavior",

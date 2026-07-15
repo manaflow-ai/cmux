@@ -300,6 +300,23 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(button.action, .command("codex"))
     }
 
+    func testDecodeCommandActionBackgroundTarget() throws {
+        let json = """
+        {
+          "actions": {
+            "queue-prompt": {
+              "type": "command",
+              "command": "my-capture-script",
+              "target": "background"
+            }
+          }
+        }
+        """
+        let config = try decode(json)
+        let action = try XCTUnwrap(resolvedActions(from: config)["queue-prompt"])
+        XCTAssertEqual(action.terminalCommandTarget, .background)
+    }
+
     func testResolveSurfaceTabBarActionReferenceCanOverrideTitleAndIcon() throws {
         let json = """
         {

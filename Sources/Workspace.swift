@@ -12663,6 +12663,8 @@ extension Workspace: BonsplitDelegate {
                     initialInput: shellInput,
                     inheritWorkingDirectoryFallback: true
                 )
+            case .background:
+                CmuxConfigExecutor.launchBackgroundProcess(shellInput, workspace: self)
             }
         }
         guard didExecute else {
