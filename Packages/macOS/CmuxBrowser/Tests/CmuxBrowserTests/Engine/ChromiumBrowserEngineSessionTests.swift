@@ -184,6 +184,65 @@ struct ChromiumBrowserEngineSessionTests {
     }
 
     @Test
+    func subframeLifecycleDoesNotChangeTopLevelLoadingState() async {
+        let session = ChromiumBrowserEngineSession(
+            viewportWebView: WKWebView(),
+            application: nil,
+            userDataDirectory: FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        )
+        let connection = CDPConnection(url: URL(string: "ws://localhost.invalid")!)
+        let sessionID = "test-session"
+        defer { session.close() }
+
+        await session.handle(
+            CDPEvent(
+                method: "Page.frameNavigated",
+                parameters: [
+                    "frame": .object([
+                        "id": .string("main-frame"),
+                        "url": .string("https://example.com"),
+                    ]),
+                ],
+                sessionID: sessionID
+            ),
+            connection: connection,
+            sessionID: sessionID
+        )
+        await session.handle(
+            loadingEvent(method: "Page.frameStartedLoading", frameID: "child-frame", sessionID: sessionID),
+            connection: connection,
+            sessionID: sessionID
+        )
+        #expect(session.state.isLoading == false)
+
+        await session.handle(
+            loadingEvent(method: "Page.frameStartedLoading", frameID: "main-frame", sessionID: sessionID),
+            connection: connection,
+            sessionID: sessionID
+        )
+        await session.handle(
+            loadingEvent(method: "Page.frameStoppedLoading", frameID: "child-frame", sessionID: sessionID),
+            connection: connection,
+            sessionID: sessionID
+        )
+        #expect(session.state.isLoading)
+
+        await session.handle(
+            loadingEvent(method: "Page.frameStoppedLoading", frameID: "main-frame", sessionID: sessionID),
+            connection: connection,
+            sessionID: sessionID
+        )
+        await session.handle(
+            loadingEvent(method: "Page.frameStartedLoading", frameID: "child-frame", sessionID: sessionID),
+            connection: connection,
+            sessionID: sessionID
+        )
+        #expect(session.state.isLoading == false)
+        await connection.close()
+    }
+
+    @Test
     func rejectsNavigationRequestsWhoseSemanticsCannotBePreserved() {
         let url = URL(string: "https://example.com/submit")!
 
@@ -228,6 +287,14 @@ struct ChromiumBrowserEngineSessionTests {
         #expect(
             BrowserEngineSessionError.chromiumProtocol("secret protocol detail")
                 .localizedDescription != "secret protocol detail"
+        )
+    }
+
+    private func loadingEvent(method: String, frameID: String, sessionID: String) -> CDPEvent {
+        CDPEvent(
+            method: method,
+            parameters: ["frameId": .string(frameID)],
+            sessionID: sessionID
         )
     }
 }
