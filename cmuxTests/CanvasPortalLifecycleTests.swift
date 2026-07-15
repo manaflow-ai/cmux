@@ -1,5 +1,6 @@
 import AppKit
 import CmuxCanvasUI
+import CmuxUpdater
 import Testing
 
 #if canImport(cmux_DEV)
