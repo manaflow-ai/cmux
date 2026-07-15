@@ -42,9 +42,9 @@ struct BrowserViewportLayoutTests {
         #expect(layout.scale == 0.625)
     }
 
-    @Test func emulatedPageZoomSurvivesDownwardAppKitRounding() throws {
+    @Test(arguments: [1.0, 1.1])
+    func emulatedViewportSurvivesDownwardAppKitRounding(pageZoom: Double) throws {
         let viewport = try #require(BrowserViewport(width: 1_280, height: 720))
-        let pageZoom = 1.1
         let layout = try #require(BrowserViewportLayout(
             containerBounds: CGRect(x: 0, y: 0, width: 380, height: 610),
             viewport: viewport,
