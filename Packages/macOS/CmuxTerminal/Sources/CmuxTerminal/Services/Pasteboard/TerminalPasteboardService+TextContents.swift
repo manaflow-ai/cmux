@@ -72,6 +72,8 @@ extension TerminalPasteboardService: TerminalClipboardReading {
     /// Existing plain-text, HTML, and RTF flavors are retained. Rich flavors
     /// are edited to match `string` while preserving attributes on surviving
     /// content, so paste destinations cannot select stale hard-wrapped text.
+    /// Attachment-bearing RTFD is dropped because its text cannot be safely
+    /// rewritten independently of its file-wrapper contents.
     /// For larger payloads, expensive rich flavors are dropped and the
     /// transformed plain text remains available to every paste destination.
     /// The replacement item is fully materialized before the pasteboard is
@@ -124,6 +126,9 @@ extension TerminalPasteboardService {
     ) -> NSPasteboardItem? {
         let rewritten = NSPasteboardItem()
         for type in source.types {
+            if type == .rtfd {
+                continue
+            }
             if !preservingRichText, isRichTextType(type) {
                 continue
             }
