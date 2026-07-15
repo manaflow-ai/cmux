@@ -413,6 +413,38 @@ struct WorkspaceForkConversationContextMenuTests {
     }
 
     @Test
+    func directOpenCodePresentationStaysVisibleWhileValidationRefreshes() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        workspace.setRestoredAgentSnapshotForTesting(makeProbeRequiredOpenCodeSnapshot(), panelId: panelId)
+
+        let liveAgentIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                SharedLiveAgentIndexLoader(
+                    registry: CmuxVaultAgentRegistry(registrations: []),
+                    processSnapshotProvider: {
+                        CmuxTopProcessSnapshot(
+                            processes: [],
+                            sampledAt: Date(timeIntervalSince1970: 42),
+                            includesProcessDetails: true
+                        )
+                    },
+                    capturedAtProvider: { 42 },
+                    processArgumentsProvider: { _ in nil }
+                )
+                .loadResultSynchronously()
+            }
+        )
+
+        #expect(
+            workspace.forkAgentConversationContextMenuPresentationAvailability(
+                forPanelId: panelId,
+                liveAgentIndex: liveAgentIndex
+            ) == .agentIndexRefreshing
+        )
+    }
+
+    @Test
     func validatedDirectOpenCodeSnapshotAppearsInContextMenu() async throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
