@@ -149,7 +149,7 @@ private func exportThemeFrame(
 ) throws -> MobileTerminalRenderGridFrame {
     let surface = try #require(view.surface)
     let exported = surfaceID.withCString { pointer in
-        ghostty_surface_render_grid_json(
+        ghostty_surface_render_grid_json_with_theme(
             surface,
             pointer,
             UInt(surfaceID.utf8.count),
