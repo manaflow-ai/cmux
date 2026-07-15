@@ -2,73 +2,23 @@ import CmuxCore
 import CmuxFoundation
 import Darwin
 import Foundation
-import os
 
-/// Batched port scanner that shares bounded process and listener snapshots.
+/// Batched port scanner that replaces per-shell `ps + lsof` scanning.
 ///
 /// Each shell sends a lightweight `report_tty` + `ports_kick` over the socket.
 /// PortScanner coalesces kicks across all panels, then runs a single
-/// A single process graph and listener scan cover every panel that needs scanning.
+/// `ps -t <ttys>` + `lsof -p <pids>` covering every panel that needs scanning.
 ///
 /// Kick → coalesce → burst flow:
 /// 1. `kick()` adds panel to `pendingKicks` set
 /// 2. If no burst is active, starts a 200ms coalesce timer
-/// 3. Coalesce fires → snapshots pending set → starts a four-scan burst
+/// 3. Coalesce fires → snapshots pending set → starts burst of 6 scans
 /// 4. New kicks during burst merge into the active burst
 /// 5. After last scan, if new kicks arrived, start a new coalesce cycle
 final class PortScanner: @unchecked Sendable {
-    static let shared = PortScanner(useSharedSnapshots: true)
-
-    final class ResultGenerationGate: @unchecked Sendable {
-        private struct State {
-            var panelRevision: UInt64 = 0
-            var agentRevisionByWorkspace: [UUID: UInt64] = [:]
-        }
-
-        private let state = OSAllocatedUnfairLock(initialState: State())
-
-        func advancePanel(to revision: UInt64) {
-            state.withLock { $0.panelRevision = revision }
-        }
-
-        func advanceAgent(workspaceId: UUID, to revision: UInt64) {
-            state.withLock { $0.agentRevisionByWorkspace[workspaceId] = revision }
-        }
-
-        @MainActor
-        func applyPanel<Result>(ifCurrent revision: UInt64, _ callback: () -> Result) -> Result? {
-            state.withLock {
-                guard PortScanner.acceptsResult(
-                    currentRevision: $0.panelRevision,
-                    expectedRevision: revision,
-                    staleMetric: .portPanelRevision
-                ) else { return nil }
-                return callback()
-            }
-        }
-
-        @MainActor
-        func applyAgent<Result>(
-            workspaceId: UUID,
-            ifCurrent revision: UInt64,
-            _ callback: () -> Result
-        ) -> Result? {
-            state.withLock {
-                guard PortScanner.acceptsResult(
-                    currentRevision: $0.agentRevisionByWorkspace[workspaceId, default: 0],
-                    expectedRevision: revision,
-                    staleMetric: .portAgentRevision
-                ) else { return nil }
-                return callback()
-            }
-        }
-    }
+    static let shared = PortScanner()
 
     let commandRunner: any CommandRunning
-    private let useSharedSnapshots: Bool
-    private let portScanSnapshotStore = PortScanSnapshotStore(captureWithEvidenceAndProof: { pids in
-        PortScanner.scanListeningPortsWithPerformanceProof(pids: pids)
-    })
 
     /// Callback delivers `(workspaceId, panelId, ports)` on the main actor.
     @MainActor var onPortsUpdated: (@MainActor (_ workspaceId: UUID, _ panelId: UUID, _ ports: [Int]) -> Void)?
@@ -110,27 +60,23 @@ final class PortScanner: @unchecked Sendable {
 
     /// Each scan fires at this absolute offset; the recursive scheduler
     /// converts to relative delays between consecutive scans.
-    private static let burstOffsets: [Double] = [0.5, 1.5, 4, 10]
+    private static let burstOffsets: [Double] = [0.5, 1.5, 3, 5, 7.5, 10]
     private static let agentRescanInterval: TimeInterval = 2
-    private static let panelPortScanMaximumAge: TimeInterval = 0.5
-    private static let agentPortScanMaximumAge = agentRescanInterval
 
     // MARK: - Public API
 
     init(
-        commandRunner: (any CommandRunning)? = nil,
+        commandRunner: any CommandRunning = CommandRunner(),
         processIdentityProvider: @escaping @Sendable (pid_t) -> AgentPIDProcessIdentity? = {
             AgentPIDProcessIdentity(pid: $0)
         },
         processPresenceProvider: @escaping @Sendable (pid_t) -> PIDPresence = {
             PIDPresence.current(pid: $0)
-        },
-        useSharedSnapshots: Bool = false
+        }
     ) {
-        self.commandRunner = commandRunner ?? CommandRunner()
+        self.commandRunner = commandRunner
         self.processIdentityProvider = processIdentityProvider
         self.processPresenceProvider = processPresenceProvider
-        self.useSharedSnapshots = useSharedSnapshots
     }
 
     @MainActor
@@ -211,12 +157,6 @@ final class PortScanner: @unchecked Sendable {
             trackedAgentScanningPaused = paused
             updateAgentScanTimerLocked()
         }
-    }
-
-    nonisolated func performanceMetricsExercise(
-        pids: Set<Int>
-    ) async -> (proof: ProcessPerformanceCaptureProof, sharedResult: Bool)? {
-        await portScanSnapshotStore.performanceMetricsExercise(pids: pids)
     }
 
     // MARK: - Coalesce + Burst
@@ -307,36 +247,18 @@ final class PortScanner: @unchecked Sendable {
     ) async {
         let workspaceIds = Set(panelSnapshot.keys.map(\.workspaceId))
 
+        // Build TTY set (deduplicated).
         let uniqueTTYs = Set(panelSnapshot.values)
         let ttyList = uniqueTTYs.joined(separator: ",")
-        let psScan: (values: [Int: String], completeness: PortScanCompleteness)
-        let agentProcessScan: (
-            values: [Int: Set<UUID>],
-            completenessByWorkspace: [UUID: PortScanCompleteness]
+
+        // 1. ps -t tty1,tty2,... -o pid=,tty=
+        async let agentProcessScanTask = expandAgentProcessTree(
+            agentRootsByWorkspace: agentRootsByWorkspace
         )
-        if useSharedSnapshots {
-            let initialRoots = validateAgentRoots(agentRootsByWorkspace)
-            let snapshot = await CmuxTopProcessSnapshotStore.shared.snapshot(
-                requirements: .basic,
-                maximumAge: 0.5,
-                consumer: .portScannerPanel
-            )
-            psScan = (
-                Self.pidToTTY(panelSnapshot: panelSnapshot, processSnapshot: snapshot),
-                snapshot.isComplete ? .complete : .incomplete
-            )
-            agentProcessScan = sharedAgentProcessScan(
-                rootsByWorkspace: agentRootsByWorkspace,
-                initialCompleteness: initialRoots.completenessByWorkspace,
-                processSnapshot: snapshot
-            )
-        } else {
-            async let agentScan = expandAgentProcessTree(agentRootsByWorkspace: agentRootsByWorkspace)
-            psScan = ttyList.isEmpty
-                ? ([:], .complete)
-                : await runPS(ttyList: ttyList)
-            agentProcessScan = await agentScan
-        }
+        let psScan = ttyList.isEmpty
+            ? (values: [Int: String](), completeness: PortScanCompleteness.complete)
+            : await runPS(ttyList: ttyList)
+        let agentProcessScan = await agentProcessScanTask
         let pidToTTY = psScan.values
         let capturedPanelPIDs = capturePIDIdentities(Set(pidToTTY.keys))
         let capturedAgentPIDs = captureAgentPIDIdentities(
@@ -380,54 +302,26 @@ final class PortScanner: @unchecked Sendable {
             return
         }
 
-        let lsofScan = await listenerScan(
-            pids: allPids,
-            maximumAge: Self.panelPortScanMaximumAge
-        )
+        // 2. lsof -nP -a -p <all_pids> -iTCP -sTCP:LISTEN -F pn
+        let pidsCsv = allPids.sorted().map(String.init).joined(separator: ",")
+        let lsofScan = await runLsof(pidsCsv: pidsCsv)
         let pidToPorts = lsofScan.values
-        let finalizedAgentPIDs: (
-            ownershipByPID: [Int: Set<UUID>],
-            completenessByWorkspace: [UUID: PortScanCompleteness]
+        async let finalizedAgentPIDTask = finalizeAgentPIDOwnership(
+            rootsByWorkspace: agentRootsByWorkspace,
+            capturedOwnershipByPID: agentOwnershipBeforeLsof,
+            capturedIdentitiesByPID: capturedAgentPIDs.identitiesByPID,
+            workspaceIds: workspaceIds
         )
-        let refreshedPanelProcessScan: (
-            values: [Int: String],
-            completeness: PortScanCompleteness
-        )
-        if useSharedSnapshots {
-            let snapshot = await CmuxTopProcessSnapshotStore.shared.snapshot(
-                requirements: .basic,
-                maximumAge: 0,
-                consumer: .portScannerPanel
-            )
-            refreshedPanelProcessScan = (
-                Self.pidToTTY(panelSnapshot: panelSnapshot, processSnapshot: snapshot),
-                snapshot.isComplete ? .complete : .incomplete
-            )
-            finalizedAgentPIDs = finalizeSharedAgentPIDOwnership(
-                rootsByWorkspace: agentRootsByWorkspace,
-                capturedOwnershipByPID: agentOwnershipBeforeLsof,
-                capturedIdentitiesByPID: capturedAgentPIDs.identitiesByPID,
-                workspaceIds: workspaceIds,
-                processSnapshot: snapshot
-            )
-        } else {
-            async let finalized = finalizeAgentPIDOwnership(
-                rootsByWorkspace: agentRootsByWorkspace,
-                capturedOwnershipByPID: agentOwnershipBeforeLsof,
-                capturedIdentitiesByPID: capturedAgentPIDs.identitiesByPID,
-                workspaceIds: workspaceIds
-            )
-            refreshedPanelProcessScan = capturedPanelPIDs.identitiesByPID.isEmpty
-                ? ([:], .complete)
-                : await runPS(ttyList: ttyList)
-            finalizedAgentPIDs = await finalized
-        }
+        let refreshedPanelProcessScan = capturedPanelPIDs.identitiesByPID.isEmpty
+            ? (values: [Int: String](), completeness: PortScanCompleteness.complete)
+            : await runPS(ttyList: ttyList)
         let revalidatedPanelPIDs = revalidatePanelPIDOwnership(
             capturedPIDToTTY: pidToTTY,
             capturedIdentitiesByPID: capturedPanelPIDs.identitiesByPID,
             refreshedPIDToTTY: refreshedPanelProcessScan.values
         )
         let validPIDToTTY = revalidatedPanelPIDs.values
+        let finalizedAgentPIDs = await finalizedAgentPIDTask
         let agentOwnershipByPID = finalizedAgentPIDs.ownershipByPID
 
         // 3. Join: PID→TTY + PID→ports → TTY→ports
@@ -629,27 +523,9 @@ final class PortScanner: @unchecked Sendable {
         let agentRootsByWorkspace = request.rootInput.rootsByWorkspace
         Task { [weak self] in
             guard let self else { return }
-            let agentProcessScan: (
-                values: [Int: Set<UUID>],
-                completenessByWorkspace: [UUID: PortScanCompleteness]
+            let agentProcessScan = await self.expandAgentProcessTree(
+                agentRootsByWorkspace: agentRootsByWorkspace
             )
-            if self.useSharedSnapshots {
-                let initialRoots = self.validateAgentRoots(agentRootsByWorkspace)
-                let snapshot = await CmuxTopProcessSnapshotStore.shared.snapshot(
-                    requirements: .basic,
-                    maximumAge: 0.5,
-                    consumer: .portScannerAgent
-                )
-                agentProcessScan = self.sharedAgentProcessScan(
-                    rootsByWorkspace: agentRootsByWorkspace,
-                    initialCompleteness: initialRoots.completenessByWorkspace,
-                    processSnapshot: snapshot
-                )
-            } else {
-                agentProcessScan = await self.expandAgentProcessTree(
-                    agentRootsByWorkspace: agentRootsByWorkspace
-                )
-            }
             let capturedAgentPIDs = self.captureAgentPIDIdentities(
                 ownershipByPID: agentProcessScan.values,
                 workspaceIds: request.workspaceIds
@@ -670,36 +546,18 @@ final class PortScanner: @unchecked Sendable {
                 return
             }
 
-            let lsofScan = await self.listenerScan(
-                pids: Set(capturedAgentPIDs.ownershipByPID.keys),
-                maximumAge: Self.agentPortScanMaximumAge
-            )
+            let pidsCsv = capturedAgentPIDs.ownershipByPID.keys
+                .sorted()
+                .map(String.init)
+                .joined(separator: ",")
+            let lsofScan = await self.runLsof(pidsCsv: pidsCsv)
             let pidToPorts = lsofScan.values
-            let finalizedAgentPIDs: (
-                ownershipByPID: [Int: Set<UUID>],
-                completenessByWorkspace: [UUID: PortScanCompleteness]
+            let finalizedAgentPIDs = await self.finalizeAgentPIDOwnership(
+                rootsByWorkspace: agentRootsByWorkspace,
+                capturedOwnershipByPID: capturedAgentPIDs.ownershipByPID,
+                capturedIdentitiesByPID: capturedAgentPIDs.identitiesByPID,
+                workspaceIds: request.workspaceIds
             )
-            if self.useSharedSnapshots {
-                let snapshot = await CmuxTopProcessSnapshotStore.shared.snapshot(
-                    requirements: .basic,
-                    maximumAge: 0,
-                    consumer: .portScannerAgent
-                )
-                finalizedAgentPIDs = self.finalizeSharedAgentPIDOwnership(
-                    rootsByWorkspace: agentRootsByWorkspace,
-                    capturedOwnershipByPID: capturedAgentPIDs.ownershipByPID,
-                    capturedIdentitiesByPID: capturedAgentPIDs.identitiesByPID,
-                    workspaceIds: request.workspaceIds,
-                    processSnapshot: snapshot
-                )
-            } else {
-                finalizedAgentPIDs = await self.finalizeAgentPIDOwnership(
-                    rootsByWorkspace: agentRootsByWorkspace,
-                    capturedOwnershipByPID: capturedAgentPIDs.ownershipByPID,
-                    capturedIdentitiesByPID: capturedAgentPIDs.identitiesByPID,
-                    workspaceIds: request.workspaceIds
-                )
-            }
             let agentOwnershipByPID = finalizedAgentPIDs.ownershipByPID
             var agentPortsByWorkspace: [UUID: Set<Int>] = [:]
             for (pid, ports) in pidToPorts {
@@ -792,81 +650,6 @@ final class PortScanner: @unchecked Sendable {
             completenessByWorkspace: agentCompletenessByWorkspace,
             requestID: requestID
         )
-    }
-
-    private func listenerScan(
-        pids: Set<Int>,
-        maximumAge: TimeInterval
-    ) async -> PortLsofScanResult {
-        guard useSharedSnapshots else {
-            let csv = pids.sorted().map(String.init).joined(separator: ",")
-            return await runLsof(pidsCsv: csv)
-        }
-        return await portScanSnapshotStore.evidencedSnapshot(
-            pids: pids,
-            maximumAge: maximumAge
-        )
-    }
-
-    private func sharedAgentProcessScan(
-        rootsByWorkspace: [UUID: Set<AgentPortRootIdentity>],
-        initialCompleteness: [UUID: PortScanCompleteness],
-        processSnapshot: CmuxTopProcessSnapshot
-    ) -> (values: [Int: Set<UUID>], completenessByWorkspace: [UUID: PortScanCompleteness]) {
-        let finalRoots = validateAgentRoots(rootsByWorkspace)
-        let rootPIDs = finalRoots.values.mapValues { Set($0.map(\.pid)) }
-        var completeness = combineAgentCompleteness(
-            initialCompleteness,
-            finalRoots.completenessByWorkspace,
-            workspaceIds: Set(rootsByWorkspace.keys)
-        )
-        if !processSnapshot.isComplete {
-            for workspaceID in finalRoots.values.keys {
-                completeness[workspaceID] = .incomplete
-            }
-        }
-        return (
-            Self.expandAgentProcessTree(
-                agentPIDsByWorkspace: rootPIDs,
-                processSnapshot: processSnapshot
-            ),
-            completeness
-        )
-    }
-
-    private func finalizeSharedAgentPIDOwnership(
-        rootsByWorkspace: [UUID: Set<AgentPortRootIdentity>],
-        capturedOwnershipByPID: [Int: Set<UUID>],
-        capturedIdentitiesByPID: [Int: AgentPIDProcessIdentity],
-        workspaceIds: Set<UUID>,
-        processSnapshot: CmuxTopProcessSnapshot
-    ) -> (ownershipByPID: [Int: Set<UUID>], completenessByWorkspace: [UUID: PortScanCompleteness]) {
-        let finalRoots = validateAgentRoots(rootsByWorkspace)
-        let rootPIDs = finalRoots.values.mapValues { Set($0.map(\.pid)) }
-        let finalOwnership = Self.expandAgentProcessTree(
-            agentPIDsByWorkspace: rootPIDs,
-            processSnapshot: processSnapshot
-        )
-        let fenced = capturedOwnershipByPID.reduce(into: [Int: Set<UUID>]()) { result, item in
-            let retained = item.value.intersection(finalOwnership[item.key] ?? [])
-            if !retained.isEmpty { result[item.key] = retained }
-        }
-        let identities = revalidateAgentPIDIdentities(
-            ownershipByPID: fenced,
-            identitiesByPID: capturedIdentitiesByPID,
-            workspaceIds: workspaceIds
-        )
-        var completeness = combineAgentCompleteness(
-            finalRoots.completenessByWorkspace,
-            identities.completenessByWorkspace,
-            workspaceIds: workspaceIds
-        )
-        if !processSnapshot.isComplete {
-            for workspaceID in finalRoots.values.keys {
-                completeness[workspaceID] = .incomplete
-            }
-        }
-        return (identities.ownershipByPID, completeness)
     }
 
     private func agentRevisionSnapshot(for workspaceIds: Set<UUID>) -> [UUID: UInt64] {
