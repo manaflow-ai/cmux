@@ -3,13 +3,26 @@ import Foundation
 
 actor BufferedCDPWebSocketTransport: CDPWebSocketTransport {
     private var bufferedData: [Data] = []
+    private var sentData: [Data] = []
     private var receiveContinuation: CheckedContinuation<Data, any Error>?
     private var receiveCount = 0
     private var receiveCountWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
 
     nonisolated func resume() {}
 
-    func send(_: Data) async throws {}
+    func send(_ data: Data) async throws {
+        sentData.append(data)
+    }
+
+    func sentCommandCount(method: String) -> Int {
+        sentData.reduce(into: 0) { count, data in
+            guard let payload = try? JSONDecoder().decode(
+                [String: CDPJSONValue].self,
+                from: data
+            ), payload["method"] == .string(method) else { return }
+            count += 1
+        }
+    }
 
     func receive() async throws -> Data {
         receiveCount += 1

@@ -44,6 +44,7 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
     var cdpSessionID: String?
     private var startupTask: Task<Void, Never>?
     private var eventTask: Task<Void, Never>?
+    private var screencastFrameTask: Task<Void, Never>?
     private var pendingRequest: URLRequest?
     private var initializationScripts: [String]
     private var initializationScriptInstallations: [Int: Task<Void, any Error>] = [:]
@@ -340,6 +341,7 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
         isClosed = true
         startupTask?.cancel()
         eventTask?.cancel()
+        screencastFrameTask?.cancel()
         initializationScriptInstallations.values.forEach { $0.cancel() }
         initializationScriptInstallations.removeAll()
         pageZoomUpdateTask?.cancel()
@@ -360,6 +362,7 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
         deviceMetricsPending = false
         startupTask = nil
         eventTask = nil
+        screencastFrameTask = nil
         navigationInterceptor = nil
         viewportWebView.configuration.userContentController.removeScriptMessageHandler(
             forName: "cmuxChromiumViewport"
@@ -451,6 +454,8 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
         } catch {
             eventTask?.cancel()
             eventTask = nil
+            screencastFrameTask?.cancel()
+            screencastFrameTask = nil
             navigationInterceptor = nil
             self.connection = nil
             self.targetID = nil
@@ -521,6 +526,17 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
             guard let self, !Task.isCancelled, !self.isClosed else { return }
             self.presentOperationFailure()
         }
+        screencastFrameTask = Task { [weak self] in
+            let frames = await connection.screencastFrames(sessionID: sessionID)
+            for await frame in frames {
+                guard let self, !Task.isCancelled else { return }
+                await self.handleScreencastFrame(
+                    frame,
+                    connection: connection,
+                    sessionID: sessionID
+                )
+            }
+        }
     }
 
     func handle(_ event: CDPEvent, connection: CDPConnection, sessionID: String) async {
@@ -540,20 +556,6 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
             return
         }
         switch event.method {
-        case "Page.screencastFrame":
-            guard let data = event.parameters["data"]?.stringValue,
-                  let frameSessionID = event.parameters["sessionId"]?.intValue else { return }
-            _ = try? await viewportWebView.callAsyncJavaScript(
-                "return await window.cmuxChromiumFrame('data:image/jpeg;base64,' + base64)",
-                arguments: ["base64": data],
-                in: nil,
-                contentWorld: .page
-            )
-            _ = try? await connection.send(
-                method: "Page.screencastFrameAck",
-                parameters: ["sessionId": .number(Double(frameSessionID))],
-                sessionID: sessionID
-            )
         case "Page.frameStartedLoading":
             updateState { $0.isLoading = true }
         case "Page.frameStoppedLoading":
@@ -576,6 +578,26 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
         default:
             break
         }
+    }
+
+    private func handleScreencastFrame(
+        _ event: CDPEvent,
+        connection: CDPConnection,
+        sessionID: String
+    ) async {
+        guard let data = event.parameters["data"]?.stringValue,
+              let frameSessionID = event.parameters["sessionId"]?.intValue else { return }
+        _ = try? await viewportWebView.callAsyncJavaScript(
+            "return await window.cmuxChromiumFrame('data:image/jpeg;base64,' + base64)",
+            arguments: ["base64": data],
+            in: nil,
+            contentWorld: .page
+        )
+        _ = try? await connection.send(
+            method: "Page.screencastFrameAck",
+            parameters: ["sessionId": .number(Double(frameSessionID))],
+            sessionID: sessionID
+        )
     }
 
     private func installDocumentTitleObservation(

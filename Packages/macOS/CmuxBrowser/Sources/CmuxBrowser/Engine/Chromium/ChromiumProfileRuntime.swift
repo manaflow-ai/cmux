@@ -32,47 +32,42 @@ public actor ChromiumProfileRuntime {
         height: Int
     ) async throws -> ChromiumProfileRuntimeLease {
         pendingAcquisitionCount += 1
+        var uncommittedTarget: (connection: CDPConnection, id: String)?
         do {
             let shared = try await connected(application: application)
             let generation = lifecycleGeneration
             try Task.checkCancellation()
-            let created = try await shared.connection.send(
-                method: "Target.createTarget",
-                parameters: [
-                    "url": .string("about:blank"),
-                    "width": .number(Double(width)),
-                    "height": .number(Double(height)),
-                ]
-            )
+            // The non-idempotent creation request must finish even if its caller is cancelled,
+            // so the returned target can always be registered or explicitly closed.
+            let creationTask = Task {
+                try await shared.connection.send(
+                    method: "Target.createTarget",
+                    parameters: [
+                        "url": .string("about:blank"),
+                        "width": .number(Double(width)),
+                        "height": .number(Double(height)),
+                    ]
+                )
+            }
+            let created = try await creationTask.value
             guard let targetID = created.objectValue?["targetId"]?.stringValue else {
                 throw BrowserEngineSessionError.chromiumProtocol("Chromium did not create a page target.")
             }
-            guard generation == lifecycleGeneration else {
-                _ = try? await shared.connection.send(
-                    method: "Target.closeTarget",
-                    parameters: ["targetId": .string(targetID)]
-                )
-                throw CancellationError()
-            }
+            uncommittedTarget = (shared.connection, targetID)
+            try Task.checkCancellation()
+            guard generation == lifecycleGeneration else { throw CancellationError() }
             let attached = try await shared.connection.send(
                 method: "Target.attachToTarget",
                 parameters: ["targetId": .string(targetID), "flatten": .bool(true)]
             )
             guard let sessionID = attached.objectValue?["sessionId"]?.stringValue else {
-                _ = try? await shared.connection.send(
-                    method: "Target.closeTarget",
-                    parameters: ["targetId": .string(targetID)]
-                )
                 throw BrowserEngineSessionError.chromiumProtocol("Chromium did not attach to the page target.")
             }
             guard generation == lifecycleGeneration, !Task.isCancelled else {
-                _ = try? await shared.connection.send(
-                    method: "Target.closeTarget",
-                    parameters: ["targetId": .string(targetID)]
-                )
                 throw CancellationError()
             }
             activeTargetIDs.insert(targetID)
+            uncommittedTarget = nil
             let lease = ChromiumProfileRuntimeLease(
                 connection: shared.connection,
                 targetID: targetID,
@@ -82,6 +77,12 @@ public actor ChromiumProfileRuntime {
             pendingAcquisitionCount -= 1
             return lease
         } catch {
+            if let uncommittedTarget {
+                await closeUncommittedTarget(
+                    uncommittedTarget.id,
+                    connection: uncommittedTarget.connection
+                )
+            }
             pendingAcquisitionCount -= 1
             await shutDownIfUnused()
             throw error
@@ -171,6 +172,18 @@ public actor ChromiumProfileRuntime {
     private func shutDownIfUnused() async {
         guard activeTargetIDs.isEmpty, pendingAcquisitionCount == 0 else { return }
         await shutDown()
+    }
+
+    private func closeUncommittedTarget(_ targetID: String, connection: CDPConnection) async {
+        // This awaited cleanup task intentionally does not inherit caller cancellation; a target
+        // created by a cancelled acquisition still belongs to this runtime until it is closed.
+        let cleanupTask = Task {
+            _ = try? await connection.send(
+                method: "Target.closeTarget",
+                parameters: ["targetId": .string(targetID)]
+            )
+        }
+        await cleanupTask.value
     }
 
     private func shutDown() async {

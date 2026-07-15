@@ -258,37 +258,39 @@ enum BrowserProfileAutomation {
         ]
     }
 
+    @MainActor
     static func delete(params: [String: Any]) async throws -> [String: Any] {
         let query = try requiredString(params, keys: ["profile", "id", "name"])
-        let profile = try await MainActor.run {
-            let profiles = BrowserProfileStore.shared.profiles
-            guard let profile = try resolveProfile(query, profiles: profiles) else {
-                throw BrowserProfileAutomationError.profileNotFound(query)
-            }
-            guard !profile.isBuiltInDefault else {
-                throw BrowserProfileAutomationError.cannotDeleteDefaultProfile
-            }
-            let livePanelCount = liveBrowserPanelCount(profileID: profile.id)
-            guard livePanelCount == 0 else {
-                throw BrowserProfileAutomationError.profileInUse(profile.displayName, livePanelCount)
-            }
-            return profile
+        let profiles = BrowserProfileStore.shared.profiles
+        guard let profile = try resolveProfile(query, profiles: profiles) else {
+            throw BrowserProfileAutomationError.profileNotFound(query)
+        }
+        guard !profile.isBuiltInDefault else {
+            throw BrowserProfileAutomationError.cannotDeleteDefaultProfile
+        }
+        let initialLivePanelCount = liveBrowserPanelCount(profileID: profile.id)
+        guard initialLivePanelCount == 0 else {
+            throw BrowserProfileAutomationError.profileInUse(
+                profile.displayName,
+                initialLivePanelCount
+            )
         }
 
         _ = await BrowserProfileStore.shared.clearProfileData(id: profile.id)
-        return try await MainActor.run {
-            let livePanelCount = liveBrowserPanelCount(profileID: profile.id)
-            guard livePanelCount == 0 else {
-                throw BrowserProfileAutomationError.profileInUse(profile.displayName, livePanelCount)
-            }
-            guard let deleted = BrowserProfileStore.shared.deleteProfile(id: profile.id) else {
-                throw BrowserProfileAutomationError.profileDeleteFailed(profile.displayName)
-            }
-            return [
-                "deleted": true,
-                "profile": profilePayload(deleted, currentProfileID: BrowserProfileStore.shared.effectiveLastUsedProfileID),
-            ]
+        let livePanelCount = liveBrowserPanelCount(profileID: profile.id)
+        guard livePanelCount == 0 else {
+            throw BrowserProfileAutomationError.profileInUse(profile.displayName, livePanelCount)
         }
+        guard let deleted = await BrowserProfileStore.shared.deleteProfile(id: profile.id) else {
+            throw BrowserProfileAutomationError.profileDeleteFailed(profile.displayName)
+        }
+        return [
+            "deleted": true,
+            "profile": profilePayload(
+                deleted,
+                currentProfileID: BrowserProfileStore.shared.effectiveLastUsedProfileID
+            ),
+        ]
     }
 
     @MainActor

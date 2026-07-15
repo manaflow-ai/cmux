@@ -64,6 +64,7 @@ import Testing
         let connection = CDPConnection(transport: transport)
         await connection.connect()
         let events = await connection.events(sessionID: "target")
+        let frames = await connection.screencastFrames(sessionID: "target")
         let controlEvent = try JSONSerialization.data(withJSONObject: [
             "method": "Fetch.requestPaused",
             "sessionId": "target",
@@ -82,8 +83,13 @@ import Testing
 
         var iterator = events.makeAsyncIterator()
         let retainedEvent = await iterator.next()
+        let droppedFrameAcknowledgementCount = await transport.sentCommandCount(
+            method: "Page.screencastFrameAck"
+        )
+        _ = frames
         await connection.close()
 
         #expect(retainedEvent?.method == "Fetch.requestPaused")
+        #expect(droppedFrameAcknowledgementCount == 299)
     }
 }

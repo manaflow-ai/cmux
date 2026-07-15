@@ -10,6 +10,7 @@ actor CDPConnection {
     private var nextRequestID = 1
     private var pendingRequests: [Int: CDPPendingRequest] = [:]
     private var eventSubscribers: [UUID: CDPEventSubscriber] = [:]
+    private var screencastFrameSubscribers: [UUID: CDPEventSubscriber] = [:]
     private var isClosed = false
 
     init(url: URL, requestTimeout: Duration = .seconds(10)) {
@@ -35,9 +36,11 @@ actor CDPConnection {
 
     func events(sessionID: String) -> AsyncStream<CDPEvent> {
         let subscriberID = UUID()
+        // High-volume frames use their own coalescing stream below. The remaining
+        // control events are lossless because dropping one can suspend protocol state.
         let (stream, continuation) = AsyncStream.makeStream(
             of: CDPEvent.self,
-            bufferingPolicy: .bufferingNewest(256)
+            bufferingPolicy: .unbounded
         )
         guard !isClosed else {
             continuation.finish()
@@ -50,6 +53,29 @@ actor CDPConnection {
         continuation.onTermination = { [weak self] _ in
             Task {
                 await self?.removeEventSubscriber(subscriberID)
+            }
+        }
+        return stream
+    }
+
+    /// Streams replaceable screencast frames separately from lossless control events.
+    func screencastFrames(sessionID: String) -> AsyncStream<CDPEvent> {
+        let subscriberID = UUID()
+        let (stream, continuation) = AsyncStream.makeStream(
+            of: CDPEvent.self,
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        guard !isClosed else {
+            continuation.finish()
+            return stream
+        }
+        screencastFrameSubscribers[subscriberID] = CDPEventSubscriber(
+            sessionID: sessionID,
+            continuation: continuation
+        )
+        continuation.onTermination = { [weak self] _ in
+            Task {
+                await self?.removeScreencastFrameSubscriber(subscriberID)
             }
         }
         return stream
@@ -168,7 +194,7 @@ actor CDPConnection {
             while !Task.isCancelled {
                 let data = try await transport.receive()
                 guard !data.isEmpty else { continue }
-                try handleMessage(data)
+                try await handleMessage(data)
             }
         } catch {
             guard !isClosed else { return }
@@ -180,7 +206,7 @@ actor CDPConnection {
         }
     }
 
-    private func handleMessage(_ data: Data) throws {
+    private func handleMessage(_ data: Data) async throws {
         let payload = try decoder.decode([String: CDPJSONValue].self, from: data)
         if let requestID = payload["id"]?.intValue,
            let request = pendingRequests.removeValue(forKey: requestID) {
@@ -199,19 +225,46 @@ actor CDPConnection {
             parameters: payload["params"]?.objectValue ?? [:],
             sessionID: payload["sessionId"]?.stringValue
         )
-        for subscriber in eventSubscribers.values where
+        let subscribers = method == "Page.screencastFrame"
+            ? Array(screencastFrameSubscribers.values)
+            : Array(eventSubscribers.values)
+        for subscriber in subscribers where
             event.sessionID == nil || event.sessionID == subscriber.sessionID {
-            subscriber.continuation.yield(event)
+            let yieldResult = subscriber.continuation.yield(event)
+            if case .dropped(let droppedEvent) = yieldResult {
+                try await acknowledgeDroppedScreencastFrame(
+                    droppedEvent,
+                    subscriberSessionID: subscriber.sessionID
+                )
+            }
         }
+    }
+
+    private func acknowledgeDroppedScreencastFrame(
+        _ event: CDPEvent,
+        subscriberSessionID: String
+    ) async throws {
+        guard event.method == "Page.screencastFrame",
+              let frameSessionID = event.parameters["sessionId"]?.intValue else { return }
+        try await sendUnacknowledged(
+            method: "Page.screencastFrameAck",
+            parameters: ["sessionId": .number(Double(frameSessionID))],
+            sessionID: event.sessionID ?? subscriberSessionID
+        )
     }
 
     private func removeEventSubscriber(_ subscriberID: UUID) {
         eventSubscribers.removeValue(forKey: subscriberID)
     }
 
+    private func removeScreencastFrameSubscriber(_ subscriberID: UUID) {
+        screencastFrameSubscribers.removeValue(forKey: subscriberID)
+    }
+
     private func finishEventSubscribers() {
-        let subscribers = Array(eventSubscribers.values)
+        let subscribers = Array(eventSubscribers.values) + Array(screencastFrameSubscribers.values)
         eventSubscribers.removeAll()
+        screencastFrameSubscribers.removeAll()
         for subscriber in subscribers {
             subscriber.continuation.finish()
         }

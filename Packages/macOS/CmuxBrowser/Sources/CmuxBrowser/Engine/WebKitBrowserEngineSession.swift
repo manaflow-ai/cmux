@@ -83,11 +83,10 @@ public final class WebKitBrowserEngineSession: BrowserEngineSession {
         case .page: .page
         case .isolated: .defaultClient
         }
-        let functionBody = "return await (\n\(script)\n);"
         return try await withCheckedThrowingContinuation { continuation in
             webView.callAsyncJavaScript(
-                functionBody,
-                arguments: [:],
+                "return await eval(script);",
+                arguments: ["script": script],
                 in: nil,
                 in: contentWorld
             ) { result in

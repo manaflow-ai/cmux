@@ -416,12 +416,15 @@ final class BrowserProfileStore: ObservableObject {
         repository.canRenameProfile(id: id)
     }
 
-    func deleteProfile(id: UUID) -> BrowserProfileDefinition? {
-        let result = repository.deleteProfile(id: id)
-        if result != nil {
-            removeChromiumRuntimeAndData(for: id)
-        }
+    func deleteProfile(id: UUID) async -> BrowserProfileDefinition? {
+        guard let result = repository.deleteProfile(id: id) else { return nil }
         mirrorPublishedState()
+        let runtime = chromiumRuntimes.removeValue(forKey: id)
+        if let runtime {
+            await runtime.close()
+        }
+        let directory = chromiumProfileDirectory.url(profileID: id)
+        await fileRemover.removeItemIfExists(at: directory)
         return result
     }
 
@@ -466,17 +469,6 @@ final class BrowserProfileStore: ObservableObject {
         )
         chromiumRuntimes[profileID] = runtime
         return runtime
-    }
-
-    private func removeChromiumRuntimeAndData(for profileID: UUID) {
-        let runtime = chromiumRuntimes.removeValue(forKey: profileID)
-        let directory = chromiumProfileDirectory.url(profileID: profileID)
-        Task { [fileRemover] in
-            if let runtime {
-                await runtime.close()
-            }
-            await fileRemover.removeItemIfExists(at: directory)
-        }
     }
 
     func flushPendingSaves() {

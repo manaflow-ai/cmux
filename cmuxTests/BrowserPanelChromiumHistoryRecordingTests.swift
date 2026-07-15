@@ -12,7 +12,8 @@ import Testing
 @Suite(.serialized)
 struct BrowserPanelChromiumHistoryRecordingTests {
     @Test
-    func recordsEachCompletedNavigationOnceDespiteTitleUpdates() throws {
+    func recordsEachCompletedNavigationOnceDespiteTitleUpdates() async throws {
+        let url = try #require(URL(string: "https://example.com/chromium-history"))
         let profileStore = BrowserProfileStore.shared
         let profile = try #require(profileStore.createProfile(
             named: "Chromium-History-\(UUID().uuidString)"
@@ -25,12 +26,6 @@ struct BrowserPanelChromiumHistoryRecordingTests {
             renderInitialNavigation: false,
             engineSelection: BrowserEngineSelection(kind: .chromium)
         )
-        defer {
-            panel.close()
-            historyStore.clearHistory()
-            _ = profileStore.deleteProfile(id: profile.id)
-        }
-        let url = try #require(URL(string: "https://example.com/chromium-history"))
 
         panel.applyChromiumEngineState(BrowserEngineState(
             url: url,
@@ -52,5 +47,9 @@ struct BrowserPanelChromiumHistoryRecordingTests {
         ))
 
         #expect(historyStore.entries.first?.visitCount == 2)
+        panel.close()
+        historyStore.clearHistory()
+        let deletedProfile = await profileStore.deleteProfile(id: profile.id)
+        #expect(deletedProfile?.id == profile.id)
     }
 }
