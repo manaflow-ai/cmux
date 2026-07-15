@@ -13,7 +13,7 @@ public protocol MobileSyncing: Sendable {
     /// Subscribe to server-pushed events for the given topics.
     /// - Parameter topics: Topics to receive; cancel by terminating iteration.
     /// - Returns: A stream of matching event envelopes.
-    func subscribe(to topics: Set<String>) async -> AsyncStream<MobileEventEnvelope>
+    func subscribe(to topics: Set<String>) async -> MobileEventStream
 
     /// Send one RPC request and await its response, multiplexed over the
     /// persistent transport.

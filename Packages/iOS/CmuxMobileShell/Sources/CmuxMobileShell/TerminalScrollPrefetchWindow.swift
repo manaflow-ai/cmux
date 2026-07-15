@@ -1,0 +1,3 @@
+import CMUXMobileCore
+
+typealias TerminalScrollPrefetchWindow = MobileTerminalScrollPrefetchWindow

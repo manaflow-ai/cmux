@@ -58,7 +58,63 @@ private final class RecordingTerminalByteTeeLease: TerminalByteTeeLease, @unchec
     }
 }
 
+private final class BlockingNativeReadGate: @unchecked Sendable {
+    private let releaseSemaphore = DispatchSemaphore(value: 0)
+    private let recorder: TeardownLifetimeRecorder
+
+    init(recorder: TeardownLifetimeRecorder) {
+        self.recorder = recorder
+    }
+
+    func read() {
+        recorder.record("read.begin")
+        releaseSemaphore.wait()
+        recorder.record("read.end")
+    }
+
+    func release() {
+        releaseSemaphore.signal()
+    }
+}
+
 @Suite struct TerminalSurfaceRuntimeTeardownCoordinatorTests {
+    @Test func nativeFreeWaitsForEarlierBorrowedPointerRead() async {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        let recorder = TeardownLifetimeRecorder()
+        let gate = BlockingNativeReadGate(recorder: recorder)
+        let surface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        defer { surface.deallocate() }
+
+        let read = coordinator.enqueueNativeSurfaceOperationForTesting {
+            gate.read()
+        }
+        for await event in recorder.events where event == "read.begin" {
+            break
+        }
+
+        coordinator.enqueueRuntimeTeardown(
+            id: UUID(),
+            workspaceId: UUID(),
+            reason: "test.readBeforeFree",
+            surface: surface,
+            callbackContext: nil,
+            freeSurface: { _ in
+                recorder.record("surface.free")
+            }
+        )
+
+        // Free is already queued, but the blocked native read owns the lane.
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(recorder.snapshot() == ["read.begin"])
+
+        gate.release()
+        await read.value()
+        for await event in recorder.events where event == "surface.free" {
+            break
+        }
+        #expect(recorder.snapshot() == ["read.begin", "read.end", "surface.free"])
+    }
+
     @Test func enqueuedTeardownInvokesInjectedFreeWithTheSamePointer() async {
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
         let recorder = FreedSurfaceRecorder()

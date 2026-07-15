@@ -168,6 +168,254 @@ private final class MobileHostConnectionRegistry: @unchecked Sendable {
     }
 }
 
+/// Serializes events per phone connection and bounds retained encoded bytes.
+/// Overflow pauses only the event lane and emits a discontinuity marker; RPC
+/// responses continue over the same transport while the phone resubscribes and
+/// requests authoritative terminal replays.
+private final class MobileHostEventDeliveryQueue: @unchecked Sendable {
+    static let shared = MobileHostEventDeliveryQueue()
+    static let discontinuityTopic = "mobile.events.discontinuity"
+    private static let maximumPendingEncodingCount = 64
+    private static let maximumPendingRenderGridEncodingCount = 3
+    private static let maximumRetainedEventCount = 64
+    private static let maximumRetainedRenderGridCount = 3
+    private static let maximumRetainedEventByteCount = 16 * 1_024 * 1_024
+
+    private struct EncodingRequest: @unchecked Sendable {
+        let topic: String
+        let payload: [String: Any]
+        let connections: [MobileHostConnection]
+    }
+
+    private struct PendingEvent: Sendable {
+        let id = UUID()
+        let topic: String
+        let data: Data
+        let bypassSubscription: Bool
+
+        var isRenderGrid: Bool { topic == "terminal.render_grid" }
+    }
+
+    private struct ConnectionState {
+        var pending: [PendingEvent] = []
+        var inFlight: PendingEvent?
+        var isDraining = false
+        var isDiscontinuous = false
+
+        var retainedCount: Int { pending.count + (inFlight == nil ? 0 : 1) }
+        var retainedRenderGridCount: Int {
+            pending.reduce(inFlight?.isRenderGrid == true ? 1 : 0) {
+                $0 + ($1.isRenderGrid ? 1 : 0)
+            }
+        }
+        var retainedByteCount: Int {
+            pending.reduce(inFlight?.data.count ?? 0) { $0 + $1.data.count }
+        }
+    }
+
+    private let lock = NSLock()
+    private let encodingQueue = DispatchQueue(
+        label: "dev.cmux.mobile.event-encoding",
+        qos: .utility
+    )
+    private var pendingEncodingCount = 0
+    private var pendingRenderGridEncodingCount = 0
+    private var states: [ObjectIdentifier: ConnectionState] = [:]
+
+    func enqueue(
+        topic: String,
+        payload: [String: Any],
+        on connections: [MobileHostConnection]
+    ) {
+        guard !connections.isEmpty else { return }
+        let request = EncodingRequest(topic: topic, payload: payload, connections: connections)
+        let isRenderGrid = topic == "terminal.render_grid"
+        lock.lock()
+        guard pendingEncodingCount < Self.maximumPendingEncodingCount,
+              !isRenderGrid
+                || pendingRenderGridEncodingCount < Self.maximumPendingRenderGridEncodingCount else {
+            lock.unlock()
+            for connection in connections { markDiscontinuous(connection: connection) }
+            return
+        }
+        pendingEncodingCount += 1
+        if isRenderGrid { pendingRenderGridEncodingCount += 1 }
+        lock.unlock()
+
+        encodingQueue.async { [self, request] in
+            let envelope: [String: Any] = [
+                "kind": "event",
+                "topic": request.topic,
+                "payload": request.payload,
+            ]
+            let data = try? JSONSerialization.data(withJSONObject: envelope)
+            lock.lock()
+            pendingEncodingCount -= 1
+            if isRenderGrid { pendingRenderGridEncodingCount -= 1 }
+            lock.unlock()
+            guard let data else {
+                for connection in request.connections { markDiscontinuous(connection: connection) }
+                return
+            }
+            let event = PendingEvent(
+                topic: request.topic,
+                data: data,
+                bypassSubscription: false
+            )
+            for connection in request.connections {
+                enqueueEncoded(event, on: connection)
+            }
+        }
+    }
+
+    private func enqueueEncoded(_ event: PendingEvent, on connection: MobileHostConnection) {
+        let key = ObjectIdentifier(connection)
+        var shouldStartDrain = false
+        var overflowed = false
+        lock.lock()
+        var state = states[key] ?? ConnectionState()
+        if state.isDiscontinuous {
+            lock.unlock()
+            return
+        }
+        let nextCount = state.retainedCount + 1
+        let nextRenderGridCount = state.retainedRenderGridCount + (event.isRenderGrid ? 1 : 0)
+        let nextByteCount = state.retainedByteCount + event.data.count
+        if nextCount > Self.maximumRetainedEventCount
+            || nextRenderGridCount > Self.maximumRetainedRenderGridCount
+            || nextByteCount > Self.maximumRetainedEventByteCount {
+            overflowed = true
+            transitionToDiscontinuity(&state)
+        } else {
+            state.pending.append(event)
+        }
+        if !state.isDraining {
+            state.isDraining = true
+            shouldStartDrain = true
+        }
+        states[key] = state
+        lock.unlock()
+
+        if overflowed {
+            #if DEBUG
+            cmuxDebugLog("mobile.emit discontinuity reason=event_backlog")
+            #endif
+        }
+        if shouldStartDrain {
+            Task { [self] in await drain(key: key, connection: connection) }
+        }
+    }
+
+    private func markDiscontinuous(connection: MobileHostConnection) {
+        let key = ObjectIdentifier(connection)
+        var shouldStartDrain = false
+        lock.lock()
+        var state = states[key] ?? ConnectionState()
+        guard !state.isDiscontinuous else {
+            lock.unlock()
+            return
+        }
+        transitionToDiscontinuity(&state)
+        if !state.isDraining {
+            state.isDraining = true
+            shouldStartDrain = true
+        }
+        states[key] = state
+        lock.unlock()
+        if shouldStartDrain {
+            Task { [self] in await drain(key: key, connection: connection) }
+        }
+    }
+
+    private func transitionToDiscontinuity(_ state: inout ConnectionState) {
+        state.pending.removeAll(keepingCapacity: false)
+        state.isDiscontinuous = true
+        let envelope: [String: Any] = [
+            "kind": "event",
+            "topic": Self.discontinuityTopic,
+            "payload": ["reason": "event_backlog"],
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: envelope) else { return }
+        state.pending.append(PendingEvent(
+            topic: Self.discontinuityTopic,
+            data: data,
+            bypassSubscription: true
+        ))
+    }
+
+    private func drain(key: ObjectIdentifier, connection: MobileHostConnection) async {
+        while let event = nextEvent(for: key) {
+            let delivered = await connection.sendEncodedEvent(
+                topic: event.topic,
+                data: event.data,
+                bypassSubscription: event.bypassSubscription
+            )
+            #if DEBUG
+            cmuxDebugLog("mobile.emit -> connection delivered=\(delivered) topic=\(event.topic)")
+            #endif
+            guard complete(event: event, delivered: delivered, for: key) else { return }
+        }
+    }
+
+    private func nextEvent(for key: ObjectIdentifier) -> PendingEvent? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard var state = states[key], state.inFlight == nil else { return nil }
+        guard !state.pending.isEmpty else {
+            state.isDraining = false
+            if state.isDiscontinuous {
+                states[key] = state
+            } else {
+                states.removeValue(forKey: key)
+            }
+            return nil
+        }
+        let event = state.pending.removeFirst()
+        state.inFlight = event
+        states[key] = state
+        return event
+    }
+
+    private func complete(event: PendingEvent, delivered: Bool, for key: ObjectIdentifier) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard var state = states[key], state.inFlight?.id == event.id else { return false }
+        state.inFlight = nil
+        guard delivered else {
+            states.removeValue(forKey: key)
+            return false
+        }
+        states[key] = state
+        return true
+    }
+
+    @discardableResult
+    func resume(connection: MobileHostConnection) -> Bool {
+        let key = ObjectIdentifier(connection)
+        lock.lock()
+        guard var state = states[key], state.isDiscontinuous else {
+            lock.unlock()
+            return false
+        }
+        state.pending.removeAll(keepingCapacity: false)
+        state.isDiscontinuous = false
+        if state.inFlight == nil {
+            states.removeValue(forKey: key)
+        } else {
+            states[key] = state
+        }
+        lock.unlock()
+        return true
+    }
+
+    func remove(connection: MobileHostConnection) {
+        let key = ObjectIdentifier(connection)
+        lock.lock()
+        states.removeValue(forKey: key)
+        lock.unlock()
+    }
+}
+
 private enum MobileHostPublicStatusCache {
     private static let lock = NSLock()
     private nonisolated(unsafe) static var routes: [CmxAttachRoute] = []
@@ -408,7 +656,7 @@ final class MobileHostService {
     /// restart. `nil` while stopped.
     private var appliedPreferredPort: Int?
     private var activeConnections: [UUID: MobileHostConnection] = [:]
-    private var clientIDsByConnectionID: [UUID: Set<String>] = [:]
+    private var connectionOwnership = MobileHostConnectionOwnership()
     private var lastErrorDescription: String?
     /// Watches for network path changes while the listener is bound, so the
     /// advertised route set (and the team device registry that
@@ -475,14 +723,11 @@ final class MobileHostService {
         #if DEBUG
         cmuxDebugLog("mobile.emit topic=\(topic) connections=\(connections.count)")
         #endif
-        for connection in connections {
-            Task {
-                let delivered = await connection.sendEvent(topic: topic, payload: payload)
-                #if DEBUG
-                cmuxDebugLog("mobile.emit -> connection delivered=\(delivered) topic=\(topic)")
-                #endif
-            }
-        }
+        MobileHostEventDeliveryQueue.shared.enqueue(
+            topic: topic,
+            payload: payload,
+            on: connections
+        )
     }
 
     nonisolated static func hasEventSubscribers(topic: String) -> Bool {
@@ -727,7 +972,8 @@ final class MobileHostService {
             Task { await connection.close(reason: "pairing port changed") }
         }
         activeConnections.removeAll()
-        clientIDsByConnectionID.removeAll()
+        connectionOwnership.reset()
+        TerminalController.shared.clearAllMobileViewportReports(reason: "mobile.host.portChanged")
 
         listener = candidate
         listenerGeneration = generation
@@ -860,7 +1106,7 @@ final class MobileHostService {
             Task { await connection.close(reason: "service stopped") }
         }
         activeConnections.removeAll()
-        clientIDsByConnectionID.removeAll()
+        connectionOwnership.reset()
         MobileHostEventSubscriptionTracker.reset()
         MobileHostPublicStatusCache.update(routes: [])
         TerminalController.shared.clearAllMobileViewportReports(reason: "mobile.host.stopped")
@@ -1048,10 +1294,10 @@ final class MobileHostService {
                     return await MobileHostService.shared.authorizationError(for: request)
                 },
                 onAuthorizedRequest: { request in
-                    guard let clientID = Self.clientID(from: request.params) else {
-                        return
-                    }
-                    await MobileHostService.shared.recordClientID(clientID, for: id)
+                    await MobileHostService.shared.recordRequestOwnership(
+                        params: request.params,
+                        for: id
+                    )
                 },
                 handleRequest: { request in
                     if request.method == "mobile.host.status" {
@@ -1162,9 +1408,10 @@ final class MobileHostService {
                 await MobileHostService.shared.authorizationError(for: request)
             },
             onAuthorizedRequest: { request in
-                if let clientID = Self.clientID(from: request.params) {
-                    await MobileHostService.shared.recordClientID(clientID, for: id)
-                }
+                await MobileHostService.shared.recordRequestOwnership(
+                    params: request.params,
+                    for: id
+                )
             },
             handleRequest: { request in
                 if request.method == "mobile.host.status" {
@@ -1219,29 +1466,12 @@ final class MobileHostService {
     private func removeConnection(id: UUID) {
         MobileHostConnectionRegistry.shared.remove(id: id)
         activeConnections.removeValue(forKey: id)
-        // Drop this connection's sticky viewport reports so a disconnected
-        // device stops pinning the shared grid (and its macOS viewport border
-        // clears) even though it never sent an explicit clear.
-        let clientIDs = clientIDsByConnectionID[id] ?? []
-        clientIDsByConnectionID.removeValue(forKey: id)
-        if !clientIDs.isEmpty {
-            TerminalController.shared.clearMobileViewportReports(
-                clientIDs: clientIDs,
-                reason: "mobile.connection.closed"
-            )
-        }
+        connectionOwnership.retireConnection(id)
         MobileHostRequestActivity.endConnection()
     }
 
-    private func recordClientID(_ clientID: String, for connectionID: UUID) {
-        var clientIDs = clientIDsByConnectionID[connectionID] ?? []
-        clientIDs.insert(clientID)
-        clientIDsByConnectionID[connectionID] = clientIDs
-    }
-
-    private nonisolated static func clientID(from params: [String: Any]) -> String? {
-        let trimmed = (params["client_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed?.isEmpty == false ? trimmed : nil
+    private func recordRequestOwnership(params: [String: Any], for connectionID: UUID) {
+        connectionOwnership.recordRequest(params: params, connectionID: connectionID)
     }
 
     func debugAuthorizationError(for request: MobileHostRPCRequest) async -> MobileHostRPCResult? {
@@ -1547,13 +1777,27 @@ extension MobileHostService {
         listenerUsesEphemeralFallback = false
         listenerPort = nil
         activeConnections.removeAll()
-        clientIDsByConnectionID.removeAll()
+        connectionOwnership.reset()
         MobileHostRequestActivity.resetForTesting()
         MobileHostEventSubscriptionTracker.resetForTesting()
     }
 
     func debugRecordClientIDForTesting(_ clientID: String, connectionID: UUID) {
-        recordClientID(clientID, for: connectionID)
+        connectionOwnership.recordClientID(clientID, connectionID: connectionID)
+    }
+
+    func debugRecordInteractionIdentityForTesting(
+        clientID: String,
+        sessionID: String,
+        connectionID: UUID
+    ) {
+        recordRequestOwnership(
+            params: [
+                "client_id": clientID,
+                "interaction_session_id": sessionID,
+            ],
+            for: connectionID
+        )
     }
 
     func debugRemoveConnectionForTesting(id: UUID) {
@@ -1561,7 +1805,7 @@ extension MobileHostService {
     }
 
     func debugTrackedClientIDsForTesting(connectionID: UUID) -> Set<String>? {
-        clientIDsByConnectionID[connectionID]
+        connectionOwnership.clientIDs(connectionID: connectionID)
     }
 
     func debugSetListenerStateForTesting(
@@ -1884,6 +2128,7 @@ actor MobileHostConnection {
             return
         }
         isClosed = true
+        MobileHostEventDeliveryQueue.shared.remove(connection: self)
         firstFrameTimeoutTask?.cancel()
         firstFrameTimeoutTask = nil
         idleTimeoutTask?.cancel()
@@ -2116,7 +2361,8 @@ actor MobileHostConnection {
             // it the registration had been lost (events emitted in the gap
             // were never delivered), so it requests a catch-up replay instead
             // of trusting delta continuity.
-            let alreadySubscribed = subscriptions[streamID] != nil
+            let recoveredDiscontinuity = MobileHostEventDeliveryQueue.shared.resume(connection: self)
+            let alreadySubscribed = subscriptions[streamID] != nil && !recoveredDiscontinuity
             subscribe(streamID: streamID, topics: topics)
             #if DEBUG
             cmuxDebugLog("mobile.subscribe streamID=\(streamID) topics=\(topics.sorted()) existing=\(alreadySubscribed) connID=\(self.id.uuidString)")
@@ -2210,6 +2456,15 @@ actor MobileHostConnection {
             "payload": payload,
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: envelope) else { return false }
+        return await sendResponse(data)
+    }
+
+    /// Writes an event envelope encoded by the bounded delivery queue.
+    func sendEncodedEvent(topic: String, data: Data, bypassSubscription: Bool) async -> Bool {
+        guard !isClosed else { return false }
+        // A subscription may change after encoding. Skipping an event with no
+        // current subscriber is successful queue progress, not transport loss.
+        guard bypassSubscription || isSubscribed(to: topic) else { return true }
         return await sendResponse(data)
     }
 

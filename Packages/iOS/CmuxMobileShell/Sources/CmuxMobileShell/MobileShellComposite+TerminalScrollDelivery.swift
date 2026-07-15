@@ -1,5 +1,7 @@
+public import CMUXMobileCore
 import CmuxMobileRPC
-import Foundation
+public import CmuxMobileShellModel
+public import Foundation
 import OSLog
 
 private let terminalScrollDeliveryLog = Logger(
@@ -8,100 +10,331 @@ private let terminalScrollDeliveryLog = Logger(
 )
 
 extension MobileShellComposite {
-    /// Forward a scroll gesture to the Mac's real surface. libghostty does the
-    /// mode-correct thing: normal screen moves the viewport into scrollback;
-    /// alt screen + mouse reporting encodes mouse-wheel to the PTY for the
-    /// program. The render-grid mirrors the result (it exports the live
-    /// `vp_top`).
-    ///
-    /// Fire-and-forget and single-flight per surface. Native iOS scrolling can
-    /// continue through deceleration after the finger lifts; while one RPC is
-    /// in flight, newer deltas are summed into the next request instead of
-    /// piling up stale scroll packets.
-    public func scrollTerminal(surfaceID: String, lines: Double, col: Int, row: Int) async {
-        var prefetchState = terminalScrollbackPrefetchStatesBySurfaceID[surfaceID]
-            ?? TerminalScrollbackPrefetchState()
-        let maxScrollbackRows = prefetchState.rowsToPrefetch(forScrollLines: lines)
-        terminalScrollbackPrefetchStatesBySurfaceID[surfaceID] = prefetchState
-        enqueueTerminalScroll(TerminalScrollDelivery(
+    func updateTerminalOrderedRunSupport() {
+        let supportsOrderedRuns = supportedHostCapabilities.contains(
+            MobileTerminalScrollRun.orderedRunsCapability
+        )
+        for session in terminalScrollSessionsBySurfaceID.values {
+            session.updateSupportsOrderedRemoteRuns(supportsOrderedRuns)
+        }
+    }
+
+    /// Mounts the single optimistic-scroll owner for a rendered surface. The
+    /// closures are the only bridge into the UIKit/Ghostty view; RPC ordering,
+    /// prefetch policy, input epochs, and authoritative reconciliation remain
+    /// owned by the session stored here.
+    @discardableResult
+    public func mountTerminalScrollSession(
+        surfaceID: String,
+        cancelLocal: @escaping @MainActor @Sendable () -> Void
+    ) -> UUID {
+        let epoch = advanceTerminalInteractionEpoch(surfaceID: surfaceID)
+        deferredTerminalRenderGridEventsBySurfaceID.removeValue(forKey: surfaceID)
+        if let existing = terminalScrollSessionsBySurfaceID.removeValue(forKey: surfaceID) {
+            existing.cancelForUnmount(nextEpoch: epoch)
+        }
+        let session = TerminalScrollSession(
             surfaceID: surfaceID,
+            interactionEpoch: epoch,
+            enqueueLocal: { [weak self] runs in
+                guard let self else {
+                    let receipt = TerminalSurfaceMutationReceipt()
+                    receipt.resolve(false)
+                    return receipt
+                }
+                return self.enqueueTerminalLocalScrollMutation(surfaceID: surfaceID, runs: runs)
+            },
+            enqueueBarrier: { [weak self] in
+                guard let self else {
+                    let receipt = TerminalSurfaceMutationReceipt()
+                    receipt.resolve(false)
+                    return receipt
+                }
+                return self.enqueueTerminalMutationBarrier(surfaceID: surfaceID)
+            },
+            enqueueScrollToBottom: { [weak self] in
+                guard let self else {
+                    let receipt = TerminalSurfaceMutationReceipt()
+                    receipt.resolve(false)
+                    return receipt
+                }
+                return self.enqueueTerminalScrollToBottomMutation(surfaceID: surfaceID)
+            },
+            cancelLocal: cancelLocal,
+            sendRemote: { [weak self] request in
+                await self?.performTerminalScroll(request)
+            },
+            sendClick: { [weak self] surfaceID, epoch, col, row in
+                await self?.performTerminalClick(
+                    surfaceID: surfaceID,
+                    interactionEpoch: epoch,
+                    col: col,
+                    row: row
+                ) ?? false
+            },
+            sendInput: { [weak self] surfaceID, epoch, input in
+                await self?.performTerminalInput(
+                    input,
+                    surfaceID: surfaceID,
+                    interactionEpoch: epoch
+                ) ?? false
+            },
+            inputBufferDidReject: { [weak self] pendingByteCount in
+                self?.handleTerminalInputBufferSaturation(
+                    pendingByteCount: pendingByteCount
+                )
+            },
+            supportsOrderedRemoteRuns: supportedHostCapabilities.contains(
+                MobileTerminalScrollRun.orderedRunsCapability
+            ),
+            prepareIntent: {},
+            prepareInput: { [weak self] in
+                self?.invalidateQueuedTerminalScrollReconciliations(surfaceID: surfaceID)
+            },
+            deliverAuthoritative: { [weak self] renderGrid, epoch, revision, followingRuns in
+                self?.deliverAuthoritativeTerminalRenderGrid(
+                    renderGrid.frame,
+                    expectedSurfaceID: surfaceID,
+                    source: "scroll_reconcile",
+                    preparedBytes: renderGrid.bytes,
+                    scrollReconciliation: TerminalScrollReconciliation(
+                        interactionEpoch: epoch,
+                        clientRevision: revision
+                    ),
+                    followingScrollRuns: followingRuns
+                ) ?? false
+            },
+            completeGridlessAuthoritative: { [weak self] revision in
+                self?.completeGridlessTerminalScrollReconciliation(
+                    surfaceID: surfaceID,
+                    renderRevision: revision
+                ) ?? false
+            },
+            reconciliationDidComplete: { [weak self] followingScrollRuns in
+                self?.flushDeferredTerminalRenderGridEvent(
+                    surfaceID: surfaceID,
+                    followingScrollRuns: followingScrollRuns
+                )
+            },
+            requestReplay: { [weak self] epoch in
+                self?.requestTerminalReplay(
+                    surfaceID: surfaceID,
+                    interactionEpoch: epoch
+                )
+            },
+            advanceEpoch: { [weak self] in
+                self?.advanceTerminalInteractionEpoch(surfaceID: surfaceID) ?? 0
+            },
+            advanceInputEpoch: { [weak self] submissionCount in
+                self?.advanceTerminalInteractionEpoch(
+                    surfaceID: surfaceID,
+                    by: submissionCount
+                ) ?? 0
+            }
+        )
+        terminalScrollSessionsBySurfaceID[surfaceID] = session
+        return session.token
+    }
+
+    /// Mounts interaction ownership before output registration triggers its
+    /// cold replay, so the first replay uses the session's scrollback window.
+    public func mountTerminalSurfaceOutput(
+        surfaceID: String,
+        cancelLocal: @escaping @MainActor @Sendable () -> Void
+    ) -> (
+        scrollSessionToken: UUID,
+        output: AsyncStream<MobileTerminalOutputChunk>
+    ) {
+        let scrollSessionToken = mountTerminalScrollSession(
+            surfaceID: surfaceID,
+            cancelLocal: cancelLocal
+        )
+        let output = terminalOutputStream(surfaceID: surfaceID)
+        return (scrollSessionToken, output)
+    }
+
+    public func unmountTerminalScrollSession(surfaceID: String, token: UUID) {
+        guard let session = terminalScrollSessionsBySurfaceID[surfaceID],
+              session.token == token else {
+            return
+        }
+        terminalScrollSessionsBySurfaceID.removeValue(forKey: surfaceID)
+        deferredTerminalRenderGridEventsBySurfaceID.removeValue(forKey: surfaceID)
+        session.cancelForUnmount(nextEpoch: advanceTerminalInteractionEpoch(surfaceID: surfaceID))
+    }
+
+    /// Submits one display-link-coalesced UIKit delta. This is synchronous on
+    /// the main actor so Task scheduling cannot reorder gesture intent before
+    /// the per-surface owner stamps it.
+    public func scrollTerminal(surfaceID: String, lines: Double, col: Int, row: Int) {
+        terminalScrollSessionsBySurfaceID[surfaceID]?.submit(
             lines: lines,
             col: col,
-            row: row,
-            maxScrollbackRows: maxScrollbackRows
-        ))
+            row: row
+        )
     }
 
-    private func enqueueTerminalScroll(_ delivery: TerminalScrollDelivery) {
-        guard delivery.lines != 0 else { return }
-        let queueToken = terminalScrollQueueTokensBySurfaceID[delivery.surfaceID] ?? UUID()
-        terminalScrollQueueTokensBySurfaceID[delivery.surfaceID] = queueToken
-        var queue = terminalScrollQueuesBySurfaceID[delivery.surfaceID] ?? TerminalScrollDeliveryQueue()
-        let immediate = queue.enqueue(delivery)
-        terminalScrollQueuesBySurfaceID[delivery.surfaceID] = queue
-        if let immediate {
-            sendTerminalScroll(immediate, queueToken: queueToken)
+    public func scrollTerminal(surfaceID: String, run: MobileTerminalScrollRun) {
+        terminalScrollSessionsBySurfaceID[surfaceID]?.submit(run)
+    }
+
+    public func terminalScrollInteractionDidBegin(surfaceID: String) {
+        terminalScrollSessionsBySurfaceID[surfaceID]?.interactionDidBegin()
+    }
+
+    public func terminalScrollInteractionDidEnd(surfaceID: String) {
+        terminalScrollSessionsBySurfaceID[surfaceID]?.interactionDidEnd()
+    }
+
+    /// A click is a viewport-relative terminal interaction, so it enters the
+    /// same per-surface owner as scroll rather than racing a separate RPC task.
+    public func clickTerminal(surfaceID: String, col: Int, row: Int) async {
+        terminalScrollSessionsBySurfaceID[surfaceID]?.submitClick(
+            col: col,
+            row: row
+        )
+    }
+
+    func submitTerminalInputIntent(
+        _ input: TerminalInputIntent,
+        surfaceID: String
+    ) async -> Bool {
+        if terminalScrollSessionsBySurfaceID[surfaceID] == nil {
+            _ = mountTerminalScrollSession(surfaceID: surfaceID, cancelLocal: {})
         }
+        guard let session = terminalScrollSessionsBySurfaceID[surfaceID] else { return false }
+        return await session.submitInput(input).value
     }
 
-    private func sendTerminalScroll(_ delivery: TerminalScrollDelivery, queueToken: UUID) {
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            await self.performTerminalScroll(delivery)
-            self.terminalScrollDidComplete(surfaceID: delivery.surfaceID, queueToken: queueToken)
+    @discardableResult
+    func invalidateTerminalScrollForRecovery(surfaceID: String) -> UInt64? {
+        deferredTerminalRenderGridEventsBySurfaceID.removeValue(forKey: surfaceID)
+        return terminalScrollSessionsBySurfaceID[surfaceID]?.invalidateForRecovery()
+    }
+
+    func currentTerminalInteractionEpoch(surfaceID: String) -> UInt64? {
+        terminalScrollSessionsBySurfaceID[surfaceID]?.interactionEpoch
+            ?? terminalInteractionEpochsBySurfaceID[surfaceID]
+    }
+
+    func advanceTerminalInteractionEpoch(surfaceID: String) -> UInt64 {
+        advanceTerminalInteractionEpoch(surfaceID: surfaceID, by: 1)
+    }
+
+    func advanceTerminalInteractionEpoch(surfaceID: String, by count: Int) -> UInt64 {
+        guard count > 0 else {
+            return terminalInteractionEpochsBySurfaceID[surfaceID] ?? 0
         }
-    }
-
-    func terminalScrollDidComplete(surfaceID: String, queueToken: UUID) {
-        guard terminalScrollQueueTokensBySurfaceID[surfaceID] == queueToken,
-              var queue = terminalScrollQueuesBySurfaceID[surfaceID] else { return }
-        let next = queue.completeInFlight()
-        terminalScrollQueuesBySurfaceID[surfaceID] = queue
-        if let next {
-            sendTerminalScroll(next, queueToken: queueToken)
+        var next = (terminalInteractionEpochsBySurfaceID[surfaceID] ?? 0) &+ 1
+        if next == 0 { next = 1 }
+        for _ in 1..<count {
+            next &+= 1
+            if next == 0 { next = 1 }
         }
+        terminalInteractionEpochsBySurfaceID[surfaceID] = next
+        return next
     }
 
-    private func performTerminalScroll(_ delivery: TerminalScrollDelivery) async {
+    private func performTerminalScroll(_ request: TerminalScrollRequest) async -> TerminalScrollResponse? {
         guard let client = remoteClient,
-              let workspaceID = workspaceID(forTerminalID: delivery.surfaceID) else {
-            return
+              let workspaceID = workspaceID(forTerminalID: request.surfaceID) else {
+            return nil
         }
         do {
             let remoteWorkspaceID = remoteWorkspaceID(for: workspaceID)
             var params: [String: Any] = [
                 "workspace_id": remoteWorkspaceID.rawValue,
-                "surface_id": delivery.surfaceID,
-                "client_id": clientID,
-                "delta_lines": delivery.lines,
-                "col": delivery.col,
-                "row": delivery.row,
+                "surface_id": request.surfaceID,
+                "client_scroll_revision": Int(clamping: request.clientRevision),
+                "col": request.col,
+                "row": request.row,
             ]
-            if let maxScrollbackRows = delivery.maxScrollbackRows {
-                params["max_scrollback_rows"] = maxScrollbackRows
+            appendTerminalInteractionIdentity(to: &params, epoch: request.interactionEpoch)
+            switch request.wireEncoding {
+            case .legacyScalar:
+                params["delta_lines"] = request.lines
+                if let primaryRows = request.primaryRows {
+                    params["primary_rows"] = primaryRows
+                }
+            case .orderedRuns:
+                params["delta_runs"] = request.directionalRuns.map { run in
+                    var object: [String: Any] = [
+                        "lines": run.lines,
+                        "col": run.col,
+                        "row": run.row,
+                    ]
+                    if let primaryRows = run.primaryRows {
+                        object["primary_rows"] = primaryRows
+                    }
+                    return object
+                }
             }
-            let request = try MobileCoreRPCClient.requestData(
-                method: "mobile.terminal.scroll",
-                params: params
+            if let window = request.prefetchWindow {
+                params["prefetch_before_rows"] = window.rowsBeforeViewport
+                params["prefetch_after_rows"] = window.rowsAfterViewport
+                // Compatibility with hosts predating bidirectional windows.
+                params["max_scrollback_rows"] = max(
+                    window.rowsBeforeViewport,
+                    window.rowsAfterViewport
+                )
+            }
+            let data = try await client.sendRequest(
+                MobileCoreRPCClient.requestData(
+                    method: "mobile.terminal.scroll",
+                    params: params
+                ),
+                timeoutNanoseconds: TerminalRPCDeadlinePolicy.scroll(
+                    prefetch: request.prefetchWindow != nil
+                ).timeoutNanoseconds
             )
-            let data = try await client.sendRequest(request)
-            guard let maxScrollbackRows = delivery.maxScrollbackRows,
-                  maxScrollbackRows > 0,
-                  remoteClient === client else {
-                return
-            }
-            guard let payload = try? MobileTerminalReplayResponse.decode(data),
-                  let renderGrid = payload.renderGrid,
-                  renderGrid.surfaceID == delivery.surfaceID else {
-                return
-            }
-            deliverAuthoritativeTerminalRenderGrid(
-                renderGrid,
-                expectedSurfaceID: delivery.surfaceID,
-                source: "scroll_prefetch"
+            guard remoteClient === client else { return nil }
+            let response = try await terminalRenderGridProcessor.processScrollResponse(
+                data: data,
+                fallbackInteractionEpoch: request.interactionEpoch,
+                fallbackClientRevision: request.clientRevision
             )
+            guard remoteClient === client else { return nil }
+            return response
         } catch {
-            terminalScrollDeliveryLog.error("scroll forward failed surface=\(delivery.surfaceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
+            terminalScrollDeliveryLog.error("scroll transaction failed surface=\(request.surfaceID, privacy: .public) epoch=\(request.interactionEpoch, privacy: .public) revision=\(request.clientRevision, privacy: .public) error=\(String(describing: error), privacy: .public)")
+            return nil
+        }
+    }
+
+    private func performTerminalClick(
+        surfaceID: String,
+        interactionEpoch: UInt64,
+        col: Int,
+        row: Int
+    ) async -> Bool {
+        guard let client = remoteClient,
+              let workspaceID = workspaceID(forTerminalID: surfaceID) else {
+            return false
+        }
+        do {
+            let remoteWorkspaceID = remoteWorkspaceID(for: workspaceID)
+            var params: [String: Any] = [
+                "workspace_id": remoteWorkspaceID.rawValue,
+                "surface_id": surfaceID,
+                "col": col,
+                "row": row,
+            ]
+            appendTerminalInteractionIdentity(to: &params, epoch: interactionEpoch)
+            let data = try await client.sendRequest(
+                MobileCoreRPCClient.requestData(
+                    method: "mobile.terminal.mouse",
+                    params: params
+                ),
+                timeoutNanoseconds: TerminalRPCDeadlinePolicy.interaction.timeoutNanoseconds
+            )
+            guard remoteClient === client,
+                  let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return false
+            }
+            return (object["accepted"] as? Bool) ?? true
+        } catch {
+            terminalScrollDeliveryLog.error("click transaction failed surface=\(surfaceID, privacy: .public) epoch=\(interactionEpoch, privacy: .public) error=\(String(describing: error), privacy: .public)")
+            return false
         }
     }
 }

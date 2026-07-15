@@ -10,6 +10,19 @@ public import Foundation
 /// internal) instead of `MobileShellComposite.swift` to respect that file's
 /// length budget.
 extension MobileShellComposite {
+    func claimTerminalReplayBarrierFollowUp(surfaceID: String) -> Bool {
+        let count = terminalReplayBarrierFollowUpCountsBySurfaceID[surfaceID] ?? 0
+        guard count < Self.maxTerminalReplayBarrierFollowUps else {
+            MobileDebugLog.anchormux(
+                "terminal.output.replay_followup_cap_reached surface=\(surfaceID) attempts=\(count)"
+            )
+            terminalReplayBarrierFollowUpCountsBySurfaceID.removeValue(forKey: surfaceID)
+            return false
+        }
+        terminalReplayBarrierFollowUpCountsBySurfaceID[surfaceID] = count + 1
+        return true
+    }
+
     func markTerminalBytesDelivered(
         surfaceID: String,
         endSeq: UInt64,
@@ -71,7 +84,7 @@ extension MobileShellComposite {
     ) -> UUID {
         cancelTerminalReplayInFlight(surfaceID: surfaceID)
         terminalColdReplayNeedsBarrierUpgradeSurfaceIDs.remove(surfaceID)
-        terminalOutputQueuesBySurfaceID[surfaceID] = TerminalOutputDeliveryQueue()
+        resetTerminalMutationQueue(surfaceID: surfaceID, preservingBarrierInteractions: true)
         terminalOutputStreamTokensBySurfaceID[surfaceID] = UUID()
         stashTerminalPreBarrierDeliveredEndSeq(surfaceID: surfaceID)
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
@@ -86,6 +99,7 @@ extension MobileShellComposite {
         let token = UUID()
         terminalReplayBarrierTokensBySurfaceID[surfaceID] = token
         terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
+        terminalReplayBarrierPendingPreparationAckTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierDroppedOutputSurfaceIDs.remove(surfaceID)
         terminalReplayBarrierDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
@@ -188,6 +202,7 @@ extension MobileShellComposite {
         terminalRenderGridBaselineReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierTokensInFlightBySurfaceID.removeValue(forKey: surfaceID)
         MobileDebugLog.anchormux("terminal.output.replay_barrier_cleared_\(reason) surface=\(surfaceID)")
+        releaseTerminalReplayBarrierInteractions(surfaceID: surfaceID)
         return true
     }
 
@@ -245,6 +260,7 @@ extension MobileShellComposite {
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
         MobileDebugLog.anchormux("terminal.output.replay_barrier_fail_open surface=\(surfaceID) reason=\(reason)")
+        releaseTerminalReplayBarrierInteractions(surfaceID: surfaceID)
         return true
     }
 

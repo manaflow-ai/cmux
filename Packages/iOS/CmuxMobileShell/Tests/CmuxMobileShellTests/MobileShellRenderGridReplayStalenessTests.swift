@@ -12,6 +12,48 @@ import Testing
 // Shared fixtures live in MobileShellRenderGridLivenessTestSupport.swift.
 
 @MainActor
+@Test func heldRevisionlessReplayCannotCrossNewerLiveSequenceFloor() async throws {
+    let store = MobileShellComposite.preview()
+    store.terminalOutputTransport = .renderGrid
+    let surfaceID = "revisionless-replay-terminal"
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+
+    let heldReplay = try MobileTerminalRenderGridFrame(
+        surfaceID: surfaceID,
+        stateSeq: 5,
+        columns: 24,
+        rows: 4,
+        full: true,
+        rowSpans: [
+            .init(row: 0, column: 0, text: "held-old-replay"),
+        ]
+    )
+    let newerLive = try MobileTerminalRenderGridFrame(
+        surfaceID: surfaceID,
+        stateSeq: 6,
+        columns: 24,
+        rows: 4,
+        full: true,
+        rowSpans: [
+            .init(row: 0, column: 0, text: "newer-live-output"),
+        ]
+    )
+
+    #expect(heldReplay.renderRevision == nil)
+    #expect(store.deliverAuthoritativeTerminalRenderGrid(newerLive, source: "event"))
+    let liveChunk = try #require(await iterator.next())
+    #expect(String(decoding: liveChunk.data, as: UTF8.self).contains("newer-live-output"))
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: liveChunk.streamToken)
+
+    let staleReplayAccepted = store.deliverAuthoritativeTerminalRenderGrid(
+        heldReplay,
+        source: "replay"
+    )
+    #expect(staleReplayAccepted == false)
+    #expect(store.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == 6)
+}
+
+@MainActor
 @Test func renderGridReplayAtSameSeqDoesNotOverwriteNewerLiveGrid() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()
@@ -423,62 +465,6 @@ import Testing
     #expect(
         replayRequested,
         "hybrid primary output is advanced by terminal.bytes, so input recovery must request replay instead of waiting on advisory render-grid frames"
-    )
-    collector.unmount()
-}
-
-@MainActor
-@Test func livenessRepairDeliversSameSeqReplayAfterExistingFullGrid() async throws {
-    let clock = TestClock()
-    let router = LivenessHostRouter()
-    await router.setCapabilities(["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"])
-    let box = TransportBox()
-    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
-
-    let sawSubscribe = try await pollUntil { await router.count(of: "mobile.events.subscribe") >= 1 }
-    #expect(sawSubscribe, "listener must establish the push subscription")
-
-    let collector = OutputCollector()
-    collector.mount(store: store, surfaceID: "live-terminal")
-    let sawMountReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
-    #expect(sawMountReplay, "mounting a sink arms the cold-attach replay")
-    let mountReplayCompleted = try await pollUntil { await router.replayResponsesServed() >= 1 }
-    #expect(mountReplayCompleted, "the cold replay response must complete before scripting the repair replay")
-    let transport = try #require(box.get())
-
-    await transport.deliver(try renderGridEventFrame(surfaceID: "live-terminal", seq: 5, text: "stale-grid"))
-    let staleGridDelivered = try await pollUntil {
-        collector.lines.contains { $0.contains("stale-grid") }
-    }
-    #expect(staleGridDelivered, "the pre-gap full render grid must establish the local delivered seq")
-
-    await router.dropSubscription()
-    await router.enqueueReplayRenderGridFrames([
-        try MobileTerminalRenderGridFrame(
-            surfaceID: "live-terminal",
-            stateSeq: 5,
-            columns: 16,
-            rows: 4,
-            full: true,
-            rowSpans: [
-                .init(row: 0, column: 0, text: "fresh-grid"),
-            ]
-        ),
-    ])
-    let replayCountBeforeRepair = await router.count(of: "mobile.terminal.replay")
-    clock.advance(by: 10)
-    store.debugRunRenderGridLivenessCheckForTesting()
-
-    let replayRequested = try await pollUntil {
-        await router.count(of: "mobile.terminal.replay") > replayCountBeforeRepair
-    }
-    #expect(replayRequested, "repairing a lost subscription must request a catch-up replay")
-    let freshGridDelivered = try await pollUntil {
-        collector.lines.contains { $0.contains("fresh-grid") }
-    }
-    #expect(
-        freshGridDelivered,
-        "a same-sequence recovery replay requested after an existing full grid must still repaint"
     )
     collector.unmount()
 }

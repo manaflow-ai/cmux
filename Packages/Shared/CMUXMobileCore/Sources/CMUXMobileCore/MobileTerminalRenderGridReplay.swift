@@ -78,12 +78,7 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         // snapshot) it leaves a nil cursor untouched instead of forcing it
         // visible.
         if let cursor = frame.cursor {
-            bytes.append(cursorStyleBytes(for: cursor))
-            if cursor.visible {
-                bytes.append(Data("\u{1B}[?25h\u{1B}[\(cursor.row + 1);\(cursor.column + 1)H".utf8))
-            } else {
-                bytes.append(Data("\u{1B}[?25l\u{1B}[\(cursor.row + 1);\(cursor.column + 1)H".utf8))
-            }
+            appendCursorRestore(cursor, to: &bytes)
         }
         return bytes
     }
@@ -173,8 +168,11 @@ public struct MobileTerminalRenderGridReplay: Sendable {
                 terminateLast: false
             )
         } else {
-            // Primary: scrollback then the viewport as one continuous flow so
-            // the scrollback naturally lands in the client's history.
+            // Primary: older history, the viewport, prefetched newer history,
+            // then the missing active-screen suffix as one continuous flow.
+            // The surface host scrolls back up by both trailing row counts,
+            // restoring the captured viewport while the terminal's active
+            // bottom remains aligned for subsequent PTY bytes.
             let offsetViewportSpans = frame.rowSpans.map { span in
                 MobileTerminalRenderGridFrame.RowSpan(
                     row: span.row + frame.scrollbackRows,
@@ -184,10 +182,32 @@ public struct MobileTerminalRenderGridReplay: Sendable {
                     cellWidth: span.cellWidth
                 )
             }
+            let scrollForwardOffset = frame.scrollbackRows + frame.rows
+            let offsetScrollForwardSpans = frame.scrollForwardSpans.map { span in
+                MobileTerminalRenderGridFrame.RowSpan(
+                    row: span.row + scrollForwardOffset,
+                    column: span.column,
+                    styleID: span.styleID,
+                    text: span.text,
+                    cellWidth: span.cellWidth
+                )
+            }
+            let primaryActiveOffset = scrollForwardOffset + frame.scrollForwardRows
+            let offsetPrimaryActiveSpans = frame.primaryActiveSpans.map { span in
+                MobileTerminalRenderGridFrame.RowSpan(
+                    row: span.row + primaryActiveOffset,
+                    column: span.column,
+                    styleID: span.styleID,
+                    text: span.text,
+                    cellWidth: span.cellWidth
+                )
+            }
             appendFlowLines(
                 &bytes,
-                spans: frame.scrollbackSpans + offsetViewportSpans,
-                lineCount: frame.scrollbackRows + frame.rows,
+                spans: frame.scrollbackSpans + offsetViewportSpans
+                    + offsetScrollForwardSpans + offsetPrimaryActiveSpans,
+                lineCount: frame.scrollbackRows + frame.rows
+                    + frame.scrollForwardRows + frame.primaryActiveRows,
                 stylesByID: stylesByID,
                 defaultStyle: defaultStyle,
                 terminateLast: false
@@ -409,22 +429,7 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         }
     }
 
-    private func appendCursorRestore(_ bytes: inout Data) {
-        let defaultStyle = styleMapByID(frame.styles)[0] ?? .default
-        bytes.append(sgrBytes(for: defaultStyle))
-        guard let cursor = frame.cursor else {
-            bytes.append(Data("\u{1B}[?25h".utf8))
-            return
-        }
-        bytes.append(cursorStyleBytes(for: cursor))
-        if cursor.visible {
-            bytes.append(Data("\u{1B}[?25h\u{1B}[\(cursor.row + 1);\(cursor.column + 1)H".utf8))
-        } else {
-            bytes.append(Data("\u{1B}[?25l\u{1B}[\(cursor.row + 1);\(cursor.column + 1)H".utf8))
-        }
-    }
-
-    private func styleMapByID(
+    func styleMapByID(
         _ styles: [MobileTerminalRenderGridFrame.Style]
     ) -> [Int: MobileTerminalRenderGridFrame.Style] {
         var map: [Int: MobileTerminalRenderGridFrame.Style] = [:]
@@ -496,7 +501,7 @@ public struct MobileTerminalRenderGridReplay: Sendable {
         }
     }
 
-    private func sgrBytes(for style: MobileTerminalRenderGridFrame.Style) -> Data {
+    func sgrBytes(for style: MobileTerminalRenderGridFrame.Style) -> Data {
         var codes = ["0"]
         if style.bold { codes.append("1") }
         if style.faint { codes.append("2") }
@@ -514,19 +519,6 @@ public struct MobileTerminalRenderGridReplay: Sendable {
             codes.append("48;2;\(background.red);\(background.green);\(background.blue)")
         }
         return Data("\u{1B}[\(codes.joined(separator: ";"))m".utf8)
-    }
-
-    private func cursorStyleBytes(for cursor: MobileTerminalRenderGridFrame.Cursor) -> Data {
-        let parameter: Int
-        switch cursor.style {
-        case .block, .blockHollow:
-            parameter = cursor.blinking ? 1 : 2
-        case .underline:
-            parameter = cursor.blinking ? 3 : 4
-        case .bar:
-            parameter = cursor.blinking ? 5 : 6
-        }
-        return Data("\u{1B}[\(parameter) q".utf8)
     }
 
     private func rgbComponents(_ value: String?) -> (red: Int, green: Int, blue: Int)? {

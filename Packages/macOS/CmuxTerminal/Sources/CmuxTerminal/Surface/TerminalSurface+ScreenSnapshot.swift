@@ -17,12 +17,13 @@ extension TerminalSurface {
               let surface = liveSurfaceForGhosttyAccess(reason: "boundedScreenTailVT") else {
             return nil
         }
-        return await runtimeTeardown.readScreenTailVT(
+        let pendingRead = runtimeTeardown.enqueueScreenTailVTRead(
             TerminalSurfaceRuntimeScreenTailRequest(
                 surface: surface,
                 maxRows: maxRows,
                 maxBytes: maxBytes
             )
         )
+        return await pendingRead.value()
     }
 }

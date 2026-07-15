@@ -12,10 +12,15 @@ extension TerminalSurface {
     /// the alt-screen wheel reports at the right cell. Runs on the main actor
     /// like the desktop's own scroll path.
     @MainActor
-    public func mobileScroll(deltaLines: Double, col: Int, row: Int) {
-        guard deltaLines != 0 else { return }
+    public func mobileScroll(
+        primaryRows: Int? = nil,
+        deltaLines: Double,
+        col: Int,
+        row: Int
+    ) -> Bool {
+        guard (primaryRows.map { $0 != 0 } ?? false) || deltaLines != 0 else { return true }
         didReceiveExplicitInput()
-        guard let surface = liveSurfaceForGhosttyAccess(reason: "mobileScroll") else { return }
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "mobileScroll") else { return false }
         let size = ghostty_surface_size(surface)
         // The surface is sized in backing pixels; `ghostty_surface_mouse_pos`
         // wants points, so divide the cell size by the content scale.
@@ -25,7 +30,18 @@ extension TerminalSurface {
         let posX = (Double(col) + 0.5) * cellWidthPt
         let posY = (Double(row) + 0.5) * cellHeightPt
         ghostty_surface_mouse_pos(surface, posX, posY, GHOSTTY_MODS_NONE)
-        ghostty_surface_mouse_scroll(surface, 0, deltaLines, 0)
+        if let primaryRows {
+            ghostty_surface_mouse_scroll_with_viewport_rows(
+                surface,
+                0,
+                deltaLines,
+                Int32(clamping: primaryRows),
+                0
+            )
+        } else {
+            ghostty_surface_mouse_scroll(surface, 0, deltaLines, 0)
+        }
+        return true
     }
 
     /// Forward a mobile tap to this real surface as a left mouse click at the
@@ -35,9 +51,9 @@ extension TerminalSurface {
     /// which is harmless. `col`/`row` is the grid cell under the finger. Runs on
     /// the main actor like the desktop's own click path.
     @MainActor
-    public func mobileClick(col: Int, row: Int) {
+    public func mobileClick(col: Int, row: Int) -> Bool {
         didReceiveExplicitInput()
-        guard let surface = liveSurfaceForGhosttyAccess(reason: "mobileClick") else { return }
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "mobileClick") else { return false }
         let size = ghostty_surface_size(surface)
         // The surface is sized in backing pixels; `ghostty_surface_mouse_pos`
         // wants points, so divide the cell size by the content scale. Aim at the
@@ -50,6 +66,7 @@ extension TerminalSurface {
         ghostty_surface_mouse_pos(surface, posX, posY, GHOSTTY_MODS_NONE)
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, GHOSTTY_MODS_NONE)
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, GHOSTTY_MODS_NONE)
+        return true
     }
 
     /// Exports the surface grid as a mobile render frame (optionally filtered
@@ -59,36 +76,24 @@ extension TerminalSurface {
         stateSeq: UInt64,
         full: Bool = true,
         changedRows: Set<Int>? = nil,
-        scrollbackLines: Int = 0
-    ) -> (frame: MobileTerminalRenderGridFrame, rows: [String])? {
+        scrollbackLines: Int = 0,
+        scrollForwardLines: Int = 0
+    ) async -> (frame: MobileTerminalRenderGridFrame, rows: [String])? {
         guard let surface = liveSurfaceForGhosttyAccess(reason: "mobileRenderGrid") else { return nil }
         let surfaceID = id.uuidString
-        let exported = surfaceID.withCString { ptr in
-            ghostty_surface_render_grid_json(
-                surface,
-                ptr,
-                UInt(surfaceID.utf8.count),
-                stateSeq,
-                UInt(max(0, scrollbackLines))
+        let pendingRead = runtimeTeardown.enqueueRenderGridRead(
+            TerminalSurfaceRuntimeRenderGridRequest(
+                surface: surface,
+                surfaceID: surfaceID,
+                stateSeq: stateSeq,
+                full: full,
+                changedRows: changedRows,
+                scrollbackLines: scrollbackLines,
+                scrollForwardLines: scrollForwardLines
             )
-        }
-        defer { ghostty_string_free(exported) }
-        guard let ptr = exported.ptr, exported.len > 0 else { return nil }
-
-        let data = Data(bytes: ptr, count: Int(exported.len))
-        guard let fullFrame = try? JSONDecoder().decode(MobileTerminalRenderGridFrame.self, from: data) else {
-            return nil
-        }
-        let frame: MobileTerminalRenderGridFrame
-        if full, changedRows == nil {
-            frame = fullFrame
-        } else {
-            let includedRows = changedRows ?? Set(0..<fullFrame.rows)
-            guard let filtered = try? fullFrame.filteredRows(includedRows, full: full) else {
-                return nil
-            }
-            frame = filtered
-        }
-        return (frame, frame.plainRows())
+        )
+        let result = await pendingRead.value()
+        guard self.surface == surface, hasLiveSurface else { return nil }
+        return result
     }
 }

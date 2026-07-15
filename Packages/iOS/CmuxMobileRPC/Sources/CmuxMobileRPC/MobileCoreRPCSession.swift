@@ -1,6 +1,48 @@
 internal import CMUXMobileCore
 import Foundation
 
+private final class MobileEventRetentionBudget: @unchecked Sendable {
+    private let lock = NSLock()
+    private let maximumCount: Int
+    private let maximumRenderGridCount: Int
+    private let maximumBytes: Int
+    private var retainedCount = 0
+    private var retainedRenderGridCount = 0
+    private var retainedBytes = 0
+
+    init(maximumCount: Int, maximumRenderGridCount: Int, maximumBytes: Int) {
+        self.maximumCount = maximumCount
+        self.maximumRenderGridCount = maximumRenderGridCount
+        self.maximumBytes = maximumBytes
+    }
+
+    func acquire(topic: String, byteCount: Int) -> MobileEventRetentionLease? {
+        let isRenderGrid = topic == "terminal.render_grid"
+        lock.lock()
+        guard retainedCount < maximumCount,
+              !isRenderGrid || retainedRenderGridCount < maximumRenderGridCount,
+              byteCount <= maximumBytes - retainedBytes else {
+            lock.unlock()
+            return nil
+        }
+        retainedCount += 1
+        if isRenderGrid { retainedRenderGridCount += 1 }
+        retainedBytes += byteCount
+        lock.unlock()
+        return MobileEventRetentionLease { [weak self] in
+            self?.release(isRenderGrid: isRenderGrid, byteCount: byteCount)
+        }
+    }
+
+    private func release(isRenderGrid: Bool, byteCount: Int) {
+        lock.lock()
+        retainedCount -= 1
+        if isRenderGrid { retainedRenderGridCount -= 1 }
+        retainedBytes -= byteCount
+        lock.unlock()
+    }
+}
+
 actor MobileCoreRPCSession {
     typealias TransportFactory = @Sendable () throws -> any CmxByteTransport
     typealias ConnectedCandidateHook = @Sendable (_ candidate: any CmxByteTransport) async -> Void
@@ -8,15 +50,22 @@ actor MobileCoreRPCSession {
     typealias ConnectingTask = (id: UUID, lease: MobileRPCConnectAttemptLease?, task: Task<any CmxByteTransport, any Error>, waiters: Set<UUID>, completed: Bool)
     static let defaultAbandonedConnectCleanupTimeoutNanoseconds: UInt64 = 1_000_000_000
     static let defaultLateAbandonedConnectCloseTimeoutNanoseconds: UInt64 = 5_000_000_000
+    /// Retained payloads are bounded by bytes, while a separate render-grid cap
+    /// keeps large dependent frames to at most three including active work.
+    static let maximumRetainedEventCount = 64
+    static let maximumRetainedRenderGridEventCount = 3
+    static let maximumRetainedEventByteCount = 16 * 1_024 * 1_024
 
     struct EventSubscription {
         let id: UUID
-        let stream: AsyncStream<MobileEventEnvelope>
+        let stream: MobileEventStream
     }
 
     private struct EventListener {
         let topics: Set<String>
         let continuation: AsyncStream<MobileEventEnvelope>.Continuation
+        let terminationState: MobileEventStreamTerminationState
+        let retentionBudget: MobileEventRetentionBudget
     }
 
     private struct PendingWrite: Sendable {
@@ -124,11 +173,25 @@ actor MobileCoreRPCSession {
     func addEventListener(topics: Set<String>) -> EventSubscription {
         let id = UUID()
         var continuation: AsyncStream<MobileEventEnvelope>.Continuation!
-        let stream = AsyncStream<MobileEventEnvelope>(bufferingPolicy: .bufferingNewest(256)) { cont in
+        let base = AsyncStream<MobileEventEnvelope> { cont in
             continuation = cont
         }
-        listeners[id] = EventListener(topics: topics, continuation: continuation)
-        continuation.onTermination = { [weak self] _ in
+        let terminationState = MobileEventStreamTerminationState()
+        let stream = MobileEventStream(base: base, terminationState: terminationState)
+        listeners[id] = EventListener(
+            topics: topics,
+            continuation: continuation,
+            terminationState: terminationState,
+            retentionBudget: MobileEventRetentionBudget(
+                maximumCount: Self.maximumRetainedEventCount,
+                maximumRenderGridCount: Self.maximumRetainedRenderGridEventCount,
+                maximumBytes: Self.maximumRetainedEventByteCount
+            )
+        )
+        continuation.onTermination = { [weak self, terminationState] termination in
+            if case .cancelled = termination {
+                terminationState.finish(.cancelled)
+            }
             guard let self else { return }
             Task { await self.removeListener(id: id) }
         }
@@ -140,6 +203,10 @@ actor MobileCoreRPCSession {
     }
 
     func connectWaiterCountForTesting() -> Int { connectionTask?.waiters.count ?? 0 }
+
+    func dispatchFrameForTesting(_ frame: Data) async -> Bool {
+        await dispatch(frame: frame)
+    }
 
     func tearDown(error: MobileShellConnectionError) async {
         guard !isTearingDown else { return }
@@ -159,6 +226,7 @@ actor MobileCoreRPCSession {
         let listenerSnapshot = listeners
         listeners.removeAll()
         for (_, listener) in listenerSnapshot {
+            listener.terminationState.finish(.transportClosed)
             listener.continuation.finish()
         }
         writeQueue?.finish()
@@ -412,31 +480,54 @@ actor MobileCoreRPCSession {
                 return
             }
             for frame in frames {
-                dispatch(frame: frame)
+                guard await dispatch(frame: frame) else { return }
             }
         }
     }
 
-    private func dispatch(frame: Data) {
+    /// Returns `false` only when the transport reader itself must stop. Listener
+    /// overflow ends that subscription independently so unrelated RPCs and
+    /// event consumers stay connected.
+    private func dispatch(frame: Data) async -> Bool {
         let parsed = try? JSONSerialization.jsonObject(with: frame) as? [String: Any]
-        guard let envelope = parsed else { return }
+        guard let envelope = parsed else { return true }
         if (envelope["kind"] as? String) == "event" {
-            guard let topic = envelope["topic"] as? String else { return }
-            let payloadData: Data?
-            if let payload = envelope["payload"] {
-                payloadData = try? JSONSerialization.data(withJSONObject: payload)
-            } else {
-                payloadData = nil
+            guard let topic = envelope["topic"] as? String else { return true }
+            if topic == "mobile.events.discontinuity" {
+                let listenerSnapshot = listeners
+                listeners.removeAll()
+                for (_, listener) in listenerSnapshot {
+                    listener.terminationState.finish(.bufferOverflow)
+                    listener.continuation.finish()
+                }
+                return true
             }
-            let streamID = envelope["stream_id"] as? String
-            let event = MobileEventEnvelope(topic: topic, payloadJSON: payloadData, streamID: streamID)
-            for (_, listener) in listeners where listener.topics.contains(topic) {
-                listener.continuation.yield(event)
+            let event = MobileEventEnvelope.parsing(
+                topic: topic,
+                payload: envelope["payload"],
+                streamID: envelope["stream_id"] as? String
+            )
+            let retainedByteCount = (event.payloadJSON?.count ?? 0) + topic.utf8.count
+            let matchingListenerIDs = listeners.compactMap { id, listener in
+                listener.topics.contains(topic) ? id : nil
             }
-            return
+            for id in matchingListenerIDs {
+                guard let listener = listeners[id] else { continue }
+                guard let lease = listener.retentionBudget.acquire(
+                    topic: topic,
+                    byteCount: retainedByteCount
+                ) else {
+                    listeners.removeValue(forKey: id)
+                    listener.terminationState.finish(.bufferOverflow)
+                    listener.continuation.finish()
+                    continue
+                }
+                _ = listener.continuation.yield(event.retaining(lease))
+            }
+            return true
         }
-        guard let id = envelope["id"] as? String else { return }
-        guard let cont = pending.removeValue(forKey: id) else { return }
+        guard let id = envelope["id"] as? String else { return true }
+        guard let cont = pending.removeValue(forKey: id) else { return true }
         requestTimeoutTasks.removeValue(forKey: id)?.cancel()
         if (envelope["ok"] as? Bool) == true {
             let result = envelope["result"] ?? [:]
@@ -445,7 +536,7 @@ actor MobileCoreRPCSession {
             } else {
                 cont.resume(returning: .failure(.invalidResponse))
             }
-            return
+            return true
         }
         let errorPayload = envelope["error"] as? [String: Any]
         let message = (errorPayload?["message"] as? String) ?? "RPC error"
@@ -461,6 +552,7 @@ actor MobileCoreRPCSession {
         default:
             cont.resume(returning: .failure(.rpcError(code, message)))
         }
+        return true
     }
 
     private func failPending(requestID: String, error: MobileShellConnectionError) {

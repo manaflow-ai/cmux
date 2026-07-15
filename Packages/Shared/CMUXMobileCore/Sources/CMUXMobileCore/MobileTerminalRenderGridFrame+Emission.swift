@@ -8,6 +8,7 @@ extension MobileTerminalRenderGridFrame {
             columns: columns,
             rows: rows,
             stateSeq: stateSeq,
+            renderRevision: renderRevision,
             activeScreen: activeScreen,
             rowSignatures: rowSignatures()
         )
@@ -32,6 +33,7 @@ extension MobileTerminalRenderGridFrame {
             columns: columns,
             rows: rows,
             stateSeq: stateSeq,
+            renderRevision: renderRevision,
             activeScreen: activeScreen,
             rowSignatures: nextSignatures
         )
@@ -63,7 +65,8 @@ extension MobileTerminalRenderGridFrame {
             return (self, nextState)
         }
 
-        let deltaFrame = try filteredRows(changedRows, full: false)
+        var deltaFrame = try filteredRows(changedRows, full: false)
+        deltaFrame.baseRenderRevision = previous.renderRevision
         return (deltaFrame, nextState)
     }
 }

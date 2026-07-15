@@ -4,6 +4,7 @@ import Foundation
 import Testing
 import UIKit
 
+@testable import CmuxMobileShell
 @testable import CmuxMobileTerminal
 
 /// Regression coverage for optimistic bottom-follow on user input.
@@ -12,9 +13,8 @@ import UIKit
 /// and the echo comes back in the output stream. If the user has scrolled up
 /// into local scrollback and then types, the Mac updates at the prompt but the
 /// phone keeps showing old scrollback, so the terminal reads as frozen. The
-/// fix snaps the local viewport to the bottom on every user-produced input
-/// (typing, backspace, escape sequences, paste) via the serial surface queue,
-/// while passive output never forces that jump.
+/// The shell admits one bottom mutation for each scroll episode and the mounted
+/// surface consumes that mutation through the same serial stream as output.
 ///
 /// These tests mount a real `GhosttySurfaceView` + libghostty surface in the
 /// scene-less xctest host (bare `UIWindow`, render dispatch skipped because a
@@ -25,8 +25,15 @@ import UIKit
 struct TerminalInputScrollToBottomTests {
     private final class InputCollectingDelegate: NSObject, GhosttySurfaceViewDelegate {
         private(set) var produced: [Data] = []
+        private let onInput: @MainActor (Data) -> Void
+
+        init(onInput: @escaping @MainActor (Data) -> Void) {
+            self.onInput = onInput
+        }
+
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didProduceInput data: Data) {
             produced.append(data)
+            onInput(data)
         }
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize, reportID: UInt64) {}
     }
@@ -35,11 +42,18 @@ struct TerminalInputScrollToBottomTests {
         let window: UIWindow
         let view: GhosttySurfaceView
         let delegate: InputCollectingDelegate
+        let store: MobileShellComposite
+        let scrollSessionToken: UUID
+        let outputTask: Task<Void, Never>
     }
 
     private func makeHarness() throws -> Harness {
         let runtime = try GhosttyRuntime.shared()
-        let delegate = InputCollectingDelegate()
+        let store = MobileShellComposite.preview()
+        let surfaceID = "input-scroll-to-bottom"
+        let delegate = InputCollectingDelegate { [weak store] _ in
+            _ = store?.terminalScrollSessionsBySurfaceID[surfaceID]?.submitInput(.fence)
+        }
         let view = GhosttySurfaceView(runtime: runtime, delegate: delegate, fontSize: 10)
         // The xctest host has no window scene, so a Metal present can never
         // complete here; suppress render dispatch so the render-stall recovery
@@ -49,7 +63,57 @@ struct TerminalInputScrollToBottomTests {
         window.addSubview(view)
         view.frame = window.bounds
         window.isHidden = false
-        return Harness(window: window, view: view, delegate: delegate)
+        let mount = store.mountTerminalSurfaceOutput(
+            surfaceID: surfaceID,
+            cancelLocal: { [weak view] in view?.cancelScrollMomentum() }
+        )
+        let outputTask = Task { @MainActor [weak view, weak store] in
+            guard let view, let store else { return }
+            for await chunk in mount.output {
+                guard store.terminalOutputWillProcess(
+                    surfaceID: surfaceID,
+                    streamToken: chunk.streamToken,
+                    deliveryID: chunk.deliveryID
+                ) else { continue }
+                let applied: Bool
+                switch chunk.mutation {
+                case .output(let operation):
+                    if operation.data.isEmpty {
+                        applied = true
+                    } else {
+                        applied = await view.processOutputAndWait(operation.data)
+                    }
+                case .localScroll(let runs):
+                    applied = await view.applyLocalScrollbackScrollAndWait(runs)
+                case .scrollToBottom:
+                    applied = await view.scrollToBottomAndWait()
+                case .barrier:
+                    applied = true
+                }
+                if applied {
+                    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: chunk.streamToken)
+                } else {
+                    store.terminalOutputDidReset(surfaceID: surfaceID, streamToken: chunk.streamToken)
+                }
+            }
+        }
+        return Harness(
+            window: window,
+            view: view,
+            delegate: delegate,
+            store: store,
+            scrollSessionToken: mount.scrollSessionToken,
+            outputTask: outputTask
+        )
+    }
+
+    private func dismantle(_ harness: Harness) {
+        harness.outputTask.cancel()
+        harness.store.unmountTerminalScrollSession(
+            surfaceID: "input-scroll-to-bottom",
+            token: harness.scrollSessionToken
+        )
+        harness.view.prepareForDismantle()
     }
 
     /// Awaiting (not run-loop pumping) lets the main queue drain so the
@@ -83,7 +147,7 @@ struct TerminalInputScrollToBottomTests {
         #expect(await waitUntil { viewportText(view).contains(lastLineMarker) },
                 "seeded output should land with the viewport at the bottom")
 
-        view.applyLocalScrollbackScroll(lines: 120, col: 2, row: 2)
+        _ = await view.applyLocalScrollbackScrollAndWait(lines: 120, col: 2, row: 2)
         #expect(await waitUntil { !viewportText(view).contains(lastLineMarker) },
                 "scrolling up should move the last line out of the viewport")
         return lastLineMarker
@@ -92,7 +156,7 @@ struct TerminalInputScrollToBottomTests {
     @Test("typing while scrolled up snaps the viewport back to the bottom")
     func typedInputSnapsToBottom() async throws {
         let harness = try makeHarness()
-        defer { harness.view.prepareForDismantle() }
+        defer { dismantle(harness) }
         let marker = try await seedAndScrollUp(harness.view)
 
         harness.view.simulateInputProxyTextChangeForTesting("l", isComposing: false)
@@ -106,7 +170,7 @@ struct TerminalInputScrollToBottomTests {
     @Test("passive output while scrolled up does not force the viewport down")
     func passiveOutputDoesNotFollow() async throws {
         let harness = try makeHarness()
-        defer { harness.view.prepareForDismantle() }
+        defer { dismantle(harness) }
         let marker = try await seedAndScrollUp(harness.view)
 
         _ = await harness.view.processOutputAndWait(Data("passive-tail 1\r\npassive-tail 2\r\n".utf8))

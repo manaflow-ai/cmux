@@ -35,7 +35,8 @@ struct ControlCommandExecutionPolicyTests {
             "workspace.remote.pty_bridge", "workspace.env", "sidebar.custom.reload",
             "sidebar.custom.open",
             "debug.sidebar.simulate_drag", "mobile.attach_ticket.create",
-            "mobile.terminal.set_font",
+            "mobile.terminal.set_font", "mobile.terminal.replay",
+            "mobile.terminal.scroll", "terminal.replay", "terminal.scroll",
             // JavaScript-evaluating browser methods block on page JS and must
             // not hold the main actor (see socketWorkerMethods rationale).
             "browser.eval", "browser.wait", "browser.snapshot", "browser.click",

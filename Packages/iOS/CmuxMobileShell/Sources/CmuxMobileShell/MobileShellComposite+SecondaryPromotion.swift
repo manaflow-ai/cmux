@@ -67,6 +67,7 @@ extension MobileShellComposite {
         replaceRemoteClient(with: sub.client)
         foregroundMacDeviceID = macID
         supportedHostCapabilities = sub.supportedHostCapabilities
+        updateTerminalOrderedRunSupport()
         // Promotion reuses the live client without a fresh `mobile.host.status`
         // probe, so the previous foreground Mac's update hint would otherwise
         // survive the switch. Recompute against this Mac's capabilities; the

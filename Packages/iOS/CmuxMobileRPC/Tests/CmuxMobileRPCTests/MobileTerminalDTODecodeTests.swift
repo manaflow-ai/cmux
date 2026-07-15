@@ -158,6 +158,56 @@ import Testing
         #expect(frame.stateSeq == 7)
     }
 
+    @Test func scrollResponseDecodesEpochRevisionAndRenderRevision() throws {
+        let json = """
+        {
+          "accepted": true,
+          "interaction_epoch": 9,
+          "client_scroll_revision": 27,
+          "render_revision": 33,
+          "render_grid": {
+            "format": "cmux.render-grid.v1",
+            "surface_id": "surface-scroll",
+            "state_seq": 7,
+            "render_revision": 33,
+            "columns": 2,
+            "rows": 1,
+            "row_spans": []
+          }
+        }
+        """
+
+        let response = try MobileTerminalScrollResponse.decode(Data(json.utf8))
+        #expect(response.accepted == true)
+        #expect(response.interactionEpoch == 9)
+        #expect(response.clientScrollRevision == 27)
+        #expect(response.renderRevision == 33)
+        #expect(response.renderGrid?.renderRevision == 33)
+    }
+
+    @Test func scrollResponseRejectsMalformedNestedRenderGrid() {
+        let json = """
+        {
+          "accepted": true,
+          "interaction_epoch": 9,
+          "client_scroll_revision": 27,
+          "render_revision": 33,
+          "render_grid": {
+            "format": "cmux.render-grid.v1",
+            "surface_id": "surface-scroll",
+            "state_seq": 7,
+            "columns": 2,
+            "rows": 1,
+            "row_spans": "not-an-array"
+          }
+        }
+        """
+
+        #expect(throws: DecodingError.self) {
+            try MobileTerminalScrollResponse.decode(Data(json.utf8))
+        }
+    }
+
     @Test func bytesEventDecodesBase64AndSeq() throws {
         let base64 = Data([0x1B, 0x5B, 0x32, 0x4A]).base64EncodedString()
         let json = "{\"surface_id\":\"surface-9\",\"data_b64\":\"\(base64)\",\"seq\":1024}"

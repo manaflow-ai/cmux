@@ -18,9 +18,16 @@ import Testing
 /// arrived yet (establishment window) or a host that stopped answering
 /// (dead stream).
 actor LivenessHostRouter {
+    struct ReplayPrefetch: Equatable, Sendable {
+        var beforeRows: Int?
+        var afterRows: Int?
+        var legacyRows: Int?
+    }
+
     struct RecordedRequest: Sendable {
         var method: String?
         var topics: [String]?
+        var replayPrefetch: ReplayPrefetch?
     }
 
     private var recorded: [RecordedRequest] = []
@@ -55,12 +62,17 @@ actor LivenessHostRouter {
     private var macDisplayName: String? = "Test Mac"
     private var workspaceListResponseHook: (@Sendable () -> Void)?
     private var replayPayloads: [(text: String?, sequence: UInt64?, renderGrid: MobileTerminalRenderGridFrame?)] = []
+    private var nextReplayRenderRevision: UInt64 = 1
     private var replayTexts: [String] = []
     private var replayFailuresRemaining = 0
     private var emptyReplayResponsesRemaining = 0; private var viewportEffectiveGridOverride: LivenessViewportReport?; private var emptyViewportResponsesRemaining = 0
 
-    func record(method: String?, topics: [String]?) {
-        recorded.append(RecordedRequest(method: method, topics: topics))
+    func record(method: String?, topics: [String]?, replayPrefetch: ReplayPrefetch?) {
+        recorded.append(RecordedRequest(
+            method: method,
+            topics: topics,
+            replayPrefetch: replayPrefetch
+        ))
         resumeSatisfiedCountWaiters()
     }
 
@@ -153,6 +165,13 @@ actor LivenessHostRouter {
         }
     }
 
+    func replayPrefetches() -> [ReplayPrefetch] {
+        recorded.compactMap { request in
+            guard request.method == "mobile.terminal.replay" else { return nil }
+            return request.replayPrefetch
+        }
+    }
+
     func setCapabilities(_ capabilities: [String]) {
         self.capabilities = capabilities
     }
@@ -176,7 +195,13 @@ actor LivenessHostRouter {
     }
 
     func enqueueReplayRenderGrid(_ renderGrid: MobileTerminalRenderGridFrame) {
-        replayPayloads.append((text: nil, sequence: nil, renderGrid: renderGrid))
+        var stamped = renderGrid
+        if stamped.renderRevision == nil {
+            stamped.renderRevision = nextReplayRenderRevision
+            nextReplayRenderRevision &+= 1
+            if nextReplayRenderRevision == 0 { nextReplayRenderRevision = 1 }
+        }
+        replayPayloads.append((text: nil, sequence: nil, renderGrid: stamped))
     }
 
     func enqueueReplayRenderGridFrames(_ frames: [MobileTerminalRenderGridFrame]) {
@@ -408,21 +433,6 @@ actor LivenessHostRouter {
     }
 }
 
-/// Holds the live transport instance so the test can push unsolicited
-/// server-side event frames through the same receive path production uses.
-final class TransportBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var transport: LivenessTransport?
-
-    func set(_ transport: LivenessTransport) {
-        lock.withLock { self.transport = transport }
-    }
-
-    func get() -> LivenessTransport? {
-        lock.withLock { transport }
-    }
-}
-
 struct LivenessTransportFactory: CmxByteTransportFactory {
     let router: LivenessHostRouter
     let box: TransportBox
@@ -467,6 +477,14 @@ actor LivenessTransport: CmxByteTransport {
             let id = parsed?["id"] as? String
             let params = parsed?["params"] as? [String: Any]
             let topics = params?["topics"] as? [String]
+            let replayPrefetch: LivenessHostRouter.ReplayPrefetch? = {
+                guard method == "mobile.terminal.replay" else { return nil }
+                return LivenessHostRouter.ReplayPrefetch(
+                    beforeRows: (params?["prefetch_before_rows"] as? NSNumber)?.intValue,
+                    afterRows: (params?["prefetch_after_rows"] as? NSNumber)?.intValue,
+                    legacyRows: (params?["max_scrollback_rows"] as? NSNumber)?.intValue
+                )
+            }()
             let viewportReport: LivenessViewportReport? = {
                 guard method == "mobile.terminal.viewport",
                       let columns = (params?["viewport_columns"] as? NSNumber)?.intValue,
@@ -475,7 +493,11 @@ actor LivenessTransport: CmxByteTransport {
                 }
                 return LivenessViewportReport(columns: columns, rows: rows)
             }()
-            await router.record(method: method, topics: topics)
+            await router.record(
+                method: method,
+                topics: topics,
+                replayPrefetch: replayPrefetch
+            )
             // Answer each request concurrently so one held response cannot
             // head-of-line block later RPCs, matching the Mac host's
             // per-frame response tasks.
@@ -507,132 +529,4 @@ actor LivenessTransport: CmxByteTransport {
         let waiter = receiveWaiters.removeFirst()
         waiter.resume(returning: frame)
     }
-}
-
-// MARK: - Test helpers
-
-@MainActor
-final class OutputCollector {
-    private(set) var lines: [String] = []
-    private(set) var viewportPolicies: [MobileTerminalOutputViewportPolicy?] = []
-    private var task: Task<Void, Never>?
-
-    func mount(store: MobileShellComposite, surfaceID: String) {
-        task = Task { @MainActor [weak self] in
-            for await chunk in store.terminalOutputStream(surfaceID: surfaceID) {
-                self?.lines.append(String(decoding: chunk.data, as: UTF8.self))
-                self?.viewportPolicies.append(chunk.viewportPolicy)
-                store.terminalOutputDidProcess(
-                    surfaceID: surfaceID,
-                    streamToken: chunk.streamToken
-                )
-            }
-        }
-    }
-
-    func unmount() {
-        task?.cancel()
-        task = nil
-    }
-}
-
-func makeTicket(clock: TestClock) throws -> CmxAttachTicket {
-    let route = try CmxAttachRoute(
-        id: "debug_loopback",
-        kind: .debugLoopback,
-        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
-    )
-    return try CmxAttachTicket(
-        workspaceID: "live-workspace",
-        terminalID: "live-terminal",
-        macDeviceID: "test-mac",
-        macDisplayName: "Test Mac",
-        macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
-        routes: [route],
-        expiresAt: clock.now.addingTimeInterval(3600)
-    )
-}
-
-func attachURL(for ticket: CmxAttachTicket) throws -> String {
-    let encoder = JSONEncoder()
-    encoder.dateEncodingStrategy = .iso8601
-    let payload = try encoder.encode(ticket)
-        .base64EncodedString()
-        .replacingOccurrences(of: "+", with: "-")
-        .replacingOccurrences(of: "/", with: "_")
-        .replacingOccurrences(of: "=", with: "")
-    return "cmux-ios://attach?v=\(ticket.version)&payload=\(payload)"
-}
-
-/// Poll until `condition` is true, bounded at `attempts` x 10ms. Returns the
-/// final value so tests can assert both presence and (bounded) absence.
-@MainActor
-func pollUntil(
-    attempts: Int = 300,
-    _ condition: @MainActor () async -> Bool
-) async throws -> Bool {
-    for _ in 0..<attempts {
-        if await condition() {
-            return true
-        }
-        try await Task.sleep(nanoseconds: 10_000_000)
-    }
-    return await condition()
-}
-
-@MainActor
-func waitForReplayResponsesServed(
-    _ expectedCount: Int,
-    router: LivenessHostRouter,
-    _ message: String
-) async throws {
-    let settled = try await pollUntil {
-        await router.replayResponsesServed() >= expectedCount
-    }
-    #expect(settled, "\(message)")
-}
-
-@MainActor
-func makeConnectedStore(
-    router: LivenessHostRouter,
-    box: TransportBox,
-    clock: TestClock,
-    probeTimeoutNanoseconds: UInt64 = 200_000_000
-) async throws -> MobileShellComposite {
-    let runtime = LivenessTestRuntime(
-        transportFactory: LivenessTransportFactory(router: router, box: box),
-        now: { clock.now },
-        livenessProbeTimeoutNanoseconds: probeTimeoutNanoseconds
-    )
-    let store = MobileShellComposite.preview(runtime: runtime)
-    store.signIn()
-    let ticket = try makeTicket(clock: clock)
-    let connected = await store.connectPairingURL(try attachURL(for: ticket))
-    #expect(connected, "scripted connect must succeed")
-    let capabilitiesResolved = try await pollUntil {
-        !store.supportedHostCapabilities.isEmpty
-    }
-    #expect(capabilitiesResolved, "scripted connect must resolve host capabilities")
-    return store
-}
-
-@MainActor
-func installFreshLivenessRemoteClient(
-    on store: MobileShellComposite,
-    router: LivenessHostRouter,
-    box: TransportBox,
-    clock: TestClock
-) throws {
-    let runtime = LivenessTestRuntime(
-        transportFactory: LivenessTransportFactory(router: router, box: box),
-        now: { clock.now }
-    )
-    let ticket = try makeTicket(clock: clock)
-    let route = try #require(ticket.routes.first)
-    store.remoteClient = MobileCoreRPCClient(
-        runtime: runtime,
-        route: route,
-        ticket: ticket,
-        allowsStackAuthFallback: true
-    )
 }

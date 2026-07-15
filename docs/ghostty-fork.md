@@ -12,20 +12,87 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `eb500e9f4`. It advances the previous cmux pin
-`5ae712a89` through the bounded-scrollback merge `81a6daa8e`, then adds
-terminal-owned scrollbar snapshots, absolute row-space identity, OSC-boundary
-geometry, and compare-and-set absolute-row restoration for notification
-scrollback replay. The commit is reachable from fork `main` through
-`cbbddb292`.
+Current cmux pinned fork head: `11aa50527`. It merges fork `main` through
+`a6305908a` with the bidirectional mobile render-grid branch through
+`7e387fe81`. This retains terminal-owned notification-scroll geometry and the
+embedded terminal scrollback cap while adding bounded before/after viewport
+rows, exact primary-screen row scrolling, cursor location metadata, indexed
+style capture, and bounded JSON exports for iOS.
 
-The underlying compression, selection, and full-scrollback changes were
-published via
+The underlying compression, selection, full-scrollback, and mobile export
+changes were published via
 https://github.com/manaflow-ai/ghostty/pull/96 and
 https://github.com/manaflow-ai/ghostty/pull/99 and
 https://github.com/manaflow-ai/ghostty/pull/104 and
 https://github.com/manaflow-ai/ghostty/pull/105 and
-https://github.com/manaflow-ai/ghostty/pull/106.
+https://github.com/manaflow-ai/ghostty/pull/106 and
+https://github.com/manaflow-ai/ghostty/pull/107 and
+https://github.com/manaflow-ai/ghostty/pull/114.
+
+### Pending bidirectional mobile render-grid export
+
+- Commits:
+  - `267824293` (`render-grid: export bounded rows after viewport`)
+  - `4df356ae6` (`render-grid: export cursor viewport location`)
+  - `10c0ea1e3` (`render-grid: export active cursor row`)
+  - `72164a1b2` (`test: cover active rows after bounded history`)
+  - `c73796d44` (`fix: export primary active rows for deep viewports`)
+  - `f9de0abc9` (`test: cover render grid API and cursor visibility regressions`)
+  - `c1674657c` (`fix: preserve render grid ABI and cursor mode`)
+  - `6b09476c9` (`test: cover legacy render grid row bounds`)
+  - `3a0b38a61` (`fix: separate legacy and bounded render grid rows`)
+  - `9510b71ae` (`test: cover exact mobile scroll and style indexing`)
+  - `473c64f2a` (`fix: preserve exact mobile scroll rows`)
+  - `7e387fe81` (`fix: bound mobile render grid exports`)
+  - `11aa50527` (merge current fork `main` through `a6305908a`)
+- PR: https://github.com/manaflow-ai/ghostty/pull/107
+- Files:
+  - `include/ghostty.h`
+  - `src/apprt/embedded.zig`
+- Summary:
+  - Keeps the five-argument `ghostty_surface_render_grid_json` ABI intact and
+    adds `ghostty_surface_render_grid_json_bounded` with independent row counts
+    before and after the current viewport.
+  - Adds `scrollforward_rows` and `scrollforward_spans`; row zero is the first
+    row after the viewport and indexes increase toward the screen bottom.
+  - Adds `cursor.location` with `viewport`, `above_viewport`, or
+    `below_viewport`, independently of DECTCEM visibility. Mobile replay can
+    therefore restore an intentionally hidden in-viewport cursor row without
+    mistaking it for the active cursor outside a scrolled viewport.
+  - Adds `cursor.active_row` as the exact row on the live active screen. This
+    keeps later raw output on the producer cursor row even when forward-history
+    reconstruction ends on a different row.
+  - Adds `primary_active_rows` and `primary_active_spans` for active-screen rows
+    omitted when the bounded forward-history request ends before the live
+    screen. Mobile replay appends that suffix once without duplicating rows
+    already returned by the forward window.
+  - Traverses one bounded range and keeps at most one preserved page decode,
+    so compressed scrollback remains compressed and export memory stays
+    proportional to the requested 600/120 mobile prefetch window.
+  - Keeps existing `scrollback_rows` and `scrollback_spans` semantics intact.
+  - Preserves DECTCEM cursor visibility even when the active cursor is above or
+    below the exported viewport; `cursor.location` carries that geometry.
+  - Gives the legacy export an explicit no-newer-rows policy while the bounded
+    export retains its active-screen suffix, so a zero count cannot conflate
+    two different API contracts.
+  - Adds a mode-aware scroll API that applies exact viewport rows on the
+    primary screen while preserving wheel input for alternate-screen and mouse
+    reporting modes.
+  - Indexes packed render-grid styles during capture so large grids do not scan
+    every existing style for every cell while holding the renderer-state lock.
+- Conflict note: both API symbols and the JSON object live beside the existing
+  render-grid scrollback encoder. Rebase both bounds, cursor location
+  classification, active-row export, and the shared traversal together so a
+  future upstream encoder refactor cannot restore two scans, reverse the
+  after-viewport row order, or recombine cursor visibility with viewport
+  membership.
+- Verification:
+  - `zig build test -Dtest-filter='render grid' -Demit-macos-app=false`
+  - `zig build -Demit-macos-app=false`
+  - universal ReleaseFast GhosttyKit build with the exported symbol present in
+    the macOS, iOS device, and iOS simulator slices
+- Prebuilt archive:
+  https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-11aa505279b7a864ec2c357b7c9bcd5d538fd31d-crashsubdir-cmux-crash-v1
 
 ### Notification replay viewport authority
 
@@ -110,7 +177,7 @@ build, a clean universal GhosttyKit build, tagged cmux reloads `gcmp` and
 `gsel2`, and live accessibility reads across select-all, endpoint adjustment,
 and clearing.
 Prebuilt archive:
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-eb500e9f45c8b6ffa6043350ec1488a42d195406-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-11aa505279b7a864ec2c357b7c9bcd5d538fd31d-crashsubdir-cmux-crash-v1
 
 ### Previous pin
 

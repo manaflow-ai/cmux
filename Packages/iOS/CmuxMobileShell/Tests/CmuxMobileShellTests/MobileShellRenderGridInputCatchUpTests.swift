@@ -278,7 +278,7 @@ import Testing
 }
 
 @MainActor
-@Test func renderGridReplayBehindPendingInputRequestsBarrierRetryAfterDroppedOutput() async throws {
+@Test func renderGridReplayBarrierCompletesBeforeQueuedInput() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()
     await router.setCapabilities(["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"])
@@ -291,6 +291,9 @@ import Testing
     let sawReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
     #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
     let replayCountAfterMount = await router.count(of: "mobile.terminal.replay")
+    try await router.enqueueReplayRenderGridFrames([
+        renderGridFrame(surfaceID: surfaceID, seq: 99, text: "authoritative-replay"),
+    ])
 
     let replayBarrierToken = store.beginTerminalReplayBarrier(surfaceID: surfaceID)
     let droppedOutputAccepted = store.deliverTerminalBytes(Data("live-during-barrier".utf8), surfaceID: surfaceID)
@@ -299,22 +302,12 @@ import Testing
     let inputSent = try await pollUntil { await router.count(of: "terminal.input") >= 1 }
     #expect(inputSent)
 
-    try await router.enqueueReplayRenderGridFrames([
-        renderGridFrame(surfaceID: surfaceID, seq: 99, text: "stale-replay"),
-        renderGridFrame(surfaceID: surfaceID, seq: 100, text: "fresh-replay"),
-    ])
     store.requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: replayCountAfterMount + 1)
-    let retryRequested = await router.waitForCount(
-        of: "mobile.terminal.replay",
-        atLeast: replayCountAfterMount + 2,
-        recordIssueOnTimeout: false
-    )
-    #expect(retryRequested, "a replay dropped behind pending input must request a replacement while the barrier is preserved")
-    let freshReplayDelivered = try await pollUntil {
-        collector.lines.contains { $0.contains("fresh-replay") }
+    let replayDelivered = try await pollUntil {
+        collector.lines.contains { $0.contains("authoritative-replay") }
     }
-    #expect(freshReplayDelivered)
+    #expect(replayDelivered, "the authoritative replay must apply before the queued input sends")
     collector.unmount()
 }
 
@@ -478,7 +471,7 @@ private func renderGridFrame(surfaceID: String, seq: UInt64, text: String) throw
     // The empty responses must consume the retry budget so the requests
     // stop instead of looping once per delta forever.
     var deltaSeq: UInt64 = 100
-    for _ in 0..<5 {
+    for attempt in 1...MobileShellComposite.maxTerminalReplayFailureRetries {
         await transport.deliver(try renderGridEventFrame(
             surfaceID: surfaceID,
             seq: deltaSeq,
@@ -487,9 +480,14 @@ private func renderGridFrame(surfaceID: String, seq: UInt64, text: String) throw
             full: false
         ))
         deltaSeq += 1
-        _ = try await pollUntil(attempts: 50) {
+        let replayStarted = try await pollUntil(attempts: 50) {
+            await router.count(of: "mobile.terminal.replay") >= replayCountAfterMount + attempt
+        }
+        #expect(replayStarted)
+        let replaySettled = try await pollUntil(attempts: 50) {
             !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
         }
+        #expect(replaySettled)
     }
 
     let budgetSpent = try await pollUntil {

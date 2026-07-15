@@ -38,6 +38,20 @@ extension GhosttySurfaceView {
             return recovered
         }
 
+        if let pending = pendingLocalScrollApply,
+           now - pending.startedAt >= Self.outputApplyTimeout {
+            pendingLocalScrollApply = nil
+            let elapsedMs = Int((now - pending.startedAt) * 1000)
+            MobileDebugLog.anchormux("scroll.local.TIMEOUT elapsedMs=\(elapsedMs)")
+            let recovered = recoverRenderPipeline(
+                reason: "local_scroll_timeout",
+                stalledMs: elapsedMs,
+                replay: .callerWillRequestReplay
+            )
+            pending.continuation.resume(returning: false)
+            return recovered
+        }
+
         if let pending = pendingVisibleSnapshot,
            now - pending.startedAt >= Self.visibleSnapshotTimeout {
             pendingVisibleSnapshot = nil
@@ -210,6 +224,7 @@ extension GhosttySurfaceView {
         needsAnotherRender = false
         needsDraw = true
         cellPixelSize = .zero
+        resetPendingScrollInput()
         lastRenderRect = .zero
         lastRenderLayoutViewportHeight = nil
         lastRenderHasSourceLayoutViewport = false

@@ -1,27 +1,190 @@
 #if canImport(UIKit)
+public import CMUXMobileCore
 import GhosttyKit
 import UIKit
 
 extension GhosttySurfaceView {
-    /// Apply the scroll to the phone's local Ghostty mirror immediately. On the
-    /// primary screen this consumes the preloaded local scrollback window, so a
-    /// drag/deceleration feels native while the Mac catches up. On alternate
-    /// screens libghostty turns this into mouse-wheel bytes; the mirror is
-    /// display-only and drops those bytes, so the authoritative Mac response
-    /// remains the visible update for TUIs.
-    func applyLocalScrollbackScroll(lines: Double, col: Int, row: Int) {
-        guard lines != 0, let surface else { return }
-        let displayScale = window?.windowScene?.screen.scale ?? traitCollection.displayScale
-        let scale = max(Double(displayScale), 1)
+    private var localScrollbackScreenScale: CGFloat {
+        if let screen = window?.windowScene?.screen {
+            return screen.scale
+        }
+        let traitScale = traitCollection.displayScale
+        return traitScale > 0 ? traitScale : 2
+    }
+
+    func localScrollbackScrollState() -> GhosttySurfaceWorkSnapshot? {
+        guard let surface, !isDismantled, !renderPipelineRecoveryPaused else { return nil }
+        return GhosttySurfaceWorkSnapshot(
+            surface: surface,
+            generation: surfaceGeneration,
+            scale: Double(max(localScrollbackScreenScale, 1)),
+            queue: outputQueue
+        )
+    }
+
+    func requestDrawAfterLocalScrollbackScroll(generation: UInt64) {
+        guard surface != nil,
+              surfaceGeneration == generation else {
+            return
+        }
+        drawForWakeup()
+    }
+
+    /// Applies one session-owned optimistic scroll operation on the same FIFO
+    /// queue as terminal output and surface disposal. The mounted terminal
+    /// scroll session bounds/coalesces requests before they reach this method,
+    /// so this view never owns a second pending-scroll scheduler.
+    @discardableResult
+    public func applyLocalScrollbackScrollAndWait(lines: Double, col: Int, row: Int) async -> Bool {
+        await applyLocalScrollbackScrollAndWait([
+            MobileTerminalScrollRun(lines: lines, col: col, row: row),
+        ])
+    }
+
+    /// Applies a bounded direction-preserving batch as one surface FIFO item.
+    /// Opposite runs must remain separate because a clamp at either boundary
+    /// makes `+n` followed by `-n` differ from a net zero delta.
+    @discardableResult
+    public func applyLocalScrollbackScrollAndWait(_ runs: [MobileTerminalScrollRun]) async -> Bool {
+        let hasNonzeroRun = runs.contains { $0.hasEffect }
+        guard hasNonzeroRun, let state = localScrollbackScrollState() else {
+            return !hasNonzeroRun
+        }
+        return await performLocalScrollbackOperation(state: state) {
+            Self.applyLocalScrollbackRuns(runs, to: state.surface, scale: state.scale)
+        }
+    }
+
+    nonisolated static func applyLocalScrollbackRuns(
+        _ runs: [MobileTerminalScrollRun],
+        to surface: ghostty_surface_t,
+        scale: Double
+    ) {
         let size = ghostty_surface_size(surface)
         let cellWidthPt = max(Double(size.cell_width_px) / scale, 1)
         let cellHeightPt = max(Double(size.cell_height_px) / scale, 1)
-        let posX = (Double(max(0, col)) + 0.5) * cellWidthPt
-        let posY = (Double(max(0, row)) + 0.5) * cellHeightPt
-        ghostty_surface_mouse_pos(surface, posX, posY, GHOSTTY_MODS_NONE)
-        ghostty_surface_mouse_scroll(surface, 0, lines, 0)
-        drawForWakeup()
-        scheduleVisibleArtifactCountUpdate()
+        for run in runs where run.hasEffect {
+            let posX = (Double(run.col) + 0.5) * cellWidthPt
+            let posY = (Double(run.row) + 0.5) * cellHeightPt
+            ghostty_surface_mouse_pos(surface, posX, posY, GHOSTTY_MODS_NONE)
+            if let primaryRows = run.primaryRows {
+                ghostty_surface_mouse_scroll_with_viewport_rows(
+                    surface,
+                    0,
+                    run.lines,
+                    Int32(clamping: primaryRows),
+                    0
+                )
+            } else {
+                ghostty_surface_mouse_scroll(surface, 0, run.lines, 0)
+            }
+        }
+    }
+
+    /// Positions a bidirectional authoritative snapshot at its captured
+    /// viewport after replay. `scroll_page_lines` is exact and bypasses the
+    /// user's mouse-scroll multiplier, unlike synthesizing a wheel gesture.
+    @discardableResult
+    public func positionAuthoritativeScrollbackViewportAndWait(rowsFromBottom: Int) async -> Bool {
+        let rows = min(max(0, rowsFromBottom), Int(Int16.max))
+        guard let state = localScrollbackScrollState() else { return false }
+        return await performLocalScrollbackOperation(state: state) {
+            Self.positionAuthoritativeScrollbackViewport(
+                state.surface,
+                rowsFromBottom: rows
+            )
+        }
+    }
+
+    @discardableResult
+    public func scrollToBottomAndWait() async -> Bool {
+        guard let state = localScrollbackScrollState() else { return false }
+        return await performLocalScrollbackOperation(state: state) {
+            Self.positionAuthoritativeScrollbackViewport(state.surface, rowsFromBottom: 0)
+        }
+    }
+
+    /// Establishes an absolute local scrollback position after a full replay.
+    /// Resetting to bottom first prevents a pre-reconnect offset from surviving
+    /// after the bounded history has been cleared and rebuilt.
+    nonisolated static func positionAuthoritativeScrollbackViewport(
+        _ surface: ghostty_surface_t,
+        rowsFromBottom: Int
+    ) {
+        let bottomAction = "scroll_to_bottom"
+        bottomAction.withCString { pointer in
+            _ = ghostty_surface_binding_action(
+                surface,
+                pointer,
+                UInt(bottomAction.utf8.count)
+            )
+        }
+        let rows = min(max(0, rowsFromBottom), Int(Int16.max))
+        guard rows > 0 else { return }
+        let offsetAction = "scroll_page_lines:-\(rows)"
+        offsetAction.withCString { pointer in
+            _ = ghostty_surface_binding_action(
+                surface,
+                pointer,
+                UInt(offsetAction.utf8.count)
+            )
+        }
+    }
+
+    /// Stops UIKit drag/deceleration without mutating Ghostty. The shell then
+    /// inserts the bottom snap into its causal surface mutation stream.
+    public func cancelScrollMomentum() {
+        resetPendingScrollInput()
+        scrollMechanicsView.setContentOffset(scrollMechanicsView.contentOffset, animated: false)
+    }
+
+    private func performLocalScrollbackOperation(
+        state: GhosttySurfaceWorkSnapshot,
+        operation: @escaping @Sendable () -> Void
+    ) async -> Bool {
+        await withCheckedContinuation { continuation in
+            let operationID = registerPendingLocalScrollApply(continuation: continuation)
+            state.queue.async { [weak self] in
+                operation()
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    let isCurrent = self.surface == state.surface
+                        && self.surfaceGeneration == state.generation
+                        && !self.isDismantled
+                    if isCurrent {
+                        self.requestDrawAfterLocalScrollbackScroll(generation: state.generation)
+                        self.scheduleVisibleArtifactCountUpdate()
+                    }
+                    self.completePendingLocalScrollApply(id: operationID, returning: isCurrent)
+                }
+            }
+        }
+    }
+
+    private func registerPendingLocalScrollApply(
+        continuation: CheckedContinuation<Bool, Never>
+    ) -> UInt64 {
+        let operationID = makeSurfaceOperationID()
+        if let existing = pendingLocalScrollApply {
+            pendingLocalScrollApply = nil
+            existing.continuation.resume(returning: false)
+        }
+        pendingLocalScrollApply = PendingSurfaceOperation(
+            id: operationID,
+            startedAt: CACurrentMediaTime(),
+            byteCount: nil,
+            continuation: continuation
+        )
+        ensureSurfaceOperationDeadlinePump()
+        return operationID
+    }
+
+    @discardableResult
+    func completePendingLocalScrollApply(id: UInt64, returning result: Bool) -> Bool {
+        guard let pending = pendingLocalScrollApply, pending.id == id else { return false }
+        pendingLocalScrollApply = nil
+        pending.continuation.resume(returning: result)
+        return true
     }
 }
 #endif

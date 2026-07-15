@@ -9,6 +9,10 @@ import Testing
 #endif
 
 struct MobileHostServiceSettingsTests {
+    @Test func advertisesOrderedTerminalScrollRuns() {
+        #expect(MobileHostService.mobileHostCapabilities.contains("terminal.scroll.ordered_runs.v1"))
+    }
+
     @Test func mobileHostListenerDefaultsOffUntilIOSPairingIsEnabled() throws {
         let suiteName = "MobileHostServiceSettingsTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))

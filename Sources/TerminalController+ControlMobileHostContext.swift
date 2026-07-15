@@ -18,8 +18,9 @@ import Foundation
 /// `Localizable.xcstrings`: the coordinator never calls `String(localized:)` for
 /// this domain, so no non-English translation is dropped.
 ///
-/// These witnesses serve only the v2 control socket (`processV2Command` →
-/// ``ControlCommandCoordinator/handleMobileHost(_:)``). The mobile data-plane RPC
+/// These witnesses serve the synchronous mobile-host subset of the v2 control
+/// socket (`processV2Command` → ``ControlCommandCoordinator/handleMobileHost(_:)``).
+/// Replay and scroll stay on the asynchronous app-side worker path. The mobile data-plane RPC
 /// (`mobileHostHandleRPC`) dispatches the same `v2Mobile*` bodies directly, with
 /// no `ControlCallResult` round-trip, so it does not transit this seam.
 extension TerminalController: ControlMobileHostContext {
@@ -41,16 +42,8 @@ extension TerminalController: ControlMobileHostContext {
         bridgeMobileResult(v2MobileTerminalInput(params: foundationParams(params)))
     }
 
-    func controlMobileTerminalReplay(params: [String: JSONValue]) -> ControlCallResult {
-        bridgeMobileResult(v2MobileTerminalReplay(params: foundationParams(params)))
-    }
-
     func controlMobileTerminalViewport(params: [String: JSONValue]) -> ControlCallResult {
         bridgeMobileResult(v2MobileTerminalViewport(params: foundationParams(params)))
-    }
-
-    func controlMobileTerminalScroll(params: [String: JSONValue]) -> ControlCallResult {
-        bridgeMobileResult(v2MobileTerminalScroll(params: foundationParams(params)))
     }
 
     func controlMobileTerminalMouse(params: [String: JSONValue]) -> ControlCallResult {

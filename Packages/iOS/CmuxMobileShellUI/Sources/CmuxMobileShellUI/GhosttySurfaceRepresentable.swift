@@ -167,7 +167,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         coordinator.detach()
     }
 
-    final class Coordinator: NSObject, GhosttySurfaceViewDelegate {
+    final class Coordinator: NSObject {
         let workspaceID: String
         let surfaceID: String
         weak var store: CMUXMobileShellStore?
@@ -180,6 +180,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         var onVisibleArtifactCountChanged: @MainActor (_ count: Int) -> Void
         private var outputTask: Task<Void, Never>?
         private var liveFontTask: Task<Void, Never>?
+        private var terminalScrollSessionToken: UUID?
         var artifactCountTask: Task<Void, Never>?
         var artifactCountTaskRequest: TerminalArtifactChipCountState.Request?
         var artifactCountState = TerminalArtifactChipCountState()
@@ -233,6 +234,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             super.init()
         }
 
+        @MainActor
         func attach(surfaceView: GhosttySurfaceView) {
             self.surfaceView = surfaceView
             surfaceView.artifactFilesEnabled = artifactFilesEnabled
@@ -242,6 +244,12 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             )
             guard let store else { return }
             let surfaceID = surfaceID
+            let mount = store.mountTerminalSurfaceOutput(
+                surfaceID: surfaceID,
+                cancelLocal: { [weak surfaceView] in surfaceView?.cancelScrollMomentum() }
+            )
+            terminalScrollSessionToken = mount.scrollSessionToken
+            let outputStream = mount.output
             viewportReportScheduler = TerminalViewportReportScheduler(
                 send: { [weak self] report in
                     guard let self, let store = self.store else { return nil }
@@ -281,51 +289,57 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             // clears its viewport pin on the Mac (see `terminalOutputStream`).
             outputTask = Task { @MainActor [weak self, weak surfaceView, weak store] in
                 guard let store else { return }
-                for await chunk in store.terminalOutputStream(surfaceID: surfaceID) {
+                for await chunk in outputStream {
                     guard !Task.isCancelled else { return }
                     guard let self else { return }
                     guard let surfaceView else { return }
-                    switch chunk.viewportPolicy {
-                    case .natural:
-                        self.activeViewportPolicy = .natural
-                        if chunk.data.isEmpty {
-                            surfaceView.useNaturalViewSize()
-                        } else {
-                            let applied = await surfaceView.useNaturalViewSizeAndWait()
-                            guard applied else {
-                                store.terminalOutputDidReset(
-                                    surfaceID: surfaceID,
-                                    streamToken: chunk.streamToken
-                                )
-                                continue
-                            }
-                        }
-                    case .remoteGrid(let columns, let rows):
-                        self.activeViewportPolicy = .remoteGrid(columns: columns, rows: rows)
-                        if chunk.data.isEmpty {
-                            surfaceView.applyViewSize(cols: columns, rows: rows)
-                        } else {
-                            let applied = await surfaceView.applyViewSizeAndWait(cols: columns, rows: rows)
-                            guard applied else {
-                                store.terminalOutputDidReset(
-                                    surfaceID: surfaceID,
-                                    streamToken: chunk.streamToken
-                                )
-                                continue
-                            }
-                        }
-                    case nil:
-                        break
+                    guard store.terminalOutputWillProcess(
+                        surfaceID: surfaceID,
+                        streamToken: chunk.streamToken,
+                        deliveryID: chunk.deliveryID
+                    ) else {
+                        continue
                     }
-                    if !chunk.data.isEmpty {
-                        let applied = await surfaceView.processOutputAndWait(chunk.data)
-                        guard applied else {
-                            store.terminalOutputDidReset(
-                                surfaceID: surfaceID,
-                                streamToken: chunk.streamToken
-                            )
-                            continue
+                    let applied: Bool
+                    switch chunk.mutation {
+                    case .output(let operation):
+                        switch operation.viewportPolicy {
+                        case .natural:
+                            self.activeViewportPolicy = .natural
+                            if operation.data.isEmpty {
+                                surfaceView.useNaturalViewSize()
+                            } else {
+                                surfaceView.prepareNaturalViewSizeForOrderedOutput()
+                            }
+                        case .remoteGrid(let columns, let rows):
+                            self.activeViewportPolicy = .remoteGrid(columns: columns, rows: rows)
+                            if operation.data.isEmpty {
+                                surfaceView.applyViewSize(cols: columns, rows: rows)
+                            } else {
+                                surfaceView.prepareViewSizeForOrderedOutput(cols: columns, rows: rows)
+                            }
+                        case nil:
+                            break
                         }
+                        if operation.data.isEmpty && operation.followingScrollRuns.isEmpty {
+                            applied = true
+                        } else {
+                            applied = await surfaceView.processOutputAndWait(
+                                operation.data,
+                                scrollbackOffsetFromBottomRows: operation.scrollbackOffsetFromBottomRows,
+                                followingScrollRuns: operation.followingScrollRuns
+                            )
+                        }
+                    case .localScroll(let runs): applied = await surfaceView.applyLocalScrollbackScrollAndWait(runs)
+                    case .scrollToBottom: applied = await surfaceView.scrollToBottomAndWait()
+                    case .barrier: applied = true
+                    }
+                    guard applied else {
+                        store.terminalOutputDidReset(
+                            surfaceID: surfaceID,
+                            streamToken: chunk.streamToken
+                        )
+                        continue
                     }
                     store.terminalOutputDidProcess(
                         surfaceID: surfaceID,
@@ -346,7 +360,15 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             }
         }
 
+        @MainActor
         func detach() {
+            if let terminalScrollSessionToken, let store {
+                store.unmountTerminalScrollSession(
+                    surfaceID: surfaceID,
+                    token: terminalScrollSessionToken
+                )
+            }
+            terminalScrollSessionToken = nil
             outputTask?.cancel()
             outputTask = nil
             liveFontTask?.cancel()

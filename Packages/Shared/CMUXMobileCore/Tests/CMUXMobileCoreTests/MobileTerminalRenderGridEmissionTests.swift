@@ -119,6 +119,7 @@ import Testing
     let previous = try MobileTerminalRenderGridFrame.fromPlainRows(
         surfaceID: "terminal-a",
         stateSeq: 50,
+        renderRevision: 80,
         columns: 8,
         rows: 2,
         text: "old\nsame"
@@ -126,6 +127,7 @@ import Testing
     let next = try MobileTerminalRenderGridFrame.fromPlainRows(
         surfaceID: "terminal-a",
         stateSeq: 51,
+        renderRevision: 81,
         columns: 8,
         rows: 2,
         text: "new\nsame"
@@ -134,6 +136,25 @@ import Testing
     let emission = try #require(try next.renderGridEmission(comparedTo: previous))
 
     #expect(!emission.frame.full)
+    #expect(emission.frame.baseRenderRevision == 80)
+    #expect(emission.frame.renderRevision == 81)
     #expect(emission.frame.clearedRows == [0])
     #expect(emission.frame.rowSpans == [.init(row: 0, column: 0, text: "new")])
+}
+
+@Test func renderGridFullEmissionDoesNotRequireAPredecessorRevision() throws {
+    let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "terminal-a",
+        stateSeq: 1,
+        renderRevision: 12,
+        columns: 8,
+        rows: 2,
+        text: "full\nframe"
+    )
+
+    let emission = try #require(try frame.renderGridEmission(comparedTo: nil))
+
+    #expect(emission.frame.full)
+    #expect(emission.frame.baseRenderRevision == nil)
+    #expect(emission.state.renderRevision == 12)
 }

@@ -10,12 +10,31 @@ public enum MobileTerminalRenderGridError: Error, Equatable, Sendable {
     case invalidSpanWidth(row: Int, column: Int, width: Int, columns: Int)
 }
 
+/// Immutable bridge for Foundation's non-Sendable JSON object graph. The
+/// encoder creates a fresh tree that callers only read while sending it.
+public struct MobileTerminalRenderGridJSONObject: @unchecked Sendable {
+    public let value: [String: Any]
+
+    public init(value: [String: Any]) {
+        self.value = value
+    }
+}
+
 public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     public static let currentFormat = "cmux.render-grid.v1"
 
     public var format: String
     public var surfaceID: String
     public var stateSeq: UInt64
+    /// Monotonic Mac-side capture order for viewport state. Unlike
+    /// ``stateSeq``, this advances for viewport-only changes such as scrolling.
+    /// Older hosts omit it, in which case clients retain the byte-sequence
+    /// compatibility path.
+    public var renderRevision: UInt64?
+    /// Producer revision that a partial frame was diffed against. Clients may
+    /// apply the delta only after reaching at least this revision; otherwise a
+    /// dropped predecessor requires a full replay.
+    public var baseRenderRevision: UInt64?
     public var columns: Int
     public var rows: Int
     public var cursor: Cursor?
@@ -44,11 +63,27 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     /// Styled spans for the scrollback lines, row index `0..<scrollbackRows`
     /// (oldest first). Reuses ``styles`` by `styleID`.
     public var scrollbackSpans: [RowSpan]
+    /// Count of newer history rows after the captured viewport. A client
+    /// replays these rows behind the viewport, then positions its local
+    /// scrollback by this amount so both older and newer rows are prefetched.
+    public var scrollForwardRows: Int
+    /// Styled spans for the newer rows after the viewport, indexed
+    /// `0..<scrollForwardRows` from nearest to farthest.
+    public var scrollForwardSpans: [RowSpan]
+    /// Missing suffix of the true primary active screen after the bounded
+    /// newer-history window. This is at most one viewport and is appended last
+    /// so subsequent PTY bytes continue from the producer's active bottom.
+    public var primaryActiveRows: Int
+    /// Styled spans for ``primaryActiveRows``, indexed from the first missing
+    /// active-screen row through the producer's active bottom.
+    public var primaryActiveSpans: [RowSpan]
 
     public init(
         format: String = Self.currentFormat,
         surfaceID: String,
         stateSeq: UInt64,
+        renderRevision: UInt64? = nil,
+        baseRenderRevision: UInt64? = nil,
         columns: Int,
         rows: Int,
         cursor: Cursor? = nil,
@@ -62,7 +97,11 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         terminalBackground: String? = nil,
         terminalCursorColor: String? = nil,
         scrollbackRows: Int = 0,
-        scrollbackSpans: [RowSpan] = []
+        scrollbackSpans: [RowSpan] = [],
+        scrollForwardRows: Int = 0,
+        scrollForwardSpans: [RowSpan] = [],
+        primaryActiveRows: Int = 0,
+        primaryActiveSpans: [RowSpan] = []
     ) throws {
         guard format == Self.currentFormat else {
             throw MobileTerminalRenderGridError.invalidFormat(format)
@@ -70,10 +109,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         guard columns > 0, rows > 0 else {
             throw MobileTerminalRenderGridError.invalidDimensions(columns: columns, rows: rows)
         }
-        if let cursor,
-           !(0..<rows).contains(cursor.row) || !(0..<columns).contains(cursor.column) {
-            throw MobileTerminalRenderGridError.invalidCursor(row: cursor.row, column: cursor.column)
-        }
+        try cursor?.validate(columns: columns, rows: rows)
         for row in clearedRows {
             guard (0..<rows).contains(row) else {
                 throw MobileTerminalRenderGridError.invalidRow(row)
@@ -122,9 +158,55 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
                 )
             }
         }
+        let resolvedScrollForwardRows = max(0, scrollForwardRows)
+        for span in scrollForwardSpans {
+            guard (0..<resolvedScrollForwardRows).contains(span.row) else {
+                throw MobileTerminalRenderGridError.invalidRow(span.row)
+            }
+            guard (0..<columns).contains(span.column) else {
+                throw MobileTerminalRenderGridError.invalidColumn(span.column)
+            }
+            guard styleIDs.contains(span.styleID) else {
+                throw MobileTerminalRenderGridError.invalidStyleID(span.styleID)
+            }
+            let width = span.gridCellWidth
+            guard width > 0, span.column + width <= columns else {
+                throw MobileTerminalRenderGridError.invalidSpanWidth(
+                    row: span.row,
+                    column: span.column,
+                    width: width,
+                    columns: columns
+                )
+            }
+        }
+        guard (0...rows).contains(primaryActiveRows) else {
+            throw MobileTerminalRenderGridError.invalidRow(primaryActiveRows)
+        }
+        for span in primaryActiveSpans {
+            guard (0..<primaryActiveRows).contains(span.row) else {
+                throw MobileTerminalRenderGridError.invalidRow(span.row)
+            }
+            guard (0..<columns).contains(span.column) else {
+                throw MobileTerminalRenderGridError.invalidColumn(span.column)
+            }
+            guard styleIDs.contains(span.styleID) else {
+                throw MobileTerminalRenderGridError.invalidStyleID(span.styleID)
+            }
+            let width = span.gridCellWidth
+            guard width > 0, span.column + width <= columns else {
+                throw MobileTerminalRenderGridError.invalidSpanWidth(
+                    row: span.row,
+                    column: span.column,
+                    width: width,
+                    columns: columns
+                )
+            }
+        }
         self.format = format
         self.surfaceID = surfaceID
         self.stateSeq = stateSeq
+        self.renderRevision = renderRevision
+        self.baseRenderRevision = full ? nil : baseRenderRevision
         self.columns = columns
         self.rows = rows
         self.cursor = cursor
@@ -139,6 +221,10 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         self.terminalCursorColor = terminalCursorColor
         self.scrollbackRows = full ? resolvedScrollbackRows : 0
         self.scrollbackSpans = full ? scrollbackSpans : []
+        self.scrollForwardRows = full ? resolvedScrollForwardRows : 0
+        self.scrollForwardSpans = full ? scrollForwardSpans : []
+        self.primaryActiveRows = full && activeScreen == .primary ? primaryActiveRows : 0
+        self.primaryActiveSpans = full && activeScreen == .primary ? primaryActiveSpans : []
     }
 
     public init(from decoder: Decoder) throws {
@@ -146,6 +232,8 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         let format = try container.decode(String.self, forKey: .format)
         let surfaceID = try container.decode(String.self, forKey: .surfaceID)
         let stateSeq = try container.decode(UInt64.self, forKey: .stateSeq)
+        let renderRevision = try container.decodeIfPresent(UInt64.self, forKey: .renderRevision)
+        let baseRenderRevision = try container.decodeIfPresent(UInt64.self, forKey: .baseRenderRevision)
         let columns = try container.decode(Int.self, forKey: .columns)
         let rows = try container.decode(Int.self, forKey: .rows)
         let cursor = try container.decodeIfPresent(Cursor.self, forKey: .cursor)
@@ -160,10 +248,16 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         let terminalCursorColor = try container.decodeIfPresent(String.self, forKey: .terminalCursorColor)
         let scrollbackRows = try container.decodeIfPresent(Int.self, forKey: .scrollbackRows) ?? 0
         let scrollbackSpans = try container.decodeIfPresent([RowSpan].self, forKey: .scrollbackSpans) ?? []
+        let scrollForwardRows = try container.decodeIfPresent(Int.self, forKey: .scrollForwardRows) ?? 0
+        let scrollForwardSpans = try container.decodeIfPresent([RowSpan].self, forKey: .scrollForwardSpans) ?? []
+        let primaryActiveRows = try container.decodeIfPresent(Int.self, forKey: .primaryActiveRows) ?? 0
+        let primaryActiveSpans = try container.decodeIfPresent([RowSpan].self, forKey: .primaryActiveSpans) ?? []
         try self.init(
             format: format,
             surfaceID: surfaceID,
             stateSeq: stateSeq,
+            renderRevision: renderRevision,
+            baseRenderRevision: baseRenderRevision,
             columns: columns,
             rows: rows,
             cursor: cursor,
@@ -177,132 +271,12 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             terminalBackground: terminalBackground,
             terminalCursorColor: terminalCursorColor,
             scrollbackRows: scrollbackRows,
-            scrollbackSpans: scrollbackSpans
+            scrollbackSpans: scrollbackSpans,
+            scrollForwardRows: scrollForwardRows,
+            scrollForwardSpans: scrollForwardSpans,
+            primaryActiveRows: primaryActiveRows,
+            primaryActiveSpans: primaryActiveSpans
         )
-    }
-
-    public static func fromPlainRows(
-        surfaceID: String,
-        stateSeq: UInt64,
-        columns: Int,
-        rows: Int,
-        text: String,
-        cursor: Cursor? = nil,
-        full: Bool = true,
-        changedRows: Set<Int>? = nil
-    ) throws -> MobileTerminalRenderGridFrame {
-        let lines = normalizedRows(from: text, maxRows: rows)
-        let includedRows = changedRows ?? Set(0..<rows)
-        let spans = lines.enumerated().compactMap { row, line -> RowSpan? in
-            guard includedRows.contains(row) else { return nil }
-            let trimmed = trimmingTrailingGridBlanks(line)
-            guard !trimmed.isEmpty else { return nil }
-            let clipped = trimmed.clippedToRenderGridColumns(columns)
-            guard !clipped.isEmpty else { return nil }
-            return RowSpan(
-                row: row,
-                column: 0,
-                styleID: 0,
-                text: clipped
-            )
-        }
-        return try MobileTerminalRenderGridFrame(
-            surfaceID: surfaceID,
-            stateSeq: stateSeq,
-            columns: columns,
-            rows: rows,
-            cursor: cursor,
-            full: full,
-            clearedRows: full ? [] : Array(includedRows.sorted()),
-            rowSpans: spans
-        )
-    }
-
-    public func plainRows() -> [String] {
-        var rows = Array(repeating: "", count: self.rows)
-        for span in rowSpans.sorted(by: { lhs, rhs in
-            lhs.row == rhs.row ? lhs.column < rhs.column : lhs.row < rhs.row
-        }) {
-            guard rows.indices.contains(span.row) else { continue }
-            let currentWidth = rows[span.row].count
-            if currentWidth < span.column {
-                rows[span.row].append(String(repeating: " ", count: span.column - currentWidth))
-            }
-            rows[span.row].append(span.text)
-            let textWidth = span.text.count
-            let padWidth = max(0, span.gridCellWidth - textWidth)
-            if padWidth > 0 {
-                rows[span.row].append(String(repeating: " ", count: padWidth))
-            }
-        }
-        return rows
-    }
-
-    /// A per-row signature capturing both text **and resolved styling**, used
-    /// to detect which rows changed between two full snapshots.
-    ///
-    /// Unlike ``plainRows()`` this changes when only a cell's style changes
-    /// (for example a character typed over a dimmed shell autosuggestion, where
-    /// the text is identical but the cell flips from faint to normal), so a
-    /// style-only update is not dropped from the delta. The style is resolved
-    /// to its visual attributes rather than keyed by ``Style/id``, because the
-    /// producer reassigns style ids on every export.
-    public func rowSignatures() -> [String] {
-        var stylesByID: [Int: Style] = [:]
-        for style in styles {
-            stylesByID[style.id] = style
-        }
-        var spansByRow: [Int: [RowSpan]] = [:]
-        for span in rowSpans {
-            spansByRow[span.row, default: []].append(span)
-        }
-        var signatures = Array(repeating: "", count: rows)
-        for row in 0..<rows {
-            guard let spans = spansByRow[row] else { continue }
-            signatures[row] = spans
-                .sorted { $0.column < $1.column }
-                .map { span in
-                    let style = stylesByID[span.styleID] ?? .default
-                    return "\(span.column):\(span.gridCellWidth):\(Self.styleSignature(style)):\(span.text)"
-                }
-                .joined(separator: "\u{1F}")
-        }
-        return signatures
-    }
-
-    private static func styleSignature(_ style: Style) -> String {
-        let flags = [
-            style.bold, style.faint, style.italic, style.underline, style.blink,
-            style.inverse, style.invisible, style.strikethrough, style.overline,
-        ].map { $0 ? "1" : "0" }.joined()
-        return "\(style.foreground ?? "-")/\(style.background ?? "-")/\(flags)"
-    }
-
-    public func filteredRows(_ includedRows: Set<Int>, full: Bool) throws -> MobileTerminalRenderGridFrame {
-        try MobileTerminalRenderGridFrame(
-            surfaceID: surfaceID,
-            stateSeq: stateSeq,
-            columns: columns,
-            rows: rows,
-            cursor: cursor,
-            full: full,
-            clearedRows: full ? [] : Array(includedRows.sorted()),
-            styles: styles,
-            rowSpans: rowSpans.filter { includedRows.contains($0.row) },
-            // Deltas only carry autowrap; DECOM needs a full snapshot because
-            // restoring it homes the cursor and requires scroll-region state.
-            activeScreen: activeScreen,
-            modes: full ? modes : modes.filter(\.isDECAutowrapMode),
-            terminalForeground: full ? terminalForeground : nil,
-            terminalBackground: full ? terminalBackground : nil,
-            terminalCursorColor: full ? terminalCursorColor : nil,
-            scrollbackRows: full ? scrollbackRows : 0,
-            scrollbackSpans: full ? scrollbackSpans : []
-        )
-    }
-
-    public static func normalizedPlainRows(from text: String, maxRows: Int) -> [String] {
-        normalizedRows(from: text, maxRows: maxRows)
     }
 
     public func jsonObject() throws -> [String: Any] {
@@ -311,6 +285,10 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             return [:]
         }
         return object
+    }
+
+    public func sendableJSONObject() throws -> MobileTerminalRenderGridJSONObject {
+        MobileTerminalRenderGridJSONObject(value: try jsonObject())
     }
 
     public static func decodeJSONObject(_ object: Any) throws -> MobileTerminalRenderGridFrame {
@@ -356,40 +334,18 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         MobileTerminalRenderGridReplay(self).patchBytes()
     }
 
-    private static func normalizedRows(from text: String, maxRows: Int) -> [String] {
-        var normalized = text
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-            .components(separatedBy: "\n")
-        if normalized.count > maxRows, normalized.last?.isEmpty == true {
-            normalized.removeLast()
-        }
-        if normalized.count > maxRows {
-            normalized = Array(normalized.prefix(maxRows))
-        }
-        while normalized.count < maxRows {
-            normalized.append("")
-        }
-        return normalized
-    }
-
-    private static func trimmingTrailingGridBlanks(_ text: String) -> String {
-        let scalars = text.unicodeScalars
-        let space = UnicodeScalar(" ")
-        let tab = UnicodeScalar("\t")
-        var end = scalars.endIndex
-        while end > scalars.startIndex {
-            let previous = scalars.index(before: end)
-            guard scalars[previous] == space || scalars[previous] == tab else { break }
-            end = previous
-        }
-        return String(String.UnicodeScalarView(scalars[..<end]))
+    /// Total styled spans retained by this frame across every history window.
+    public var totalSpanCount: Int {
+        rowSpans.count + scrollbackSpans.count
+            + scrollForwardSpans.count + primaryActiveSpans.count
     }
 
     enum CodingKeys: String, CodingKey {
         case format
         case surfaceID = "surface_id"
         case stateSeq = "state_seq"
+        case renderRevision = "render_revision"
+        case baseRenderRevision = "base_render_revision"
         case columns
         case rows
         case cursor
@@ -404,6 +360,10 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         case terminalCursorColor = "terminal_cursor_color"
         case scrollbackRows = "scrollback_rows"
         case scrollbackSpans = "scrollback_spans"
+        case scrollForwardRows = "scrollforward_rows"
+        case scrollForwardSpans = "scrollforward_spans"
+        case primaryActiveRows = "primary_active_rows"
+        case primaryActiveSpans = "primary_active_spans"
     }
 
     /// Which terminal screen a full snapshot represents.
@@ -455,6 +415,11 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         public var row: Int
         public var column: Int
         public var visible: Bool
+        /// The cursor's position relative to the captured viewport. Older
+        /// render-grid producers omit this field.
+        public var location: Location?
+        /// Exact cursor row on the live active screen, when supplied.
+        public var activeRow: Int?
         public var style: Style
         public var blinking: Bool
 
@@ -462,12 +427,16 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             row: Int,
             column: Int,
             visible: Bool = true,
+            location: Location? = nil,
+            activeRow: Int? = nil,
             style: Style = .block,
             blinking: Bool = false
         ) {
             self.row = row
             self.column = column
             self.visible = visible
+            self.location = location
+            self.activeRow = activeRow
             self.style = style
             self.blinking = blinking
         }
@@ -477,15 +446,10 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             self.row = try container.decode(Int.self, forKey: .row)
             self.column = try container.decode(Int.self, forKey: .column)
             self.visible = try container.decodeIfPresent(Bool.self, forKey: .visible) ?? true
+            self.location = try container.decodeIfPresent(Location.self, forKey: .location)
+            self.activeRow = try container.decodeIfPresent(Int.self, forKey: .activeRow)
             self.style = try container.decodeIfPresent(Style.self, forKey: .style) ?? .block
             self.blinking = try container.decodeIfPresent(Bool.self, forKey: .blinking) ?? false
-        }
-
-        public enum Style: String, Codable, Equatable, Sendable {
-            case block
-            case bar
-            case underline
-            case blockHollow = "block_hollow"
         }
     }
 

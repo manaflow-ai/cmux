@@ -15,12 +15,11 @@ internal import Foundation
 ///
 /// The aliases mirror `processV2Command` exactly: `mobile.workspace.list` (the
 /// bare `workspace.list` stays on the legacy `v2WorkspaceList`), the
-/// `mobile.terminal.*` verbs each with their bare `terminal.*` alias, plus
-/// `mobile.terminal.paste` / `terminal.paste` and the local debug
-/// `chat.sessions.dump`. The worker-lane `mobile.attach_ticket.create` and the
-/// mobile-data-plane-only verbs are NOT handled here: they reach the Mac only
-/// through the mobile data-plane RPC (`TerminalController.mobileHostHandleRPC`),
-/// which dispatches its `v2Mobile*` bodies directly — it speaks
+/// synchronous `mobile.terminal.*` verbs each with their bare `terminal.*` alias,
+/// plus `mobile.terminal.paste` / `terminal.paste` and the local debug
+/// `chat.sessions.dump`. Worker-lane verbs, including terminal replay and scroll,
+/// stay on the asynchronous app-side dispatcher. Mobile-data-plane-only verbs
+/// reach the Mac through `TerminalController.mobileHostHandleRPC`, which speaks
 /// `MobileHostRPCRequest` / `MobileHostRPCResult`, so routing it through this
 /// coordinator (native `ControlCallResult`) would only add a pointless type
 /// round-trip.
@@ -41,12 +40,8 @@ extension ControlCommandCoordinator {
             return context?.controlMobileTerminalCreate(params: request.params)
         case "mobile.terminal.input", "terminal.input":
             return context?.controlMobileTerminalInput(params: request.params)
-        case "mobile.terminal.replay", "terminal.replay":
-            return context?.controlMobileTerminalReplay(params: request.params)
         case "mobile.terminal.viewport", "terminal.viewport":
             return context?.controlMobileTerminalViewport(params: request.params)
-        case "mobile.terminal.scroll", "terminal.scroll":
-            return context?.controlMobileTerminalScroll(params: request.params)
         case "mobile.terminal.mouse", "terminal.mouse":
             return context?.controlMobileTerminalMouse(params: request.params)
         case "mobile.terminal.paste", "terminal.paste":

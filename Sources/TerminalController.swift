@@ -202,6 +202,9 @@ class TerminalController {
     }
     private static let mobileViewportReportTTL: TimeInterval = 5
     private var mobileViewportReportsBySurfaceID: [UUID: [String: MobileViewportReport]] = [:]; private var mobileViewportGenerationsBySurfaceID: [UUID: [String: UInt64]] = [:]
+    var mobileRenderRevisionsBySurfaceID: [UUID: UInt64] = [:]
+    /// Surface -> installed client -> process session -> newest interaction epoch.
+    var mobileInteractionEpochsBySurfaceID: [UUID: [String: [String: UInt64]]] = [:]
     private var mobileViewportReportCleanupTimersBySurfaceID: [UUID: DispatchSourceTimer] = [:]
 #if DEBUG
     private nonisolated static let socketCommandDebugLogEnvironmentKey = "CMUX_DEBUG_SOCKET_COMMAND_LOG"
@@ -334,6 +337,8 @@ class TerminalController {
             v2BrowserDownloadEventsBySurface.removeValue(forKey: surfaceId)
             v2ConsumedBrowserDownloadKeysBySurface.removeValue(forKey: surfaceId)
             v2BrowserUnsupportedNetworkRequestsBySurface.removeValue(forKey: surfaceId)
+            mobileRenderRevisionsBySurfaceID.removeValue(forKey: surfaceId)
+            mobileInteractionEpochsBySurfaceID.removeValue(forKey: surfaceId)
             v2BrowserElementRefs = v2BrowserElementRefs.filter { $0.value.surfaceId != surfaceId }
             controlCommandCoordinator.removeRef(kind: .surface, uuid: surfaceId)
         }
@@ -1349,6 +1354,14 @@ class TerminalController {
         case "mobile.attach_ticket.create":
             return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
                 await self.v2MobileAttachTicketCreate(params: request.params)
+            }
+        case "mobile.terminal.replay", "terminal.replay":
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
+                await self.v2MobileTerminalReplay(params: request.params)
+            }
+        case "mobile.terminal.scroll", "terminal.scroll":
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
+                await self.v2MobileTerminalScroll(params: request.params)
             }
         case "mobile.terminal.set_font":
             return v2Result(id: request.id, v2MobileTerminalSetFont(params: request.params))
@@ -13616,11 +13629,11 @@ class TerminalController {
         case "mobile.terminal.paste_image", "terminal.paste_image":
             result = v2MobileTerminalPasteImage(params: request.params)
         case "mobile.terminal.replay", "terminal.replay":
-            result = v2MobileTerminalReplay(params: request.params)
+            result = await v2MobileTerminalReplay(params: request.params)
         case "mobile.terminal.viewport", "terminal.viewport":
             result = v2MobileTerminalViewport(params: request.params)
         case "mobile.terminal.scroll", "terminal.scroll":
-            result = v2MobileTerminalScroll(params: request.params)
+            result = await v2MobileTerminalScroll(params: request.params)
         case "mobile.terminal.mouse", "terminal.mouse":
             result = v2MobileTerminalMouse(params: request.params)
         case let method where method.hasPrefix("mobile.terminal.artifact."):
@@ -13864,13 +13877,19 @@ class TerminalController {
     }
 
     func clearAllMobileViewportReports(reason: String) {
-        guard !mobileViewportReportsBySurfaceID.isEmpty || !mobileViewportGenerationsBySurfaceID.isEmpty || !mobileViewportReportCleanupTimersBySurfaceID.isEmpty else { return }
+        guard !mobileViewportReportsBySurfaceID.isEmpty
+                || !mobileViewportGenerationsBySurfaceID.isEmpty
+                || !mobileViewportReportCleanupTimersBySurfaceID.isEmpty
+                || !mobileInteractionEpochsBySurfaceID.isEmpty
+                || !mobileRenderRevisionsBySurfaceID.isEmpty else { return }
 
         for timer in mobileViewportReportCleanupTimersBySurfaceID.values {
             timer.cancel()
         }
         let surfaceIDs = Array(Set(mobileViewportReportsBySurfaceID.keys).union(mobileViewportGenerationsBySurfaceID.keys))
         mobileViewportReportsBySurfaceID.removeAll(); mobileViewportGenerationsBySurfaceID.removeAll()
+        mobileInteractionEpochsBySurfaceID.removeAll()
+        mobileRenderRevisionsBySurfaceID.removeAll()
         mobileViewportReportCleanupTimersBySurfaceID.removeAll()
 
         for surfaceID in surfaceIDs {
@@ -13955,7 +13974,7 @@ class TerminalController {
         )
     }
 
-    func v2MobileTerminalReplay(params: [String: Any]) -> V2CallResult {
+    func v2MobileTerminalReplay(params: [String: Any]) async -> V2CallResult {
         if let error = mobileWorkspaceIDValidationError(params: params) {
             return error
         }
@@ -13970,17 +13989,34 @@ class TerminalController {
             #endif
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
-        let hasViewportReportFields = params["client_id"] != nil || params["viewport_columns"] != nil || params["viewport_rows"] != nil
-        if hasViewportReportFields, v2String(params, "client_id") == nil || v2Int(params, "viewport_columns") == nil || v2Int(params, "viewport_rows") == nil {
-            return .err(code: "invalid_params", message: "Invalid mobile viewport report", data: nil)
+        _ = recordMobileInteractionEpoch(params: params, surfaceID: surfaceId, rejectOlder: false)
+        let hasViewportReportFields = params["viewport_columns"] != nil
+            || params["viewport_rows"] != nil
+            || params["viewport_generation"] != nil
+        if hasViewportReportFields {
+            guard v2String(params, "client_id") != nil,
+                  v2Int(params, "viewport_columns") != nil,
+                  v2Int(params, "viewport_rows") != nil else {
+                return .err(code: "invalid_params", message: "Invalid mobile viewport report", data: nil)
+            }
+            _ = applyMobileViewportReport(
+                params: params,
+                terminalPanel: terminalPanel,
+                reason: "mobile.terminal.replay"
+            )
         }
-        _ = applyMobileViewportReport(params: params, terminalPanel: terminalPanel, reason: "mobile.terminal.replay")
         let state = MobileTerminalByteTee.shared.replayState(surfaceID: surfaceId)
         let seq = state?.seq ?? 0
-        let renderGrid = mobileTerminalRenderGridFrame(
+        let prefetchWindow = mobileScrollPrefetchWindow(
+            params: params,
+            defaultBeforeRows: Self.mobileReplayScrollbackLineBudget
+        )
+        let renderGrid = await mobileTerminalRenderGridFrame(
             terminalPanel: terminalPanel,
             surfaceID: surfaceId,
-            seq: seq
+            seq: seq,
+            scrollbackLines: prefetchWindow.before,
+            scrollForwardLines: prefetchWindow.after
         )
         #if DEBUG
         cmuxDebugLog("mobile.terminal.replay surface=\(surfaceId.uuidString.prefix(8)) renderGrid=\(renderGrid != nil) seq=\(seq) hasState=\(state != nil)")
@@ -13990,11 +14026,20 @@ class TerminalController {
             "surface_id": surfaceId.uuidString,
             "seq": seq,
         ]
+        let renderGridObject: MobileTerminalRenderGridJSONObject?
+        if let renderGrid {
+            let renderGridObjectTask = Task.detached(priority: .utility) {
+                try renderGrid.sendableJSONObject()
+            }
+            renderGridObject = try? await renderGridObjectTask.value
+        } else {
+            renderGridObject = nil
+        }
         if let renderGrid,
-           let renderGridObject = try? renderGrid.jsonObject() {
+           let renderGridObject {
             payload["columns"] = renderGrid.columns
             payload["rows"] = renderGrid.rows
-            payload["render_grid"] = renderGridObject
+            payload["render_grid"] = renderGridObject.value
         } else {
             let snapshotData = readTerminalTextFromVTExportForSnapshot(
                 terminalPanel: terminalPanel,
@@ -14037,6 +14082,7 @@ class TerminalController {
               let terminalPanel = resolved.workspace.terminalPanel(for: surfaceId) else {
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
+        _ = recordMobileInteractionEpoch(params: params, surfaceID: surfaceId, rejectOlder: false)
 
         let reportedGrid: (columns: Int, rows: Int)?
         let allowLiveSurfaceFallback: Bool
@@ -14077,60 +14123,6 @@ class TerminalController {
         return .ok(payload)
     }
 
-    /// Forward a phone scroll gesture to the real surface so libghostty handles
-    /// it per-mode (scrollback in the normal screen, mouse-wheel to the program
-    /// in the alt screen). The producer already exports the live `vp_top`, so
-    /// the resulting viewport mirrors back to the phone; nudge an emit since a
-    /// pure scroll with no PTY output may not fire a render/tick on its own.
-    func v2MobileTerminalScroll(params: [String: Any]) -> V2CallResult {
-        if let error = mobileWorkspaceIDValidationError(params: params) {
-            return error
-        }
-        if let error = mobileTerminalAliasValidationError(params: params) {
-            return error
-        }
-        guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
-              let surfaceId = resolved.surfaceId,
-              let terminalPanel = resolved.workspace.terminalPanel(for: surfaceId) else {
-            return .err(code: "not_found", message: "Terminal surface not found", data: nil)
-        }
-        let deltaLines = (params["delta_lines"] as? NSNumber)?.doubleValue ?? 0
-        let col = (params["col"] as? NSNumber)?.intValue ?? 0
-        let row = (params["row"] as? NSNumber)?.intValue ?? 0
-        if deltaLines != 0 {
-            terminalPanel.surface.mobileScroll(deltaLines: deltaLines, col: max(0, col), row: max(0, row))
-            MobileTerminalRenderObserver.shared.noteTerminalBytes(surfaceID: terminalPanel.id)
-        }
-        return .ok(mobileTerminalScrollResponsePayload(
-            workspaceID: resolved.workspace.id,
-            terminalPanel: terminalPanel,
-            surfaceID: surfaceId,
-            params: params
-        ))
-    }
-
-    func v2MobileTerminalMouse(params: [String: Any]) -> V2CallResult {
-        if let error = mobileWorkspaceIDValidationError(params: params) {
-            return error
-        }
-        if let error = mobileTerminalAliasValidationError(params: params) {
-            return error
-        }
-        guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
-              let surfaceId = resolved.surfaceId,
-              let terminalPanel = resolved.workspace.terminalPanel(for: surfaceId) else {
-            return .err(code: "not_found", message: "Terminal surface not found", data: nil)
-        }
-        let col = (params["col"] as? NSNumber)?.intValue ?? 0
-        let row = (params["row"] as? NSNumber)?.intValue ?? 0
-        terminalPanel.surface.mobileClick(col: max(0, col), row: max(0, row))
-        MobileTerminalRenderObserver.shared.noteTerminalBytes(surfaceID: terminalPanel.id)
-        return .ok([
-            "workspace_id": resolved.workspace.id.uuidString,
-            "surface_id": surfaceId.uuidString,
-        ])
-    }
-
     func v2MobileTerminalInput(params: [String: Any]) -> V2CallResult {
         guard let text = v2RawString(params, "text"), !text.isEmpty else {
             return .err(code: "invalid_params", message: "Missing text", data: nil)
@@ -14146,6 +14138,8 @@ class TerminalController {
               let terminalPanel = resolved.workspace.terminalPanel(for: surfaceId) else {
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
+
+        _ = recordMobileInteractionEpoch(params: params, surfaceID: surfaceId, rejectOlder: false)
 
         _ = applyMobileViewportReport(params: params, terminalPanel: terminalPanel)
 
@@ -14205,6 +14199,11 @@ class TerminalController {
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
 
+        _ = recordMobileInteractionEpoch(
+            params: params,
+            surfaceID: surfaceId,
+            rejectOlder: false
+        )
         _ = applyMobileViewportReport(params: params, terminalPanel: terminalPanel)
 
         guard let escapedPath = GhosttyApp.terminalPasteboard.saveImageData(imageData, fileExtension: format) else {
@@ -14286,6 +14285,11 @@ class TerminalController {
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
 
+        _ = recordMobileInteractionEpoch(
+            params: params,
+            surfaceID: surfaceId,
+            rejectOlder: false
+        )
         // Mirror the macOS TextBox composer's submit-key selection
         // (`TextBoxInput.dispatchEvents`): Claude Code needs `ctrl+enter` to
         // submit a multi-line block, while plain `return` submits a newline mid
