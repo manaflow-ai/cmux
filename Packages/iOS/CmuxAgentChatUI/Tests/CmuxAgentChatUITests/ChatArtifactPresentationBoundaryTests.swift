@@ -33,6 +33,28 @@ struct ChatArtifactPresentationBoundaryTests {
         #expect(!didCompleteUnknown)
     }
 
+    @Test("completed selection reports an expanded neighbor topology exactly once")
+    func pageTopologyReload() {
+        let notes = "/notes.md"
+        let data = "/data.csv"
+        let log = "/build.log"
+        var state = ChatArtifactPageControllerState(
+            paths: [notes, data],
+            selectedPath: notes
+        )
+
+        let didComplete = state.completeTransition(to: data)
+        #expect(didComplete)
+        let didExpandPaths = state.update(paths: [notes, data, log], selectedPath: data)
+        #expect(didExpandPaths)
+        #expect(state.path(after: data) == log)
+        let didChangeDeduplicatedPaths = state.update(
+            paths: [notes, data, log, data],
+            selectedPath: data
+        )
+        #expect(!didChangeDeduplicatedPaths)
+    }
+
     @Test("large skipped-highlight updates need no full TextKit snapshot")
     func textUpdatePlanning() {
         let streaming = ChatArtifactTextUpdatePlan(
