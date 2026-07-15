@@ -6,9 +6,14 @@ final class BrowserDesignModeMessageHandler: NSObject, WKScriptMessageHandler {
     static let name = "cmuxDesignMode"
 
     private let onSnapshot: @MainActor @Sendable (Data) -> Void
+    private let onExitRequested: @MainActor @Sendable () -> Void
 
-    init(onSnapshot: @escaping @MainActor @Sendable (Data) -> Void) {
+    init(
+        onSnapshot: @escaping @MainActor @Sendable (Data) -> Void,
+        onExitRequested: @escaping @MainActor @Sendable () -> Void = {}
+    ) {
         self.onSnapshot = onSnapshot
+        self.onExitRequested = onExitRequested
     }
 
     func userContentController(
@@ -19,6 +24,12 @@ final class BrowserDesignModeMessageHandler: NSObject, WKScriptMessageHandler {
               message.frameInfo.isMainFrame,
               let body = message.body as? [String: Any],
               let type = body["type"] as? String else { return }
+        if type == "exit_requested" {
+            MainActor.assumeIsolated { [onExitRequested] in
+                onExitRequested()
+            }
+            return
+        }
         guard type == "snapshot",
               let snapshot = body["snapshot"],
               JSONSerialization.isValidJSONObject(snapshot),

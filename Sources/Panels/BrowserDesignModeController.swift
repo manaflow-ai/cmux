@@ -103,6 +103,12 @@ final class BrowserDesignModeController {
         let handler = BrowserDesignModeMessageHandler(
             onSnapshot: { [weak self] data in
                 self?.receiveSnapshotData(data)
+            },
+            onExitRequested: { [weak self] in
+                guard let self, self.isActive else { return }
+                Task { @MainActor in
+                    await self.setEnabled(false, reason: "escape")
+                }
             }
         )
         messageHandler = handler

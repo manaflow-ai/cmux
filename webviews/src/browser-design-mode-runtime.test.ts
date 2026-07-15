@@ -645,6 +645,22 @@ describe("browser design-mode runtime", () => {
     expect(dom.window.document.querySelector(selector)).toBe(second);
   });
 
+  test("escape clears the selection first, then requests design-mode exit", () => {
+    const { dom, messages, runtime } = fixture(`<main><button id="b">B</button></main>`);
+    runtime.select("#b");
+    const exitRequests = () => messages.filter((m) => (m as { type?: string }).type === "exit_requested");
+    const esc = () => dom.window.document.dispatchEvent(
+      new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+    );
+
+    esc();
+    expect(runtime.composerState().selection_count).toBe(0);
+    expect(exitRequests()).toHaveLength(0);
+
+    esc();
+    expect(exitRequests()).toHaveLength(1);
+  });
+
   test("plain click replaces the selection; shift-click stacks", () => {
     const { dom, runtime } = fixture(`<main><button id="first">A</button><button id="second">B</button></main>`);
     const first = dom.window.document.querySelector("#first") as HTMLButtonElement;

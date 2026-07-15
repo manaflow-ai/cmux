@@ -1229,11 +1229,16 @@
   };
 
   const onKeyDown = (event) => {
-    if (!enabled || captureHidden || event.key !== "Escape" || !selectedBaseline) return;
+    if (!enabled || captureHidden || event.key !== "Escape") return;
     event.preventDefault();
     event.stopPropagation();
     event.stopImmediatePropagation();
-    clearSelection();
+    if (selectedBaseline) {
+      clearSelection();
+      return;
+    }
+    // Escape with nothing selected exits design mode entirely.
+    handler?.postMessage({ type: "exit_requested" });
   };
 
   const installListeners = () => {
