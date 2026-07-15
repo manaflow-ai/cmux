@@ -13,6 +13,34 @@ import WebKit
 @Suite(.serialized)
 struct BrowserViewportRuntimeTests {
     @Test
+    func nativePortalLayoutDoesNotRewriteStableWebViewGeometry() {
+        let slot = WindowBrowserSlotView(
+            frame: NSRect(x: 0, y: 0, width: 380, height: 610)
+        )
+        let webView = BrowserViewportPropertyWriteProbeWebView(
+            frame: slot.bounds,
+            configuration: WKWebViewConfiguration()
+        )
+        defer { webView.removeFromSuperview() }
+
+        slot.addSubview(webView)
+        slot.pinHostedWebView(webView)
+        #expect(webView.cmuxBrowserViewportPresentationView === webView)
+        #expect(webView.frame == slot.bounds)
+        #expect(webView.autoresizingMask == [.width, .height])
+
+        webView.beginRecordingViewportPropertyWrites()
+        for _ in 0..<10 {
+            slot.needsLayout = true
+            slot.layoutSubtreeIfNeeded()
+        }
+
+        #expect(webView.redundantViewportPropertyWriteCount == 0)
+        #expect(webView.frame == slot.bounds)
+        #expect(webView.bounds == slot.bounds)
+    }
+
+    @Test
     func nativeViewportActivatesPresentationHostOnlyWhileEmulationIsRequested() throws {
         let panel = BrowserPanel(workspaceId: UUID(), initialURL: URL(string: "about:blank")!)
         let webView = panel.webView
@@ -324,5 +352,33 @@ struct BrowserViewportRuntimeTests {
         #expect(hitView != nil)
         #expect(hitView === webView || hitView?.isDescendant(of: webView) == true)
         #expect(host.frame.contains(targetCenterInPane))
+    }
+}
+
+@MainActor
+private final class BrowserViewportPropertyWriteProbeWebView: WKWebView {
+    private(set) var redundantViewportPropertyWriteCount = 0
+    private var recordsViewportPropertyWrites = false
+
+    override var translatesAutoresizingMaskIntoConstraints: Bool {
+        didSet {
+            if recordsViewportPropertyWrites,
+               oldValue == translatesAutoresizingMaskIntoConstraints {
+                redundantViewportPropertyWriteCount += 1
+            }
+        }
+    }
+
+    override var autoresizingMask: NSView.AutoresizingMask {
+        didSet {
+            if recordsViewportPropertyWrites, oldValue == autoresizingMask {
+                redundantViewportPropertyWriteCount += 1
+            }
+        }
+    }
+
+    func beginRecordingViewportPropertyWrites() {
+        redundantViewportPropertyWriteCount = 0
+        recordsViewportPropertyWrites = true
     }
 }
