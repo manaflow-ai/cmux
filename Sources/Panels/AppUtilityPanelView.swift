@@ -39,5 +39,9 @@ struct AppUtilityPanelView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: GhosttyApp.shared.defaultBackgroundColor))
+        .background(
+            RightSidebarToolFocusAnchor(onViewChange: panel.attachFocusAnchor)
+                .frame(width: 0, height: 0)
+        )
     }
 }

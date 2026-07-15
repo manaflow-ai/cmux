@@ -42,6 +42,55 @@ struct AppUtilityPanelTests {
         #expect(panel.settingsNavigationRevision == 1)
     }
 
+    @Test func appUtilityPanelOwnsAndYieldsFocusWithinItsViewTree() throws {
+        let panel = AppUtilityPanel(workspaceId: UUID(), kind: .settings)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let focusRoot = NSView(frame: window.contentView?.bounds ?? .zero)
+        let anchor = RightSidebarToolFocusAnchorView(frame: .zero)
+        let settingsControl = NSTextField(frame: NSRect(x: 20, y: 20, width: 200, height: 24))
+        focusRoot.addSubview(anchor)
+        focusRoot.addSubview(settingsControl)
+        window.contentView = focusRoot
+        panel.attachFocusAnchor(anchor)
+
+        panel.focus()
+        #expect(window.firstResponder === anchor)
+
+        try #require(window.makeFirstResponder(settingsControl))
+        let responder = try #require(window.firstResponder)
+        #expect(panel.ownedFocusIntent(for: responder, in: window) == .panel)
+        #expect(panel.yieldFocusIntent(.panel, in: window))
+        #expect(window.firstResponder !== settingsControl)
+        #expect(panel.ownedFocusIntent(for: window.firstResponder ?? window, in: window) == nil)
+    }
+
+    @Test func appUtilityPanelDoesNotYieldUnownedResponder() throws {
+        let panel = AppUtilityPanel(workspaceId: UUID(), kind: .settings)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let focusRoot = NSView(frame: window.contentView?.bounds ?? .zero)
+        let anchor = RightSidebarToolFocusAnchorView(frame: .zero)
+        let foreignResponder = RightSidebarToolFocusAnchorView(frame: .zero)
+        focusRoot.addSubview(anchor)
+        window.contentView = focusRoot
+        window.contentView?.superview?.addSubview(foreignResponder)
+        panel.attachFocusAnchor(anchor)
+        try #require(window.makeFirstResponder(foreignResponder))
+
+        #expect(panel.ownedFocusIntent(for: foreignResponder, in: window) == nil)
+        #expect(!panel.yieldFocusIntent(.panel, in: window))
+        #expect(window.firstResponder === foreignResponder)
+    }
+
     @Test func openOrFocusAppUtilityPaneCreatesRightSplitAndReusesExistingKind() throws {
         let workspace = Workspace()
         let paneId = try #require(workspace.bonsplitController.focusedPaneId)

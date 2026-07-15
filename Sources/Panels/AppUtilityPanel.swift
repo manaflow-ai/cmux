@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 
@@ -13,6 +14,7 @@ final class AppUtilityPanel: Panel {
 
     private(set) var settingsNavigationTarget: SettingsNavigationTarget?
     private(set) var settingsNavigationRevision = 0
+    @ObservationIgnored private weak var focusAnchorView: RightSidebarToolFocusAnchorView?
 
     var displayTitle: String { kind.displayTitle }
     var displayIcon: String? { kind.displayIcon }
@@ -33,8 +35,36 @@ final class AppUtilityPanel: Panel {
         settingsNavigationRevision &+= 1
     }
 
-    func close() {}
-    func focus() {}
+    func attachFocusAnchor(_ anchor: RightSidebarToolFocusAnchorView?) {
+        focusAnchorView = anchor
+    }
+
+    func close() {
+        focusAnchorView = nil
+    }
+
+    func focus() {
+        guard let anchor = focusAnchorView,
+              let window = anchor.window else { return }
+        _ = window.makeFirstResponder(anchor)
+    }
+
     func unfocus() {}
     func triggerFlash(reason: WorkspaceAttentionFlashReason) { _ = reason }
+
+    func ownedFocusIntent(for responder: NSResponder, in window: NSWindow) -> PanelFocusIntent? {
+        _ = window
+        guard focusAnchorView?.ownsKeyboardFocus(responder) == true else { return nil }
+        return .panel
+    }
+
+    @discardableResult
+    func yieldFocusIntent(_ intent: PanelFocusIntent, in window: NSWindow) -> Bool {
+        guard intent == .panel,
+              let responder = window.firstResponder,
+              ownedFocusIntent(for: responder, in: window) == intent else {
+            return false
+        }
+        return window.makeFirstResponder(nil)
+    }
 }
