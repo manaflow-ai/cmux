@@ -18,16 +18,6 @@ extension SidebarLazyLayoutScaleTests {
         return nil
     }
 
-    @MainActor
-    private static func firstPointerTrackingView(in rootView: NSView) -> SidebarPointerTrackingView? {
-        var pendingViews = [rootView]
-        while let view = pendingViews.popLast() {
-            if let trackingView = view as? SidebarPointerTrackingView { return trackingView }
-            pendingViews.append(contentsOf: view.subviews)
-        }
-        return nil
-    }
-
     private static func mouseMovedEvent(at pointInWindow: NSPoint, window: NSWindow) throws -> NSEvent {
         try #require(NSEvent.mouseEvent(
             with: .mouseMoved,
@@ -82,9 +72,8 @@ extension SidebarLazyLayoutScaleTests {
         let pointerInWindow = scrollView.convert(pointerInScrollView, to: nil)
         harness.window.injectedMouseLocation = pointerInWindow
 
-        let trackingView = try #require(Self.firstPointerTrackingView(in: rootView))
         harness.counter.reset()
-        trackingView.mouseMoved(with: try Self.mouseMovedEvent(
+        NSApp.sendEvent(try Self.mouseMovedEvent(
             at: pointerInWindow,
             window: harness.window
         ))

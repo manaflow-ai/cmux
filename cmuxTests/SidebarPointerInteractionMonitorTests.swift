@@ -32,31 +32,6 @@ import Testing
         monitor.stop()
     }
 
-    @Test func trackingViewOwnsHostWindowMouseMovedEventDelivery() {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 240, height: 320),
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        )
-        window.acceptsMouseMovedEvents = false
-        let contentView = NSView(frame: window.contentView?.bounds ?? .zero)
-        window.contentView = contentView
-        let trackingView = SidebarPointerTrackingView(frame: contentView.bounds)
-
-        contentView.addSubview(trackingView)
-        #expect(
-            window.acceptsMouseMovedEvents,
-            "The shared sidebar tracker must enable mouse-moved delivery so moving between rows updates hover."
-        )
-
-        trackingView.removeFromSuperview()
-        #expect(
-            !window.acceptsMouseMovedEvents,
-            "Detaching the tracker must restore the host window's prior mouse-moved setting."
-        )
-    }
-
     @Test func restartReattachesToTheResolvedScrollViewWithoutAnotherResolverPass() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 240, height: 320),
