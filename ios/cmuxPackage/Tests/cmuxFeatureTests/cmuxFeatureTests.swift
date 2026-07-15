@@ -2135,7 +2135,7 @@ final class TerminalOutputCollector {
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
     #expect(store.workspaces.map(\.id.rawValue) == ["workspace-main", "workspace-docs"])
 
-    store.createTerminal()
+    store.createTerminal(in: .init(rawValue: "workspace-main"), paneID: "pane-main")
 
     for _ in 0..<200 where store.selectedTerminalID?.rawValue != "workspace-main-terminal-2" {
         try await Task.sleep(nanoseconds: 10_000_000)
@@ -2145,6 +2145,10 @@ final class TerminalOutputCollector {
     #expect(store.selectedWorkspace?.id.rawValue == "workspace-main")
     #expect(store.selectedTerminalID?.rawValue == "workspace-main-terminal-2")
     #expect(store.workspaces.first { $0.id.rawValue == "workspace-docs" }?.terminals.first?.id.rawValue == "terminal-notes")
+    let requests = await router.sentRequests()
+    let createRequest = try #require(requests.first { $0.method == "terminal.create" })
+    #expect(createRequest.workspaceID == "workspace-main")
+    #expect(createRequest.paneID == "pane-main")
 }
 
 @MainActor
@@ -3688,6 +3692,7 @@ private actor ScriptedTransportResponses {
                 id: request["id"] as? String,
                 method: request["method"] as? String,
                 workspaceID: params["workspace_id"] as? String,
+                paneID: params["pane_id"] as? String,
                 terminalID: params["terminal_id"] as? String ??
                     params["surface_id"] as? String ??
                     params["tab_id"] as? String,
@@ -3709,6 +3714,7 @@ private struct RecordedRPCRequest: Sendable {
     var id: String?
     var method: String?
     var workspaceID: String?
+    var paneID: String?
     var terminalID: String?
     var viewportColumns: Int?
     var viewportRows: Int?
@@ -3729,6 +3735,7 @@ private func recordedRPCRequest(from payload: Data) throws -> RecordedRPCRequest
         id: request["id"] as? String,
         method: request["method"] as? String,
         workspaceID: params["workspace_id"] as? String,
+        paneID: params["pane_id"] as? String,
         terminalID: params["terminal_id"] as? String ?? params["surface_id"] as? String,
         viewportColumns: params["viewport_columns"] as? Int,
         viewportRows: params["viewport_rows"] as? Int,
@@ -4091,6 +4098,10 @@ struct InertPushRegistration: PushRegistering {
 
     #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
     #expect(store.selectedTerminalID == MobileTerminalPreview.ID(rawValue: "terminal-notes"))
+    #expect(
+        store.deeplinkWorkspaceNavigationRequest?.terminalID
+            == MobileTerminalPreview.ID(rawValue: "terminal-notes")
+    )
 }
 
 /// Tap lands while the store is bound but the Mac attach has not delivered
@@ -4191,7 +4202,9 @@ struct InertPushRegistration: PushRegistering {
 
     let target = MobileWorkspacePreview.ID(rawValue: "workspace-docs")
     #expect(store.deeplinkWorkspaceNavigationRequest?.workspaceID == target)
-    #expect(store.consumeDeeplinkWorkspaceNavigationRequest() == target)
+    let request = store.consumeDeeplinkWorkspaceNavigationRequest()
+    #expect(request?.workspaceID == target)
+    #expect(request?.terminalID == nil)
     // One-shot: a later layout remount cannot replay a stale push.
     #expect(store.deeplinkWorkspaceNavigationRequest == nil)
     #expect(store.consumeDeeplinkWorkspaceNavigationRequest() == nil)

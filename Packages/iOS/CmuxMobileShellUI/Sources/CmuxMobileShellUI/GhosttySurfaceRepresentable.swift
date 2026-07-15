@@ -50,6 +50,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     var onArtifactFilesRequested: @MainActor (_ anchor: UnitPoint) -> Void = { _ in }
     var onArtifactPathTapped: @MainActor (_ path: String) -> Void = { _ in }
     var onVisibleArtifactCountChanged: @MainActor (_ count: Int) -> Void = { _ in }
+    /// Reports explicit user input so surrounding chrome can auto-hide.
+    let onTerminalKeystroke: @MainActor () -> Void
+    /// Reports the start of native terminal scrolling so chrome can auto-hide.
+    let onTerminalScrollBegan: @MainActor () -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -61,7 +65,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             visibleArtifactCount: visibleArtifactCount,
             onArtifactFilesRequested: onArtifactFilesRequested,
             onArtifactPathTapped: onArtifactPathTapped,
-            onVisibleArtifactCountChanged: onVisibleArtifactCountChanged
+            onVisibleArtifactCountChanged: onVisibleArtifactCountChanged,
+            onTerminalKeystroke: onTerminalKeystroke,
+            onTerminalScrollBegan: onTerminalScrollBegan
         )
     }
 
@@ -208,6 +214,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// its completion, which must not unmount a composer that was remounted in
         /// the meantime.
         private var composerMountGeneration = 0
+        let onTerminalKeystroke: @MainActor () -> Void
+        let onTerminalScrollBegan: @MainActor () -> Void
 
         init(
             workspaceID: String,
@@ -218,7 +226,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             visibleArtifactCount: Int,
             onArtifactFilesRequested: @escaping @MainActor (_ anchor: UnitPoint) -> Void,
             onArtifactPathTapped: @escaping @MainActor (_ path: String) -> Void,
-            onVisibleArtifactCountChanged: @escaping @MainActor (_ count: Int) -> Void
+            onVisibleArtifactCountChanged: @escaping @MainActor (_ count: Int) -> Void,
+            onTerminalKeystroke: @escaping @MainActor () -> Void,
+            onTerminalScrollBegan: @escaping @MainActor () -> Void
         ) {
             self.workspaceID = workspaceID
             self.surfaceID = surfaceID
@@ -230,6 +240,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             self.onArtifactFilesRequested = onArtifactFilesRequested
             self.onArtifactPathTapped = onArtifactPathTapped
             self.onVisibleArtifactCountChanged = onVisibleArtifactCountChanged
+            self.onTerminalKeystroke = onTerminalKeystroke
+            self.onTerminalScrollBegan = onTerminalScrollBegan
             super.init()
         }
 

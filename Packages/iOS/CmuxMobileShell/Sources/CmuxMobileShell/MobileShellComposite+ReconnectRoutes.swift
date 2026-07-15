@@ -139,6 +139,7 @@ extension MobileShellComposite {
     /// Resume foreground-only refresh loops after the app becomes active.
     public func resumeForegroundRefresh() {
         startObservingNetworkPathChanges()
+        previewGridDidResumeForeground()
         // Covers stores constructed already-signed-in (no isSignedIn edge) and
         // restarts a subscription torn down while backgrounded.
         evaluatePresenceSubscription()
@@ -161,6 +162,7 @@ extension MobileShellComposite {
     public func suspendForegroundRefresh() {
         guard lastBackgroundedAt == nil else { return }
         lastBackgroundedAt = runtime?.now() ?? Date()
+        previewGridDidSuspendForeground()
     }
 
     func freshReconnectRoutesAfterLocalFailure(

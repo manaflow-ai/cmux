@@ -371,6 +371,11 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         switch method {
         case "mobile.workspace.list", "workspace.list":
             return false
+        case "mobile.workspace.layout":
+            return !ticketCoverage.ticketCoversWorkspaceRequest(
+                ticket: ticket,
+                workspaceSelection: workspaceSelection.value
+            )
         case "workspace.create":
             return false
         case "workspace.action", "workspace.close":

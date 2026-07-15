@@ -732,6 +732,69 @@
         }
       }
     },
+    "mobile.agentChat.state.idle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Idle" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アイドル" } }
+      }
+    },
+    "mobile.agentChat.state.running": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Running" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "実行中" } }
+      }
+    },
+    "mobile.agentChat.state.waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Waiting" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "待機中" } }
+      }
+    },
+    "mobile.browser.local.badge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "On this iPhone" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このiPhone上" } }
+      }
+    },
+    "mobile.browser.local.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "iPhone Browser" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "iPhoneブラウザ" } }
+      }
+    },
+    "mobile.browser.mirrored.badge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Mac Browser" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macブラウザ" } }
+      }
+    },
+    "mobile.browser.mirrored.viewing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Viewing Mac browser" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macのブラウザを表示中" } }
+      }
+    },
+    "mobile.browser.mirrored.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Browser preview unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブラウザプレビューを利用できません" } }
+      }
+    },
+    "mobile.browser.mirrored.unavailable.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Update cmux on this Mac to view its browser." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このMacのcmuxを更新するとブラウザを表示できます。" } }
+      }
+    },
     "mobile.browser.back": {
       "extractionState": "manual",
       "localizations": {
@@ -3059,6 +3122,41 @@
             "value": "Macのターミナルを、iPhoneで"
           }
         }
+      }
+    },
+    "mobile.paneTabStrip.attention": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Prioritize Attention" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "要対応を優先" } }
+      }
+    },
+    "mobile.paneTabStrip.off": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Off" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "オフ" } }
+      }
+    },
+    "mobile.paneTabStrip.on": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "On" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "オン" } }
+      }
+    },
+    "mobile.paneTabStrip.selected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Selected" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "選択中" } }
+      }
+    },
+    "mobile.paneTabStrip.show": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Show Tabs" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "タブを表示" } }
       }
     },
     "mobile.pairing.accountMismatch": {
@@ -7513,6 +7611,83 @@
             "value": "ワークスペースを削除しますか？"
           }
         }
+      }
+    },
+    "mobile.workspaceHub.agent.idle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Agent idle" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェントは待機中" } }
+      }
+    },
+    "mobile.workspaceHub.agent.needsInput": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Agent needs input" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェントが入力を待っています" } }
+      }
+    },
+    "mobile.workspaceHub.agent.running": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Agent running" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェントは実行中" } }
+      }
+    },
+    "mobile.workspaceHub.agent.unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Agent status unknown" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェントの状態は不明" } }
+      }
+    },
+    "mobile.workspaceHub.attention": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Needs attention" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "確認が必要" } }
+      }
+    },
+    "mobile.workspaceHub.degraded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Update cmux on this Mac to mirror its pane layout." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ペイン配置を反映するには、この Mac の cmux をアップデートしてください。" } }
+      }
+    },
+    "mobile.workspaceHub.emptyMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Open a terminal on your Mac to see it here." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Mac でターミナルを開くと、ここに表示されます。" } }
+      }
+    },
+    "mobile.workspaceHub.emptyTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No Panes" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ペインなし" } }
+      }
+    },
+    "mobile.workspaceHub.focused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Focused" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フォーカス中" } }
+      }
+    },
+    "mobile.workspaceHub.tabCountFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%d tabs" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%d 個のタブ" } }
+      }
+    },
+    "mobile.workspaceHub.untitled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Untitled" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "名称未設定" } }
       }
     },
     "mobile.workspace.emptyTitle": {

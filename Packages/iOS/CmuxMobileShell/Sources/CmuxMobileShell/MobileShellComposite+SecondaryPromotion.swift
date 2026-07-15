@@ -82,7 +82,9 @@ extension MobileShellComposite {
             displayName: displayName,
             workspaces: previews,
             status: .connected,
-            actionCapabilities: sub.actionCapabilities
+            actionCapabilities: sub.actionCapabilities,
+            supportsWorkspaceLayout: Self.hostSupportsWorkspaceLayout(sub.supportedHostCapabilities),
+            supportsBrowserPreview: Self.hostSupportsBrowserPreview(sub.supportedHostCapabilities)
         )
         dropStalePreviousForeground(previousForegroundKey)
         connectionState = .connected

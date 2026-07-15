@@ -22,6 +22,8 @@ extension MobileHostService {
             "notification.reconcile.v1",
             "terminal.bytes.v1",
             "terminal.render_grid.v1",
+            "terminal.render_grid.demand.v1",
+            "browser.preview.v1",
             "terminal.replay.v1",
             "terminal.viewport.v1",
             "terminal.artifact.v1",
@@ -40,6 +42,7 @@ extension MobileHostService {
             // workspace.group.collapse/expand from mobile. iOS feature-detects
             // this to render collapsible groups only against a Mac that emits them.
             "workspace.groups.v1",
+            "workspace.layout.v1",
         ]
         #if DEBUG
         // Lets a dev Mac impersonate an older host while dogfooding the iOS update hint.

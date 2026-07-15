@@ -336,9 +336,11 @@ public final class MobilePushCoordinator {
         }
 
         if pending.lastNavigatedWorkspaceId != workspaceTarget {
-            store.navigateToWorkspaceForDeeplink(workspaceTarget)
-        }
-        if let surfaceId = pending.surfaceId {
+            store.navigateToWorkspaceForDeeplink(
+                workspaceTarget,
+                terminalID: pending.surfaceId.map(MobileTerminalPreview.ID.init(rawValue:))
+            )
+        } else if let surfaceId = pending.surfaceId {
             store.selectTerminal(MobileTerminalPreview.ID(rawValue: surfaceId))
         }
         pendingDeeplink = nil

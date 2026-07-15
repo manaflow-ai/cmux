@@ -22,6 +22,7 @@ public final class MobileDisplaySettings {
     private nonisolated(unsafe) let defaults: UserDefaults
     private static let wrapWorkspaceTitlesKey = "cmux.mobile.wrapWorkspaceTitles"
     private static let showAltScreenNoticeKey = "cmux.mobile.showAltScreenNotice"
+    private static let attentionShelfEnabledKey = "cmux.mobile.attentionShelfEnabled"
     private static let workspacePreviewLineCountKey = "cmux.mobile.workspacePreviewLineCount"
     private static let unreadIndicatorLeftShiftKey = "cmux.mobile.debug.unreadIndicatorLeftShift.v2"
     private static let profilePictureLeftShiftKey = "cmux.mobile.debug.profilePictureLeftShift"
@@ -56,6 +57,12 @@ public final class MobileDisplaySettings {
     /// this writes through to the injected ``UserDefaults``.
     public var showAltScreenNotice: Bool {
         didSet { defaults.set(showAltScreenNotice, forKey: Self.showAltScreenNoticeKey) }
+    }
+
+    /// Whether pane tab strips put attention-needing cards first. This is one
+    /// global preference, defaults to `false`, and persists across relaunches.
+    public var attentionShelfEnabled: Bool {
+        didSet { defaults.set(attentionShelfEnabled, forKey: Self.attentionShelfEnabledKey) }
     }
 
     /// How many lines a workspace row's activity preview shows (1 or 2).
@@ -108,6 +115,7 @@ public final class MobileDisplaySettings {
         self.defaults = defaults
         self.wrapWorkspaceTitles = defaults.bool(forKey: Self.wrapWorkspaceTitlesKey)
         self.showAltScreenNotice = defaults.object(forKey: Self.showAltScreenNoticeKey) as? Bool ?? true
+        self.attentionShelfEnabled = defaults.bool(forKey: Self.attentionShelfEnabledKey)
         let storedPreviewLines = defaults.object(forKey: Self.workspacePreviewLineCountKey) as? Int
         self.workspacePreviewLineCount = Self.clampedWorkspacePreviewLineCount(
             storedPreviewLines ?? Self.defaultWorkspacePreviewLineCount

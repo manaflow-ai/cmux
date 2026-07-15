@@ -97,6 +97,17 @@ public struct UITestConfig {
         #endif
     }
 
+    /// Optional DEBUG-only pane/tab redesign fixture mode.
+    public static var paneTabRedesignPreviewMode: String? {
+        #if DEBUG
+        let value = ProcessInfo.processInfo.environment["CMUX_UITEST_PANE_TAB_REDESIGN_PREVIEW"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return value?.isEmpty == false ? value : nil
+        #else
+        return nil
+        #endif
+    }
+
     /// Whether the workspace detail delayed-terminal lifecycle preview is enabled.
     ///
     /// When `CMUX_UITEST_WORKSPACE_DETAIL_DELAYED_TERMINAL=1`, the root view renders

@@ -188,30 +188,6 @@ struct MobileHostServiceStatus {
     }
 }
 
-/// What ``MobileHostService/syncToSettings()`` should do to reconcile
-/// the live listener with the current settings. A pure value so the
-/// restart-on-port-change logic is unit-testable without a real `NWListener`.
-enum MobileHostSyncDecision: Equatable {
-    case noop
-    case start
-    case stop
-    case restart
-}
-
-/// Outcome of an explicit "Apply port" request from settings. A pure value so
-/// ``MobileHostService/portApplyDecision(enabled:currentBoundPort:requestedPort:isAvailable:)``
-/// is unit-testable without binding a real `NWListener`.
-enum MobileHostPortApplyOutcome: Equatable {
-    /// The port was accepted; the listener is (or will be) bound to it.
-    case applied(Int)
-    /// The port is in use by another process; the running listener was left untouched.
-    case portInUse
-    /// Pairing is off, so the port was saved and will bind when pairing is enabled.
-    case savedWhileDisabled
-    /// The requested port was outside the valid `1...65535` range.
-    case invalid
-}
-
 @MainActor
 final class MobileHostService {
     static let shared = MobileHostService()
@@ -770,6 +746,7 @@ final class MobileHostService {
             Task { await connection.close(reason: "service stopped") }
         }
         MobileHostEventSubscriptionTracker.reset()
+        MobileBrowserPreviewCoordinator.shared.stop()
         MobileHostPublicStatusCache.removeAll()
         TerminalController.shared.clearAllMobileViewportReports(reason: "mobile.host.stopped")
         drainReadinessWaiters()
@@ -1624,6 +1601,9 @@ actor MobileHostConnection {
     /// stream_id → topics and their negotiated event delivery path.
     /// Populated by `mobile.events.subscribe`; cleared on close.
     private var subscriptions: [String: EventSubscription] = [:]
+    /// Per-stream render-grid demand; absent for streams without that topic.
+    private var renderGridDemandScopes: [String: MobileRenderGridDemandScope] = [:]
+    private var browserPreviewDemand = MobileBrowserPreviewConnectionDemand()
 
     init(
         id: UUID,
@@ -1734,6 +1714,10 @@ actor MobileHostConnection {
         }
         let previousSubscriptions = Array(subscriptions.values)
         subscriptions.removeAll()
+        renderGridDemandScopes.removeAll()
+        browserPreviewDemand.removeAll()
+        publishRenderGridDemand()
+        browserPreviewDemand.publish(connectionID: id)
         for subscription in previousSubscriptions where !subscription.topics.isEmpty {
             MobileHostEventSubscriptionTracker.replace(
                 previousTopics: subscription.topics,
@@ -1936,6 +1920,10 @@ actor MobileHostConnection {
             // were never delivered), so it requests a catch-up replay instead
             // of trusting delta continuity.
             let alreadySubscribed = subscriptions[streamID] != nil
+            let renderGridDemand = request.params["render_grid_demand"]
+                .flatMap(MobileRenderGridDemand.decodeJSONObject(_:))
+            let browserPreviewDemand = request.params["browser_preview_demand"]
+                .flatMap(MobileBrowserPreviewDemand.decodeJSONObject(_:))
             let requestedTransport = request.params["event_transport"] as? String
             let selectedTransport: MobileHostEventTransport
             if requestedTransport == MobileHostEventTransport.irohServerEvents.rawValue,
@@ -1947,7 +1935,9 @@ actor MobileHostConnection {
             subscribe(
                 streamID: streamID,
                 topics: topics,
-                transport: selectedTransport
+                transport: selectedTransport,
+                renderGridDemand: renderGridDemand,
+                browserPreviewDemand: browserPreviewDemand
             )
             #if DEBUG
             cmuxDebugLog("mobile.subscribe streamID=\(streamID) topics=\(topics.sorted()) existing=\(alreadySubscribed) connID=\(self.id.uuidString)")
@@ -1989,17 +1979,33 @@ actor MobileHostConnection {
     func subscribe(
         streamID: String,
         topics: Set<String>,
-        transport: MobileHostEventTransport = .control
+        transport: MobileHostEventTransport = .control,
+        renderGridDemand: MobileRenderGridDemand? = nil,
+        browserPreviewDemand: MobileBrowserPreviewDemand? = nil
     ) {
         let previousTopics = subscriptions[streamID]?.topics
         subscriptions[streamID] = EventSubscription(
             topics: topics,
             transport: transport
         )
+        if topics.contains("terminal.render_grid") {
+            renderGridDemandScopes[streamID] = renderGridDemand.map {
+                .scoped($0)
+            } ?? .legacyAll
+        } else {
+            renderGridDemandScopes.removeValue(forKey: streamID)
+        }
+        self.browserPreviewDemand.replace(
+            streamID: streamID,
+            topics: topics,
+            demand: browserPreviewDemand
+        )
         MobileHostEventSubscriptionTracker.replace(
             previousTopics: previousTopics,
             nextTopics: topics
         )
+        publishRenderGridDemand()
+        self.browserPreviewDemand.publish(connectionID: id)
         idleTimeoutTask?.cancel()
         idleTimeoutTask = nil
     }
@@ -2008,6 +2014,8 @@ actor MobileHostConnection {
     @discardableResult
     func unsubscribe(streamID: String) async -> Bool {
         let previousSubscription = subscriptions.removeValue(forKey: streamID)
+        renderGridDemandScopes.removeValue(forKey: streamID)
+        browserPreviewDemand.remove(streamID: streamID)
         let removed = previousSubscription != nil
         if let previousSubscription {
             MobileHostEventSubscriptionTracker.replace(
@@ -2023,6 +2031,8 @@ actor MobileHostConnection {
         if subscriptions.isEmpty {
             startIdleTimeout()
         }
+        publishRenderGridDemand()
+        browserPreviewDemand.publish(connectionID: id)
         return removed
     }
 
@@ -2050,6 +2060,16 @@ actor MobileHostConnection {
             #if DEBUG
             cmuxDebugLog("mobile.send skip: not subscribed topic=\(topic) connID=\(self.id.uuidString) subs=\(subscriptions.count)")
             #endif
+            return false
+        }
+        if topic == "terminal.render_grid",
+           let surfaceID = payload["surface_id"] as? String,
+           !renderGridDemandSummary.contains(surfaceID: surfaceID) {
+            return false
+        }
+        if topic == "browser.preview",
+           let surfaceID = payload["surface_id"] as? String,
+           !browserPreviewDemand.accepts(surfaceID: surfaceID) {
             return false
         }
         let envelope: [String: Any] = [
@@ -2167,6 +2187,21 @@ actor MobileHostConnection {
     private func resetIndependentEventWriter() async {
         independentEventRevision &+= 1
         await independentEventWriter?.reset()
+    }
+
+    private var renderGridDemandSummary: MobileRenderGridDemandSummary {
+        MobileRenderGridDemandSummary(scopes: renderGridDemandScopes.values)
+    }
+
+    private func publishRenderGridDemand() {
+        let connectionID = id
+        let summary = renderGridDemandSummary
+        Task { @MainActor in
+            MobileTerminalRenderObserver.shared.replaceConnectionDemand(
+                connectionID: connectionID,
+                summary: summary
+            )
+        }
     }
 
     private func sendResponse(_ response: Data) async -> Bool {

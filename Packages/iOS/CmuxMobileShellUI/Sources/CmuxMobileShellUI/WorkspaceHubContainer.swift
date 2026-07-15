@@ -1,0 +1,89 @@
+import CmuxAgentChat
+import CmuxMobileShell
+import CmuxMobileShellModel
+import CmuxMobileSupport
+import SwiftUI
+
+/// Resolves live store state before crossing into the snapshot-only hub view.
+struct WorkspaceHubContainer: View {
+    @Bindable var store: CMUXMobileShellStore
+    let workspaceID: MobileWorkspacePreview.ID?
+    let backButtonConfiguration: WorkspaceBackButtonConfiguration?
+    let transitionNamespace: Namespace.ID
+    let selectPane: (WorkspaceHubPaneSnapshot) -> Void
+    let signOut: (() -> Void)?
+    @State private var routeWorkspaceSnapshot: MobileWorkspacePreview?
+    @State private var chatCards: [PaneChatCardSnapshot] = []
+
+    private var workspace: MobileWorkspacePreview? {
+        if let workspaceID {
+            return store.workspaces.first(where: { $0.id == workspaceID })
+                ?? (routeWorkspaceSnapshot?.id == workspaceID ? routeWorkspaceSnapshot : nil)
+        }
+        return store.selectedWorkspace
+    }
+
+    var body: some View {
+        Group {
+            if let workspace {
+                WorkspaceHubView(
+                    workspace: workspace,
+                    layout: store.workspaceLayout(for: workspace.id),
+                    connectionStatus: workspace.macConnectionStatus ?? store.macConnectionStatus,
+                    previewUpdates: store.previewGridUpdates,
+                    browserPreviewUpdates: store.browserPreviewUpdates,
+                    chatCards: chatCards,
+                    transitionNamespace: transitionNamespace,
+                    selectPane: selectPane,
+                    backButtonConfiguration: backButtonConfiguration
+                )
+                .onAppear {
+                    rememberRouteWorkspace(workspace)
+                    if store.selectedWorkspaceID != workspace.id {
+                        store.selectedWorkspaceID = workspace.id
+                    }
+                }
+                .onChange(of: workspace) { _, updatedWorkspace in
+                    rememberRouteWorkspace(updatedWorkspace)
+                }
+                .task(id: workspace.id) {
+                    await store.openWorkspace(workspace.id)
+                    await refreshChatCards(workspaceID: workspace.id.rawValue)
+                }
+            } else {
+                ContentUnavailableView(
+                    L10n.string("mobile.workspace.emptyTitle", defaultValue: "No Workspace"),
+                    systemImage: "rectangle.stack"
+                )
+            }
+        }
+        .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)
+    }
+
+    private func rememberRouteWorkspace(_ workspace: MobileWorkspacePreview) {
+        guard workspaceID == workspace.id else { return }
+        routeWorkspaceSnapshot = workspace
+    }
+
+    private func refreshChatCards(workspaceID: String) async {
+        let title = L10n.string("mobile.workspace.agentChat", defaultValue: "Agent Chat")
+        var sessions = store.cachedChatSessions(workspaceID: workspaceID)
+        chatCards = sessions.compactMap { $0.paneChatCard(defaultTitle: title) }
+        guard let source = store.makeChatEventSource() else { return }
+        var reducer = ChatSessionListReducer(workspaceID: workspaceID)
+        let stream = await source.sessionEvents()
+        if let refreshed = try? await source.sessions(workspaceID: workspaceID) {
+            sessions = refreshed
+            store.rememberChatSessions(sessions, workspaceID: workspaceID)
+            chatCards = sessions.compactMap { $0.paneChatCard(defaultTitle: title) }
+        }
+        for await frame in stream {
+            guard !Task.isCancelled else { return }
+            let next = reducer.applying(frame, to: sessions)
+            guard next != sessions else { continue }
+            sessions = next
+            store.rememberChatSessions(sessions, workspaceID: workspaceID)
+            chatCards = sessions.compactMap { $0.paneChatCard(defaultTitle: title) }
+        }
+    }
+}

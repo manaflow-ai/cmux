@@ -869,6 +869,72 @@ struct MobileHostAuthorizationTests {
             createdWorkspaceIDs: createdWorkspaceIDs
         )
     }
+    @Test func testTerminalRenderObserverAccountsForScopedSurfaceDemand() async throws {
+        let service = MobileHostService.shared
+        service.debugResetMobileLifecycleStateForTesting()
+        let observer = MobileTerminalRenderObserver.shared
+        observer.stop()
+        observer.start()
+        defer {
+            observer.stop()
+            service.debugResetMobileLifecycleStateForTesting()
+        }
+        let surfaceA = UUID().uuidString
+        let surfaceB = UUID().uuidString
+        let surfaceC = UUID().uuidString
+        let session = MobileHostConnection(
+            id: UUID(),
+            connection: NWConnection(
+                host: NWEndpoint.Host("127.0.0.1"),
+                port: NWEndpoint.Port(rawValue: 9)!,
+                using: .tcp
+            ),
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { _ in }
+        )
+
+        await session.subscribe(
+            streamID: "events",
+            topics: ["terminal.render_grid"],
+            renderGridDemand: MobileRenderGridDemand(previewSurfaceIDs: [surfaceA, surfaceB])
+        )
+        await drainMobileHostMainQueue()
+        #expect(observer.debugRenderGridDemandForTesting.previewSurfaceIDs == [surfaceA, surfaceB])
+        #expect(observer.debugIsRetainingNotificationDemandForTesting)
+
+        await session.subscribe(
+            streamID: "events",
+            topics: ["terminal.render_grid"],
+            renderGridDemand: MobileRenderGridDemand(
+                focusedSurfaceIDs: [surfaceB],
+                previewSurfaceIDs: [surfaceC]
+            )
+        )
+        await drainMobileHostMainQueue()
+        #expect(observer.debugRenderGridDemandForTesting.focusedSurfaceIDs == [surfaceB])
+        #expect(observer.debugRenderGridDemandForTesting.previewSurfaceIDs == [surfaceC])
+        #expect(!observer.debugRenderGridDemandForTesting.contains(surfaceID: surfaceA))
+
+        _ = await session.unsubscribe(streamID: "events")
+        await drainMobileHostMainQueue()
+        #expect(!observer.debugRenderGridDemandForTesting.hasDemand)
+        #expect(!observer.debugIsRetainingNotificationDemandForTesting)
+
+        await session.subscribe(
+            streamID: "events",
+            topics: ["terminal.render_grid"],
+            renderGridDemand: MobileRenderGridDemand(
+                isActive: false,
+                focusedSurfaceIDs: [surfaceB],
+                previewSurfaceIDs: [surfaceC]
+            )
+        )
+        await drainMobileHostMainQueue()
+        #expect(!observer.debugRenderGridDemandForTesting.hasDemand)
+        #expect(!observer.debugIsRetainingNotificationDemandForTesting)
+    }
     func drainMobileHostMainQueue() async {
         await withCheckedContinuation { continuation in
             DispatchQueue.main.async { continuation.resume() }

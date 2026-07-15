@@ -42,6 +42,18 @@ import Testing
         #expect(MobileDisplaySettings(defaults: defaults).showAltScreenNotice)
     }
 
+    @Test func attentionShelfDefaultsOffAndPersistsGlobally() throws {
+        let defaults = try makeDefaults("attentionShelf")
+        let settings = MobileDisplaySettings(defaults: defaults)
+        #expect(!settings.attentionShelfEnabled)
+        #expect(defaults.object(forKey: "cmux.mobile.attentionShelfEnabled") == nil)
+
+        settings.attentionShelfEnabled = true
+        #expect(MobileDisplaySettings(defaults: defaults).attentionShelfEnabled)
+        settings.attentionShelfEnabled = false
+        #expect(!MobileDisplaySettings(defaults: defaults).attentionShelfEnabled)
+    }
+
     @Test func previewLineCountPersistsAcrossInstances() throws {
         let defaults = try makeDefaults("persists")
         let settings = MobileDisplaySettings(defaults: defaults)

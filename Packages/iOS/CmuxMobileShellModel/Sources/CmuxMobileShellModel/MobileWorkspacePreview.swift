@@ -95,6 +95,10 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     public var macConnectionStatus: MobileMacConnectionStatus? = nil
     /// Workspace actions supported by the Mac that owns this row.
     public var actionCapabilities: MobileWorkspaceActionCapabilities = .none
+    /// Whether the owning Mac supports authoritative pane-layout snapshots.
+    public var supportsWorkspaceLayout: Bool = false
+    /// Whether the owning Mac supports demand-gated browser bitmap previews.
+    public var supportsBrowserPreview: Bool = false
 
     /// The workspace id to use in RPC params.
     public var rpcWorkspaceID: ID {
@@ -104,6 +108,8 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     /// Creates a workspace preview.
     /// - Parameters:
     ///   - id: The workspace's stable identifier.
+    ///   - macDeviceID: The stable identifier of the owning Mac, when known.
+    ///   - macDisplayName: The owning Mac's display name, when known.
     ///   - windowID: The owning Mac window identifier, when known.
     ///   - name: The workspace's user-facing display name.
     ///   - isPinned: Whether the workspace is pinned on the Mac. Defaults to `false`.
@@ -113,6 +119,8 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     ///   - lastActivityAt: When the workspace last had activity. Defaults to `nil`.
     ///   - hasUnread: Whether the workspace has unread activity. Defaults to `false`.
     ///   - terminals: The terminals contained in the workspace, in display order.
+    ///   - supportsWorkspaceLayout: Whether the owning Mac supports pane topology.
+    ///   - supportsBrowserPreview: Whether the owning Mac supports browser previews.
     public init(
         id: ID,
         macDeviceID: String? = nil,
@@ -125,7 +133,9 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         previewAt: Date? = nil,
         lastActivityAt: Date? = nil,
         hasUnread: Bool = false,
-        terminals: [MobileTerminalPreview]
+        terminals: [MobileTerminalPreview],
+        supportsWorkspaceLayout: Bool = false,
+        supportsBrowserPreview: Bool = false
     ) {
         self.id = id
         self.remoteWorkspaceID = nil
@@ -140,5 +150,7 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         self.lastActivityAt = lastActivityAt
         self.hasUnread = hasUnread
         self.terminals = terminals
+        self.supportsWorkspaceLayout = supportsWorkspaceLayout
+        self.supportsBrowserPreview = supportsBrowserPreview
     }
 }

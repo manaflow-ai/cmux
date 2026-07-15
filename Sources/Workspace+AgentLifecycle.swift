@@ -259,6 +259,7 @@ extension Workspace {
     }
 
     private func recordAgentLifecycleChange(panelId: UUID) {
+        recordMobileWorkspaceLayoutChange()
         AgentHibernationController.shared.recordAgentLifecycleChange(
             workspaceId: id,
             panelId: panelId

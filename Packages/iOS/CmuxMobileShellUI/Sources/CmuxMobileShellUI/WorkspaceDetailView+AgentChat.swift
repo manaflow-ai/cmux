@@ -14,7 +14,7 @@ extension WorkspaceDetailView {
     /// store still has the last authoritative GUI-history snapshot for this
     /// workspace. Use that immediately so the toolbar does not flicker while the
     /// refresh task reconnects.
-    private var visibleChatSessions: [ChatSessionDescriptor] {
+    var visibleChatSessions: [ChatSessionDescriptor] {
         if chatSessionsWorkspaceID == workspace.id.rawValue {
             return chatSessions
         }
@@ -116,16 +116,9 @@ extension WorkspaceDetailView {
 
     @ViewBuilder
     var toolbarTrailingCluster: some View {
-        HStack(spacing: 8) {
-            if shouldShowChatToggle {
-                chatToggleButton
-                    .frame(width: 44, height: 44)
-                    .transition(.scale(scale: 0.82, anchor: .trailing).combined(with: .opacity))
-            }
-            terminalPickerToolbarButton
-                .frame(width: 44, height: 44)
-        }
-        .frame(width: shouldShowChatToggle ? 96 : 44, height: 44, alignment: .trailing)
+        chatToggleButton
+            .frame(width: 44, height: 44)
+            .transition(.scale(scale: 0.82, anchor: .trailing).combined(with: .opacity))
         .animation(.snappy(duration: 0.25), value: shouldShowChatToggle)
     }
 
@@ -309,7 +302,7 @@ extension WorkspaceDetailView {
             return
         }
 
-        if let selectedTerminalID {
+        if selectedTerminalID != nil {
             cachedChatToggleTerminalID = nil
             return
         }
@@ -324,7 +317,7 @@ extension WorkspaceDetailView {
     /// called from tasks/actions, not from `body`, so the body remains a pure
     /// projection of state.
     @discardableResult
-    private func ensureChatConversationStore(
+    func ensureChatConversationStore(
         for session: ChatSessionDescriptor,
         requiresCurrentSource: Bool = false
     ) -> ChatConversationStore? {
@@ -361,6 +354,7 @@ extension WorkspaceDetailView {
         }
         guard let openingSession = chatToggleSession,
               ensureChatConversationStore(for: openingSession) != nil else { return }
+        selectedBrowserSurface = nil
         withAnimation(.snappy(duration: 0.28)) {
             isChatMode = true
         }

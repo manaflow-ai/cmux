@@ -1,4 +1,5 @@
 import Combine
+import CMUXMobileCore
 import CmuxWorkspaces
 import Foundation
 import OSLog
@@ -25,6 +26,9 @@ final class MobileWorkspaceListObserver {
     private var notificationsCancellable: AnyCancellable?
     private var unreadIndicatorsCancellable: AnyCancellable?
     private var perWorkspaceCancellables: [UUID: AnyCancellable] = [:]
+    private var perWorkspaceLayoutTasks: [UUID: Task<Void, Never>] = [:]
+    private var pendingLayoutEmissionTasks: [UUID: Task<Void, Never>] = [:]
+    private var lastLayouts: [UUID: MobileWorkspaceLayout] = [:]
     private var lastSummaryHash: Int = 0
     /// Throttle window with `latest: true`. First event in a burst emits
     /// immediately (iPhone gets the change in milliseconds), subsequent
@@ -32,14 +36,29 @@ final class MobileWorkspaceListObserver {
     /// final state. So a single action is instant; a burst caps at ~1 emit
     /// per 80 ms. Hash-diff suppresses no-op rebroadcasts.
     private let throttleMilliseconds: Int = 80
+    private let layoutDebounceDuration: Duration
 
-    init(tabManager: TabManager, notificationStore: TerminalNotificationStore? = nil) {
+    init(
+        tabManager: TabManager,
+        notificationStore: TerminalNotificationStore? = nil,
+        layoutDebounceDuration: Duration = .milliseconds(80)
+    ) {
         self.tabManager = tabManager
         self.notificationStore = notificationStore
+        self.layoutDebounceDuration = layoutDebounceDuration
         #if DEBUG
         cmuxDebugLog("mobile.observer init tabs=\(tabManager.tabs.count)")
         #endif
         attach(to: tabManager)
+    }
+
+    deinit {
+        for task in perWorkspaceLayoutTasks.values {
+            task.cancel()
+        }
+        for task in pendingLayoutEmissionTasks.values {
+            task.cancel()
+        }
     }
 
     private func attach(to tabManager: TabManager) {
@@ -161,6 +180,9 @@ final class MobileWorkspaceListObserver {
         // Drop subscriptions for workspaces that vanished.
         for id in perWorkspaceCancellables.keys where !currentIDs.contains(id) {
             perWorkspaceCancellables.removeValue(forKey: id)
+            perWorkspaceLayoutTasks.removeValue(forKey: id)?.cancel()
+            pendingLayoutEmissionTasks.removeValue(forKey: id)?.cancel()
+            lastLayouts.removeValue(forKey: id)
         }
         // Merge the per-workspace publishers behind the mobile workspace
         // list: terminal set, terminal titles, workspace title, and displayed
@@ -205,8 +227,46 @@ final class MobileWorkspaceListObserver {
                 .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
             perWorkspaceCancellables[workspace.id] = merged.sink { [weak self] _ in
                 self?.emitIfNeeded(force: false)
+                self?.scheduleLayoutEmission(for: workspace)
+            }
+
+            let changes = workspace.mobileWorkspaceLayoutChanges()
+            perWorkspaceLayoutTasks[workspace.id] = Task { @MainActor [weak self, weak workspace] in
+                for await _ in changes {
+                    guard !Task.isCancelled, let self, let workspace else { return }
+                    self.scheduleLayoutEmission(for: workspace)
+                }
             }
         }
+    }
+
+    private func scheduleLayoutEmission(for workspace: Workspace) {
+        pendingLayoutEmissionTasks[workspace.id]?.cancel()
+        pendingLayoutEmissionTasks[workspace.id] = Task { @MainActor [weak self, weak workspace] in
+            guard let self else { return }
+            // This bounded, cancellable delay is the debounce itself; callers can inject its duration.
+            try? await Task.sleep(for: self.layoutDebounceDuration)
+            guard !Task.isCancelled, let workspace else { return }
+            pendingLayoutEmissionTasks[workspace.id] = nil
+            emitLayoutIfNeeded(for: workspace)
+        }
+    }
+
+    private func emitLayoutIfNeeded(for workspace: Workspace) {
+        guard MobileHostService.hasEventSubscribers(topic: "workspace.layout.updated") else {
+            return
+        }
+        let layout = workspace.mobileWorkspaceLayout()
+        guard lastLayouts[workspace.id] != layout else { return }
+        lastLayouts[workspace.id] = layout
+        guard let data = try? JSONEncoder().encode(layout),
+              let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return
+        }
+        #if DEBUG
+        cmuxDebugLog("mobile.observer EMIT workspace.layout.updated workspace=\(workspace.id.uuidString)")
+        #endif
+        MobileHostService.shared.emitEvent(topic: "workspace.layout.updated", payload: payload)
     }
 
     private func emitIfNeeded(force: Bool) {

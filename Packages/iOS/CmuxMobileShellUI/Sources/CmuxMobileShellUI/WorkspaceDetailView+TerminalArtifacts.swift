@@ -47,6 +47,12 @@ extension WorkspaceDetailView {
             if visibleArtifactCount != count {
                 visibleArtifactCount = count
             }
+        },
+        onTerminalKeystroke: {
+            handlePaneTabStripEvent(.terminalKeystroke)
+        },
+        onTerminalScrollBegan: {
+            handlePaneTabStripEvent(.terminalScrollBegan)
         }
     )
     .popover(

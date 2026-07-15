@@ -42,17 +42,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         case renderGrid
         case rawBytes
 
-        var eventTopics: [String] {
-            switch self {
-            case .hybrid:
-                return ["workspace.updated", "terminal.bytes", "terminal.render_grid", "terminal.set_font", "notification.dismissed", "notification.badge"]
-            case .renderGrid:
-                return ["workspace.updated", "terminal.render_grid", "terminal.set_font", "notification.dismissed", "notification.badge"]
-            case .rawBytes:
-                return ["workspace.updated", "terminal.bytes", "terminal.set_font", "notification.dismissed", "notification.badge"]
-            }
-        }
-
         var debugName: String {
             switch self {
             case .hybrid:
@@ -266,8 +255,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             prunePendingAttachmentsForMissingTerminals()
         }
     }
-    /// Bumped on every ``workspaces`` mutation: a cheap "lists may have
-    /// changed" signal (e.g. for retrying a parked notification deep link).
+    /// Mac-authored pane topology snapshots, keyed first by owning Mac and then
+    /// by Mac-local workspace id so identical ids on two Macs cannot collide.
+    var workspaceLayoutsByMacDeviceID: [String: [String: MobileWorkspaceLayout]] = [:]
+    /// Bumped whenever ``workspaces`` changes so parked navigation can retry.
     public private(set) var workspaceTopologyVersion: UInt64 = 0
     /// Last authoritative chat-session snapshots, keyed by the workspace row id the UI renders.
     var chatSessionSnapshotsByWorkspaceID: [String: [ChatSessionDescriptor]] = [:]
@@ -326,6 +317,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// A truthful released-Mac-update recommendation for the connected host.
     public internal(set) var macUpdateHint: MobileMacUpdateHint?
     @ObservationIgnored var macUpdateHintSessionState = MacUpdateHintSessionState()
+@ObservationIgnored let previewGridSessionState = PreviewGridSessionState()
     /// Bumped whenever the applied terminal theme actually changes (a connect
     /// that reports a different theme than the one currently in
     /// ``TerminalThemeStore``). The mounted terminal representable observes this
@@ -658,6 +650,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public let diagnosticLog: DiagnosticLog?
     var remoteClient: MobileCoreRPCClient? {
         didSet {
+            if remoteClient !== oldValue { previewGridConnectionDidChange() }
             if remoteClient == nil {
                 stopTerminalRefreshPolling()
                 cancelRemoteOperationTasks()
@@ -3080,7 +3073,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         displayName: mac.displayName,
                         workspaces: previews,
                         status: .connected,
-                        actionCapabilities: existing.actionCapabilities
+                        actionCapabilities: existing.actionCapabilities,
+                        supportsWorkspaceLayout: Self.hostSupportsWorkspaceLayout(existing.supportedHostCapabilities), supportsBrowserPreview: Self.hostSupportsBrowserPreview(existing.supportedHostCapabilities)
                     )
                 } else {
                     existing.cancel()
@@ -3230,15 +3224,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 displayName: displayName,
                 workspaces: previews,
                 status: .connected,
-                actionCapabilities: subscription.actionCapabilities
+                actionCapabilities: subscription.actionCapabilities,
+                supportsWorkspaceLayout: Self.hostSupportsWorkspaceLayout(subscription.supportedHostCapabilities), supportsBrowserPreview: Self.hostSupportsBrowserPreview(subscription.supportedHostCapabilities)
             )
         } else {
             markSecondaryMacUnavailable(macID)
         }
         await flushPendingNotificationDismisses(macDeviceID: macID)
         subscription.task = Task { @MainActor [weak self] in
-            let stream = await client.subscribe(to: ["workspace.updated"])
-            await self?.enableSecondaryEventSubscription(on: client, streamID: subscription.streamID)
+            let topics: Set<String> = Self.hostSupportsWorkspaceLayout(subscription.supportedHostCapabilities)
+                ? ["workspace.updated", "workspace.layout.updated"] : ["workspace.updated"]
+            let stream = await client.subscribe(to: topics)
+            await self?.enableSecondaryEventSubscription(
+                on: client,
+                streamID: subscription.streamID,
+                topics: topics
+            )
             for await event in stream {
                 guard let self, !Task.isCancelled else { break }
                 // Stop if this subscription was replaced/torn down.
@@ -3249,6 +3250,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     // scan instead of one scan per event (mirrors the foreground's
                     // workspaceListRefreshTask coalescing).
                     self.scheduleSecondaryRefresh(macID: macID, client: client, displayName: displayName)
+                } else if event.topic == "workspace.layout.updated" {
+                    self.handleWorkspaceLayoutUpdatedEvent(event, macDeviceID: macID)
                 }
             }
             // Stream ended (disconnect / error): tear the subscription down so a
@@ -3332,7 +3335,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         displayName: displayName,
                         workspaces: previews,
                         status: .connected,
-                        actionCapabilities: current.actionCapabilities
+                        actionCapabilities: current.actionCapabilities,
+                        supportsWorkspaceLayout: Self.hostSupportsWorkspaceLayout(current.supportedHostCapabilities), supportsBrowserPreview: Self.hostSupportsBrowserPreview(current.supportedHostCapabilities)
                     )
                 }
             } while self.secondaryMacSubscriptions[macID]?.refreshPending == true
@@ -3373,17 +3377,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    /// Fire the server-side `mobile.events.subscribe` enable for a secondary
-    /// connection's `workspace.updated` stream. Best-effort; the consumer loop
-    /// runs regardless and a failure just means no live pushes for that Mac.
-    private func enableSecondaryEventSubscription(on client: MobileCoreRPCClient, streamID: String) async {
-        guard let request = try? MobileCoreRPCClient.requestData(
-            method: "mobile.events.subscribe",
-            params: ["stream_id": streamID, "topics": ["workspace.updated"]]
-        ) else { return }
-        _ = try? await client.sendRequest(request)
-    }
-
     /// Cancel and disconnect every secondary subscription (sign-out / full reset),
     /// and cancel any in-flight aggregation pass so it cannot resume and re-seed
     /// the torn-down entries for a now-signed-out / switched account.
@@ -3418,6 +3411,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             from: supportedHostCapabilities,
             allowsMacScopedMutations: allowsMacScopedWorkspaceMutations
         )
+        state.supportsWorkspaceLayout = Self.hostSupportsWorkspaceLayout(supportedHostCapabilities); state.supportsBrowserPreview = Self.hostSupportsBrowserPreview(supportedHostCapabilities)
         workspacesByMac[foregroundMacKey] = state
     }
 
@@ -3564,6 +3558,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             from: supportedHostCapabilities,
             allowsMacScopedMutations: allowsMacScopedWorkspaceMutations
         )
+        state.supportsWorkspaceLayout = Self.hostSupportsWorkspaceLayout(supportedHostCapabilities); state.supportsBrowserPreview = Self.hostSupportsBrowserPreview(supportedHostCapabilities)
         workspacesByMac[key] = state
     }
 
@@ -3623,6 +3618,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     func dropStalePreviousForeground(_ previousKey: String) {
         guard previousKey != foregroundMacKey,
               secondaryMacSubscriptions[previousKey] == nil else { return }
+        workspaceLayoutsByMacDeviceID[previousKey] = nil
         let removedWorkspaceIDs = Set((workspacesByMac[previousKey]?.workspaces ?? []).flatMap { workspace in
             let remoteID = workspace.remoteWorkspaceID ?? workspace.id
             return [
@@ -3714,10 +3710,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Creates a terminal in `workspaceID`, or the selected workspace when nil.
     ///
-    /// Callers that act on a specific workspace (e.g. the "+" button on a
-    /// workspace row) should pass its id so an in-flight create can't land in a
-    /// different workspace if the selection drifts before the async work runs.
-    public func createTerminal(in workspaceID: MobileWorkspacePreview.ID? = nil) {
+    /// Callers acting on a workspace row or pane strip pass explicit ids so an
+    /// in-flight create cannot follow drifting phone or Mac selection.
+    public func createTerminal(in workspaceID: MobileWorkspacePreview.ID? = nil, paneID: String? = nil) {
         let targetWorkspaceID = workspaceID ?? selectedWorkspace?.id
         guard remoteClient == nil else {
             // Bail BEFORE pinning selection when a create is already in flight,
@@ -3732,7 +3727,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             createTerminalTask = Task { @MainActor [weak self] in
                 defer { self?.clearCreateTerminalTask(id: taskID) }
                 guard let self else { return }
-                await self.createRemoteTerminal(in: targetWorkspaceID)
+                await self.createRemoteTerminal(in: targetWorkspaceID, paneID: paneID)
             }
             return
         }
@@ -3854,11 +3849,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             "source": .string("list_tap"),
         ])
         setSelectedWorkspaceID(resolvedRowID)
-        // Tapping into a workspace is a read receipt: clear its unread on the Mac
-        // (like opening a thread marks it read), so it drops out of the unread
-        // list and the back-button count. Only when the Mac advertises read-state
-        // actions and the workspace is actually unread, so older Macs and
-        // already-read workspaces send nothing.
+        await refreshWorkspaceLayout(for: resolvedRowID)
+        // Opening is a read receipt when the Mac supports it and the row is unread.
+        // Older Macs and already-read workspaces send nothing.
         if supportsWorkspaceReadStateActions, workspaceHadUnread {
             await setWorkspaceUnread(id: resolvedRowID, false)
         }
@@ -5035,13 +5028,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         rawTerminalInputBuffer.clear()
     }
 
-    /// Set `remoteClient` to a new value (possibly nil) and disconnect the
-    /// previous one so we don't leak a persistent transport.
+    /// Replace `remoteClient` and disconnect the prior persistent transport.
     func replaceRemoteClient(with newValue: MobileCoreRPCClient?) {
         let previous = remoteClient
         remoteClient = newValue
         if newValue != nil, previous !== newValue {
             chatEventSourceGeneration = UUID()
+            workspaceLayoutsByMacDeviceID[foregroundMacKey] = nil
         }
         if let previous, previous !== newValue {
             Task { await previous.disconnect() }
@@ -5605,18 +5598,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         MobileTerminalViewportKey(workspaceID: workspaceID, terminalID: terminalID)
     }
 
-    private func createRemoteTerminal(in explicitWorkspaceID: MobileWorkspacePreview.ID? = nil) async {
+    private func createRemoteTerminal(in explicitWorkspaceID: MobileWorkspacePreview.ID? = nil, paneID: String? = nil) async {
         guard let client = remoteClient,
               let rowWorkspaceID = explicitWorkspaceID ?? selectedWorkspace?.id else { return }
         let requestedWorkspaceID = remoteWorkspaceID(for: rowWorkspaceID)
         let generation = connectionGeneration
         do {
-            let resultData = try await client.sendRequest(
-                MobileCoreRPCClient.requestData(
-                    method: "terminal.create",
-                    params: ["workspace_id": requestedWorkspaceID.rawValue]
-                )
-            )
+            let params = ["workspace_id": Optional(requestedWorkspaceID.rawValue), "pane_id": paneID].compactMapValues { $0 }
+            let resultData = try await client.sendRequest(MobileCoreRPCClient.requestData(
+                method: "terminal.create",
+                params: params
+            ))
             let response = try MobileSyncWorkspaceListResponse.decode(resultData)
             guard isCurrentRemoteOperation(client: client, generation: generation),
                   !Task.isCancelled else { return }
@@ -5894,12 +5886,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    private var terminalEventStreamID: String {
+    var terminalEventStreamID: String {
         "ios-terminal-events-\(clientID)"
     }
 
     /// Outcome of a `mobile.events.subscribe` round-trip.
-    private enum TerminalEventSubscriptionAck {
+    enum TerminalEventSubscriptionAck {
         case failed
         /// The host registered (or re-asserted) the subscription.
         /// `alreadySubscribed == false` means this acknowledgement INSTALLED
@@ -5914,7 +5906,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    private func requestTerminalEventSubscription(
+    func requestTerminalEventSubscription(
         client: MobileCoreRPCClient,
         reason: String,
         topics: [String]
@@ -5923,10 +5915,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         do {
             requestData = try MobileCoreRPCClient.requestData(
                 method: "mobile.events.subscribe",
-                params: [
-                    "stream_id": terminalEventStreamID,
-                    "topics": topics,
-                ]
+                params: terminalEventSubscriptionParameters(topics: topics)
             )
         } catch {
             mobileShellLog.error("subscribe payload encode failed: \(String(describing: error), privacy: .private)")
@@ -6054,7 +6043,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalSubscriptionRefreshTask = Task { @MainActor [weak self] in
             defer { self?.terminalSubscriptionRefreshTask = nil }
             guard let self else { return }
-            let topics = self.terminalOutputTransport.eventTopics
+            let topics = self.mobileEventTopics(for: self.terminalOutputTransport)
             _ = await self.requestTerminalEventSubscription(
                 client: client,
                 reason: reason,
@@ -6091,12 +6080,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     self?.stopRenderGridLivenessWatchdog(listenerID: listenerID)
                 }
             }
-
             let outputTransport = await self?.resolveTerminalOutputTransport(
                 client: client,
                 initialHostStatus: initialHostStatus
             ) ?? .rawBytes
-            let topics = outputTransport.eventTopics
+            let topics = self?.mobileEventTopics(for: outputTransport)
+                ?? outputTransport.eventTopics
             let stream = await client.subscribe(to: Set(topics))
             // Kick off the server-side enable handshake CONCURRENTLY with
             // consumption. The old structure awaited the ack here, which
@@ -6124,6 +6113,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 self.markMacConnectionHealthy()
                 if event.topic == "workspace.updated" {
                     self.scheduleWorkspaceListRefreshFromEvent()
+                } else if event.topic == "workspace.layout.updated" {
+                    self.handleWorkspaceLayoutUpdatedEvent(event)
+                } else if event.topic == "browser.preview" { self.routeIncomingBrowserPreview(event)
                 } else if event.topic == "terminal.render_grid" {
                     self.handleTerminalRenderGridEvent(event)
                 } else if event.topic == "terminal.set_font" {
@@ -6178,6 +6170,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             self.markMacConnectionHealthy()
             MobileDebugLog.anchormux("sync.subscribe_ok topics=\(topics.count) transport=\(transport)")
+            self.requestPreviewGridBaselines()
             self.scheduleNotificationReconcile(client: client)
         }
     }
@@ -6334,7 +6327,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard renderGridLivenessProbeTask == nil else { return }
         let probeTimeoutNanoseconds = runtime?.livenessProbeTimeoutNanoseconds
             ?? 3_000_000_000
-        let topics = terminalOutputTransport.eventTopics
+        let topics = mobileEventTopics(for: terminalOutputTransport)
         let probeID = UUID()
         renderGridLivenessProbeID = probeID
         renderGridLivenessProbeTask = Task { @MainActor [weak self] in
@@ -6380,6 +6373,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                             reason: "liveness_probe_repaired"
                         )
                     }
+                    self.requestPreviewGridBaselines()
                     // The same registration carries `workspace.updated`, so
                     // workspace create/rename/delete events emitted during the
                     // gap were missed too; re-fetch the authoritative list.
@@ -6534,6 +6528,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         continuation: AsyncStream<MobileTerminalOutputChunk>.Continuation
     ) {
         terminalByteContinuationsBySurfaceID[surfaceID] = continuation
+        scheduleRenderGridDemandRefresh()
         terminalOutputStreamTokensBySurfaceID[surfaceID] = UUID()
         terminalOutputQueuesBySurfaceID[surfaceID] = TerminalOutputDeliveryQueue()
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
@@ -6560,6 +6555,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         cancelTerminalReplayInFlight(surfaceID: surfaceID)
         terminalColdReplayNeedsBarrierUpgradeSurfaceIDs.remove(surfaceID)
         terminalByteContinuationsBySurfaceID.removeValue(forKey: surfaceID)
+        scheduleRenderGridDemandRefresh()
         terminalOutputStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalOutputQueuesBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
@@ -7063,14 +7059,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // The frame may arrive nested under `render_grid` or as the bare payload;
         // try the wrapper first, then fall back to decoding the whole payload.
         let renderGridDTO = try? MobileTerminalRenderGridEvent.decode(json)
-        guard let renderGrid = renderGridDTO?.frame ?? (try? MobileTerminalRenderGridFrame.decode(json)),
-              hasTerminalOutputSink(surfaceID: renderGrid.surfaceID) else {
-            return
-        }
-        #if DEBUG
-        mobileShellLog.info("CMUX_REPLAY live render_grid surface=\(renderGrid.surfaceID, privacy: .public) full=\(renderGrid.full, privacy: .public) spans=\(renderGrid.rowSpans.count, privacy: .public) cleared=\(renderGrid.clearedRows.count, privacy: .public) seq=\(renderGrid.stateSeq, privacy: .public) hasSink=true")
-        #endif
-        deliverAuthoritativeTerminalRenderGrid(renderGrid, source: "event")
+        guard let renderGrid = renderGridDTO?.frame
+            ?? (try? MobileTerminalRenderGridFrame.decode(json)) else { return }
+        routeIncomingRenderGrid(renderGrid)
     }
 
     private func handleTerminalSetFontEvent(_ event: MobileEventEnvelope) {
@@ -7289,13 +7280,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         groupsAreAuthoritative: Bool = true
     ) {
         let remoteWorkspaces = remoteWorkspacesPreservingSnapshots(from: response)
-        // Write the foreground Mac's per-Mac state; `workspaces` / `workspaceGroups`
-        // recompute from the source of truth automatically (no explicit merge or
-        // publish). Group sections are authoritative only on a full-list response:
-        // a merge path or scoped attach response omits groups, so pass nil there
-        // to leave the existing sections intact. Authoritative groups are passed
-        // through the device-local collapse store before entering the per-Mac
-        // source of truth, so derived groups keep this phone's collapse choices.
+        // Full-list responses authoritatively replace groups; scoped/merge responses
+        // retain them. Device-local collapse choices are applied before aggregation.
         let groups: [MobileWorkspaceGroupPreview]? =
             (mergeExistingWorkspaces || !groupsAreAuthoritative)
                 ? nil
@@ -7304,6 +7290,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 )
         setForegroundWorkspaceState(
             workspaces: remoteWorkspaces, groups: groups, merge: mergeExistingWorkspaces)
+        if !mergeExistingWorkspaces, groupsAreAuthoritative {
+            pruneWorkspaceLayouts(
+                forMacDeviceID: foregroundMacKey,
+                keepingRemoteWorkspaceIDs: Set(response.workspaces.map(\.id))
+            )
+        }
         if preferActiveTicketTarget, selectActiveTicketTargetIfAvailable() {
             return
         }

@@ -149,9 +149,14 @@ extension GhosttySurfaceRepresentable.Coordinator {
             // mouse reports). Forward to the Mac sync server which
             // writes them into the Mac's libghostty surface, which in
             // turn writes them down the PTY.
+            onTerminalKeystroke()
             Task { @MainActor [weak store] in
                 await store?.submitTerminalRawInput(data, surfaceID: self.surfaceID)
             }
+        }
+
+        func ghosttySurfaceViewDidBeginScroll(_ surfaceView: GhosttySurfaceView) {
+            onTerminalScrollBegan()
         }
 
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteImage data: Data, format: String) {

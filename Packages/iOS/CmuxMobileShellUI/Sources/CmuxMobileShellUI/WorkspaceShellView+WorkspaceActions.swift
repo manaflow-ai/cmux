@@ -205,15 +205,10 @@ extension WorkspaceShellView {
     private func clearPendingCompactCreateNavigationIfSettled(
         existingWorkspaceIDs: Set<MobileWorkspacePreview.ID>
     ) {
-        if let createdPath = compactNavigationPolicy.pathForCreatedWorkspaceSelection(
-            currentPath: compactNavigationPath,
-            selectedWorkspaceID: store.selectedWorkspaceID,
-            existingWorkspaceIDs: existingWorkspaceIDs
-        ) {
-            pendingCompactCreateNavigationWorkspaceIDs = nil
-            compactNavigationPath = createdPath
-        } else {
-            pendingCompactCreateNavigationWorkspaceIDs = nil
+        if let selectedWorkspaceID = store.selectedWorkspaceID,
+           !existingWorkspaceIDs.contains(selectedWorkspaceID) {
+            compactNavigationPath = [.hub(workspaceID: selectedWorkspaceID)]
         }
+        pendingCompactCreateNavigationWorkspaceIDs = nil
     }
 }

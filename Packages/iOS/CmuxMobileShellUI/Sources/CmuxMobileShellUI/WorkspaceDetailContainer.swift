@@ -12,6 +12,8 @@ import AppKit
 struct WorkspaceDetailContainer: View {
     @Bindable var store: CMUXMobileShellStore
     let workspaceID: MobileWorkspacePreview.ID?
+    let paneID: String
+    let initialSurfaceID: String
     let createWorkspace: () -> Void
     let canCreateWorkspace: Bool
     let renameWorkspace: ((MobileWorkspacePreview.ID, String) -> Void)?
@@ -42,10 +44,13 @@ struct WorkspaceDetailContainer: View {
                     host: store.connectedHostName,
                     connectionStatus: workspace.macConnectionStatus ?? store.macConnectionStatus,
                     workspace: workspace,
+                    paneID: paneID,
+                    initialSurfaceID: initialSurfaceID,
+                    workspaceLayout: store.workspaceLayout(for: workspace.id),
                     store: store,
                     createWorkspace: createWorkspace,
                     canCreateWorkspace: canCreateWorkspace,
-                    createTerminal: { store.createTerminal(in: workspace.id) },
+                    createTerminal: { store.createTerminal(in: workspace.id, paneID: paneID) },
                     renameWorkspace: workspace.actionCapabilities.supportsWorkspaceActions ? renameWorkspace : nil,
                     setWorkspaceUnread: workspace.actionCapabilities.supportsReadStateActions ? setWorkspaceUnread : nil,
                     closeWorkspace: workspace.actionCapabilities.supportsCloseActions ? closeWorkspace : nil,
