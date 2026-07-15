@@ -19,7 +19,6 @@ final class UsageTipsController {
     private let scheduler: UsageTipScheduler
     private let initialDelay: TimeInterval
     private let autoHideDelay: TimeInterval
-    private let isEligibleLaunch: Bool
     private var state: State = .idle
     @ObservationIgnored private var tipsEnabled: Bool
     @ObservationIgnored private var registeredWindowIDs: Set<UUID> = []
@@ -46,7 +45,6 @@ final class UsageTipsController {
         self.scheduler = scheduler ?? UsageTipScheduler()
         self.initialDelay = initialDelay
         self.autoHideDelay = autoHideDelay
-        self.isEligibleLaunch = store.hasShownWelcome
         self.tipsEnabled = store.isEnabled
     }
 
@@ -116,8 +114,7 @@ final class UsageTipsController {
     }
 
     private func scheduleInitialTipIfNeeded() {
-        guard isEligibleLaunch,
-              tipsEnabled,
+        guard tipsEnabled,
               activeWindowID.map(registeredWindowIDs.contains) == true else { return }
         guard case .idle = state else { return }
         state = .waiting

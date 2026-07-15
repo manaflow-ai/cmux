@@ -5,14 +5,14 @@ import SwiftUI
 
 /// **App** section — mirrors the legacy in-app section row-for-row
 /// inside a single `SettingsCard`: Language, Appearance, App Icon,
-/// New Workspace Placement, Inherit Working Directory, Minimal Mode,
+/// Usage Tips, New Workspace Placement, Inherit Working Directory, Minimal Mode,
 /// Keep Workspace Open When Closing Last Surface, Focus Pane on
 /// First Click, File Drops, Open Files With, Open Supported Files in
 /// cmux, Terminal Config link, Open Markdown in cmux Viewer,
 /// Markdown Viewer typography, iMessage Mode, Reorder on Notification, Dock Badge,
 /// Menu Bar Only, Show in Menu Bar, Unread Pane Ring, Pane Flash, Desktop
 /// Notifications, Notification Sound, Notification Command, Send
-/// anonymous telemetry, Usage Tips, Warn Before Quit, Warn Before Closing Tab /
+/// anonymous telemetry, Warn Before Quit, Warn Before Closing Tab /
 /// X Button / Hide Tab Close Button, Rename Selects Existing Name,
 /// Command Palette Searches All Surfaces.
 @MainActor
@@ -190,6 +190,9 @@ public struct AppSection: View {
                 onSelect: { appIcon.set($0) }
             )
             .settingsSearchAnchors(["setting:app:app-icon"])
+            SettingsCardDivider()
+
+            UsageTipsSettingsRow()
             SettingsCardDivider()
 
             // New Workspace Placement
@@ -682,9 +685,6 @@ public struct AppSection: View {
                     .labelsHidden()
                     .controlSize(.small)
             }
-            SettingsCardDivider()
-
-            UsageTipsSettingsRow()
             SettingsCardDivider()
 
             // Warn Before Quit
