@@ -369,13 +369,16 @@ extension CMUXCLI {
             .joined(separator: "\n")
     }
 
-    /// Replaces C0 control characters and DEL so Git-provided values cannot
-    /// inject terminal escapes into human-readable terminal output.
+    /// Replaces C0 and C1 control characters and DEL so Git-provided values
+    /// cannot inject terminal escapes (including 8-bit CSI/OSC introducers)
+    /// into human-readable terminal output.
     private func terminalSafeWorktreeText(_ raw: String) -> String {
         let replacement: Unicode.Scalar = "\u{FFFD}"
         var scalars = String.UnicodeScalarView()
         for scalar in raw.unicodeScalars {
-            scalars.append(scalar.value < 0x20 || scalar.value == 0x7F ? replacement : scalar)
+            let isControl = scalar.value < 0x20
+                || (0x7F ... 0x9F).contains(scalar.value)
+            scalars.append(isControl ? replacement : scalar)
         }
         return String(scalars)
     }
@@ -520,9 +523,35 @@ extension CMUXCLI {
         from worktrees: [WorktreeInfo],
         currentDirectory: String
     ) throws -> WorktreeInfo {
-        // Exact branch or leaf-name matches win over path interpretation so an
-        // ordinary slash-containing branch name (feature/foo) can never fall
-        // through to path containment and select an unrelated worktree.
+        // Precedence: a path that identifies a worktree wins, then exact
+        // branch/leaf-name matches. Path containment applies only to paths
+        // that actually exist, so a mistyped or branch-like token such as
+        // feature/foo can never select the surrounding worktree, while a real
+        // path is never shadowed by a branch with the same spelling.
+        if isWorktreePathArgument(raw) {
+            let expanded = expandedWorktreePath(raw)
+            let absolute = expanded.hasPrefix("/")
+                ? expanded
+                : (currentDirectory as NSString).appendingPathComponent(expanded)
+            let normalized = canonicalLocalWorktreePath(absolute)
+            if let exact = worktrees.first(where: {
+                canonicalLocalWorktreePath($0.identity.worktreePath) == normalized
+            }) {
+                return exact
+            }
+            if FileManager.default.fileExists(atPath: normalized) {
+                let contained = worktrees.filter {
+                    let root = canonicalLocalWorktreePath($0.identity.worktreePath)
+                    return normalized == root || root == "/" || normalized.hasPrefix(root + "/")
+                }.max {
+                    canonicalLocalWorktreePath($0.identity.worktreePath).count < canonicalLocalWorktreePath($1.identity.worktreePath).count
+                }
+                if let contained {
+                    return contained
+                }
+            }
+        }
+
         let named = worktrees.filter {
             URL(fileURLWithPath: $0.identity.worktreePath).lastPathComponent == raw ||
                 $0.branch == raw
@@ -537,41 +566,11 @@ extension CMUXCLI {
         if let match = named.first {
             return match
         }
-
-        let noMatch = CLIError(message: worktreeLocalizedFormat(
+        throw CLIError(message: worktreeLocalizedFormat(
             "cli.worktree.error.noMatch",
             defaultValue: "No worktree matches '%@'.",
             arguments: [raw]
         ))
-        guard isWorktreePathArgument(raw) else {
-            throw noMatch
-        }
-        let expanded = expandedWorktreePath(raw)
-        let absolute = expanded.hasPrefix("/")
-            ? expanded
-            : (currentDirectory as NSString).appendingPathComponent(expanded)
-        let normalized = canonicalLocalWorktreePath(absolute)
-        if let exact = worktrees.first(where: {
-            canonicalLocalWorktreePath($0.identity.worktreePath) == normalized
-        }) {
-            return exact
-        }
-        // Containment ("this path is inside a worktree") applies only to paths
-        // that actually exist; a mistyped or branch-like token must not select
-        // the surrounding worktree for a destructive command.
-        guard FileManager.default.fileExists(atPath: normalized) else {
-            throw noMatch
-        }
-        let match = worktrees.filter {
-            let root = canonicalLocalWorktreePath($0.identity.worktreePath)
-            return normalized == root || root == "/" || normalized.hasPrefix(root + "/")
-        }.max {
-            canonicalLocalWorktreePath($0.identity.worktreePath).count < canonicalLocalWorktreePath($1.identity.worktreePath).count
-        }
-        guard let match else {
-            throw noMatch
-        }
-        return match
     }
 
     private func takeWorktreeOption(_ name: String, from arguments: inout [String]) throws -> String? {
