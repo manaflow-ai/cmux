@@ -14008,7 +14008,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .browserBack) {
-            guard let focusedBrowserPanel = shortcutEventBrowserPanel(event) else {
+            guard let focusedBrowserPanel = shortcutEventOmnibarPanel(event) else {
                 return false
             }
             focusedBrowserPanel.goBack()
@@ -14016,7 +14016,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .browserForward) {
-            guard let focusedBrowserPanel = shortcutEventBrowserPanel(event) else {
+            guard let focusedBrowserPanel = shortcutEventOmnibarPanel(event) else {
                 return false
             }
             focusedBrowserPanel.goForward()
@@ -14024,10 +14024,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .browserReload) {
-            guard let focusedBrowserPanel = shortcutEventBrowserPanel(event) else {
+            guard let focusedBrowserPanel = shortcutEventOmnibarPanel(event) else {
                 return false
             }
-            reloadBrowserPanelForShortcut(focusedBrowserPanel)
+            reloadOmnibarPanelForShortcut(focusedBrowserPanel)
             return true
         }
 
@@ -14421,7 +14421,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return nil
         }
 
-        guard let panel = workspace.browserPanel(for: panelId) else {
+        guard let omnibarPanel = workspace.panels[panelId] as? any OmnibarHostingPanel else {
 #if DEBUG
             cmuxDebugLog(
                 "browser.focus.addressBar.shortcutContext panel=\(panelId.uuidString.prefix(5)) " +
@@ -14455,6 +14455,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let liveOmnibarFieldExists = browserOmnibarField(panelId: panelId, in: shortcutWindow) != nil
+        guard let panel = omnibarPanel as? BrowserPanel else {
+            return liveOmnibarFieldExists ? panelId : nil
+        }
         let trackedPanelMatchesShortcutResponder = browserPanel(panel, ownsShortcutResponder: shortcutResponder, in: shortcutWindow)
         let trackingContext = BrowserAddressBarTrackingContext(
             trackedPanelMatchesWebView: trackedPanelMatchesShortcutResponder,

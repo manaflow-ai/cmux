@@ -40,6 +40,14 @@ extension AppDelegate {
         panel.reload()
     }
 
+    func reloadOmnibarPanelForShortcut(_ panel: any OmnibarHostingPanel) {
+        if let browserPanel = panel as? BrowserPanel {
+            reloadBrowserPanelForShortcut(browserPanel)
+        } else {
+            panel.reload()
+        }
+    }
+
     func hardReloadBrowserPanelForShortcut(_ panel: BrowserPanel) {
 #if DEBUG
         NotificationCenter.default.post(name: .debugBrowserHardReloadShortcutInvoked, object: panel)
@@ -49,6 +57,13 @@ extension AppDelegate {
 
     func shortcutEventBrowserPanel(_ event: NSEvent) -> BrowserPanel? {
         shortcutEventFocusContext(event).browserPanel
+    }
+
+    func shortcutEventOmnibarPanel(_ event: NSEvent) -> (any OmnibarHostingPanel)? {
+        if let browserPanel = shortcutEventBrowserPanel(event) { return browserPanel }
+        let window = shortcutResolvedEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
+        if cmuxOwningGhosttyView(for: window?.firstResponder) != nil { return nil }
+        return shortcutContextTabManager(in: window)?.focusedOmnibarHostingPanel
     }
 
     func shortcutEventMarkdownPanel(_ event: NSEvent) -> MarkdownPanel? {

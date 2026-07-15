@@ -9306,6 +9306,9 @@ final class Workspace: Identifiable, ObservableObject {
             )
             configureBrowserPanel(browserPanel)
             installBrowserPanelSubscription(browserPanel)
+        } else if let cefBrowserPanel = detached.panel as? CEFBrowserPanel {
+            cefBrowserPanel.reattachToWorkspace(id)
+            installCEFBrowserPanelSubscription(cefBrowserPanel)
         } else if let rightSidebarToolPanel = detached.panel as? RightSidebarToolPanel {
             rightSidebarToolPanel.reattach(to: self)
         } else if let customSidebarPanel = detached.panel as? CustomSidebarPanel {

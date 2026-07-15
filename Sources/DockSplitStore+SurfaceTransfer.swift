@@ -219,6 +219,8 @@ extension DockSplitStore {
             terminal.updateWorkspaceId(workspaceId)
         } else if let browser = panel as? BrowserPanel {
             browser.updateWorkspaceId(workspaceId)
+        } else if let cefBrowser = panel as? CEFBrowserPanel {
+            cefBrowser.reattachToWorkspace(workspaceId)
         }
 
         panels[detached.panelId] = panel

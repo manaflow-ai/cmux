@@ -21,7 +21,7 @@ final class CEFBrowserPanel: Panel, OmnibarHostingPanel, @preconcurrency CEFBrow
     }
 
     let id: UUID
-    let workspaceId: UUID
+    private(set) var workspaceId: UUID
     let profileID: UUID
     let historyStore: BrowserHistoryStore
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
@@ -52,6 +52,10 @@ final class CEFBrowserPanel: Panel, OmnibarHostingPanel, @preconcurrency CEFBrow
 
     var cefProfileName: String {
         profileID.uuidString.lowercased()
+    }
+
+    func reattachToWorkspace(_ workspaceID: UUID) {
+        workspaceId = workspaceID
     }
 
     /// Keeps the panel and its browser alive while asynchronous CEF teardown runs.

@@ -131,7 +131,7 @@ extension Workspace {
         return cefBrowserPanel
     }
 
-    private func installCEFBrowserPanelSubscription(_ cefBrowserPanel: CEFBrowserPanel) {
+    func installCEFBrowserPanelSubscription(_ cefBrowserPanel: CEFBrowserPanel) {
         let subscription = Publishers.CombineLatest(
             cefBrowserPanel.$title
                 .removeDuplicates()
