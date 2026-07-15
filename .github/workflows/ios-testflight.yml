@@ -480,6 +480,9 @@ jobs:
           INPUT_MARKETING_VERSION_OVERRIDE: ${{ github.event.inputs.marketing_version_override }}
           # Display name for scheduled internal builds (auto-synced to internal group).
           IOS_BETA_DISPLAY_NAME: cmux INTERNAL
+          # Internal builds use separate bundle ID (dev.cmux.app.internal) so internal
+          # and external can coexist on same device.
+          IOS_BETA_BUNDLE_ID: dev.cmux.app.internal
         run: |
           set -euo pipefail
           if [ -n "${INPUT_MARKETING_VERSION_OVERRIDE:-}" ]; then
@@ -488,20 +491,23 @@ jobs:
             # fresh Beta App Review for that version. This path intentionally
             # skips changelog-driven notes because ios/CHANGELOG.md tracks the
             # current release line, not the reused older version.
-            # External overrides keep "cmux BETA" display name (reset from scheduled "cmux INTERNAL").
+            # External overrides use external bundle ID and "cmux BETA" display name.
             if [ -n "${INPUT_BUILD_NUMBER:-}" ]; then
               echo "build_number is not supported together with marketing_version_override in the cloud override path" >&2
               exit 1
             fi
             unset IOS_BETA_DISPLAY_NAME
+            unset IOS_BETA_BUNDLE_ID
             ./ios/scripts/cloud-testflight.sh \
               --external \
               --marketing-version "$INPUT_MARKETING_VERSION_OVERRIDE" \
               --skip-notes
           else
             # Reuse the checked-in CMUX_IOS_BETA_MARKETING_VERSION for scheduled betas.
-            # Scheduled builds use "cmux INTERNAL" display name and are assigned to the
-            # internal TestFlight group for dogfooding within the team.
+            # Scheduled builds use:
+            # - "cmux INTERNAL" display name
+            # - dev.cmux.app.internal bundle ID (separate app, can coexist with external)
+            # - assigned to internal TestFlight group for dogfooding within the team
             # --notes-from-range: auto-generate audience-appropriate "What to
             # Test" notes from the commits since the previous beta (skipped if we
             # have no base SHA yet).
@@ -669,7 +675,7 @@ jobs:
             exit 1
           fi
           python3 ./ios/scripts/asc_assign_internal_testflight_group.py \
-            --bundle-id dev.cmux.app.beta \
+            --bundle-id dev.cmux.app.internal \
             --build-number "$BUILD_NUMBER"
           ASSIGNMENT_STATE="unknown"
           if [ -f "$CMUX_TESTFLIGHT_ASSIGN_STATE_OUT_FILE" ]; then
