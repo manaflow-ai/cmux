@@ -29,15 +29,27 @@ extension MobileShellComposite {
             secondaryMacSubscriptions[macID] = nil
             return false
         }
+        let refreshStartedGeneration = sub.refreshStartedGeneration
+        let listStartedAtMutationRevision = sub.hierarchyMutationRevision
         guard let previews = await fetchSecondaryWorkspaces(
                   on: sub.client, macDeviceID: macID
               ),
-              secondaryMacSubscriptions[macID] === sub,
+              secondaryListReadIsCurrent(
+                  macDeviceID: macID,
+                  subscription: sub,
+                  refreshStartedGeneration: refreshStartedGeneration,
+                  listStartedAtMutationRevision: listStartedAtMutationRevision
+              ),
               isCurrentMacSwitchAttempt(switchAttemptID),
               let refreshed = try? await pairedMacStore.loadAll(
                   stackUserID: scope.userID, teamID: scope.teamID
               ).first(where: { $0.macDeviceID == macID }),
-              secondaryMacSubscriptions[macID] === sub,
+              secondaryListReadIsCurrent(
+                  macDeviceID: macID,
+                  subscription: sub,
+                  refreshStartedGeneration: refreshStartedGeneration,
+                  listStartedAtMutationRevision: listStartedAtMutationRevision
+              ),
               MobileMacInstanceTagAuthority.sameStoredAuthority(
                   refreshed.instanceTag, sub.storedInstanceTag
               ),
