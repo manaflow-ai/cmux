@@ -5,7 +5,6 @@ nonisolated struct GhosttyDesktopNotificationRequest: Equatable, Sendable {
     let tabId: UUID
     let surfaceId: UUID?
     let hookDirectory: String?
-    let globalConfigPath: String
     let title: String
     let body: String
 }

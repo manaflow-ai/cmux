@@ -344,7 +344,6 @@ class GhosttyApp {
     static let shared = GhosttyApp()
     fileprivate let titleUpdateIngress = GhosttyTitleUpdateIngress()
     fileprivate let desktopNotificationIngress = GhosttyDesktopNotificationIngress()
-    private let desktopNotificationGlobalConfigPath = CmuxConfigStore.defaultGlobalConfigPath()
 
     // MARK: Transitional terminal engine/services composition
     //
@@ -2906,7 +2905,6 @@ class GhosttyApp {
                 surfaceId: surfaceId,
                 hookDirectory: surfaceView.currentDirectoryActionDispatcher.directorySnapshot()
                     ?? surfaceView.terminalSurface?.requestedWorkingDirectory,
-                globalConfigPath: desktopNotificationGlobalConfigPath,
                 title: actionTitle,
                 body: actionBody
             ))

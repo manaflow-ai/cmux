@@ -9,7 +9,6 @@ extension TerminalNotificationStore {
         tabId: UUID,
         surfaceId: UUID?,
         hookDirectory: String?,
-        globalConfigPath: String,
         title: String,
         body: String
     ) async {
@@ -20,6 +19,9 @@ extension TerminalNotificationStore {
               ) else {
             return
         }
+        let globalConfigPath = appDelegate.contextContainingTabId(initialTarget.tabId)?
+            .cmuxConfigStore?.globalConfigPath
+            ?? CmuxConfigStore.defaultGlobalConfigPath()
         let policyRequestId = beginDesktopNotificationHookResolution(
             tabId: initialTarget.tabId,
             surfaceId: initialTarget.surfaceId,

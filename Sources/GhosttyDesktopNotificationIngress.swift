@@ -60,7 +60,6 @@ final class GhosttyDesktopNotificationIngress: Sendable {
             tabId: request.tabId,
             surfaceId: request.surfaceId,
             hookDirectory: workspace?.isRemoteWorkspace == true ? nil : request.hookDirectory,
-            globalConfigPath: request.globalConfigPath,
             title: request.title,
             body: request.body
         )

@@ -101,7 +101,7 @@ struct GhosttyDesktopNotificationIngressTests {
         releaseContinuation.finish()
     }
 
-    @Test func queuedRequestKeepsCallbackTimeHookContext() async {
+    @Test func queuedRequestKeepsCallbackTimeHookDirectory() async {
         let (deliveries, deliveryContinuation) = AsyncStream<GhosttyDesktopNotificationRequest>.makeStream()
         let (releaseFirstDelivery, releaseContinuation) = AsyncStream<Void>.makeStream(
             bufferingPolicy: .bufferingNewest(1)
@@ -125,7 +125,6 @@ struct GhosttyDesktopNotificationIngressTests {
 
         let delivered = await iterator.next()
         #expect(delivered?.hookDirectory == "/project-at-callback")
-        #expect(delivered?.globalConfigPath == "/global/cmux.json")
         #expect(callbackDirectory == "/project-after-callback")
         deliveryContinuation.finish()
         releaseContinuation.finish()
@@ -136,7 +135,6 @@ struct GhosttyDesktopNotificationIngressTests {
             tabId: UUID(),
             surfaceId: UUID(),
             hookDirectory: hookDirectory,
-            globalConfigPath: "/global/cmux.json",
             title: title,
             body: "body"
         )
