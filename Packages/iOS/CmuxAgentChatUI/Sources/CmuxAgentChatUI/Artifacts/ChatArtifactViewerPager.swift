@@ -46,21 +46,19 @@ struct ChatArtifactViewerPager: View {
     }
 
     private func viewer(path: String) -> some View {
-        NavigationStack {
-            ChatArtifactViewerRouteView(
-                path: path,
-                scope: scope,
-                onImageMinimumZoomChanged: { isAtMinimum in
-                    if isAtMinimum {
-                        if zoomedPath == path {
-                            zoomedPath = nil
-                        }
-                    } else {
-                        zoomedPath = path
+        ChatArtifactViewerRouteView(
+            path: path,
+            scope: scope,
+            onImageMinimumZoomChanged: { isAtMinimum in
+                if isAtMinimum {
+                    if zoomedPath == path {
+                        zoomedPath = nil
                     }
-                },
-                onDone: onDone
-            )
-        }
+                } else {
+                    zoomedPath = path
+                }
+            },
+            onDone: onDone
+        )
     }
 }

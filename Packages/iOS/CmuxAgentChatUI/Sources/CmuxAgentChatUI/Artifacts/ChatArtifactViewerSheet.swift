@@ -25,12 +25,14 @@ public struct ChatArtifactViewerSheet: View {
     }
 
     public var body: some View {
-        ChatArtifactViewerPager(
-            initialPath: path,
-            scope: scope,
-            swipeOrder: swipeOrder
-        ) {
-            dismiss()
+        NavigationStack {
+            ChatArtifactViewerDestination(
+                path: path,
+                scope: scope,
+                swipeOrder: swipeOrder
+            ) {
+                dismiss()
+            }
         }
     }
 }

@@ -358,7 +358,6 @@ struct ChatArtifactViewerRouteView: View {
             ChatArtifactFolderView(
                 path: path,
                 scope: scope,
-                onImageMinimumZoomChanged: onImageMinimumZoomChanged,
                 onDone: onDone
             )
         case .image(let data):

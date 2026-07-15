@@ -94,6 +94,21 @@ struct TerminalArtifactFilesSheet: View {
                     viewModePicker
                 }
             }
+            .navigationDestination(isPresented: artifactIsPresented) {
+                if let selection {
+                    ChatArtifactViewerDestination(
+                        path: selection.path,
+                        scope: selection.scope == .session ? .chat : .terminal,
+                        swipeOrder: selection.swipeOrder
+                    ) {
+                        dismiss()
+                    }
+                    .environment(
+                        \.chatArtifactLoader,
+                        selection.scope == .session ? sessionLoader : loader
+                    )
+                }
+            }
         }
         .frame(idealWidth: 380, idealHeight: 520)
         .task(id: "\(workspaceID)#\(surfaceID)") {
@@ -102,21 +117,19 @@ struct TerminalArtifactFilesSheet: View {
         .task(id: liveRefreshTaskID) {
             await refreshSessionForLiveSignal()
         }
-        .sheet(item: $selection) { selection in
-            ChatArtifactViewerSheet(
-                path: selection.path,
-                scope: selection.scope == .session ? .chat : .terminal,
-                swipeOrder: selection.swipeOrder
-            )
-            .environment(
-                \.chatArtifactLoader,
-                selection.scope == .session ? sessionLoader : loader
-            )
-        }
         .onDisappear {
             thumbnailPrefetchTasks.forEach { $0.cancel() }
             thumbnailPrefetchTasks.removeAll()
         }
+    }
+
+    private var artifactIsPresented: Binding<Bool> {
+        Binding(
+            get: { selection != nil },
+            set: { isPresented in
+                if !isPresented { selection = nil }
+            }
+        )
     }
 
 

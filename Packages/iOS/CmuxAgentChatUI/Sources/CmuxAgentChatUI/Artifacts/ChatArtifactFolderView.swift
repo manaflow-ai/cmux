@@ -10,7 +10,6 @@ import AppKit
 struct ChatArtifactFolderView: View {
     let path: String
     let scope: ChatArtifactViewerScope
-    let onImageMinimumZoomChanged: (Bool) -> Void
     let onDone: () -> Void
 
     @Environment(\.chatArtifactLoader) private var loader
@@ -43,10 +42,9 @@ struct ChatArtifactFolderView: View {
                         Section {
                             ForEach(listing.entries) { entry in
                                 NavigationLink {
-                                    ChatArtifactViewerRouteView(
+                                    ChatArtifactViewerDestination(
                                         path: childPath(named: entry.name),
                                         scope: scope,
-                                        onImageMinimumZoomChanged: onImageMinimumZoomChanged,
                                         onDone: onDone
                                     )
                                 } label: {

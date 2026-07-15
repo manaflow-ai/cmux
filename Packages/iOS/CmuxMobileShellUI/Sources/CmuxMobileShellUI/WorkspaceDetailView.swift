@@ -261,15 +261,22 @@ struct WorkspaceDetailView: View {
             TerminalPalette.background
                 .ignoresSafeArea(.container, edges: [.horizontal, .top, .bottom])
         }
-        .sheet(item: $selectedTerminalArtifact) { selection in
-            ChatArtifactViewerSheet(path: selection.path, scope: .terminal)
-                .environment(
-                    \.chatArtifactLoader,
-                    terminalArtifactLoader(
-                        workspaceID: selection.workspaceID,
-                        surfaceID: selection.surfaceID
+        .navigationDestination(isPresented: terminalArtifactIsPresented) {
+            if let selectedTerminalArtifact {
+                ChatArtifactViewerDestination(
+                    path: selectedTerminalArtifact.path,
+                    scope: .terminal
+                ) {
+                    self.selectedTerminalArtifact = nil
+                }
+                    .environment(
+                        \.chatArtifactLoader,
+                        terminalArtifactLoader(
+                            workspaceID: selectedTerminalArtifact.workspaceID,
+                            surfaceID: selectedTerminalArtifact.surfaceID
+                        )
                     )
-                )
+            }
         }
         #else
         .background(TerminalPalette.background)
@@ -286,6 +293,15 @@ struct WorkspaceDetailView: View {
     }
 
     #if os(iOS)
+    private var terminalArtifactIsPresented: Binding<Bool> {
+        Binding(
+            get: { selectedTerminalArtifact != nil },
+            set: { isPresented in
+                if !isPresented { selectedTerminalArtifact = nil }
+            }
+        )
+    }
+
     func terminalArtifactLoader(workspaceID: String, surfaceID: String) -> ChatArtifactLoader {
         guard let source = store.makeChatEventSource() else {
             return .unsupported(cache: terminalArtifactThumbnailCache)

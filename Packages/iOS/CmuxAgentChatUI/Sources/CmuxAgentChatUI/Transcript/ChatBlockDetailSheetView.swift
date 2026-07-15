@@ -13,6 +13,7 @@ struct ChatBlockDetailSheetView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.chatArtifactLoader) private var artifactLoader
+    @State private var selectedArtifact: ChatArtifactPathSelection?
 
     init(detail: ChatBlockDetail, onOpenTerminal: (() -> Void)? = nil) {
         self.detail = detail
@@ -33,7 +34,12 @@ struct ChatBlockDetailSheetView: View {
                         ChatBlockDetailSectionView(section: section)
                     }
                     if artifactLoader.supportsArtifacts, !detail.artifactPaths.isEmpty {
-                        ChatBlockDetailArtifactActions(paths: detail.artifactPaths)
+                        ChatBlockDetailArtifactActions(
+                            paths: detail.artifactPaths,
+                            onOpenArtifact: { path in
+                                selectedArtifact = ChatArtifactPathSelection(path: path)
+                            }
+                        )
                     }
                 }
                 .padding(16)
@@ -62,8 +68,24 @@ struct ChatBlockDetailSheetView: View {
                 }
                 #endif
             }
+            .navigationDestination(isPresented: artifactIsPresented) {
+                if let selectedArtifact {
+                    ChatArtifactViewerDestination(path: selectedArtifact.path) {
+                        dismiss()
+                    }
+                }
+            }
         }
         .accessibilityIdentifier("ChatBlockDetailSheet")
+    }
+
+    private var artifactIsPresented: Binding<Bool> {
+        Binding(
+            get: { selectedArtifact != nil },
+            set: { isPresented in
+                if !isPresented { selectedArtifact = nil }
+            }
+        )
     }
 
     @ViewBuilder
@@ -106,6 +128,7 @@ struct ChatBlockDetailSheetView: View {
 
 private struct ChatBlockDetailArtifactActions: View {
     let paths: [String]
+    let onOpenArtifact: (String) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -113,7 +136,10 @@ private struct ChatBlockDetailArtifactActions: View {
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
             ForEach(deduplicatedPaths, id: \.self) { path in
-                ChatBlockDetailArtifactActionRow(path: path)
+                ChatBlockDetailArtifactActionRow(
+                    path: path,
+                    onOpenArtifact: onOpenArtifact
+                )
             }
         }
     }
@@ -130,8 +156,7 @@ private struct ChatBlockDetailArtifactActions: View {
 
 private struct ChatBlockDetailArtifactActionRow: View {
     let path: String
-
-    @State private var selectedArtifact: ChatArtifactPathSelection?
+    let onOpenArtifact: (String) -> Void
 
     var body: some View {
         HStack(spacing: 8) {
@@ -148,7 +173,7 @@ private struct ChatBlockDetailArtifactActionRow: View {
             }
             Spacer(minLength: 8)
             Button {
-                selectedArtifact = ChatArtifactPathSelection(path: path)
+                onOpenArtifact(path)
             } label: {
                 Label(
                     String(localized: "chat.artifact.open_item", defaultValue: "Open item", bundle: .module),
@@ -159,8 +184,5 @@ private struct ChatBlockDetailArtifactActionRow: View {
         }
         .padding(10)
         .background(.quaternary.opacity(0.5), in: .rect(cornerRadius: 8))
-        .sheet(item: $selectedArtifact) { selection in
-            ChatArtifactViewerSheet(path: selection.path)
-        }
     }
 }
