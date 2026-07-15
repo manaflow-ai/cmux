@@ -46,7 +46,22 @@ enum CEFRuntimeSupport {
         config.logFile = rootCache.appendingPathComponent("cef.log")
         config.extensionDirectories = extensionDirectories()
         try CEFApp.shared.initialize(config)
+        // XCTest exits the injected app process directly, bypassing
+        // AppDelegate.applicationShouldTerminate. Arm CEFKit's process-exit
+        // bypass after XCTest has installed its result observer so Chromium's
+        // atexit DCHECK cannot turn a completed test run into a crash.
+        if isRunningUnderXCTest() {
+            _ = CEFApp.shared.prepareForTermination(onReady: {})
+        }
         startedThisSession = true
+    }
+
+    static func isRunningUnderXCTest(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        environment["XCTestConfigurationFilePath"] != nil
+            || environment["XCTestBundlePath"] != nil
+            || environment["XCInjectBundleInto"] != nil
     }
 
     /// Hook for AppDelegate.applicationShouldTerminate: terminating with CEF
