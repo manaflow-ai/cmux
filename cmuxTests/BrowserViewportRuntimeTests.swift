@@ -217,6 +217,13 @@ struct BrowserViewportRuntimeTests {
         #expect(fractionalScaledMetrics["width"] as? Int == 375)
         #expect(fractionalScaledMetrics["height"] as? Int == 812)
 
+        let nearWholePointZoom: CGFloat = (412.0 + 0.000_000_5) / 375.0
+        webView.pageZoom = nearWholePointZoom
+        _ = try #require(webView.cmuxApplyBrowserViewportLayout(in: pane.bounds))
+        let nearWholePointMetrics = try await runtimeMetrics(in: webView)
+        #expect(nearWholePointMetrics["width"] as? Int == 375)
+        #expect(nearWholePointMetrics["height"] as? Int == 812)
+
         viewportModel.setViewport(viewport)
         webView.pageZoom = 1
         _ = try #require(webView.cmuxApplyBrowserViewportLayout(in: pane.bounds))

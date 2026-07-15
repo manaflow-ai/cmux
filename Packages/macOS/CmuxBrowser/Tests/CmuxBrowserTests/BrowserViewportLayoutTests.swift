@@ -73,6 +73,19 @@ struct BrowserViewportLayoutTests {
         #expect(Int((webKitQuantizedHeight / pageZoom).rounded(.down)) == 4_096)
     }
 
+    @Test func viewportSurvivesZoomProductJustAboveWholePoint() throws {
+        let viewport = try #require(BrowserViewport(width: 4_096, height: 4_096))
+        let pageZoom = (5_734.0 + 0.000_000_5) / 4_096.0
+        let layout = try #require(BrowserViewportLayout(
+            containerBounds: CGRect(x: 0, y: 0, width: 800, height: 600),
+            viewport: viewport,
+            pageZoom: pageZoom
+        ))
+
+        let webKitQuantizedWidth = layout.webViewBounds.width.rounded(.down)
+        #expect(Int((webKitQuantizedWidth / pageZoom).rounded(.down)) == 4_096)
+    }
+
     @Test(arguments: [0.0, -Double.infinity, Double.infinity, Double.nan])
     func invalidPageZoomFallsBackToOne(pageZoom: Double) throws {
         let viewport = try #require(BrowserViewport(width: 375, height: 812))
