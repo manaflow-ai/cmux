@@ -5,14 +5,13 @@ import CmuxSettings
 import CmuxWorkspaces
 
 extension VerticalTabsSidebar {
-    @ViewBuilder
-    func sidebarWorkspaceGroupHeader(
+    func sidebarWorkspaceGroupRow(
         group: WorkspaceGroup,
         memberWorkspaceIds: [UUID],
         renderContext: WorkspaceListRenderContext,
         shouldCollectWorkspaceDropTargets: Bool,
         showModifierHoldHints: Bool
-    ) -> some View {
+    ) -> SidebarWorkspaceGroupRowView {
         let settings = renderContext.tabItemSettings
         let isAnchorActive = tabManager.selectedTabId == group.anchorWorkspaceId
         let anchorCwd = renderContext.workspaceById[group.anchorWorkspaceId]?.currentDirectory
@@ -198,22 +197,18 @@ extension VerticalTabsSidebar {
                 SidebarWorkspaceGroupConfigOpener.openWorkspaceGroupsDocs()
             }
         )
-        .equatable()
-        .id(group.anchorWorkspaceId)
-        .accessibilityIdentifier("sidebarWorkspaceGroup.\(group.id.uuidString)")
 
-        header
-            .sidebarWorkspaceFrameAnchor(
-                id: group.anchorWorkspaceId,
-                isEnabled: shouldCollectWorkspaceDropTargets
-            )
-            .sidebarPointerFrameReporting(
-                onFrameChange: { [pointerInteractionMonitor, workspaceId = group.anchorWorkspaceId] frame in
-                    pointerInteractionMonitor.updateFrame(frame, for: rowId, workspaceId: workspaceId)
-                },
-                onDisappear: { [pointerInteractionMonitor] in
-                    pointerInteractionMonitor.removeFrame(for: rowId)
-                }
-            )
+        return SidebarWorkspaceGroupRowView(
+            header: header,
+            groupId: group.id,
+            anchorWorkspaceId: group.anchorWorkspaceId,
+            shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets,
+            onPointerFrameChange: { [pointerInteractionMonitor, workspaceId = group.anchorWorkspaceId] frame in
+                pointerInteractionMonitor.updateFrame(frame, for: rowId, workspaceId: workspaceId)
+            },
+            onPointerFrameDisappear: { [pointerInteractionMonitor] in
+                pointerInteractionMonitor.removeFrame(for: rowId)
+            }
+        )
     }
 }

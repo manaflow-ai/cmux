@@ -69,6 +69,50 @@ extension View {
             }
         }
     }
+
+    /// Observes every default-sidebar workspace above the lazy row boundary.
+    /// The callback identifies the changed workspace so the owner can rebuild
+    /// its immutable projection without mounting an observation task per row.
+    func sidebarProcessTitleObservations(
+        ids: [UUID],
+        models: [WorkspaceSidebarProcessTitleObservationModel],
+        onChange: @MainActor @escaping (UUID) -> Void
+    ) -> some View {
+        task(id: ids) { @MainActor in
+            await withTaskGroup(of: Void.self) { group in
+                for (id, model) in zip(ids, models) {
+                    let changes = model.changes()
+                    group.addTask { @MainActor in
+                        for await _ in changes {
+                            if Task.isCancelled { break }
+                            onChange(id)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Agent-runtime counterpart to ``sidebarProcessTitleObservations(ids:models:onChange:)``.
+    func sidebarAgentRuntimeObservations(
+        ids: [UUID],
+        models: [WorkspaceSidebarAgentRuntimeObservationModel],
+        onChange: @MainActor @escaping (UUID) -> Void
+    ) -> some View {
+        task(id: ids) { @MainActor in
+            await withTaskGroup(of: Void.self) { group in
+                for (id, model) in zip(ids, models) {
+                    let changes = model.changes()
+                    group.addTask { @MainActor in
+                        for await _ in changes {
+                            if Task.isCancelled { break }
+                            onChange(id)
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 private struct SidebarImmediateObservationState: Equatable {

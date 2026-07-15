@@ -9911,7 +9911,6 @@ struct VerticalTabsSidebar: View {
     @State private var frozenShortcutHintsTabId: UUID?
     @State private var frozenShortcutHintsValue: Bool = false
     @State private var pendingSelectedWorkspaceScrollId: UUID?
-    @State private var workspaceScrollContentMinHeight: CGFloat = 0
     @State private var collapsedExtensionSidebarSectionIds: Set<String> = []
     @State private var extensionSidebarWorktreeCreationInFlightSectionIds: Set<String> = []
     // Per-workspace transient checklist UI state (never persisted): which
@@ -9925,6 +9924,11 @@ struct VerticalTabsSidebar: View {
     // the sidebar). Held at the container so rows stay behind the snapshot
     // boundary.
     @State private var checklistPopoverWorkspaceId: UUID?
+    // Parent-owned immutable workspace projections. Workspace publishers and
+    // async observation streams terminate here, above the LazyVStack; rows
+    // receive only values and action closures. This is the ownership boundary
+    // that prevents layout/realization from publishing row state (#6707).
+    @State private var workspaceSnapshotsById: [UUID: SidebarWorkspaceSnapshotBuilder.Snapshot] = [:]
     @State private var extensionSidebarUpdateToken: UInt64 = 0
     // Stable, memoized merged observation publishers for the extension
     // sidebar's `.onReceive` handlers. Rebuilding them inline each body pass
@@ -9954,6 +9958,7 @@ struct VerticalTabsSidebar: View {
     @LiveSetting(\.sidebar.showAgentActivity) private var showAgentActivity
 #if DEBUG
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
+    @Environment(\.sidebarLazyContractProbe) private var sidebarLazyContractProbe
 #endif
 
     // The provider to actually render. Built-in views are always honored; only
@@ -10252,7 +10257,9 @@ struct VerticalTabsSidebar: View {
         let allSelectedRemoteContextMenuTargetsDisconnected: Bool
         let workspaceGroups: [WorkspaceGroup]
         let workspaceGroupById: [UUID: WorkspaceGroup]
+        let memberWorkspaceIdsByGroupId: [UUID: [UUID]]
         let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
+        let windowMoveTargets: [SidebarWorkspaceWindowMoveTarget]
         let workspaceRenderItems: [SidebarWorkspaceRenderItem]
         let visibleWorkspaceRowIds: [UUID]
 
@@ -10293,9 +10300,20 @@ struct VerticalTabsSidebar: View {
             selectedRemoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .disconnected }
         let workspaceGroups = tabManager.workspaceGroups
         let workspaceGroupById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
+        let memberWorkspaceIdsByGroupId = SidebarWorkspaceRenderItem.memberWorkspaceIdsByGroupId(tabs: tabs)
         let workspaceGroupMenuSnapshot = WorkspaceGroupMenuSnapshot(
             items: workspaceGroups.map { WorkspaceGroupMenuSnapshot.Item(id: $0.id, name: $0.name) }
         )
+        let referenceWindowId = AppDelegate.shared?.windowId(for: tabManager)
+        let windowMoveTargets = AppDelegate.shared?
+            .windowMoveTargets(referenceWindowId: referenceWindowId)
+            .map {
+                SidebarWorkspaceWindowMoveTarget(
+                    windowId: $0.windowId,
+                    label: $0.label,
+                    isCurrentWindow: $0.isCurrentWindow
+                )
+            } ?? []
         let workspaceRenderItems = SidebarWorkspaceRenderItem.renderItems(
             tabs: tabs,
             groupsById: workspaceGroupById
@@ -10331,7 +10349,9 @@ struct VerticalTabsSidebar: View {
             allSelectedRemoteContextMenuTargetsDisconnected: allSelectedRemoteContextMenuTargetsDisconnected,
             workspaceGroups: workspaceGroups,
             workspaceGroupById: workspaceGroupById,
+            memberWorkspaceIdsByGroupId: memberWorkspaceIdsByGroupId,
             workspaceGroupMenuSnapshot: workspaceGroupMenuSnapshot,
+            windowMoveTargets: windowMoveTargets,
             workspaceRenderItems: workspaceRenderItems,
             visibleWorkspaceRowIds: visibleWorkspaceRowIds
         )
@@ -10477,10 +10497,19 @@ struct VerticalTabsSidebar: View {
 
     private func workspaceScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
         let scrollInsets = SidebarWorkspaceScrollInsets.workspaceList
-        return ScrollViewReader { scrollProxy in
-            ScrollView(.vertical) {
-                workspaceScrollContent(renderContext: renderContext, minHeight: workspaceScrollContentMinHeight)
-            }
+        return GeometryReader { viewport in
+            // Keep viewport geometry as a downward-only layout input. Writing
+            // this value into @State from onGeometryChange feeds an
+            // NSHostingView layout pass back into the same LazyVStack graph;
+            // scrolling plus row-height churn can then prevent convergence.
+            let contentMinHeight = SidebarWorkspaceScrollLayout.contentMinHeight(
+                viewportHeight: viewport.size.height,
+                insets: scrollInsets
+            )
+            ScrollViewReader { scrollProxy in
+                ScrollView(.vertical) {
+                    workspaceScrollContent(renderContext: renderContext, minHeight: contentMinHeight)
+                }
             .coordinateSpace(name: SidebarPointerInteractionMonitor.coordinateSpaceName)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .sidebarPointerEventHost(pointerInteractionMonitor)
@@ -10523,9 +10552,6 @@ struct VerticalTabsSidebar: View {
             }
             .background(Color.clear)
             .modifier(ClearScrollBackground())
-            .onGeometryChange(for: CGFloat.self) {
-                SidebarWorkspaceScrollLayout.contentMinHeight(viewportHeight: $0.size.height, insets: scrollInsets)
-            } action: { updateWorkspaceScrollContentMinHeight($0) }
             .onAppear {
                 requestSelectedWorkspaceScroll(scrollProxy, renderContext: renderContext)
             }
@@ -10595,11 +10621,42 @@ struct VerticalTabsSidebar: View {
                 }
             }
         }
-    }
-    private func updateWorkspaceScrollContentMinHeight(_ contentMinHeight: CGFloat) {
-        guard workspaceScrollContentMinHeight != contentMinHeight else { return }
-        var transaction = Transaction(animation: nil); transaction.disablesAnimations = true
-        withTransaction(transaction) { workspaceScrollContentMinHeight = contentMinHeight }
+        }
+        .sidebarProcessTitleObservations(
+            ids: renderContext.workspaceIds,
+            models: renderContext.tabs.map(\.sidebarProcessTitleObservation)
+        ) { workspaceId in
+            refreshWorkspaceSnapshot(workspaceId: workspaceId)
+        }
+        .sidebarAgentRuntimeObservations(
+            ids: renderContext.workspaceIds,
+            models: renderContext.tabs.map(\.sidebarAgentRuntimeObservation)
+        ) { workspaceId in
+            refreshWorkspaceSnapshot(workspaceId: workspaceId)
+        }
+        .onReceive(extensionSidebarImmediateObservationPublisher) { _ in
+            refreshWorkspaceSnapshots()
+        }
+        .onReceive(extensionSidebarDebouncedObservationPublisher) { _ in
+            refreshWorkspaceSnapshots()
+        }
+        .onAppear {
+            refreshWorkspaceSnapshots()
+            refreshExtensionSidebarObservationPublishers(tabs: renderContext.tabs)
+        }
+        .onChange(of: renderContext.workspaceIds) { _, _ in
+            refreshWorkspaceSnapshots()
+            refreshExtensionSidebarObservationPublishers(tabs: renderContext.tabs)
+        }
+        .onChange(of: renderContext.tabItemSettings) { _, _ in
+            refreshWorkspaceSnapshots()
+        }
+        .onChange(of: renderContext.showsAgentActivity) { _, _ in
+            refreshWorkspaceSnapshots()
+        }
+        .onDisappear {
+            clearExtensionSidebarObservationPublishers()
+        }
     }
 
     // Applies one stable overlay/autohide scroller config and never toggles it.
@@ -10787,6 +10844,53 @@ struct VerticalTabsSidebar: View {
 
     private func refreshExtensionSidebarSnapshot() {
         extensionSidebarUpdateToken &+= 1
+    }
+
+    private func refreshWorkspaceSnapshot(workspaceId: UUID) {
+        guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
+            workspaceSnapshotsById[workspaceId] = nil
+            return
+        }
+        let next = makeWorkspaceSnapshot(
+            workspace: workspace,
+            settings: tabItemSettingsStore.snapshot,
+            showsAgentActivity: showAgentActivity && CmuxFeatureFlags.shared.isSidebarWorkspaceAgentSpinnerEnabled
+        )
+        guard workspaceSnapshotsById[workspaceId] != next else { return }
+        workspaceSnapshotsById[workspaceId] = next
+    }
+
+    private func refreshWorkspaceSnapshots() {
+        let tabs = tabManager.tabs
+        let liveIds = Set(tabs.map(\.id))
+        let settings = tabItemSettingsStore.snapshot
+        let showsAgentActivity = showAgentActivity && CmuxFeatureFlags.shared.isSidebarWorkspaceAgentSpinnerEnabled
+        var next: [UUID: SidebarWorkspaceSnapshotBuilder.Snapshot] = [:]
+        next.reserveCapacity(tabs.count)
+        for workspace in tabs {
+            next[workspace.id] = makeWorkspaceSnapshot(
+                workspace: workspace,
+                settings: settings,
+                showsAgentActivity: showsAgentActivity
+            )
+        }
+        guard next != workspaceSnapshotsById || Set(workspaceSnapshotsById.keys) != liveIds else { return }
+        workspaceSnapshotsById = next
+    }
+
+    private func makeWorkspaceSnapshot(
+        workspace: Workspace,
+        settings: SidebarTabItemSettingsSnapshot,
+        showsAgentActivity: Bool
+    ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
+#if DEBUG
+        sidebarLazyContractProbe.workspaceSnapshotBuild?()
+#endif
+        return SidebarWorkspaceSnapshotFactory(
+            workspace: workspace,
+            settings: settings,
+            showsAgentActivity: showsAgentActivity
+        ).makeSnapshot()
     }
 
     private func clearExtensionSidebarObservationPublishers() {
@@ -11778,26 +11882,43 @@ struct VerticalTabsSidebar: View {
     ) -> some View {
         let signpost = SidebarProfilingSignposts.begin("sidebar-workspace-rows", "renderItems=\(renderContext.workspaceRenderItems.count) collectDropTargets=\(shouldCollectWorkspaceDropTargets)")
         let renderItems = renderContext.workspaceRenderItems
-        // LazyVStack is safe here because `dragState` is @Observable:
-        // drag mutations at 60fps invalidate only the rows/overlays that
-        // read them, never this sidebar body. See SidebarDragState and
-        // https://github.com/manaflow-ai/cmux/issues/2586.
+        // Resolve every model read above the LazyVStack. Its realization
+        // closure only copies immutable row projections and capability
+        // closures; scrolling cannot subscribe a row to live workspace state.
+        let workspaceRowsById = Dictionary(uniqueKeysWithValues: renderContext.tabs.map { workspace in
+            (
+                workspace.id,
+                workspaceRow(
+                    workspace,
+                    renderContext: renderContext,
+                    shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
+                )
+            )
+        })
+        let _ = anchorCwdRevision
+        let groupRowsById = Dictionary(uniqueKeysWithValues: renderContext.workspaceGroups.map { group in
+            (
+                group.id,
+                sidebarWorkspaceGroupRow(
+                    group: group,
+                    memberWorkspaceIds: renderContext.memberWorkspaceIdsByGroupId[group.id] ?? [],
+                    renderContext: renderContext,
+                    shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets,
+                    showModifierHoldHints: showModifierHoldHints
+                )
+            )
+        })
         let rows = LazyVStack(spacing: tabRowSpacing) {
             ForEach(renderItems, id: \.id) { item in
                 switch item {
-                case .groupHeader(let group, let memberWorkspaceIds):
-                    sidebarWorkspaceGroupHeader(
-                        group: group,
-                        memberWorkspaceIds: memberWorkspaceIds,
-                        renderContext: renderContext,
-                        shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets, showModifierHoldHints: showModifierHoldHints
-                    )
-                case .workspace(let tab):
-                    workspaceRow(
-                        tab,
-                        renderContext: renderContext,
-                        shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
-                    )
+                case .groupHeader(let groupId, _):
+                    if let groupRow = groupRowsById[groupId] {
+                        groupRow
+                    }
+                case .workspace(let workspaceId):
+                    if let workspaceRow = workspaceRowsById[workspaceId] {
+                        workspaceRow
+                    }
                 }
             }
         }
@@ -12170,12 +12291,191 @@ struct VerticalTabsSidebar: View {
         )
     }
 
-    @ViewBuilder
+    private func selectWorkspaceRow(
+        _ workspace: Workspace,
+        index: Int,
+        modifiers: NSEvent.ModifierFlags
+    ) {
+        let isCommand = modifiers.contains(.command)
+        let isShift = modifiers.contains(.shift)
+        let wasSelected = tabManager.selectedTabId == workspace.id
+#if DEBUG
+        var modifierDescription = ""
+        if isCommand { modifierDescription += "cmd " }
+        if isShift { modifierDescription += "shift " }
+        if modifiers.contains(.option) { modifierDescription += "opt " }
+        if modifiers.contains(.control) { modifierDescription += "ctrl " }
+        cmuxDebugLog(
+            "sidebar.select workspace=\(workspace.id.uuidString.prefix(5)) modifiers=" +
+            (modifierDescription.isEmpty
+                ? "none"
+                : modifierDescription.trimmingCharacters(in: .whitespaces))
+        )
+#endif
+
+        let workspaceIds = tabManager.tabs.map(\.id)
+        let shiftAnchorIndex = isShift
+            ? SidebarWorkspaceSelectionSyncPolicy().shiftClickAnchorIndex(
+                existingAnchorIndex: lastSidebarSelectionIndex,
+                selectedWorkspaceIds: selectedTabIds,
+                focusedWorkspaceId: tabManager.selectedTabId,
+                liveWorkspaceIds: workspaceIds
+            )
+            : nil
+
+        if isShift, let anchorIndex = shiftAnchorIndex {
+            let lower = min(anchorIndex, index)
+            let upper = max(anchorIndex, index)
+            let collapsedGroupIds = Set(
+                tabManager.workspaceGroups.filter(\.isCollapsed).map(\.id)
+            )
+            let anchorIdsByGroup = Dictionary(
+                uniqueKeysWithValues: tabManager.workspaceGroups.map { ($0.id, $0.anchorWorkspaceId) }
+            )
+            let rangeIds = tabManager.tabs[lower...upper].compactMap { candidate -> UUID? in
+                if let groupId = candidate.groupId,
+                   collapsedGroupIds.contains(groupId),
+                   anchorIdsByGroup[groupId] != candidate.id {
+                    return nil
+                }
+                return candidate.id
+            }
+            if isCommand {
+                selectedTabIds.formUnion(rangeIds)
+            } else {
+                selectedTabIds = Set(rangeIds)
+            }
+        } else if isCommand {
+            if selectedTabIds.contains(workspace.id) {
+                selectedTabIds.remove(workspace.id)
+            } else {
+                selectedTabIds.insert(workspace.id)
+            }
+        } else {
+            selectedTabIds = [workspace.id]
+        }
+
+        lastSidebarSelectionIndex = SidebarWorkspaceSelectionSyncPolicy().anchorIndexAfterWorkspaceClick(
+            isShiftClick: isShift,
+            resolvedShiftAnchorIndex: shiftAnchorIndex,
+            clickedIndex: index
+        )
+        tabManager.selectTab(workspace)
+        if wasSelected, !isCommand, !isShift {
+            tabManager.dismissNotificationOnDirectInteraction(
+                tabId: workspace.id,
+                surfaceId: tabManager.focusedSurfaceId(for: workspace.id)
+            )
+        }
+        selection = .tabs
+    }
+
+    private func syncWorkspaceRowSelectionAfterMutation() {
+        let existingIds = Set(tabManager.tabs.map(\.id))
+        selectedTabIds = selectedTabIds.filter { existingIds.contains($0) }
+        if selectedTabIds.isEmpty, let selectedId = tabManager.selectedTabId {
+            selectedTabIds = [selectedId]
+        }
+        if let selectedId = tabManager.selectedTabId {
+            lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
+        }
+    }
+
+    private func moveWorkspaceRow(_ workspace: Workspace, by delta: Int) {
+        guard tabManager.reorderWorkspace(tabId: workspace.id, by: delta) else { return }
+        selectedTabIds = [workspace.id]
+        lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == workspace.id }
+        tabManager.selectTab(workspace)
+        selection = .tabs
+    }
+
+    private func closeWorkspaceRows(_ workspaceIds: [UUID], allowPinned: Bool) {
+        tabManager.closeWorkspacesWithConfirmation(workspaceIds, allowPinned: allowPinned)
+        syncWorkspaceRowSelectionAfterMutation()
+    }
+
+    private func moveWorkspaceRows(_ workspaceIds: [UUID], toWindow windowId: UUID) {
+        guard let app = AppDelegate.shared else { return }
+        let orderedIds = tabManager.tabs.compactMap { workspaceIds.contains($0.id) ? $0.id : nil }
+        guard !orderedIds.isEmpty else { return }
+        for (index, workspaceId) in orderedIds.enumerated() {
+            _ = app.moveWorkspaceToWindow(
+                workspaceId: workspaceId,
+                windowId: windowId,
+                focus: index == orderedIds.count - 1
+            )
+        }
+        selectedTabIds.subtract(orderedIds)
+        syncWorkspaceRowSelectionAfterMutation()
+    }
+
+    private func moveWorkspaceRowsToNewWindow(_ workspaceIds: [UUID]) {
+        guard let app = AppDelegate.shared else { return }
+        let orderedIds = tabManager.tabs.compactMap { workspaceIds.contains($0.id) ? $0.id : nil }
+        guard let firstId = orderedIds.first else { return }
+        guard let newWindowId = app.moveWorkspaceToNewWindow(
+            workspaceId: firstId,
+            focus: orderedIds.count == 1
+        ) else { return }
+        if orderedIds.count > 1 {
+            for workspaceId in orderedIds.dropFirst() {
+                _ = app.moveWorkspaceToWindow(
+                    workspaceId: workspaceId,
+                    windowId: newWindowId,
+                    focus: false
+                )
+            }
+            if let finalId = orderedIds.last {
+                _ = app.moveWorkspaceToWindow(
+                    workspaceId: finalId,
+                    windowId: newWindowId,
+                    focus: true
+                )
+            }
+        }
+        selectedTabIds.subtract(orderedIds)
+        syncWorkspaceRowSelectionAfterMutation()
+    }
+
+    private func openWorkspaceRowPullRequest(
+        _ url: URL,
+        workspace: Workspace,
+        index: Int,
+        opensInCmuxBrowser: Bool
+    ) {
+        selectWorkspaceRow(workspace, index: index, modifiers: NSEvent.modifierFlags)
+        if opensInCmuxBrowser,
+           tabManager.openBrowser(
+               inWorkspace: workspace.id,
+               url: url,
+               preferSplitRight: true,
+               insertAtEnd: true
+           ) != nil {
+            return
+        }
+        NSWorkspace.shared.open(url)
+    }
+
+    private func openWorkspaceRowPort(
+        _ port: Int,
+        workspace: Workspace,
+        index: Int,
+        opensInCmuxBrowser: Bool
+    ) {
+        guard let url = URL(string: "http://localhost:\(port)") else { return }
+        openWorkspaceRowPullRequest(
+            url,
+            workspace: workspace,
+            index: index,
+            opensInCmuxBrowser: opensInCmuxBrowser
+        )
+    }
+
     private func workspaceRow(
         _ tab: Workspace,
         renderContext: WorkspaceListRenderContext,
         shouldCollectWorkspaceDropTargets: Bool
-    ) -> some View {
+    ) -> SidebarWorkspaceRowView {
         let signpost = SidebarProfilingSignposts.begin("sidebar-workspace-row", "index=\(renderContext.tabIndexById[tab.id] ?? -1) workspace=\(sidebarShortTabId(tab.id)) selected=\(tabManager.selectedTabId == tab.id)")
         let index = renderContext.tabIndexById[tab.id] ?? 0
         let usesSelectedContextMenuTargets = selectedTabIds.contains(tab.id)
@@ -12289,70 +12589,334 @@ struct VerticalTabsSidebar: View {
                 checklistPopoverWorkspaceId = nil
             }
         }
-        let row = TabItemView(
-            tabManager: tabManager,
-            notificationStore: notificationStore,
-            tab: tab,
+        let settings = renderContext.tabItemSettings
+        let cachedWorkspaceSnapshot = workspaceSnapshotsById[tab.id]
+        let expectedPresentationKey = SidebarWorkspaceSnapshotFactory.presentationKey(
+            settings: settings,
+            showsAgentActivity: renderContext.showsAgentActivity
+        )
+        let workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot
+        if let cachedWorkspaceSnapshot,
+           cachedWorkspaceSnapshot.presentationKey == expectedPresentationKey {
+            workspaceSnapshot = cachedWorkspaceSnapshot
+        } else {
+            workspaceSnapshot = makeWorkspaceSnapshot(
+                workspace: tab,
+                settings: settings,
+                showsAgentActivity: renderContext.showsAgentActivity
+            )
+        }
+
+        let targetWorkspaces = contextMenuWorkspaceIds.compactMap {
+            renderContext.workspaceById[$0]
+        }
+        let anchorWorkspaceIds = Set(renderContext.workspaceGroups.map(\.anchorWorkspaceId))
+        let eligibleGroupTargets = targetWorkspaces.filter {
+            !anchorWorkspaceIds.contains($0.id)
+        }
+        let eligibleGroupTargetIds = eligibleGroupTargets.map(\.id)
+        let eligibleGroupIds = eligibleGroupTargets.map(\.groupId)
+        let allEligibleTargetsGroupId: UUID? = {
+            guard let first = eligibleGroupIds.first,
+                  eligibleGroupIds.allSatisfy({ $0 == first }) else {
+                return nil
+            }
+            return first
+        }()
+        let todoStatusResolution = WorkspaceTaskStatusOverride.effectiveStatus(
+            override: tab.todoState.statusOverride,
+            inferred: tab.inferredTaskStatus
+        )
+        let activeTodoOverride: WorkspaceTaskStatus? = {
+            guard let override = tab.todoState.statusOverride,
+                  !todoStatusResolution.shouldClearOverride else {
+                return nil
+            }
+            return override.status
+        }()
+        let contextMenuSnapshot = SidebarWorkspaceContextMenuSnapshot(
+            targetWorkspaceIds: contextMenuWorkspaceIds,
+            remoteTargetWorkspaceIds: remoteContextMenuWorkspaceIds,
+            allRemoteTargetsConnecting: allRemoteContextMenuTargetsConnecting,
+            allRemoteTargetsDisconnected: allRemoteContextMenuTargetsDisconnected,
+            pinState: contextMenuPinState,
+            groupMenuSnapshot: renderContext.workspaceGroupMenuSnapshot,
+            canCreateEmptyGroup: tabManager.selectedTab?.isRemoteTmuxMirror != true,
+            eligibleGroupTargetIds: eligibleGroupTargetIds,
+            allEligibleTargetsGroupId: allEligibleTargetsGroupId,
+            hasGroupedEligibleTarget: eligibleGroupTargets.contains { $0.groupId != nil },
+            todoStatusLanes: WorkspaceTodoStatusLane.lanes(
+                inferred: tab.inferredTaskStatus,
+                activeOverride: activeTodoOverride,
+                isHidden: tab.todoState.statusHidden
+            ),
+            canMarkRead: notificationStore.canMarkWorkspaceRead(
+                forTabIds: contextMenuWorkspaceIds
+            ),
+            canMarkUnread: notificationStore.canMarkWorkspaceUnread(
+                forTabIds: contextMenuWorkspaceIds
+            ),
+            hasLatestNotification: contextMenuWorkspaceIds.contains {
+                notificationStore.latestNotification(forTabId: $0) != nil
+            },
+            notifications: notificationStore.notifications(
+                forTabIds: contextMenuWorkspaceIds
+            ),
+            windowMoveTargets: renderContext.windowMoveTargets
+        )
+        let rowSnapshot = SidebarWorkspaceRowSnapshot(
+            workspaceId: tab.id,
+            groupId: tab.groupId,
             index: index,
+            workspaceCount: renderContext.workspaceCount,
+            workspace: workspaceSnapshot,
+            isActive: tabManager.selectedTabId == tab.id,
+            isMultiSelected: selectedTabIds.contains(tab.id),
+            hasUserCustomTitle: tab.effectiveCustomTitleSource == .user,
+            hasCustomTitle: tab.hasCustomTitle,
+            hasCustomDescription: tab.hasCustomDescription,
+            customTitle: tab.customTitle,
             workspaceShortcutDigit: WorkspaceShortcutMapper.digitForWorkspace(
                 at: index,
                 workspaceCount: renderContext.workspaceCount
             ),
             workspaceShortcutModifierSymbol: renderContext.workspaceNumberShortcut.numberedDigitHintPrefix,
             canCloseWorkspace: renderContext.canCloseWorkspace,
-            accessibilityWorkspaceCount: renderContext.workspaceCount,
             unreadCount: liveUnreadCount,
             latestNotificationText: liveLatestNotificationText,
             showsAgentActivity: renderContext.showsAgentActivity,
             rowSpacing: tabRowSpacing,
-            setSelectionToTabs: { selection = .tabs },
-            selectedTabIds: $selectedTabIds,
-            lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
             showsModifierShortcutHints: resolvedShowsModifierShortcutHints,
             isPointerHovering: isPointerHovering,
-            dragAutoScrollController: dragAutoScrollController,
             isBeingDragged: isBeingDragged,
             topDropIndicatorVisible: topDropIndicatorVisible,
             bottomDropIndicatorVisible: bottomDropIndicatorVisible,
             isBonsplitWorkspaceDropActive: isBonsplitWorkspaceDropTargetCollectionActive,
-            bonsplitSourceWorkspaceId: bonsplitSourceWorkspaceId,
-            moveBonsplitTabToWorkspace: moveBonsplitTabToWorkspace,
-            syncSidebarSelectionAfterBonsplitDrop: syncSidebarSelectionAfterBonsplitDrop,
-            onDragStart: onDragStart,
-            contextMenuWorkspaceIds: contextMenuWorkspaceIds,
-            remoteContextMenuWorkspaceIds: remoteContextMenuWorkspaceIds,
-            allRemoteContextMenuTargetsConnecting: allRemoteContextMenuTargetsConnecting,
-            allRemoteContextMenuTargetsDisconnected: allRemoteContextMenuTargetsDisconnected,
-            contextMenuPinState: contextMenuPinState,
-            workspaceGroupMenuSnapshot: renderContext.workspaceGroupMenuSnapshot,
-            settings: renderContext.tabItemSettings,
+            settings: settings,
             isChecklistExpanded: expandedChecklistWorkspaceIds.contains(tab.id),
             checklistAddFieldActivationToken: checklistAddFieldActivationTokens[tab.id] ?? 0,
+            isChecklistPopoverPresented: checklistPopoverWorkspaceId == tab.id,
+            contextMenu: contextMenuSnapshot
+        )
+        let checklistActions = SidebarWorkspaceChecklistActions(
+            setItemState: { [tab] itemId, state in
+                WorkspaceTodoActions.setChecklistItemState(id: itemId, state: state, in: tab)
+            },
+            removeItem: { [tab] itemId in
+                WorkspaceTodoActions.removeChecklistItem(id: itemId, from: tab)
+            },
+            addItem: { [tab] text in
+                WorkspaceTodoActions.addChecklistItem(text: text, to: tab)
+            },
+            editItem: { [tab] itemId, text in
+                WorkspaceTodoActions.editChecklistItem(id: itemId, text: text, in: tab)
+            },
+            moveItem: { [tab] itemId, toIndex in
+                WorkspaceTodoActions.moveChecklistItem(id: itemId, toIndex: toIndex, in: tab)
+            },
+            openPane: { [tab] in
+                WorkspaceTodoActions.openTodoPane(for: tab)
+            }
+        )
+        let rowId = SidebarWorkspaceRenderItemID.workspace(tab.id)
+        let actions = SidebarWorkspaceRowActions(
+            select: { modifiers in
+                selectWorkspaceRow(tab, index: index, modifiers: modifiers)
+            },
+            setCustomTitle: { title in
+                tabManager.setCustomTitle(tabId: tab.id, title: title)
+            },
+            clearCustomTitle: {
+                tabManager.clearCustomTitle(tabId: tab.id)
+            },
+            clearCustomDescription: {
+                tabManager.clearCustomDescription(tabId: tab.id)
+            },
+            editDescription: {
+                selectedTabIds = [tab.id]
+                lastSidebarSelectionIndex = index
+                tabManager.selectTab(tab)
+                selection = .tabs
+                _ = AppDelegate.shared?.requestEditWorkspaceDescriptionViaCommandPalette()
+            },
+            closeWorkspace: {
+                tabManager.closeWorkspaceWithConfirmation(tab)
+            },
+            moveBy: { delta in
+                moveWorkspaceRow(tab, by: delta)
+            },
+            moveTargetsToTop: { targetIds in
+                tabManager.moveTabsToTop(Set(targetIds))
+                syncWorkspaceRowSelectionAfterMutation()
+            },
+            moveTargetsToWindow: { targetIds, windowId in
+                moveWorkspaceRows(targetIds, toWindow: windowId)
+            },
+            moveTargetsToNewWindow: { targetIds in
+                moveWorkspaceRowsToNewWindow(targetIds)
+            },
+            closeTargets: { targetIds, allowPinned in
+                closeWorkspaceRows(targetIds, allowPinned: allowPinned)
+            },
+            closeOtherTargets: { targetIds in
+                let keepIds = Set(targetIds)
+                let idsToClose = tabManager.tabs.compactMap {
+                    keepIds.contains($0.id) ? nil : $0.id
+                }
+                closeWorkspaceRows(idsToClose, allowPinned: true)
+            },
+            closeTargetsBelow: {
+                guard let anchorIndex = tabManager.tabs.firstIndex(
+                    where: { $0.id == tab.id }
+                ) else { return }
+                closeWorkspaceRows(
+                    Array(tabManager.tabs.suffix(from: anchorIndex + 1).map(\.id)),
+                    allowPinned: true
+                )
+            },
+            closeTargetsAbove: {
+                guard let anchorIndex = tabManager.tabs.firstIndex(
+                    where: { $0.id == tab.id }
+                ) else { return }
+                closeWorkspaceRows(
+                    Array(tabManager.tabs.prefix(upTo: anchorIndex).map(\.id)),
+                    allowPinned: true
+                )
+            },
+            performPin: {
+                guard let contextMenuPinState else {
+                    NSSound.beep()
+                    return
+                }
+                _ = WorkspaceActionDispatcher.performPinAction(
+                    contextMenuPinState,
+                    in: tabManager
+                )
+                syncWorkspaceRowSelectionAfterMutation()
+            },
+            createEmptyGroup: {
+                _ = AppDelegate.shared?.createEmptyWorkspaceGroup(tabManager: tabManager)
+            },
+            createGroup: { workspaceIds in
+                guard !workspaceIds.isEmpty else { return }
+                tabManager.createWorkspaceGroup(name: "", childWorkspaceIds: workspaceIds)
+            },
+            addTargetsToGroup: { workspaceIds, groupId in
+                for workspaceId in workspaceIds {
+                    tabManager.addWorkspaceToGroup(
+                        workspaceId: workspaceId,
+                        groupId: groupId
+                    )
+                }
+            },
+            removeTargetsFromGroup: { workspaceIds in
+                for workspaceId in workspaceIds {
+                    tabManager.removeWorkspaceFromGroup(workspaceId: workspaceId)
+                }
+            },
+            reconnectTargets: { workspaceIds in
+                for workspaceId in workspaceIds {
+                    tabManager.tabs.first { $0.id == workspaceId }?
+                        .reconnectRemoteConnection()
+                }
+            },
+            disconnectTargets: { workspaceIds in
+                for workspaceId in workspaceIds {
+                    tabManager.tabs.first { $0.id == workspaceId }?
+                        .disconnectRemoteConnection(clearConfiguration: false)
+                }
+            },
+            applyColor: { hex, workspaceIds in
+                tabManager.applyWorkspaceColor(hex, toWorkspaceIds: workspaceIds)
+            },
+            applyTodoStatus: { status, workspaceIds in
+                let workspaces = workspaceIds.compactMap { workspaceId in
+                    tabManager.tabs.first { $0.id == workspaceId }
+                }
+                WorkspaceTodoActions.applyStatusOverride(status, to: workspaces)
+            },
+            hideTodoStatus: { workspaceIds in
+                let workspaces = workspaceIds.compactMap { workspaceId in
+                    tabManager.tabs.first { $0.id == workspaceId }
+                }
+                WorkspaceTodoActions.hideStatus(for: workspaces)
+            },
+            requestChecklistAdd: {
+                WorkspaceTodoActions.requestChecklistAddField(workspaceId: tab.id)
+            },
+            markRead: { workspaceIds in
+                for workspaceId in workspaceIds {
+                    notificationStore.markRead(forTabId: workspaceId)
+                }
+            },
+            markUnread: { workspaceIds in
+                for workspaceId in workspaceIds {
+                    notificationStore.markUnread(forTabId: workspaceId)
+                }
+            },
+            clearLatestNotifications: { workspaceIds in
+                for workspaceId in workspaceIds {
+                    notificationStore.clearLatestNotification(forTabId: workspaceId)
+                }
+            },
+            openNotification: { notification in
+                if AppDelegate.shared?.openTerminalNotification(notification) != true {
+                    NSSound.beep()
+                }
+            },
+            copyWorkspaceLinks: { workspaceIds in
+                WorkspaceSurfaceIdentifierClipboardText.copyWorkspaceLinks(
+                    workspaceIds,
+                    resolvingStableIdsFrom: tabManager.tabs
+                )
+            },
+            openPullRequest: { url in
+                openWorkspaceRowPullRequest(
+                    url,
+                    workspace: tab,
+                    index: index,
+                    opensInCmuxBrowser: settings.openPullRequestLinksInCmuxBrowser
+                )
+            },
+            openPort: { port in
+                openWorkspaceRowPort(
+                    port,
+                    workspace: tab,
+                    index: index,
+                    opensInCmuxBrowser: settings.openPortLinksInCmuxBrowser
+                )
+            },
+            checklist: checklistActions,
+            onDragStart: onDragStart,
+            bonsplitSourceWorkspaceId: bonsplitSourceWorkspaceId,
+            moveBonsplitTabToWorkspace: moveBonsplitTabToWorkspace,
+            syncAfterBonsplitDrop: syncSidebarSelectionAfterBonsplitDrop,
+            selectAfterBonsplitDrop: {
+                selectedTabIds = [tab.id]
+            },
             onToggleChecklistExpansion: onToggleChecklistExpansion,
             onConsumeChecklistAddFieldActivation: onConsumeChecklistAddFieldActivation,
-            isChecklistPopoverPresented: checklistPopoverWorkspaceId == tab.id,
             onChecklistPopoverPresentedChange: onChecklistPopoverPresentedChange,
             onContextMenuAppear: onContextMenuAppear,
-            onContextMenuDisappear: onContextMenuDisappear
+            onContextMenuDisappear: onContextMenuDisappear,
+            onPointerFrameChange: { [pointerInteractionMonitor] frame in
+                pointerInteractionMonitor.updateFrame(
+                    frame,
+                    for: rowId,
+                    workspaceId: tab.id
+                )
+            },
+            onPointerFrameDisappear: { [pointerInteractionMonitor] in
+                pointerInteractionMonitor.removeFrame(for: rowId)
+            }
         )
-        .equatable()
-        .id(tab.id)
-        .accessibilityIdentifier("sidebarWorkspace.\(tab.id.uuidString)")
-
-        let _ = SidebarProfilingSignposts.end(signpost)
-        let rowId = SidebarWorkspaceRenderItemID.workspace(tab.id)
-        let workspaceId = tab.id
-        row
-            .sidebarWorkspaceFrameAnchor(id: tab.id, isEnabled: shouldCollectWorkspaceDropTargets)
-            .sidebarPointerFrameReporting(
-                onFrameChange: { [pointerInteractionMonitor] frame in
-                    pointerInteractionMonitor.updateFrame(frame, for: rowId, workspaceId: workspaceId)
-                },
-                onDisappear: { [pointerInteractionMonitor] in pointerInteractionMonitor.removeFrame(for: rowId) }
-            )
-            .padding(.leading, tab.groupId != nil ? SidebarWorkspaceGroupingMetrics.memberIndent : 0)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
+        let result = SidebarWorkspaceRowView(
+            snapshot: rowSnapshot,
+            actions: actions,
+            shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
+        )
+        SidebarProfilingSignposts.end(signpost)
+        return result
     }
 
 }
@@ -12882,56 +13446,15 @@ private struct SidebarHelpMenuButton: View {
 
 }
 
-// PERF: TabItemView is Equatable so SwiftUI skips body re-evaluation when
-// the parent rebuilds with unchanged values. Without this, every TabManager
-// or NotificationStore publish causes ALL tab items to re-evaluate (~18% of
-// main thread during typing). If you add new properties, update == below.
-// Reactive workspace state inside the row must not rely on parent diffs alone:
-// `.equatable()` can otherwise leave sidebar badges/details stale until an
-// unrelated parent change sneaks through. Keep the workspace reference plain
-// and bridge only sidebar-visible workspace changes into local state.
-// Do NOT add @EnvironmentObject or new @Binding without updating ==.
-// Do NOT remove .equatable() from the ForEach call site in VerticalTabsSidebar.
+// PERF: TabItemView is an Equatable value projection. The parent owns every
+// workspace/store observation and passes one immutable render snapshot plus a
+// closure capability bundle. No live model, binding, or observable store may
+// cross this LazyVStack boundary (#6707 / #2586).
 struct TabItemView: View, Equatable {
-    private static let workspaceObservationCoalesceInterval: RunLoop.SchedulerTimeType.Stride = .milliseconds(40)
-    private static let legacyVMWebSocketDescription = "VM WebSocket PTY"
-
-    // Closures, Bindings, and object references are excluded from ==
-    // because they're recreated every parent eval but don't affect rendering.
     nonisolated static func == (lhs: TabItemView, rhs: TabItemView) -> Bool {
-        lhs.tab === rhs.tab &&
-        lhs.index == rhs.index &&
-        lhs.workspaceShortcutDigit == rhs.workspaceShortcutDigit &&
-        lhs.workspaceShortcutModifierSymbol == rhs.workspaceShortcutModifierSymbol &&
-        lhs.canCloseWorkspace == rhs.canCloseWorkspace &&
-        lhs.accessibilityWorkspaceCount == rhs.accessibilityWorkspaceCount &&
-        lhs.unreadCount == rhs.unreadCount &&
-        lhs.latestNotificationText == rhs.latestNotificationText &&
-        lhs.showsAgentActivity == rhs.showsAgentActivity &&
-        lhs.rowSpacing == rhs.rowSpacing &&
-        lhs.showsModifierShortcutHints == rhs.showsModifierShortcutHints &&
-        lhs.isPointerHovering == rhs.isPointerHovering &&
-        lhs.contextMenuWorkspaceIds == rhs.contextMenuWorkspaceIds &&
-        lhs.remoteContextMenuWorkspaceIds == rhs.remoteContextMenuWorkspaceIds &&
-        lhs.allRemoteContextMenuTargetsConnecting == rhs.allRemoteContextMenuTargetsConnecting &&
-        lhs.allRemoteContextMenuTargetsDisconnected == rhs.allRemoteContextMenuTargetsDisconnected &&
-        lhs.contextMenuPinState == rhs.contextMenuPinState &&
-        lhs.workspaceGroupMenuSnapshot == rhs.workspaceGroupMenuSnapshot &&
-        lhs.isBeingDragged == rhs.isBeingDragged &&
-        lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible &&
-        lhs.bottomDropIndicatorVisible == rhs.bottomDropIndicatorVisible &&
-        lhs.isBonsplitWorkspaceDropActive == rhs.isBonsplitWorkspaceDropActive &&
-        lhs.isChecklistExpanded == rhs.isChecklistExpanded &&
-        lhs.checklistAddFieldActivationToken == rhs.checklistAddFieldActivationToken &&
-        lhs.isChecklistPopoverPresented == rhs.isChecklistPopoverPresented &&
-        lhs.settings == rhs.settings
+        lhs.snapshot == rhs.snapshot
     }
 
-    // Use plain references instead of @EnvironmentObject to avoid subscribing
-    // to ALL changes on these objects. Body reads use precomputed parameters;
-    // action handlers use the plain references without triggering re-evaluation.
-    let tabManager: TabManager
-    let notificationStore: TerminalNotificationStore
     @Environment(\.colorScheme) private var colorScheme
     // Global font magnification percent, read once per row instead of through a
     // per-label `CmuxFontModifier`. Each `.cmuxFont(...)` is a custom
@@ -12948,75 +13471,9 @@ struct TabItemView: View, Equatable {
     // like all closures. See SidebarLazyContractProbe.
     @Environment(\.sidebarLazyContractProbe) private var sidebarLazyContractProbe
 #endif
-    let tab: Tab
-    let index: Int
-    let workspaceShortcutDigit: Int?
-    let workspaceShortcutModifierSymbol: String
-    let canCloseWorkspace: Bool
-    let accessibilityWorkspaceCount: Int
-    let unreadCount: Int
-    let latestNotificationText: String?
-    let showsAgentActivity: Bool
-    let rowSpacing: CGFloat
-    let setSelectionToTabs: () -> Void
-    @Binding var selectedTabIds: Set<UUID>
-    @Binding var lastSidebarSelectionIndex: Int?
-    let showsModifierShortcutHints: Bool
-    let isPointerHovering: Bool
-    let dragAutoScrollController: SidebarDragAutoScrollController
-    // Row receives precomputed drag/drop snapshot values + action closures
-    // instead of an `@Observable` store reference. This keeps TabItemView in
-    // compliance with the snapshot-boundary rule for views under a LazyVStack
-    // (see CLAUDE.md). When drag state changes, the parent recomputes these
-    // per-row snapshots and `==` skips re-render for rows whose snapshot is
-    // unchanged.
-    let isBeingDragged: Bool
-    let topDropIndicatorVisible: Bool
-    let bottomDropIndicatorVisible: Bool
-    let isBonsplitWorkspaceDropActive: Bool
-    let bonsplitSourceWorkspaceId: @MainActor (UUID) -> UUID?
-    let moveBonsplitTabToWorkspace: @MainActor (BonsplitTabDragPayload.Transfer, UUID) -> Bool
-    let syncSidebarSelectionAfterBonsplitDrop: @MainActor () -> Void
-    let onDragStart: () -> NSItemProvider
-    let contextMenuWorkspaceIds: [UUID]
-    let remoteContextMenuWorkspaceIds: [UUID]
-    let allRemoteContextMenuTargetsConnecting: Bool
-    let allRemoteContextMenuTargetsDisconnected: Bool
-    let contextMenuPinState: WorkspaceActionDispatcher.PinState?
-    let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
-    let settings: SidebarTabItemSettingsSnapshot
-    // Checklist expansion is per-workspace transient UI state owned by the
-    // sidebar container (a Set<UUID> there), passed in as a Bool + closures to
-    // respect the snapshot boundary. The activation token arms the checklist
-    // add-item field when a context-menu/palette "Add Checklist Item…" fires.
-    let isChecklistExpanded: Bool
-    let checklistAddFieldActivationToken: Int
-    let onToggleChecklistExpansion: () -> Void
-    let onConsumeChecklistAddFieldActivation: () -> Void
-    // The checklist popover is per-workspace transient UI state owned by the
-    // sidebar container (UUID? there, at most one open), passed in as a Bool
-    // + change closure like the checklist expansion.
-    let isChecklistPopoverPresented: Bool
-    let onChecklistPopoverPresentedChange: @MainActor (Bool) -> Void
-    /// Called from this row's contextMenu.onAppear so the parent can freeze
-    /// `showsModifierShortcutHints` to the value it last passed in. Prevents
-    /// modifier-key transitions from flipping the badges on the row sitting
-    /// behind the open context menu.
-    let onContextMenuAppear: () -> Void
-    let onContextMenuDisappear: () -> Void
-    @State private var workspaceSnapshotStorage: SidebarWorkspaceSnapshotBuilder.Snapshot?
-    // Fallback memo for the `workspaceSnapshot` getter: a plain box, not
-    // observed state, so body evaluations can fill it without invalidating the
-    // row. Before onAppear seeds workspaceSnapshotStorage, every access used to
-    // rebuild the snapshot (a full bonsplit tree walk) — several times per
-    // mounted row per scroll.
-    final class WorkspaceSnapshotScratch {
-        var value: SidebarWorkspaceSnapshotBuilder.Snapshot?
-    }
-    @State private var workspaceSnapshotScratch = WorkspaceSnapshotScratch()
-    // Row-local selection projection: selectedTabId changes update only rows whose boolean flips.
-    @State private var observedIsActive: Bool?
-    @State private var contextMenuState = SidebarTabItemContextMenuState()
+    let snapshot: SidebarWorkspaceRowSnapshot
+    let actions: SidebarWorkspaceRowActions
+
     @State private var contextMenuVisible = false
     @State var workspaceFinderDirectoryOpenRequest: WorkspaceFinderDirectoryOpenRequest?
     @State private var isEditing = false
@@ -13026,9 +13483,30 @@ struct TabItemView: View, Equatable {
     private static let maxWrappedTitleLines = 8
     private static let maxDisplayedTitleCharacters = 2048
 
-    var isMultiSelected: Bool {
-        selectedTabIds.contains(tab.id)
-    }
+    var workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot { snapshot.workspace }
+    var workspaceId: UUID { snapshot.workspaceId }
+    var index: Int { snapshot.index }
+    var isActive: Bool { snapshot.isActive }
+    var isMultiSelected: Bool { snapshot.isMultiSelected }
+    var workspaceShortcutDigit: Int? { snapshot.workspaceShortcutDigit }
+    var workspaceShortcutModifierSymbol: String { snapshot.workspaceShortcutModifierSymbol }
+    var canCloseWorkspace: Bool { snapshot.canCloseWorkspace }
+    var accessibilityWorkspaceCount: Int { snapshot.workspaceCount }
+    var unreadCount: Int { snapshot.unreadCount }
+    var latestNotificationText: String? { snapshot.latestNotificationText }
+    var showsAgentActivity: Bool { snapshot.showsAgentActivity }
+    var rowSpacing: CGFloat { snapshot.rowSpacing }
+    var showsModifierShortcutHints: Bool { snapshot.showsModifierShortcutHints }
+    var isPointerHovering: Bool { snapshot.isPointerHovering }
+    var isBeingDragged: Bool { snapshot.isBeingDragged }
+    var topDropIndicatorVisible: Bool { snapshot.topDropIndicatorVisible }
+    var bottomDropIndicatorVisible: Bool { snapshot.bottomDropIndicatorVisible }
+    var isBonsplitWorkspaceDropActive: Bool { snapshot.isBonsplitWorkspaceDropActive }
+    var contextMenuWorkspaceIds: [UUID] { snapshot.contextMenu.targetWorkspaceIds }
+    var settings: SidebarTabItemSettingsSnapshot { snapshot.settings }
+    var isChecklistExpanded: Bool { snapshot.isChecklistExpanded }
+    var checklistAddFieldActivationToken: Int { snapshot.checklistAddFieldActivationToken }
+    var isChecklistPopoverPresented: Bool { snapshot.isChecklistPopoverPresented }
 
     private var sidebarShortcutHintXOffset: Double {
         settings.sidebarShortcutHintXOffset
@@ -13066,27 +13544,8 @@ struct TabItemView: View, Equatable {
         settings.showsSSH
     }
 
-    var workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot {
-        let presentationKey = workspaceSnapshotPresentationKey
-        if let workspaceSnapshotStorage,
-           workspaceSnapshotStorage.presentationKey == presentationKey {
-            return workspaceSnapshotStorage
-        }
-        if let scratch = workspaceSnapshotScratch.value,
-           scratch.presentationKey == presentationKey {
-            return scratch
-        }
-        let snapshot = makeWorkspaceSnapshot()
-        workspaceSnapshotScratch.value = snapshot
-        return snapshot
-    }
-
     private var activeTabIndicatorStyle: WorkspaceIndicatorStyle {
         settings.activeTabIndicatorStyle
-    }
-
-    private var isActive: Bool {
-        observedIsActive ?? (tabManager.selectedTabId == tab.id)
     }
 
     private var sidebarSelectionColorHex: String? {
@@ -13109,14 +13568,6 @@ struct TabItemView: View, Equatable {
             on: selectedWorkspaceBackgroundNSColor,
             opacity: opacity
         )
-    }
-
-    private var openSidebarPullRequestLinksInCmuxBrowser: Bool {
-        settings.openPullRequestLinksInCmuxBrowser
-    }
-
-    private var openSidebarPortLinksInCmuxBrowser: Bool {
-        settings.openPortLinksInCmuxBrowser
     }
 
     private var titleFontWeight: Font.Weight {
@@ -13155,8 +13606,10 @@ struct TabItemView: View, Equatable {
         return font
     }
 
-    private var showsLeadingRail: Bool {
-        explicitRailColor != nil
+    private func showsLeadingRail(
+        for workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot
+    ) -> Bool {
+        explicitRailColor(for: workspaceSnapshot) != nil
     }
 
     private var activeBorderLineWidth: CGFloat {
@@ -13233,63 +13686,10 @@ struct TabItemView: View, Equatable {
         (showsModifierShortcutHints || alwaysShowShortcutHints) && workspaceShortcutLabel != nil
     }
 
-    private var remoteWorkspaceSidebarText: String? {
-        guard tab.isRemoteWorkspace else { return nil }
-        let trimmedTarget = tab.remoteDisplayTarget?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let trimmedTarget, !trimmedTarget.isEmpty {
-            return trimmedTarget
-        }
-        return String(localized: "sidebar.remote.subtitleFallback", defaultValue: "Remote workspace")
-    }
-
-    private var copyableSidebarSSHError: String? {
-        let fallbackTarget = tab.remoteDisplayTarget ?? String(
-            localized: "sidebar.remote.help.targetFallback",
-            defaultValue: "remote host"
-        )
-        let trimmedDetail = tab.remoteConnectionDetail?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if tab.remoteConnectionState == .error || tab.remoteConnectionState == .suspended,
-           let trimmedDetail, !trimmedDetail.isEmpty {
-            let entry = SidebarRemoteErrorCopyEntry(
-                workspaceTitle: tab.title,
-                target: fallbackTarget,
-                detail: trimmedDetail
-            )
-            return SidebarRemoteErrorCopySupport.clipboardText(for: [entry])
-        }
-        if let statusValue = tab.statusEntries["remote.error"]?.value
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-           !statusValue.isEmpty {
-            let entry = SidebarRemoteErrorCopyEntry(
-                workspaceTitle: tab.title,
-                target: fallbackTarget,
-                detail: statusValue
-            )
-            return SidebarRemoteErrorCopySupport.clipboardText(for: [entry])
-        }
-        return nil
-    }
-
-    private var remoteConnectionStatusText: String {
-        switch tab.remoteConnectionState {
-        case .connected:
-            return String(localized: "remote.status.connected", defaultValue: "Connected")
-        case .connecting:
-            return String(localized: "remote.status.connecting", defaultValue: "Connecting")
-        case .reconnecting:
-            return String(localized: "remote.status.reconnecting", defaultValue: "Reconnecting")
-        case .error:
-            return String(localized: "remote.status.error", defaultValue: "Error")
-        case .disconnected:
-            return String(localized: "remote.status.disconnected", defaultValue: "Disconnected")
-        case .suspended:
-            return String(localized: "remote.status.suspended", defaultValue: "Unreachable")
-        }
-    }
-
     @ViewBuilder
-    private var remoteWorkspaceSection: some View {
-        let workspaceSnapshot = self.workspaceSnapshot
+    private func remoteWorkspaceSection(
+        snapshot workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot
+    ) -> some View {
         if !settings.hidesAllDetails, sidebarShowSSH, let remoteWorkspaceSidebarText = workspaceSnapshot.remoteWorkspaceSidebarText {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
@@ -13308,7 +13708,7 @@ struct TabItemView: View, Equatable {
 
                     if workspaceSnapshot.showsRemoteReconnectAffordance {
                         Button {
-                            tab.reconnectRemoteConnection()
+                            actions.reconnectTargets([workspaceId])
                         } label: {
                             Label(
                                 String(localized: "sidebar.remote.reconnect.button", defaultValue: "Reconnect"),
@@ -13340,30 +13740,22 @@ struct TabItemView: View, Equatable {
     }
 
     func copyWorkspaceLinksToPasteboard(_ ids: [UUID]) {
-        WorkspaceSurfaceIdentifierClipboardText.copyWorkspaceLinks(ids, resolvingStableIdsFrom: tabManager.tabs)
+        actions.copyWorkspaceLinks(ids)
     }
 
     private var visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility {
         settings.visibleAuxiliaryDetails
     }
 
-    private var workspaceSnapshotPresentationKey: SidebarWorkspaceSnapshotBuilder.PresentationKey {
-        SidebarWorkspaceSnapshotBuilder.PresentationKey(
-            showsWorkspaceDescription: settings.showsWorkspaceDescription,
-            usesVerticalBranchLayout: sidebarBranchVerticalLayout,
-            showsGitBranch: sidebarShowGitBranch,
-            usesViewportAwarePath: sidebarUsesLastSegmentPath,
-            showsAgentActivity: showsAgentActivity,
-            visibleAuxiliaryDetails: visibleAuxiliaryDetails
-        )
-    }
-
     var body: some View {
 #if DEBUG
         let _ = { sidebarLazyContractProbe.workspaceRowBody?() }()
 #endif
-        let signpost = SidebarProfilingSignposts.begin("sidebar-tab-item-body", "index=\(index) workspace=\(sidebarShortTabId(tab.id)) active=\(isActive) unread=\(unreadCount)")
+        let signpost = SidebarProfilingSignposts.begin("sidebar-tab-item-body", "index=\(index) workspace=\(sidebarShortTabId(workspaceId)) active=\(isActive) unread=\(unreadCount)")
         let workspaceSnapshot = self.workspaceSnapshot
+        let rowBackgroundColor = backgroundColor(for: workspaceSnapshot)
+        let rowRailColor = railColor(for: workspaceSnapshot)
+        let accessibilityTitle = accessibilityTitle(for: workspaceSnapshot)
         let closeWorkspaceTooltip = String(localized: "sidebar.closeWorkspace.tooltip", defaultValue: "Close Workspace")
         let protectedWorkspaceTooltip = String(
             localized: "sidebar.pinnedWorkspaceProtected.tooltip",
@@ -13451,7 +13843,7 @@ struct TabItemView: View, Equatable {
                                 baseline: renameDraft,
                                 baselineHadUserCustomTitle: renameBaselineHadUserCustomTitle
                             ) {
-                                tabManager.setCustomTitle(tabId: tab.id, title: title)
+                                actions.setCustomTitle(title)
                             }
                             isEditing = false
                         },
@@ -13473,7 +13865,7 @@ struct TabItemView: View, Equatable {
                 }
 
                 if trailingStatusActive || canCloseWorkspace {
-                    SidebarWorkspaceTrailingStatusSlot(showsSpinner: spinnerOnTrailing, showsBadge: badgeOnTrailing, unreadCount: unreadCount, side: scaledUnreadBadgeSize, width: scaledCloseButtonWidth, height: scaledCloseButtonHitSize, badgeFont: badgeFont, badgeFillColor: activeUnreadBadgeFillColor, badgeTextColor: activeUnreadBadgeTextColor, spinnerColor: spinnerColor, spinnerTooltip: spinnerTooltip, canCloseWorkspace: canCloseWorkspace, showsCloseButton: showCloseButton, closeButtonTooltip: closeButtonTooltip, closeButtonColor: activeSecondaryColor(0.7), closeButtonFontSize: scaledFontSize(9), closeAction: { tabManager.closeWorkspaceWithConfirmation(tab) })
+                    SidebarWorkspaceTrailingStatusSlot(showsSpinner: spinnerOnTrailing, showsBadge: badgeOnTrailing, unreadCount: unreadCount, side: scaledUnreadBadgeSize, width: scaledCloseButtonWidth, height: scaledCloseButtonHitSize, badgeFont: badgeFont, badgeFillColor: activeUnreadBadgeFillColor, badgeTextColor: activeUnreadBadgeTextColor, spinnerColor: spinnerColor, spinnerTooltip: spinnerTooltip, canCloseWorkspace: canCloseWorkspace, showsCloseButton: showCloseButton, closeButtonTooltip: closeButtonTooltip, closeButtonColor: activeSecondaryColor(0.7), closeButtonFontSize: scaledFontSize(9), closeAction: actions.closeWorkspace)
                 }
             }
 
@@ -13496,7 +13888,7 @@ struct TabItemView: View, Equatable {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            remoteWorkspaceSection
+            remoteWorkspaceSection(snapshot: workspaceSnapshot)
 
             if detailVisibility.showsMetadata {
                 let metadataEntries = workspaceSnapshot.metadataEntries
@@ -13727,10 +14119,10 @@ struct TabItemView: View, Equatable {
                     summaryFont: magnifiedFont(scaledFontSize(10), weight: .semibold, monospacedDigit: true),
                     itemFont: magnifiedFont(scaledFontSize(10)),
                     fontScale: fontScale,
-                    onToggleExpansion: onToggleChecklistExpansion,
-                    onPopoverPresentedChange: onChecklistPopoverPresentedChange,
-                    onConsumeAddFieldActivation: onConsumeChecklistAddFieldActivation,
-                    actions: workspaceTodoChecklistActions
+                    onToggleExpansion: actions.onToggleChecklistExpansion,
+                    onPopoverPresentedChange: actions.onChecklistPopoverPresentedChange,
+                    onConsumeAddFieldActivation: actions.onConsumeChecklistAddFieldActivation,
+                    actions: actions.checklist
                 )
             }
         }
@@ -13747,15 +14139,15 @@ struct TabItemView: View, Equatable {
         .padding(.vertical, 8)
         .background(
             RoundedRectangle(cornerRadius: 6)
-                .fill(backgroundColor)
+                .fill(rowBackgroundColor)
                 .overlay {
                     RoundedRectangle(cornerRadius: 6)
                         .strokeBorder(activeBorderColor, lineWidth: activeBorderLineWidth)
                 }
                 .overlay(alignment: .leading) {
-                    if showsLeadingRail {
+                    if showsLeadingRail(for: workspaceSnapshot) {
                         Capsule(style: .continuous)
-                            .fill(railColor)
+                        .fill(rowRailColor)
                             .frame(width: 3)
                             .padding(.leading, 4)
                             .padding(.vertical, 5)
@@ -13789,73 +14181,21 @@ struct TabItemView: View, Equatable {
                 isBottomEdge: true
             )
         }
-        .onAppear {
-            updateObservedActiveState(tabManager.selectedTabId == tab.id)
-            refreshWorkspaceSnapshot(force: true)
-        }
-        .onReceive(
-            tabManager.selectedTabIdPublisher
-                .map { $0 == tab.id }
-                .removeDuplicates()
-        ) { isSelected in
-            updateObservedActiveState(isSelected)
-        }
         .task(id: workspaceFinderDirectoryOpenRequest) {
             guard let request = workspaceFinderDirectoryOpenRequest else { return }
             await WorkspaceFinderDirectoryOpener.openInFinder(request.directoryURL)
             guard !Task.isCancelled, workspaceFinderDirectoryOpenRequest == request else { return }
             workspaceFinderDirectoryOpenRequest = nil
         }
-        .sidebarAgentRuntimeObservation(id: tab.id, model: tab.sidebarAgentRuntimeObservation) { refreshWorkspaceSnapshot() }
-        .sidebarProcessTitleObservation(id: tab.id, model: tab.sidebarProcessTitleObservation) { refreshWorkspaceSnapshot() }
-        .onReceive(
-            tab.sidebarImmediateObservationPublisher
-                .receive(on: RunLoop.main)
-        ) { _ in
-#if DEBUG
-            let description = tab.customDescription ?? ""
-            cmuxDebugLog(
-                "sidebar.row.invalidate workspace=\(tab.id.uuidString.prefix(8)) " +
-                "source=immediate " +
-                "title=\"\(debugCommandPaletteTextPreview(tab.title))\" " +
-                "descLen=\((description as NSString).length) " +
-                "desc=\"\(debugCommandPaletteTextPreview(description))\""
-            )
-#endif
-            refreshWorkspaceSnapshot()
-        }
-        .onReceive(
-            tab.sidebarObservationPublisher
-                .receive(on: RunLoop.main)
-                // Prompt-time sidebar telemetry can arrive as a short burst
-                // (pwd, branch, PR, shell state). Coalesce that burst so the
-                // row redraws once with the settled state instead of blinking.
-                .debounce(for: Self.workspaceObservationCoalesceInterval, scheduler: RunLoop.main)
-        ) { _ in
-#if DEBUG
-            let description = tab.customDescription ?? ""
-            cmuxDebugLog(
-                "sidebar.row.invalidate workspace=\(tab.id.uuidString.prefix(8)) " +
-                "source=debounced " +
-                "title=\"\(debugCommandPaletteTextPreview(tab.title))\" " +
-                "descLen=\((description as NSString).length) " +
-                "desc=\"\(debugCommandPaletteTextPreview(description))\""
-            )
-#endif
-            refreshWorkspaceSnapshot()
-        }
-        .onChange(of: settings) { _ in
-            refreshWorkspaceSnapshot(force: true)
-        }
-        .sidebarRowDragGate(isEditing: isEditing, onDragStart)
+        .sidebarRowDragGate(isEditing: isEditing, actions.onDragStart)
         .internalOnlyTabDrag()
         .modifier(SidebarBonsplitWorkspaceRowDropModifier(
             isEnabled: isBonsplitWorkspaceDropActive,
-            targetWorkspaceId: tab.id,
-            bonsplitSourceWorkspaceId: bonsplitSourceWorkspaceId,
-            moveBonsplitTabToWorkspace: moveBonsplitTabToWorkspace,
-            syncSidebarSelectionAfterDrop: syncSidebarSelectionAfterBonsplitDrop,
-            selectedTabIds: $selectedTabIds
+            targetWorkspaceId: workspaceId,
+            bonsplitSourceWorkspaceId: actions.bonsplitSourceWorkspaceId,
+            moveBonsplitTabToWorkspace: actions.moveBonsplitTabToWorkspace,
+            syncSidebarSelectionAfterDrop: actions.syncAfterBonsplitDrop,
+            selectTargetAfterDrop: actions.selectAfterBonsplitDrop
         ))
         .onTapGesture {
             if !isEditing { updateSelection() }
@@ -13880,14 +14220,11 @@ struct TabItemView: View, Equatable {
             TabItemWorkspaceContextMenuContent(row: self)
                 .onAppear {
                     contextMenuVisible = true
-                    contextMenuState.hasDeferredWorkspaceObservationInvalidation = false
-                    contextMenuState.pendingWorkspaceSnapshot = nil
-                    onContextMenuAppear()
+                    actions.onContextMenuAppear()
                 }
                 .onDisappear {
                     contextMenuVisible = false
-                    onContextMenuDisappear()
-                    flushDeferredWorkspaceObservationInvalidation()
+                    actions.onContextMenuDisappear()
                 }
         }
         let _ = SidebarProfilingSignposts.end(signpost)
@@ -13899,46 +14236,13 @@ struct TabItemView: View, Equatable {
     private func beginInlineRename() {
         updateSelection()
         renameDraft = workspaceSnapshot.title
-        renameBaselineHadUserCustomTitle = tab.effectiveCustomTitleSource == .user
+        renameBaselineHadUserCustomTitle = snapshot.hasUserCustomTitle
         isEditing = true
     }
 
-    private func updateObservedActiveState(_ isActive: Bool) {
-        guard observedIsActive != isActive else { return }
-        observedIsActive = isActive
-    }
-
-    func refreshWorkspaceSnapshot(force: Bool = false) {
-        let nextSnapshot = makeWorkspaceSnapshot()
-        workspaceSnapshotScratch.value = nextSnapshot
-        let decision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
-            current: workspaceSnapshotStorage,
-            next: nextSnapshot,
-            force: force,
-            contextMenuVisible: contextMenuVisible
-        )
-
-        if workspaceSnapshotStorage != decision.workspaceSnapshotStorage {
-            workspaceSnapshotStorage = decision.workspaceSnapshotStorage
-        }
-        if contextMenuState.pendingWorkspaceSnapshot != decision.pendingWorkspaceSnapshot {
-            contextMenuState.pendingWorkspaceSnapshot = decision.pendingWorkspaceSnapshot
-        }
-        if contextMenuState.hasDeferredWorkspaceObservationInvalidation != decision.hasDeferredWorkspaceObservationInvalidation {
-            contextMenuState.hasDeferredWorkspaceObservationInvalidation = decision.hasDeferredWorkspaceObservationInvalidation
-        }
-    }
-
-    private func flushDeferredWorkspaceObservationInvalidation() {
-        guard contextMenuState.hasDeferredWorkspaceObservationInvalidation else { return }
-        contextMenuState.hasDeferredWorkspaceObservationInvalidation = false
-        if let pendingSnapshot = contextMenuState.pendingWorkspaceSnapshot {
-            workspaceSnapshotStorage = pendingSnapshot
-        }
-        contextMenuState.pendingWorkspaceSnapshot = nil
-    }
-
-    private var backgroundColor: Color {
+    private func backgroundColor(
+        for workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot
+    ) -> Color {
         let style = sidebarWorkspaceRowBackgroundStyle(
             activeTabIndicatorStyle: activeTabIndicatorStyle,
             isActive: isActive,
@@ -13951,11 +14255,15 @@ struct TabItemView: View, Equatable {
         return Color(nsColor: color).opacity(style.opacity)
     }
 
-    private var railColor: Color {
-        explicitRailColor ?? .clear
+    private func railColor(
+        for workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot
+    ) -> Color {
+        explicitRailColor(for: workspaceSnapshot) ?? .clear
     }
 
-    private var explicitRailColor: Color? {
+    private func explicitRailColor(
+        for workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot
+    ) -> Color? {
         guard let railColor = sidebarWorkspaceRowExplicitRailNSColor(
             activeTabIndicatorStyle: activeTabIndicatorStyle,
             customColorHex: workspaceSnapshot.customColorHex,
@@ -13974,488 +14282,18 @@ struct TabItemView: View, Equatable {
         ) ?? NSColor(hex: hex) ?? .gray
     }
 
-    private var accessibilityTitle: String {
+    private func accessibilityTitle(
+        for workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot
+    ) -> String {
         String(localized: "accessibility.workspacePosition", defaultValue: "\(workspaceSnapshot.title), workspace \(index + 1) of \(accessibilityWorkspaceCount)")
     }
 
     func moveBy(_ delta: Int) {
-        guard tabManager.reorderWorkspace(tabId: tab.id, by: delta) else { return }
-        selectedTabIds = [tab.id]
-        lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == tab.id }
-        tabManager.selectTab(tab)
-        setSelectionToTabs()
+        actions.moveBy(delta)
     }
 
     private func updateSelection() {
-        let modifiers = NSEvent.modifierFlags
-        let isCommand = modifiers.contains(.command)
-        let isShift = modifiers.contains(.shift)
-        let wasSelected = tabManager.selectedTabId == tab.id
-        #if DEBUG
-        var modStr = ""
-        if modifiers.contains(.command) { modStr += "cmd " }
-        if modifiers.contains(.shift) { modStr += "shift " }
-        if modifiers.contains(.option) { modStr += "opt " }
-        if modifiers.contains(.control) { modStr += "ctrl " }
-        cmuxDebugLog("sidebar.select workspace=\(tab.id.uuidString.prefix(5)) modifiers=\(modStr.isEmpty ? "none" : modStr.trimmingCharacters(in: .whitespaces))")
-        #endif
-
-        let workspaceIds = tabManager.tabs.map(\.id)
-        let shiftAnchorIndex = isShift
-            ? SidebarWorkspaceSelectionSyncPolicy().shiftClickAnchorIndex(
-                existingAnchorIndex: lastSidebarSelectionIndex,
-                selectedWorkspaceIds: selectedTabIds,
-                focusedWorkspaceId: tabManager.selectedTabId,
-                liveWorkspaceIds: workspaceIds
-            )
-            : nil
-
-        if isShift, let anchorIndex = shiftAnchorIndex {
-            let lower = min(anchorIndex, index)
-            let upper = max(anchorIndex, index)
-            // Filter out workspaces hidden inside collapsed groups so a
-            // Shift-click range never silently includes rows the user
-            // can't see (e.g. clicking a collapsed group's anchor and
-            // then Shift-clicking a row below would otherwise sweep
-            // every collapsed child between them).
-            let collapsedGroupIds: Set<UUID> = Set(
-                tabManager.workspaceGroups
-                    .filter { $0.isCollapsed }
-                    .map(\.id)
-            )
-            let anchorIdsByGroup: [UUID: UUID] = Dictionary(
-                uniqueKeysWithValues: tabManager.workspaceGroups.map { ($0.id, $0.anchorWorkspaceId) }
-            )
-            let rangeIds = tabManager.tabs[lower...upper].compactMap { tab -> UUID? in
-                if let gid = tab.groupId,
-                   collapsedGroupIds.contains(gid),
-                   anchorIdsByGroup[gid] != tab.id {
-                    return nil
-                }
-                return tab.id
-            }
-            if isCommand {
-                selectedTabIds.formUnion(rangeIds)
-            } else {
-                selectedTabIds = Set(rangeIds)
-            }
-        } else if isCommand {
-            if selectedTabIds.contains(tab.id) {
-                selectedTabIds.remove(tab.id)
-            } else {
-                selectedTabIds.insert(tab.id)
-            }
-        } else {
-            selectedTabIds = [tab.id]
-        }
-
-        lastSidebarSelectionIndex = SidebarWorkspaceSelectionSyncPolicy().anchorIndexAfterWorkspaceClick(
-            isShiftClick: isShift,
-            resolvedShiftAnchorIndex: shiftAnchorIndex,
-            clickedIndex: index
-        )
-        tabManager.selectTab(tab)
-        if wasSelected, !isCommand, !isShift {
-            tabManager.dismissNotificationOnDirectInteraction(
-                tabId: tab.id,
-                surfaceId: tabManager.focusedSurfaceId(for: tab.id)
-            )
-        }
-        setSelectionToTabs()
-    }
-
-    func closeTabs(_ targetIds: [UUID], allowPinned: Bool) {
-        tabManager.closeWorkspacesWithConfirmation(targetIds, allowPinned: allowPinned)
-        syncSelectionAfterMutation()
-    }
-
-    func closeOtherTabs(_ targetIds: [UUID]) {
-        let keepIds = Set(targetIds)
-        let idsToClose = tabManager.tabs.compactMap { keepIds.contains($0.id) ? nil : $0.id }
-        closeTabs(idsToClose, allowPinned: true)
-    }
-
-    func closeTabsBelow(tabId: UUID) {
-        guard let anchorIndex = tabManager.tabs.firstIndex(where: { $0.id == tabId }) else { return }
-        let idsToClose = tabManager.tabs.suffix(from: anchorIndex + 1).map { $0.id }
-        closeTabs(idsToClose, allowPinned: true)
-    }
-
-    func closeTabsAbove(tabId: UUID) {
-        guard let anchorIndex = tabManager.tabs.firstIndex(where: { $0.id == tabId }) else { return }
-        let idsToClose = tabManager.tabs.prefix(upTo: anchorIndex).map { $0.id }
-        closeTabs(idsToClose, allowPinned: true)
-    }
-
-    func markTabsRead(_ targetIds: [UUID]) {
-        for id in targetIds {
-            notificationStore.markRead(forTabId: id)
-        }
-    }
-
-    func markTabsUnread(_ targetIds: [UUID]) {
-        for id in targetIds {
-            notificationStore.markUnread(forTabId: id)
-        }
-    }
-
-    func clearLatestNotifications(_ targetIds: [UUID]) {
-        for id in targetIds {
-            notificationStore.clearLatestNotification(forTabId: id)
-        }
-    }
-
-    func hasLatestNotifications(in targetIds: [UUID]) -> Bool {
-        targetIds.contains { notificationStore.latestNotification(forTabId: $0) != nil }
-    }
-
-    func syncSelectionAfterMutation() {
-        let existingIds = Set(tabManager.tabs.map { $0.id })
-        selectedTabIds = selectedTabIds.filter { existingIds.contains($0) }
-        if selectedTabIds.isEmpty, let selectedId = tabManager.selectedTabId {
-            selectedTabIds = [selectedId]
-        }
-        if let selectedId = tabManager.selectedTabId {
-            lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
-        }
-    }
-
-    private var remoteStateHelpText: String {
-        let target = tab.remoteDisplayTarget ?? String(
-            localized: "sidebar.remote.help.targetFallback",
-            defaultValue: "remote host"
-        )
-        let detail = tab.remoteConnectionDetail?.trimmingCharacters(in: .whitespacesAndNewlines)
-        switch tab.remoteConnectionState {
-        case .connected:
-            return String(
-                format: String(
-                    localized: "sidebar.remote.help.connected",
-                    defaultValue: "Remote connected to %@"
-                ),
-                locale: .current,
-                target
-            )
-        case .connecting:
-            return String(
-                format: String(
-                    localized: "sidebar.remote.help.connecting",
-                    defaultValue: "Remote connecting to %@"
-                ),
-                locale: .current,
-                target
-            )
-        case .reconnecting:
-            return String(
-                format: String(
-                    localized: "sidebar.remote.help.reconnecting",
-                    defaultValue: "Remote reconnecting to %@"
-                ),
-                locale: .current,
-                target
-            )
-        case .error:
-            if let detail, !detail.isEmpty {
-                return String(
-                    format: String(
-                        localized: "sidebar.remote.help.errorWithDetail",
-                        defaultValue: "Remote error for %@: %@"
-                    ),
-                    locale: .current,
-                    target,
-                    detail
-                )
-            }
-            return String(
-                format: String(
-                    localized: "sidebar.remote.help.error",
-                    defaultValue: "Remote error for %@"
-                ),
-                locale: .current,
-                target
-            )
-        case .disconnected:
-            return String(
-                format: String(
-                    localized: "sidebar.remote.help.disconnected",
-                    defaultValue: "Remote disconnected from %@"
-                ),
-                locale: .current,
-                target
-            )
-        case .suspended:
-            return String(
-                format: String(
-                    localized: "sidebar.remote.help.suspended",
-                    defaultValue: "SSH host %@ is unreachable. Automatic reconnect is paused — use Reconnect to retry."
-                ),
-                locale: .current,
-                target
-            )
-        }
-    }
-
-    private func makeWorkspaceSnapshot() -> SidebarWorkspaceSnapshotBuilder.Snapshot {
-#if DEBUG
-        sidebarLazyContractProbe.workspaceSnapshotBuild?()
-#endif
-        let signpost = SidebarProfilingSignposts.begin("sidebar-workspace-snapshot", "workspace=\(sidebarShortTabId(tab.id)) details=\(settings.visibleAuxiliaryDetails)"); defer { SidebarProfilingSignposts.end(signpost) }
-        let detailVisibility = visibleAuxiliaryDetails
-        let orderedPanelIds: [UUID]? = (detailVisibility.showsBranchDirectory || detailVisibility.showsPullRequests)
-            ? tab.sidebarOrderedPanelIds()
-            : nil
-        let compactGitBranchSummaryText: String? = {
-            guard detailVisibility.showsBranchDirectory,
-                  !sidebarBranchVerticalLayout,
-                  sidebarShowGitBranch,
-                  let orderedPanelIds else {
-                return nil
-            }
-            return gitBranchSummaryText(orderedPanelIds: orderedPanelIds)
-        }()
-        let compactDirectoryCandidates: [String] = {
-            guard detailVisibility.showsBranchDirectory,
-                  !sidebarBranchVerticalLayout,
-                  let orderedPanelIds else {
-                return []
-            }
-            return compactDirectoryCandidatesList(orderedPanelIds: orderedPanelIds)
-        }()
-        let compactBranchDirectoryCandidates = compactBranchDirectoryCandidatesList(
-            gitSummary: compactGitBranchSummaryText,
-            directoryCandidates: compactDirectoryCandidates
-        )
-        let branchDirectoryLines: [SidebarWorkspaceSnapshotBuilder.VerticalBranchDirectoryLine] = {
-            guard detailVisibility.showsBranchDirectory,
-                  sidebarBranchVerticalLayout,
-                  let orderedPanelIds else {
-                return []
-            }
-            return verticalBranchDirectoryLines(orderedPanelIds: orderedPanelIds)
-        }()
-        let branchLinesContainBranch = sidebarShowGitBranch && branchDirectoryLines.contains { $0.branch != nil }
-        let pullRequestRows: [SidebarWorkspaceSnapshotBuilder.PullRequestDisplay] = {
-            guard detailVisibility.showsPullRequests, let orderedPanelIds else { return [] }
-            return pullRequestDisplays(orderedPanelIds: orderedPanelIds)
-        }()
-        // Pure reads only: effective-status resolution never mutates; the
-        // expired-override cleanup happens at explicit mutation entry points.
-        // Sidebar rows draw no status glyph; the resolved status only feeds
-        // the done-row dim, and a workspace can opt out entirely (None).
-        let workspaceStatusVisible = !tab.todoState.statusHidden
-        let inferredTaskStatus = workspaceStatusVisible ? tab.inferredTaskStatus : nil
-        let taskStatusResolution: WorkspaceTaskStatusOverride.Resolution? = inferredTaskStatus.map { inferred in
-            WorkspaceTaskStatusOverride.effectiveStatus(
-                override: tab.todoState.statusOverride,
-                inferred: inferred
-            )
-        }
-        let checklistProgress = tab.checklistProgressSummary
-
-        return SidebarWorkspaceSnapshotBuilder.Snapshot(
-            presentationKey: workspaceSnapshotPresentationKey,
-            title: tab.title,
-            customDescription: settings.showsWorkspaceDescription ? sidebarVisibleCustomDescription : nil,
-            isPinned: tab.isPinned,
-            customColorHex: tab.customColor,
-            remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
-            remoteConnectionStatusText: remoteConnectionStatusText,
-            remoteStateHelpText: remoteStateHelpText,
-            showsRemoteReconnectAffordance: !tab.isManagedCloudVMWorkspace
-                && (tab.remoteConnectionState == .suspended || tab.remoteConnectionState == .disconnected),
-            copyableSidebarSSHError: copyableSidebarSSHError,
-            latestConversationMessage: tab.latestConversationMessage,
-            metadataEntries: detailVisibility.showsMetadata ? tab.sidebarStatusEntriesInDisplayOrder() : [],
-            metadataBlocks: detailVisibility.showsMetadata ? tab.sidebarMetadataBlocksInDisplayOrder() : [],
-            latestLog: detailVisibility.showsLog ? tab.logEntries.last : nil,
-            progress: detailVisibility.showsProgress ? tab.progress : nil,
-            activeCodingAgentCount: SidebarAgentActivitySummary.visibleActiveCodingAgentCount(
-                showsAgentActivity: showsAgentActivity,
-                statesByPanelId: tab.agentLifecycleStatesByPanelId
-            ),
-            compactGitBranchSummaryText: compactGitBranchSummaryText,
-            compactDirectoryCandidates: compactDirectoryCandidates,
-            compactBranchDirectoryCandidates: compactBranchDirectoryCandidates,
-            branchDirectoryLines: branchDirectoryLines,
-            branchLinesContainBranch: branchLinesContainBranch,
-            pullRequestRows: pullRequestRows,
-            listeningPorts: detailVisibility.showsPorts ? tab.listeningPorts : [],
-            finderDirectoryPath: WorkspaceFinderDirectoryResolver.path(for: tab),
-            mediaActivity: tab.browserMediaActivity,
-            taskStatus: taskStatusResolution?.effective,
-            checklistItems: tab.todoState.checklist,
-            checklistCompletedCount: checklistProgress.completedCount,
-            checklistTotalCount: checklistProgress.totalCount,
-            checklistFirstUncheckedText: checklistProgress.firstUncheckedText
-        )
-    }
-
-    private var sidebarVisibleCustomDescription: String? {
-        guard let description = tab.customDescription else { return nil }
-        if tab.title.hasPrefix("vm:"),
-           description.trimmingCharacters(in: .whitespacesAndNewlines) == Self.legacyVMWebSocketDescription {
-            return nil
-        }
-        return description
-    }
-
-    func moveWorkspaces(_ workspaceIds: [UUID], toWindow windowId: UUID) {
-        guard let app = AppDelegate.shared else { return }
-        let orderedWorkspaceIds = tabManager.tabs.compactMap { workspaceIds.contains($0.id) ? $0.id : nil }
-        guard !orderedWorkspaceIds.isEmpty else { return }
-
-        for (index, workspaceId) in orderedWorkspaceIds.enumerated() {
-            let shouldFocus = index == orderedWorkspaceIds.count - 1
-            _ = app.moveWorkspaceToWindow(workspaceId: workspaceId, windowId: windowId, focus: shouldFocus)
-        }
-
-        selectedTabIds.subtract(orderedWorkspaceIds)
-        syncSelectionAfterMutation()
-    }
-
-    func moveWorkspacesToNewWindow(_ workspaceIds: [UUID]) {
-        guard let app = AppDelegate.shared else { return }
-        let orderedWorkspaceIds = tabManager.tabs.compactMap { workspaceIds.contains($0.id) ? $0.id : nil }
-        guard let firstWorkspaceId = orderedWorkspaceIds.first else { return }
-
-        let shouldFocusImmediately = orderedWorkspaceIds.count == 1
-        guard let newWindowId = app.moveWorkspaceToNewWindow(workspaceId: firstWorkspaceId, focus: shouldFocusImmediately) else {
-            return
-        }
-
-        if orderedWorkspaceIds.count > 1 {
-            for workspaceId in orderedWorkspaceIds.dropFirst() {
-                _ = app.moveWorkspaceToWindow(workspaceId: workspaceId, windowId: newWindowId, focus: false)
-            }
-            if let finalWorkspaceId = orderedWorkspaceIds.last {
-                _ = app.moveWorkspaceToWindow(workspaceId: finalWorkspaceId, windowId: newWindowId, focus: true)
-            }
-        }
-
-        selectedTabIds.subtract(orderedWorkspaceIds)
-        syncSelectionAfterMutation()
-    }
-
-    // latestNotificationText is now passed as a parameter from the parent view
-    // to avoid subscribing to notificationStore changes in every TabItemView.
-
-    // Builds the joined "branch · directory" candidates list for inline mode.
-    // Each entry pairs the (fixed) git summary with one entry from the
-    // directory candidates list, so ViewThatFits can choose how aggressively to
-    // shorten the directory portion as the row width changes.
-    private func compactBranchDirectoryCandidatesList(
-        gitSummary: String?,
-        directoryCandidates: [String]
-    ) -> [String] {
-        if directoryCandidates.isEmpty {
-            return gitSummary.flatMap { $0.isEmpty ? nil : [$0] } ?? []
-        }
-        guard let gitSummary, !gitSummary.isEmpty else { return directoryCandidates }
-        return directoryCandidates.map { "\(gitSummary) · \($0)" }
-    }
-
-    private func gitBranchSummaryText(orderedPanelIds: [UUID]) -> String? {
-        let lines = gitBranchSummaryLines(orderedPanelIds: orderedPanelIds)
-        guard !lines.isEmpty else { return nil }
-        return lines.joined(separator: " | ")
-    }
-
-    private func gitBranchSummaryLines(orderedPanelIds: [UUID]) -> [String] {
-        tab.sidebarGitBranchesInDisplayOrder(orderedPanelIds: orderedPanelIds).map { branch in
-            "\(branch.branch)\(branch.isDirty ? "*" : "")"
-        }
-    }
-
-    private func verticalBranchDirectoryLines(orderedPanelIds: [UUID]) -> [SidebarWorkspaceSnapshotBuilder.VerticalBranchDirectoryLine] {
-        let entries = tab.sidebarBranchDirectoryEntriesInDisplayOrder(orderedPanelIds: orderedPanelIds)
-        let home = SidebarPathFormatter.homeDirectoryPath
-        let useViewportAwarePath = sidebarUsesLastSegmentPath
-        return entries.compactMap { entry in
-            let branchText: String? = {
-                guard sidebarShowGitBranch, let branch = entry.branch else { return nil }
-                return "\(branch)\(entry.isDirty ? "*" : "")"
-            }()
-
-            let directoryCandidates: [String] = {
-                guard let directory = entry.directory else { return [] }
-                // Display labels are reporter-supplied text, not paths; render
-                // them verbatim instead of path-shortening.
-                if entry.directoryIsDisplayLabel { return [directory] }
-                if useViewportAwarePath {
-                    return SidebarPathFormatter.pathCandidates(directory, homeDirectoryPath: home)
-                }
-                let shortened = SidebarPathFormatter.shortenedPath(directory, homeDirectoryPath: home)
-                return shortened.isEmpty ? [] : [shortened]
-            }()
-
-            if branchText == nil && directoryCandidates.isEmpty {
-                return nil
-            }
-            return SidebarWorkspaceSnapshotBuilder.VerticalBranchDirectoryLine(
-                branch: branchText,
-                directoryCandidates: directoryCandidates
-            )
-        }
-    }
-
-    // Candidates for the inline-mode directory line, longest → shortest. When
-    // viewport-aware truncation is off, returns a single element with each
-    // panel directory shortened via `~/`. When on, walks per-path candidate
-    // indices, bumping the rightmost path that can still shrink at each step.
-    // Each emitted candidate differs from the previous by exactly one path
-    // collapsing one level, so ViewThatFits sees a strictly monotone gradient
-    // (`full|full`, `full|mid`, `full|leaf`, `mid|leaf`, `leaf|leaf`) — later
-    // panels shrink before earlier ones, preserving the leading workspace dir
-    // as long as the row width allows.
-    private func compactDirectoryCandidatesList(orderedPanelIds: [UUID]) -> [String] {
-        let home = SidebarPathFormatter.homeDirectoryPath
-        let directories = tab.sidebarDisplayedDirectoriesInDisplayOrder(orderedPanelIds: orderedPanelIds)
-        guard !directories.isEmpty else { return [] }
-
-        // Display labels are reporter-supplied text, not paths; render them
-        // verbatim instead of path-shortening.
-        if !sidebarUsesLastSegmentPath {
-            let joined = directories
-                .map { $0.isDisplayLabel ? $0.text : SidebarPathFormatter.shortenedPath($0.text, homeDirectoryPath: home) }
-                .filter { !$0.isEmpty }
-                .joined(separator: " | ")
-            return joined.isEmpty ? [] : [joined]
-        }
-
-        let perDirectoryCandidates: [[String]] = directories
-            .map { $0.isDisplayLabel ? [$0.text] : SidebarPathFormatter.pathCandidates($0.text, homeDirectoryPath: home) }
-            .filter { !$0.isEmpty }
-        guard !perDirectoryCandidates.isEmpty else { return [] }
-
-        var indices = Array(repeating: 0, count: perDirectoryCandidates.count)
-        var result: [String] = []
-        while true {
-            let pieces = zip(indices, perDirectoryCandidates).map { idx, candidates in
-                candidates[idx]
-            }
-            let joined = pieces.joined(separator: " | ")
-            if !joined.isEmpty, result.last != joined {
-                result.append(joined)
-            }
-            guard let bumpIdx = indices.indices.last(where: { indices[$0] < perDirectoryCandidates[$0].count - 1 }) else {
-                break
-            }
-            indices[bumpIdx] += 1
-        }
-        return result
-    }
-
-    private func pullRequestDisplays(orderedPanelIds: [UUID]) -> [SidebarWorkspaceSnapshotBuilder.PullRequestDisplay] {
-        tab.sidebarPullRequestsInDisplayOrder(orderedPanelIds: orderedPanelIds).map { pullRequest in
-            SidebarWorkspaceSnapshotBuilder.PullRequestDisplay(
-                id: "\(pullRequest.label.lowercased())#\(pullRequest.number)|\(pullRequest.url.absoluteString)",
-                number: pullRequest.number,
-                label: pullRequest.label,
-                url: pullRequest.url,
-                status: pullRequest.status,
-                isStale: pullRequest.isStale
-            )
-        }
+        actions.select(NSEvent.modifierFlags)
     }
 
     private var pullRequestForegroundColor: Color {
@@ -14463,36 +14301,11 @@ struct TabItemView: View, Equatable {
     }
 
     private func openPullRequestLink(_ url: URL) {
-        updateSelection()
-        if openSidebarPullRequestLinksInCmuxBrowser {
-            if tabManager.openBrowser(
-                inWorkspace: tab.id,
-                url: url,
-                preferSplitRight: true,
-                insertAtEnd: true
-            ) == nil {
-                NSWorkspace.shared.open(url)
-            }
-            return
-        }
-        NSWorkspace.shared.open(url)
+        actions.openPullRequest(url)
     }
 
     private func openPortLink(_ port: Int) {
-        guard let url = URL(string: "http://localhost:\(port)") else { return }
-        updateSelection()
-        if openSidebarPortLinksInCmuxBrowser {
-            if tabManager.openBrowser(
-                inWorkspace: tab.id,
-                url: url,
-                preferSplitRight: true,
-                insertAtEnd: true
-            ) == nil {
-                NSWorkspace.shared.open(url)
-            }
-            return
-        }
-        NSWorkspace.shared.open(url)
+        actions.openPort(port)
     }
 
     private func pullRequestStatusLabel(_ status: SidebarPullRequestStatus) -> String {
@@ -14658,7 +14471,7 @@ struct TabItemView: View, Equatable {
     }
 
     func applyTabColor(_ hex: String?, targetIds: [UUID]) {
-        tabManager.applyWorkspaceColor(hex, toWorkspaceIds: targetIds)
+        actions.applyColor(hex, targetIds)
     }
 
     func promptCustomColor(targetIds: [UUID]) {
@@ -14666,7 +14479,7 @@ struct TabItemView: View, Equatable {
         alert.messageText = String(localized: "alert.customColor.title", defaultValue: "Custom Workspace Color")
         alert.informativeText = String(localized: "alert.customColor.message", defaultValue: "Enter a hex color in the format #RRGGBB.")
 
-        let seed = tab.customColor ?? WorkspaceTabColorSettings.customPaletteEntries().first?.hex ?? ""
+        let seed = workspaceSnapshot.customColorHex ?? WorkspaceTabColorSettings.customPaletteEntries().first?.hex ?? ""
         let input = NSTextField(string: seed)
         input.placeholderString = "#1565C0"
         input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
@@ -14708,7 +14521,7 @@ struct TabItemView: View, Equatable {
         let alert = NSAlert()
         alert.messageText = String(localized: "alert.renameWorkspace.title", defaultValue: "Rename Workspace")
         alert.informativeText = String(localized: "alert.renameWorkspace.message", defaultValue: "Enter a custom name for this workspace.")
-        let input = NSTextField(string: tab.customTitle ?? tab.title)
+        let input = NSTextField(string: snapshot.customTitle ?? workspaceSnapshot.title)
         input.placeholderString = String(localized: "alert.renameWorkspace.placeholder", defaultValue: "Workspace name")
         input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
         alert.accessoryView = input
@@ -14722,15 +14535,11 @@ struct TabItemView: View, Equatable {
         }
         let response = alert.runModal()
         guard response == .alertFirstButtonReturn else { return }
-        tabManager.setCustomTitle(tabId: tab.id, title: input.stringValue)
+        actions.setCustomTitle(input.stringValue)
     }
 
     func beginWorkspaceDescriptionEditFromContextMenu() {
-        selectedTabIds = [tab.id]
-        lastSidebarSelectionIndex = index
-        tabManager.selectTab(tab)
-        setSelectionToTabs()
-        _ = AppDelegate.shared?.requestEditWorkspaceDescriptionViaCommandPalette()
+        actions.editDescription()
     }
 }
 
