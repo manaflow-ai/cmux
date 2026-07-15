@@ -64,6 +64,7 @@ extension TerminalController {
             await coordinator.start()
             try Task.checkCancellation()
             let payload: JSONValue
+            var mutationCommitted = false
             switch operation {
             case .context:
                 let deviceID = try simulatorSelectedDeviceID(coordinator)
@@ -157,16 +158,28 @@ extension TerminalController {
                     hostDeviceID: deviceID, bundleIdentifier: bundleID
                 )
                 _ = try await coordinator.perform(.configureCamera(configuration))
-                let result = try await coordinator.perform(.readCameraStatus)
-                payload = try simulatorCameraResultPayload(result)
+                mutationCommitted = true
+                payload = await simulatorCommittedMutationPayload(fallback: [
+                    "configuration": simulatorCameraConfigurationPayload(configuration),
+                ]) {
+                    try simulatorCameraResultPayload(
+                        try await coordinator.perform(.readCameraStatus)
+                    )
+                }
             case let .cameraSwitch(source, path, loops, deviceID):
                 let configuration = try await simulatorCameraConfiguration(
                     source: source, path: path, loops: loops,
                     hostDeviceID: deviceID, bundleIdentifier: nil
                 )
                 _ = try await coordinator.perform(.switchCameraSource(configuration))
-                let result = try await coordinator.perform(.readCameraStatus)
-                payload = try simulatorCameraResultPayload(result)
+                mutationCommitted = true
+                payload = await simulatorCommittedMutationPayload(fallback: [
+                    "configuration": simulatorCameraConfigurationPayload(configuration),
+                ]) {
+                    try simulatorCameraResultPayload(
+                        try await coordinator.perform(.readCameraStatus)
+                    )
+                }
             case let .cameraMirror(raw):
                 guard let mode = SimulatorCameraMirrorMode(rawValue: raw) else {
                     throw invalidSimulatorOperation(String(
@@ -175,8 +188,14 @@ extension TerminalController {
                     ))
                 }
                 _ = try await coordinator.perform(.setCameraMirror(mode))
-                let result = try await coordinator.perform(.readCameraStatus)
-                payload = try simulatorCameraResultPayload(result)
+                mutationCommitted = true
+                payload = await simulatorCommittedMutationPayload(fallback: [
+                    "mirror": .string(mode.rawValue),
+                ]) {
+                    try simulatorCameraResultPayload(
+                        try await coordinator.perform(.readCameraStatus)
+                    )
+                }
             case .cameraStatus:
                 payload = try simulatorCameraResultPayload(
                     try await coordinator.perform(.readCameraStatus)
@@ -205,14 +224,21 @@ extension TerminalController {
                     service: service,
                     bundleIdentifier: bundleIdentifier
                 ))
-                payload = try simulatorPrivacyResultPayload(
-                    try await coordinator.perform(.readPrivacy(
-                        deviceID: deviceID,
-                        bundleIdentifier: bundleIdentifier
-                    )),
-                    action: action,
-                    service: service
-                )
+                mutationCommitted = true
+                payload = await simulatorCommittedMutationPayload(fallback: [
+                    "action": .string(action.rawValue),
+                    "service": .string(service.rawValue),
+                    "bundle_id": .string(bundleIdentifier),
+                ]) {
+                    try simulatorPrivacyResultPayload(
+                        try await coordinator.perform(.readPrivacy(
+                            deviceID: deviceID,
+                            bundleIdentifier: bundleIdentifier
+                        )),
+                        action: action,
+                        service: service
+                    )
+                }
             case .interfaceStatus:
                 let deviceID = try simulatorSelectedDeviceID(coordinator)
                 payload = try simulatorInterfaceResultPayload(
@@ -225,10 +251,16 @@ extension TerminalController {
                     deviceID: deviceID,
                     setting: setting
                 ))
-                payload = try simulatorInterfaceResultPayload(
-                    try await coordinator.perform(.readInterfaceStatus(deviceID: deviceID)),
-                    option: option
-                )
+                mutationCommitted = true
+                payload = await simulatorCommittedMutationPayload(fallback: [
+                    "option": .string(option),
+                    "value": .string(value),
+                ]) {
+                    try simulatorInterfaceResultPayload(
+                        try await coordinator.perform(.readInterfaceStatus(deviceID: deviceID)),
+                        option: option
+                    )
+                }
             case .accessibility:
                 payload = try simulatorAccessibilityResultPayload(
                     try await coordinator.perform(.readAccessibility)
@@ -238,7 +270,7 @@ extension TerminalController {
                     try await coordinator.perform(.readForegroundApplication)
                 )
             }
-            try Task.checkCancellation()
+            if !mutationCommitted { try Task.checkCancellation() }
             receipt.complete(.success(payload))
         } catch is CancellationError {
             receipt.complete(.failed(
@@ -318,6 +350,23 @@ extension TerminalController {
             ))
         }
         return deviceID
+    }
+
+    private func simulatorCommittedMutationPayload(
+        fallback: [String: JSONValue],
+        readback: () async throws -> JSONValue
+    ) async -> JSONValue {
+        do {
+            if case var .object(payload) = try await readback() {
+                payload["completed"] = .bool(true)
+                payload["readback"] = .string("current")
+                return .object(payload)
+            }
+        } catch {}
+        var payload = fallback
+        payload["completed"] = .bool(true)
+        payload["readback"] = .string("unavailable")
+        return .object(payload)
     }
 
     private func simulatorPrivacyResultPayload(
