@@ -151,6 +151,75 @@ import Testing
 }
 
 @MainActor
+@Test func queuedNewerRenderFrameRejectsADelayedOlderFullFrame() throws {
+    let store = MobileShellComposite.preview()
+    let surfaceID = "terminal"
+    _ = store.terminalOutputStream(surfaceID: surfaceID)
+    let newer = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 13,
+        renderRevision: 13,
+        columns: 12,
+        rows: 2,
+        text: "newer\nframe"
+    )
+    let delayedOlder = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 12,
+        renderRevision: 12,
+        columns: 12,
+        rows: 2,
+        text: "older\nframe"
+    )
+
+    #expect(store.deliverAuthoritativeTerminalRenderGrid(newer, source: "event"))
+    #expect(!store.deliverAuthoritativeTerminalRenderGrid(delayedOlder, source: "event"))
+    #expect(store.terminalOutputQueuesBySurfaceID[surfaceID]?.projectedRenderRevision == 13)
+}
+
+@MainActor
+@Test func exactQueuedRenderDeltaChainRemainsAccepted() throws {
+    let store = MobileShellComposite.preview()
+    let surfaceID = "terminal"
+    _ = store.terminalOutputStream(surfaceID: surfaceID)
+    let baseline = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 10,
+        renderRevision: 10,
+        columns: 12,
+        rows: 2,
+        text: "base\nframe"
+    )
+    var firstDelta = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 11,
+        renderRevision: 11,
+        columns: 12,
+        rows: 2,
+        text: "first\nframe",
+        full: false,
+        changedRows: [0]
+    )
+    firstDelta.baseRenderRevision = 10
+    var secondDelta = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 12,
+        renderRevision: 12,
+        columns: 12,
+        rows: 2,
+        text: "second\nframe",
+        full: false,
+        changedRows: [0]
+    )
+    secondDelta.baseRenderRevision = 11
+
+    #expect(store.deliverAuthoritativeTerminalRenderGrid(baseline, source: "event"))
+    #expect(store.deliverAuthoritativeTerminalRenderGrid(firstDelta, source: "event"))
+    #expect(store.deliverAuthoritativeTerminalRenderGrid(secondDelta, source: "event"))
+    #expect(store.terminalOutputQueuesBySurfaceID[surfaceID]?.projectedRenderRevision == 12)
+}
+
+@MainActor
 @Test func deferredFrameReappliesTheNewestOptimisticReversal() async throws {
     let store = MobileShellComposite.preview()
     let surfaceID = "terminal"
