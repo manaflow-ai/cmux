@@ -25,7 +25,9 @@ jobs:
       - run: |
           mkdir -p .vercel
           printf '{"orgId":"%s","projectId":"%s"}' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
-          bunx vercel deploy --prod --yes --token "$VERCEL_TOKEN" --build-env "CMUX_DOCS_CHANNEL=${{ inputs.channel }}" --build-env "CMUX_RELEASE_DOCS_ORIGIN=https://docs.cmux.com" --build-env "CMUX_NIGHTLY_DOCS_ORIGIN=https://nightly-docs.cmux.com"
+          bunx vercel deploy --prod --yes --token "$VERCEL_TOKEN" \
+            --build-env "CMUX_DOCS_CHANNEL=${{ inputs.channel }}" \
+            --env "CMUX_DOCS_CHANNEL=${{ inputs.channel }}"
         working-directory: web
         env:
           VERCEL_ORG_ID: ${{ secrets.vercel_org_id }}
