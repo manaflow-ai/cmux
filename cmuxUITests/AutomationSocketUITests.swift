@@ -91,11 +91,17 @@ final class AutomationSocketUITests: XCTestCase {
         socketPath = resolvedPath
         XCTAssertTrue(waitForSocketPong(timeout: 5.0), "Expected socket ping at \(socketPath)")
 
+        // Backgrounded apps service main-thread hops slowly (multi-second), and
+        // simulate_shortcut dispatches on the main thread, so activate first and
+        // give the reply a generous timeout; ping is not a main-hop and stays fast.
+        app.activate()
+
         // A modifier-less key is not consumed as a shortcut, so it runs the full
         // keyDown -> interpretKeyEvents pipeline. Synthetic events built without
         // CGEvent backing make NSTextInputContext raise there, which terminated
         // the app mid-reply (socket closed, no crash report).
-        let reply = socketCommand("simulate_shortcut x")
+        let reply = ControlSocketClient(path: socketPath, responseTimeout: 20.0)
+            .sendLine("simulate_shortcut x")
         XCTAssertEqual(reply, "OK", "simulate_shortcut x should complete, got \(reply ?? "nil")")
 
         XCTAssertTrue(
