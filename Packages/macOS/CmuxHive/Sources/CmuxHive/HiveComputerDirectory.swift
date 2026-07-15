@@ -150,6 +150,9 @@ public final class HiveComputerDirectory {
     /// Pair a computer from its registry row: persist its best instance's
     /// routes into the local paired store.
     public func pair(deviceID: String) async -> HivePairOutcome {
+        // Pairing with the computer you are sitting at is always a mistake
+        // (dev builds advertise loopback routes, so it would even "work").
+        guard deviceID != ownDeviceID else { return .loopbackRejected }
         guard let computer = computers.first(where: { $0.deviceID == deviceID }),
               computer.isPairableHost else {
             return .noRoutes

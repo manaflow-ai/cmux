@@ -70,13 +70,12 @@ public struct HiveTerminalGridView: View {
             foreground = swappedForeground
         }
         if style.invisible { return }
-        let cellCount = span.text.count * span.cellWidth
         let origin = metrics.origin(row: row, column: span.column)
         if let background {
             let rect = CGRect(
                 x: origin.x,
                 y: origin.y,
-                width: CGFloat(cellCount) * metrics.cellWidth,
+                width: CGFloat(span.totalCellWidth) * metrics.cellWidth,
                 height: metrics.lineHeight
             )
             context.fill(Path(rect), with: .color(background))
@@ -86,19 +85,22 @@ public struct HiveTerminalGridView: View {
         attributes.foregroundColor = style.faint ? foreground.opacity(0.6) : foreground
         if style.underline { attributes.underlineStyle = .single }
         if style.strikethrough { attributes.strikethroughStyle = .single }
-        if span.cellWidth == 1 {
+        if span.isUniformSingleWidth {
             let text = Text(AttributedString(span.text, attributes: attributes))
             context.draw(context.resolve(text), at: origin, anchor: .topLeading)
         } else {
-            // Wide glyphs: place each character at its own cell offset so the
-            // grid stays aligned regardless of the font's natural advance.
-            for (index, character) in span.text.enumerated() {
+            // Mixed widths (wide glyphs / combining marks): place each
+            // character at its own cell offset, advancing by that character's
+            // grid width, so alignment matches the remote terminal.
+            var cellOffset = 0
+            for character in span.text {
                 let text = Text(AttributedString(String(character), attributes: attributes))
                 let characterOrigin = CGPoint(
-                    x: origin.x + CGFloat(index * span.cellWidth) * metrics.cellWidth,
+                    x: origin.x + CGFloat(cellOffset) * metrics.cellWidth,
                     y: origin.y
                 )
                 context.draw(context.resolve(text), at: characterOrigin, anchor: .topLeading)
+                cellOffset += character.renderGridEstimatedCellWidth
             }
         }
     }
