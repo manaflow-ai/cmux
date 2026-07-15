@@ -725,13 +725,17 @@ impl Terminal {
 
     /// VT replay bounded to `max_bytes`, retaining the newest complete rows.
     ///
-    /// Full history is preserved when it fits. Oversized history is reduced
-    /// to a recent row window derived from the budget before formatting, then
-    /// reduced further until the active screen fits.
+    /// The formatter first measures the complete replay without allocating its
+    /// output, preserving full history when it fits. Oversized history is then
+    /// reduced to a recent row window derived from the budget and reduced
+    /// further until the active screen fits.
     /// A pathological screen whose newest row alone exceeds the budget falls
     /// back to a terminal reset so callers can still attach and receive live
     /// output instead of entering a permanent overflow loop.
     pub fn vt_replay_bounded(&mut self, max_bytes: usize) -> Result<Vec<u8>> {
+        if let Some(replay) = self.vt_replay_with_selection_bounded(None, max_bytes)? {
+            return Ok(replay);
+        }
         let Some(scrollbar) = self.scrollbar() else {
             return Ok(minimal_vt_replay(max_bytes));
         };
@@ -744,9 +748,7 @@ impl Terminal {
             vt_replay_row_window(scrollbar.total, screen_rows, self.cols(), max_bytes);
 
         loop {
-            if let Ok(replay) = self.vt_replay_screen_tail(tail_rows)
-                && replay.len() <= max_bytes
-            {
+            if let Some(replay) = self.vt_replay_screen_tail_bounded(tail_rows, max_bytes)? {
                 return Ok(replay);
             }
             if tail_rows <= 1 {
@@ -762,7 +764,11 @@ impl Terminal {
         Ok(minimal_vt_replay(max_bytes))
     }
 
-    fn vt_replay_screen_tail(&mut self, rows: u64) -> Result<Vec<u8>> {
+    fn vt_replay_screen_tail_bounded(
+        &mut self,
+        rows: u64,
+        max_bytes: usize,
+    ) -> Result<Option<Vec<u8>>> {
         let scrollbar = self.scrollbar().ok_or(crate::Error::InvalidValue)?;
         let cols = self.cols();
         if cols == 0 || scrollbar.total == 0 || rows == 0 {
@@ -782,14 +788,28 @@ impl Terminal {
                 .ok_or(crate::Error::InvalidValue)?,
             rectangle: false,
         };
-        self.vt_replay_with_selection(Some(&selection))
+        self.vt_replay_with_selection_bounded(Some(&selection), max_bytes)
     }
 
     fn vt_replay_with_selection(
         &mut self,
         selection: Option<&sys::GhosttySelection>,
     ) -> Result<Vec<u8>> {
-        let opts = sys::GhosttyFormatterTerminalOptions {
+        self.format(Self::vt_replay_options(selection))
+    }
+
+    fn vt_replay_with_selection_bounded(
+        &mut self,
+        selection: Option<&sys::GhosttySelection>,
+        max_bytes: usize,
+    ) -> Result<Option<Vec<u8>>> {
+        self.format_bounded(Self::vt_replay_options(selection), max_bytes)
+    }
+
+    fn vt_replay_options(
+        selection: Option<&sys::GhosttySelection>,
+    ) -> sys::GhosttyFormatterTerminalOptions {
+        sys::GhosttyFormatterTerminalOptions {
             size: size_of::<sys::GhosttyFormatterTerminalOptions>(),
             emit: sys::GHOSTTY_FORMATTER_FORMAT_VT,
             unwrap: false,
@@ -813,8 +833,7 @@ impl Terminal {
                 },
             },
             selection: selection.map_or(ptr::null(), |value| value),
-        };
-        self.format(opts)
+        }
     }
 
     fn grid_ref(&self, tag: sys::GhosttyPointTag, x: u16, y: u64) -> Option<sys::GhosttyGridRef> {
@@ -854,6 +873,43 @@ impl Terminal {
             })?;
             buf.truncate(written);
             Ok(buf)
+        })();
+        unsafe { sys::ghostty_formatter_free(formatter) };
+        result
+    }
+
+    fn format_bounded(
+        &mut self,
+        opts: sys::GhosttyFormatterTerminalOptions,
+        max_bytes: usize,
+    ) -> Result<Option<Vec<u8>>> {
+        let mut formatter: sys::GhosttyFormatter = ptr::null_mut();
+        check(unsafe {
+            sys::ghostty_formatter_terminal_new(ptr::null(), &mut formatter, self.raw, opts)
+        })?;
+        let result = (|| {
+            let mut needed: usize = 0;
+            let query = unsafe {
+                sys::ghostty_formatter_format_buf(formatter, ptr::null_mut(), 0, &mut needed)
+            };
+            if query != sys::GHOSTTY_OUT_OF_SPACE && query != sys::GHOSTTY_SUCCESS {
+                check(query)?;
+            }
+            if needed > max_bytes {
+                return Ok(None);
+            }
+            let mut buf = vec![0u8; needed.max(1)];
+            let mut written: usize = 0;
+            check(unsafe {
+                sys::ghostty_formatter_format_buf(
+                    formatter,
+                    buf.as_mut_ptr(),
+                    buf.len(),
+                    &mut written,
+                )
+            })?;
+            buf.truncate(written);
+            Ok(Some(buf))
         })();
         unsafe { sys::ghostty_formatter_free(formatter) };
         result
@@ -931,6 +987,19 @@ mod tests {
         let mut restored = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
         restored.vt_write(&bounded);
         assert!(restored.viewport_text().unwrap().contains("LATEST-VISIBLE-CONTENT"));
+    }
+
+    #[test]
+    fn bounded_vt_replay_preserves_complete_history_when_it_fits() {
+        let mut source = Terminal::new(80, 24, 4 * 1024 * 1024, Callbacks::default()).unwrap();
+        for index in 0..10_000 {
+            source.vt_write(format!("plain-history-{index:05}\r\n").as_bytes());
+        }
+        source.vt_write(b"LATEST-VISIBLE-CONTENT");
+
+        let full = source.vt_replay().unwrap();
+        assert!(full.len() < 8 * 1024 * 1024);
+        assert_eq!(source.vt_replay_bounded(8 * 1024 * 1024).unwrap(), full);
     }
 
     #[test]

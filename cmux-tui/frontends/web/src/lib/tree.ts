@@ -104,3 +104,33 @@ export function locateSurface(tree: Tree, surface: Id): { workspaceId: Id; scree
   }
   return null;
 }
+
+export function applySurfaceTitles(tree: Tree, titles: ReadonlyMap<Id, string>): Tree {
+  let treeChanged = false;
+  const workspaces = tree.workspaces.map((workspace) => {
+    let workspaceChanged = false;
+    const screens = workspace.screens.map((screen) => {
+      let screenChanged = false;
+      const panes = screen.panes.map((pane) => {
+        if (!("tabs" in pane)) return pane;
+        let paneChanged = false;
+        const tabs = pane.tabs.map((tab) => {
+          const title = titles.get(tab.surface);
+          if (title === undefined || title === tab.title) return tab;
+          paneChanged = true;
+          return { ...tab, title };
+        });
+        if (!paneChanged) return pane;
+        screenChanged = true;
+        return { ...pane, tabs };
+      });
+      if (!screenChanged) return screen;
+      workspaceChanged = true;
+      return { ...screen, panes };
+    });
+    if (!workspaceChanged) return workspace;
+    treeChanged = true;
+    return { ...workspace, screens };
+  });
+  return treeChanged ? { workspaces } : tree;
+}

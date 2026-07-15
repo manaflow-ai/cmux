@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Tree } from "cmux/browser";
 import { initialLocalSelectionState } from "../src/lib/localSelection";
-import { activeScreen, screenSelection, treeToViewModel } from "../src/lib/tree";
+import { activeScreen, applySurfaceTitles, screenSelection, treeToViewModel } from "../src/lib/tree";
 
 const tree: Tree = {
   workspaces: [{
@@ -87,6 +87,19 @@ describe("treeToViewModel", () => {
 
     expect(drawerWorkspaces[0]?.screens.map(({ id }) => id)).toEqual([2, 6]);
     expect(screenSelection(drawerWorkspaces[0]!.screens[1]!)).toEqual([1, 6, 8]);
+  });
+});
+
+describe("applySurfaceTitles", () => {
+  it("coalesces authoritative titles into matching tabs with structural sharing", () => {
+    const updated = applySurfaceTitles(tree, new Map([[4, "editor"], [5, "logs"]]));
+
+    expect(updated).not.toBe(tree);
+    expect(updated.workspaces[0]?.screens[0]?.panes[0]).not.toBe(tree.workspaces[0]?.screens[0]?.panes[0]);
+    expect("tabs" in updated.workspaces[0]!.screens[0]!.panes[0]!
+      ? updated.workspaces[0]!.screens[0]!.panes[0]!.tabs.map(({ title }) => title)
+      : []).toEqual(["editor", "logs"]);
+    expect(applySurfaceTitles(tree, new Map([[99, "missing"]]))).toBe(tree);
   });
 });
 

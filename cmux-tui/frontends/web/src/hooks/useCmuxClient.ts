@@ -8,6 +8,7 @@ import {
   type Id,
   type IdentifyResult,
   type NotificationEvent,
+  type TitleChangedEvent,
   type Tree,
 } from "cmux/browser";
 import { browserClientName } from "../lib/clientName";
@@ -18,7 +19,7 @@ import {
 } from "../lib/localSelection";
 import { reconnectTransition, type ReconnectState } from "../lib/reconnect";
 import { supportsProtocol } from "../lib/protocol";
-import { activeScreen, locateSurface, treeToViewModel } from "../lib/tree";
+import { activeScreen, applySurfaceTitles, locateSurface, treeToViewModel } from "../lib/tree";
 import { t } from "../i18n";
 
 export interface ConnectionConfig {
@@ -64,6 +65,27 @@ export function useCmuxClient() {
     let cancelled = false;
     let activeClient: CmuxClient | null = null;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let titleFlushTimer: ReturnType<typeof setTimeout> | undefined;
+    const pendingSurfaceTitles = new Map<Id, string>();
+
+    const discardPendingSurfaceTitles = () => {
+      if (titleFlushTimer !== undefined) clearTimeout(titleFlushTimer);
+      titleFlushTimer = undefined;
+      pendingSurfaceTitles.clear();
+    };
+    const flushSurfaceTitles = () => {
+      titleFlushTimer = undefined;
+      if (cancelled || pendingSurfaceTitles.size === 0) return;
+      const updates = new Map(pendingSurfaceTitles);
+      pendingSurfaceTitles.clear();
+      setState((current) => current.tree === null
+        ? current
+        : { ...current, tree: applySurfaceTitles(current.tree, updates) });
+    };
+    const queueSurfaceTitle = (surface: Id, title: string) => {
+      pendingSurfaceTitles.set(surface, title);
+      titleFlushTimer ??= setTimeout(flushSurfaceTitles, 0);
+    };
 
     const refresh = async () => {
       if (!activeClient) return;
@@ -148,7 +170,17 @@ export function useCmuxClient() {
                 setUnread((current) => new Set(current).add(notification.surface!));
               }
             }
-            if (["tree-changed", "layout-changed", "surface-resized", "surface-exited", "title-changed"].includes(event.event)) {
+            if (event.event === "title-changed") {
+              const changed = event as TitleChangedEvent;
+              if (changed.title === undefined) {
+                discardPendingSurfaceTitles();
+                await refresh();
+              } else {
+                queueSurfaceTitle(changed.surface, changed.title);
+              }
+            }
+            if (["tree-changed", "layout-changed", "surface-resized", "surface-exited"].includes(event.event)) {
+              discardPendingSurfaceTitles();
               await refresh();
             }
             if (
@@ -193,6 +225,7 @@ export function useCmuxClient() {
     return () => {
       cancelled = true;
       if (retryTimer !== undefined) clearTimeout(retryTimer);
+      discardPendingSurfaceTitles();
       refreshRef.current = null;
       void activeClient?.close();
     };
