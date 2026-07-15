@@ -294,6 +294,11 @@ public final class SocketControlServer {
         listenerStateSnapshot().isRunning
     }
 
+    /// Whether accept recovery has parked a listener restart that has not yet been claimed.
+    public nonisolated var hasPendingAcceptLoopRearm: Bool {
+        listenerStateSnapshot().pendingRearmGeneration != nil
+    }
+
     /// The access mode of the current (or most recently started) listener.
     public nonisolated var accessMode: SocketControlMode {
         connectionAuthorizationState.accessMode

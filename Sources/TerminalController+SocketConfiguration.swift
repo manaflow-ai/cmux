@@ -42,9 +42,10 @@ extension TerminalController {
         }
         let previousMode = socketServer.accessMode
         let wasRunning = socketServer.isRunning
+        let hadPendingRearm = socketServer.hasPendingAcceptLoopRearm
         let pathChanged = socketServer.updateConfiguredPreferredSocketPath(
             configuration.preferredSocketPath
-        ) && wasRunning
+        ) && (wasRunning || hadPendingRearm)
 
         if configuration.accessMode == .off {
             socketServer.reconfigure(accessMode: .off)

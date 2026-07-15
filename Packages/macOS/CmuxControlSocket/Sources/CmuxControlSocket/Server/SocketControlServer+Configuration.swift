@@ -11,7 +11,8 @@ extension SocketControlServer {
         withListenerState { state in
             let changed = state.configuredPreferredSocketPath.map {
                 !SocketControlSettings.pathsMatch($0, path)
-            } ?? (state.isRunning && !SocketControlSettings.pathsMatch(state.socketPath, path))
+            } ?? ((state.isRunning || state.pendingAcceptLoopRearmGeneration != nil)
+                && !SocketControlSettings.pathsMatch(state.socketPath, path))
             state.configuredPreferredSocketPath = path
             return changed
         }
