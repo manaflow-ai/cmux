@@ -41,11 +41,11 @@ import Testing
         #expect(fullLoadCalls.withLock { $0 } == 0)
     }
 
-    @Test func autosaveResumeIndexesFallBackWhenAgentCacheIsCold() async {
+    @Test func autosaveResumeIndexesSkipWhenAgentCacheIsCold() async {
         let processSnapshotCalls = OSAllocatedUnfairLock(initialState: 0)
         let fullLoadCalls = OSAllocatedUnfairLock(initialState: 0)
 
-        _ = await ProcessDetectedResumeIndexes.loadForAutosave(
+        let resumeIndexes: ProcessDetectedResumeIndexes? = await ProcessDetectedResumeIndexes.loadForAutosave(
             cachedAgentIndex: nil,
             processSnapshotProvider: {
                 processSnapshotCalls.withLock { $0 += 1 }
@@ -64,16 +64,17 @@ import Testing
             }
         )
 
+        #expect(resumeIndexes == nil)
         #expect(processSnapshotCalls.withLock { $0 } == 0)
-        #expect(fullLoadCalls.withLock { $0 } == 1)
+        #expect(fullLoadCalls.withLock { $0 } == 0)
     }
 
-    @Test func autosaveResumeIndexesReloadWhenProcessDetectedAgentsChange() async {
+    @Test func autosaveResumeIndexesSkipWhenProcessDetectedAgentsChange() async {
         let processSnapshotCalls = OSAllocatedUnfairLock(initialState: 0)
         let fingerprintCalls = OSAllocatedUnfairLock(initialState: 0)
         let fullLoadCalls = OSAllocatedUnfairLock(initialState: 0)
 
-        _ = await ProcessDetectedResumeIndexes.loadForAutosave(
+        let resumeIndexes: ProcessDetectedResumeIndexes? = await ProcessDetectedResumeIndexes.loadForAutosave(
             cachedAgentIndex: ProcessDetectedResumeIndexes.AutosaveAgentIndexCache(
                 restorableAgentIndex: .empty,
                 processScopeFingerprint: ["old-process-scope"]
@@ -99,9 +100,10 @@ import Testing
             }
         )
 
+        #expect(resumeIndexes == nil)
         #expect(processSnapshotCalls.withLock { $0 } == 1)
         #expect(fingerprintCalls.withLock { $0 } == 1)
-        #expect(fullLoadCalls.withLock { $0 } == 1)
+        #expect(fullLoadCalls.withLock { $0 } == 0)
     }
 
     @Test func processScopeFingerprintTracksSamePIDExecutableChanges() {
