@@ -9,6 +9,60 @@ import Testing
 #endif
 
 @Suite struct SessionPersistenceResumeBindingTests {
+    @Test func autosaveResumeIndexesReuseCachedAgentIndex() async {
+        let processSnapshotCalls = OSAllocatedUnfairLock(initialState: 0)
+        let fullLoadCalls = OSAllocatedUnfairLock(initialState: 0)
+
+        _ = await ProcessDetectedResumeIndexes.loadForAutosave(
+            cachedRestorableAgentIndex: .empty,
+            processSnapshotProvider: {
+                processSnapshotCalls.withLock { $0 += 1 }
+                return CmuxTopProcessSnapshot(
+                    processes: [],
+                    sampledAt: Date(timeIntervalSince1970: 1),
+                    includesProcessDetails: true
+                )
+            },
+            fullLoad: {
+                fullLoadCalls.withLock { $0 += 1 }
+                return ProcessDetectedResumeIndexes(
+                    restorableAgentIndex: .empty,
+                    surfaceResumeBindingIndex: .empty
+                )
+            }
+        )
+
+        #expect(processSnapshotCalls.withLock { $0 } == 1)
+        #expect(fullLoadCalls.withLock { $0 } == 0)
+    }
+
+    @Test func autosaveResumeIndexesFallBackWhenAgentCacheIsCold() async {
+        let processSnapshotCalls = OSAllocatedUnfairLock(initialState: 0)
+        let fullLoadCalls = OSAllocatedUnfairLock(initialState: 0)
+
+        _ = await ProcessDetectedResumeIndexes.loadForAutosave(
+            cachedRestorableAgentIndex: nil,
+            processSnapshotProvider: {
+                processSnapshotCalls.withLock { $0 += 1 }
+                return CmuxTopProcessSnapshot(
+                    processes: [],
+                    sampledAt: Date(timeIntervalSince1970: 1),
+                    includesProcessDetails: true
+                )
+            },
+            fullLoad: {
+                fullLoadCalls.withLock { $0 += 1 }
+                return ProcessDetectedResumeIndexes(
+                    restorableAgentIndex: .empty,
+                    surfaceResumeBindingIndex: .empty
+                )
+            }
+        )
+
+        #expect(processSnapshotCalls.withLock { $0 } == 0)
+        #expect(fullLoadCalls.withLock { $0 } == 1)
+    }
+
     @Test func agentHookSurfaceResumeStartupInputPreservesCustomAbsoluteAgentExecutable() throws {
         let binding = SurfaceResumeBindingSnapshot(
             kind: "codex",
