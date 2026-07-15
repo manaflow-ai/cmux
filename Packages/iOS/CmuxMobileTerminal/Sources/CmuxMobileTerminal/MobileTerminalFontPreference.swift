@@ -12,7 +12,11 @@ import Foundation
 /// NOT persisted across launches: a persisted zoom is what made a fresh launch
 /// open with an oversized font. ``minimumSize``/``maximumSize`` bound the zoom.
 public struct MobileTerminalFontPreference {
-    private init() {}
+    let size: Float32
+
+    init(clamping size: Float32) {
+        self.size = min(max(size, Self.minimumSize), Self.maximumSize)
+    }
 
     /// Point size every terminal opens at. Smaller than the macOS terminal
     /// default (`font-size = 12`) so the phone's narrow screen fits more columns
@@ -25,9 +29,5 @@ public struct MobileTerminalFontPreference {
     static let minimumSize: Float32 = 1
     /// Largest size the zoom controls will reach.
     static let maximumSize: Float32 = 28
-
-    static func clampedSize(_ size: Float32) -> Float32 {
-        min(max(size, minimumSize), maximumSize)
-    }
 }
 #endif
