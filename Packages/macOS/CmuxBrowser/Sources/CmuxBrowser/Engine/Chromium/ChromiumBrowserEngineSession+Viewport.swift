@@ -270,10 +270,7 @@ extension ChromiumBrowserEngineSession {
     }
 
     private func enqueueViewportInput(_ command: ChromiumViewportInputCommand) {
-        guard viewportInputQueue.enqueue(command) else {
-            failViewportInput()
-            return
-        }
+        guard viewportInputQueue.enqueue(command) else { return }
         startViewportInputDrainingIfNeeded()
     }
 
