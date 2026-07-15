@@ -486,6 +486,55 @@ struct WorkspaceForkConversationContextMenuTests {
     }
 
     @Test
+    func persistedPiProjectRegistrationKeepsForkOwnership() throws {
+        let sessionId = "pi-session-123"
+        var projectRegistration = CmuxVaultAgentRegistration.builtInPi
+        projectRegistration.name = "Project Pi"
+        projectRegistration.forkCommand = nil
+        let persisted = SessionRestorableAgentSnapshot(
+            kind: .custom("pi"),
+            sessionId: sessionId,
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "pi",
+                executablePath: "/opt/homebrew/bin/pi",
+                arguments: ["/opt/homebrew/bin/pi", "--session", sessionId],
+                workingDirectory: nil,
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            ),
+            registration: projectRegistration
+        )
+
+        let decoded = try JSONDecoder().decode(
+            SessionRestorableAgentSnapshot.self,
+            from: JSONEncoder().encode(persisted)
+        )
+
+        #expect(decoded.kind == .custom("pi"))
+        #expect(decoded.registration == projectRegistration)
+        #expect(decoded.forkCommand == nil)
+
+        var legacyBuiltIn = CmuxVaultAgentRegistration.builtInPi
+        legacyBuiltIn.forkCommand = "{{executable}} --session {{sessionId}} --fork"
+        let legacySnapshot = SessionRestorableAgentSnapshot(
+            kind: .custom("pi"),
+            sessionId: sessionId,
+            workingDirectory: nil,
+            launchCommand: persisted.launchCommand,
+            registration: legacyBuiltIn
+        )
+        let decodedLegacy = try JSONDecoder().decode(
+            SessionRestorableAgentSnapshot.self,
+            from: JSONEncoder().encode(legacySnapshot)
+        )
+        #expect(decodedLegacy.kind == .custom("pi"))
+        #expect(decodedLegacy.registration == .builtInPi)
+        #expect(decodedLegacy.forkCommand?.contains("'--fork' '\(sessionId)'") == true)
+    }
+
+    @Test
     func directOpenCodePresentationStaysVisibleWhileValidationRefreshes() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)

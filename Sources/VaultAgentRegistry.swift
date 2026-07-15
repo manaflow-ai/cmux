@@ -163,6 +163,11 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
     }
 
     var migratedLegacyBuiltInForkCommand: CmuxVaultAgentRegistration {
+        var legacyPi = Self.builtInPi
+        legacyPi.forkCommand = "{{executable}} --session {{sessionId}} --fork"
+        if self == legacyPi {
+            return Self.builtInPi
+        }
         var legacyOmp = Self.builtInOmp
         legacyOmp.forkCommand = "{{executable}} --session {{sessionId}} --fork"
         return self == legacyOmp ? Self.builtInOmp : self
