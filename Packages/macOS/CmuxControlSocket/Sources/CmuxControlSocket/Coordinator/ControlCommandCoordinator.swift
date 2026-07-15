@@ -42,6 +42,10 @@ public final class ControlCommandCoordinator {
     @ObservationIgnored
     public var handles: ControlHandleRegistry
 
+    @ObservationIgnored
+    nonisolated let simulatorOperationAdmissionGate =
+        ControlSimulatorOperationAdmissionGate(maximumConcurrentOperations: 4)
+
     /// Creates a coordinator.
     ///
     /// - Parameters:

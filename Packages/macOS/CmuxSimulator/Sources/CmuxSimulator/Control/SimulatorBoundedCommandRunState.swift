@@ -1,3 +1,5 @@
+import Foundation
+
 actor SimulatorBoundedCommandRunState {
     private var continuation: CheckedContinuation<SimulatorBoundedCommandResult, Never>?
     private var standardOutput: SimulatorCapturedStream?
@@ -9,6 +11,7 @@ actor SimulatorBoundedCommandRunState {
     private var forceKillTask: Task<Void, Never>?
     private var launchInProgress = false
     private var deferredImmediateResult: SimulatorBoundedCommandResult?
+    private var captureReaders: [FileHandle] = []
 
     init(continuation: CheckedContinuation<SimulatorBoundedCommandResult, Never>) {
         self.continuation = continuation
@@ -22,6 +25,17 @@ actor SimulatorBoundedCommandRunState {
         guard continuation != nil else { return false }
         launchInProgress = true
         return true
+    }
+
+    func installCaptureReaders(_ readers: [FileHandle]) {
+        captureReaders = readers
+    }
+
+    func completeAfterTerminationDeadline() {
+        guard let result = deferredImmediateResult else { return }
+        captureReaders.forEach { try? $0.close() }
+        captureReaders.removeAll()
+        completeImmediately(result)
     }
 
     func install(process: SimulatorProcessGroupProcess) -> Bool {
@@ -56,6 +70,7 @@ actor SimulatorBoundedCommandRunState {
         exitStatus = status
         forceKillTask?.cancel()
         forceKillTask = nil
+        captureReaders.removeAll()
         completeIfReady()
     }
 
@@ -126,6 +141,8 @@ actor SimulatorBoundedCommandRunState {
         self.continuation = nil
         deadlineTask?.cancel()
         deadlineTask = nil
+        captureReaders.forEach { try? $0.close() }
+        captureReaders.removeAll()
         continuation.resume(returning: result)
     }
 }

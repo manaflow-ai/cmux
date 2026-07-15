@@ -89,9 +89,12 @@ struct SimulatorBoundedCommandRunner: SimulatorBoundedCommandRunning, Sendable {
         let standardError = Pipe()
         let outputReader = standardOutput.fileHandleForReading
         let errorReader = standardError.fileHandleForReading
+        let outputFileDescriptor = outputReader.fileDescriptor
+        let errorFileDescriptor = errorReader.fileDescriptor
+        await state.installCaptureReaders([outputReader, errorReader])
 
         let outputDrainThread = Thread {
-            let output = drain(outputReader.fileDescriptor, limit: standardOutputLimit)
+            let output = drain(outputFileDescriptor, limit: standardOutputLimit)
             try? outputReader.close()
             Task { await state.recordStandardOutput(output) }
         }
@@ -100,7 +103,7 @@ struct SimulatorBoundedCommandRunner: SimulatorBoundedCommandRunning, Sendable {
         outputDrainThread.start()
 
         let errorDrainThread = Thread {
-            let error = drain(errorReader.fileDescriptor, limit: standardErrorLimit)
+            let error = drain(errorFileDescriptor, limit: standardErrorLimit)
             try? errorReader.close()
             Task { await state.recordStandardError(error) }
         }
@@ -184,6 +187,10 @@ struct SimulatorBoundedCommandRunner: SimulatorBoundedCommandRunning, Sendable {
                 return
             }
             if await process.isRunning { process.forceKill() }
+            do {
+                try await ContinuousSimulatorWorkerSleeper().sleep(for: .seconds(1))
+            } catch { return }
+            await state?.completeAfterTerminationDeadline()
         }
         guard let state, await state.installForceKillTask(task, for: process) else {
             task.cancel()

@@ -12,10 +12,10 @@ extension ControlCommandCoordinator {
         guard let context else {
             return simulatorNoActiveWindow()
         }
-        guard ControlSimulatorOperationAdmissionGate.shared.acquire() else {
+        guard simulatorOperationAdmissionGate.acquire() else {
             return simulatorAdmissionFailure()
         }
-        defer { ControlSimulatorOperationAdmissionGate.shared.release() }
+        defer { simulatorOperationAdmissionGate.release() }
         let outcome: SimulatorTypeHopOutcome = context.controlResolveOnMain { seam in
             let resolution = seam.controlSimulatorBeginType(
                 routing: self.routingSelectors(params),

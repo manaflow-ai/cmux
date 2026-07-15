@@ -2,8 +2,6 @@ import Foundation
 
 /// Bounds long-lived synchronous Simulator RPC waits on connection threads.
 final class ControlSimulatorOperationAdmissionGate: @unchecked Sendable {
-    static let shared = ControlSimulatorOperationAdmissionGate(maximumConcurrentOperations: 4)
-
     private let lock = NSLock()
     private let maximumConcurrentOperations: Int
     private var activeOperations = 0
