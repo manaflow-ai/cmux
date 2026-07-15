@@ -128,11 +128,15 @@ public final class HiveRemoteMacSession {
                 displayName: displayName,
                 route: route
             ) else { continue }
+            // Mac-to-Mac viewer: routes come from the signed-in account's own
+            // device registry, so the WireGuard-encrypted Tailscale tunnel is
+            // trusted to carry the Stack token (iOS stays loopback-only).
             let candidate = MobileCoreRPCClient(
                 runtime: runtime,
                 route: route,
                 ticket: ticket,
-                allowsStackAuthFallback: true
+                allowsStackAuthFallback: true,
+                stackAuthChannelTrust: .loopbackAndTailscaleTunnel
             )
             do {
                 let workspaces = try await Self.fetchWorkspaces(client: candidate)

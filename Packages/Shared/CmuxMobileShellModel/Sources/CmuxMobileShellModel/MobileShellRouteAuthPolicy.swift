@@ -77,17 +77,55 @@ public struct MobileShellRouteAuthPolicy {
     /// the local network before the Mac proves it is the same-account host.
     /// Iroh routes always return `false`. Their authenticated session context
     /// authorizes RPC without disclosing the account bearer token to the peer.
-    /// - Parameter route: The candidate attach route.
-    /// - Returns: `true` only for a loopback route.
-    public static func routeAllowsStackAuth(_ route: CmxAttachRoute) -> Bool {
+    /// - Parameters:
+    ///   - route: The candidate attach route.
+    ///   - trust: The channels the caller trusts with the bearer token;
+    ///     defaults to the fail-closed iOS policy (loopback only).
+    /// - Returns: `true` when the route is within the trusted channel set.
+    public static func routeAllowsStackAuth(
+        _ route: CmxAttachRoute,
+        trust: StackAuthChannelTrust = .loopbackOnly
+    ) -> Bool {
         switch (route.kind, route.endpoint) {
         case (.debugLoopback, let .hostPort(host, _)):
             return isLoopbackHost(host)
-        case (.tailscale, .hostPort), (.iroh, .peer):
+        case (.tailscale, let .hostPort(host, _)):
+            return trust == .loopbackAndTailscaleTunnel && isTailscaleHost(host)
+        case (.iroh, .peer):
             return false
         default:
             return false
         }
+    }
+
+    /// The channel set a client trusts to carry the Stack bearer token.
+    public enum StackAuthChannelTrust: Sendable, Equatable {
+        /// Loopback only — the fail-closed default. iOS pairing routes come
+        /// from scanned/pasted payloads or the LAN, so the phone never sends
+        /// the bearer token off-device before the host proves itself
+        /// (main-line policy since the authenticated-Iroh transport).
+        case loopbackOnly
+        /// Loopback plus hosts inside the WireGuard-encrypted Tailscale
+        /// tunnel (`100.64/10` or `*.ts.net`). Opted into by the macOS
+        /// remote-Mac viewer, whose routes come from the signed-in account's
+        /// own device registry rather than an untrusted payload.
+        case loopbackAndTailscaleTunnel
+    }
+
+    private static func isTailscaleHost(_ host: String) -> Bool {
+        let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return isTailscaleDNSHost(normalizedHost) || isTailscaleIPv4Host(normalizedHost)
+    }
+
+    private static func isTailscaleIPv4Host(_ host: String) -> Bool {
+        guard let octets = ipv4Octets(host) else {
+            return false
+        }
+        return octets[0] == 100 && (64...127).contains(octets[1])
+    }
+
+    private static func isTailscaleDNSHost(_ host: String) -> Bool {
+        host.hasSuffix(".ts.net")
     }
 
     /// Whether a decoded pairing/attach ticket must be rejected because its
