@@ -96,12 +96,13 @@ func staleAuthoritativeStreamTerminationPreservesReplacement() async {
     // A rotation can mount the replacement view before the cancelled view's
     // termination cleanup returns to the main actor. The stale cleanup must be
     // scoped to its own attachment instead of deleting the replacement sink.
-    _ = store.authoritativeTerminalOutputStream(surfaceID: surfaceID)
+    let replacementStream = store.authoritativeTerminalOutputStream(surfaceID: surfaceID)
     await Task.yield()
     await Task.yield()
 
     #expect(store.terminalByteContinuationsBySurfaceID[surfaceID] != nil)
     #expect(store.authoritativeRenderGridSurfaceIDs.contains(surfaceID))
+    withExtendedLifetime(replacementStream) {}
 }
 
 @MainActor

@@ -800,6 +800,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var terminalOutputTransport: TerminalOutputTransport
     var authoritativeRenderGridSurfaceIDs: Set<String>
     var terminalByteContinuationsBySurfaceID: [String: AsyncStream<MobileTerminalOutputChunk>.Continuation]
+    /// Stable identity of the mounted output consumer for each surface.
+    ///
+    /// Output stream tokens can advance while one consumer remains mounted
+    /// (for example when a replay barrier resets its delivery queue), so they
+    /// cannot identify attachment ownership. This token changes only when a
+    /// new view registers for the surface. Delayed termination from a replaced
+    /// view must match it before tearing down the current sink.
+    var terminalOutputRegistrationTokensBySurfaceID: [String: UUID]
     var terminalOutputStreamTokensBySurfaceID: [String: UUID]
     var terminalOutputQueuesBySurfaceID: [String: TerminalOutputDeliveryQueue]
     let terminalLaneCoordinator: MobileTerminalLaneCoordinator?
@@ -1022,6 +1030,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalOutputTransport = .rawBytes
         self.authoritativeRenderGridSurfaceIDs = []
         self.terminalByteContinuationsBySurfaceID = [:]
+        self.terminalOutputRegistrationTokensBySurfaceID = [:]
         self.terminalOutputStreamTokensBySurfaceID = [:]
         self.terminalOutputQueuesBySurfaceID = [:]
         if let terminalLaneProvider = runtime?.terminalLaneProvider {
@@ -6542,13 +6551,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         surfaceID: String,
         authoritativeRenderGrid: Bool,
         continuation: AsyncStream<MobileTerminalOutputChunk>.Continuation
-    ) {
+    ) -> UUID {
+        let registrationToken = UUID()
         if authoritativeRenderGrid {
             authoritativeRenderGridSurfaceIDs.insert(surfaceID)
         } else {
             authoritativeRenderGridSurfaceIDs.remove(surfaceID)
         }
         terminalByteContinuationsBySurfaceID[surfaceID] = continuation
+        terminalOutputRegistrationTokensBySurfaceID[surfaceID] = registrationToken
         terminalOutputStreamTokensBySurfaceID[surfaceID] = UUID()
         terminalOutputQueuesBySurfaceID[surfaceID] = TerminalOutputDeliveryQueue()
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
@@ -6567,9 +6578,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         #endif
         requestColdAttachTerminalReplay(surfaceID: surfaceID)
         ensureTerminalLane(surfaceID: surfaceID)
+        return registrationToken
     }
 
-    private func unregisterTerminalOutput(surfaceID: String) {
+    private func unregisterTerminalOutput(surfaceID: String, registrationToken: UUID) {
+        guard terminalOutputRegistrationTokensBySurfaceID[surfaceID] == registrationToken else {
+            return
+        }
         terminalLaneOutputReadySurfaceIDs.remove(surfaceID)
         if let terminalLaneCoordinator {
             Task { await terminalLaneCoordinator.deactivate(surfaceID: surfaceID) }
@@ -6578,6 +6593,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalColdReplayNeedsBarrierUpgradeSurfaceIDs.remove(surfaceID)
         authoritativeRenderGridSurfaceIDs.remove(surfaceID)
         terminalByteContinuationsBySurfaceID.removeValue(forKey: surfaceID)
+        terminalOutputRegistrationTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalOutputStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalOutputQueuesBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
@@ -6630,14 +6646,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// - Returns: An `AsyncStream` of output byte chunks.
     public func terminalOutputStream(surfaceID: String) -> AsyncStream<MobileTerminalOutputChunk> {
         AsyncStream { continuation in
-            registerTerminalOutput(
+            let registrationToken = registerTerminalOutput(
                 surfaceID: surfaceID,
                 authoritativeRenderGrid: false,
                 continuation: continuation
             )
             continuation.onTermination = { [weak self] _ in
                 Task { @MainActor in
-                    self?.unregisterTerminalOutput(surfaceID: surfaceID)
+                    self?.unregisterTerminalOutput(
+                        surfaceID: surfaceID,
+                        registrationToken: registrationToken
+                    )
                 }
             }
         }
@@ -6654,14 +6673,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         surfaceID: String
     ) -> AsyncStream<MobileTerminalOutputChunk> {
         AsyncStream { continuation in
-            registerTerminalOutput(
+            let registrationToken = registerTerminalOutput(
                 surfaceID: surfaceID,
                 authoritativeRenderGrid: true,
                 continuation: continuation
             )
             continuation.onTermination = { [weak self] _ in
                 Task { @MainActor in
-                    self?.unregisterTerminalOutput(surfaceID: surfaceID)
+                    self?.unregisterTerminalOutput(
+                        surfaceID: surfaceID,
+                        registrationToken: registrationToken
+                    )
                 }
             }
         }
