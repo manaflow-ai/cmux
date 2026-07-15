@@ -28,19 +28,21 @@ enum BrowserScreenshotWebViewSnapshotter {
     ) async throws -> NSImage {
         let metrics = try await webContentMetrics(for: webView)
         try BrowserScreenshotCaptureBounds.validateFullPageSize(metrics.contentSize)
-        do {
-            let image = try await captureSingleFullContentSnapshot(
-                from: webView,
-                metrics: metrics,
-                afterScreenUpdates: afterScreenUpdates
-            )
-            if isAcceptableFullContentSnapshot(image, metrics: metrics) {
-                return image
+        if let snapshotRect = metrics.untransformedFullContentSnapshotRect(in: webView.bounds) {
+            do {
+                let image = try await captureSingleFullContentSnapshot(
+                    from: webView,
+                    snapshotRect: snapshotRect,
+                    afterScreenUpdates: afterScreenUpdates
+                )
+                if isAcceptableFullContentSnapshot(image, metrics: metrics) {
+                    return image
+                }
+            } catch {
+                #if DEBUG
+                cmuxDebugLog("browser.screenshot.fullPage.singleSnapshot.failed error=\(error.localizedDescription)")
+                #endif
             }
-        } catch {
-            #if DEBUG
-            cmuxDebugLog("browser.screenshot.fullPage.singleSnapshot.failed error=\(error.localizedDescription)")
-            #endif
         }
 
         return try await captureStitchedFullPage(
@@ -84,13 +86,13 @@ enum BrowserScreenshotWebViewSnapshotter {
 
     private static func captureSingleFullContentSnapshot(
         from webView: WKWebView,
-        metrics: BrowserViewportContentMetrics,
+        snapshotRect: NSRect,
         afterScreenUpdates: Bool
     ) async throws -> NSImage {
         let configuration = WKSnapshotConfiguration()
         configuration.afterScreenUpdates = afterScreenUpdates
         configuration.snapshotWidth = nil
-        configuration.rect = NSRect(origin: .zero, size: metrics.contentSize)
+        configuration.rect = snapshotRect
         return try await takeSnapshot(from: webView, configuration: configuration)
     }
 

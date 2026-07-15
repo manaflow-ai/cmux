@@ -38,6 +38,29 @@ public struct BrowserViewportContentMetrics: Equatable, Sendable {
         )
     }
 
+    /// Returns a full-content snapshot rect only when CSS and WebView coordinates are unscaled.
+    ///
+    /// WebKit requires snapshot rects in view coordinates. Callers must use a tiled capture path
+    /// when page zoom or another bounds transform makes those coordinates differ from CSS pixels.
+    ///
+    /// - Parameters:
+    ///   - webViewBounds: Current bounds of the WebView in view coordinates.
+    ///   - tolerance: Maximum point difference accepted on either viewport dimension.
+    /// - Returns: The CSS-sized full-content rect, or `nil` when coordinate conversion is required.
+    public func untransformedFullContentSnapshotRect(
+        in webViewBounds: CGRect,
+        tolerance: Double = 0.5
+    ) -> CGRect? {
+        guard Self.isValid(webViewBounds.size),
+              tolerance.isFinite,
+              tolerance >= 0,
+              abs(webViewBounds.width - viewportSize.width) <= tolerance,
+              abs(webViewBounds.height - viewportSize.height) <= tolerance else {
+            return nil
+        }
+        return CGRect(origin: .zero, size: contentSize)
+    }
+
     private static func isValid(_ size: CGSize) -> Bool {
         size.width.isFinite && size.height.isFinite && size.width > 0 && size.height > 0
     }

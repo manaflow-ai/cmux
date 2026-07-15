@@ -1,3 +1,4 @@
+public import CoreGraphics
 public import Observation
 
 /// The single source of truth for one browser surface's automation viewport.
@@ -25,11 +26,22 @@ public final class BrowserViewportModel {
         return true
     }
 
-    /// Resets emulation when WebKit adopts an incompatible attached inspector layout.
+    /// Clears emulation and returns native geometry for an attached inspector transition.
     ///
-    /// - Returns: `true` when an emulated viewport was reset.
+    /// - Parameters:
+    ///   - webViewFrame: The page frame WebKit assigned inside its attached inspector split.
+    ///   - pageZoom: Current WebKit page zoom.
+    /// - Returns: Native geometry that preserves the inspector-managed frame, or `nil` when already native.
     @discardableResult
-    public func resetForAttachedInspector() -> Bool {
-        setViewport(nil)
+    public func resetForAttachedInspector(
+        webViewFrame: CGRect,
+        pageZoom: Double
+    ) -> BrowserViewportLayout? {
+        guard setViewport(nil) else { return nil }
+        return BrowserViewportLayout(
+            containerBounds: webViewFrame,
+            viewport: nil,
+            pageZoom: pageZoom
+        )
     }
 }

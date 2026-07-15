@@ -63,7 +63,13 @@ extension BrowserPanel {
 
     @discardableResult
     func resetAutomationViewportForAttachedBrowserInspector() -> Bool {
-        guard viewportModel.resetForAttachedInspector() else { return false }
+        guard let nativeLayout = viewportModel.resetForAttachedInspector(
+            webViewFrame: webView.frame,
+            pageZoom: Double(webView.pageZoom)
+        ) else {
+            return false
+        }
+        webView.cmuxApplyBrowserViewportLayout(nativeLayout)
         BrowserWindowPortalRegistry.refresh(
             webView: webView,
             reason: "attachedInspectorResetAutomationViewport"
