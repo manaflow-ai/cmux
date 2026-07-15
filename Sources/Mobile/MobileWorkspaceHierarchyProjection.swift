@@ -15,21 +15,6 @@ struct MobileWorkspaceHierarchyProjection {
 
     @MainActor
     init(workspace: Workspace, previewSignature: Int? = nil) {
-        self.init(
-            workspace: workspace,
-            previewSignature: previewSignature,
-            fallbackNeedsConfirmClose: { panelID in
-                workspace.terminalPanel(for: panelID)?.needsConfirmClose() ?? false
-            }
-        )
-    }
-
-    @MainActor
-    init(
-        workspace: Workspace,
-        previewSignature: Int? = nil,
-        fallbackNeedsConfirmClose: (UUID) -> Bool
-    ) {
         let focusValue = FocusValue(workspace: workspace)
         let paneSample = Self.paneListSample(workspace: workspace)
         let orderedPanelIDs = workspace.orderedPanelIds
@@ -37,8 +22,7 @@ struct MobileWorkspaceHierarchyProjection {
             workspace: workspace,
             orderedPanelIDs: orderedPanelIDs,
             paneIDByTerminalID: paneSample.paneIDByTerminalID,
-            samplesCloseConfirmationFallback: true,
-            fallbackNeedsConfirmClose: fallbackNeedsConfirmClose
+            includesCloseConfirmation: true
         )
         list = Self.listValue(
             workspace: workspace,
@@ -70,8 +54,7 @@ struct MobileWorkspaceHierarchyProjection {
     @MainActor
     static func observerListValue(
         workspace: Workspace,
-        previewSignature: Int?,
-        fallbackNeedsConfirmClose: (UUID) -> Bool
+        previewSignature: Int?
     ) -> ListValue {
         let paneSample = paneListSample(workspace: workspace)
         let orderedPanelIDs = workspace.orderedPanelIds
@@ -79,8 +62,7 @@ struct MobileWorkspaceHierarchyProjection {
             workspace: workspace,
             orderedPanelIDs: orderedPanelIDs,
             paneIDByTerminalID: paneSample.paneIDByTerminalID,
-            samplesCloseConfirmationFallback: false,
-            fallbackNeedsConfirmClose: fallbackNeedsConfirmClose
+            includesCloseConfirmation: false
         )
         return listValue(
             workspace: workspace,
@@ -115,8 +97,7 @@ struct MobileWorkspaceHierarchyProjection {
         workspace: Workspace,
         orderedPanelIDs: [UUID],
         paneIDByTerminalID: [UUID: UUID],
-        samplesCloseConfirmationFallback: Bool,
-        fallbackNeedsConfirmClose: (UUID) -> Bool
+        includesCloseConfirmation: Bool
     ) -> [TerminalListValue] {
         orderedPanelIDs.compactMap { panelID in
             guard let terminal = workspace.terminalPanel(for: panelID) else { return nil }
@@ -130,10 +111,13 @@ struct MobileWorkspaceHierarchyProjection {
                 panelId: terminal.id,
                 localFallback: localDirectory
             )
-            let requiresCloseConfirmation = samplesCloseConfirmationFallback
+            // List refreshes run on the main actor and can cover every terminal.
+            // Resolve only cached activity here, and fail closed when the cache
+            // is unknown. Exact close validation performs the live query later.
+            let requiresCloseConfirmation = includesCloseConfirmation
                 ? workspace.panelNeedsConfirmClose(
                     panelId: terminal.id,
-                    fallbackNeedsConfirmClose: { fallbackNeedsConfirmClose(terminal.id) }
+                    fallbackNeedsConfirmClose: true
                 )
                 : false
             return TerminalListValue(

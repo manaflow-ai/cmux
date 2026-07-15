@@ -86,18 +86,12 @@ struct MobileWorkspaceListProjection: Hashable {
     static func workspaceDigest(
         workspace: Workspace,
         previewSignature: Int?,
-        fallbackNeedsConfirmClose: ((Workspace, UUID) -> Bool)? = nil
+        fallbackNeedsConfirmClose _: ((Workspace, UUID) -> Bool)? = nil
     ) -> Int {
         var hasher = Hasher()
         let list = MobileWorkspaceHierarchyProjection.observerListValue(
             workspace: workspace,
-            previewSignature: previewSignature,
-            fallbackNeedsConfirmClose: { panelID in
-                if let fallbackNeedsConfirmClose {
-                    return fallbackNeedsConfirmClose(workspace, panelID)
-                }
-                return workspace.terminalPanel(for: panelID)?.needsConfirmClose() ?? false
-            }
+            previewSignature: previewSignature
         )
         list.hashObserverIdentity(into: &hasher)
         return hasher.finalize()

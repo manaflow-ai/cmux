@@ -191,17 +191,9 @@ extension TerminalController {
         isSelected: Bool,
         requestedTerminalID: UUID?,
         notificationStore: TerminalNotificationStore? = nil,
-        fallbackNeedsConfirmClose: ((UUID) -> Bool)? = nil
+        fallbackNeedsConfirmClose _: ((UUID) -> Bool)? = nil
     ) -> [String: Any] {
-        let projection = MobileWorkspaceHierarchyProjection(
-            workspace: workspace,
-            fallbackNeedsConfirmClose: { panelID in
-                if let fallbackNeedsConfirmClose {
-                    return fallbackNeedsConfirmClose(panelID)
-                }
-                return workspace.terminalPanel(for: panelID)?.needsConfirmClose() ?? false
-            }
-        )
+        let projection = MobileWorkspaceHierarchyProjection(workspace: workspace)
         let panePayloads: [[String: Any]] = projection.panes.map { pane in
             return [
                 "id": pane.id.uuidString,
