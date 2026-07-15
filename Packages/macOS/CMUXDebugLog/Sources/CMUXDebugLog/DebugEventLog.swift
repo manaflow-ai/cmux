@@ -184,7 +184,13 @@ public final class DebugEventLog: @unchecked Sendable {
             if droppedInWindow > 0 {
                 let dropped = droppedInWindow
                 droppedInWindow = 0
-                persist(timestamp: timestamp, message: "log.dropped \(dropped) lines")
+                if !persist(timestamp: timestamp, message: "log.dropped \(dropped) lines") {
+                    // The marker itself never reached disk. persist() counted the
+                    // marker line as one dropped; the original lines are still owed,
+                    // so carry the whole count into the next window's marker rather
+                    // than under-reporting it as a single dropped line.
+                    droppedInWindow += dropped
+                }
             }
         }
 
@@ -199,26 +205,41 @@ public final class DebugEventLog: @unchecked Sendable {
         persist(timestamp: timestamp, message: message)
     }
 
-    /// Must run on `queue`.
-    private func persist(timestamp: String, message: String) {
+    /// Must run on `queue`. Returns whether the line's bytes reached the file.
+    @discardableResult
+    private func persist(timestamp: String, message: String) -> Bool {
         nextSequence += 1
         let entry = "\(timestamp) #\(nextSequence) \(message)"
         appendToRing(entry)
-        persistedInWindow += 1
 
-        guard let data = (entry + "\n").data(using: .utf8) else { return }
+        // Count a line as persisted ONLY once its bytes reach the file. A
+        // failed conversion, open, or write drops the line from disk, so it
+        // must count as dropped instead — otherwise the next window's
+        // `log.dropped N` marker under-reports and the "never silently drop"
+        // guarantee breaks. The entry stays in the in-memory ring either way.
+        guard let data = (entry + "\n").data(using: .utf8) else {
+            droppedInWindow += 1
+            return false
+        }
         if appendHandle == nil {
             let fd = open(Self.logPath, O_WRONLY | O_APPEND | O_CREAT, 0o644)
             if fd >= 0 {
                 appendHandle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
             }
         }
-        guard let handle = appendHandle else { return }
+        guard let handle = appendHandle else {
+            droppedInWindow += 1
+            return false
+        }
         do {
             try handle.write(contentsOf: data)
+            persistedInWindow += 1
+            return true
         } catch {
             // The file may have been rotated away; reopen on the next line.
             appendHandle = nil
+            droppedInWindow += 1
+            return false
         }
     }
 
