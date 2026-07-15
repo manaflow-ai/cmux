@@ -2,9 +2,11 @@ import type {
   AgentSource,
   AgentState,
   Base64,
+  ColorHex,
   Id,
   NotificationLevel,
 } from "./common.js";
+import type { ClientTransport } from "./commands.js";
 
 export interface TreeChangedEvent { event: "tree-changed" }
 export interface LayoutChangedEvent { event: "layout-changed"; screen: Id }
@@ -34,7 +36,34 @@ export interface NotificationEvent {
 
 export interface ConfigReloadRequestedEvent { event: "config-reload-requested" }
 export interface WindowTitleRequestedEvent { event: "window-title-requested"; title: string }
+export interface ClientAttachedEvent {
+  event: "client-attached";
+  client: Id;
+  transport: ClientTransport;
+  name: string | null;
+  kind: string | null;
+}
+export interface ClientChangedEvent {
+  event: "client-changed";
+  client: Id;
+  name: string | null;
+  kind: string | null;
+}
+export interface ClientDetachedEvent { event: "client-detached"; client: Id }
 export interface EmptyEvent { event: "empty" }
+
+/** Effective special colors for an attached terminal surface. */
+export interface TerminalColors {
+  fg: ColorHex | null;
+  bg: ColorHex | null;
+  cursor: ColorHex | null;
+  selection_bg: ColorHex | null;
+  selection_fg: ColorHex | null;
+  /** Protocol v6 additive extension. Older servers omit this field. */
+  cursor_style?: "block" | "underline" | "bar" | null;
+  /** Protocol v6 additive extension. Older servers omit this field. */
+  cursor_blink?: boolean | null;
+}
 
 /** Initial base64 VT replay for an attached PTY surface. */
 export interface VtStateEvent {
@@ -43,6 +72,8 @@ export interface VtStateEvent {
   cols: number;
   rows: number;
   data: Base64;
+  /** Protocol v6 additive extension. Older servers omit this field. */
+  colors?: TerminalColors;
 }
 
 /** Live base64 PTY bytes after the attach snapshot. */
@@ -60,6 +91,9 @@ export interface ResizedEvent {
 }
 
 export interface DetachedEvent { event: "detached"; surface: Id }
+
+/** Updated effective special colors for this attach stream's surface. */
+export interface ColorsChangedEvent extends TerminalColors { event: "colors-changed" }
 
 /** Proposed event retained for forward-compatible protocol v6 clients. */
 export interface AgentStateChangedEvent {
@@ -96,13 +130,22 @@ export type KnownSubscribeEvent =
   | NotificationEvent
   | ConfigReloadRequestedEvent
   | WindowTitleRequestedEvent
+  | ClientAttachedEvent
+  | ClientChangedEvent
+  | ClientDetachedEvent
   | EmptyEvent;
 
 /** Subscribe events, including unknown future event names. */
 export type SubscribeEvent = KnownSubscribeEvent | UnknownEvent;
 
 /** All currently implemented attach event payloads. */
-export type KnownAttachEvent = VtStateEvent | OutputEvent | ResizedEvent | ScrollChangedEvent | DetachedEvent;
+export type KnownAttachEvent =
+  | VtStateEvent
+  | OutputEvent
+  | ResizedEvent
+  | ColorsChangedEvent
+  | ScrollChangedEvent
+  | DetachedEvent;
 
 /** Wire-format attach events, including unknown future event names. */
 export type AttachEvent = KnownAttachEvent | UnknownEvent;
@@ -126,11 +169,15 @@ export interface DecodedResizedEvent extends Omit<ResizedEvent, "data" | "replay
   replay: Uint8Array;
 }
 
+/** A special-color update yielded by `attachSurface()`. */
+export type DecodedColorsChangedEvent = ColorsChangedEvent;
+
 /** Attach events as yielded by the client after base64 decoding. */
 export type DecodedAttachEvent =
   | DecodedVtStateEvent
   | DecodedOutputEvent
   | DecodedResizedEvent
+  | DecodedColorsChangedEvent
   | ScrollChangedEvent
   | DetachedEvent
   | UnknownEvent;

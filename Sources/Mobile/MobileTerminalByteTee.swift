@@ -1,6 +1,8 @@
+import CmuxFoundation
+import CmuxTerminal
 import Foundation
 import OSLog
-import CmuxTerminal
+import os
 
 private let mobileTerminalByteTeeLog = Logger(
     subsystem: "dev.cmux",
@@ -27,6 +29,11 @@ private let mobileTerminalByteTeeLog = Logger(
 /// publish handles the hop to the main `MobileHostService.emitEvent`.
 @MainActor
 final class MobileTerminalByteTee {
+    struct OutputChunk: Sendable {
+        let sequence: UInt64
+        let data: Data
+    }
+
     // nonisolated: the singleton itself is an immutable `let` constructed once;
     // the only cross-thread entry point (`append`, from the C tee trampoline) is
     // `nonisolated` and hops to the main actor internally, so reading the
@@ -42,6 +49,11 @@ final class MobileTerminalByteTee {
     }
 
     private var statesBySurfaceID: [UUID: SurfaceState] = [:]
+    private var laneContinuationsBySurfaceID: [
+        UUID: [UUID: AsyncStream<OutputChunk>.Continuation]
+    ] = [:]
+    nonisolated private let laneSubscriberCount = OSAllocatedUnfairLock(initialState: 0)
+    nonisolated private let laneDemand = AtomicBooleanGate(false)
     private let replayBudget: Int = 256 * 1024
     /// Serial queue so fan-out preserves byte order even though the
     /// upstream callback runs off the main thread.
@@ -61,18 +73,13 @@ final class MobileTerminalByteTee {
         // Hot path: this runs on the Ghostty PTY/IO read thread for *every*
         // surface, including normal desktop use with no phone attached. Bail
         // before any allocation or main-actor hop when no mobile client wants
-        // these bytes. The check is an O(1) dictionary read of the single
-        // subscription source of truth (`MobileHostEventSubscriptionTracker`),
-        // the same accessor `MobileTerminalRenderObserver` already uses; it is
-        // not a new lock, and its only writers are the rare subscribe /
-        // unsubscribe RPCs, so the IO thread never meaningfully contends. We
-        // gate on both topics because `publishFromMain` is load-bearing for
-        // the render-grid stream too: it advances `seq` (read as `stateSeq`)
-        // and calls `noteTerminalBytes` to schedule the post-parse tick.
-        guard
-            MobileHostService.hasEventSubscribers(topic: "terminal.bytes")
-                || MobileHostService.hasEventSubscribers(topic: "terminal.render_grid")
-        else {
+        // these bytes. Subscription mutations publish one process-wide atomic
+        // aggregate for both terminal-output topics. An acquire load pairs
+        // with subscription mutation's release store, so the first chunk
+        // after activation cannot use the relaxed disabled-path semantics.
+        // Iroh application-lane demand uses the same lock-free gate, so the
+        // per-chunk path never acquires either subscriber-count lock.
+        guard MobileHostService.hasTerminalOutputSubscribers() || laneDemand.loadAcquire() else {
             return
         }
         guard let base = bytes.baseAddress, bytes.count > 0 else { return }
@@ -96,9 +103,38 @@ final class MobileTerminalByteTee {
         statesBySurfaceID[surfaceID]?.seq
     }
 
+    /// Opens a bounded raw-output subscription for one authenticated Iroh
+    /// terminal lane. If a slow consumer drops a chunk, the stream ends so the
+    /// phone must reopen with its last byte cursor instead of rendering a gap.
+    func outputUpdates(surfaceID: UUID) -> AsyncStream<OutputChunk> {
+        let id = UUID()
+        return AsyncStream(bufferingPolicy: .bufferingOldest(64)) { continuation in
+            laneContinuationsBySurfaceID[surfaceID, default: [:]][id] = continuation
+            laneSubscriberCount.withLock { $0 += 1 }
+            laneDemand.storeRelease(true)
+            continuation.onTermination = { @Sendable [weak self] _ in
+                Task { @MainActor in
+                    self?.removeLaneContinuation(id: id, surfaceID: surfaceID)
+                }
+            }
+        }
+    }
+
     /// Drop replay history for a surface (e.g. when the surface closes).
     func dropSurface(surfaceID: UUID) {
         statesBySurfaceID.removeValue(forKey: surfaceID)
+        let continuations = laneContinuationsBySurfaceID.removeValue(forKey: surfaceID)
+            .map { Array($0.values) } ?? []
+        if !continuations.isEmpty {
+            let remainingCount = laneSubscriberCount.withLock { count in
+                count = max(0, count - continuations.count)
+                return count
+            }
+            laneDemand.storeRelease(remainingCount > 0)
+            for continuation in continuations {
+                continuation.finish()
+            }
+        }
     }
 
     private func publishFromMain(surfaceID: UUID, data: Data) {
@@ -111,6 +147,20 @@ final class MobileTerminalByteTee {
         }
         statesBySurfaceID[surfaceID] = state
         MobileTerminalRenderObserver.shared.noteTerminalBytes(surfaceID: surfaceID)
+
+        if let continuations = laneContinuationsBySurfaceID[surfaceID] {
+            let chunk = OutputChunk(sequence: chunkSeq, data: data)
+            var droppedIDs: [UUID] = []
+            for (id, continuation) in continuations {
+                if case .dropped = continuation.yield(chunk) {
+                    continuation.finish()
+                    droppedIDs.append(id)
+                }
+            }
+            for id in droppedIDs {
+                removeLaneContinuation(id: id, surfaceID: surfaceID)
+            }
+        }
 
         // The render-grid path (the primary mobile path) only needs the seq
         // advance + `noteTerminalBytes` tick above; it never consumes the raw
@@ -131,5 +181,19 @@ final class MobileTerminalByteTee {
             "data_b64": data.base64EncodedString(),
         ]
         MobileHostService.shared.emitEvent(topic: "terminal.bytes", payload: payload)
+    }
+
+    private func removeLaneContinuation(id: UUID, surfaceID: UUID) {
+        guard laneContinuationsBySurfaceID[surfaceID]?.removeValue(forKey: id) != nil else {
+            return
+        }
+        if laneContinuationsBySurfaceID[surfaceID]?.isEmpty == true {
+            laneContinuationsBySurfaceID[surfaceID] = nil
+        }
+        let remainingCount = laneSubscriberCount.withLock { count in
+            count = max(0, count - 1)
+            return count
+        }
+        laneDemand.storeRelease(remainingCount > 0)
     }
 }
