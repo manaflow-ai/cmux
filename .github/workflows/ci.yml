@@ -706,6 +706,7 @@ jobs:
             -only-testing:cmuxTests/NotificationRowSnapshotBoundaryTests \
             -only-testing:cmuxTests/NotificationScrollRestoreLifecycleTests \
             -only-testing:cmuxTests/NotificationScrollRestoreRecoveryTests \
+            -only-testing:cmuxTests/SessionPersistenceTests/testPortableRemoteRuntimeStateOmitsTransientHistoryBeforeSizeLimit \
             test
 
       - name: Run unit tests
