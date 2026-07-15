@@ -43,10 +43,10 @@ struct SignalWorkspaceRow: View {
                 .foregroundStyle(theme.ink)
                 .frame(width: 92, alignment: .leading)
 
-                Text(workspace.elapsedText)
+                Text(workspace.absoluteTimeText)
                     .font(.system(.footnote, design: .monospaced, weight: .regular))
                     .foregroundStyle(theme.secondaryText)
-                    .frame(width: 42, alignment: .trailing)
+                    .frame(width: 52, alignment: .trailing)
                     .padding(.trailing, 10)
             }
             .frame(minHeight: 44)
@@ -69,7 +69,7 @@ struct SignalWorkspaceRow: View {
         } message: {
             Text(workspace.pendingQuestion ?? workspace.detailText)
         }
-        .accessibilityLabel("\(workspace.name), \(workspace.branch), \(status.label), \(workspace.elapsedText)")
+        .accessibilityLabel("\(workspace.name), \(workspace.branch), \(status.label), \(workspace.absoluteTimeText)")
     }
 }
 #endif

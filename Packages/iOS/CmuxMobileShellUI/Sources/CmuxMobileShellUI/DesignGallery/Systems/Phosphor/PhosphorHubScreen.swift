@@ -30,7 +30,7 @@ struct PhosphorHubScreen: View {
                         }
                 }
             } header: {
-                Text("1 needs you · 2 running · 1 done")
+                Text(statusSummary)
                     .font(typography.monoCaptionMedium)
                     .monospacedDigit()
                     .foregroundStyle(theme.textSecondary)
@@ -64,6 +64,19 @@ struct PhosphorHubScreen: View {
         DesignGalleryFixtures.workspaces.sorted {
             theme.statusRank($0.state) < theme.statusRank($1.state)
         }
+    }
+
+    /// The fixture-derived status counts, in attention order, nonzero only.
+    private var statusSummary: String {
+        let labels: [(GalleryAgentState, String)] = [
+            (.needsYou, "needs you"), (.failed, "failed"), (.running, "running"),
+            (.done, "done"), (.idle, "idle"),
+        ]
+        return labels.compactMap { state, label in
+            let count = DesignGalleryFixtures.workspaces.filter { $0.state == state }.count
+            return count > 0 ? "\(count) \(label)" : nil
+        }
+        .joined(separator: " · ")
     }
 }
 #endif
