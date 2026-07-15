@@ -120,6 +120,28 @@ struct BrowserViewportLayoutTests {
         #expect(plan.outputPixelCount <= BrowserViewportSnapshotPlan.maximumOutputPixelCount)
     }
 
+    @Test func nativeZoomSnapshotPlanNormalizesTilesInCSSPixels() throws {
+        let plan = try #require(BrowserViewportSnapshotPlan(
+            outputPixelSize: CGSize(width: 400, height: 300),
+            backingScaleFactor: 2
+        ))
+
+        #expect(plan.snapshotPointWidth == 200)
+        #expect(plan.outputPixelSize == CGSize(width: 400, height: 300))
+        #expect(plan.canReuseSourcePixels(CGSize(width: 400, height: 300)))
+        #expect(!plan.canReuseSourcePixels(CGSize(width: 800, height: 600)))
+    }
+
+    @Test func maximumSnapshotPlanReusesExactSourcePixels() throws {
+        let plan = try #require(BrowserViewportSnapshotPlan(
+            outputPixelSize: CGSize(width: 4_096, height: 4_096),
+            backingScaleFactor: 2
+        ))
+
+        #expect(plan.outputPixelCount == BrowserViewportSnapshotPlan.maximumOutputPixelCount)
+        #expect(plan.canReuseSourcePixels(CGSize(width: 4_096, height: 4_096)))
+    }
+
     @Test func fullPageTilePlanRejectsExcessiveCaptureCount() throws {
         #expect(BrowserFullPageTilePlan(
             contentSize: CGSize(width: 1_000, height: 1_000),
@@ -230,5 +252,21 @@ struct BrowserViewportModelTests {
             webViewFrame: inspectorManagedFrame,
             pageZoom: 2
         ) == nil)
+    }
+
+    @Test func externalGeometrySuspendsAndRestoresEmulatedViewport() throws {
+        let model = BrowserViewportModel()
+        let viewport = try #require(BrowserViewport(width: 1_280, height: 720))
+
+        model.setViewport(viewport)
+        #expect(model.suspendForExternalGeometry())
+        #expect(model.viewport == nil)
+        #expect(model.requestedViewport == viewport)
+        #expect(!model.suspendForExternalGeometry())
+
+        #expect(model.resumeAfterExternalGeometry() == viewport)
+        #expect(model.viewport == viewport)
+        #expect(model.requestedViewport == viewport)
+        #expect(model.resumeAfterExternalGeometry() == nil)
     }
 }
