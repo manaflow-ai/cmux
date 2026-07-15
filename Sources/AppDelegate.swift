@@ -7622,6 +7622,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }),
               let window = resolvedWindow(for: context),
               let initialWorkspace = context.tabManager.selectedWorkspace else {
+            discardMainWindowWithoutClosedHistory(windowId: windowId)
             NSSound.beep()
             return false
         }
