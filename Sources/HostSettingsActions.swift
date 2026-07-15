@@ -92,8 +92,12 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func notifyShortcutSettingsDidChange() {
-        KeyboardShortcutSettings.settingsFileStore.reload()
-        KeyboardShortcutSettings.notifySettingsFileDidChange()
+        // reload() posts didChangeNotification itself when it observes a
+        // change; posting again here would double-notify observers.
+        let reloadDidNotify = KeyboardShortcutSettings.settingsFileStore.reload()
+        if !reloadDidNotify {
+            KeyboardShortcutSettings.notifySettingsFileDidChange()
+        }
     }
 
     func applyLanguageOverride(_ language: AppLanguage) {
