@@ -127,6 +127,58 @@ verify_ipa_bundle_identity() {
   return 0
 }
 
+# App Store Connect rejects embedded iOS frameworks whose bundle metadata omits
+# MinimumOSVersion (90530/90360). Validate the final IPA, after export and any
+# re-sign, so a malformed binary Swift package fails here with its framework
+# name instead of after a slow upload.
+verify_ipa_framework_minimum_os_versions() {
+  local ipa="$1"
+  local workdir app framework plist minimum framework_name major
+
+  workdir="$(mktemp -d)"
+  if ! ( cd "$workdir" && unzip -q "$ipa" ); then
+    echo "error: could not unzip IPA to verify framework metadata: $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  app="$(find "$workdir/Payload" -maxdepth 1 -name '*.app' -type d 2>/dev/null | head -n 1)"
+  if [[ -z "$app" || ! -d "$app" ]]; then
+    echo "error: IPA has no Payload/*.app to verify framework metadata: $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+
+  while IFS= read -r -d '' framework; do
+    framework_name="$(basename "$framework")"
+    plist="$framework/Info.plist"
+    if [[ ! -f "$plist" ]]; then
+      echo "error: $framework_name is missing Info.plist" >&2
+      rm -rf "$workdir"
+      return 1
+    fi
+    minimum="$("$PLISTBUDDY" -c 'Print :MinimumOSVersion' "$plist" 2>/dev/null || true)"
+    if [[ -z "$minimum" ]]; then
+      echo "error: $framework_name is missing MinimumOSVersion" >&2
+      rm -rf "$workdir"
+      return 1
+    fi
+    if [[ ! "$minimum" =~ ^[0-9]+([.][0-9]+){0,2}$ ]]; then
+      echo "error: $framework_name has invalid MinimumOSVersion '$minimum'" >&2
+      rm -rf "$workdir"
+      return 1
+    fi
+    major="${minimum%%.*}"
+    if (( major < 8 )); then
+      echo "error: $framework_name MinimumOSVersion '$minimum' must be 8.0 or later" >&2
+      rm -rf "$workdir"
+      return 1
+    fi
+  done < <(find "$app" -type d -name '*.framework' -print0)
+
+  rm -rf "$workdir"
+  return 0
+}
+
 verify_app_store_ipa_has_no_external_purchase_links() {
   local ipa="$1"
   local workdir app matches
@@ -1047,6 +1099,12 @@ else
   fi
   echo "automatic-signed IPA verified to carry aps-environment=production: $IPA_PATH"
 fi
+
+if ! verify_ipa_framework_minimum_os_versions "$IPA_PATH"; then
+  echo "error: signed IPA contains invalid framework deployment metadata; refusing to upload" >&2
+  exit 1
+fi
+echo "signed IPA framework deployment metadata verified"
 
 echo "IPA_PATH=$IPA_PATH"
 

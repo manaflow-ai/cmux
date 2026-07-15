@@ -22,7 +22,6 @@ extension AppDelegate {
         panelId: UUID?,
         workspace: Workspace?
     ) {
-        guard let position else { return }
         guard let workspace = workspace ?? workspaceFor(tabId: tabId) ?? tabManager?.tabs.first(where: { $0.id == tabId }) else {
             return
         }
