@@ -10,6 +10,41 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct MobileWorkspaceListFocusEventTests {
+    @Test func workspaceScopedFocusDoesNotSampleUnrelatedObserver() async throws {
+        let notificationCenter = NotificationCenter()
+        let targetManager = TabManager(autoWelcomeIfNeeded: false)
+        let unrelatedManager = TabManager(autoWelcomeIfNeeded: false)
+        let targetWorkspaceID = try #require(targetManager.selectedWorkspace?.id)
+        let targetManagerID = ObjectIdentifier(targetManager)
+        let unrelatedManagerID = ObjectIdentifier(unrelatedManager)
+        var sampleCounts: [ObjectIdentifier: Int] = [:]
+        let registry = MobileWorkspaceObserverRegistry(
+            notificationCenter: notificationCenter,
+            focusWorkspaceSampler: { tabManager, workspaceID in
+                sampleCounts[ObjectIdentifier(tabManager), default: 0] += 1
+                return tabManager.tabs.first(where: { $0.id == workspaceID })
+            }
+        )
+        registry.ensureObserver(for: targetManager, notificationStore: nil)
+        registry.ensureObserver(for: unrelatedManager, notificationStore: nil)
+        await allowNotificationTasksToStart()
+
+        notificationCenter.post(
+            name: .ghosttyDidFocusSurface,
+            object: nil,
+            userInfo: [GhosttyNotificationKey.tabId: targetWorkspaceID]
+        )
+        for _ in 0..<100 where sampleCounts[targetManagerID, default: 0] == 0 {
+            await Task.yield()
+        }
+
+        #expect(sampleCounts[targetManagerID] == 1)
+        #expect(
+            sampleCounts[unrelatedManagerID, default: 0] == 0,
+            "an exact workspace focus event must not wake or sample unrelated observers"
+        )
+    }
+
     @Test func focusSequencesIncreaseWhenWorkspaceMovesAcrossObservers() async throws {
         let fixture = try makeTransferredWorkspaceFixture()
         let focusEventSequenceService = MobileWorkspaceFocusEventSequenceService()

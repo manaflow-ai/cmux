@@ -5,6 +5,20 @@ import Foundation
 final class MobileWorkspaceObserverRegistry {
     private var observers: [ObjectIdentifier: MobileWorkspaceListObserver] = [:]
     private let focusEventSequenceService = MobileWorkspaceFocusEventSequenceService()
+    private let notificationCenter: NotificationCenter
+    private let focusWorkspaceSampler: MobileWorkspaceListObserver.FocusWorkspaceSampler
+
+    init(
+        notificationCenter: NotificationCenter = .default,
+        focusWorkspaceSampler: @escaping MobileWorkspaceListObserver.FocusWorkspaceSampler = {
+            tabManager,
+            workspaceID in
+            tabManager.tabs.first(where: { $0.id == workspaceID })
+        }
+    ) {
+        self.notificationCenter = notificationCenter
+        self.focusWorkspaceSampler = focusWorkspaceSampler
+    }
 
     func ensureObserver(
         for tabManager: TabManager,
@@ -15,7 +29,9 @@ final class MobileWorkspaceObserverRegistry {
         observers[id] = MobileWorkspaceListObserver(
             tabManager: tabManager,
             focusEventSequenceService: focusEventSequenceService,
-            notificationStore: notificationStore
+            notificationStore: notificationStore,
+            notificationCenter: notificationCenter,
+            focusWorkspaceSampler: focusWorkspaceSampler
         )
     }
 

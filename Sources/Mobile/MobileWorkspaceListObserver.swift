@@ -14,6 +14,7 @@ private let mobileWorkspaceObserverLog = Logger(subsystem: "dev.cmux", category:
 @MainActor
 final class MobileWorkspaceListObserver {
     typealias WorkspaceDigestSampler = @MainActor (Workspace, Int?) -> Int
+    typealias FocusWorkspaceSampler = @MainActor (TabManager, UUID) -> Workspace?
 
     private weak var tabManager: TabManager?
     /// The app-global notification store, source of each workspace's last-activity
@@ -33,6 +34,8 @@ final class MobileWorkspaceListObserver {
     private var previewSignatures: [UUID: Int] = [:]
     private let focusEventSequenceService: MobileWorkspaceFocusEventSequenceService
     private let workspaceDigestSampler: WorkspaceDigestSampler
+    private let notificationCenter: NotificationCenter
+    private let focusWorkspaceSampler: FocusWorkspaceSampler
     private var lastSummaryHash: Int = 0
     /// Throttle window with `latest: true`. First event in a burst emits
     /// immediately (iPhone gets the change in milliseconds), subsequent
@@ -45,6 +48,10 @@ final class MobileWorkspaceListObserver {
         tabManager: TabManager,
         focusEventSequenceService: MobileWorkspaceFocusEventSequenceService,
         notificationStore: TerminalNotificationStore? = nil,
+        notificationCenter: NotificationCenter = .default,
+        focusWorkspaceSampler: @escaping FocusWorkspaceSampler = { tabManager, workspaceID in
+            tabManager.tabs.first(where: { $0.id == workspaceID })
+        },
         workspaceDigestSampler: @escaping WorkspaceDigestSampler = { workspace, previewSignature in
             MobileWorkspaceListProjection.workspaceDigest(
                 workspace: workspace,
@@ -55,6 +62,8 @@ final class MobileWorkspaceListObserver {
         self.tabManager = tabManager
         self.notificationStore = notificationStore
         self.focusEventSequenceService = focusEventSequenceService
+        self.notificationCenter = notificationCenter
+        self.focusWorkspaceSampler = focusWorkspaceSampler
         self.workspaceDigestSampler = workspaceDigestSampler
         #if DEBUG
         cmuxDebugLog("mobile.observer init tabs=\(tabManager.tabs.count)")
@@ -108,10 +117,11 @@ final class MobileWorkspaceListObserver {
         // Bonsplit focus is not published Workspace state. The shared surface-focus
         // notification fires after terminal and non-terminal selection converges.
         focusedSurfaceTask = Task { @MainActor [weak self] in
-            for await notification in NotificationCenter.default.notifications(named: .ghosttyDidFocusSurface) {
+            for await notification in notificationCenter.notifications(named: .ghosttyDidFocusSurface) {
                 guard let self,
                       let workspaceID = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
-                      let workspace = self.tabManager?.tabs.first(where: { $0.id == workspaceID }) else {
+                      let tabManager = self.tabManager,
+                      let workspace = self.focusWorkspaceSampler(tabManager, workspaceID) else {
                     continue
                 }
                 self.emitFocusedHierarchyUpdateIfNeeded(for: workspace)
