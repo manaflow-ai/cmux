@@ -208,7 +208,6 @@ struct BrowserViewportLayoutTests {
 
     @Test func temporaryReparentingRestoresOnlyWhileItOwnsTheWebView() {
         let temporaryHost = BrowserViewportRestorationPolicy(
-            hasCurrentHost: true,
             temporaryHostIsCurrent: true,
             hasPreviousHost: true,
             hasVisibleWebKitCompanion: false
@@ -217,7 +216,6 @@ struct BrowserViewportLayoutTests {
         #expect(!temporaryHost.shouldPreservePreviousGeometry)
 
         let detached = BrowserViewportRestorationPolicy(
-            hasCurrentHost: false,
             temporaryHostIsCurrent: false,
             hasPreviousHost: true,
             hasVisibleWebKitCompanion: false
@@ -225,7 +223,6 @@ struct BrowserViewportLayoutTests {
         #expect(!detached.shouldRestorePreviousHost)
 
         let newerHost = BrowserViewportRestorationPolicy(
-            hasCurrentHost: true,
             temporaryHostIsCurrent: false,
             hasPreviousHost: true,
             hasVisibleWebKitCompanion: false
@@ -233,7 +230,6 @@ struct BrowserViewportLayoutTests {
         #expect(!newerHost.shouldRestorePreviousHost)
 
         let inspectorLayout = BrowserViewportRestorationPolicy(
-            hasCurrentHost: true,
             temporaryHostIsCurrent: true,
             hasPreviousHost: true,
             hasVisibleWebKitCompanion: true
@@ -241,7 +237,6 @@ struct BrowserViewportLayoutTests {
         #expect(inspectorLayout.shouldPreservePreviousGeometry)
 
         let detachedPreviousHost = BrowserViewportRestorationPolicy(
-            hasCurrentHost: true,
             temporaryHostIsCurrent: true,
             hasPreviousHost: false,
             hasVisibleWebKitCompanion: false

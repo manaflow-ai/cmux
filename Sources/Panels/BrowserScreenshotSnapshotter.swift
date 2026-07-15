@@ -749,7 +749,6 @@ enum BrowserScreenshotWebViewSnapshotter {
         position: NSWindow.OrderingMode
     ) {
         let policy = BrowserViewportRestorationPolicy(
-            hasCurrentHost: presentationView.superview != nil,
             temporaryHostIsCurrent: presentationView.superview === temporarySuperview,
             hasPreviousHost: previousSuperview != nil,
             hasVisibleWebKitCompanion: previousSuperview?
