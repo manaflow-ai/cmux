@@ -228,17 +228,32 @@ extension TerminalSurface {
         if manualIO, !suppressAssignedGridPin, let assigned = assignedGrid {
             let current = ghostty_surface_size(surface)
             if current.cell_width_px > 0, current.cell_height_px > 0 {
+                // On a scale change the reported cell metrics are still at the
+                // OLD backing scale — set_content_scale runs later in this
+                // method. Pinning the old cell px on a 1x→2x move would pin
+                // ~half the columns, and forcing wpx to the old backing width
+                // makes sizeChanged false, defeating deferScaleUntilResized
+                // (the grid then collapses when the bigger cell lands over the
+                // un-resized screen). Project the reported cell (and pad) to
+                // the scale this resize is about to apply. Both ratios are 1
+                // when the scale is unchanged, so this is a no-op then.
+                let ratioX = lastXScale > 0 ? xScale / lastXScale : 1
+                let ratioY = lastYScale > 0 ? yScale / lastYScale : 1
+                let targetCellW = UInt32(max(1, (CGFloat(current.cell_width_px) * ratioX).rounded()))
+                let targetCellH = UInt32(max(1, (CGFloat(current.cell_height_px) * ratioY).rounded()))
                 let gridWidthPx = UInt32(current.columns) * current.cell_width_px
                 let gridHeightPx = UInt32(current.rows) * current.cell_height_px
+                let padWidthPx = current.width_px > gridWidthPx ? current.width_px - gridWidthPx : 0
+                let padHeightPx = current.height_px > gridHeightPx ? current.height_px - gridHeightPx : 0
                 let pinned = Self.assignedGridPinnedSize(
                     width: wpx,
                     height: hpx,
                     assignedColumns: assigned.columns,
                     assignedRows: assigned.rows,
-                    cellWidthPx: current.cell_width_px,
-                    cellHeightPx: current.cell_height_px,
-                    padWidthPx: current.width_px > gridWidthPx ? current.width_px - gridWidthPx : 0,
-                    padHeightPx: current.height_px > gridHeightPx ? current.height_px - gridHeightPx : 0
+                    cellWidthPx: targetCellW,
+                    cellHeightPx: targetCellH,
+                    padWidthPx: UInt32((CGFloat(padWidthPx) * ratioX).rounded()),
+                    padHeightPx: UInt32((CGFloat(padHeightPx) * ratioY).rounded())
                 )
                 #if DEBUG
                 if pinned.width != wpx || pinned.height != hpx {
