@@ -21,8 +21,13 @@ public struct MobileTerminalFontPreference {
     /// the Retina pixel multiplier is applied separately via content scale.
     public static let defaultSize: Float32 = 10
     /// Smallest size the zoom controls (and `cmux mobile set-font`) will reach.
-    static let minimumSize: Float32 = 8
+    /// Matches libghostty's lower bound for `set_font_size`.
+    static let minimumSize: Float32 = 1
     /// Largest size the zoom controls will reach.
     static let maximumSize: Float32 = 28
+
+    static func clampedSize(_ size: Float32) -> Float32 {
+        min(max(size, minimumSize), maximumSize)
+    }
 }
 #endif
