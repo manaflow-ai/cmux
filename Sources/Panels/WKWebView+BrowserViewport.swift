@@ -118,7 +118,7 @@ extension WKWebView {
 
     func cmuxApplyRawBrowserViewportGeometry(_ rawBounds: CGRect) {
         translatesAutoresizingMaskIntoConstraints = true
-        autoresizingMask = [.width, .height]
+        autoresizingMask = cmuxBrowserViewportAutoresizingMask
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)

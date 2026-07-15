@@ -148,7 +148,7 @@ final class BrowserViewportHostView: NSView {
         guard let webView, webView.superview === self else { return true }
         return Self.rect(webView.frame, approximatelyEquals: bounds, epsilon: epsilon) &&
             Self.rect(webView.bounds, approximatelyEquals: bounds, epsilon: epsilon) &&
-            webView.autoresizingMask == [.width, .height]
+            webView.autoresizingMask == webView.cmuxBrowserViewportAutoresizingMask
     }
 
     override func layout() {
