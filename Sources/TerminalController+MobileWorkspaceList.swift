@@ -16,7 +16,7 @@ extension TerminalController {
     /// The full workspace/chat RPCs remain authoritative after attach. This
     /// summary carries only enough identity and state for discovery and one-tap
     /// handoff; it never includes prompts, transcript content, or terminal output.
-    func deviceRegistryLiveSessions(limit: Int = 50) -> [CmxLiveSession] {
+    func deviceRegistryLiveSessions(workspaceID: String? = nil, limit: Int = 50) -> [CmxLiveSession] {
         guard let app = AppDelegate.shared else { return [] }
         var seenWorkspaceIDs: Set<UUID> = []
         var sessions: [CmxLiveSession] = []
@@ -24,6 +24,7 @@ extension TerminalController {
         for window in app.listMainWindowSummaries() {
             guard let tabManager = app.tabManagerFor(windowId: window.windowId) else { continue }
             for workspace in tabManager.tabs where seenWorkspaceIDs.insert(workspace.id).inserted {
+                guard workspaceID == nil || workspace.id.uuidString == workspaceID else { continue }
                 let agentSessions = agentChatTranscriptService?.sessionDescriptors(
                     workspaceID: workspace.id.uuidString
                 ) ?? []

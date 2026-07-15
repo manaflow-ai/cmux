@@ -716,7 +716,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// The user pull-to-refresh round-trip, kept on its own handle so the
     /// event-driven ``workspaceListRefreshTask`` cancel/restart can never truncate
     /// the spinner the pull is awaiting. Rapid pulls coalesce onto this single task.
-    private var pullToRefreshTask: Task<Void, Never>?
+    private var pullToRefreshTask: Task<Bool, Never>?
     var createWorkspaceTaskID: UUID?
     private var createTerminalTaskID: UUID?
     var connectionGeneration: UUID
@@ -2183,11 +2183,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               activeMacInstanceTag == instance.tag else {
             return nil
         }
-        await refreshWorkspaces()
+        let authoritativeRefreshSucceeded = await refreshWorkspaces()
         guard let workspaceID = Self.registryHandoffWorkspaceID(
             workspaceID: session.workspaceID,
             deviceID: device.deviceId,
-            workspaces: workspaces
+            workspaces: workspaces,
+            authoritativeRefreshSucceeded: authoritativeRefreshSucceeded
         ) else {
             await loadRegistryDevices()
             return nil
@@ -2205,9 +2206,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static func registryHandoffWorkspaceID(
         workspaceID: String,
         deviceID: String,
-        workspaces: [MobileWorkspacePreview]
+        workspaces: [MobileWorkspacePreview],
+        authoritativeRefreshSucceeded: Bool = true
     ) -> MobileWorkspacePreview.ID? {
-        workspaces.first { workspace in
+        guard authoritativeRefreshSucceeded else { return nil }
+        return workspaces.first { workspace in
             workspace.rpcWorkspaceID.rawValue == workspaceID
                 && (workspace.macDeviceID == nil || workspace.macDeviceID == deviceID)
         }?.id
@@ -7339,7 +7342,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaceListRefreshTask?.cancel()
         workspaceListRefreshTask = Task { @MainActor [weak self] in
             defer { self?.workspaceListRefreshTask = nil }
-            await self?.reloadWorkspaceListFromMac()
+            _ = await self?.reloadWorkspaceListFromMac()
         }
     }
 
@@ -7352,8 +7355,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// transport) are caught and logged, leaving the existing list intact, because
     /// ``applyRemoteWorkspaceList(_:preferActiveTicketTarget:mergeExistingWorkspaces:)``
     /// runs only on a successful decode.
-    private func reloadWorkspaceListFromMac() async {
-        guard let client = remoteClient else { return }
+    private func reloadWorkspaceListFromMac() async -> Bool {
+        guard let client = remoteClient else { return false }
         do {
             let request = try MobileCoreRPCClient.requestData(method: "mobile.workspace.list", params: [:])
             let data = try await client.sendRequest(
@@ -7361,11 +7364,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 timeoutNanoseconds: runtime?.rpcRequestTimeoutNanoseconds
             )
             let response = try MobileSyncWorkspaceListResponse.decode(data)
-            guard remoteClient === client, connectionState == .connected else { return }
+            guard remoteClient === client, connectionState == .connected else { return false }
             applyRemoteWorkspaceList(response, preferActiveTicketTarget: false)
             syncSelectedTerminalForWorkspace()
+            return true
         } catch {
             mobileShellLog.error("workspace list event refresh failed: \(String(describing: error), privacy: .private)")
+            return false
         }
     }
 
@@ -7398,31 +7403,35 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         await loadPairedMacs()
         guard connectionState == .connected, remoteClient != nil else { return }
         if let inFlight = pullToRefreshTask {
-            await inFlight.value
+            _ = await inFlight.value
             return
         }
-        await reloadWorkspaceListFromMac()
+        _ = await reloadWorkspaceListFromMac()
     }
 
     /// Refresh the foreground Mac workspace list and re-aggregate secondary Macs.
-    public func refreshWorkspaces() async {
-        guard connectionState == .connected, remoteClient != nil else { return }
+    ///
+    /// - Returns: `true` only when a fresh foreground workspace response was applied.
+    @discardableResult
+    public func refreshWorkspaces() async -> Bool {
+        guard connectionState == .connected, remoteClient != nil else { return false }
         if let inFlight = pullToRefreshTask {
-            await inFlight.value
-            return
+            return await inFlight.value
         }
         let task = Task { @MainActor [weak self] in
             defer { self?.pullToRefreshTask = nil }
-            await self?.reloadWorkspaceListFromMac()
+            guard let self else { return false }
+            let foregroundRefreshSucceeded = await self.reloadWorkspaceListFromMac()
             // Re-aggregate the other Macs too, so pull-to-refresh surfaces
             // workspaces created on a secondary Mac since the last fetch (the
             // read-only secondary list is a snapshot, not a live subscription).
-            if self?.multiMacAggregationEnabled == true {
-                await self?.refreshSecondaryMacWorkspaces()
+            if self.multiMacAggregationEnabled {
+                await self.refreshSecondaryMacWorkspaces()
             }
+            return foregroundRefreshSucceeded
         }
         pullToRefreshTask = task
-        await task.value
+        return await task.value
     }
 
     func stopTerminalRefreshPolling() {

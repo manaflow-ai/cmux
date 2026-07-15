@@ -2042,7 +2042,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         MobileHostService.shared.configure(auth: auth.coordinator)
         DeviceRegistryClient.shared.configure(
             auth: auth.coordinator,
-            liveSessions: { TerminalController.shared.deviceRegistryLiveSessions() }
+            liveSessions: { workspaceID in
+                TerminalController.shared.deviceRegistryLiveSessions(workspaceID: workspaceID)
+            }
         )
         PresenceHeartbeatClient.shared.configure(auth: auth.coordinator)
         // DEV-only: auto-publish this Mac's attach route to the signed-in user's

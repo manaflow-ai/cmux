@@ -92,8 +92,16 @@ import CMUXMobileCore
 
         let advertised = DeviceRegistryClient.advertisedSessions(routes: routes, sessions: sessions)
         let encoded = try JSONEncoder().encode(advertised)
+        let requestBody = try #require(DeviceRegistryClient.registrationBody(
+            deviceID: "00000000-0000-4000-8000-000000000000",
+            tag: "default",
+            routes: routes,
+            sessions: advertised,
+            displayName: "Mac"
+        ))
 
         #expect(encoded.count <= DeviceRegistryClient.maximumLiveSessionPayloadBytes)
+        #expect(requestBody.count <= DeviceRegistryClient.maximumRequestBytes)
         #expect(advertised.allSatisfy { $0.title.unicodeScalars.count <= 160 })
     }
 
