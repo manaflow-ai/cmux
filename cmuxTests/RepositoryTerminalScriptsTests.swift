@@ -409,7 +409,7 @@ struct RepositoryScriptSafetyTests {
     }
 }
 
-private actor RecordingRepositoryArchiveCommandRunner: CommandRunning {
+actor RecordingRepositoryArchiveCommandRunner: CommandRunning {
     struct Invocation: Sendable {
         let directory: String
         let executable: String
@@ -421,6 +421,16 @@ private actor RecordingRepositoryArchiveCommandRunner: CommandRunning {
 
     func lastInvocation() -> Invocation? {
         invocation
+    }
+
+    func waitForInvocation() async -> Invocation? {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while clock.now < deadline {
+            if let invocation { return invocation }
+            try? await clock.sleep(for: .milliseconds(10))
+        }
+        return invocation
     }
 
     func run(
