@@ -1587,6 +1587,16 @@
       "exampleConfig": "設定例",
       "metaTitle": "設定",
       "schemaDescriptions": {
+        "commands": {
+          "workspace": {
+            "setupCommand": "このワークスペースのセットアップコマンドとして最初のターミナルへ送信する terminal.savedCommands 内のコマンド名です。setup と同時には指定できません。"
+          }
+        },
+        "scripts": {
+          "description": "プロジェクトローカルの .cmux/cmux.json（フォールバックとしてルートの cmux.json）から読み込むリポジトリライフサイクルスクリプトです。プロジェクトファイルのスクリプトを cmux が実行する前に、明示的な信頼確認が必要です。",
+          "setup": "このリポジトリ用のワークスペース作成時に、ターミナルへ自動送信する複数行シェルスクリプトです。",
+          "archive": "cmux ワークスペースを閉じたときに、リポジトリルートで zsh により実行する複数行シェルスクリプトです。"
+        },
         "agentChat": {
           "description": "Agent Chat GUI サーバーの設定です。組み込みの「新しいエージェントチャット」アクションは、この URL をブラウザワークスペースで開き、先に /healthz を確認し、サーバーが停止している場合は設定した起動コマンドを実行できます。",
           "url": "このマシン上の Agent Chat GUI サーバーのベース URL です。cmux はワークスペースを開く前に <url>/healthz を確認します。",
@@ -1627,6 +1637,18 @@
         "terminal": {
           "copyOnSelect": "true の場合、選択が確定したときにターミナルで選択したテキストをシステムクリップボードへコピーします。false の場合、cmux は Ghostty の copy-on-select 上書きを出力せず、選択クリップボードの動作は Ghostty の設定と既定値に従います。",
           "scrollSpeed": "ターミナルのスクロールホイールとトラックパッドの移動量に適用される倍率です。値を大きくするとスクロールが速くなり、小さくすると遅くなります。",
+          "setupScriptLocation": "リポジトリの自動セットアップスクリプトを開く場所です。バックグラウンドタブは「Setup」というタイトルになり、フォーカスを奪いません。",
+          "savedCommands": "コマンドパレットと保存済みワークスペースレイアウトから利用できる、グローバルな名前付きコマンドです。",
+          "savedCommandId": "設定画面での編集用に cmux が生成する安定した識別子です。",
+          "savedCommandName": "コマンドパレットとワークスペースの setupCommand 参照で使う一意の表示名です。",
+          "savedCommandBody": "送信するシェル入力です。複数行の値は1回のブラケットペーストとして挿入し、最後に Return を1回だけ送信します。",
+          "repositoryScripts": "設定画面で管理する、リポジトリごとの非公開スクリプト上書き、信頼確認への案内、プロンプトの非表示設定です。",
+          "repositoryScriptId": "Git の正規化済み共有 common directory から得た SHA-256 識別子です。リンクされた worktree 間で共通です。",
+          "repositoryScriptRoot": "可読性のために保持する、最後に確認された正規化済み worktree ルートです。",
+          "repositoryScriptSetup": "設定画面から保存した非公開のセットアップスクリプト上書きです。",
+          "repositoryScriptArchive": "設定画面から保存した非公開のアーカイブスクリプト上書きです。",
+          "repositoryScriptOverrides": "非公開の setup と archive の値でプロジェクトファイルのスクリプトを置き換えるかどうかです。",
+          "repositoryScriptPromptDismissed": "このリポジトリでセットアップスクリプト追加の案内を非表示にしたかどうかです。",
           "showTextBoxOnNewTerminals": "新しいワークスペース、ターミナルタブ、ターミナル分割でベータ版の TextBox 入力を既定で表示します。",
           "focusTextBoxOnNewTerminals": "新しいワークスペース、ターミナルタブ、ターミナル分割でベータ版の TextBox 入力に既定でフォーカスします。フォーカスする場合は TextBox も表示されます。",
           "textBoxDefaultSubmitAction": "新しいターミナルセッションで使う既定の TextBox 送信アクション ID です。通常の入力には text-entry、または設定済みアクション ID のいずれかを使います。",

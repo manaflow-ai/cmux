@@ -10,7 +10,7 @@ extension GitMetadataService {
     ///   is treated as its containing directory.
     /// - Returns: The resolved repository, or `nil` if the filesystem root is
     ///   reached without finding one.
-    nonisolated static func resolveGitRepository(containing directory: String) -> ResolvedGitRepository? {
+    public nonisolated static func resolveGitRepository(containing directory: String) -> ResolvedGitRepository? {
         let startURL = URL(fileURLWithPath: directory).standardizedFileURL
         let fileManager = FileManager.default
         var currentURL = startURL

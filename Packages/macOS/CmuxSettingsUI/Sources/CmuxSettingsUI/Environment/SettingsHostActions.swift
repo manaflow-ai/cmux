@@ -55,6 +55,24 @@ public protocol SettingsHostActions: AnyObject {
     /// window scene so the package can't open it directly.
     func openTerminalConfigWindow()
 
+    /// Returns scripts for the repository owning the focused workspace.
+    func repositoryScriptSettingsContext() -> RepositoryScriptSettingsContext?
+
+    /// Saves private script overrides for the repository owning the focused workspace.
+    ///
+    /// - Parameters:
+    ///   - setup: Setup script, or an empty string to clear it.
+    ///   - archive: Archive script, or an empty string to clear it.
+    /// - Returns: `true` when the settings file was updated.
+    @discardableResult
+    func saveRepositoryScripts(setup: String, archive: String) async -> Bool
+
+    /// Imports project-config scripts as private overrides for the focused repository.
+    ///
+    /// - Returns: `true` when the settings file was updated.
+    @discardableResult
+    func importProjectRepositoryScripts() async -> Bool
+
     /// Opens the user's workspace-layout action definitions for editing.
     func customizeWorkspaceLayouts()
 
@@ -184,6 +202,15 @@ public extension SettingsHostActions {
 
     /// Default no-op for package previews and tests without host layout editing.
     func customizeWorkspaceLayouts() {}
+
+    /// Default empty repository context for previews and package-only hosts.
+    func repositoryScriptSettingsContext() -> RepositoryScriptSettingsContext? { nil }
+
+    /// Default failed save for hosts without repository-script persistence.
+    func saveRepositoryScripts(setup: String, archive: String) async -> Bool { false }
+
+    /// Default failed import for hosts without repository-script persistence.
+    func importProjectRepositoryScripts() async -> Bool { false }
 
     /// Default no-op for package previews and tests without app-language ownership.
     func applyLanguageOverride(_ language: AppLanguage) {}

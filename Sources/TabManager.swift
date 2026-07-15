@@ -459,6 +459,8 @@ class TabManager: ObservableObject {
     // entry points.
     let sidebarGitMetadataService: any SidebarGitMetadataServing
     let pullRequestProbing: any PullRequestProbing
+    private(set) var repositorySetupPromptStore: RepositorySetupPromptStore?
+    var repositoryScriptLifecycleCoordinator: RepositoryScriptLifecycleCoordinator?
 
     init(
         initialWorkspaceTitle: String? = nil,
@@ -1047,7 +1049,8 @@ class TabManager: ObservableObject {
         autoWelcomeIfNeeded: Bool = true,
         autoRefreshMetadata: Bool = true,
         normalizeWorkspaceGroupsAfterInsert: Bool = true,
-        allowTextBoxFocusDefault: Bool = true
+        allowTextBoxFocusDefault: Bool = true,
+        runRepositoryScripts: Bool = true
     ) -> Workspace {
         let sourceWorkspace = selectedWorkspace
         let capturedTabs = tabs
@@ -1162,6 +1165,14 @@ class TabManager: ObservableObject {
                     name: .ghosttyDidFocusTab,
                     object: nil,
                     userInfo: [GhosttyNotificationKey.tabId: newWorkspace.id]
+                )
+            }
+            if runRepositoryScripts,
+               initialSurface == .terminal,
+               let repositoryDirectory = workingDirectory ?? newWorkspace.currentDirectory {
+                repositoryScriptLifecycleCoordinator?.workspaceCreated(
+                    newWorkspace,
+                    directory: repositoryDirectory
                 )
             }
 #if DEBUG
@@ -1982,6 +1993,8 @@ class TabManager: ObservableObject {
 
     func closeWorkspace(_ workspace: Workspace, recordHistory: Bool = true) {
         guard tabs.count > 1 else { return }
+        repositoryScriptLifecycleCoordinator?.workspaceWillClose(workspace)
+        repositorySetupPromptStore?.remove(workspaceID: workspace.id)
         panelTitleUpdateCoalescer.flushNow()
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
         // Closing a mirrored remote tmux workspace DETACHES from the remote session,
@@ -2070,7 +2083,7 @@ class TabManager: ObservableObject {
 
         if tabs.isEmpty {
             // The UI assumes each window always has at least one workspace.
-            _ = addWorkspace()
+            _ = addWorkspace(runRepositoryScripts: false)
             return removed
         }
 
@@ -4130,7 +4143,8 @@ class TabManager: ObservableObject {
             title: entry.snapshot.customTitle ?? entry.snapshot.processTitle,
             workingDirectory: entry.snapshot.currentDirectory,
             select: false,
-            autoWelcomeIfNeeded: false
+            autoWelcomeIfNeeded: false,
+            runRepositoryScripts: false
         )
         let restoredPanelIds = workspace.restoreSessionSnapshot(entry.snapshot, excludingStableIdentities: liveStableIdentitySet())
         guard !entry.snapshot.hasRestorablePanels || !restoredPanelIds.isEmpty else {

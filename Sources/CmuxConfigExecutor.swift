@@ -1,4 +1,5 @@
 import AppKit
+import CmuxTerminalCore
 import Foundation
 
 @MainActor
@@ -31,7 +32,10 @@ struct CmuxConfigExecutor {
                 confirm: command.confirm ?? false,
                 configSourcePath: configSourcePath,
                 globalConfigPath: globalConfigPath,
-                displayCommand: workspaceShellDisclosure(command),
+                displayCommand: workspaceShellDisclosure(
+                    command,
+                    savedSetupCommand: tabManager.savedTerminalCommand(named: workspace.setupCommand)
+                ),
                 displayTitle: displayTitle ?? command.name,
                 presentingWindow: presentingWindow
             ) {
@@ -58,7 +62,7 @@ struct CmuxConfigExecutor {
                 iconSourcePath: iconSourcePath,
                 presentingWindow: presentingWindow
             ) { shellInput in
-                targetTerminal.sendInput(shellInput)
+                targetTerminal.submitCommand(shellInput)
                 onExecuted?()
             }
         }
@@ -131,10 +135,13 @@ struct CmuxConfigExecutor {
         ) { shellInput in
             switch target {
             case .currentTerminal:
-                targetTerminal?.sendInput(shellInput)
+                targetTerminal?.submitCommand(shellInput)
             case .newTabInCurrentPane:
                 targetWorkspace?.clearSplitZoom()
-                targetWorkspace?.newTerminalSurfaceInFocusedPane(focus: true, initialInput: shellInput)
+                targetWorkspace?.newTerminalSurfaceInFocusedPane(
+                    focus: true,
+                    initialInput: TerminalCommandSubmission(command: shellInput).text
+                )
             }
             onExecuted?()
         }
@@ -175,7 +182,7 @@ struct CmuxConfigExecutor {
             displayTitle: displayTitle,
             presentingWindow: presentingWindow
         ) {
-            onAuthorized(shellCommand + "\n")
+            onAuthorized(shellCommand)
         }
     }
 

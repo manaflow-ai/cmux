@@ -740,6 +740,12 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     @discardableResult
+    func submitCommand(_ command: String) -> TerminalSurface.InputSendResult {
+        resumeForExplicitInputIfNeeded()
+        return surface.submitCommand(command)
+    }
+
+    @discardableResult
     func sendNamedKeyResult(_ keyName: String) -> TerminalSurface.NamedKeySendResult {
         resumeForExplicitInputIfNeeded()
         return surface.sendNamedKey(keyName)

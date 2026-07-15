@@ -376,7 +376,6 @@ extension Workspace {
         }
 
         let closedAgentRuntimeState = agentRuntimeState(forPanelId: panelId)
-        removePendingTerminalInputObservers(forPanelId: panelId)
         let transferredRemoteCleanupConfiguration = transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: panelId)
         panelSubscriptions.removeValue(forKey: panelId)?.cancel()
         discardAgentSessionPanelSubscription(panelId: panelId, panel: panel)

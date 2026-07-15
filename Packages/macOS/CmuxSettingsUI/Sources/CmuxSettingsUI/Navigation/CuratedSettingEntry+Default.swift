@@ -112,6 +112,36 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .terminal, id: "renderer-realization", title: "Reclaim Offscreen Terminal Memory", synonyms: "terminal.rendererRealization.enabled renderer reclaim offscreen memory iosurface gpu idle warm release background terminals"),
             .init(section: .terminal, id: "renderer-realization-idle", title: "Reclaim After Idle Seconds", synonyms: "terminal.rendererRealization.idleSeconds renderer reclaim idle seconds timeout delay offscreen memory"),
             .init(section: .terminal, id: "renderer-realization-max", title: "Max Warm Renderers", synonyms: "terminal.rendererRealization.maxWarmRenderers max warm renderers limit count reclaim offscreen gpu"),
+            .init(
+                section: .terminal,
+                id: "setup-script-location",
+                title: String(localized: "settings.terminal.setup.location", defaultValue: "Setup Script Location"),
+                paths: ["terminal.setupScriptLocation"],
+                synonyms: String(
+                    localized: "settings.search.alias.setting.terminal.setup-script-location",
+                    defaultValue: "repository setup script automatic workspace background tab vertical horizontal split"
+                )
+            ),
+            .init(
+                section: .terminal,
+                id: "saved-commands",
+                title: String(localized: "settings.terminal.savedCommands", defaultValue: "Saved Commands"),
+                paths: ["terminal.savedCommands"],
+                synonyms: String(
+                    localized: "settings.search.alias.setting.terminal.saved-commands",
+                    defaultValue: "custom scripts commands library multiline run command palette terminal"
+                )
+            ),
+            .init(
+                section: .terminal,
+                id: "repository-scripts",
+                title: String(localized: "settings.terminal.repositoryScripts", defaultValue: "Repository Scripts"),
+                paths: ["terminal.repositoryScripts"],
+                synonyms: String(
+                    localized: "settings.search.alias.setting.terminal.repository-scripts",
+                    defaultValue: "repo per repository setup archive cleanup worktree trust import cmux json"
+                )
+            ),
             .init(section: .terminal, id: "resume-commands", title: "Resume Commands", synonyms: "terminal.resumeCommands surface resume command approvals prefixes auto restore prompt manual tmux hibernation"),
 
             // TextBox

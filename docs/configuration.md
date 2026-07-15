@@ -84,6 +84,88 @@ Default: `cloudFirst`.
 
 `sectionOrder` is accepted as an alias. Project-local `.cmux/cmux.json` values override the global setting.
 
+## Repository scripts and saved commands
+
+cmux can prepare a repository automatically when a workspace is created and can keep reusable commands in a global library.
+
+### Project-local setup and archive scripts
+
+Put repository lifecycle scripts in `.cmux/cmux.json` at the Git work-tree root. A root-level `cmux.json` is accepted as a fallback when `.cmux/cmux.json` is absent.
+
+```json
+{
+  "$schema": "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json",
+  "scripts": {
+    "setup": "corepack enable\npnpm install",
+    "archive": "pnpm run clean"
+  }
+}
+```
+
+- `scripts.setup` is submitted automatically in a terminal for every newly created cmux workspace in the repository.
+- `scripts.archive` runs through `zsh -l -c` in the work-tree root when that workspace is closed. cmux posts a completion or failure notification. Quitting cmux does not treat every restored workspace as archived, so archive scripts do not run during ordinary app termination.
+
+Repository files are untrusted input. Before cmux runs either script for the first time, it shows the exact setup/archive content and asks whether to run once, trust and run, or cancel. Persistent trust is tied to both the canonical Git shared common directory and the script content. Linked worktrees therefore share a repository identity and trust decision, while changing either script requires confirmation again.
+
+When a repository has no setup script, cmux shows a dismissible prompt in its workspace. The dismissal is stored for that repository. In **Settings > Terminal > Repository Scripts**, you can save private per-repository setup/archive overrides or import the project-file values. Private settings replace the project-file scripts and are treated as user-authored configuration rather than untrusted clone content.
+
+`terminal.setupScriptLocation` controls where setup opens:
+
+```json
+{
+  "terminal": {
+    "setupScriptLocation": "backgroundTab"
+  }
+}
+```
+
+Values are `backgroundTab` (the default), `verticalSplit`, and `horizontalSplit`. The setup terminal is titled **Setup**. All three modes preserve the user's current terminal focus; a background tab is created in the current pane without selecting it.
+
+### Global saved commands
+
+Manage named commands in **Settings > Terminal > Saved Commands**. They are stored globally in `terminal.savedCommands`, appear in the command palette, and run in the focused terminal. This library is distinct from project-local `commands`: project commands belong to a repository configuration and retain that configuration's trust behavior, while saved commands are private user settings available everywhere.
+
+```json
+{
+  "terminal": {
+    "savedCommands": [
+      {
+        "id": "bootstrap",
+        "name": "Bootstrap",
+        "command": "corepack enable\npnpm install"
+      }
+    ]
+  }
+}
+```
+
+Single-line commands use a direct terminal-input fast path. Multiline commands are inserted between bracketed-paste markers and followed by one Return, so readline and ZLE receive the entire script before the shell submits it instead of executing each pasted line separately.
+
+Saved workspace definitions compose with the same library through `setupCommand`. Use either `setup` for inline shell input or `setupCommand` for a saved-command name, never both:
+
+```json
+{
+  "commands": [
+    {
+      "name": "Open project layout",
+      "workspace": {
+        "cwd": "~/src/project",
+        "setupCommand": "Bootstrap",
+        "layout": {
+          "direction": "horizontal",
+          "children": [
+            { "pane": { "type": "terminal" } },
+            { "pane": { "type": "terminal" } }
+          ]
+        }
+      }
+    }
+  ]
+}
+```
+
+The layout still owns terminal structure, `setupCommand` supplies its explicit bootstrap command, and the repository lifecycle setup remains a separate repository-level action. They run through the same terminal submission seam without creating a second layout system.
+
 ## `terminal.agentHibernation`
 
 Opt-in Agent Hibernation. cmux kills idle background agent processes to free RAM and CPU, then resumes each one with its saved session when you visit its tab. See [agent-hooks.md](agent-hooks.md#agent-hibernation) for the full behavior, including the confirmation settle window and how resume works.

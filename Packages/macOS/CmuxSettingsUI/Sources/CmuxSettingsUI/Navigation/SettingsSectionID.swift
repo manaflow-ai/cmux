@@ -90,7 +90,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         switch self {
         case .account: return "sign in team sync user profile"
         case .app: return "appearance language workspace notifications menu bar telemetry"
-        case .terminal: return "scrollbar copy on select agent resume hibernation"
+        case .terminal: return "scrollbar copy on select agent resume hibernation repository setup archive scripts saved commands"
         case .textBox: return "textbox text box rich input prompt default new terminal workspace split tab focus show beta"
         case .sleepyMode: return "sleepy mode screensaver caffeinate keep awake lock touch id battery wifi clock mascot theme glow pixel"
         case .mobile: return "ios iphone ipad mobile pairing local network sync"

@@ -11,6 +11,7 @@ public struct TerminalSection: View {
     private let jsonStore: JSONConfigStore
     private let catalog: SettingCatalog
     private let hostActions: SettingsHostActions
+    private let terminalScriptsCard: TerminalScriptsSettingsCard
 
     @State private var surfaceTabBarFont: SettingsFontSize
     @State private var fontSaveFailed = false
@@ -27,15 +28,30 @@ public struct TerminalSection: View {
     @State private var rendererIdleSeconds: DefaultsValueModel<Double>
     @State private var rendererMaxWarm: DefaultsValueModel<Int>
 
+    /// Creates the Terminal settings section from the app's injected settings stores.
+    ///
+    /// - Parameters:
+    ///   - defaultsStore: Store for `UserDefaults`-backed terminal settings.
+    ///   - jsonStore: Store for JSON-backed terminal settings.
+    ///   - catalog: Typed setting-key catalog.
+    ///   - errorLog: Shared destination for settings persistence failures.
+    ///   - hostActions: App-owned actions used by terminal settings rows.
     public init(
         defaultsStore: UserDefaultsSettingsStore,
         jsonStore: JSONConfigStore,
         catalog: SettingCatalog,
+        errorLog: SettingsErrorLog,
         hostActions: SettingsHostActions
     ) {
         self.jsonStore = jsonStore
         self.catalog = catalog
         self.hostActions = hostActions
+        self.terminalScriptsCard = TerminalScriptsSettingsCard(
+            jsonStore: jsonStore,
+            catalog: catalog,
+            errorLog: errorLog,
+            hostActions: hostActions
+        )
         _surfaceTabBarFont = State(initialValue: hostActions.surfaceTabBarFontSize())
         _scrollSpeed = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.scrollSpeed))
         _scrollBar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showScrollBar))
@@ -53,6 +69,7 @@ public struct TerminalSection: View {
         Group {
             SettingsSectionHeader(String(localized: "settings.section.terminal", defaultValue: "Terminal"), section: .terminal)
             mainCard
+            terminalScriptsCard
             resumeCommandsCard
         }
         .task { startObservingSettings() }

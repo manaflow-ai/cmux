@@ -17,11 +17,12 @@ struct CmuxConfigFile: Codable, Sendable {
     var newWorkspaceCommand: String?
     var surfaceTabBarButtons: [CmuxSurfaceTabBarButton]?
     var commands: [CmuxCommandDefinition]
+    var scripts: CmuxRepositoryScriptsDefinition?
     var vault: CmuxVaultConfigDefinition?
     var workspaceGroups: CmuxConfigWorkspaceGroupsDefinition?
 
     private enum CodingKeys: String, CodingKey {
-        case actions, ui, notifications, agentChat, newWorkspaceCommand, surfaceTabBarButtons, commands, vault, workspaceGroups
+        case actions, ui, notifications, agentChat, newWorkspaceCommand, surfaceTabBarButtons, commands, scripts, vault, workspaceGroups
     }
 
     init(
@@ -32,6 +33,7 @@ struct CmuxConfigFile: Codable, Sendable {
         newWorkspaceCommand: String? = nil,
         surfaceTabBarButtons: [CmuxSurfaceTabBarButton]? = nil,
         commands: [CmuxCommandDefinition] = [],
+        scripts: CmuxRepositoryScriptsDefinition? = nil,
         vault: CmuxVaultConfigDefinition? = nil,
         workspaceGroups: CmuxConfigWorkspaceGroupsDefinition? = nil
     ) {
@@ -42,6 +44,7 @@ struct CmuxConfigFile: Codable, Sendable {
         self.newWorkspaceCommand = newWorkspaceCommand
         self.surfaceTabBarButtons = surfaceTabBarButtons
         self.commands = commands
+        self.scripts = scripts
         self.vault = vault
         self.workspaceGroups = workspaceGroups
     }
@@ -91,6 +94,7 @@ struct CmuxConfigFile: Codable, Sendable {
             surfaceTabBarButtons = nil
         }
         commands = try container.decodeIfPresent([CmuxCommandDefinition].self, forKey: .commands) ?? []
+        scripts = try container.decodeIfPresent(CmuxRepositoryScriptsDefinition.self, forKey: .scripts)
         vault = try container.decodeIfPresent(CmuxVaultConfigDefinition.self, forKey: .vault)
         workspaceGroups = try container.decodeIfPresent(
             CmuxConfigWorkspaceGroupsDefinition.self,
@@ -1741,6 +1745,9 @@ final class CmuxConfigStore: ObservableObject {
     private weak var tabManager: TabManager?
     let globalConfigPath: String
     private let fileWatchingEnabled: Bool
+    private lazy var terminalScriptSettingsStore = JSONConfigStore(
+        fileURL: URL(fileURLWithPath: globalConfigPath)
+    )
 
     nonisolated private static func defaultGlobalConfigPath() -> String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
@@ -2041,6 +2048,20 @@ final class CmuxConfigStore: ObservableObject {
                     }
                 }
             }
+        }
+
+        let savedTerminalCommands = terminalScriptSettingsStore.snapshotValue(
+            for: SettingCatalog().terminal.savedCommands
+        ).commands
+        for savedCommand in savedTerminalCommands {
+            let name = savedCommand.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty,
+                  !savedCommand.command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  !seenNames.contains(name) else { continue }
+            let command = CmuxCommandDefinition(name: name, command: savedCommand.command)
+            commands.append(command)
+            seenNames.insert(name)
+            sourcePaths[command.id] = globalConfigPath
         }
 
         // Global config fills in the rest

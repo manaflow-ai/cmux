@@ -178,6 +178,40 @@ extension TerminalSurface {
         return .sent
     }
 
+    /// Inserts a complete command into an interactive shell and submits it once.
+    /// Multiline commands are delivered as one bracketed paste so embedded newlines
+    /// cannot be interpreted as individual Return key presses.
+    ///
+    /// - Parameter command: Shell input to insert and submit.
+    /// - Returns: Whether the bytes were sent, queued, or rejected by the surface.
+    @MainActor
+    @discardableResult
+    public func submitCommand(_ command: String) -> InputSendResult {
+        sendRawInput(TerminalCommandSubmission(command: command).data)
+    }
+
+    @MainActor
+    private func sendRawInput(_ data: Data) -> InputSendResult {
+        guard !data.isEmpty else { return .sent }
+        didReceiveExplicitInput()
+        guard surface != nil else {
+            guard allowsRuntimeSurfaceCreation() else { return .surfaceUnavailable }
+            let queued = enqueuePendingSocketInput(.inputText(data))
+            if queued {
+                hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
+                requestInputDemandSurfaceStartIfNeeded()
+            }
+            return queued ? .queued : .inputQueueFull
+        }
+        guard let liveSurface = liveSurfaceForSocketWrite(reason: "command.submit") else {
+            return .surfaceUnavailable
+        }
+        guard !ghostty_surface_process_exited(liveSurface) else { return .processExited }
+        hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
+        writeInputTextData(data, to: liveSurface)
+        return .sent
+    }
+
     @MainActor
     private func sendInput(_ text: String, to surface: ghostty_surface_t) {
         for event in Self.parsedSocketInputEvents(for: text) {
