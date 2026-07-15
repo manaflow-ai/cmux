@@ -12,6 +12,12 @@ import os
 /// command-queue desync because we issue and correlate commands ourselves.
 @MainActor
 final class RemoteTmuxControlConnection {
+    typealias ActivityQueryDeadlineCancellation = @MainActor () -> Void
+    typealias ActivityQueryDeadlineScheduler = @MainActor (
+        Duration,
+        @escaping @MainActor () -> Void
+    ) -> ActivityQueryDeadlineCancellation
+
     /// The host this connection talks to.
     let host: RemoteTmuxHost
     /// The tmux session name this connection attaches to. Mutable because a
@@ -85,10 +91,11 @@ final class RemoteTmuxControlConnection {
     /// the cached classification instead of hanging until a reconnect that may
     /// never come.
     var activityQueryCompletions: [UUID: ([Int: PaneForegroundState]?) -> Void] = [:]
-    /// Deadline tasks paired one-to-one with ``activityQueryCompletions``. A
-    /// connected control stream can remain wedged without producing either a
-    /// reply or a reset, so stream lifecycle alone cannot bound close RPCs.
-    var activityQueryTimeoutTasks: [UUID: Task<Void, Never>] = [:]
+    /// Deadline cancellations paired one-to-one with
+    /// ``activityQueryCompletions``. A connected control stream can remain wedged
+    /// without producing either a reply or a reset, so stream lifecycle alone
+    /// cannot bound close RPCs.
+    var activityQueryDeadlineCancellations: [UUID: ActivityQueryDeadlineCancellation] = [:]
     var newWindowCompletions: [UUID: (Int?) -> Void] = [:]
 
     private var process: Process?
@@ -121,6 +128,7 @@ final class RemoteTmuxControlConnection {
     /// produces a fresh attach block).
     private var attachBlockDrained = false
     private let createIfMissing: Bool
+    let scheduleActivityQueryDeadline: ActivityQueryDeadlineScheduler
 
     /// Stateless pure decoders for control-mode message payloads (pane-state seed,
     /// window reorder, session-gone classification). Holds no state.
@@ -254,10 +262,27 @@ final class RemoteTmuxControlConnection {
     static let altScreenEnterSequence = Data("\u{1b}[?1049h".utf8)
     static let altScreenExitSequence = Data("\u{1b}[?1049l".utf8)
 
-    init(host: RemoteTmuxHost, sessionName: String, createIfMissing: Bool = false) {
+    init(
+        host: RemoteTmuxHost,
+        sessionName: String,
+        createIfMissing: Bool = false,
+        scheduleActivityQueryDeadline: @escaping ActivityQueryDeadlineScheduler = { delay, action in
+            let task = Task { @MainActor in
+                do {
+                    try await Task.sleep(for: delay)
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled else { return }
+                action()
+            }
+            return { task.cancel() }
+        }
+    ) {
         self.host = host
         self.sessionName = sessionName
         self.createIfMissing = createIfMissing
+        self.scheduleActivityQueryDeadline = scheduleActivityQueryDeadline
     }
 
     /// Spawns the SSH `tmux -CC` process and begins streaming.

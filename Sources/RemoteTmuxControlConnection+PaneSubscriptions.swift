@@ -220,9 +220,9 @@ extension RemoteTmuxControlConnection {
             finishActivityQuery(token: token, states: nil)
             return nil
         }
-        activityQueryTimeoutTasks[token] = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: Self.activityQueryTimeout)
-            guard !Task.isCancelled else { return }
+        activityQueryDeadlineCancellations[token] = scheduleActivityQueryDeadline(
+            Self.activityQueryTimeout
+        ) { [weak self] in
             self?.finishActivityQuery(token: token, states: nil)
         }
         return token
@@ -233,7 +233,7 @@ extension RemoteTmuxControlConnection {
     /// timeout, stream reset, and task cancellation all converge here so the
     /// retained callback is removed before it is invoked and can resume once.
     func finishActivityQuery(token: UUID, states: [Int: PaneForegroundState]?) {
-        activityQueryTimeoutTasks.removeValue(forKey: token)?.cancel()
+        activityQueryDeadlineCancellations.removeValue(forKey: token)?()
         activityQueryCompletions.removeValue(forKey: token)?(states)
     }
 

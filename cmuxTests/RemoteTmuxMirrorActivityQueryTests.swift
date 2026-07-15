@@ -10,10 +10,12 @@ extension RemoteTmuxMirrorTargetingTests {
     @Test func liveActivityQueryTimesOutAndReleasesItsContinuationWhenTmuxNeverReplies() async throws {
         let controller = RemoteTmuxController()
         let manager = TabManager()
+        let deadlineScheduler = CapturingActivityQueryDeadlineScheduler()
         let harness = try ActivityQueryHarness(
             controller: controller,
             manager: manager,
-            windowCount: 1
+            windowCount: 1,
+            scheduleActivityQueryDeadline: deadlineScheduler.schedule
         )
         defer { harness.tearDown() }
         let panelID = try harness.panelID(forWindow: 1)
@@ -28,13 +30,15 @@ extension RemoteTmuxMirrorTargetingTests {
             await Task.yield()
         }
         #expect(harness.connection.activityQueryCompletions.count == 1)
+        #expect(deadlineScheduler.delays == [.seconds(1)])
 
         // A live mobile RPC has only a short response budget. The host query must
         // fail closed before that budget expires even if the connected stream is
         // wedged and never emits either a command result or a reset.
-        try await Task.sleep(for: .milliseconds(1_500))
+        deadlineScheduler.fireAll()
         let releasedByDeadline = harness.connection.activityQueryCompletions.isEmpty
         #expect(releasedByDeadline)
+        #expect(deadlineScheduler.firedCount == 1)
 
         if !releasedByDeadline {
             harness.connection.failPendingActivityQueries()
@@ -46,10 +50,12 @@ extension RemoteTmuxMirrorTargetingTests {
     @Test func cancellingLiveActivityQueryReleasesItsContinuation() async throws {
         let controller = RemoteTmuxController()
         let manager = TabManager()
+        let deadlineScheduler = CapturingActivityQueryDeadlineScheduler()
         let harness = try ActivityQueryHarness(
             controller: controller,
             manager: manager,
-            windowCount: 1
+            windowCount: 1,
+            scheduleActivityQueryDeadline: deadlineScheduler.schedule
         )
         defer { harness.tearDown() }
         let panelID = try harness.panelID(forWindow: 1)
@@ -64,6 +70,7 @@ extension RemoteTmuxMirrorTargetingTests {
             await Task.yield()
         }
         #expect(harness.connection.activityQueryCompletions.count == 1)
+        #expect(deadlineScheduler.scheduledCount == 1)
 
         query.cancel()
         for _ in 0..<50 where !harness.connection.activityQueryCompletions.isEmpty {
@@ -71,6 +78,11 @@ extension RemoteTmuxMirrorTargetingTests {
         }
         let releasedAfterCancellation = harness.connection.activityQueryCompletions.isEmpty
         #expect(releasedAfterCancellation)
+        #expect(deadlineScheduler.cancelledCount == 1)
+
+        // A cancelled deadline cannot later resume the query a second time.
+        deadlineScheduler.fireAll()
+        #expect(deadlineScheduler.firedCount == 0)
 
         if !releasedAfterCancellation {
             harness.connection.failPendingActivityQueries()
@@ -142,12 +154,21 @@ extension RemoteTmuxMirrorTargetingTests {
         init(
             controller: RemoteTmuxController,
             manager: TabManager,
-            windowCount: Int
+            windowCount: Int,
+            scheduleActivityQueryDeadline: RemoteTmuxControlConnection.ActivityQueryDeadlineScheduler? = nil
         ) throws {
             self.controller = controller
             self.manager = manager
             host = RemoteTmuxHost(destination: "activity-query-\(UUID().uuidString)@host")
-            connection = RemoteTmuxControlConnection(host: host, sessionName: "activity-query")
+            if let scheduleActivityQueryDeadline {
+                connection = RemoteTmuxControlConnection(
+                    host: host,
+                    sessionName: "activity-query",
+                    scheduleActivityQueryDeadline: scheduleActivityQueryDeadline
+                )
+            } else {
+                connection = RemoteTmuxControlConnection(host: host, sessionName: "activity-query")
+            }
             pipe = Pipe()
             writer = RemoteTmuxControlPipeWriter(
                 handle: pipe.fileHandleForWriting,
@@ -213,6 +234,44 @@ extension RemoteTmuxMirrorTargetingTests {
             controller.detach(host: host, sessionName: "activity-query")
             writer.close()
             try? pipe.fileHandleForReading.close()
+        }
+    }
+
+    @MainActor
+    private final class CapturingActivityQueryDeadlineScheduler {
+        private struct PendingDeadline {
+            let delay: Duration
+            var isCancelled = false
+            var hasFired = false
+            let action: @MainActor () -> Void
+        }
+
+        private var pendingDeadlines: [PendingDeadline] = []
+
+        var schedule: RemoteTmuxControlConnection.ActivityQueryDeadlineScheduler {
+            { [weak self] delay, action in
+                guard let self else { return {} }
+                let index = pendingDeadlines.count
+                pendingDeadlines.append(PendingDeadline(delay: delay, action: action))
+                return { [weak self] in
+                    guard let self, pendingDeadlines.indices.contains(index) else { return }
+                    pendingDeadlines[index].isCancelled = true
+                }
+            }
+        }
+
+        var scheduledCount: Int { pendingDeadlines.count }
+        var cancelledCount: Int { pendingDeadlines.filter(\.isCancelled).count }
+        var firedCount: Int { pendingDeadlines.filter(\.hasFired).count }
+        var delays: [Duration] { pendingDeadlines.map(\.delay) }
+
+        func fireAll() {
+            for index in pendingDeadlines.indices {
+                guard !pendingDeadlines[index].isCancelled,
+                      !pendingDeadlines[index].hasFired else { continue }
+                pendingDeadlines[index].hasFired = true
+                pendingDeadlines[index].action()
+            }
         }
     }
 }
