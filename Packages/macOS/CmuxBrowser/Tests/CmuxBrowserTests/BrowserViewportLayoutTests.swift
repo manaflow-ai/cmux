@@ -94,6 +94,18 @@ struct BrowserViewportLayoutTests {
         #expect(layout.scale == 2)
     }
 
+    @Test func nativeLayoutMatchesWebKitFractionalWidthQuantizationAtPageZoom() throws {
+        let layout = try #require(BrowserViewportLayout(
+            containerBounds: CGRect(x: 0, y: 0, width: 379.5, height: 610),
+            viewport: nil,
+            pageZoom: 1.1
+        ))
+
+        #expect(Int(layout.bounds.width.rounded(.down)) == 344)
+        #expect(Int(layout.bounds.height.rounded(.down)) == 554)
+        #expect(layout.webViewBounds == CGRect(x: 0, y: 0, width: 379.5, height: 610))
+    }
+
     @Test func renderLimitsBoundCombinedViewportAndZoomGeometry() throws {
         let limits = BrowserViewportRenderLimits.standard
         let commonViewport = try #require(BrowserViewport(width: 1_280, height: 720))
