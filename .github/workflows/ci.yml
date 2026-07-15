@@ -311,7 +311,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Validate managed relay catalog
-        run: bun ../scripts/generate-managed-iroh-relay-catalog.ts --check
+        run: bun tools/generate-managed-iroh-relay-catalog.ts --check
 
       - name: Typecheck
         run: bun run typecheck
