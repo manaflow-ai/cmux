@@ -1,5 +1,13 @@
 import CmuxFoundation
+import CmuxGit
+import Darwin
 import Foundation
+import os
+
+nonisolated private let extensionWorktreeLogger = Logger(
+    subsystem: "com.cmuxterm.app",
+    category: "ExtensionWorktree"
+)
 
 struct CmuxExtensionWorktreeCreationResult: Sendable {
     let worktreePath: String
@@ -45,51 +53,16 @@ extension CmuxExtensionWorktreeCreationResult {
     }
 }
 
-final class CmuxExtensionProcessTermination: @unchecked Sendable {
-    private let lock = NSLock()
-    private var status: Int32?
-    private var continuation: CheckedContinuation<Int32, Never>?
-
-    func complete(_ status: Int32) {
-        let continuation: CheckedContinuation<Int32, Never>?
-        lock.lock()
-        if let pendingContinuation = self.continuation {
-            self.continuation = nil
-            continuation = pendingContinuation
-        } else {
-            self.status = status
-            continuation = nil
-        }
-        lock.unlock()
-        continuation?.resume(returning: status)
-    }
-
-    func wait() async -> Int32 {
-        await withCheckedContinuation { continuation in
-            let completedStatus: Int32?
-            lock.lock()
-            if let status {
-                completedStatus = status
-            } else {
-                self.continuation = continuation
-                completedStatus = nil
-            }
-            lock.unlock()
-
-            if let completedStatus {
-                continuation.resume(returning: completedStatus)
-            }
-        }
-    }
-}
-
 enum CmuxExtensionWorktreePrototype {
     static func createWorktree(projectRootPath: String) async throws -> CmuxExtensionWorktreeCreationResult {
-        try await Task.detached(priority: .userInitiated) {
+        let worker = Task.detached(priority: .userInitiated) {
             let projectRoot = URL(fileURLWithPath: projectRootPath, isDirectory: true).standardizedFileURL
+            try Task.checkCancellation()
             try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
             try await ensureGitRepository(at: projectRoot)
+            try Task.checkCancellation()
             try await ensureCmuxWorktreeDirectoryIsLocallyIgnored(projectRoot: projectRoot)
+            try Task.checkCancellation()
 
             let branchName = "cmux-sidebar-\(Int(Date().timeIntervalSince1970))-\(UUID().uuidString.prefix(8).lowercased())"
             let worktreeRoot = projectRoot
@@ -97,17 +70,53 @@ enum CmuxExtensionWorktreePrototype {
                 .appendingPathComponent("worktrees", isDirectory: true)
             try FileManager.default.createDirectory(at: worktreeRoot, withIntermediateDirectories: true)
             let worktree = worktreeRoot.appendingPathComponent(branchName, isDirectory: true)
-            try await run("git", ["-C", projectRoot.path, "worktree", "add", "-b", branchName, worktree.path, "HEAD"])
-            try writeSampleDevServerFiles(in: worktree, projectName: projectRoot.lastPathComponent)
+            var worktreeCreationStarted = false
+            do {
+                try Task.checkCancellation()
+                worktreeCreationStarted = true
+                try await run("git", ["-C", projectRoot.path, "worktree", "add", "-b", branchName, worktree.path, "HEAD"])
+                try Task.checkCancellation()
+                try writeSampleDevServerFiles(in: worktree, projectName: projectRoot.lastPathComponent)
+                let worktreeIncludeDiagnostics = await WorktreeIncludeSyncService().sync(
+                    from: projectRoot,
+                    to: worktree,
+                    excludingRelativePaths: ["cmux-sample-dev"]
+                )
+                for diagnostic in worktreeIncludeDiagnostics {
+                    extensionWorktreeLogger.warning(
+                        "worktree include sync warning project=\(projectRoot.path, privacy: .private(mask: .hash)) detail=\(diagnostic, privacy: .private)"
+                    )
+                }
+                try Task.checkCancellation()
 
-            let port = 4_100 + abs(branchName.hashValue % 800)
-            let samplePath = shellEscaped(worktree.appendingPathComponent("cmux-sample-dev", isDirectory: true).path)
-            return CmuxExtensionWorktreeCreationResult(
-                worktreePath: worktree.path,
-                workspaceTitle: branchName,
-                setupCommand: "cd \(samplePath) && python3 -m http.server \(port)"
-            )
-        }.value
+                let port = 4_100 + abs(branchName.hashValue % 800)
+                let samplePath = shellEscaped(worktree.appendingPathComponent("cmux-sample-dev", isDirectory: true).path)
+                let result = CmuxExtensionWorktreeCreationResult(
+                    worktreePath: worktree.path,
+                    workspaceTitle: branchName,
+                    setupCommand: "cd \(samplePath) && python3 -m http.server \(port)"
+                )
+                worktreeCreationStarted = false
+                return result
+            } catch {
+                let rollbackSafe = (error as? CmuxExtensionWorktreeCommandFailure)?.rollbackSafe ?? true
+                if worktreeCreationStarted, rollbackSafe {
+                    await Task.detached(priority: .utility) {
+                        await rollbackWorktree(
+                            projectRoot: projectRoot,
+                            worktree: worktree,
+                            branchName: branchName
+                        )
+                    }.value
+                }
+                throw error
+            }
+        }
+        return try await withTaskCancellationHandler {
+            try await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
     }
 
     private static func ensureGitRepository(at projectRoot: URL) async throws {
@@ -121,11 +130,34 @@ enum CmuxExtensionWorktreePrototype {
         )
     }
 
+    private static func rollbackWorktree(
+        projectRoot: URL,
+        worktree: URL,
+        branchName: String
+    ) async {
+        do {
+            try await run("git", [
+                "-C", projectRoot.path,
+                "worktree", "remove", "--force", worktree.path,
+            ])
+        } catch {
+            extensionWorktreeLogger.error(
+                "worktree rollback removal failed project=\(projectRoot.path, privacy: .private(mask: .hash)) detail=\(error.localizedDescription, privacy: .private)"
+            )
+        }
+        do {
+            try await run("git", ["-C", projectRoot.path, "branch", "-D", branchName])
+        } catch {
+            extensionWorktreeLogger.error(
+                "worktree rollback branch deletion failed project=\(projectRoot.path, privacy: .private(mask: .hash)) detail=\(error.localizedDescription, privacy: .private)"
+            )
+        }
+    }
+
     private static func ensureCmuxWorktreeDirectoryIsLocallyIgnored(projectRoot: URL) async throws {
         let output = try await runCapturingOutput("git", ["-C", projectRoot.path, "rev-parse", "--git-path", "info/exclude"])
-        guard let rawPath = String(data: output, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-              !rawPath.isEmpty else {
+        let rawPath = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !rawPath.isEmpty else {
             throw NSError(
                 domain: "CmuxExtensionWorktreePrototype",
                 code: 2,
@@ -150,8 +182,6 @@ enum CmuxExtensionWorktreePrototype {
     }
 
     private static func writeSampleDevServerFiles(in worktree: URL, projectName: String) throws {
-        let sample = worktree.appendingPathComponent("cmux-sample-dev", isDirectory: true)
-        try FileManager.default.createDirectory(at: sample, withIntermediateDirectories: true)
         let escapedProject = projectName
             .replacingOccurrences(of: "&", with: "&amp;")
             .replacingOccurrences(of: "<", with: "&lt;")
@@ -166,64 +196,105 @@ enum CmuxExtensionWorktreePrototype {
           </body>
         </html>
         """
-        try html.write(to: sample.appendingPathComponent("index.html"), atomically: true, encoding: .utf8)
+        let worktreeDescriptor = Darwin.open(
+            worktree.path,
+            O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW
+        )
+        guard worktreeDescriptor >= 0 else { throw posixError() }
+        defer { Darwin.close(worktreeDescriptor) }
+
+        let sampleName = "cmux-sample-dev"
+        let createDirectoryResult = sampleName.withCString {
+            mkdirat(worktreeDescriptor, $0, 0o700)
+        }
+        guard createDirectoryResult == 0 || errno == EEXIST else { throw posixError() }
+        let sampleDescriptor = sampleName.withCString {
+            openat(worktreeDescriptor, $0, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
+        }
+        guard sampleDescriptor >= 0 else { throw posixError() }
+        defer { Darwin.close(sampleDescriptor) }
+
+        let temporaryName = ".cmux-index-\(UUID().uuidString)"
+        let indexDescriptor = temporaryName.withCString {
+            openat(
+                sampleDescriptor,
+                $0,
+                O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW,
+                0o600
+            )
+        }
+        guard indexDescriptor >= 0 else { throw posixError() }
+        var installed = false
+        defer {
+            Darwin.close(indexDescriptor)
+            if !installed {
+                _ = temporaryName.withCString { unlinkat(sampleDescriptor, $0, 0) }
+            }
+        }
+
+        let htmlData = Data(html.utf8)
+        var written = 0
+        while written < htmlData.count {
+            let writeCount = htmlData.withUnsafeBytes {
+                Darwin.write(
+                    indexDescriptor,
+                    $0.baseAddress?.advanced(by: written),
+                    $0.count - written
+                )
+            }
+            if writeCount == -1, errno == EINTR { continue }
+            guard writeCount > 0 else { throw posixError() }
+            written += writeCount
+        }
+        let installResult = temporaryName.withCString { temporaryPointer in
+            "index.html".withCString { indexPointer in
+                renameat(sampleDescriptor, temporaryPointer, sampleDescriptor, indexPointer)
+            }
+        }
+        guard installResult == 0 else { throw posixError() }
+        installed = true
+    }
+
+    private static func posixError(_ code: Int32 = errno) -> NSError {
+        NSError(domain: NSPOSIXErrorDomain, code: Int(code))
     }
 
     private static func run(_ executable: String, _ arguments: [String]) async throws {
         _ = try await runCapturingOutput(executable, arguments)
     }
 
-    private static func runCapturingOutput(_ executable: String, _ arguments: [String]) async throws -> Data {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = [executable] + arguments
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
-        let termination = CmuxExtensionProcessTermination()
-        process.terminationHandler = { process in
-            termination.complete(process.terminationStatus)
+    private static func runCapturingOutput(_ executable: String, _ arguments: [String]) async throws -> String {
+        let result = await CommandRunner().run(
+            directory: FileManager.default.currentDirectoryPath,
+            executable: executable,
+            arguments: arguments,
+            timeout: nil
+        )
+        if Task.isCancelled, result.cancellationCleanupSucceeded != false {
+            throw CancellationError()
         }
-        try process.run()
-        let outputCollector = CmuxExtensionPipeOutputCollector(fileHandle: pipe.fileHandleForReading)
-        let terminationStatus = await termination.wait()
-        let outputData = await outputCollector.finish()
-        guard terminationStatus == 0 else {
-            let details = String(data: outputData, encoding: .utf8) ?? "command failed"
-            throw NSError(
+        guard result.executionError == nil,
+              !result.timedOut,
+              result.exitStatus == 0 else {
+            let details = result.stderr ?? result.stdout ?? result.executionError ?? "command failed"
+            let underlyingError = NSError(
                 domain: "CmuxExtensionWorktreePrototype",
-                code: Int(terminationStatus),
+                code: Int(result.exitStatus ?? -1),
                 userInfo: [
                     NSLocalizedDescriptionKey: "Could not create worktree.",
                     "CmuxExtensionWorktreePrototypeDetails": details
                 ]
             )
+            throw CmuxExtensionWorktreeCommandFailure(
+                result: result,
+                underlyingError: underlyingError,
+                rollbackSafe: result.cancellationCleanupSucceeded != false
+            )
         }
-        return outputData
+        return result.stdout ?? ""
     }
 
     private static func shellEscaped(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
-}
-
-final class CmuxExtensionPipeOutputCollector: @unchecked Sendable {
-    private struct ReadHandle: @unchecked Sendable {
-        let fileHandle: FileHandle
-    }
-
-    private let readTask: Task<Data, Never>
-
-    init(fileHandle: FileHandle) {
-        let readHandle = ReadHandle(fileHandle: fileHandle)
-        readTask = Task.detached(priority: .utility) {
-            let data = readHandle.fileHandle.readDataToEndOfFileOrEmpty()
-            try? readHandle.fileHandle.close()
-            return data
-        }
-    }
-
-    func finish() async -> Data {
-        await readTask.value
     }
 }

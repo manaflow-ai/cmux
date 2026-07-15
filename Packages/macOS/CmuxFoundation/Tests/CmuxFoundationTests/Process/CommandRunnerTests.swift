@@ -134,6 +134,62 @@ import Testing
         #expect((result.stdout?.count ?? 0) >= 100000)
     }
 
+    @Test func writesStandardInputWhileDrainingOutput() async {
+        let payload = Data(String(repeating: "input-line\n", count: 20_000).utf8)
+
+        let result = await runner.run(
+            directory: tempDir,
+            executable: "cat",
+            arguments: [],
+            standardInput: payload,
+            timeout: 30
+        )
+
+        #expect(result.executionError == nil)
+        #expect(result.timedOut == false)
+        #expect(result.exitStatus == 0)
+        #expect(result.stdout == String(data: payload, encoding: .utf8))
+    }
+
+    @Test func standardInputWriterInitializationFailureIsReported() async {
+        let runner = CommandRunner(
+            standardInputWriterFactory: { fileHandle, _ in
+                try? fileHandle.close()
+                return nil
+            }
+        )
+
+        let result = await runner.run(
+            directory: tempDir,
+            executable: "cat",
+            arguments: [],
+            standardInput: Data("payload".utf8),
+            timeout: 10
+        )
+
+        #expect(result.executionError == "Could not create the process stdin writer.")
+        #expect(result.exitStatus == nil)
+    }
+
+    @Test func timeoutDoesNotWaitForBlockedStandardInputWriter() async throws {
+        // The child never reads stdin, so this payload fills the pipe and blocks
+        // the detached writer until timeout closes the child's read end.
+        let payload = Data(repeating: 0x41, count: 8 * 1024 * 1024)
+
+        let result = try await expectCompletes(within: 4) {
+            await runner.run(
+                directory: tempDir,
+                executable: "sleep",
+                arguments: ["10"],
+                standardInput: payload,
+                timeout: 0.3
+            )
+        }
+
+        #expect(result.timedOut == true)
+        #expect(result.exitStatus == nil)
+    }
+
     @Test func resolvesCommandViaFallbackDirectoryOutsidePath() throws {
         let fileManager = FileManager.default
         let dir = fileManager.temporaryDirectory.appendingPathComponent(

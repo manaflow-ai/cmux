@@ -17,7 +17,7 @@ import os
 ///     directory: ".", executable: "gh", arguments: ["auth", "token"], timeout: 5
 /// )
 /// ```
-public struct CommandRunner: CommandRunning, Sendable {
+public struct CommandRunner: OutputLimitedCommandRunning, Sendable {
     /// The default fallback `PATH` directories searched when a command is not on `PATH`.
     public static let defaultFallbackSearchDirectories: [String] = [
         "/opt/homebrew/bin",
@@ -25,18 +25,15 @@ public struct CommandRunner: CommandRunning, Sendable {
         "/opt/local/bin",
     ]
 
-    /// Seconds to wait after `SIGTERM` (on timeout) before sending `SIGKILL`.
-    private static let sigkillGraceSeconds: Double = 0.2
-
-    // Hosts the one-shot deadline/SIGKILL timers. A queue is used only for timer
+    // Hosts the one-shot deadline timers. A queue is used only for timer
     // event delivery, never to serialize mutable state.
     private static let timerQueue = DispatchQueue(label: "com.cmuxterm.CmuxProcess.timer")
 
     // Environment is Apple-documented value-like once copied; stored as an immutable
     // dictionary so the struct stays Sendable.
-    private let environment: [String: String]
-    private let bundledBinPath: String?
-    private let fallbackSearchDirectories: [String]
+    let commandPathResolver: CommandPathResolver
+    private let standardInputWriterFactory: @Sendable (FileHandle, Data) -> CommandStandardInputWriter?
+    private let processGroupResolver: @Sendable (Process) -> pid_t?
 
     /// Creates a command runner.
     /// - Parameters:
@@ -44,38 +41,107 @@ public struct CommandRunner: CommandRunning, Sendable {
     ///   - bundledBinPath: An extra directory searched ahead of the fallbacks (the app's
     ///     bundled CLI directory); defaults to `Bundle.main`'s `Contents/Resources/bin`.
     ///   - fallbackSearchDirectories: Directories searched after `PATH` and the bundled bin.
+    ///   - fileManager: Filesystem seam used to verify executable candidates.
     public init(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         bundledBinPath: String? = Bundle.main.resourceURL?.appendingPathComponent("bin").path,
-        fallbackSearchDirectories: [String] = CommandRunner.defaultFallbackSearchDirectories
+        fallbackSearchDirectories: [String] = CommandRunner.defaultFallbackSearchDirectories,
+        fileManager: FileManager = .default
     ) {
-        self.environment = environment
-        self.bundledBinPath = bundledBinPath
-        self.fallbackSearchDirectories = fallbackSearchDirectories
+        self.init(
+            environment: environment,
+            bundledBinPath: bundledBinPath,
+            fallbackSearchDirectories: fallbackSearchDirectories,
+            fileManager: fileManager,
+            standardInputWriterFactory: CommandStandardInputWriter.init
+        )
     }
 
-    /// Runs `executable` with `arguments` in `directory`, capturing its output.
-    ///
-    /// Implements ``CommandRunning/run(directory:executable:arguments:timeout:)``:
-    /// resolves `executable` against the configured `PATH`/bundled-bin/fallbacks,
-    /// drains `stdout`/`stderr` concurrently, and enforces `timeout` with a one-shot
-    /// timer that terminates (then `SIGKILL`s) the process. See the protocol for the
-    /// full contract.
+    init(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        bundledBinPath: String? = Bundle.main.resourceURL?.appendingPathComponent("bin").path,
+        fallbackSearchDirectories: [String] = CommandRunner.defaultFallbackSearchDirectories,
+        fileManager: FileManager = .default,
+        standardInputWriterFactory: @escaping @Sendable (FileHandle, Data) -> CommandStandardInputWriter?,
+        processGroupResolver: @escaping @Sendable (Process) -> pid_t? = { process in
+            let processGroupID = getpgid(process.processIdentifier)
+            if processGroupID > 1,
+               processGroupID == process.processIdentifier,
+               processGroupID != getpgrp() {
+                return processGroupID
+            }
+            return nil
+        }
+    ) {
+        commandPathResolver = CommandPathResolver(
+            environment: environment,
+            bundledBinPath: bundledBinPath,
+            fallbackSearchDirectories: fallbackSearchDirectories,
+            fileManager: fileManager
+        )
+        self.standardInputWriterFactory = standardInputWriterFactory
+        self.processGroupResolver = processGroupResolver
+    }
+
+    /// Runs `executable` with optional stdin data and an optional per-stream output limit.
     ///
     /// - Parameters:
     ///   - directory: The working directory for the process.
-    ///   - executable: A command name (resolved against `PATH`) or absolute path.
+    ///   - executable: A command name or absolute path.
     ///   - arguments: The arguments passed to the command.
-    ///   - timeout: A deadline in seconds; when it elapses the process is terminated
-    ///     and the result has ``CommandResult/timedOut`` set. `nil` waits indefinitely.
+    ///   - standardInput: Bytes written to stdin before closing the pipe, or `nil`
+    ///     to leave stdin disconnected.
+    ///   - maximumOutputBytes: The greatest number of bytes retained from each stream,
+    ///     or `nil` to capture without a byte limit.
+    ///   - timeout: A deadline in seconds, or `nil` to wait indefinitely.
     /// - Returns: The ``CommandResult`` describing how the command finished.
     public func run(
         directory: String,
         executable: String,
         arguments: [String],
+        standardInput: Data?,
+        maximumOutputBytes: Int?,
         timeout: TimeInterval?
     ) async -> CommandResult {
+        await runCommand(
+            directory: directory,
+            executable: executable,
+            arguments: arguments,
+            standardInput: standardInput,
+            maximumOutputBytes: maximumOutputBytes,
+            timeout: timeout
+        )
+    }
+
+    private func runCommand(
+        directory: String,
+        executable: String,
+        arguments: [String],
+        standardInput: Data?,
+        maximumOutputBytes: Int?,
+        timeout: TimeInterval?
+    ) async -> CommandResult {
+        let cancelledResult = CommandResult(
+            stdout: nil,
+            stderr: nil,
+            exitStatus: nil,
+            timedOut: false,
+            cancellationCleanupSucceeded: true,
+            executionError: "Command cancelled."
+        )
+        let cancellationCleanupFailedResult = CommandResult(
+            stdout: nil,
+            stderr: nil,
+            exitStatus: nil,
+            timedOut: false,
+            cancellationCleanupSucceeded: false,
+            executionError: "Command cancelled, but its process tree did not exit."
+        )
+        guard !Task.isCancelled else { return cancelledResult }
+
         let process = Process()
+        let cancellation = CommandCancellationRegistration()
+        let stdinPipe = standardInput.map { _ in Pipe() }
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
         if let resolved = resolvedCommandPath(executable: executable) {
@@ -86,14 +152,16 @@ public struct CommandRunner: CommandRunning, Sendable {
             process.arguments = [executable] + arguments
         }
         process.currentDirectoryURL = URL(fileURLWithPath: directory)
-        process.standardInput = FileHandle.nullDevice
+        if let stdinPipe {
+            process.standardInput = stdinPipe
+        } else {
+            process.standardInput = FileHandle.nullDevice
+        }
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
-        let outFD = stdoutPipe.fileHandleForReading.fileDescriptor
-        let errFD = stderrPipe.fileHandleForReading.fileDescriptor
-
-        return await withCheckedContinuation { (continuation: CheckedContinuation<CommandResult, Never>) in
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<CommandResult, Never>) in
             // The two stdout/stderr readers, the termination handler, the deadline timer,
             // and the spawn-failure path race to resume this continuation exactly once.
             // They run on synchronous, non-async callbacks, so a lock guards the small
@@ -108,11 +176,19 @@ public struct CommandRunner: CommandRunning, Sendable {
             // The timeout path never goes through here, so a descendant that inherited a
             // pipe and holds it open past the deadline can never delay the timeout result.
             @Sendable func recordAndCompleteIfReady(_ mutate: @Sendable (inout RunState) -> Void) {
-                let (completed, timerToCancel): (CommandResult?, (any DispatchSourceTimer)?) =
+                let (completed, timerToCancel, writerToCancel): (
+                    CommandResult?,
+                    (any DispatchSourceTimer)?,
+                    CommandStandardInputWriter?
+                ) =
                     state.withLock { s in
                         mutate(&s)
+                        let writer = s.didTerminate ? s.standardInputWriter : nil
+                        if writer != nil {
+                            s.standardInputWriter = nil
+                        }
                         guard !s.resumed, let out = s.stdout, let err = s.stderr, s.didTerminate else {
-                            return (nil, nil)
+                            return (nil, nil, writer)
                         }
                         s.resumed = true
                         let timer = s.deadlineTimer
@@ -125,55 +201,127 @@ public struct CommandRunner: CommandRunning, Sendable {
                                 timedOut: false,
                                 executionError: nil
                             ),
-                            timer
+                            timer,
+                            writer
                         )
                     }
                 timerToCancel?.cancel()
-                if let completed { continuation.resume(returning: completed) }
+                writerToCancel?.cancel()
+                if let completed {
+                    cancellation.finish()
+                    continuation.resume(returning: completed)
+                }
             }
 
             // Resume immediately with a terminal result (timeout or spawn failure),
             // independent of the pipe readers. Returns whether this call won the race.
             @Sendable func claimImmediate(_ result: CommandResult) -> Bool {
-                let (won, timerToCancel): (Bool, (any DispatchSourceTimer)?) =
+                let (won, timerToCancel, writerToCancel, readersToCancel): (
+                    Bool,
+                    (any DispatchSourceTimer)?,
+                    CommandStandardInputWriter?,
+                    [CommandOutputReader]
+                ) =
                     state.withLock { s in
-                        if s.resumed { return (false, nil) }
+                        if s.resumed { return (false, nil, nil, []) }
                         s.resumed = true
                         let timer = s.deadlineTimer
                         s.deadlineTimer = nil
-                        return (true, timer)
+                        let writer = s.standardInputWriter
+                        s.standardInputWriter = nil
+                        let readers = [s.standardOutputReader, s.standardErrorReader].compactMap { $0 }
+                        s.standardOutputReader = nil
+                        s.standardErrorReader = nil
+                        return (true, timer, writer, readers)
                     }
                 timerToCancel?.cancel()
-                if won { continuation.resume(returning: result) }
+                writerToCancel?.cancel()
+                readersToCancel.forEach { $0.cancel() }
+                if won {
+                    cancellation.finish()
+                    continuation.resume(returning: result)
+                }
                 return won
             }
 
-            // Drain both streams on detached tasks so a full pipe buffer cannot deadlock
-            // the child. Fire-and-forget (never structurally awaited) so the timeout path
-            // does not block on them. Keyed by the raw fd so no non-Sendable `FileHandle`
-            // crosses the task boundary.
-            Task.detached {
-                let data = Self.readToEnd(fileDescriptor: outFD)
-                recordAndCompleteIfReady { $0.stdout = data }
+            @Sendable func beginCancellation() {
+                let (shouldCancel, processGroupID, timer, writer, readers): (
+                    Bool,
+                    pid_t?,
+                    (any DispatchSourceTimer)?,
+                    CommandStandardInputWriter?,
+                    [CommandOutputReader]
+                ) = state.withLock { state in
+                    guard !state.resumed, !state.cancellationRequested else {
+                        return (false, state.processGroupID, nil, nil, [])
+                    }
+                    state.cancellationRequested = true
+                    let timer = state.deadlineTimer
+                    state.deadlineTimer = nil
+                    let writer = state.standardInputWriter
+                    state.standardInputWriter = nil
+                    let readers = [state.standardOutputReader, state.standardErrorReader].compactMap { $0 }
+                    state.standardOutputReader = nil
+                    state.standardErrorReader = nil
+                    return (true, state.processGroupID, timer, writer, readers)
+                }
+                guard shouldCancel else { return }
+                timer?.cancel()
+                writer?.cancel()
+                readers.forEach { $0.cancel() }
+
+                CommandProcessTreeTerminator.terminate(
+                    process,
+                    processGroupID: processGroupID,
+                    completion: { processTreeExited in
+                        _ = claimImmediate(
+                            processTreeExited ? cancelledResult : cancellationCleanupFailedResult
+                        )
+                    }
+                )
             }
-            Task.detached {
-                let data = Self.readToEnd(fileDescriptor: errFD)
-                recordAndCompleteIfReady { $0.stderr = data }
+
+            @Sendable func terminateAfterClaim(_ result: CommandResult) {
+                if claimImmediate(result) {
+                    let processGroupID = state.withLock { $0.processGroupID }
+                    CommandProcessTreeTerminator.terminate(process, processGroupID: processGroupID)
+                }
             }
 
             process.terminationHandler = { finished in
                 let status = finished.terminationStatus
-                recordAndCompleteIfReady {
-                    $0.didTerminate = true
-                    $0.exitStatus = status
+                let (readers, wasCancelled) = state.withLock {
+                    (
+                        [$0.standardOutputReader, $0.standardErrorReader].compactMap { $0 },
+                        $0.cancellationRequested
+                    )
+                }
+                readers.forEach { $0.processDidExit() }
+                if wasCancelled {
+                    state.withLock {
+                        $0.didTerminate = true
+                        $0.exitStatus = status
+                    }
+                } else {
+                    recordAndCompleteIfReady {
+                        $0.didTerminate = true
+                        $0.exitStatus = status
+                    }
                 }
             }
 
             do {
                 try process.run()
+                if let childProcessGroup = processGroupResolver(process) {
+                    state.withLock { $0.processGroupID = childProcessGroup }
+                }
             } catch {
                 let message = String(describing: error)
+                try? stdinPipe?.fileHandleForReading.close()
+                try? stdinPipe?.fileHandleForWriting.close()
+                try? stdoutPipe.fileHandleForReading.close()
                 try? stdoutPipe.fileHandleForWriting.close()
+                try? stderrPipe.fileHandleForReading.close()
                 try? stderrPipe.fileHandleForWriting.close()
                 _ = claimImmediate(CommandResult(
                     stdout: nil, stderr: nil, exitStatus: nil, timedOut: false, executionError: message
@@ -181,10 +329,111 @@ public struct CommandRunner: CommandRunning, Sendable {
                 return
             }
 
-            // Close the parent's write ends so the readers see EOF once the child (and any
-            // descendants that inherited them) close their copies.
             try? stdoutPipe.fileHandleForWriting.close()
             try? stderrPipe.fileHandleForWriting.close()
+            guard let outputReader = CommandOutputReader(
+                fileHandle: stdoutPipe.fileHandleForReading,
+                maximumBytes: maximumOutputBytes,
+                completion: { capture in
+                    if capture.limitExceeded {
+                        terminateAfterClaim(CommandResult(
+                            stdout: String(data: capture.data, encoding: .utf8),
+                            stderr: nil,
+                            exitStatus: nil,
+                            timedOut: false,
+                            outputLimitExceeded: true,
+                            executionError: nil
+                        ))
+                    } else {
+                        recordAndCompleteIfReady {
+                            $0.stdout = capture.data
+                            $0.standardOutputReader = nil
+                        }
+                    }
+                }
+            ) else {
+                terminateAfterClaim(CommandResult(
+                    stdout: nil,
+                    stderr: nil,
+                    exitStatus: nil,
+                    timedOut: false,
+                    executionError: "Could not create the process stdout reader."
+                ))
+                return
+            }
+            guard let errorReader = CommandOutputReader(
+                fileHandle: stderrPipe.fileHandleForReading,
+                maximumBytes: maximumOutputBytes,
+                completion: { capture in
+                    if capture.limitExceeded {
+                        terminateAfterClaim(CommandResult(
+                            stdout: nil,
+                            stderr: String(data: capture.data, encoding: .utf8),
+                            exitStatus: nil,
+                            timedOut: false,
+                            outputLimitExceeded: true,
+                            executionError: nil
+                        ))
+                    } else {
+                        recordAndCompleteIfReady {
+                            $0.stderr = capture.data
+                            $0.standardErrorReader = nil
+                        }
+                    }
+                }
+            ) else {
+                outputReader.start()
+                outputReader.cancel()
+                terminateAfterClaim(CommandResult(
+                    stdout: nil,
+                    stderr: nil,
+                    exitStatus: nil,
+                    timedOut: false,
+                    executionError: "Could not create the process stderr reader."
+                ))
+                return
+            }
+            let readerStartup = state.withLock { s -> (cancel: Bool, processExited: Bool) in
+                guard !s.resumed else { return (true, s.didTerminate) }
+                s.standardOutputReader = outputReader
+                s.standardErrorReader = errorReader
+                return (false, s.didTerminate)
+            }
+            outputReader.start()
+            errorReader.start()
+            if readerStartup.cancel {
+                outputReader.cancel()
+                errorReader.cancel()
+            } else if readerStartup.processExited {
+                outputReader.processDidExit()
+                errorReader.processDidExit()
+            }
+
+            if let stdinPipe, let standardInput {
+                try? stdinPipe.fileHandleForReading.close()
+                guard let writer = standardInputWriterFactory(
+                    stdinPipe.fileHandleForWriting,
+                    standardInput
+                ) else {
+                    try? stdinPipe.fileHandleForWriting.close()
+                    terminateAfterClaim(CommandResult(
+                        stdout: nil,
+                        stderr: nil,
+                        exitStatus: nil,
+                        timedOut: false,
+                        executionError: "Could not create the process stdin writer."
+                    ))
+                    return
+                }
+                let cancelImmediately = state.withLock { s -> Bool in
+                    guard !s.didTerminate, !s.resumed else { return true }
+                    s.standardInputWriter = writer
+                    return false
+                }
+                if cancelImmediately {
+                    writer.cancel()
+                }
+            }
 
             // Arm the deadline only after a successful launch, so the timeout handler can
             // never call `terminate()` on an unlaunched Process (which raises). The deadline
@@ -201,9 +450,9 @@ public struct CommandRunner: CommandRunning, Sendable {
                     let timedOut = CommandResult(
                         stdout: nil, stderr: nil, exitStatus: nil, timedOut: true, executionError: nil
                     )
-                    if claimImmediate(timedOut), process.isRunning {
-                        process.terminate()
-                        Self.scheduleSigkill(process)
+                    if claimImmediate(timedOut) {
+                        let processGroupID = state.withLock { $0.processGroupID }
+                        CommandProcessTreeTerminator.terminate(process, processGroupID: processGroupID)
                     }
                     timer.cancel()
                 }
@@ -219,6 +468,12 @@ public struct CommandRunner: CommandRunning, Sendable {
                     timer.resume()
                 }
             }
+            cancellation.install {
+                beginCancellation()
+            }
+            }
+        } onCancel: {
+            cancellation.cancel()
         }
     }
 
@@ -229,90 +484,14 @@ public struct CommandRunner: CommandRunning, Sendable {
         var stderr: Data?
         var didTerminate = false
         var exitStatus: Int32?
+        var processGroupID: pid_t?
         var resumed = false
+        var cancellationRequested = false
         // The command deadline timer, cancelled when the continuation resumes (any path).
         var deadlineTimer: (any DispatchSourceTimer)?
+        var standardInputWriter: CommandStandardInputWriter?
+        var standardOutputReader: CommandOutputReader?
+        var standardErrorReader: CommandOutputReader?
     }
 
-    private static func scheduleSigkill(_ process: Process) {
-        let timer = DispatchSource.makeTimerSource(queue: timerQueue)
-        timer.schedule(deadline: .now() + sigkillGraceSeconds)
-        timer.setEventHandler {
-            // Only SIGKILL if the Process is still running. If it already exited during
-            // the grace window, sending to the bare pid could hit an unrelated process
-            // that reused it; Foundation's `isRunning` confirms the pid is still ours.
-            if process.isRunning {
-                kill(process.processIdentifier, SIGKILL)
-            }
-            timer.cancel()
-        }
-        timer.resume()
-    }
-
-    private static func readToEnd(fileDescriptor: Int32) -> Data {
-        var data = Data()
-        let chunkSize = 64 * 1024
-        var buffer = [UInt8](repeating: 0, count: chunkSize)
-        while true {
-            let bytesRead = buffer.withUnsafeMutableBytes { pointer -> Int in
-                guard let base = pointer.baseAddress else { return 0 }
-                return Darwin.read(fileDescriptor, base, chunkSize)
-            }
-            if bytesRead > 0 {
-                data.append(contentsOf: buffer[0..<bytesRead])
-            } else if bytesRead == 0 {
-                break
-            } else if errno == EINTR {
-                continue
-            } else {
-                break
-            }
-        }
-        return data
-    }
-
-    /// Resolves `executable` to an absolute path, searching `PATH`, the bundled
-    /// bin directory, and the fallback directories. Returns `nil` when nothing
-    /// executable is found (the caller then runs it via `/usr/bin/env`).
-    ///
-    /// Internal rather than private so the resolution policy can be unit-tested
-    /// directly with an injected environment and fallback directories.
-    func resolvedCommandPath(executable: String) -> String? {
-        guard !executable.isEmpty else { return nil }
-        let fileManager = FileManager.default
-        if executable.contains("/") {
-            return fileManager.isExecutableFile(atPath: executable) ? executable : nil
-        }
-
-        var searchDirectories: [String] = []
-        var seenDirectories: Set<String> = []
-
-        func appendSearchPath(_ path: String?) {
-            guard let path else { return }
-            for rawComponent in path.split(separator: ":") {
-                let component = String(rawComponent).trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !component.isEmpty,
-                      seenDirectories.insert(component).inserted else {
-                    continue
-                }
-                searchDirectories.append(component)
-            }
-        }
-
-        appendSearchPath(environment["PATH"])
-        appendSearchPath(getenv("PATH").map { String(cString: $0) })
-        appendSearchPath(bundledBinPath)
-        fallbackSearchDirectories.forEach { appendSearchPath($0) }
-        appendSearchPath("/usr/bin:/bin:/usr/sbin:/sbin")
-
-        for directory in searchDirectories {
-            let candidate = URL(fileURLWithPath: directory, isDirectory: true)
-                .appendingPathComponent(executable)
-                .path
-            if fileManager.isExecutableFile(atPath: candidate) {
-                return candidate
-            }
-        }
-        return nil
-    }
 }
