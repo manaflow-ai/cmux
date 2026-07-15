@@ -1296,6 +1296,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		F71400060000000000000001 /* RepositoryScriptResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = F71400060000000000000002 /* RepositoryScriptResolution.swift */; };
 		F71400070000000000000001 /* RepositoryScriptResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = F71400070000000000000002 /* RepositoryScriptResolver.swift */; };
 		F71400080000000000000001 /* RepositoryScriptRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = F71400080000000000000002 /* RepositoryScriptRuntime.swift */; };
+		F71400160000000000000001 /* RepositoryScriptSettingsTrustTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F71400160000000000000002 /* RepositoryScriptSettingsTrustTests.swift */; };
 		F71400090000000000000001 /* RepositoryScriptSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = F71400090000000000000002 /* RepositoryScriptSource.swift */; };
 		F71400140000000000000001 /* RepositoryScriptTestAuthorizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F71400140000000000000002 /* RepositoryScriptTestAuthorizer.swift */; };
 		F71400150000000000000001 /* RepositoryScriptWorkspaceLifecycleState.swift in Sources */ = {isa = PBXBuildFile; fileRef = F71400150000000000000002 /* RepositoryScriptWorkspaceLifecycleState.swift */; };
@@ -3223,6 +3224,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		F71400060000000000000002 /* RepositoryScriptResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepositoryScriptResolution.swift; sourceTree = "<group>"; };
 		F71400070000000000000002 /* RepositoryScriptResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepositoryScriptResolver.swift; sourceTree = "<group>"; };
 		F71400080000000000000002 /* RepositoryScriptRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepositoryScriptRuntime.swift; sourceTree = "<group>"; };
+		F71400160000000000000002 /* RepositoryScriptSettingsTrustTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepositoryScriptSettingsTrustTests.swift; sourceTree = "<group>"; };
 		F71400090000000000000002 /* RepositoryScriptSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepositoryScriptSource.swift; sourceTree = "<group>"; };
 		F71400140000000000000002 /* RepositoryScriptTestAuthorizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepositoryScriptTestAuthorizer.swift; sourceTree = "<group>"; };
 		F71400150000000000000002 /* RepositoryScriptWorkspaceLifecycleState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepositoryScriptWorkspaceLifecycleState.swift; sourceTree = "<group>"; };
@@ -5393,6 +5395,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		F1000003A1B2C3D4E5F60718 /* cmuxTests */ = {
 			isa = PBXGroup;
 			children = (
+				F71400160000000000000002 /* RepositoryScriptSettingsTrustTests.swift */,
 				F71400100000000000000002 /* RepositoryTerminalScriptsTests.swift */,
 				F71400130000000000000002 /* RepositoryScriptLifecycleCoordinatorTests.swift */,
 				F71400140000000000000002 /* RepositoryScriptTestAuthorizer.swift */,
@@ -8033,6 +8036,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D36A00050000000000000001 /* RendererRealizationPlannerTests.swift in Sources */,
 				804100000000000000000003 /* ReorderShortcutActionTests.swift in Sources */,
 				F71400130000000000000001 /* RepositoryScriptLifecycleCoordinatorTests.swift in Sources */,
+				F71400160000000000000001 /* RepositoryScriptSettingsTrustTests.swift in Sources */,
 				F71400140000000000000001 /* RepositoryScriptTestAuthorizer.swift in Sources */,
 				F71400100000000000000001 /* RepositoryTerminalScriptsTests.swift in Sources */,
 					F5410004A1B2C3D4E5F60718 /* RestorableAgentHookProviderHermesTests.swift in Sources */,
