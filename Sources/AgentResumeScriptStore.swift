@@ -1,23 +1,37 @@
 import Foundation
 
-enum AgentResumeScriptStore {
+struct AgentResumeScriptStore {
     private static let directoryName = "cmux-agent-resume"
     private static let scriptTTL: TimeInterval = 24 * 60 * 60
 
-    static func writeLauncherScript(
+    private let fileManager: FileManager
+    private let directoryURL: URL
+    private let now: () -> Date
+    private let makeUUID: () -> UUID
+
+    init(
+        fileManager: FileManager,
+        temporaryDirectory: URL,
+        now: @escaping () -> Date = Date.init,
+        makeUUID: @escaping () -> UUID = UUID.init
+    ) {
+        self.fileManager = fileManager
+        self.directoryURL = temporaryDirectory.appendingPathComponent(Self.directoryName, isDirectory: true)
+        self.now = now
+        self.makeUUID = makeUUID
+    }
+
+    func writeLauncherScript(
         command: String,
         kind: RestorableAgentKind,
         sessionId: String,
-        fileManager: FileManager,
-        temporaryDirectory: URL,
         returnToLoginShell: Bool = false,
         workingDirectory: String? = nil
     ) -> URL? {
-        let directoryURL = temporaryDirectory.appendingPathComponent(directoryName, isDirectory: true)
         do {
             try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
             try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directoryURL.path)
-            pruneOldScripts(in: directoryURL, fileManager: fileManager)
+            pruneOldScripts()
 
             let safeSessionPrefix = sessionId
                 .prefix(12)
@@ -25,7 +39,7 @@ enum AgentResumeScriptStore {
                     character.isLetter || character.isNumber || character == "-" ? character : "_"
                 }
             let scriptURL = directoryURL.appendingPathComponent(
-                "\(kind.rawValue)-\(String(safeSessionPrefix))-\(UUID().uuidString).zsh",
+                "\(kind.rawValue)-\(String(safeSessionPrefix))-\(makeUUID().uuidString).zsh",
                 isDirectory: false
             )
             var lines = [
@@ -49,7 +63,7 @@ enum AgentResumeScriptStore {
         }
     }
 
-    private static func pruneOldScripts(in directoryURL: URL, fileManager: FileManager) {
+    private func pruneOldScripts() {
         guard let scriptURLs = try? fileManager.contentsOfDirectory(
             at: directoryURL,
             includingPropertiesForKeys: [.contentModificationDateKey],
@@ -58,7 +72,7 @@ enum AgentResumeScriptStore {
             return
         }
 
-        let cutoff = Date().addingTimeInterval(-scriptTTL)
+        let cutoff = now().addingTimeInterval(-Self.scriptTTL)
         for scriptURL in scriptURLs where scriptURL.pathExtension == "zsh" {
             let values = try? scriptURL.resourceValues(forKeys: [.contentModificationDateKey])
             if let modified = values?.contentModificationDate, modified < cutoff {
