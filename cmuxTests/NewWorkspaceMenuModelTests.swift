@@ -101,6 +101,14 @@ struct NewWorkspaceMenuModelTests {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let agent = CmuxResolvedConfigAction.builtIn(.newAgentChat)
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager()
+        let windowId = appDelegate.registerMainWindowContextForTesting(
+            tabManager: tabManager,
+            cmuxConfigStore: store
+        )
+        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
+        let context = try #require(appDelegate.mainWindowContexts.values.first { $0.windowId == windowId })
         let model = NewWorkspaceMenuModel.build(
             newWorkspaceContextMenuItems: store.newWorkspaceContextMenuItems,
             agentChatAction: agent,
@@ -142,6 +150,17 @@ struct NewWorkspaceMenuModelTests {
         #expect(layoutRows.first?.deletable == true)
         #expect(templates == ["Template A"])
         #expect(management.deletableActions.map(\.id) == ["review-layout"])
+
+        let renderedMenu = try #require(appDelegate.renderNewWorkspaceContextMenu(
+            model: model,
+            context: context,
+            cmuxConfigStore: store
+        ))
+        let renderedTitles = renderedMenu.items.filter { !$0.isSeparatorItem }.map(\.title)
+        #expect(renderedTitles.contains(String(
+            localized: "command.cloudVM.teamWindow.open.title",
+            defaultValue: "Open Team Window"
+        )))
         if case .action(_, _, let isDefault)? = createRows.first(where: { row in
             guard case .action(let action, _, _) = row else { return false }
             return action.action.id == "terminal-command"

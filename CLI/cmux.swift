@@ -3733,7 +3733,7 @@ struct CMUXCLI {
                 } else {
                     throw CLIError(message: """
                         Usage:
-                          cmux vm base open [--workspace <workspace-id>] [--window <id|ref|index>] [--detach|-d]
+                          cmux vm base open [--workspace <workspace-id>] [--window <id|ref|index>] [--session <session-id>] [--detach|-d]
                           cmux vm base reset [--reason <text>] [--workspace <workspace-id>] [--window <id|ref|index>] [--detach|-d]
 
                         Base is your persistent cloud workspace. Opening it reuses the
@@ -10191,6 +10191,7 @@ struct CMUXCLI {
         workspaceName: String?,
         windowRaw: String?,
         targetWorkspaceId: String? = nil,
+        sessionID: String? = nil,
         forceSSH: Bool,
         shouldPinWorkspaceToTop: Bool,
         client: SocketClient,
@@ -10231,7 +10232,8 @@ struct CMUXCLI {
         let response = try defaultFreestyleAttachInfoWithRetryIfNeeded(
             vmID: id,
             usesDefaultFreestyleSSHD: true,
-            client: client
+            client: client,
+            sessionID: sessionID
         )
         let transport = (response["transport"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -10296,8 +10298,9 @@ struct CMUXCLI {
     ) throws {
         let (targetWorkspaceOpt, rem0) = parseOption(args, name: "--workspace")
         let (windowOpt, rem1) = parseOption(rem0, name: "--window")
-        let detach = hasFlag(rem1, name: "--detach") || hasFlag(rem1, name: "-d")
-        let remaining = rem1.filter { $0 != "--detach" && $0 != "-d" }
+        let (sessionOpt, rem2) = parseOption(rem1, name: "--session")
+        let detach = hasFlag(rem2, name: "--detach") || hasFlag(rem2, name: "-d")
+        let remaining = rem2.filter { $0 != "--detach" && $0 != "-d" }
         if let unknown = remaining.first(where: { Self.isUnknownFlagToken($0, allowedShortFlags: ["-d"]) }) {
             throw CLIError(message: """
                 vm base open: unknown flag '\(unknown)'.
@@ -10305,6 +10308,7 @@ struct CMUXCLI {
                 Known flags:
                   --workspace <workspace-id>
                   --window <id|ref|index>
+                  --session <session-id>
                   --detach, -d
                 """)
         }
@@ -10318,6 +10322,7 @@ struct CMUXCLI {
         }
 
         let targetWindow = try validatedWindowHandle(windowOpt ?? windowId, client: client)
+        let sessionID = try Self.validatedVMSessionIdentifier(sessionOpt, flag: "--session")
         let vmCreateStartedAt = Date()
         let response = try client.sendV2(
             method: "vm.base_open",
@@ -10361,6 +10366,7 @@ struct CMUXCLI {
             workspaceName: Self.persistentCloudVMWorkspaceName,
             windowRaw: targetWindow,
             targetWorkspaceId: targetWorkspaceOpt,
+            sessionID: sessionID,
             forceSSH: false,
             shouldPinWorkspaceToTop: true,
             client: client,
@@ -15104,7 +15110,7 @@ struct CMUXCLI {
             Subcommands:
               ls                        List your cloud VMs.
               status <id>                Print provider, status, and image.
-              base open [--workspace <id>] [--window <id|ref|index>] [--detach|-d]
+              base open [--workspace <id>] [--window <id|ref|index>] [--session <id>] [--detach|-d]
                                         Open Base, your persistent cloud workspace.
                                         Reuses the same VM every time.
               base reset [--reason <text>] [--workspace <id>] [--window <id|ref|index>] [--detach|-d]

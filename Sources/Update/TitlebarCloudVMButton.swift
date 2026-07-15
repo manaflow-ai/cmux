@@ -388,7 +388,18 @@ struct TitlebarCloudVMButton: View {
     @MainActor
     static func appendCloudVMMenuItems(to menu: NSMenu) {
         menu.addItem(mouseDownMenuItem(
+            title: String(
+                localized: "command.cloudVM.teamWindow.open.title",
+                defaultValue: "Open Team Window"
+            ),
+            selector: #selector(CloudVMMenuTarget.openTeamWindow),
+            action: {
+                CloudVMMenuTarget.shared.openTeamWindow()
+            }
+        ))
+        menu.addItem(mouseDownMenuItem(
             title: String(localized: "command.cloudVM.open.title", defaultValue: "Open Base"),
+            selector: #selector(CloudVMMenuTarget.open),
             action: {
                 CloudVMMenuTarget.shared.open()
             }
@@ -416,8 +427,12 @@ struct TitlebarCloudVMButton: View {
         return item
     }
 
-    private static func mouseDownMenuItem(title: String, action: @escaping () -> Void) -> NSMenuItem {
-        let item = menuItem(title: title, action: #selector(CloudVMMenuTarget.open))
+    private static func mouseDownMenuItem(
+        title: String,
+        selector: Selector,
+        action: @escaping () -> Void
+    ) -> NSMenuItem {
+        let item = menuItem(title: title, action: selector)
         item.view = MouseDownMenuItemView(title: title, action: action)
         return item
     }
@@ -461,6 +476,13 @@ private final class CloudVMMenuTarget: NSObject {
 
     @objc func open() {
         _ = AppDelegate.shared?.performCloudVMAction(debugSource: "titlebar.cloudVM.menu.open")
+    }
+
+    @objc func openTeamWindow() {
+        _ = AppDelegate.shared?.performSharedTeamWindowAction(
+            preferredWindow: NSApp.keyWindow,
+            debugSource: "titlebar.cloudVM.menu.teamWindow"
+        )
     }
 
     @objc func fork() {
