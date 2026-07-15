@@ -16,6 +16,9 @@ struct WorkspaceListView: View {
     let selectedWorkspaceID: MobileWorkspacePreview.ID?
     let host: String
     let connectionStatus: MobileMacConnectionStatus
+    var macUpdateHint: MobileMacUpdateHint? = nil
+    var macUpdateHintMacName: String? = nil
+    var dismissMacUpdateHint: (() -> Void)? = nil
     let navigationStyle: WorkspaceNavigationStyle
     var showsNavigationToolbar = true
     /// Whether workspace-row titles wrap (multi-line) instead of truncating to a
@@ -603,7 +606,7 @@ struct WorkspaceListView: View {
         Button {
             showingSettings = true
         } label: {
-            Image(systemName: "ellipsis.circle")
+            MobileWorkspaceSettingsIcon()
         }
         .accessibilityLabel(L10n.string("mobile.workspaces.settings", defaultValue: "Settings"))
         .accessibilityIdentifier("MobileWorkspaceSettingsMenu")
