@@ -109,6 +109,7 @@
     "unrs-resolver"
   ],
   "patchedDependencies": {
-    "@stackframe/stack@2.8.89": "patches/@stackframe%2Fstack@2.8.89.patch"
+    "@stackframe/stack@2.8.108": "patches/@stackframe%2Fstack@2.8.108.patch",
+    "next-themes@0.4.6": "patches/next-themes@0.4.6.patch"
   }
 }
