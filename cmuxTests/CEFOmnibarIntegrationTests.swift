@@ -76,6 +76,33 @@ struct CEFOmnibarIntegrationTests {
     }
 
     @Test
+    func hiddenDockReconcilesChromiumPanelVisibility() {
+        let store = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        let panel = CEFBrowserPanel(workspaceId: store.workspaceId)
+        store.panels[panel.id] = panel
+
+        store.applyVisibility(to: panel)
+
+        #expect(panel.hostView.isHidden)
+        #expect(!panel.isVisibleInUI)
+    }
+
+    @Test
+    func chromiumPanelMarksBrowserShortcutFocus() {
+        let panel = CEFBrowserPanel(workspaceId: UUID())
+        let context = ShortcutEventFocusContext(
+            browserPanel: nil,
+            omnibarPanel: panel,
+            markdownPanel: nil,
+            filePreviewTextEditorFocused: false,
+            rightSidebarFocused: false,
+            shortcutContext: ShortcutContext()
+        )
+
+        #expect(context.focusState.browser)
+    }
+
+    @Test
     func sessionSnapshotPreservesChromiumPanelURL() throws {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
@@ -206,9 +233,35 @@ struct CEFOmnibarIntegrationTests {
         #expect(action.popupURL.absoluteString == "chrome-extension://\(expectedExtensionID(directory))/popup/index.html")
     }
 
+    @Test
+    func manifestKeyDeterminesChromiumExtensionID() throws {
+        let directory = temporaryDirectory(named: "keyed-extension")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let publicKey = Data("stable-public-key".utf8)
+        try Data(
+            """
+            {
+              "manifest_version": 3,
+              "name": "Keyed Extension",
+              "key": "\(publicKey.base64EncodedString())",
+              "action": { "default_popup": "popup.html" }
+            }
+            """.utf8
+        ).write(to: directory.appendingPathComponent("manifest.json"))
+
+        let action = try #require(CEFExtensionActionLoader().load(from: [directory]).first)
+
+        #expect(action.id == expectedExtensionID(publicKey))
+        #expect(action.popupURL.absoluteString == "chrome-extension://\(expectedExtensionID(publicKey))/popup.html")
+    }
+
     private func expectedExtensionID(_ directory: URL) -> String {
         let path = directory.absoluteURL.standardizedFileURL.path
-        let digest = SHA256.hash(data: Data(path.utf8))
+        return expectedExtensionID(Data(path.utf8))
+    }
+
+    private func expectedExtensionID(_ source: Data) -> String {
+        let digest = SHA256.hash(data: source)
         let alphabet = Array("abcdefghijklmnop")
         return digest.prefix(16).flatMap { byte in
             [alphabet[Int(byte >> 4)], alphabet[Int(byte & 0x0f)]]
