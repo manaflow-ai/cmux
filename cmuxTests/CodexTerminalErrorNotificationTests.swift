@@ -8,9 +8,11 @@ private final class CodexTerminalErrorBundleMarker: NSObject {}
 struct CodexTerminalErrorNotificationTests {
     @Test("A persisted terminal error wins over partial assistant output")
     func nestedTurnCompleteErrorNotifies() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-codex-terminal-error-\(UUID().uuidString)", isDirectory: true)
-        let socketPath = root.appendingPathComponent("cmux.sock").path
+        let root = URL(
+            fileURLWithPath: "/tmp/cmux-cterr-\(UUID().uuidString.prefix(8))",
+            isDirectory: true
+        )
+        let socketPath = root.appendingPathComponent("c.sock").path
         let transcriptURL = root.appendingPathComponent("rollout.jsonl")
         let workspaceID = "11111111-1111-1111-1111-111111111111"
         let surfaceID = "22222222-2222-2222-2222-222222222222"
@@ -47,7 +49,7 @@ struct CodexTerminalErrorNotificationTests {
         let cliPath = try BundledCLITestSupport.bundledCLIPath(
             for: CodexTerminalErrorBundleMarker.self
         )
-        let result = CodexTerminalErrorProcess.run(
+        let result = CodexTerminalErrorProcess().run(
             executablePath: cliPath,
             arguments: ["hooks", "codex", "stop"],
             environment: environment,
@@ -96,6 +98,14 @@ private final class CodexTerminalErrorSocketServer: @unchecked Sendable {
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
         let maxPathLength = MemoryLayout.size(ofValue: address.sun_path)
+        guard socketPath.utf8.count < maxPathLength else {
+            Darwin.close(listenerFD)
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: Int(ENAMETOOLONG),
+                userInfo: [NSLocalizedDescriptionKey: "Socket path exceeds sockaddr_un.sun_path: \(socketPath)"]
+            )
+        }
         socketPath.withCString { source in
             withUnsafeMutablePointer(to: &address.sun_path) { destination in
                 strncpy(
@@ -202,7 +212,7 @@ private final class CodexTerminalErrorSocketServer: @unchecked Sendable {
     }
 }
 
-private enum CodexTerminalErrorProcess {
+private struct CodexTerminalErrorProcess {
     struct Result {
         let status: Int32
         let stdout: String
@@ -210,7 +220,7 @@ private enum CodexTerminalErrorProcess {
         let timedOut: Bool
     }
 
-    static func run(
+    func run(
         executablePath: String,
         arguments: [String],
         environment: [String: String],
@@ -244,7 +254,17 @@ private enum CodexTerminalErrorProcess {
         let timedOut = finished.wait(timeout: .now() + timeout) == .timedOut
         if timedOut {
             process.terminate()
-            _ = finished.wait(timeout: .now() + 1)
+            if finished.wait(timeout: .now() + 1) == .timedOut {
+                Darwin.kill(process.processIdentifier, SIGKILL)
+                guard finished.wait(timeout: .now() + 1) == .success else {
+                    return Result(
+                        status: -1,
+                        stdout: "",
+                        stderr: "Process did not terminate after timeout",
+                        timedOut: true
+                    )
+                }
+            }
         }
         return Result(
             status: process.terminationStatus,
