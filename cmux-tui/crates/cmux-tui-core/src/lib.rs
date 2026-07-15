@@ -9,6 +9,7 @@
 //! themselves, which is what makes the backend attachable.
 
 mod browser;
+mod event_bus;
 mod model;
 mod mux;
 mod short_id;
@@ -18,25 +19,28 @@ pub mod layout;
 pub mod platform;
 pub mod server;
 
-pub use browser::normalize_url;
+pub use browser::{TRANSPORT_SAFE_CAPTURE_MEGAPIXELS, normalize_url};
+pub use event_bus::{MuxEventBroadcaster, MuxEventReceiver};
 pub use layout::{
     LayoutResult, Rect, SplitEdge, SplitResize, directional_neighbor, layout_screen,
     split_for_pane_edge, split_sides,
 };
 pub use model::{Node, Pane, Screen, State, Workspace};
 pub use mux::{
-    AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane, Direction, LayoutLeafSpec,
-    LayoutSpec, Mux, MuxEvent, NotificationEvent, NotificationLevel, RunPlacement,
-    SidebarPluginOptions, SidebarPluginStatus, SurfaceNotification, ZoomMode, ZoomState,
+    AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane, CellPixelUpdate,
+    CellPixelUpdateFailure, Direction, LayoutLeafSpec, LayoutSpec, Mux, MuxEvent,
+    NotificationEvent, NotificationLevel, RunPlacement, SidebarPluginOptions, SidebarPluginStatus,
+    SurfaceNotification, SurfaceResizeReporter, ZoomMode, ZoomState,
 };
 pub use short_id::assign_short_ids;
 pub use surface::{
-    AttachFrame, AttachStream, BrowserAttachState, BrowserFrame, BrowserFrameStream, BrowserSource,
-    BrowserStatus, DefaultColors, Surface, SurfaceKind, SurfaceOptions,
+    AttachFrame, AttachFrameReceiver, AttachStream, BrowserAttachState, BrowserFrame,
+    BrowserFrameStream, BrowserSource, BrowserStatus, DefaultColors, Surface, SurfaceKind,
+    SurfaceOptions, TerminalColors,
 };
 
 pub use cmux_tui_cdp::BrowserMode;
-pub use ghostty_vt::Rgb;
+pub use ghostty_vt::{CursorShape, Rgb};
 
 pub type SurfaceId = u64;
 pub type PaneId = u64;

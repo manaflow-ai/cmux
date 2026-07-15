@@ -11,13 +11,15 @@ import Testing
             commandRunner: ConcurrencyTrackingPullRequestCommandRunner(probe: probe),
             refreshLimiter: limiter
         )
+        let inputs = fixtures.map(Self.input)
 
-        let refreshes = fixtures.map { fixture in
-            Task { try? await service.refresh(for: Self.input(fixture)) }
+        let refreshes = inputs.map { input in
+            Task { try? await service.refresh(for: input) }
         }
         _ = await probe.waitForThirdAttempt()
         await probe.releaseBranchViews()
         for refresh in refreshes { _ = await refresh.value }
+        withExtendedLifetime(fixtures) {}
 
         #expect(await probe.maximumActiveBranchViewCount <= 2)
     }
@@ -30,11 +32,12 @@ import Testing
             commandRunner: ConcurrencyTrackingPullRequestCommandRunner(probe: probe),
             refreshLimiter: limiter
         )
+        let inputs = fixtures.map(Self.input)
 
-        let first = Task { try? await service.refresh(for: Self.input(fixtures[0])) }
-        let second = Task { try? await service.refresh(for: Self.input(fixtures[1])) }
+        let first = Task { try? await service.refresh(for: inputs[0]) }
+        let second = Task { try? await service.refresh(for: inputs[1]) }
         await probe.waitForStartedBranchCount(2)
-        let third = Task { try? await service.refresh(for: Self.input(fixtures[2])) }
+        let third = Task { try? await service.refresh(for: inputs[2]) }
         let thirdAttempt = await probe.waitForThirdAttempt()
 
         third.cancel()
@@ -45,6 +48,7 @@ import Testing
         _ = await first.value
         _ = await second.value
         _ = await third.value
+        withExtendedLifetime(fixtures) {}
 
         #expect(await probe.startedBranches.contains("feature-three") == false)
     }

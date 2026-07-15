@@ -20,13 +20,13 @@ extension RightSidebarMode {
     }
 }
 
-nonisolated enum RightSidebarContentMountPolicy {
+enum RightSidebarContentMountPolicy {
     static func shouldMountContent(isRightSidebarVisible: Bool, hasMountedContent: Bool) -> Bool {
         isRightSidebarVisible || hasMountedContent
     }
 }
 
-nonisolated enum FileExplorerRootSyncPolicy {
+enum FileExplorerRootSyncPolicy {
     static func shouldSyncFileExplorerStore(isRightSidebarVisible: Bool, mode: RightSidebarMode) -> Bool {
         guard isRightSidebarVisible else { return false }
         switch mode {
