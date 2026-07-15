@@ -433,6 +433,12 @@ extension TerminalController {
                     return planner.outerSizes(of: plan)
                 }()
                 var nativeGeometryReady = !plannedOuterSizes.isEmpty
+                // A grid shortfall (or a pane with no sample yet) must keep the
+                // window UNSETTLED on its own — the re-arm budget (below) is
+                // capped, so once it stops the shortfall would otherwise be
+                // listed in `mismatches` while `settled` flips true. Judge grids
+                // live-first, matching the shortfall read below.
+                var gridParityReady = true
                 for leaf in tree.paneIDsInOrder {
                     guard let node = leavesByPaneID[leaf] else { continue }
                     if let planned = plannedOuterSizes[leaf],
@@ -470,6 +476,7 @@ extension TerminalController {
                     guard let rendered = liveGrid ?? mirror.lastRenderedGrids[leaf] else {
                         // No size report yet: absence of evidence is
                         // not settled evidence — keep pollers waiting.
+                        gridParityReady = false
                         mismatches.append(
                             "%\(leaf) no-sample assigned=\(node.width)x\(node.height)"
                         )
@@ -484,6 +491,7 @@ extension TerminalController {
                     // misplacement entries above already judge it
                     // exactly.
                     if rendered.cols < node.width || rendered.rows < node.height {
+                        gridParityReady = false
                         var detail = "%\(leaf) rendered=\(rendered.cols)x\(rendered.rows)"
                             + " assigned=\(node.width)x\(node.height)"
                         // The surface's own pixel report — ground
@@ -540,6 +548,7 @@ extension TerminalController {
                     && mirror.lastCompletedSizingInputs != nil
                     && nativeGeometryReady
                     && portalGeometryReady
+                    && gridParityReady
                 // Derivation parity, visible mirror only (hidden mirrors
                 // hold their attach-time claim by design). Delivery parity —
                 // claim == tmux layout — cannot see a claim that tmux
