@@ -100,6 +100,42 @@ struct WorkspaceTodoSidebarModelTests {
         ))
     }
 
+    @Test
+    func compactStatusMenuSelectionDistinguishesAutoFromManualOverride() {
+        let automatic = SidebarWorkspaceCompactStatusMenuModel.resolve(
+            inferred: .working,
+            override: nil
+        )
+        var lanes = WorkspaceTodoStatusLane.lanes(
+            inferred: automatic.inferred,
+            activeOverride: automatic.activeOverride
+        )
+        #expect(lanes.first?.isSelected == true)
+        #expect(lanes.first { $0.status == .working }?.isSelected == false)
+
+        let pinned = SidebarWorkspaceCompactStatusMenuModel.resolve(
+            inferred: .working,
+            override: WorkspaceTaskStatusOverride(status: .review, inferredAtOverride: .working)
+        )
+        lanes = WorkspaceTodoStatusLane.lanes(
+            inferred: pinned.inferred,
+            activeOverride: pinned.activeOverride
+        )
+        #expect(lanes.first?.isSelected == false)
+        #expect(lanes.first { $0.status == .review }?.isSelected == true)
+
+        let expired = SidebarWorkspaceCompactStatusMenuModel.resolve(
+            inferred: .done,
+            override: WorkspaceTaskStatusOverride(status: .review, inferredAtOverride: .working)
+        )
+        lanes = WorkspaceTodoStatusLane.lanes(
+            inferred: expired.inferred,
+            activeOverride: expired.activeOverride
+        )
+        #expect(lanes.first?.isSelected == true)
+        #expect(lanes.first { $0.status == .review }?.isSelected == false)
+    }
+
     // MARK: - Checklist display policy
 
     private func item(_ text: String, _ state: WorkspaceChecklistItem.State) -> WorkspaceChecklistItem {

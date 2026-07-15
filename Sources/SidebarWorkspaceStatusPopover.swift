@@ -20,6 +20,28 @@ struct WorkspaceTodoStatusLane: Equatable, Identifiable {
 
     var id: String { isNone ? "none" : (status?.rawValue ?? "auto") }
 }
+
+struct SidebarWorkspaceCompactStatusMenuModel: Equatable {
+    let inferred: WorkspaceTaskStatus
+    let activeOverride: WorkspaceTaskStatus?
+}
+
+extension SidebarWorkspaceCompactStatusMenuModel {
+    static func resolve(
+        inferred: WorkspaceTaskStatus,
+        override: WorkspaceTaskStatusOverride?
+    ) -> Self {
+        let resolution = WorkspaceTaskStatusOverride.effectiveStatus(
+            override: override,
+            inferred: inferred
+        )
+        guard let override, !resolution.shouldClearOverride else {
+            return Self(inferred: inferred, activeOverride: nil)
+        }
+        return Self(inferred: inferred, activeOverride: override.status)
+    }
+}
+
 extension WorkspaceTodoStatusLane {
     /// The ordered lane list: Auto first, then the five status lanes, then None.
     ///

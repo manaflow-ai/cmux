@@ -13267,7 +13267,10 @@ struct TabItemView: View, Equatable {
         }
     }
 
-    private func compactWorkspaceStatusMenu(status: WorkspaceTaskStatus) -> some View {
+    private func compactWorkspaceStatusMenu(
+        status: WorkspaceTaskStatus,
+        model: SidebarWorkspaceCompactStatusMenuModel
+    ) -> some View {
         let title = String(
             format: String(
                 localized: "sidebar.status.compactLabel",
@@ -13278,8 +13281,8 @@ struct TabItemView: View, Equatable {
         )
         return Menu {
             let lanes = WorkspaceTodoStatusLane.lanes(
-                inferred: status,
-                activeOverride: status,
+                inferred: model.inferred,
+                activeOverride: model.activeOverride,
                 isHidden: false
             )
             ForEach(lanes) { lane in
@@ -13535,7 +13538,14 @@ struct TabItemView: View, Equatable {
                 hidesAllDetails: settings.hidesAllDetails,
                 taskStatus: workspaceSnapshot.taskStatus
             ), let taskStatus = workspaceSnapshot.taskStatus {
-                compactWorkspaceStatusMenu(status: taskStatus)
+                let compactStatusModel = SidebarWorkspaceCompactStatusMenuModel.resolve(
+                    inferred: tab.inferredTaskStatus,
+                    override: tab.todoState.statusOverride
+                )
+                compactWorkspaceStatusMenu(
+                    status: taskStatus,
+                    model: compactStatusModel
+                )
                     .transition(.opacity)
             }
 
