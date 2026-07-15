@@ -3380,6 +3380,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             verifiedReplayGeometryRevision &+= 1
             verifiedReplayReadyFence = nil
             verifiedReplayReadyTransactionID = nil
+            restartPendingVerifiedReplayPresentationForCurrentGeometry()
         }
     }
 

@@ -217,7 +217,13 @@ struct VerifiedReplayPresentationTests {
 
     @Test("geometry transition replaces the token and rejects the stale callback")
     func presentationFenceRestartsForNewestGeometry() {
-        let identity = makeIdentity(id: 9, seed: 12)
+        let initialIdentity = makeIdentity(id: 9, seed: 12)
+        let transitionedIdentity = makeIdentity(
+            id: 10,
+            seed: 13,
+            pixelWidth: 1_170,
+            pixelHeight: 1_500
+        )
         let initial = makeGeometry()
         let transitioned = makeGeometry(
             rendererFrame: CGRect(x: 0, y: 0, width: 390, height: 500)
@@ -227,6 +233,7 @@ struct VerifiedReplayPresentationTests {
             expectedGeometryRevision: 7,
             expectedGeometry: initial
         )
+        fence.markObservedFrameReady()
 
         fence.restart(
             expectedToken: 43,
@@ -236,18 +243,33 @@ struct VerifiedReplayPresentationTests {
 
         let acceptedStale = fence.acknowledge(
             token: 42,
-            modelIdentity: identity,
+            modelIdentity: initialIdentity,
             geometryRevision: 7,
             geometry: initial
         )
         let acceptedReplacement = fence.acknowledge(
             token: 43,
-            modelIdentity: identity,
+            modelIdentity: transitionedIdentity,
             geometryRevision: 8,
             geometry: transitioned
         )
         #expect(!acceptedStale)
         #expect(acceptedReplacement)
+        #expect(!fence.isSatisfied(
+            modelIdentity: transitionedIdentity,
+            presentationIdentity: transitionedIdentity,
+            geometryRevision: 8,
+            modelGeometry: transitioned,
+            presentationGeometry: transitioned
+        ))
+        fence.markObservedFrameReady()
+        #expect(fence.isSatisfied(
+            modelIdentity: transitionedIdentity,
+            presentationIdentity: transitionedIdentity,
+            geometryRevision: 8,
+            modelGeometry: transitioned,
+            presentationGeometry: transitioned
+        ))
     }
 
     private func makeSurface(fill byte: UInt8) throws -> IOSurface {

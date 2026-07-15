@@ -192,6 +192,7 @@ extension GhosttySurfaceView {
     /// the pending fence.
     func handleVerifiedReplayRenderPresented(token: UInt64) {
         guard var pending = pendingVerifiedReplayPresentation else { return }
+        guard token == pending.fence.expectedToken else { return }
         let renderer = (layer.sublayers ?? []).first(where: isGhosttyRendererLayer)
         let modelIdentity = verifiedReplayRendererIdentity(from: renderer?.contents)
         let modelGeometry = verifiedReplayPresentationGeometry(
@@ -199,6 +200,17 @@ extension GhosttySurfaceView {
             host: layer,
             viewportRect: terminalViewportRect
         )
+        if let failureReason = pending.fence.acknowledgementFailureReason(
+            token: token,
+            modelIdentity: modelIdentity,
+            geometryRevision: verifiedReplayGeometryRevision,
+            geometry: modelGeometry
+        ) {
+            MobileDebugLog.anchormux(
+                "verified_replay.callback_rejected reason=\(failureReason)"
+            )
+            return
+        }
         guard pending.fence.acknowledge(
             token: token,
             modelIdentity: modelIdentity,
@@ -209,6 +221,48 @@ extension GhosttySurfaceView {
         }
         pendingVerifiedReplayPresentation = pending
         completePendingVerifiedReplayPresentationIfPresented()
+    }
+
+    /// Replaces an in-flight token after renderer geometry changes. Ghostty's
+    /// size guard correctly discards the old target without a callback, so the
+    /// same replay operation must submit again at the newest layer geometry.
+    func restartPendingVerifiedReplayPresentationForCurrentGeometry() {
+        guard var pending = pendingVerifiedReplayPresentation,
+              let surface,
+              pending.surface == surface,
+              pending.generation == surfaceGeneration,
+              !isDismantled,
+              verifiedReplayRenderSuppressed,
+              !renderPipelineRecoveryPaused,
+              !isRenderingSuspendedForVerifiedReplay else {
+            return
+        }
+        let renderer = (layer.sublayers ?? []).first(where: isGhosttyRendererLayer)
+        guard let geometry = verifiedReplayPresentationGeometry(
+            renderer: renderer,
+            host: layer,
+            viewportRect: terminalViewportRect
+        ) else {
+            return
+        }
+        let token = makeSurfaceOperationID()
+        pending.id = token
+        pending.startedAt = CACurrentMediaTime()
+        pending.fence.restart(
+            expectedToken: token,
+            expectedGeometryRevision: verifiedReplayGeometryRevision,
+            expectedGeometry: geometry
+        )
+        pending.observedFrame = nil
+        pendingVerifiedReplayPresentation = pending
+        MobileDebugLog.anchormux(
+            "verified_replay.resubmit reason=geometry revision=\(verifiedReplayGeometryRevision)"
+        )
+        enqueueVerifiedReplaySubmission(
+            read: pending.read,
+            submission: VerifiedReplayRenderSubmission(surface: surface, token: token),
+            generation: surfaceGeneration
+        )
     }
 
     /// Called by the display link until the exact acknowledged target reaches
@@ -248,6 +302,28 @@ extension GhosttySurfaceView {
             id: pending.id,
             returning: VerifiedReplayPresentedSubmission(
                 observedFrame: pending.observedFrame
+            )
+        )
+    }
+
+    func verifiedReplayPendingFenceFailureReason() -> String? {
+        guard let pending = pendingVerifiedReplayPresentation else { return nil }
+        let renderer = (layer.sublayers ?? []).first(where: isGhosttyRendererLayer)
+        return pending.fence.unsatisfiedReason(
+            modelIdentity: verifiedReplayRendererIdentity(from: renderer?.contents),
+            presentationIdentity: verifiedReplayRendererIdentity(
+                from: renderer?.presentation()?.contents
+            ),
+            geometryRevision: verifiedReplayGeometryRevision,
+            modelGeometry: verifiedReplayPresentationGeometry(
+                renderer: renderer,
+                host: layer,
+                viewportRect: terminalViewportRect
+            ),
+            presentationGeometry: verifiedReplayPresentationGeometry(
+                renderer: renderer?.presentation(),
+                host: layer.presentation() ?? layer,
+                viewportRect: terminalViewportRect
             )
         )
     }
@@ -292,6 +368,9 @@ extension GhosttySurfaceView {
             pendingVerifiedReplayPresentation = PendingVerifiedReplayPresentation(
                 id: submission.token,
                 startedAt: CACurrentMediaTime(),
+                surface: surface,
+                generation: generation,
+                read: read,
                 fence: fence,
                 observedFrame: nil,
                 continuation: continuation
@@ -330,11 +409,29 @@ extension GhosttySurfaceView {
             )
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                guard self.surface == submission.surface,
-                      self.surfaceGeneration == generation,
-                      var pending = self.pendingVerifiedReplayPresentation,
-                      pending.id == submission.token,
-                      let observed else {
+                guard self.surface == submission.surface else {
+                    self.completePendingVerifiedReplayPresentation(
+                        id: submission.token,
+                        returning: nil
+                    )
+                    return
+                }
+                guard self.surfaceGeneration == generation else {
+                    self.completePendingVerifiedReplayPresentation(
+                        id: submission.token,
+                        returning: nil
+                    )
+                    return
+                }
+                guard var pending = self.pendingVerifiedReplayPresentation,
+                      pending.id == submission.token else {
+                    self.completePendingVerifiedReplayPresentation(
+                        id: submission.token,
+                        returning: nil
+                    )
+                    return
+                }
+                guard let observed else {
                     self.completePendingVerifiedReplayPresentation(
                         id: submission.token,
                         returning: nil

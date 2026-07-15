@@ -26,9 +26,9 @@ nonisolated struct VerifiedReplayRendererSurfaceIdentity: Equatable, Sendable {
 /// A stale command-buffer completion cannot arm this fence even if its target
 /// reaches both the model and presentation trees.
 nonisolated struct VerifiedReplayPresentationFence: Sendable {
-    let expectedToken: UInt64
-    let expectedGeometryRevision: UInt64
-    let expectedGeometry: VerifiedReplayPresentationGeometry
+    private(set) var expectedToken: UInt64
+    private(set) var expectedGeometryRevision: UInt64
+    private(set) var expectedGeometry: VerifiedReplayPresentationGeometry
     private(set) var acknowledgedIdentity: VerifiedReplayRendererSurfaceIdentity?
     private(set) var observedFrameReady = false
 
@@ -46,24 +46,51 @@ nonisolated struct VerifiedReplayPresentationFence: Sendable {
         observedFrameReady = true
     }
 
+    mutating func restart(
+        expectedToken: UInt64,
+        expectedGeometryRevision: UInt64,
+        expectedGeometry: VerifiedReplayPresentationGeometry
+    ) {
+        self.expectedToken = expectedToken
+        self.expectedGeometryRevision = expectedGeometryRevision
+        self.expectedGeometry = expectedGeometry
+        acknowledgedIdentity = nil
+        observedFrameReady = false
+    }
+
     mutating func acknowledge(
         token: UInt64,
         modelIdentity: VerifiedReplayRendererSurfaceIdentity?,
         geometryRevision: UInt64,
         geometry: VerifiedReplayPresentationGeometry?
     ) -> Bool {
-        guard token == expectedToken,
-              let modelIdentity,
-              geometryRevision == expectedGeometryRevision,
-              geometry == expectedGeometry,
-              verifiedReplaySurfaceExtentMatchesGeometry(
-                modelIdentity,
-                geometry: expectedGeometry
-              ) else {
+        guard acknowledgementFailureReason(
+            token: token,
+            modelIdentity: modelIdentity,
+            geometryRevision: geometryRevision,
+            geometry: geometry
+        ) == nil,
+              let modelIdentity else {
             return false
         }
         acknowledgedIdentity = modelIdentity
         return true
+    }
+
+    func acknowledgementFailureReason(
+        token: UInt64,
+        modelIdentity: VerifiedReplayRendererSurfaceIdentity?,
+        geometryRevision: UInt64,
+        geometry: VerifiedReplayPresentationGeometry?
+    ) -> String? {
+        if token != expectedToken { return "token_mismatch" }
+        guard let modelIdentity else { return "model_surface_missing" }
+        if geometryRevision != expectedGeometryRevision { return "geometry_revision_changed" }
+        if geometry != expectedGeometry { return "model_geometry_changed" }
+        if !verifiedReplaySurfaceExtentMatchesGeometry(modelIdentity, geometry: expectedGeometry) {
+            return "model_extent_mismatch"
+        }
+        return nil
     }
 
     func isSatisfied(
@@ -99,6 +126,35 @@ nonisolated struct VerifiedReplayPresentationFence: Sendable {
         // Ordinary rendering remains suppressed for the lifetime of this
         // fence, so no later command can reuse it.
         return presentationIdentity.referencesSameAllocation(as: modelIdentity)
+    }
+
+    func unsatisfiedReason(
+        modelIdentity: VerifiedReplayRendererSurfaceIdentity?,
+        presentationIdentity: VerifiedReplayRendererSurfaceIdentity?,
+        geometryRevision: UInt64,
+        modelGeometry: VerifiedReplayPresentationGeometry?,
+        presentationGeometry: VerifiedReplayPresentationGeometry?
+    ) -> String {
+        if !observedFrameReady { return "frame_not_ready" }
+        guard let acknowledgedIdentity else { return "submission_not_acknowledged" }
+        guard let modelIdentity else { return "model_surface_missing" }
+        guard let presentationIdentity else { return "presentation_surface_missing" }
+        if !modelIdentity.referencesSameAllocation(as: acknowledgedIdentity) {
+            return "model_allocation_changed"
+        }
+        if geometryRevision != expectedGeometryRevision { return "geometry_revision_changed" }
+        if modelGeometry != expectedGeometry { return "model_geometry_changed" }
+        if presentationGeometry != expectedGeometry { return "presentation_geometry_not_committed" }
+        if !verifiedReplaySurfaceExtentMatchesGeometry(modelIdentity, geometry: expectedGeometry) {
+            return "model_extent_mismatch"
+        }
+        if !verifiedReplaySurfaceExtentMatchesGeometry(presentationIdentity, geometry: expectedGeometry) {
+            return "presentation_extent_mismatch"
+        }
+        if !presentationIdentity.referencesSameAllocation(as: modelIdentity) {
+            return "presentation_allocation_not_committed"
+        }
+        return "satisfied"
     }
 }
 

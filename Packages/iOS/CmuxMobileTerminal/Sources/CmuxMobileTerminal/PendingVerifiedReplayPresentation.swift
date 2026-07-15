@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import CMUXMobileCore
+import GhosttyKit
 import QuartzCore
 
 struct VerifiedReplayFrozenPresentation {
@@ -20,9 +21,12 @@ nonisolated struct VerifiedReplayPresentedSubmission: Sendable {
 }
 
 /// One verified replay readback and tokened presentation awaiting completion.
-nonisolated struct PendingVerifiedReplayPresentation {
-    let id: UInt64
-    let startedAt: CFTimeInterval
+nonisolated struct PendingVerifiedReplayPresentation: @unchecked Sendable {
+    var id: UInt64
+    var startedAt: CFTimeInterval
+    let surface: ghostty_surface_t
+    let generation: UInt64
+    let read: VerifiedReplaySurfaceRead?
     var fence: VerifiedReplayPresentationFence
     var observedFrame: MobileTerminalRenderGridFrame?
     let continuation: CheckedContinuation<VerifiedReplayPresentedSubmission?, Never>
