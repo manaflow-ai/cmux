@@ -221,7 +221,8 @@ extension TerminalSurface {
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
         manualIO: Bool = false,
         manualInputHandler: (@Sendable (Data) -> Void)? = nil,
-        runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate
+        runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
+        preparePaneHost: @Sendable @MainActor (any TerminalSurfacePaneHosting) -> Void = { _ in }
     ) {
         self.init(
             id: id,
@@ -239,6 +240,7 @@ extension TerminalSurface {
             manualIO: manualIO,
             manualInputHandler: manualInputHandler,
             runtimeSpawnPolicy: runtimeSpawnPolicy,
+            preparePaneHost: preparePaneHost,
             dependencies: GhosttyApp.terminalSurfaceRuntimeDependencies
         )
     }

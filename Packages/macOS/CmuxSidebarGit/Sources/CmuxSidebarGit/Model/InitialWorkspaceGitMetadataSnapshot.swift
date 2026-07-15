@@ -25,18 +25,20 @@ struct InitialWorkspaceGitMetadataSnapshot: Equatable, Sendable {
     let indexContentSignature: String?
     let headSignature: String?
     let pullRequest: PullRequest
+    let isCurrent: Bool
 
     /// Probes `directory` through `reader` and folds the result into a
     /// snapshot (branch normalized; PR deferred only when a branch exists).
     init(
         probing directory: String,
         reader: any WorkspaceGitMetadataReading,
-        trackedPathEventGeneration: GitTrackedPathEventGeneration? = nil
+        snapshotRequest: GitTrackedChangesSnapshotRequest? = nil
     ) async {
-        let metadata = await reader.workspaceMetadata(
+        let read = await reader.workspaceMetadataSnapshot(
             for: directory,
-            trackedPathEventGeneration: trackedPathEventGeneration
+            snapshotRequest: snapshotRequest
         )
+        let metadata = read.metadata
         guard metadata.isRepository else {
             self.init(
                 isRepository: false,
@@ -45,7 +47,8 @@ struct InitialWorkspaceGitMetadataSnapshot: Equatable, Sendable {
                 indexSignature: nil,
                 indexContentSignature: nil,
                 headSignature: nil,
-                pullRequest: .notFound
+                pullRequest: .notFound,
+                isCurrent: read.isCurrent
             )
             return
         }
@@ -58,7 +61,8 @@ struct InitialWorkspaceGitMetadataSnapshot: Equatable, Sendable {
             indexSignature: metadata.indexSignature,
             indexContentSignature: metadata.indexContentSignature,
             headSignature: metadata.headSignature,
-            pullRequest: branch == nil ? .notFound : .deferred
+            pullRequest: branch == nil ? .notFound : .deferred,
+            isCurrent: read.isCurrent
         )
     }
 
@@ -69,7 +73,8 @@ struct InitialWorkspaceGitMetadataSnapshot: Equatable, Sendable {
         indexSignature: String?,
         indexContentSignature: String?,
         headSignature: String?,
-        pullRequest: PullRequest
+        pullRequest: PullRequest,
+        isCurrent: Bool
     ) {
         self.isRepository = isRepository
         self.branch = branch
@@ -78,5 +83,6 @@ struct InitialWorkspaceGitMetadataSnapshot: Equatable, Sendable {
         self.indexContentSignature = indexContentSignature
         self.headSignature = headSignature
         self.pullRequest = pullRequest
+        self.isCurrent = isCurrent
     }
 }

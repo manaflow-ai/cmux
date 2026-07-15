@@ -17,7 +17,7 @@ nonisolated enum RightSidebarContentMountPolicy {
     }
 }
 
-nonisolated enum FileExplorerRootSyncPolicy {
+enum FileExplorerRootSyncPolicy {
     static func shouldSyncFileExplorerStore(isRightSidebarVisible: Bool, mode: RightSidebarMode) -> Bool {
         guard isRightSidebarVisible else { return false }
         switch mode {
