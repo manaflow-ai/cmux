@@ -72,6 +72,38 @@ struct SimulatorControlServiceLocationLifecycleTests {
         #expect(await service.locationRouteInitialCoordinates["DEVICE"] == nil)
     }
 
+    @Test(
+        "Failed pause and stop commands preserve their running route lifecycle",
+        arguments: [1, 2]
+    )
+    func failedPauseAndStopPreserveLifecycle(failureInvocationIndex: Int) async throws {
+        for operation in [LocationRouteMutation.pause, .stop] {
+            let commands = LocationLifecycleCommandRunner(
+                failureInvocationIndices: [failureInvocationIndex]
+            )
+            let service = SimulatorControlService(commands: commands)
+            let route = Self.route()
+            try await service.startLocationRoute(deviceID: "DEVICE", route: route)
+
+            do {
+                switch operation {
+                case .pause:
+                    try await service.pauseLocationRoute(deviceID: "DEVICE")
+                case .stop:
+                    try await service.stopLocationRoute(deviceID: "DEVICE")
+                }
+                Issue.record("Expected the injected location command failure")
+            } catch {}
+
+            guard case .running? = await service.activeLocationRoutes["DEVICE"] else {
+                Issue.record("The failed \(operation) discarded the running route")
+                continue
+            }
+            #expect(await service.locationRouteTokens["DEVICE"] != nil)
+            #expect(await service.locationLifecycleTasks["DEVICE"] != nil)
+        }
+    }
+
     private static func route() -> SimulatorLocationRoute {
         SimulatorLocationRoute(
             waypoints: [
@@ -90,5 +122,17 @@ struct SimulatorControlServiceLocationLifecycleTests {
             await Task.yield()
         }
         Issue.record("Condition did not become true")
+    }
+}
+
+private enum LocationRouteMutation: CustomStringConvertible {
+    case pause
+    case stop
+
+    var description: String {
+        switch self {
+        case .pause: "pause"
+        case .stop: "stop"
+        }
     }
 }
