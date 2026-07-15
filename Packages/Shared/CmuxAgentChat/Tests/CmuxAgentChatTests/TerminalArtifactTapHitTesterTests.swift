@@ -85,6 +85,20 @@ struct TerminalArtifactTapHitTesterTests {
         #expect(resolved == path)
     }
 
+    @Test("uses terminal cell width for CJK text before a path")
+    func cjkPrefixUsesTerminalColumns() {
+        let path = "/tmp/note.txt"
+
+        let resolved = TerminalArtifactTapHitTester().path(
+            in: "漢字 open \(path)",
+            col: 22,
+            row: 0,
+            columns: 80
+        )
+
+        #expect(resolved == path)
+    }
+
     @Test("does not stitch a full-width token to a new prompt")
     func doesNotStitchPrompt() {
         let path = "/tmp/exact.md"
