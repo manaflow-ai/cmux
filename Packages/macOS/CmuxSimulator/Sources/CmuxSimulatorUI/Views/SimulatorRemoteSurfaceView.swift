@@ -201,6 +201,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     }
 
     override func scrollWheel(with event: NSEvent) {
+        guard isPointerInputEnabled else { return super.scrollWheel(with: event) }
         let phase: SimulatorInputStateMachine.ScrollPhase
         if event.phase.contains(.began) {
             phase = .began

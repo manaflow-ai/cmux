@@ -245,6 +245,7 @@ struct SimulatorPaneCoordinatorTests {
         coordinator.cancelTextInput(requestID: submission.requestIdentifier)
 
         await eventually { await client.invalidationCount() == 1 }
+        await eventually { coordinator.cancelledTextInputRequestIDs.isEmpty }
         #expect(completions.values() == [false])
         #expect(await client.messages().allSatisfy { message in
             guard case let .typeText(requestID, _) = message else { return true }

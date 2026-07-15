@@ -53,9 +53,10 @@ extension SimulatorPaneCoordinator {
         guard let completion = textInputCompletions.removeValue(forKey: requestID) else { return }
         cancelledTextInputRequestIDs.insert(requestID)
         let previousRecoveryTask = outgoingRecoveryTask
-        outgoingRecoveryTask = Task { @MainActor [client] in
+        outgoingRecoveryTask = Task { @MainActor [weak self, client] in
             _ = await previousRecoveryTask?.value
             await client.invalidateWorker()
+            self?.cancelledTextInputRequestIDs.remove(requestID)
             completion(false)
         }
     }

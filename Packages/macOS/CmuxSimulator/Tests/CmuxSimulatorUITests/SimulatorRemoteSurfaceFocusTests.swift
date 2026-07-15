@@ -5,6 +5,29 @@ import Testing
 @Suite("Simulator remote surface focus")
 @MainActor
 struct SimulatorRemoteSurfaceFocusTests {
+    @Test("Scroll input follows host pointer ownership")
+    func scrollRequiresPointerOwnership() throws {
+        let view = SimulatorRemoteSurfaceView()
+        var guestInvocationCount = 0
+        view.onMessage = { _ in guestInvocationCount += 1 }
+        let cgEvent = try #require(CGEvent(
+            scrollWheelEvent2Source: nil,
+            units: .pixel,
+            wheelCount: 1,
+            wheel1: 12,
+            wheel2: 0,
+            wheel3: 0
+        ))
+        let event = try #require(NSEvent(cgEvent: cgEvent))
+
+        view.scrollWheel(with: event)
+        #expect(guestInvocationCount == 0)
+
+        view.setPointerInputEnabled(true)
+        view.scrollWheel(with: event)
+        #expect(guestInvocationCount > 0)
+    }
+
     @Test("Host Command shortcuts run before guest key forwarding")
     func hostCommandShortcutWins() throws {
         let view = SimulatorRemoteSurfaceView()

@@ -320,6 +320,12 @@ extension CMUXCLI {
                 }
             }
         }
+        if captures.contains(where: { $0["error"] != nil }) {
+            throw CLIError(message: String(
+                localized: "cli.ios.error.screenshotFailures",
+                defaultValue: "One or more iOS Simulator screenshots failed"
+            ))
+        }
     }
 
     private func iosContextPayload(
