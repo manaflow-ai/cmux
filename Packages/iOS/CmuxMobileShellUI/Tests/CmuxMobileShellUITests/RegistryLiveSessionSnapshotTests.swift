@@ -16,6 +16,7 @@ import Testing
         let newer = CmxLiveSession(
             id: "workspace-new",
             workspaceID: "workspace-new",
+            agentSessionID: "agent-new",
             title: "Newer",
             agent: "codex",
             status: .working,
@@ -68,5 +69,6 @@ import Testing
         #expect(snapshots.map(\.sessionID) == ["workspace-new", "workspace-old"])
         #expect(snapshots.first?.deviceTitle == "Desk Mac")
         #expect(snapshots.first?.agent == "codex")
+        #expect(snapshots.first?.agentSessionID == newer.agentSessionID)
     }
 }

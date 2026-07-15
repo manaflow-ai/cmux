@@ -79,6 +79,17 @@ import CMUXMobileCore
         #expect(DeviceRegistryClient.shouldReRegister(previous: previous, current: current) == true)
     }
 
+    @Test func forcedLeaseRenewalReRegistersUnchangedLiveSessions() throws {
+        let routes = [try route(host: "100.0.0.1", port: 51000)]
+        let registration = reg(team: "team-a", routes: routes, sessions: [liveSession()])
+
+        #expect(DeviceRegistryClient.shouldReRegister(
+            previous: registration,
+            current: registration,
+            force: true
+        ))
+    }
+
     @Test func pairingOffSuppressesSessionDiscovery() {
         #expect(DeviceRegistryClient.advertisedSessions(routes: [], sessions: [liveSession()]).isEmpty)
     }

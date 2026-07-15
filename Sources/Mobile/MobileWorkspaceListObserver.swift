@@ -4,7 +4,7 @@ import CmuxWorkspaces
 import Foundation
 import OSLog
 
-private let mobileWorkspaceObserverLog = Logger(subsystem: "dev.cmux", category: "mobile-workspace-observer")
+nonisolated private let mobileWorkspaceObserverLog = Logger(subsystem: "dev.cmux", category: "mobile-workspace-observer")
 
 private enum MobileWorkspaceInvalidation: Hashable {
     case workspaceGraph
@@ -65,7 +65,7 @@ final class MobileWorkspaceListObserver {
             ),
             emitWorkspaceUpdated: { _ in
                 MobileHostService.shared.emitEvent(topic: "workspace.updated", payload: [:])
-                NotificationCenter.default.post(name: .cmuxLiveSessionsDidChange, object: nil)
+                DeviceRegistryClient.shared.liveSessionsDidChange()
             }
         )
     }
@@ -128,7 +128,7 @@ final class MobileWorkspaceListObserver {
             selectedTabID: tabManager.selectedTabId
         )
         lastSummaryHash = initial
-        emitIfNeeded(force: true)
+        emitIfNeeded(force: true, affectedWorkspaceIDs: nil)
 
         tabsCancellable = tabManager.tabsPublisher
             .sink { [weak self] _ in
@@ -289,18 +289,18 @@ final class MobileWorkspaceListObserver {
             if invalidations[.workspaceGraph] == true {
                 self.refreshPerWorkspaceSubscriptions(tabs: tabManager.tabs)
             }
-            self.refreshSummaryCache(
+            let affectedWorkspaceIDs = self.refreshSummaryCache(
                 for: Set(invalidations.keys),
                 tabs: tabManager.tabs
             )
-            self.emitIfNeeded(force: false)
+            self.emitIfNeeded(force: false, affectedWorkspaceIDs: affectedWorkspaceIDs)
         }
     }
 
     private func refreshSummaryCache(
         for invalidations: Set<MobileWorkspaceInvalidation>,
         tabs: [Workspace]
-    ) {
+    ) -> Set<UUID>? {
         if invalidations.contains(.workspaceGraph) {
             let metricsToken = MobileWorkspaceObserverMetrics.shared.fullGraphRebuildStarted()
             let previews = currentPreviewSignatures(for: tabs)
@@ -313,7 +313,7 @@ final class MobileWorkspaceListObserver {
                 metricsToken,
                 workspacesRehashed: tabs.count
             )
-            return
+            return nil
         }
 
         let metricsToken = MobileWorkspaceObserverMetrics.shared.incrementalRefreshStarted()
@@ -349,9 +349,10 @@ final class MobileWorkspaceListObserver {
             metricsToken,
             workspacesRehashed: rehashedWorkspaceCount
         )
+        return invalidations.contains(.summary) ? nil : workspaceIDs
     }
 
-    private func emitIfNeeded(force: Bool) {
+    private func emitIfNeeded(force: Bool, affectedWorkspaceIDs: Set<UUID>?) {
         let signpost = MobileWorkspaceObserverSignposts.begin("mobile-workspace-emit-if-needed", "force=\(force)"); defer { MobileWorkspaceObserverSignposts.end(signpost) }
         guard let tabManager else { return }
         let hash = Self.summaryHash(
@@ -373,7 +374,7 @@ final class MobileWorkspaceListObserver {
         #if DEBUG
         cmuxDebugLog("mobile.observer EMIT workspace.updated hash=\(hash) tabs=\(tabManager.tabs.count) force=\(force)")
         #endif
-        emitWorkspaceUpdated(nil)
+        emitWorkspaceUpdated(affectedWorkspaceIDs)
     }
 
     /// Stable hash of the iOS-facing shape: workspace ids + titles + their

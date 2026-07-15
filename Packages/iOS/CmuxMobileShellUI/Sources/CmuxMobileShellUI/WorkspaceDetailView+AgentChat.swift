@@ -411,6 +411,23 @@ extension WorkspaceDetailView {
         }
         repinToReopenedSession()
         applyChatModeFallback(canInvalidateSelection: seedOutcomeCanInvalidateSelection)
+        applyRegistrySessionHandoffNavigationRequestIfNeeded()
+    }
+
+    /// Consume a registry handoff intent only after its exact authoritative session is renderable.
+    func applyRegistrySessionHandoffNavigationRequestIfNeeded() {
+        guard let request = store.registrySessionHandoffNavigationRequest,
+              request.workspaceID == workspace.id,
+              let session = visibleChatSessions.first(where: { $0.id == request.agentSessionID }),
+              ensureChatConversationStore(for: session) != nil else {
+            return
+        }
+        cachedChatToggleTerminalID = session.terminalID
+        pinnedChatSessionID = session.id
+        withAnimation(.snappy(duration: 0.28)) {
+            isChatMode = true
+        }
+        store.consumeRegistrySessionHandoffNavigationRequest(token: request.token)
     }
 
 }

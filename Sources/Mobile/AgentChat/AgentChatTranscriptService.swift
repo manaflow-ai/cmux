@@ -437,8 +437,9 @@ final class AgentChatTranscriptService {
     }
 
     private func handleRecordChange(_ record: AgentChatSessionRecord, previous: AgentChatSessionRecord?) {
-        Set([record.workspaceID, previous?.workspaceID].compactMap { $0 }).forEach {
-            NotificationCenter.default.post(name: .cmuxLiveSessionsDidChange, object: $0)
+        let descriptorChanged = Self.descriptorChangedMeaningfully(previous: previous, current: record)
+        if descriptorChanged, record.workspaceID != nil || previous?.workspaceID != nil {
+            DeviceRegistryClient.shared.liveSessionsDidChange()
         }
         let endedRecordIsListable: Bool
         if record.state == .ended {
@@ -473,14 +474,13 @@ final class AgentChatTranscriptService {
         // Pure activity bumps (every pre/postToolUse moves lastActivityAt)
         // don't merit a descriptor push to every phone; emit only when the
         // descriptor changed beyond the activity timestamp.
-        if Self.descriptorChangedMeaningfully(previous: previous, current: record) {
+        if descriptorChanged {
             emit(frame: ChatSessionEventFrame(sessionID: record.sessionID, event: .descriptorChanged(record.descriptor)))
         }
     }
-
     private func handleRecordRemoval(_ record: AgentChatSessionRecord) {
-        if let workspaceID = record.workspaceID {
-            NotificationCenter.default.post(name: .cmuxLiveSessionsDidChange, object: workspaceID)
+        if record.workspaceID != nil {
+            DeviceRegistryClient.shared.liveSessionsDidChange()
         }
         proseStreamer.turnEnded(sessionID: record.sessionID)
         if let tailer = tailers.removeValue(forKey: record.sessionID) {

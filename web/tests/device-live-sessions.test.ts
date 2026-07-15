@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   labelsWithLiveSessions,
+  liveSessionsFromFreshInstance,
   liveSessionsFromLabels,
   publicInstanceLabels,
   sanitizeLiveSessions,
@@ -100,5 +101,27 @@ describe("device registry live sessions", () => {
     expect(Array.from(session.title).at(-1)).toBe("🚀");
     expect(Array.from(session.agent ?? "")).toHaveLength(32);
     expect(Array.from(session.agent ?? "").at(-1)).toBe("🚀");
+  });
+
+  test("returns session advertisements only inside the runtime lease", () => {
+    const labels = labelsWithLiveSessions({}, [{
+      id: "workspace-1",
+      workspaceID: "workspace-1",
+      title: "Fresh",
+      status: "idle",
+      lastActivityAt: 10,
+    }]);
+    const now = new Date("2026-07-14T20:00:00.000Z");
+
+    expect(liveSessionsFromFreshInstance(
+      labels,
+      new Date("2026-07-14T19:58:00.000Z"),
+      now,
+    )).toHaveLength(1);
+    expect(liveSessionsFromFreshInstance(
+      labels,
+      new Date("2026-07-14T19:57:59.999Z"),
+      now,
+    )).toEqual([]);
   });
 });
