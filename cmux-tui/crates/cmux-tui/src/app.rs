@@ -78,7 +78,10 @@ pub enum AppEvent {
     BrowserResizeFailed(BrowserResizeFailure),
     PtyFailuresReady,
     PtyOperationFailed(PtyOperationFailure),
-    SessionMutationSettled(SessionMutationOutcome),
+    SessionMutationSettled {
+        outcome: SessionMutationOutcome,
+        routing: bool,
+    },
     RemoteTreeUpdated {
         refresh_sequence: u64,
         routing_generation: u64,
@@ -345,6 +348,8 @@ enum SessionCompletionAction {
 struct PendingSessionMutationState {
     events: SyncSender<AppEvent>,
     pending_mutations: Arc<AtomicUsize>,
+    pending_routing_mutations: Arc<AtomicUsize>,
+    routing: bool,
     cancellation_pending: Arc<AtomicBool>,
     settled: AtomicBool,
 }
@@ -355,7 +360,10 @@ struct PendingSessionMutation(Arc<PendingSessionMutationState>);
 impl PendingSessionMutation {
     fn settle(self, outcome: SessionMutationOutcome) {
         if !self.0.settled.swap(true, Ordering::AcqRel) {
-            let _ = self.0.events.send(AppEvent::SessionMutationSettled(outcome));
+            let _ = self
+                .0
+                .events
+                .send(AppEvent::SessionMutationSettled { outcome, routing: self.0.routing });
         }
     }
 
@@ -366,6 +374,13 @@ impl PendingSessionMutation {
                 Ordering::Acquire,
                 |pending| pending.checked_sub(1),
             );
+            if self.0.routing {
+                let _ = self.0.pending_routing_mutations.fetch_update(
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                    |pending| pending.checked_sub(1),
+                );
+            }
         }
     }
 }
@@ -373,10 +388,10 @@ impl PendingSessionMutation {
 impl Drop for PendingSessionMutationState {
     fn drop(&mut self) {
         if !self.settled.load(Ordering::Acquire) {
-            match self
-                .events
-                .try_send(AppEvent::SessionMutationSettled(SessionMutationOutcome::Canceled))
-            {
+            match self.events.try_send(AppEvent::SessionMutationSettled {
+                outcome: SessionMutationOutcome::Canceled,
+                routing: self.routing,
+            }) {
                 Ok(()) => {}
                 Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
                     let _ = self.pending_mutations.fetch_update(
@@ -384,6 +399,13 @@ impl Drop for PendingSessionMutationState {
                         Ordering::Acquire,
                         |pending| pending.checked_sub(1),
                     );
+                    if self.routing {
+                        let _ = self.pending_routing_mutations.fetch_update(
+                            Ordering::AcqRel,
+                            Ordering::Acquire,
+                            |pending| pending.checked_sub(1),
+                        );
+                    }
                     self.cancellation_pending.store(true, Ordering::Release);
                 }
             }
@@ -526,6 +548,7 @@ pub struct OrderedSession {
     events: SyncSender<AppEvent>,
     remote: bool,
     pending_mutations: Arc<AtomicUsize>,
+    pending_routing_mutations: Arc<AtomicUsize>,
     cancellation_pending: Arc<AtomicBool>,
     committed_mutation_generation: Arc<AtomicU64>,
     routing_mutation_started: Arc<AtomicU64>,
@@ -552,6 +575,7 @@ impl OrderedSession {
             events,
             remote,
             pending_mutations: Arc::new(AtomicUsize::new(0)),
+            pending_routing_mutations: Arc::new(AtomicUsize::new(0)),
             cancellation_pending: Arc::new(AtomicBool::new(false)),
             committed_mutation_generation: Arc::new(AtomicU64::new(0)),
             routing_mutation_started: Arc::new(AtomicU64::new(0)),
@@ -571,10 +595,19 @@ impl OrderedSession {
     }
 
     fn pending_mutation(&self) -> PendingSessionMutation {
+        self.pending_mutation_with_routing(false)
+    }
+
+    fn pending_mutation_with_routing(&self, routing: bool) -> PendingSessionMutation {
         self.pending_mutations.fetch_add(1, Ordering::AcqRel);
+        if routing {
+            self.pending_routing_mutations.fetch_add(1, Ordering::AcqRel);
+        }
         PendingSessionMutation(Arc::new(PendingSessionMutationState {
             events: self.events.clone(),
             pending_mutations: self.pending_mutations.clone(),
+            pending_routing_mutations: self.pending_routing_mutations.clone(),
+            routing,
             cancellation_pending: self.cancellation_pending.clone(),
             settled: AtomicBool::new(false),
         }))
@@ -726,6 +759,10 @@ impl OrderedSession {
         self.pending_mutations.load(Ordering::Acquire) > 0
     }
 
+    fn has_pending_routing_mutations(&self) -> bool {
+        self.pending_routing_mutations.load(Ordering::Acquire) > 0
+    }
+
     fn routing_mutation_started(&self) -> u64 {
         self.routing_mutation_started.load(Ordering::Acquire)
     }
@@ -734,12 +771,23 @@ impl OrderedSession {
         self.routing_mutation_committed.load(Ordering::Acquire)
     }
 
-    fn settle_pending_mutation(&self) {
+    fn settle_pending_mutation(&self, routing: bool) {
         let result =
             self.pending_mutations.fetch_update(Ordering::AcqRel, Ordering::Acquire, |pending| {
                 pending.checked_sub(1)
             });
         debug_assert!(result.is_ok(), "session mutation completion without a pending operation");
+        if routing {
+            let result = self.pending_routing_mutations.fetch_update(
+                Ordering::AcqRel,
+                Ordering::Acquire,
+                |pending| pending.checked_sub(1),
+            );
+            debug_assert!(
+                result.is_ok(),
+                "routing mutation completion without a pending operation"
+            );
+        }
     }
 
     fn take_cancellation_pending(&self) -> bool {
@@ -873,7 +921,7 @@ impl OrderedSession {
         + 'static,
     ) {
         let session = self.inner.clone();
-        let pending = self.pending_mutation();
+        let pending = self.pending_mutation_with_routing(routing);
         let remote = self.remote;
         let committed_mutation_generation = self.committed_mutation_generation.clone();
         let routing_token =
@@ -2863,7 +2911,7 @@ impl App {
                 return Ok(self.defer_input(input));
             }
             AppEvent::Input(input @ Event::Mouse(_))
-                if (self.session.has_pending_mutations()
+                if (self.session.has_pending_routing_mutations()
                     || self.session.remote_tree_is_stale()
                     || self.mux_recovery_generation.load(Ordering::Acquire) != 0
                     || self.routing_refresh_pending)
@@ -2991,8 +3039,8 @@ impl App {
             }
             AppEvent::PtyFailuresReady => Ok(self.apply_pty_failures()),
             AppEvent::PtyOperationFailed(failure) => Ok(self.apply_pty_operation_failure(failure)),
-            AppEvent::SessionMutationSettled(outcome) => {
-                self.session.settle_pending_mutation();
+            AppEvent::SessionMutationSettled { outcome, routing } => {
+                self.session.settle_pending_mutation(routing);
                 match outcome {
                     SessionMutationOutcome::Success { tree } => {
                         if let Some(tree) = tree {
@@ -6290,6 +6338,10 @@ mod tests {
     use crate::session::{Session, SidebarPluginSurface, SurfaceHandle, TreeView};
     use crate::sidebar_files::FileBrowser;
 
+    fn settled(outcome: super::SessionMutationOutcome) -> AppEvent {
+        AppEvent::SessionMutationSettled { outcome, routing: false }
+    }
+
     #[test]
     fn browser_omnibar_reduces_content_rect_for_graphics_and_input() {
         let rect = Rect { x: 10, y: 4, width: 80, height: 24 };
@@ -6711,7 +6763,7 @@ mod tests {
         assert_eq!(app.deferred_input.len(), 1);
         release_tx.send(()).unwrap();
         let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
-        assert!(matches!(settled, AppEvent::SessionMutationSettled(_)));
+        assert!(matches!(settled, AppEvent::SessionMutationSettled { .. }));
         app.handle(settled).unwrap();
         assert!(app.routing_refresh_pending);
         app.routing_refresh_pending = false;
@@ -6725,11 +6777,14 @@ mod tests {
         let (events, receiver) = std::sync::mpsc::sync_channel(1);
         events.send(AppEvent::MuxTitlesReady).unwrap();
         let pending_mutations = Arc::new(std::sync::atomic::AtomicUsize::new(1));
+        let pending_routing_mutations = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let cancellation_pending = Arc::new(AtomicBool::new(false));
 
         drop(PendingSessionMutation(Arc::new(PendingSessionMutationState {
             events,
             pending_mutations: pending_mutations.clone(),
+            pending_routing_mutations,
+            routing: false,
             cancellation_pending: cancellation_pending.clone(),
             settled: AtomicBool::new(false),
         })));
@@ -6743,10 +6798,13 @@ mod tests {
     fn superseded_mutation_settles_without_canceling_session_input() {
         let (events, receiver) = std::sync::mpsc::sync_channel(1);
         let pending_mutations = Arc::new(std::sync::atomic::AtomicUsize::new(1));
+        let pending_routing_mutations = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let cancellation_pending = Arc::new(AtomicBool::new(false));
         let pending = PendingSessionMutation(Arc::new(PendingSessionMutationState {
             events,
             pending_mutations: pending_mutations.clone(),
+            pending_routing_mutations,
+            routing: false,
             cancellation_pending: cancellation_pending.clone(),
             settled: AtomicBool::new(false),
         }));
@@ -6919,14 +6977,12 @@ mod tests {
         app.session.pending_mutations.store(1, Ordering::Release);
         app.session.remote_background_dirty.store(true, Ordering::Release);
 
-        app.handle(AppEvent::SessionMutationSettled(
-            super::SessionMutationOutcome::IdentityRefreshSucceeded {
-                tree: TreeView::default(),
-                authoritative_generation: 0,
-                routing_generation: 0,
-                refresh_sequence: 1,
-            },
-        ))
+        app.handle(settled(super::SessionMutationOutcome::IdentityRefreshSucceeded {
+            tree: TreeView::default(),
+            authoritative_generation: 0,
+            routing_generation: 0,
+            refresh_sequence: 1,
+        }))
         .unwrap();
 
         assert!(!app.session.remote_background_dirty.load(Ordering::Acquire));
@@ -7235,11 +7291,14 @@ mod tests {
         let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
         assert!(matches!(
             settled,
-            AppEvent::SessionMutationSettled(super::SessionMutationOutcome::SurfaceSyncFailed {
-                surface: 77,
-                operation: "attach",
+            AppEvent::SessionMutationSettled {
+                outcome: super::SessionMutationOutcome::SurfaceSyncFailed {
+                    surface: 77,
+                    operation: "attach",
+                    ..
+                },
                 ..
-            })
+            }
         ));
         app.handle(settled).unwrap();
         assert!(!app.session.can_attach_surface(77));
@@ -7261,11 +7320,14 @@ mod tests {
         let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
         assert!(matches!(
             settled,
-            AppEvent::SessionMutationSettled(super::SessionMutationOutcome::SurfaceSyncFailed {
-                surface: 88,
-                operation: "resize",
+            AppEvent::SessionMutationSettled {
+                outcome: super::SessionMutationOutcome::SurfaceSyncFailed {
+                    surface: 88,
+                    operation: "resize",
+                    ..
+                },
                 ..
-            })
+            }
         ));
         app.handle(settled).unwrap();
         assert!(matches!(
@@ -7309,14 +7371,12 @@ mod tests {
         });
         app.session.pending_mutations.store(1, Ordering::Release);
 
-        app.handle(AppEvent::SessionMutationSettled(
-            super::SessionMutationOutcome::SurfaceSyncFailed {
-                surface: 77,
-                operation: "attach",
-                error: "remote session did not respond".to_string(),
-                reconnect_required: true,
-            },
-        ))
+        app.handle(settled(super::SessionMutationOutcome::SurfaceSyncFailed {
+            surface: 77,
+            operation: "attach",
+            error: "remote session did not respond".to_string(),
+            reconnect_required: true,
+        }))
         .unwrap();
 
         assert!(app.deferred_input.is_empty());
@@ -7345,11 +7405,14 @@ mod tests {
         let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
         assert!(matches!(
             settled,
-            AppEvent::SessionMutationSettled(super::SessionMutationOutcome::SurfaceSyncFailed {
-                surface: 77,
-                operation: "attach",
+            AppEvent::SessionMutationSettled {
+                outcome: super::SessionMutationOutcome::SurfaceSyncFailed {
+                    surface: 77,
+                    operation: "attach",
+                    ..
+                },
                 ..
-            })
+            }
         ));
         app.handle(settled).unwrap();
         assert_eq!(app.deferred_input.len(), 1);
@@ -7417,14 +7480,12 @@ mod tests {
             result: Ok(newer.clone()),
         })
         .unwrap();
-        app.handle(AppEvent::SessionMutationSettled(
-            super::SessionMutationOutcome::IdentityRefreshSucceeded {
-                tree: older.clone(),
-                authoritative_generation: 0,
-                routing_generation: 0,
-                refresh_sequence: 1,
-            },
-        ))
+        app.handle(settled(super::SessionMutationOutcome::IdentityRefreshSucceeded {
+            tree: older.clone(),
+            authoritative_generation: 0,
+            routing_generation: 0,
+            refresh_sequence: 1,
+        }))
         .unwrap();
         assert_eq!(app.tree.workspaces[0].screens[0].panes[0].tabs[0].surface, 22);
         assert!(app.routing_refresh_pending);
@@ -7432,14 +7493,12 @@ mod tests {
 
         app.routing_refresh_pending = false;
         app.session.pending_mutations.store(1, Ordering::Release);
-        app.handle(AppEvent::SessionMutationSettled(
-            super::SessionMutationOutcome::IdentityRefreshSucceeded {
-                tree: newer,
-                authoritative_generation: 0,
-                routing_generation: 0,
-                refresh_sequence: 4,
-            },
-        ))
+        app.handle(settled(super::SessionMutationOutcome::IdentityRefreshSucceeded {
+            tree: newer,
+            authoritative_generation: 0,
+            routing_generation: 0,
+            refresh_sequence: 4,
+        }))
         .unwrap();
         app.handle(AppEvent::RemoteTreeUpdated {
             refresh_sequence: 3,
@@ -7469,14 +7528,12 @@ mod tests {
         })
         .unwrap();
         app.session.pending_mutations.store(1, Ordering::Release);
-        app.handle(AppEvent::SessionMutationSettled(
-            super::SessionMutationOutcome::IdentityRefreshSucceeded {
-                tree,
-                authoritative_generation: 4,
-                routing_generation: 0,
-                refresh_sequence: 1,
-            },
-        ))
+        app.handle(settled(super::SessionMutationOutcome::IdentityRefreshSucceeded {
+            tree,
+            authoritative_generation: 4,
+            routing_generation: 0,
+            refresh_sequence: 1,
+        }))
         .unwrap();
 
         assert!(app.pending_session_completions.is_empty());
@@ -7864,7 +7921,10 @@ mod tests {
         let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
         assert!(matches!(
             settled,
-            AppEvent::SessionMutationSettled(super::SessionMutationOutcome::MutationTimedOut(_))
+            AppEvent::SessionMutationSettled {
+                outcome: super::SessionMutationOutcome::MutationTimedOut(_),
+                ..
+            }
         ));
         app.handle(settled).unwrap();
         assert_eq!(app.deferred_input.len(), 1);
@@ -7897,9 +7957,10 @@ mod tests {
             let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
             assert!(matches!(
                 settled,
-                AppEvent::SessionMutationSettled(super::SessionMutationOutcome::MutationTimedOut(
-                    _
-                ))
+                AppEvent::SessionMutationSettled {
+                    outcome: super::SessionMutationOutcome::MutationTimedOut(_),
+                    ..
+                }
             ));
             app.handle(settled).unwrap();
             assert_eq!(app.deferred_input.len(), 1);
@@ -7928,35 +7989,28 @@ mod tests {
         assert!(app.omnibar.is_none());
 
         app.session.pending_mutations.store(1, Ordering::Release);
-        app.handle(AppEvent::SessionMutationSettled(super::SessionMutationOutcome::Success {
-            tree: None,
+        app.handle(settled(super::SessionMutationOutcome::Success { tree: None })).unwrap();
+        assert_eq!(app.pending_session_completions.len(), 1);
+        assert!(app.omnibar.is_none());
+
+        app.session.pending_mutations.store(1, Ordering::Release);
+        app.handle(settled(super::SessionMutationOutcome::IdentityRefreshSucceeded {
+            tree: tree.clone(),
+            authoritative_generation: 3,
+            routing_generation: 0,
+            refresh_sequence: 2,
         }))
         .unwrap();
         assert_eq!(app.pending_session_completions.len(), 1);
         assert!(app.omnibar.is_none());
 
         app.session.pending_mutations.store(1, Ordering::Release);
-        app.handle(AppEvent::SessionMutationSettled(
-            super::SessionMutationOutcome::IdentityRefreshSucceeded {
-                tree: tree.clone(),
-                authoritative_generation: 3,
-                routing_generation: 0,
-                refresh_sequence: 2,
-            },
-        ))
-        .unwrap();
-        assert_eq!(app.pending_session_completions.len(), 1);
-        assert!(app.omnibar.is_none());
-
-        app.session.pending_mutations.store(1, Ordering::Release);
-        app.handle(AppEvent::SessionMutationSettled(
-            super::SessionMutationOutcome::IdentityRefreshSucceeded {
-                tree,
-                authoritative_generation: 4,
-                routing_generation: 0,
-                refresh_sequence: 3,
-            },
-        ))
+        app.handle(settled(super::SessionMutationOutcome::IdentityRefreshSucceeded {
+            tree,
+            authoritative_generation: 4,
+            routing_generation: 0,
+            refresh_sequence: 3,
+        }))
         .unwrap();
         assert!(app.pending_session_completions.is_empty());
         assert_eq!(app.omnibar.as_ref().map(|state| state.surface), Some(surface));
@@ -7975,14 +8029,12 @@ mod tests {
         });
         app.session.pending_mutations.store(1, Ordering::Release);
 
-        app.handle(AppEvent::SessionMutationSettled(
-            super::SessionMutationOutcome::IdentityRefreshSucceeded {
-                tree: browser_completion_tree(created_surface, active_surface),
-                authoritative_generation: 4,
-                routing_generation: 0,
-                refresh_sequence: 1,
-            },
-        ))
+        app.handle(settled(super::SessionMutationOutcome::IdentityRefreshSucceeded {
+            tree: browser_completion_tree(created_surface, active_surface),
+            authoritative_generation: 4,
+            routing_generation: 0,
+            refresh_sequence: 1,
+        }))
         .unwrap();
 
         assert!(app.pending_session_completions.is_empty());
@@ -8089,12 +8141,14 @@ mod tests {
         let mut authoritative_snapshots = 0;
         for _ in 0..2 {
             match events.recv_timeout(Duration::from_secs(1)).unwrap() {
-                AppEvent::SessionMutationSettled(super::SessionMutationOutcome::Success {
-                    tree: None,
-                }) => sample_without_tree += 1,
-                AppEvent::SessionMutationSettled(
-                    super::SessionMutationOutcome::AuthoritativeMutationSucceeded { .. },
-                ) => authoritative_snapshots += 1,
+                AppEvent::SessionMutationSettled {
+                    outcome: super::SessionMutationOutcome::Success { tree: None },
+                    ..
+                } => sample_without_tree += 1,
+                AppEvent::SessionMutationSettled {
+                    outcome: super::SessionMutationOutcome::AuthoritativeMutationSucceeded { .. },
+                    ..
+                } => authoritative_snapshots += 1,
                 _ => panic!("unexpected split ratio settlement"),
             }
         }
@@ -8109,7 +8163,7 @@ mod tests {
         let (mut app, events) = test_app_with_events(Session::Local(mux));
         let (started_tx, started_rx) = std::sync::mpsc::channel();
         let (release_tx, release_rx) = std::sync::mpsc::channel();
-        app.session.enqueue("blocking mutation", move |_| {
+        app.session.enqueue_routing("blocking mutation", move |_| {
             started_tx.send(()).unwrap();
             release_rx.recv().unwrap();
             Ok(())
@@ -8132,6 +8186,35 @@ mod tests {
         release_tx.send(()).unwrap();
         let settled = events.recv_timeout(Duration::from_secs(1)).unwrap();
         app.handle(settled).unwrap();
+    }
+
+    #[test]
+    fn pointer_input_continues_during_non_routing_background_mutation() {
+        let mux = Mux::new("background-pointer-test", SurfaceOptions::default());
+        let (mut app, events) = test_app_with_events(Session::Local(mux));
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        app.session.enqueue("blocking background sync", move |_| {
+            started_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+            Ok(())
+        });
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 9,
+            row: 3,
+            modifiers: KeyModifiers::NONE,
+        })))
+        .unwrap();
+
+        assert_ne!(
+            app.status_message.as_deref(),
+            Some("Pointer input was discarded while the layout changed")
+        );
+        release_tx.send(()).unwrap();
+        app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
     }
 
     #[test]
@@ -8256,12 +8339,10 @@ mod tests {
             sidebar_focus_intent: false,
         });
 
-        app.handle(AppEvent::SessionMutationSettled(
-            super::SessionMutationOutcome::CommittedTreeStale {
-                error: Some("refresh unavailable".to_string()),
-                completion: None,
-            },
-        ))
+        app.handle(settled(super::SessionMutationOutcome::CommittedTreeStale {
+            error: Some("refresh unavailable".to_string()),
+            completion: None,
+        }))
         .unwrap();
 
         assert_eq!(app.deferred_input.len(), 1);
