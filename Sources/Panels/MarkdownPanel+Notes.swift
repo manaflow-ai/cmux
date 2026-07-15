@@ -224,6 +224,25 @@ extension MarkdownPanel {
         textView.performTextFinderAction(action)
     }
 
+    /// Applies a toolbar formatting action at the editor's selection, with
+    /// undo support, switching to source mode first when invoked from
+    /// preview. Selection coordinates come straight from the text view, so
+    /// the edit composes with typing and repeat applications.
+    func applyFormatting(_ action: MarkdownFormatAction) {
+        if displayMode != .text {
+            setDisplayMode(.text)
+        }
+        guard let textView else { return }
+        let edit = MarkdownFormatter.edit(
+            for: action, in: textView.string, selection: textView.selectedRange()
+        )
+        guard textView.shouldChangeText(in: edit.range, replacementString: edit.replacement) else { return }
+        textView.textStorage?.replaceCharacters(in: edit.range, with: edit.replacement)
+        textView.didChangeText()
+        textView.setSelectedRange(edit.selection)
+        textView.window?.makeFirstResponder(textView)
+    }
+
     func retryPendingFocus() {
         guard pendingTextViewFocus else { return }
         // The pending claim is only valid while nothing else has taken the

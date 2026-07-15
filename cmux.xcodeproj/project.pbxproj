@@ -945,6 +945,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		F5168A040000000000000001 /* MarkdownFontFamily.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5168A040000000000000002 /* MarkdownFontFamily.swift */; };
 		F5168A070000000000000001 /* MarkdownFontFamilyCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5168A070000000000000002 /* MarkdownFontFamilyCache.swift */; };
 		F5168A030000000000000001 /* MarkdownFontSizeSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5168A030000000000000002 /* MarkdownFontSizeSettings.swift */; };
+		94E1636B2E87963F71B0BF3D /* MarkdownFormatterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15B2F4F5A80D9D0BB4E2E93B /* MarkdownFormatterTests.swift */; };
+		B87F8D31C758BB0BDA58ED16 /* MarkdownFormattingToolbar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06DCBDE601BF981D6C21BB89 /* MarkdownFormattingToolbar.swift */; };
 		D7470002D7470002D7470002 /* MarkdownLinkBoundaryRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7470001D7470001D7470001 /* MarkdownLinkBoundaryRegressionTests.swift */; };
 		F5168A050000000000000001 /* MarkdownMaxWidthSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5168A050000000000000002 /* MarkdownMaxWidthSettings.swift */; };
 		D6069002D6069002D6069002 /* MarkdownMermaidZoomTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6069001D6069001D6069001 /* MarkdownMermaidZoomTests.swift */; };
@@ -1030,7 +1032,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		8B1B2AB6EC6ACDB2CD39A9BB /* NewBrowserWorkspaceShortcutUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04698069140539D8495D6B9B /* NewBrowserWorkspaceShortcutUITests.swift */; };
 		C0DE77060000000000000003 /* NewWorkspaceMenuModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE77060000000000000004 /* NewWorkspaceMenuModel.swift */; };
 		A5FB1400 /* NewWorkspaceMenuModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB1401 /* NewWorkspaceMenuModelTests.swift */; };
-		EF03C7AFE7611D1DFD3D82F3 /* NotePageHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1073EFABE5A1C7314E5B7A57 /* NotePageHeader.swift */; };
 		DC13895CA47BEAD2860C3609 /* NoteReuseCandidate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D44B0BA3B9E820679D5FF58 /* NoteReuseCandidate.swift */; };
 		D3B6167DD14289C344DD26E0 /* NoteRPCAttachMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0441942BF1F58D637F9696F5 /* NoteRPCAttachMode.swift */; };
 		0798E8837A19FCD488D930EF /* NoteRPCMessage.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8B6FAA586FD43BAD0E0AD2C /* NoteRPCMessage.swift */; };
@@ -2877,6 +2878,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		F5168A040000000000000002 /* MarkdownFontFamily.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownFontFamily.swift; sourceTree = "<group>"; };
 		F5168A070000000000000002 /* MarkdownFontFamilyCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownFontFamilyCache.swift; sourceTree = "<group>"; };
 		F5168A030000000000000002 /* MarkdownFontSizeSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownFontSizeSettings.swift; sourceTree = "<group>"; };
+		15B2F4F5A80D9D0BB4E2E93B /* MarkdownFormatterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownFormatterTests.swift; sourceTree = "<group>"; };
+		06DCBDE601BF981D6C21BB89 /* MarkdownFormattingToolbar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownFormattingToolbar.swift; sourceTree = "<group>"; };
 		D7470001D7470001D7470001 /* MarkdownLinkBoundaryRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownLinkBoundaryRegressionTests.swift; sourceTree = "<group>"; };
 		F5168A050000000000000002 /* MarkdownMaxWidthSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownMaxWidthSettings.swift; sourceTree = "<group>"; };
 		D6069001D6069001D6069001 /* MarkdownMermaidZoomTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownMermaidZoomTests.swift; sourceTree = "<group>"; };
@@ -2961,7 +2964,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		04698069140539D8495D6B9B /* NewBrowserWorkspaceShortcutUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewBrowserWorkspaceShortcutUITests.swift; sourceTree = "<group>"; };
 		C0DE77060000000000000004 /* NewWorkspaceMenuModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewWorkspaceMenuModel.swift; sourceTree = "<group>"; };
 		A5FB1401 /* NewWorkspaceMenuModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewWorkspaceMenuModelTests.swift; sourceTree = "<group>"; };
-		1073EFABE5A1C7314E5B7A57 /* NotePageHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/NotePageHeader.swift; sourceTree = "<group>"; };
 		4D44B0BA3B9E820679D5FF58 /* NoteReuseCandidate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteReuseCandidate.swift; sourceTree = "<group>"; };
 		0441942BF1F58D637F9696F5 /* NoteRPCAttachMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteRPCAttachMode.swift; sourceTree = "<group>"; };
 		E8B6FAA586FD43BAD0E0AD2C /* NoteRPCMessage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteRPCMessage.swift; sourceTree = "<group>"; };
@@ -4918,7 +4920,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F5168A050000000000000002 /* MarkdownMaxWidthSettings.swift */,
 				F11E52270000000000005228 /* FilePreviewWordWrapSettings.swift */,
 				F5168A060000000000000002 /* MarkdownTypographyDefaults.swift */,
-				1073EFABE5A1C7314E5B7A57 /* NotePageHeader.swift */,
+				06DCBDE601BF981D6C21BB89 /* MarkdownFormattingToolbar.swift */,
 				F5168A020000000000000002 /* MarkdownTypographyControl.swift */,
 				A5001419 /* MarkdownPanelView.swift */,
 				A50014F4 /* MarkdownWebRenderer.swift */,
@@ -5753,6 +5755,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B79482F1ECA54E98BE5C8953 /* WindowKeyDownReplayGuardTests.swift */,
 				604500100000000000000004 /* WindowTitleTemplateTests.swift */,
 				D1FFC0DE000000000000C001 /* DiffCommentStoreTests.swift */,
+				15B2F4F5A80D9D0BB4E2E93B /* MarkdownFormatterTests.swift */,
 				CAFE000000000000000000A7 /* NotesTreeStorageTests.swift */,
 				C3ED949BFCC47A4889339A39 /* WorkspaceNewNoteSwiftTests.swift */,
 				FAD9EDA7A045F0587BB319A7 /* NotesShortcutContextSwiftTests.swift */,
@@ -6832,6 +6835,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F5168A040000000000000001 /* MarkdownFontFamily.swift in Sources */,
 				F5168A070000000000000001 /* MarkdownFontFamilyCache.swift in Sources */,
 				F5168A030000000000000001 /* MarkdownFontSizeSettings.swift in Sources */,
+				B87F8D31C758BB0BDA58ED16 /* MarkdownFormattingToolbar.swift in Sources */,
 				F5168A050000000000000001 /* MarkdownMaxWidthSettings.swift in Sources */,
 				D43310000000000000000030 /* MarkdownPanel+Notes.swift in Sources */,
 				A5001420 /* MarkdownPanel.swift in Sources */,
@@ -6895,7 +6899,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				596100000000000000000003 /* NativeNotificationDeliveryHooks.swift in Sources */,
 				A6AC72030000000000000001 /* NativeSpinner.swift in Sources */,
 				C0DE77060000000000000003 /* NewWorkspaceMenuModel.swift in Sources */,
-				EF03C7AFE7611D1DFD3D82F3 /* NotePageHeader.swift in Sources */,
 				DC13895CA47BEAD2860C3609 /* NoteReuseCandidate.swift in Sources */,
 				D3B6167DD14289C344DD26E0 /* NoteRPCAttachMode.swift in Sources */,
 				0798E8837A19FCD488D930EF /* NoteRPCMessage.swift in Sources */,
@@ -7934,6 +7937,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				17C9F5BA0DD14EDC8C3E5001 /* MainWindowVisibilityControllerTests.swift in Sources */,
 				A6D1F0100000000000000002 /* MainWindowVisibilityLifecycleTests.swift in Sources */,
 				730600000000000000000001 /* MainWindowVisibleFrameFitCoreTests.swift in Sources */,
+				94E1636B2E87963F71B0BF3D /* MarkdownFormatterTests.swift in Sources */,
 				D7470002D7470002D7470002 /* MarkdownLinkBoundaryRegressionTests.swift in Sources */,
 				D6069002D6069002D6069002 /* MarkdownMermaidZoomTests.swift in Sources */,
 				D3664002D3664002D3664002 /* MarkdownPanelTests.swift in Sources */,

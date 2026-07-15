@@ -27,23 +27,6 @@ struct MarkdownPanelView: View {
 
     @State private var focusFlashOpacity: Double = 0.0
     @State private var focusFlashTask: Task<Void, Never>?
-    @State private var copyConfirmation: CopyConfirmation? = nil
-    @State private var copyConfirmationGeneration: Int = 0
-
-    private enum CopyConfirmation: Equatable {
-        case markdown
-        case html
-
-        var label: String {
-            switch self {
-            case .markdown:
-                return String(localized: "markdown.copyConfirm.markdown", defaultValue: "Copied as Markdown")
-            case .html:
-                return String(localized: "markdown.copyConfirm.html", defaultValue: "Copied as HTML")
-            }
-        }
-    }
-
     var body: some View {
         Group {
             if panel.isFileUnavailable, !panel.noteSaveState.hasFailure {
@@ -67,48 +50,22 @@ struct MarkdownPanelView: View {
 
     private var markdownContentView: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if panel.isProjectNote {
-                // Notion-style page: a slim trailing controls strip, then the
-                // large chromeless title at the top of the content column.
-                // No dividers — the whitespace does the separating.
-                noteControlsRow
+            filePathHeader
 
-                if panel.noteSaveState.hasFailure {
-                    noteSaveFailureBanner
-                }
+            Divider()
 
-                NotePageTitleView(
-                    title: panel.displayTitle,
-                    filePath: panel.filePath,
-                    foregroundColor: themeForegroundColor,
-                    maxContentWidth: panel.maxContentWidth,
-                    onBeginEditing: onRequestPanelFocus,
-                    onRename: { panel.renameNoteTitle($0) }
-                )
-            } else {
-                filePathHeader
-
+            if panel.noteSaveState.hasFailure {
+                noteSaveFailureBanner
                 Divider()
+            }
 
-                if panel.noteSaveState.hasFailure {
-                    noteSaveFailureBanner
-                    Divider()
-                }
+            if panel.displayMode == .text {
+                MarkdownFormattingToolbar(panel: panel)
+                Divider()
             }
 
             markdownBody
         }
-    }
-
-    /// Notion-style top strip for notes: nothing on the left (the page title
-    /// carries the identity), compact actions on the right.
-    private var noteControlsRow: some View {
-        HStack(spacing: 2) {
-            Spacer(minLength: 8)
-            noteHeaderTrailingControls
-        }
-        .padding(.horizontal, 12)
-        .frame(height: 28)
     }
 
     private var noteSaveFailureBanner: some View {
@@ -180,20 +137,29 @@ struct MarkdownPanelView: View {
         }
     }
 
-    /// Compact, Zed-style controls for note headers: find, the mode toggle,
-    /// typography, and a single overflow menu. Copy actions live in the menu
-    /// (no inline confirmation text), and external-open collapses to Reveal
-    /// in Finder.
+    /// Compact controls shared by every markdown surface — notes included,
+    /// since a note is just a markdown file in a managed directory: optional
+    /// Save (plain files only; notes auto-save), find, the source/preview
+    /// toggle, typography, and a single overflow menu.
     @ViewBuilder
-    private var noteHeaderTrailingControls: some View {
+    private var headerTrailingControls: some View {
         HStack(spacing: 2) {
+            if panel.displayMode == .text, !panel.behavesAsNote, panel.isDirty || panel.isSaving {
+                PanelHeaderIconButton(
+                    systemName: "square.and.arrow.down",
+                    label: String(localized: "markdown.toolbar.save", defaultValue: "Save"),
+                    isDisabled: !panel.isDirty || panel.isSaving,
+                    pointSize: 11,
+                    action: { panel.saveTextContent() }
+                )
+            }
             PanelHeaderIconButton(
                 systemName: "magnifyingglass",
                 label: String(localized: "note.header.find", defaultValue: "Find in Note"),
                 pointSize: 11,
                 action: { panel.showFindInterface() }
             )
-            noteModeButton
+            modeToggleButton
             MarkdownTypographyControl(panel: panel, pointSize: 11)
             Menu {
                 Button(String(localized: "markdown.toolbar.copyMarkdown", defaultValue: "Copy as Markdown")) {
@@ -218,7 +184,7 @@ struct MarkdownPanelView: View {
         }
     }
 
-    private var noteModeButton: some View {
+    private var modeToggleButton: some View {
         switch panel.displayMode {
         case .preview:
             PanelHeaderIconButton(
@@ -237,40 +203,12 @@ struct MarkdownPanelView: View {
         }
     }
 
-    @ViewBuilder
-    private var headerTrailingControls: some View {
-        // Notes auto-save, so the Save control only appears for plain
-        // Markdown files (which still save explicitly).
-        if panel.displayMode == .text, !panel.behavesAsNote, panel.isDirty || panel.isSaving {
-            PanelHeaderIconButton(
-                systemName: "square.and.arrow.down",
-                label: String(localized: "markdown.toolbar.save", defaultValue: "Save"),
-                isDisabled: !panel.isDirty || panel.isSaving,
-                action: { panel.saveTextContent() }
-            )
-        }
-        if panel.displayMode == .preview {
-            MarkdownTypographyControl(panel: panel)
-        }
-        markdownModeButton
-        MarkdownPanelToolbar(
-            confirmation: copyConfirmation?.label,
-            onCopyMarkdown: { copyAsMarkdown() },
-            onCopyHTML: { copyAsHTML() }
-        )
-        FileExternalOpenMenu(
-            fileURL: URL(fileURLWithPath: panel.filePath),
-            isDisabled: panel.isFileUnavailable
-        )
-    }
-
     // MARK: - Copy actions
 
     private func copyAsMarkdown() {
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(panel.content, forType: .string)
-        flashCopyConfirmation(.markdown)
     }
 
     private func copyAsHTML() {
@@ -284,38 +222,7 @@ struct MarkdownPanelView: View {
             // and a plain-text fallback so plain editors still receive content.
             pb.setString(html, forType: .html)
             pb.setString(text, forType: .string)
-            flashCopyConfirmation(.html)
-        }
-    }
-
-    private func flashCopyConfirmation(_ kind: CopyConfirmation) {
-        copyConfirmationGeneration &+= 1
-        let generation = copyConfirmationGeneration
-        copyConfirmation = kind
-        Task { @MainActor in
-            try? await ContinuousClock().sleep(for: .milliseconds(1_600))
-            guard copyConfirmationGeneration == generation else { return }
-            if copyConfirmation == kind {
-                copyConfirmation = nil
             }
-        }
-    }
-
-    private var markdownModeButton: some View {
-        switch panel.displayMode {
-        case .preview:
-            PanelHeaderIconButton(
-                systemName: "doc.plaintext",
-                label: String(localized: "markdown.mode.showTextEdit", defaultValue: "Show TextEdit"),
-                action: { panel.setDisplayMode(.text) }
-            )
-        case .text:
-            PanelHeaderIconButton(
-                systemName: "eye",
-                label: String(localized: "markdown.mode.showPreview", defaultValue: "Show Preview"),
-                action: { panel.setDisplayMode(.preview) }
-            )
-        }
     }
 
     private var fileUnavailableView: some View {
@@ -396,40 +303,3 @@ struct MarkdownPanelView: View {
     }
 }
 
-private struct MarkdownPanelToolbar: View {
-    let confirmation: String?
-    let onCopyMarkdown: () -> Void
-    let onCopyHTML: () -> Void
-
-    var body: some View {
-        HStack(spacing: 8) {
-            if let confirmation {
-                Text(confirmation)
-                    .cmuxFont(size: 11, weight: .medium)
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-                    .transition(.opacity)
-            }
-
-            toolbarButton(
-                title: String(localized: "markdown.toolbar.copyMarkdown", defaultValue: "Copy as Markdown"),
-                systemImage: "doc.on.doc",
-                action: onCopyMarkdown
-            )
-            toolbarButton(
-                title: String(localized: "markdown.toolbar.copyHTML", defaultValue: "Copy as HTML"),
-                systemImage: "chevron.left.forwardslash.chevron.right",
-                action: onCopyHTML
-            )
-        }
-        .animation(.easeOut(duration: 0.15), value: confirmation)
-    }
-
-    private func toolbarButton(title: String, systemImage: String, action: @escaping () -> Void) -> some View {
-        PanelHeaderIconButton(
-            systemName: systemImage,
-            label: title,
-            action: action
-        )
-    }
-}
