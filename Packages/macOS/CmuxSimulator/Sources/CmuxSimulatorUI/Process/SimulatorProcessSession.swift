@@ -34,14 +34,14 @@ final class SimulatorProcessSession {
     func start(
         _ descriptor: SimulatorCommandDescriptor,
         capturesOutput: Bool,
-        onOutput: @escaping @MainActor @Sendable (String) async -> Void,
+        onOutput: @escaping @Sendable (String) async -> Void,
         onTermination: @escaping @MainActor @Sendable () -> Void
     ) throws {
         guard !isRunning else { return }
         if capturesOutput {
             let handle = outputPipe.fileHandleForReading
             let reader = SimulatorProcessOutputReader(fileDescriptor: handle.fileDescriptor)
-            outputTask = Task { @MainActor in
+            outputTask = Task.detached {
                 for await batch in reader.batches() {
                     guard !Task.isCancelled else { return }
                     await onOutput(batch.joined())

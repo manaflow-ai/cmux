@@ -274,31 +274,11 @@ extension SimulatorWebInspectorService {
     }
 
     private func emitRawMessage(_ data: Data, sessionID: UUID) {
-        let messageID = UUID()
-        let maximum = SimulatorWebInspectorMessageChunker().maximumPayloadLength
-        if data.isEmpty {
-            eventHandler?(.message(SimulatorWebInspectorMessageChunk(
-                sessionID: sessionID,
-                messageID: messageID,
-                sequence: 0,
-                isFinal: true,
-                payload: Data()
-            )))
-            return
-        }
-        var offset = 0
-        var sequence = 0
-        while offset < data.count {
-            let end = min(offset + maximum, data.count)
-            eventHandler?(.message(SimulatorWebInspectorMessageChunk(
-                sessionID: sessionID,
-                messageID: messageID,
-                sequence: sequence,
-                isFinal: end == data.count,
-                payload: data.subdata(in: offset..<end)
-            )))
-            offset = end
-            sequence += 1
+        for chunk in SimulatorWebInspectorResponseChunker().chunks(
+            payload: data,
+            sessionID: sessionID
+        ) {
+            eventHandler?(.message(chunk))
         }
     }
 

@@ -9,7 +9,7 @@ import Testing
 struct SimulatorProcessSessionTests {
     @Test("Closing the parent pipe writer delivers output through EOF")
     func closesParentPipeWriter() async throws {
-        var output = ""
+        let output = ProcessOutputRecorder()
         var didTerminate = false
         let session = SimulatorProcessSession()
 
@@ -19,20 +19,20 @@ struct SimulatorProcessSessionTests {
                 arguments: ["-c", "printf 'first\\nsecond\\n'"]
             ),
             capturesOutput: true,
-            onOutput: { output += $0 },
+            onOutput: { await output.append($0) },
             onTermination: { didTerminate = true }
         )
 
         await eventually { didTerminate }
 
-        #expect(output == "first\nsecond\n")
+        #expect(await output.snapshot() == "first\nsecond\n")
         #expect(session.isRunning == false)
     }
 
     @Test("A process that ignores interrupt is terminated after the injected deadline")
     func escalatesAfterInterruptDeadline() async throws {
         let sleeper = ImmediateProcessSleeper()
-        var output = ""
+        let output = ProcessOutputRecorder()
         var didTerminate = false
         let session = SimulatorProcessSession(
             sleeper: sleeper,
@@ -46,10 +46,10 @@ struct SimulatorProcessSessionTests {
                 arguments: ["-c", "trap '' INT; printf 'ready\\n'; while :; do :; done"]
             ),
             capturesOutput: true,
-            onOutput: { output += $0 },
+            onOutput: { await output.append($0) },
             onTermination: { didTerminate = true }
         )
-        await eventually { output == "ready\n" }
+        await eventuallyAsync { await output.snapshot() == "ready\n" }
 
         await session.stopAndWait()
         await eventually { didTerminate }
@@ -244,6 +244,17 @@ private func expectProcessExited(_ processIdentifier: Int32) async {
     }
     _ = Darwin.kill(processIdentifier, SIGKILL)
     Issue.record("Descendant process \(processIdentifier) survived group cleanup")
+}
+
+private func eventuallyAsync(
+    attempts: Int = 20_000,
+    _ condition: @escaping @Sendable () async -> Bool
+) async {
+    for _ in 0..<attempts {
+        if await condition() { return }
+        await Task.yield()
+    }
+    Issue.record("Condition did not become true")
 }
 
 @MainActor

@@ -35,6 +35,7 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     var stagePointerMonitor: Any?
     private(set) var isPointerInputEnabled = false
     var pointerEntryEventFilter: (@MainActor (NSEvent) -> Bool)?
+    var hostKeyEquivalentHandler: (@MainActor (NSEvent) -> Bool)?
     var handledFocusGeneration: UInt64 = 0
     var pendingFocusGeneration: UInt64?
 
@@ -231,6 +232,12 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
         send(input.key(usage: usage, phase: .down))
     }
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command) {
+            let hostHandled = hostKeyEquivalentHandler?(event)
+                ?? NSApp.mainMenu?.performKeyEquivalent(with: event)
+                ?? false
+            if hostHandled { return true }
+        }
         guard event.type == .keyDown,
             let action = simulatorKeyEquivalentTranslator.action(
                 keyCode: event.keyCode,

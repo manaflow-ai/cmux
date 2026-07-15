@@ -21,9 +21,8 @@ final class SimulatorWebInspectorSocket: SimulatorWebInspectorTransport, @unchec
     private let continuation: AsyncStream<Data>.Continuation
     private let descriptor: Int32
     private let writerQueue = DispatchQueue(label: "com.cmux.simulator.web-inspector-writer")
-    private let writerLock = NSLock()
-    private var pendingWriteBytes = 0
-    private var writesClosed = false
+    @MainActor private var pendingWriteBytes = 0
+    @MainActor private var writesClosed = false
 
     init(descriptor: Int32, frameCodec: SimulatorWebInspectorPlistFrameCodec) {
         self.descriptor = descriptor
@@ -45,19 +44,15 @@ final class SimulatorWebInspectorSocket: SimulatorWebInspectorTransport, @unchec
     @MainActor
     func send(propertyList: [String: Any]) throws {
         let frame = try frameCodec.frame(propertyList)
-        writerLock.lock()
         guard !writesClosed else {
-            writerLock.unlock()
             throw SimulatorWebInspectorError.transportClosed
         }
         guard frame.count <= Self.maximumPendingWriteBytes,
               pendingWriteBytes <= Self.maximumPendingWriteBytes - frame.count else {
-            writerLock.unlock()
             requestClose()
             throw SimulatorWebInspectorError.socketFailure(ENOBUFS)
         }
         pendingWriteBytes += frame.count
-        writerLock.unlock()
 
         writerQueue.async { [weak self] in
             self?.write(frame)
@@ -129,14 +124,11 @@ final class SimulatorWebInspectorSocket: SimulatorWebInspectorTransport, @unchec
 
     private func write(_ frame: Data) {
         defer {
-            writerLock.lock()
-            pendingWriteBytes -= frame.count
-            writerLock.unlock()
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.pendingWriteBytes = max(0, self.pendingWriteBytes - frame.count)
+            }
         }
-        writerLock.lock()
-        let isClosed = writesClosed
-        writerLock.unlock()
-        guard !isClosed else { return }
 
         let deadline = DispatchTime.now().uptimeNanoseconds
             &+ UInt64(Self.writeDeadline * 1_000_000_000)
@@ -176,11 +168,11 @@ final class SimulatorWebInspectorSocket: SimulatorWebInspectorTransport, @unchec
     }
 
     private nonisolated func requestClose() {
-        writerLock.lock()
-        writesClosed = true
-        writerLock.unlock()
         Darwin.shutdown(descriptor, SHUT_RDWR)
         continuation.finish()
+        Task { @MainActor [weak self] in
+            self?.writesClosed = true
+        }
     }
 
     private nonisolated func finishReader() {

@@ -2,7 +2,7 @@ import CmuxSimulator
 import Foundation
 
 struct SimulatorWebInspectorResponseBuffer {
-    static let maximumResponseBytes = 128 * 1024
+    static let maximumResponseBytes = SimulatorWebInspectorMessageChunk.maximumRetainedResponseBytes
     static let maximumRetainedBytes = 512 * 1024
     static let maximumResponseCount = 50
     static let maximumPendingMessageCount = 8
@@ -36,6 +36,8 @@ struct SimulatorWebInspectorResponseBuffer {
         value.nextSequence += 1
         value.requestIDParser.ingest(chunk.payload)
         value.requestID = value.requestIDParser.requestID
+            ?? chunk.requestIDToken.flatMap(parseSimulatorWebInspectorJSONRequestIDToken)
+        value.isTruncated = value.isTruncated || chunk.isTruncated
         let available = max(0, Self.maximumResponseBytes - value.data.count)
         if chunk.payload.count > available { value.isTruncated = true }
         if available > 0 { value.data.append(chunk.payload.prefix(available)) }

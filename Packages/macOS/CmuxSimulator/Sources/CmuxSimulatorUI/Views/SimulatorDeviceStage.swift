@@ -2,9 +2,7 @@ import AppKit
 import CmuxSimulator
 import SwiftUI
 
-enum SimulatorDeviceStageMetrics {
-    static let devicePadding: CGFloat = 22
-}
+let simulatorDeviceStagePadding: CGFloat = 22
 
 struct SimulatorDeviceStage: View {
     let coordinator: SimulatorPaneCoordinator
@@ -76,7 +74,7 @@ struct SimulatorDeviceStage: View {
         )
         .clipShape(.rect(cornerRadius: coordinator.chromeProfile == nil ? deviceCornerRadius : 0))
         .shadow(color: .black.opacity(0.28), radius: 18, y: 8)
-        .padding(SimulatorDeviceStageMetrics.devicePadding)
+        .padding(simulatorDeviceStagePadding)
         .accessibilityLabel(simulatorStrings.simulator)
     }
 
