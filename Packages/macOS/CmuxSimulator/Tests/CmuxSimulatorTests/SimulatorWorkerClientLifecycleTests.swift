@@ -67,6 +67,39 @@ extension SimulatorWorkerClientTests {
         await client.stop()
     }
 
+    @Test("Worker stop wakes and removes correlated request waiters")
+    func workerStopWakesCorrelatedRequests() async throws {
+        let client = makeClient(launcher: TestWorkerLauncher())
+        let requestID = UUID()
+        let operation = Task<SimulatorCameraStatus, Error> {
+            try await client.requestWorkerValue(
+                sending: .requestCameraStatus(requestID: requestID),
+                timeout: .seconds(60),
+                timeoutRecovery: .preserveWorker
+            ) { message in
+                guard case let .cameraStatus(responseID, status) = message,
+                      responseID == requestID else { return nil }
+                return status
+            }
+        }
+        for _ in 0..<1_000 {
+            if await client.requestSubscribers[requestID] != nil { break }
+            await Task.yield()
+        }
+        #expect(await client.requestSubscribers[requestID] != nil)
+
+        await client.broadcast(.workerStopped)
+
+        do {
+            _ = try await operation.value
+            Issue.record("Expected worker stop to fail the pending request")
+        } catch let error as SimulatorControlError {
+            #expect(error.code == "worker_stopped")
+        }
+        #expect(await client.requestSubscribers.isEmpty)
+        await client.stop()
+    }
+
     @Test("Replacing a framebuffer transport evicts its obsolete shared-memory name")
     func replacementFrameTransportEvictsObsoleteName() async throws {
         let launcher = TestWorkerLauncher()

@@ -143,14 +143,7 @@ extension ControlCommandCoordinator {
             return simulatorNoActiveWindow()
         }
         guard ControlSimulatorOperationAdmissionGate.shared.acquire() else {
-            return .err(
-                code: "busy",
-                message: String(
-                    localized: "cli.simulator.error.tooManyOperations",
-                    defaultValue: "Too many Simulator operations are already running"
-                ),
-                data: nil
-            )
+            return simulatorAdmissionFailure()
         }
         defer { ControlSimulatorOperationAdmissionGate.shared.release() }
         let outcome: SimulatorOperationHopOutcome = context.controlResolveOnMain { seam in
@@ -191,6 +184,17 @@ extension ControlCommandCoordinator {
         case let .invalid(message):
             return invalidSimulatorOperation(message)
         }
+    }
+
+    nonisolated func simulatorAdmissionFailure() -> ControlCallResult {
+        .err(
+            code: "busy",
+            message: String(
+                localized: "cli.simulator.error.tooManyOperations",
+                defaultValue: "Too many Simulator operations are already running"
+            ),
+            data: nil
+        )
     }
 
     private nonisolated func simulatorTouches(_ values: [JSONValue]) -> [ControlSimulatorTouch]? {

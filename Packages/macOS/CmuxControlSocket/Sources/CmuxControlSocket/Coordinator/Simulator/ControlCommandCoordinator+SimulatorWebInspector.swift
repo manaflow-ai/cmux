@@ -71,6 +71,10 @@ extension ControlCommandCoordinator {
         guard let context else {
             return simulatorNoActiveWindow()
         }
+        guard ControlSimulatorOperationAdmissionGate.shared.acquire() else {
+            return simulatorAdmissionFailure()
+        }
+        defer { ControlSimulatorOperationAdmissionGate.shared.release() }
         let outcome: SimulatorWebInspectorHopOutcome = context.controlResolveOnMain { seam in
             let resolution = start(seam, self.routingSelectors(params))
             let surfaceRef: JSONValue?

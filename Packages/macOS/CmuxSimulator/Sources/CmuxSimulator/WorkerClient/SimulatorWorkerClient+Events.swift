@@ -49,6 +49,13 @@ extension SimulatorWorkerClient {
 
     func broadcast(_ event: SimulatorWorkerEvent, byteCount: Int? = nil) async {
         let chargedBytes = byteCount ?? estimatedByteCount(of: event)
+        if case .workerStopped = event {
+            let pendingRequests = requestSubscribers
+            requestSubscribers.removeAll()
+            for continuation in pendingRequests.values {
+                await continuation.finish()
+            }
+        }
         if case let .message(message) = event,
            let requestIdentifier = message.requestIdentifier {
             if let continuation = requestSubscribers[requestIdentifier] {
