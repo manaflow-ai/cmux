@@ -301,6 +301,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                         _ = await surfaceView.freezeVerifiedReplayPresentation(
                             transactionID: transactionID
                         )
+                        guard !Task.isCancelled else { return }
                         store.terminalOutputDidReset(
                             surfaceID: surfaceID,
                             streamToken: chunk.streamToken
@@ -394,27 +395,34 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 _ = await surfaceView.freezeVerifiedReplayPresentation(
                     transactionID: frame.renderRevision
                 )
+                guard !Task.isCancelled else { return }
                 requestVerifiedReplayReset(transactionID: nil, chunk: chunk, store: store)
                 return
             }
 
-            guard await surfaceView.freezeVerifiedReplayPresentation(
+            let frozen = await surfaceView.freezeVerifiedReplayPresentation(
                 transactionID: transaction.id
-            ) else {
+            )
+            guard !Task.isCancelled else { return }
+            guard frozen else {
                 requestVerifiedReplayReset(transactionID: transaction.id, chunk: chunk, store: store)
                 return
             }
             activeViewportPolicy = .remoteGrid(columns: frame.columns, rows: frame.rows)
-            guard await surfaceView.applyViewSizeAndWait(
+            let resized = await surfaceView.applyViewSizeAndWait(
                 cols: frame.columns,
                 rows: frame.rows
-            ) else {
+            )
+            guard !Task.isCancelled else { return }
+            guard resized else {
                 requestVerifiedReplayReset(transactionID: transaction.id, chunk: chunk, store: store)
                 return
             }
 
             if !chunk.data.isEmpty {
-                guard await surfaceView.processOutputAndWait(chunk.data) else {
+                let applied = await surfaceView.processOutputAndWait(chunk.data)
+                guard !Task.isCancelled else { return }
+                guard applied else {
                     requestVerifiedReplayReset(transactionID: transaction.id, chunk: chunk, store: store)
                     return
                 }

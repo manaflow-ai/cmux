@@ -12,8 +12,7 @@ extension GhosttySurfaceView {
     /// the live renderer while a replacement grid is replayed and verified.
     @discardableResult
     public func freezeVerifiedReplayPresentation(transactionID: UInt64) async -> Bool {
-        guard surface != nil,
-              !isDismantled else {
+        guard surface != nil, !isDismantled, window != nil, !Task.isCancelled else {
             return false
         }
         if verifiedReplayFrozenPresentationLayer != nil {
@@ -40,7 +39,8 @@ extension GhosttySurfaceView {
                 verifiedReplayRenderSuppressed = false
             }
         }
-        guard await submitVerifiedReplayRenderAndWait(read: nil) != nil else {
+        guard await submitVerifiedReplayRenderAndWait(read: nil) != nil,
+              !Task.isCancelled else {
             return false
         }
 
@@ -130,7 +130,9 @@ extension GhosttySurfaceView {
             renderEpoch: renderEpoch,
             renderRevision: renderRevision
         )
-        return await submitVerifiedReplayRenderAndWait(read: read)?.observedFrame
+        let submission = await submitVerifiedReplayRenderAndWait(read: read)
+        guard !Task.isCancelled else { return nil }
+        return submission?.observedFrame
     }
 
     func layoutVerifiedReplayFrozenPresentation(viewportRect: CGRect) {

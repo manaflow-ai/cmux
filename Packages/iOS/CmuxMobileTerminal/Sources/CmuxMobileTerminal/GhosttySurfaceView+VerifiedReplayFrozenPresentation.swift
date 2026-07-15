@@ -9,8 +9,23 @@ extension GhosttySurfaceView {
     func makeVerifiedReplayFrozenPresentation(
         transactionID: UInt64
     ) async -> VerifiedReplayFrozenPresentation? {
+        let lifecycle = VerifiedReplayFreezeLifecycle(
+            surfaceGeneration: surfaceGeneration
+        )
         let initial = verifiedReplayPresentedRendererSnapshot()
         let image = await copyVerifiedReplayImage(initial.contents)
+        guard lifecycle.canInstall(
+            currentSurfaceGeneration: surfaceGeneration,
+            isDismantled: isDismantled,
+            hasWindow: window != nil,
+            renderSuppressed: verifiedReplayRenderSuppressed,
+            taskCancelled: Task.isCancelled
+        ) else {
+            MobileDebugLog.anchormux(
+                "verified_replay.freeze_failed transaction=\(transactionID) reason=lifecycle_changed"
+            )
+            return nil
+        }
         guard initial.contents == nil || image != nil else {
             MobileDebugLog.anchormux(
                 "verified_replay.freeze_failed transaction=\(transactionID) reason=pixel_copy"
