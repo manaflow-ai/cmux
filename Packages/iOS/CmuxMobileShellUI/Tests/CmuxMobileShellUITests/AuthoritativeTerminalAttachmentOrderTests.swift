@@ -6,6 +6,7 @@ import Testing
 
     let result = GhosttySurfaceRepresentable.Coordinator.start(
         authoritativeGridEnabled: true,
+        releaseViewportOwnership: { steps.append("release-viewport") },
         suppressPresentation: { steps.append("suppress") },
         registerStreams: {
             steps.append("register")
@@ -14,7 +15,7 @@ import Testing
     )
 
     #expect(result == 42)
-    #expect(steps == ["suppress", "register"])
+    #expect(steps == ["release-viewport", "suppress", "register"])
 }
 
 @Test func ordinaryAttachRegistersWithoutSuppressingRenderer() {
@@ -22,6 +23,7 @@ import Testing
 
     let result = GhosttySurfaceRepresentable.Coordinator.start(
         authoritativeGridEnabled: false,
+        releaseViewportOwnership: { steps.append("release-viewport") },
         suppressPresentation: { steps.append("suppress") },
         registerStreams: {
             steps.append("register")

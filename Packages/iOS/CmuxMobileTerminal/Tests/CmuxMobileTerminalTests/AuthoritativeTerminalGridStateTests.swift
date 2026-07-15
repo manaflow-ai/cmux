@@ -35,6 +35,16 @@ struct AuthoritativeTerminalGridStateTests {
         ))
     }
 
+    @Test("authoritative presentation leaves producer geometry under Mac ownership")
+    func authoritativePresentationDoesNotReportPhoneViewport() {
+        #expect(!GhosttySurfaceView.shouldReportNaturalViewport(
+            authoritativeGridActive: true
+        ))
+        #expect(GhosttySurfaceView.shouldReportNaturalViewport(
+            authoritativeGridActive: false
+        ))
+    }
+
     @Test("a resized full frame replaces every row from the previous width")
     func resizedFrameReplacesThePreviousGridAtomically() throws {
         var state = AuthoritativeTerminalGridState(surfaceID: "surface")
