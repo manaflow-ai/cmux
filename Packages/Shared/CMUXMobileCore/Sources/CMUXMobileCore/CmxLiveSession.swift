@@ -10,7 +10,7 @@ public struct CmxLiveSession: Codable, Identifiable, Sendable, Equatable {
     public let terminalID: String?
     /// The preferred agent's own session identifier, when one is known.
     public let agentSessionID: String?
-    /// The user-facing workspace title.
+    /// The user-facing workspace title, which may be user-authored or terminal-derived.
     public let title: String
     /// The agent runtime identifier, such as `codex` or `claude`.
     public let agent: String?
@@ -26,7 +26,7 @@ public struct CmxLiveSession: Codable, Identifiable, Sendable, Equatable {
     ///   - workspaceID: Workspace selected after attach.
     ///   - terminalID: Preferred agent terminal, when known.
     ///   - agentSessionID: Preferred agent session, when known.
-    ///   - title: User-facing workspace title.
+    ///   - title: User-facing workspace title, which may be terminal-derived.
     ///   - agent: Agent runtime identifier, when known.
     ///   - status: Current workspace or agent status.
     ///   - lastActivityAt: Unix epoch seconds of the latest activity.

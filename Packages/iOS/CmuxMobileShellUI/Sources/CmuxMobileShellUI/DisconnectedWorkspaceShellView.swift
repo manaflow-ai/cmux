@@ -291,14 +291,14 @@ struct DisconnectedWorkspaceShellView: View {
             .unavailable
         }
         registryState = nextState
-        if didPresentManualPairing, !handoffSessions.isEmpty {
-            didPresentManualPairing = false
-            updateAutomaticAddDevicePresentation(false)
-        }
         let presentation = MobileFirstConnectionState(
             hasSavedComputer: !savedComputers.isEmpty,
             registryState: nextState
         )
+        if didPresentManualPairing, !presentation.shouldPresentManualPairing {
+            didPresentManualPairing = false
+            updateAutomaticAddDevicePresentation(false)
+        }
         guard !didPresentManualPairing,
               presentation.shouldPresentManualPairing else { return }
         didPresentManualPairing = true

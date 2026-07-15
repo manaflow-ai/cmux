@@ -27,8 +27,9 @@ function boundedString(value: unknown, maxLength: number): string | undefined {
 
 /**
  * Sanitize the best-effort live-session advertisement stored in instance
- * labels. The registry carries only bounded summaries; transcripts, prompts,
- * terminal output, and credentials are never accepted into this surface.
+ * labels. The registry carries only bounded summaries. Titles may be user-authored
+ * or terminal-derived; separate transcript, prompt, terminal-output, and credential
+ * fields are never accepted into this surface.
  */
 export function sanitizeLiveSessions(value: unknown): RegistryLiveSession[] {
   if (!Array.isArray(value)) return [];

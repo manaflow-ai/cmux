@@ -48,8 +48,9 @@ Privacy and account handling:
 - Push notifications are opt-in. The device token is uploaded only after the user
   enables phone notifications.
 - The same-account handoff stores bounded workspace and session summaries needed
-  to display live sessions. It does not upload terminal transcripts, command
-  text, or terminal output for discovery.
+  to display live sessions. Summaries include workspace titles, which may be set
+  by the user or a terminal program. No separate transcript, prompt, or terminal-
+  output fields are uploaded for discovery.
 - `ITSAppUsesNonExemptEncryption` is `false`; the app uses standard platform
   networking and encryption.
 

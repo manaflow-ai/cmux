@@ -15,7 +15,8 @@ extension TerminalController {
     ///
     /// The full workspace/chat RPCs remain authoritative after attach. This
     /// summary carries only enough identity and state for discovery and one-tap
-    /// handoff; it never includes prompts, transcript content, or terminal output.
+    /// handoff. Workspace titles may be user-authored or terminal-derived; no
+    /// separate prompt, transcript, or terminal-output fields are included.
     func deviceRegistryLiveSessions(workspaceID: String? = nil, limit: Int = 50) -> [CmxLiveSession] {
         guard let app = AppDelegate.shared else { return [] }
         var seenWorkspaceIDs: Set<UUID> = []
