@@ -5,6 +5,17 @@ import Testing
 
 @Suite("Web Inspector response buffer")
 struct SimulatorWebInspectorResponseBufferTests {
+    @Test("Numeric request IDs stay within JavaScript's exact integer range")
+    func numericRequestIDsRequireSafeIntegers() {
+        #expect(parseSimulatorWebInspectorJSONRequestID(from: "{\"id\":9007199254740991}")
+            == .number("9007199254740991"))
+        #expect(parseSimulatorWebInspectorJSONRequestID(from: "{\"id\":9007199254740993}") == nil)
+        #expect(parseSimulatorWebInspectorJSONRequestID(from: "{\"id\":1.5}") == nil)
+        #expect(parseSimulatorWebInspectorJSONRequestID(from: "{\"id\":1.0}") == .number("1"))
+        #expect(parseSimulatorWebInspectorJSONRequestID(from: "{\"id\":\"9007199254740993\"}")
+            == .string("9007199254740993"))
+    }
+
     @Test("Responses are reassembled in sequence and truncated at the UI cap")
     func reassemblyAndCap() {
         let sessionID = UUID()

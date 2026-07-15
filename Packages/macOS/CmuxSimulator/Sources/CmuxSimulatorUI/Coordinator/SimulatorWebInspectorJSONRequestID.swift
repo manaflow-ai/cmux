@@ -6,6 +6,7 @@ enum SimulatorWebInspectorJSONRequestID: Hashable, Sendable {
 }
 
 private let maximumSimulatorWebInspectorDecodedIDByteCount = 1_024
+private let maximumSimulatorWebInspectorSafeInteger = 9_007_199_254_740_991.0
 
 func parseSimulatorWebInspectorJSONRequestID(from json: String) -> SimulatorWebInspectorJSONRequestID? {
     guard let data = json.data(using: .utf8),
@@ -137,8 +138,10 @@ private func parseSimulatorWebInspectorJSONRequestIDValue(
     }
     guard let number = value as? NSNumber,
           CFGetTypeID(number) != CFBooleanGetTypeID(),
-          number.stringValue.utf8.count <= maximumSimulatorWebInspectorDecodedIDByteCount else {
+          number.doubleValue.isFinite,
+          number.doubleValue.rounded() == number.doubleValue,
+          abs(number.doubleValue) <= maximumSimulatorWebInspectorSafeInteger else {
         return nil
     }
-    return .number(number.stringValue)
+    return .number(String(Int64(number.doubleValue)))
 }

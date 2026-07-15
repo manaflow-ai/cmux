@@ -141,9 +141,14 @@ extension SimulatorControlService {
         let pausedRoute = remainingRoute(route, after: elapsed)
         let coordinate = pausedRoute.waypoints[0]
         let token = beginLocationOperation(deviceID: deviceID)
-        activeLocationRoutes.removeValue(forKey: deviceID)
         do {
             _ = try await output(arguments: ["simctl", "location", deviceID, "clear"])
+        } catch {
+            finishLocationOperation(deviceID: deviceID, token: token)
+            throw error
+        }
+        activeLocationRoutes.removeValue(forKey: deviceID)
+        do {
             _ = try await output(arguments: [
                 "simctl", "location", deviceID, "set", coordinateArgument(coordinate),
             ])

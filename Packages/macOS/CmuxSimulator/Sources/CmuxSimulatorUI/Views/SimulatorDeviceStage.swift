@@ -37,8 +37,9 @@ struct SimulatorDeviceStage: View {
             }
         }
         .dropDestination(for: URL.self) { urls, _ in
+            guard coordinator.canImportDroppedFiles(urls) else { return false }
             Task { await coordinator.importDroppedFiles(urls) }
-            return !urls.isEmpty
+            return true
         }
     }
 

@@ -198,6 +198,35 @@ struct SimulatorControlServiceTests {
         #expect(resumed.last == "0.0,0.01")
     }
 
+    @Test("A failed route clear preserves the running route for retry")
+    func failedPausePreservesRunningRoute() async throws {
+        let commands = RecordingCommandRunner(results: [
+            .success(""),
+            .failure("clear failed"),
+            .success(""),
+            .success(""),
+        ])
+        let service = SimulatorControlService(commands: commands)
+        let route = SimulatorLocationRoute(
+            waypoints: [
+                SimulatorLocationCoordinate(latitude: 0, longitude: 0),
+                SimulatorLocationCoordinate(latitude: 0, longitude: 0.01),
+            ],
+            speed: 100
+        )
+        try await service.startLocationRoute(deviceID: "DEVICE", route: route)
+
+        await #expect(throws: SimulatorControlError.self) {
+            try await service.pauseLocationRoute(deviceID: "DEVICE")
+        }
+        try await service.pauseLocationRoute(deviceID: "DEVICE")
+
+        let invocations = await commands.recordedInvocations().map(\.arguments)
+        #expect(invocations[1] == ["simctl", "location", "DEVICE", "clear"])
+        #expect(invocations[2] == ["simctl", "location", "DEVICE", "clear"])
+        #expect(invocations[3].prefix(4) == ["simctl", "location", "DEVICE", "set"])
+    }
+
     @Test("Accessibility-helper interface settings stay out of the host service")
     func rejectsWorkerOwnedInterfaceSettings() async throws {
         let commands = RecordingCommandRunner()
@@ -395,5 +424,9 @@ struct SimulatorControlServiceTests {
 private extension CommandResult {
     static func success(_ stdout: String) -> CommandResult {
         CommandResult(stdout: stdout, stderr: "", exitStatus: 0, timedOut: false, executionError: nil)
+    }
+
+    static func failure(_ stderr: String) -> CommandResult {
+        CommandResult(stdout: "", stderr: stderr, exitStatus: 1, timedOut: false, executionError: nil)
     }
 }
