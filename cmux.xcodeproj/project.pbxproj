@@ -8596,11 +8596,17 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C41FE00000000000000000A3 /* XCLocalSwiftPackageReference "CmuxHiveUI" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxHiveUI;
+		};
 		1A0B0C0D0E0F101112132011 /* XCLocalSwiftPackageReference "CmuxIrohTransport" */ = {
+			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/Shared/CmuxIrohTransport;
+		};
 		1A0B0C0D0E0F101112132001 /* XCLocalSwiftPackageReference "CmuxMobileTransport" */ = {
+			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/Shared/CmuxMobileTransport;
+		};
 		C1A072000000000000000001 /* XCLocalSwiftPackageReference "CmuxMobileRPC" */ = {
+			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/Shared/CmuxMobileRPC;
 		};
 		28B798BB9086C8E6B60C3355 /* XCLocalSwiftPackageReference "stack-auth-swift-sdk-prerelease" */ = {
@@ -9079,13 +9085,19 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			isa = XCSwiftPackageProductDependency;
 			package = C41FE00000000000000000A3 /* XCLocalSwiftPackageReference "CmuxHiveUI" */;
 			productName = CmuxHiveUI;
+		};
 		1A0B0C0D0E0F101112132012 /* CmuxIrohTransport */ = {
+			isa = XCSwiftPackageProductDependency;
 			package = 1A0B0C0D0E0F101112132011 /* XCLocalSwiftPackageReference "CmuxIrohTransport" */;
 			productName = CmuxIrohTransport;
+		};
 		1A0B0C0D0E0F101112132002 /* CmuxMobileTransport */ = {
+			isa = XCSwiftPackageProductDependency;
 			package = 1A0B0C0D0E0F101112132001 /* XCLocalSwiftPackageReference "CmuxMobileTransport" */;
 			productName = CmuxMobileTransport;
+		};
 		C1A072000000000000000002 /* CmuxMobileRPC */ = {
+			isa = XCSwiftPackageProductDependency;
 			package = C1A072000000000000000001 /* XCLocalSwiftPackageReference "CmuxMobileRPC" */;
 			productName = CmuxMobileRPC;
 		};
