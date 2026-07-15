@@ -223,6 +223,50 @@ import Testing
     }
 
     @Test(.timeLimit(.minutes(1)))
+    func rejectedBatchDoesNotWidenRemovedPanelsCacheBypassIntent() async throws {
+        let host = RecordingSidebarGitHost()
+        host.pollingEnabled = true
+        let (workspaceId, panelAId) = host.addWorkspace(panelDirectory: "/tmp/repo")
+        let panelBId = UUID()
+        host.workspaces[0].state.panels[panelBId] = .init(directory: "/tmp/repo")
+        host.workspaces[0].state.panels[panelAId]?.branch = SidebarPanelGitBranch(
+            branch: "feature/a",
+            isDirty: false
+        )
+        host.workspaces[0].state.panels[panelBId]?.branch = SidebarPanelGitBranch(
+            branch: "feature/b",
+            isDirty: false
+        )
+        let executor = GatedPullRequestRefreshExecutor()
+        let service = makeService(host: host, executor: executor)
+        let panelAKey = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelAId)
+
+        service.workspacePullRequestBypassRepoCacheKeys.insert(panelAKey)
+        service.refreshTrackedWorkspacePullRequestsIfNeeded(reason: "timer")
+        await executor.waitForFetchCount(1)
+
+        host.workspaces[0].state.panels.removeValue(forKey: panelAId)
+        service.clearWorkspacePullRequestTracking(
+            workspaceId: workspaceId,
+            panelId: panelAId
+        )
+        await executor.releaseNextFetch()
+        await executor.waitForFetchCount(2)
+
+        #expect(
+            await executor.allowCachedResultsRequests == [false, true],
+            "Removing the only cache-bypassing panel must not widen its intent to survivors."
+        )
+        #expect(service.workspacePullRequestProbeStateByKey[panelAKey] == nil)
+
+        await executor.releaseNextFetch()
+        while service.workspacePullRequestRefreshTask != nil {
+            await Task.yield()
+        }
+        service.resetWorkspacePullRequestRefreshState()
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func rejectedBatchPreservesBatchWideCacheBypassIntent() async throws {
         let host = RecordingSidebarGitHost()
         host.pollingEnabled = true
