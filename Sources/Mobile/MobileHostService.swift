@@ -416,6 +416,10 @@ final class MobileHostService {
     /// User-default key for the opt-in Mac-side iOS pairing listener.
     nonisolated static let listeningEnabledDefaultsKey = SettingCatalog().mobile.iOSPairingHost.userDefaultsKey
 
+    /// Key written by released builds before the setting moved into the
+    /// canonical settings catalog. Read only as a migration fallback.
+    nonisolated private static let legacyListeningEnabledDefaultsKey = "cmuxMobilePairingHostEnabled"
+
     /// Whether the mobile pairing host should bind a network listener at all.
     ///
     /// Defaults off in every build so macOS does not ask for Local Network
@@ -439,6 +443,9 @@ final class MobileHostService {
     nonisolated static func isListeningEnabled(defaults: UserDefaults) -> Bool {
         if let override = defaults.object(forKey: listeningEnabledDefaultsKey) as? Bool {
             return override
+        }
+        if let legacyOverride = defaults.object(forKey: legacyListeningEnabledDefaultsKey) as? Bool {
+            return legacyOverride
         }
         return SettingCatalog().mobile.iOSPairingHost.defaultValue
     }
@@ -694,6 +701,7 @@ final class MobileHostService {
     nonisolated private static func canPublishRoutesWithoutListenerForXCTest(defaults: UserDefaults) -> Bool {
         guard isRunningUnderXCTest else { return false }
         return defaults.object(forKey: listeningEnabledDefaultsKey) == nil
+            && defaults.object(forKey: legacyListeningEnabledDefaultsKey) == nil
     }
 
     private func publishRoutesWithoutListenerForXCTest() {

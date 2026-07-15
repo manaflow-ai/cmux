@@ -76,6 +76,10 @@ public enum MobilePairingFailureCategory: Equatable, Sendable {
     /// The scanned/pasted code only points back at the Mac itself (loopback),
     /// which the phone can never dial.
     case loopbackRejected
+    /// A saved legacy route is still valid, but the Mac must publish an Iroh
+    /// route before this iOS version can reconnect securely. This is version
+    /// skew, not an account failure, so the saved pairing stays intact.
+    case macUpdateRequired
     /// The pairing code carried only an untrusted manual route that cannot carry
     /// the account credential.
     case unsupportedRoute
@@ -109,6 +113,7 @@ extension MobilePairingFailureCategory {
         case .invalidCode: return "invalid_code"
         case .unrecognizedVersion: return "unrecognized_version"
         case .loopbackRejected: return "loopback_rejected"
+        case .macUpdateRequired: return "mac_update_required"
         case .unsupportedRoute: return "unsupported_route"
         case .noSupportedRoute: return "no_supported_route"
         case .cancelled: return "cancelled"
@@ -247,6 +252,11 @@ extension MobilePairingFailureCategory {
                 "mobile.pairing.loopbackRejected",
                 defaultValue: "This code points at the Mac itself (localhost), so your iPhone can't use it. Update cmux on the Mac and scan its Iroh code."
             )
+        case .macUpdateRequired:
+            return L10n.string(
+                "mobile.pairing.macUpdateRequired",
+                defaultValue: "Update cmux on this Mac to connect securely."
+            )
         case .unsupportedRoute:
             return L10n.string(
                 "mobile.pairing.secureRouteRequired",
@@ -320,6 +330,11 @@ extension MobilePairingFailureCategory {
             return L10n.string(
                 "mobile.pairing.guidance.updateApp",
                 defaultValue: "Update cmux from the App Store (or TestFlight), then scan again."
+            )
+        case .macUpdateRequired:
+            return L10n.string(
+                "mobile.pairing.guidance.macUpdateRequired",
+                defaultValue: "Your saved computer will reconnect automatically after the Mac publishes its Iroh route. You do not need to sign out or pair again."
             )
         case .invalidCode, .loopbackRejected, .cancelled, .unknown:
             return nil

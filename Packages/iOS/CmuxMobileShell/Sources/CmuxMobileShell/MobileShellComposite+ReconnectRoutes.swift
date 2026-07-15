@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxMobilePairedMac
+import CmuxMobileShellModel
 import Foundation
 import os
 
@@ -166,33 +167,47 @@ extension MobileShellComposite {
     func freshReconnectRoutesAfterLocalFailure(
         for mac: MobilePairedMac,
         scope: MobileShellScopeSnapshot,
-        triedRoutes: [(host: String, port: Int, routeID: String)]
-    ) async -> RefreshedReconnectRoutes? {
+        registryDevices: [RegistryDevice]?
+    ) async -> [CmxAttachRoute]? {
         let supportedKinds = runtime?.supportedRouteKinds ?? []
-        let localRoutes = Self.storedReconnectRoutes(
-            mac.routes,
-            supportedKinds: supportedKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
-        )
-        let requiresIroh = localRoutes.contains { $0.kind == .iroh }
-        guard let deviceRegistry,
+        guard let registryDevices,
               await isScopeCurrent(scope),
               await !isForgottenMacDeviceID(mac.macDeviceID, scope: scope),
-              let registryRoutes = await deviceRegistry.freshRoutes(
+              let registryRoutes = DeviceRegistryService.routes(
                   forMacDeviceID: mac.macDeviceID,
-                  instanceTag: mac.instanceTag
+                  pairedMacInstanceTag: mac.instanceTag,
+                  in: registryDevices
               ),
-              connectionState != .connected,
               let pairedMacStore,
               let currentMac = try? await pairedMacStore.loadAll(
                   stackUserID: scope.userID,
                   teamID: scope.teamID
               ).first(where: { $0.macDeviceID == mac.macDeviceID }),
               currentMac.instanceTag == mac.instanceTag,
-              let updatedRoutes = DeviceRegistryService.selectReconnectRoutes(
-                local: mac.routes,
-                registry: registryRoutes
-              ) else {
+              await isScopeCurrent(scope),
+              await !isForgottenMacDeviceID(mac.macDeviceID, scope: scope) else {
+            return nil
+        }
+        let localRoutes = Self.storedReconnectRoutes(
+            currentMac.routes,
+            supportedKinds: supportedKinds,
+            preferNonLoopback: Self.prefersNonLoopbackRoutes
+        )
+        let requiresIroh = localRoutes.contains { $0.kind == .iroh }
+            || mac.routes.contains { $0.kind == .iroh }
+        // Presence may authorize and persist the same registry routes while the
+        // list request is in flight. That current row is newer than the captured
+        // candidate and is already scoped to this account/device/instance, so use
+        // it directly instead of mistaking registry equality for "no route."
+        let updatedRoutes: [CmxAttachRoute]
+        if currentMac.routes != mac.routes {
+            updatedRoutes = currentMac.routes
+        } else if let registryUpdate = DeviceRegistryService.selectReconnectRoutes(
+            local: currentMac.routes,
+            registry: registryRoutes
+        ) {
+            updatedRoutes = registryUpdate
+        } else {
             return nil
         }
         let reconnectRoutes = Self.storedReconnectRoutes(
@@ -200,23 +215,13 @@ extension MobileShellComposite {
             supportedKinds: supportedKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes
         )
-        if reconnectRoutes.contains(where: { $0.kind == .iroh }) {
-            return .ticket(reconnectRoutes)
-        }
         // Once this pairing has used Iroh, a cloud refresh that omits Iroh is
         // stale or downgraded input. Keep the local Iroh capability pin instead
         // of converting a grant failure into raw private-network RPC.
-        guard !requiresIroh else { return nil }
-        let refreshed = Self.reconnectHostPortRoutes(
-            updatedRoutes,
-            supportedKinds: supportedKinds,
-            preferNonLoopback: Self.prefersNonLoopbackRoutes
-        )
-        guard !refreshed.isEmpty else { return nil }
-        let tried = Set(triedRoutes.map { "\($0.host)\u{1F}\($0.port)" })
-        let fresh = Set(refreshed.map { "\($0.host)\u{1F}\($0.port)" })
-        guard fresh != tried else { return nil }
-        return .hostPorts(refreshed)
+        guard !requiresIroh || reconnectRoutes.contains(where: { $0.kind == .iroh }) else {
+            return nil
+        }
+        return reconnectRoutes.isEmpty ? nil : reconnectRoutes
     }
 
     func shouldResyncTerminalOutputOnForeground() -> Bool {
@@ -401,9 +406,4 @@ extension MobileShellComposite {
         storedRoutes.forEach(append)
         return merged.sorted(by: Self.routeSortsBefore)
     }
-}
-
-enum RefreshedReconnectRoutes {
-    case ticket([CmxAttachRoute])
-    case hostPorts([(host: String, port: Int, routeID: String)])
 }
