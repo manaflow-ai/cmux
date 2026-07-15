@@ -332,6 +332,16 @@ if "-exportArchive" in args:
     payload_root = export_path / "Payload"
     app = payload_root / "cmux.app"
     write_plist(app / "Info.plist", archived_info)
+    iroh = app / "Frameworks" / "Iroh.framework"
+    write_plist(
+        iroh / "Info.plist",
+        {{
+            "CFBundleExecutable": "Iroh",
+            "CFBundleIdentifier": "org.iroh.Iroh",
+            "CFBundlePackageType": "FMWK",
+        }},
+    )
+    (iroh / "Iroh").write_text("fake iroh framework binary", encoding="utf-8")
     profile_marker = "beta profile" if bundle_id == BETA_BUNDLE_ID else "fake profile"
     (app / "embedded.mobileprovision").write_text(profile_marker, encoding="utf-8")
     ipa = export_path / "cmux.ipa"
@@ -521,6 +531,17 @@ def _write_fake_archive(path: Path, *, bundle_id: str, build_number: str, market
     (app / "Info.plist").write_bytes(_plist_bytes(info))
 
 
+def _assert_iroh_framework_minimum_os(ipa_path: Path, expected: str) -> None:
+    with zipfile.ZipFile(ipa_path) as zf:
+        info = plistlib.loads(
+            zf.read("Payload/cmux.app/Frameworks/Iroh.framework/Info.plist")
+        )
+    _check(
+        info.get("MinimumOSVersion") == expected,
+        f"final IPA stamps Iroh.framework MinimumOSVersion={expected}",
+    )
+
+
 def _copy_isolated_ios_upload_repo(target: Path) -> Path:
     repo = target / "repo"
     for relative in (
@@ -628,6 +649,7 @@ def test_upload_beta_lane_uses_beta_marketing_version(tmp: Path, fakebin: Path) 
         info.get("CFBundleShortVersionString") == BETA_MARKETING_VERSION,
         "final signed beta IPA keeps the beta marketing version",
     )
+    _assert_iroh_framework_minimum_os(ipa_path, "18.0")
 
 
 def test_upload_beta_archive_path_accepts_marketing_version_override(tmp: Path, fakebin: Path) -> None:
