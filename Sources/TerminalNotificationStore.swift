@@ -13,9 +13,37 @@ nonisolated let terminalNotificationLogger = Logger(
 
 private final class TerminalNotificationFeedStorage {
     var oldestFirst: [TerminalNotification]
+    private(set) var startOffset: Int
 
     init(newestFirst: [TerminalNotification] = []) {
         oldestFirst = Array(newestFirst.reversed())
+        startOffset = 0
+    }
+
+    var count: Int {
+        oldestFirst.count - startOffset
+    }
+
+    func appendNewest(_ notification: TerminalNotification) {
+        oldestFirst.append(notification)
+    }
+
+    func appendNewestEvictingOldest(
+        _ notification: TerminalNotification,
+        compactingAfter maxOffset: Int
+    ) -> TerminalNotification? {
+        guard count > 0 else {
+            appendNewest(notification)
+            return nil
+        }
+        let evicted = oldestFirst[startOffset]
+        startOffset += 1
+        oldestFirst.append(notification)
+        if startOffset >= maxOffset {
+            oldestFirst.removeFirst(startOffset)
+            startOffset = 0
+        }
+        return evicted
     }
 }
 
@@ -27,15 +55,18 @@ struct TerminalNotificationFeed: RandomAccessCollection, Equatable, ExpressibleB
     typealias Element = TerminalNotification
 
     fileprivate let storage: TerminalNotificationFeedStorage
+    private let startOffset: Int
     let count: Int
 
     fileprivate init(storage: TerminalNotificationFeedStorage) {
         self.storage = storage
-        count = storage.oldestFirst.count
+        startOffset = storage.startOffset
+        count = storage.count
     }
 
     init(arrayLiteral elements: TerminalNotification...) {
         storage = TerminalNotificationFeedStorage(newestFirst: elements)
+        startOffset = 0
         count = elements.count
     }
 
@@ -44,7 +75,7 @@ struct TerminalNotificationFeed: RandomAccessCollection, Equatable, ExpressibleB
 
     subscript(position: Int) -> TerminalNotification {
         precondition(indices.contains(position))
-        return storage.oldestFirst[count - position - 1]
+        return storage.oldestFirst[startOffset + count - position - 1]
     }
 
     static func == (lhs: Self, rhs: Self) -> Bool {
@@ -441,6 +472,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     private enum NotificationMutationHint {
         case insertion(TerminalNotification)
+        case insertionEvicting(inserted: TerminalNotification, evicted: TerminalNotification)
         case readState(before: TerminalNotification, after: TerminalNotification)
     }
 
@@ -1293,8 +1325,21 @@ final class TerminalNotificationStore: ObservableObject {
     private func commitInsertion(_ notification: TerminalNotification, at index: Int) {
         if index == 0, notifications.count < Self.maximumNotificationFeedCount {
             notificationFeedRevision &+= 1
-            notificationFeedStorage.oldestFirst.append(notification)
+            notificationFeedStorage.appendNewest(notification)
             notificationFeedDidChange(oldValue: nil, mutation: .insertion(notification))
+            return
+        }
+        if index == 0, notifications.count == Self.maximumNotificationFeedCount,
+           let evicted = notificationFeedStorage.appendNewestEvictingOldest(
+               notification,
+               compactingAfter: Self.maximumNotificationFeedCount
+           ) {
+            externalBannerOwnership.clear(id: evicted.id)
+            notificationFeedRevision &+= 1
+            notificationFeedDidChange(
+                oldValue: nil,
+                mutation: .insertionEvicting(inserted: notification, evicted: evicted)
+            )
             return
         }
         var updated = Array(notifications)
@@ -1348,6 +1393,15 @@ final class TerminalNotificationStore: ObservableObject {
         case .insertion(let inserted):
             Self.insertNotification(inserted, into: &indexes, notifications: notifications)
             appliedIncrementally = true
+        case .insertionEvicting(let inserted, let evicted):
+            Self.insertNotification(
+                inserted,
+                evicting: evicted,
+                into: &indexes,
+                notifications: notifications
+            )
+            deferredUnreadNavigationIds.removeAll { $0 == evicted.id }
+            appliedIncrementally = true
         case .readState(let before, let after):
             appliedIncrementally = Self.updateReadState(
                 from: before,
@@ -1364,6 +1418,8 @@ final class TerminalNotificationStore: ObservableObject {
         refreshUnreadPresentation()
         switch mutation {
         case .insertion(let inserted):
+            CmuxEventBus.shared.publishNotificationCreated(inserted, delivery: "store", replacedNotificationIds: [])
+        case .insertionEvicting(let inserted, _):
             CmuxEventBus.shared.publishNotificationCreated(inserted, delivery: "store", replacedNotificationIds: [])
         case .readState(let before, let after) where appliedIncrementally:
             if !before.isRead, after.isRead {
@@ -1901,6 +1957,11 @@ final class TerminalNotificationStore: ObservableObject {
     func rebindSurfaceNotifications(fromTabId sourceTabId: UUID, toTabId destinationTabId: UUID, surfaceId: UUID) {
         guard sourceTabId != destinationTabId else { return }
         TerminalMutationBus.shared.rebindPendingNotifications(
+            fromTabId: sourceTabId,
+            toTabId: destinationTabId,
+            surfaceId: surfaceId
+        )
+        inFlightPolicyRequests.rebindSurface(
             fromTabId: sourceTabId,
             toTabId: destinationTabId,
             surfaceId: surfaceId

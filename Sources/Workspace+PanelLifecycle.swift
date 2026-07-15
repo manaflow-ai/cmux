@@ -446,6 +446,7 @@ extension Workspace {
             lastTerminalConfigInheritancePanelId = nil
         }
         if clearSurfaceNotifications {
+            TerminalMutationBus.shared.removeNotificationLiveOwnerRoute(surfaceId: panelId)
             AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, surfaceId: panelId)
         }
 

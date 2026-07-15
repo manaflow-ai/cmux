@@ -84,6 +84,72 @@ struct SessionNotificationSnapshot: Codable, Sendable {
     }
 }
 
+struct SessionNotificationSnapshotIndex {
+    private struct PanelKey: Hashable {
+        let tabId: UUID
+        let panelId: UUID
+    }
+
+    private struct AddressedNotification {
+        let surfaceId: UUID?
+        let panelId: UUID?
+        let snapshot: SessionNotificationSnapshot
+    }
+
+    static let empty = SessionNotificationSnapshotIndex()
+
+    private var workspaceByTabId: [UUID: [SessionNotificationSnapshot]] = [:]
+    private var panelByKey: [PanelKey: [SessionNotificationSnapshot]] = [:]
+    private var addressedByTabId: [UUID: [AddressedNotification]] = [:]
+
+    init() {}
+
+    init<Notifications: Sequence>(
+        notifications: Notifications
+    ) where Notifications.Element == TerminalNotification {
+        for notification in notifications {
+            let snapshot = SessionNotificationSnapshot(notification: notification)
+            if notification.surfaceId == nil, notification.panelId == nil {
+                workspaceByTabId[notification.tabId, default: []].append(snapshot)
+                continue
+            }
+            addressedByTabId[notification.tabId, default: []].append(
+                AddressedNotification(
+                    surfaceId: notification.surfaceId,
+                    panelId: notification.panelId,
+                    snapshot: snapshot
+                )
+            )
+            if let surfaceId = notification.surfaceId {
+                panelByKey[PanelKey(tabId: notification.tabId, panelId: surfaceId), default: []].append(snapshot)
+            }
+            if let panelId = notification.panelId, panelId != notification.surfaceId {
+                panelByKey[PanelKey(tabId: notification.tabId, panelId: panelId), default: []].append(snapshot)
+            }
+        }
+    }
+
+    func workspaceSnapshots(tabId: UUID) -> [SessionNotificationSnapshot] {
+        workspaceByTabId[tabId] ?? []
+    }
+
+    func panelSnapshots(tabId: UUID, panelId: UUID) -> [SessionNotificationSnapshot] {
+        panelByKey[PanelKey(tabId: tabId, panelId: panelId)] ?? []
+    }
+
+    func orphanedSnapshots(tabId: UUID, persistedPanelIds: Set<UUID>) -> [SessionNotificationSnapshot] {
+        addressedByTabId[tabId]?.compactMap { addressed in
+            if let surfaceId = addressed.surfaceId, persistedPanelIds.contains(surfaceId) {
+                return nil
+            }
+            if let panelId = addressed.panelId, persistedPanelIds.contains(panelId) {
+                return nil
+            }
+            return addressed.snapshot
+        } ?? []
+    }
+}
+
 extension TerminalNotificationStore {
     func restoreSessionNotifications(
         _ restoredNotifications: [TerminalNotification],

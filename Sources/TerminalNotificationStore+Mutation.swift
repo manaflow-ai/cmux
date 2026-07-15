@@ -53,6 +53,51 @@ extension TerminalNotificationStore {
 
     }
 
+    static func insertNotification<Notifications: Collection>(
+        _ notification: TerminalNotification,
+        evicting evicted: TerminalNotification,
+        into indexes: inout NotificationIndexes,
+        notifications: Notifications
+    ) where Notifications.Element == TerminalNotification {
+        guard indexes.ids.count == notifications.count,
+              indexes.ids.remove(evicted.id) != nil,
+              !indexes.ids.contains(notification.id) else {
+            indexes = buildIndexes(for: notifications)
+            return
+        }
+
+        let evictedTabSurfaceKey = TabSurfaceKey(tabId: evicted.tabId, surfaceId: evicted.surfaceId)
+        let evictedWasLatestForTab = indexes.latestByTabId[evicted.tabId]?.id == evicted.id
+        let evictedWasLatestForSurface = indexes.latestByTabSurface[evictedTabSurfaceKey]?.id == evicted.id
+        if evictedWasLatestForTab {
+            indexes.latestByTabId.removeValue(forKey: evicted.tabId)
+        }
+        if evictedWasLatestForSurface {
+            indexes.latestByTabSurface.removeValue(forKey: evictedTabSurfaceKey)
+        }
+        if !evicted.isRead {
+            indexes.unreadCount -= 1
+            adjustCount(for: evicted.tabId, by: -1, in: &indexes.unreadCountByTabId)
+            for key in unreadIndexKeys(for: evicted) {
+                adjustCount(for: key, by: -1, in: &indexes.unreadCountByTabSurface)
+                if indexes.unreadCountByTabSurface[key] == nil {
+                    indexes.unreadByTabSurface.remove(key)
+                }
+            }
+        }
+
+        insertNotification(notification, into: &indexes, notifications: notifications)
+
+        if evictedWasLatestForTab, indexes.latestByTabId[evicted.tabId] == nil {
+            indexes.latestByTabId[evicted.tabId] = notifications.first { $0.tabId == evicted.tabId }
+        }
+        if evictedWasLatestForSurface, indexes.latestByTabSurface[evictedTabSurfaceKey] == nil {
+            indexes.latestByTabSurface[evictedTabSurfaceKey] = notifications.first {
+                $0.tabId == evicted.tabId && $0.surfaceId == evicted.surfaceId
+            }
+        }
+    }
+
     static func updateReadState(
         from before: TerminalNotification,
         to after: TerminalNotification,

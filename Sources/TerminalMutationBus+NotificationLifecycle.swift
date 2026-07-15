@@ -179,7 +179,7 @@ extension TerminalMutationBus {
     ) {
         guard fromTabId != toTabId else { return }
         lock.lock()
-        notificationLiveOwnerTabIdBySurfaceId[surfaceId] = toTabId
+        installNotificationLiveOwnerRoute(surfaceId: surfaceId, toTabId: toTabId)
         compactPendingForMutation()
         pending = pending.map(notificationEntryFollowingReplacementRoutes)
         for id in reliableAdmissionsById.keys {
@@ -187,6 +187,14 @@ extension TerminalMutationBus {
             admission.key = notificationKeyFollowingReplacementRoutes(admission.key)
             reliableAdmissionsById[id] = admission
         }
+        lock.broadcast()
+        lock.unlock()
+    }
+
+    nonisolated func removeNotificationLiveOwnerRoute(surfaceId: UUID) {
+        lock.lock()
+        notificationLiveOwnerTabIdBySurfaceId.removeValue(forKey: surfaceId)
+        notificationLiveOwnerSurfaceOrder.removeAll { $0 == surfaceId }
         lock.broadcast()
         lock.unlock()
     }
@@ -205,6 +213,16 @@ extension TerminalMutationBus {
         while notificationReplacementRouteOrder.count > Self.maximumNotificationReplacementRouteCount {
             let retiredTabId = notificationReplacementRouteOrder.removeFirst()
             notificationReplacementRoutesByTabId.removeValue(forKey: retiredTabId)
+        }
+    }
+
+    private func installNotificationLiveOwnerRoute(surfaceId: UUID, toTabId: UUID) {
+        notificationLiveOwnerTabIdBySurfaceId[surfaceId] = toTabId
+        notificationLiveOwnerSurfaceOrder.removeAll { $0 == surfaceId }
+        notificationLiveOwnerSurfaceOrder.append(surfaceId)
+        while notificationLiveOwnerSurfaceOrder.count > Self.maximumNotificationLiveOwnerRouteCount {
+            let retiredSurfaceId = notificationLiveOwnerSurfaceOrder.removeFirst()
+            notificationLiveOwnerTabIdBySurfaceId.removeValue(forKey: retiredSurfaceId)
         }
     }
 

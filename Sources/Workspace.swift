@@ -52,13 +52,18 @@ extension Workspace {
     func sessionSnapshot(
         includeScrollback: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex? = nil,
-        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil,
+        notificationSnapshotIndex: SessionNotificationSnapshotIndex? = nil
     ) -> SessionWorkspaceSnapshot {
         let tree = bonsplitController.treeSnapshot()
         let rawLayout = sessionLayoutSnapshot(from: tree)
         if let surfaceResumeBindingIndex {
             reconcileSurfaceResumeBindings(using: surfaceResumeBindingIndex)
         }
+        let notificationStore = AppDelegate.shared?.notificationStore
+        let resolvedNotificationSnapshotIndex = notificationSnapshotIndex
+            ?? notificationStore.map { SessionNotificationSnapshotIndex(notifications: $0.notifications) }
+            ?? .empty
         let orderedPanelIds = sidebarOrderedPanelIds()
         var seen: Set<UUID> = []
         var allPanelIds: [UUID] = []
@@ -78,7 +83,8 @@ extension Workspace {
                     resumeBinding: effectiveSurfaceResumeBinding(
                         panelId: panelId,
                         surfaceResumeBindingIndex: surfaceResumeBindingIndex
-                    )
+                    ),
+                    notificationSnapshotIndex: resolvedNotificationSnapshotIndex
                 )
             }
         let persistedPanelIds = Set(panelSnapshots.map(\.id))
@@ -113,13 +119,15 @@ extension Workspace {
         let gitBranchSnapshot = gitBranch.map { branch in
             SessionGitBranchSnapshot(branch: branch.branch, isDirty: branch.isDirty)
         }
-        let notificationStore = AppDelegate.shared?.notificationStore
         let isWorkspaceManuallyUnread = notificationStore?.hasManualUnread(forTabId: id) ?? false
         let hasWorkspaceUnreadIndicator =
             (notificationStore?.hasUnreadNotification(forTabId: id, surfaceId: nil) ?? false) ||
             (notificationStore?.hasRestoredUnreadIndicator(forTabId: id) ?? false)
-        let workspaceNotificationSnapshots = notificationSnapshots(surfaceId: nil)
-            + orphanedNotificationSnapshots(persistedPanelIds: persistedPanelIds)
+        let workspaceNotificationSnapshots = resolvedNotificationSnapshotIndex.workspaceSnapshots(tabId: id)
+            + resolvedNotificationSnapshotIndex.orphanedSnapshots(
+                tabId: id,
+                persistedPanelIds: persistedPanelIds
+            )
         var snapshot = SessionWorkspaceSnapshot(
             workspaceId: id,
             stableId: stableId,
@@ -405,9 +413,15 @@ extension Workspace {
         panelId: UUID,
         includeScrollback: Bool,
         restorableAgentObservation: RestorableAgentSessionIndex.Entry?,
-        resumeBinding: SurfaceResumeBindingSnapshot?
+        resumeBinding: SurfaceResumeBindingSnapshot?,
+        notificationSnapshotIndex: SessionNotificationSnapshotIndex? = nil
     ) -> SessionPanelSnapshot? {
         guard let panel = panels[panelId] else { return nil }
+        let resolvedNotificationSnapshotIndex = notificationSnapshotIndex
+            ?? AppDelegate.shared?.notificationStore.map {
+                SessionNotificationSnapshotIndex(notifications: $0.notifications)
+            }
+            ?? .empty
 
         let indexedRestorableAgent = restorableAgentObservation?.snapshot
         let compatibleIndexedRestorableAgent = indexedRestorableAgent.flatMap {
@@ -481,7 +495,7 @@ extension Workspace {
         }()
         let isPinned = pinnedPanelIds.contains(panelId)
         let isManuallyUnread = manualUnreadPanelIds.contains(panelId)
-        let panelNotificationSnapshots = notificationSnapshots(surfaceId: panelId)
+        let panelNotificationSnapshots = resolvedNotificationSnapshotIndex.panelSnapshots(tabId: id, panelId: panelId)
         let panelHasUnreadNotification = hasUnreadNotification(panelId: panelId)
         let hasUnreadIndicator =
             restoredUnreadPanelIds.contains(panelId) ||
@@ -766,7 +780,8 @@ extension Workspace {
             resumeBinding: effectiveSurfaceResumeBinding(
                 panelId: panelId,
                 surfaceResumeBindingIndex: nil
-            )
+            ),
+            notificationSnapshotIndex: nil
         ) else {
             return nil
         }
@@ -1780,34 +1795,6 @@ extension Workspace {
             notificationStore.clearManualUnread(forTabId: id)
         }
         syncUnreadBadgeStateForAllPanels()
-    }
-
-    private func notificationSnapshots(surfaceId: UUID?) -> [SessionNotificationSnapshot] {
-        AppDelegate.shared?.notificationStore?
-            .notifications(forTabId: id, surfaceId: surfaceId)
-            .map(SessionNotificationSnapshot.init(notification:)) ?? []
-    }
-
-    private func orphanedNotificationSnapshots(
-        persistedPanelIds: Set<UUID>
-    ) -> [SessionNotificationSnapshot] {
-        AppDelegate.shared?.notificationStore?.notifications
-            .filter { notification in
-                guard notification.tabId == id,
-                      notification.surfaceId != nil || notification.panelId != nil else {
-                    return false
-                }
-                if let surfaceId = notification.surfaceId,
-                   persistedPanelIds.contains(surfaceId) {
-                    return false
-                }
-                if let panelId = notification.panelId,
-                   persistedPanelIds.contains(panelId) {
-                    return false
-                }
-                return true
-            }
-            .map(SessionNotificationSnapshot.init(notification:)) ?? []
     }
 
     private func restoredSessionNotifications(

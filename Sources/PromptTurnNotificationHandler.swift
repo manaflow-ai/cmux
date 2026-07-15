@@ -12,9 +12,12 @@ actor PromptTurnNotificationHandler {
     private var deliveredConfirmationIdentifierByAgentID: [String: UInt64] = [:]
     private var deliveringConfirmationIdentifierByAgentID: [String: UInt64] = [:]
     private var debounceTasksByAgentID: [String: Task<Void, Never>] = [:]
+    private var saturationRetryTasksByAgentID: [String: Task<Void, Never>] = [:]
 
     private var inFlightPID: Int?
     private var inFlightVerification: Task<CmuxTaskManagerCodingAgentDefinition?, Never>?
+
+    private static let maximumSaturationRetryAttempts = 5
 
     init(workspaceID: UUID, surfaceID: UUID) {
         self.workspaceID = workspaceID
@@ -23,6 +26,9 @@ actor PromptTurnNotificationHandler {
 
     deinit {
         for task in debounceTasksByAgentID.values {
+            task.cancel()
+        }
+        for task in saturationRetryTasksByAgentID.values {
             task.cancel()
         }
         inFlightVerification?.cancel()
@@ -97,7 +103,8 @@ actor PromptTurnNotificationHandler {
     private func deliverVerifiedTurn(
         agentID: String,
         confirmation: PromptLineTurnConfirmation,
-        requiredRevision: UInt64?
+        requiredRevision: UInt64?,
+        saturationRetryAttempt: Int = 0
     ) async {
         guard confirmation.confirmedTurnCount > 0,
               deliveredConfirmationIdentifierByAgentID[agentID, default: 0] < confirmation.identifier,
@@ -154,7 +161,60 @@ actor PromptTurnNotificationHandler {
                 deliveredConfirmationIdentifierByAgentID[agentID, default: 0],
                 confirmation.identifier
             )
+        } else {
+            scheduleSaturationRetry(
+                agentID: agentID,
+                confirmation: confirmation,
+                requiredRevision: requiredRevision,
+                attempt: saturationRetryAttempt
+            )
         }
+    }
+
+    private func scheduleSaturationRetry(
+        agentID: String,
+        confirmation: PromptLineTurnConfirmation,
+        requiredRevision: UInt64?,
+        attempt: Int
+    ) {
+        guard attempt < Self.maximumSaturationRetryAttempts else { return }
+        saturationRetryTasksByAgentID.removeValue(forKey: agentID)?.cancel()
+        let clock = ContinuousClock()
+        let delay = Duration.milliseconds(100 * (1 << min(attempt, 4)))
+        saturationRetryTasksByAgentID[agentID] = Task { [weak self] in
+            await MainActor.run {
+                TerminalMutationBus.shared.drainForBackpressure()
+            }
+            do {
+                try await clock.sleep(for: delay)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            await self?.saturationRetryReached(
+                agentID: agentID,
+                confirmation: confirmation,
+                requiredRevision: requiredRevision,
+                nextAttempt: attempt + 1
+            )
+        }
+    }
+
+    private func saturationRetryReached(
+        agentID: String,
+        confirmation: PromptLineTurnConfirmation,
+        requiredRevision: UInt64?,
+        nextAttempt: Int
+    ) async {
+        if saturationRetryTasksByAgentID[agentID] != nil {
+            saturationRetryTasksByAgentID.removeValue(forKey: agentID)
+        }
+        await deliverVerifiedTurn(
+            agentID: agentID,
+            confirmation: confirmation,
+            requiredRevision: requiredRevision,
+            saturationRetryAttempt: nextAttempt
+        )
     }
 
     /// Verifies process identity fresh for every delivery. Deliveries happen

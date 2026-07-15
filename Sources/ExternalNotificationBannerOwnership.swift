@@ -96,7 +96,13 @@ struct ExternalNotificationBannerOwnership {
             let panelId = owner.panelId.map { panelIdMap[$0] ?? $0 }
             let moved = owner.replacingLocation(tabId: toTabId, surfaceId: surfaceId, panelId: panelId)
             if let existing = ownerByKey[Self.key(moved)] {
-                if existing.id != moved.id { displaced.append(moved) }
+                guard existing.id != moved.id else { continue }
+                if TerminalNotificationStore.notificationSortPrecedes(moved, existing) {
+                    ownerByKey[Self.key(moved)] = moved
+                    displaced.append(existing)
+                } else {
+                    displaced.append(moved)
+                }
             } else {
                 setOwner(moved)
             }
@@ -115,7 +121,12 @@ struct ExternalNotificationBannerOwnership {
             panelId: owner.panelId
         )
         if let existing = self.owner(tabId: toTabId, surfaceId: surfaceId) {
-            return existing.id == moved.id ? nil : moved
+            guard existing.id != moved.id else { return nil }
+            if TerminalNotificationStore.notificationSortPrecedes(moved, existing) {
+                setOwner(moved)
+                return existing
+            }
+            return moved
         }
         setOwner(moved)
         return nil

@@ -17,6 +17,7 @@ final class TerminalMutationBus: @unchecked Sendable {
     static let maximumPendingMutationCount = 256
     static let maximumWaitingNotificationProducerCount = 16
     static let notificationCapacityWaitTimeout: TimeInterval = 1
+    static let maximumNotificationLiveOwnerRouteCount = 2_048
 
     private static let reliableAdmissionQueue = DispatchQueue(
         label: "com.cmux.agent-notification-reliable-admission",
@@ -35,6 +36,7 @@ final class TerminalMutationBus: @unchecked Sendable {
     var notificationReplacementRoutesByTabId: [UUID: TerminalNotificationReplacementRoute] = [:]
     var notificationReplacementRouteOrder: [UUID] = []
     var notificationLiveOwnerTabIdBySurfaceId: [UUID: UUID] = [:]
+    var notificationLiveOwnerSurfaceOrder: [UUID] = []
     private var reliablyWaitingNotificationProducerCount = 0
     private let maxMutationsPerDrain = 16
 #if DEBUG

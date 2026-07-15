@@ -5818,12 +5818,16 @@ extension TabManager {
         let restorableTabs = tabs
             .filter(\.isRestorableInSessionSnapshot)
             .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
+        let notificationSnapshotIndex = AppDelegate.shared?.notificationStore.map {
+            SessionNotificationSnapshotIndex(notifications: $0.notifications)
+        } ?? .empty
         let workspaceSnapshots = restorableTabs
             .map {
                 $0.sessionSnapshot(
                     includeScrollback: includeScrollback,
                     restorableAgentIndex: restorableAgentIndex,
-                    surfaceResumeBindingIndex: surfaceResumeBindingIndex
+                    surfaceResumeBindingIndex: surfaceResumeBindingIndex,
+                    notificationSnapshotIndex: notificationSnapshotIndex
                 )
             }
         let selectedWorkspaceIndex = selectedTabId.flatMap { selectedTabId in

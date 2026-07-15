@@ -66,6 +66,28 @@ final class TerminalNotificationPolicyInFlightStore {
         }
     }
 
+    func rebindSurface(fromTabId: UUID, toTabId: UUID, surfaceId: UUID) {
+        guard fromTabId != toTabId else { return }
+        let ids = requests.compactMap { id, entry -> UUID? in
+            let request = entry.request
+            guard request.retargetsToLiveSurfaceOwner,
+                  request.tabId == fromTabId,
+                  request.surfaceId == surfaceId || request.panelId == surfaceId else {
+                return nil
+            }
+            return id
+        }
+        for id in ids {
+            guard var entry = requests[id] else { continue }
+            entry.request = entry.request.replacingLocation(
+                tabId: toTabId,
+                surfaceId: entry.request.surfaceId,
+                panelId: entry.request.panelId
+            )
+            requests[id] = entry
+        }
+    }
+
     func discardAll(through generation: UInt64? = nil) {
         let ids: [UUID] = requests.compactMap { id, entry -> UUID? in
             if let generation, entry.generation > generation { return nil }
