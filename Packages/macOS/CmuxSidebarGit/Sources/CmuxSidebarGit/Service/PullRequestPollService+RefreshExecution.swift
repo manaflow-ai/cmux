@@ -109,7 +109,9 @@ extension PullRequestPollService {
             workspacePullRequestProbeStateByKey[key] = .idle
             workspacePullRequestNextPollAtByKey[key] = .distantPast
         }
-        let survivingBypassRepoCacheKeys = request.bypassRepoCacheKeys.intersection(survivingKeys)
+        let survivingBypassRepoCacheKeys = request.allowCachedResults
+            ? request.bypassRepoCacheKeys.intersection(survivingKeys)
+            : survivingKeys
         workspacePullRequestBypassRepoCacheKeys.formUnion(survivingBypassRepoCacheKeys)
 
         let pendingSeedRefresh = takePendingSeedRefresh()
