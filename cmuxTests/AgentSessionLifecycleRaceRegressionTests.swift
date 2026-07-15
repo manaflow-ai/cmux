@@ -16,8 +16,8 @@ extension CMUXCLIErrorOutputRegressionTests {
             surfaceId: "surface",
             startedAt: 100,
             updatedAt: 200,
-            completedAt: 200,
-            runs: nil
+            runs: nil,
+            completedAt: 200
         )
         let originalProcess = AgentHookSessionLineage(
             runId: "pid:123@100",

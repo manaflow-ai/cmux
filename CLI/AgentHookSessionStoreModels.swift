@@ -177,7 +177,10 @@ struct AgentHookSessionActivationPolicy: Sendable {
         // supplies a verified, different process generation can reopen it.
         guard hasIncomingPID, let incomingStartedAt = lineage.processStartedAt else { return false }
         let matchingRuns = (record.runs ?? []).filter { $0.runId == lineage.runId }
-        guard !matchingRuns.isEmpty else { return true }
+        guard !matchingRuns.isEmpty else {
+            guard let completedAt = record.completedAt else { return false }
+            return incomingStartedAt > completedAt + 0.001
+        }
         return matchingRuns.allSatisfy { run in
             guard let previousStartedAt = run.processStartedAt else { return false }
             return abs(previousStartedAt - incomingStartedAt) > 0.001

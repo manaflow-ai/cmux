@@ -422,7 +422,7 @@ public struct CmuxAgentSessionRegistry: Sendable {
                         provider: provider,
                         sessionID: sessionID,
                         updatedAt: updatedAt,
-                        writerGeneration: existing.writerGeneration,
+                        writerGeneration: max(existing.writerGeneration, Self.currentWriterGeneration),
                         json: json
                     ),
                     database: database

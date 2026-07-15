@@ -22,7 +22,7 @@ struct AgentHookSessionAuthorityPolicy: Sendable {
         let isForkRoot = explicitRelationship == .forked
             && !managedChild
             && processIdentityAvailable
-            && ancestryProvenAbsent
+            && !hasAgentAncestor
         let ancestryAmbiguous = processIdentityAvailable
             && !hasAgentAncestor
             && !ancestryProvenAbsent

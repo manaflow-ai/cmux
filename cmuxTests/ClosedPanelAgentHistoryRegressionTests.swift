@@ -8,6 +8,12 @@ import Testing
 #endif
 
 extension CMUXCLIErrorOutputRegressionTests {
+    @Test func completedRootExitCannotBeReattachedByColdIndexEnrichment() {
+        #expect(!Workspace.closedPanelAgentEnrichmentAllowed(resumeState: .completedAgentExit))
+        #expect(Workspace.closedPanelAgentEnrichmentAllowed(resumeState: nil))
+        #expect(Workspace.closedPanelAgentEnrichmentAllowed(resumeState: .manualResumeAvailable))
+    }
+
     @MainActor
     @Test func coldAgentIndexCanEnrichAnAlreadyClosedPanelWithoutBlockingClose() throws {
         let panelId = UUID()
