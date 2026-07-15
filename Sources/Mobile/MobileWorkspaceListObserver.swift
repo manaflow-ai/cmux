@@ -13,6 +13,8 @@ private let mobileWorkspaceObserverLog = Logger(subsystem: "dev.cmux", category:
 /// the `@Published` source of truth instead of trying to catch every caller.
 @MainActor
 final class MobileWorkspaceListObserver {
+    typealias WorkspaceDigestSampler = @MainActor (Workspace, Int?) -> Int
+
     private weak var tabManager: TabManager?
     /// The app-global notification store, source of each workspace's last-activity
     /// preview line. Weak because the store is app-global and outlives this
@@ -27,7 +29,10 @@ final class MobileWorkspaceListObserver {
     private var unreadIndicatorsCancellable: AnyCancellable?
     private var perWorkspaceCancellables: [UUID: AnyCancellable] = [:]
     private var focusedHierarchyProjections: [UUID: MobileWorkspaceHierarchyProjection.FocusValue] = [:]
+    private var workspaceDigestIndex = MobileWorkspaceListProjection.DigestIndex()
+    private var previewSignatures: [UUID: Int] = [:]
     private let focusEventSequenceService: MobileWorkspaceFocusEventSequenceService
+    private let workspaceDigestSampler: WorkspaceDigestSampler
     private var lastSummaryHash: Int = 0
     /// Throttle window with `latest: true`. First event in a burst emits
     /// immediately (iPhone gets the change in milliseconds), subsequent
@@ -39,11 +44,18 @@ final class MobileWorkspaceListObserver {
     init(
         tabManager: TabManager,
         focusEventSequenceService: MobileWorkspaceFocusEventSequenceService,
-        notificationStore: TerminalNotificationStore? = nil
+        notificationStore: TerminalNotificationStore? = nil,
+        workspaceDigestSampler: @escaping WorkspaceDigestSampler = { workspace, previewSignature in
+            MobileWorkspaceListProjection.workspaceDigest(
+                workspace: workspace,
+                previewSignature: previewSignature
+            )
+        }
     ) {
         self.tabManager = tabManager
         self.notificationStore = notificationStore
         self.focusEventSequenceService = focusEventSequenceService
+        self.workspaceDigestSampler = workspaceDigestSampler
         #if DEBUG
         cmuxDebugLog("mobile.observer init tabs=\(tabManager.tabs.count)")
         #endif
@@ -59,14 +71,11 @@ final class MobileWorkspaceListObserver {
         focusedHierarchyProjections = Dictionary(uniqueKeysWithValues: tabManager.tabs.map {
             ($0.id, MobileWorkspaceHierarchyProjection.FocusValue(workspace: $0))
         })
-        let initial = Self.summaryHash(
-            for: tabManager.tabs,
-            groups: tabManager.workspaceGroups,
-            selectedTabID: tabManager.selectedTabId,
-            previewSignatures: currentPreviewSignatures(for: tabManager.tabs)
+        previewSignatures = currentPreviewSignatures(for: tabManager.tabs)
+        emitIfNeeded(
+            force: true,
+            resamplingWorkspaceIDs: Set(tabManager.tabs.map(\.id))
         )
-        lastSummaryHash = initial
-        emitIfNeeded(force: true)
 
         tabsCancellable = tabManager.tabsPublisher
             // Reconcile ownership synchronously from the published value. Deferring
@@ -82,7 +91,11 @@ final class MobileWorkspaceListObserver {
                 #if DEBUG
                 cmuxDebugLog("mobile.observer tabs sink fired count=\(tabs.count)")
                 #endif
-                self.emitIfNeeded(force: false)
+                self.emitIfNeeded(
+                    force: false,
+                    resamplingWorkspaceIDs: Set(tabs.map(\.id)),
+                    refreshingPreviewSignatures: true
+                )
             }
         // Selection changes (Mac user clicks a different sidebar tab) need
         // to push to iPhone too. iPhone's selectedWorkspaceID drives which
@@ -90,7 +103,7 @@ final class MobileWorkspaceListObserver {
         selectionCancellable = tabManager.selectedTabIdPublisher
             .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] _ in
-                self?.emitIfNeeded(force: false)
+                self?.emitIfNeeded(force: false, resamplingWorkspaceIDs: [])
             }
         // Bonsplit focus is not published Workspace state. The shared surface-focus
         // notification fires after terminal and non-terminal selection converges.
@@ -113,7 +126,7 @@ final class MobileWorkspaceListObserver {
         groupsCancellable = tabManager.workspaceGroupsPublisher
             .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] _ in
-                self?.emitIfNeeded(force: false)
+                self?.emitIfNeeded(force: false, resamplingWorkspaceIDs: [])
             }
         // Last-activity preview lines come from the notification store, which is
         // not part of the TabManager graph. A new notification (or a cleared one)
@@ -134,7 +147,11 @@ final class MobileWorkspaceListObserver {
         notificationsCancellable = notificationStore?.$notifications
             .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] _ in
-                self?.emitIfNeeded(force: false)
+                self?.emitIfNeeded(
+                    force: false,
+                    resamplingWorkspaceIDs: [],
+                    refreshingPreviewSignatures: true
+                )
             }
         // Workspace-level unread indicators (manual mark-unread, panel-derived,
         // session-restored) live in their own published sets, not in
@@ -148,7 +165,11 @@ final class MobileWorkspaceListObserver {
             )
             .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] _ in
-                self?.emitIfNeeded(force: false)
+                self?.emitIfNeeded(
+                    force: false,
+                    resamplingWorkspaceIDs: [],
+                    refreshingPreviewSignatures: true
+                )
             }
         }
 
@@ -241,8 +262,11 @@ final class MobileWorkspaceListObserver {
             ]
             let merged = Publishers.MergeMany(publishers)
                 .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
-            perWorkspaceCancellables[workspace.id] = merged.sink { [weak self] _ in
-                self?.emitIfNeeded(force: false)
+            perWorkspaceCancellables[workspace.id] = merged.sink { [weak self, workspaceID = workspace.id] _ in
+                self?.emitIfNeeded(
+                    force: false,
+                    resamplingWorkspaceIDs: [workspaceID]
+                )
             }
         }
     }
@@ -261,14 +285,37 @@ final class MobileWorkspaceListObserver {
         )
     }
 
-    private func emitIfNeeded(force: Bool) {
-        let signpost = MobileWorkspaceObserverSignposts.begin("mobile-workspace-emit-if-needed", "force=\(force)"); defer { MobileWorkspaceObserverSignposts.end(signpost) }
+    func emitIfNeeded(
+        force: Bool,
+        resamplingWorkspaceIDs: Set<UUID>,
+        refreshingPreviewSignatures: Bool = false
+    ) {
+        let signpost = MobileWorkspaceObserverSignposts.begin(
+            "mobile-workspace-emit-if-needed",
+            "force=\(force) resampling=\(resamplingWorkspaceIDs.count) refreshPreviews=\(refreshingPreviewSignatures)"
+        ); defer { MobileWorkspaceObserverSignposts.end(signpost) }
         guard let tabManager else { return }
+        let tabs = tabManager.tabs
+        var invalidatedWorkspaceIDs = resamplingWorkspaceIDs
+        if refreshingPreviewSignatures {
+            let nextPreviewSignatures = currentPreviewSignatures(for: tabs)
+            let previewWorkspaceIDs = Set(previewSignatures.keys).union(nextPreviewSignatures.keys)
+            invalidatedWorkspaceIDs.formUnion(previewWorkspaceIDs.filter {
+                previewSignatures[$0] != nextPreviewSignatures[$0]
+            })
+            previewSignatures = nextPreviewSignatures
+        }
+        let workspaceDigests = workspaceDigestIndex.refresh(
+            tabs: tabs,
+            resampling: invalidatedWorkspaceIDs
+        ) { [workspaceDigestSampler, previewSignatures] workspace in
+            workspaceDigestSampler(workspace, previewSignatures[workspace.id])
+        }
         let hash = Self.summaryHash(
-            for: tabManager.tabs,
+            for: tabs,
             groups: tabManager.workspaceGroups,
             selectedTabID: tabManager.selectedTabId,
-            previewSignatures: currentPreviewSignatures(for: tabManager.tabs)
+            workspaceDigests: workspaceDigests
         )
         if !force, hash == lastSummaryHash {
             #if DEBUG
@@ -306,12 +353,35 @@ final class MobileWorkspaceListObserver {
         previewSignatures: [UUID: Int]
     ) -> Int {
         let signpost = MobileWorkspaceObserverSignposts.begin("mobile-workspace-summary-hash", "workspaces=\(tabs.count) groups=\(groups.count) previews=\(previewSignatures.count) selected=\(selectedTabID.map { String($0.uuidString.prefix(5)) } ?? "nil")"); defer { MobileWorkspaceObserverSignposts.end(signpost) }
+        let workspaceDigests = Dictionary(uniqueKeysWithValues: tabs.map { workspace in
+            (
+                workspace.id,
+                MobileWorkspaceListProjection.workspaceDigest(
+                    workspace: workspace,
+                    previewSignature: previewSignatures[workspace.id]
+                )
+            )
+        })
+        return summaryHash(
+            for: tabs,
+            groups: groups,
+            selectedTabID: selectedTabID,
+            workspaceDigests: workspaceDigests
+        )
+    }
+
+    private static func summaryHash(
+        for tabs: [Workspace],
+        groups: [WorkspaceGroup],
+        selectedTabID: UUID?,
+        workspaceDigests: [UUID: Int]
+    ) -> Int {
         var hasher = Hasher()
         hasher.combine(MobileWorkspaceListProjection.digest(
             tabs: tabs,
             groups: groups,
             selectedTabID: selectedTabID,
-            previewSignatures: previewSignatures
+            workspaceDigests: workspaceDigests
         ))
         // Todo state remains list-facing but is intentionally owned outside the
         // terminal hierarchy projection.
