@@ -131,13 +131,18 @@ extension TerminalSurface {
 
     /// Sets the tmux-assigned grid for a manual-IO mirror pane and
     /// re-applies the current size when the pin changes the applied grid.
+    /// Returns whether the pin grew on either axis — cells granted after
+    /// tmux already streamed their rows hold nothing until tmux repaints,
+    /// so the caller owes a redraw kick when this returns true.
     @MainActor
-    public func setAssignedGrid(columns: Int, rows: Int) {
+    @discardableResult
+    public func setAssignedGrid(columns: Int, rows: Int) -> Bool {
         let assigned = (columns: columns, rows: rows)
-        guard assignedGrid == nil
-            || assignedGrid! != assigned else { return }
+        if let existing = assignedGrid, existing == assigned { return false }
+        let grew = assignedGrid.map { columns > $0.columns || rows > $0.rows } ?? true
         assignedGrid = assigned
         reapplyAssignedGrid()
+        return grew
     }
 
     /// Clears the pin (the pane left the mirror tree); the next genuine

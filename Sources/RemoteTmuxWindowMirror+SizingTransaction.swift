@@ -233,12 +233,22 @@ extension RemoteTmuxWindowMirror {
     /// measured container, so nothing here can feed back.
     func applyAssignedGrids() {
         let leaves = renderedLayout.leavesByPaneID
+        var pinGrew = false
         for (paneId, panel) in panelsByPaneId {
             if let node = leaves[paneId], node.width > 0, node.height > 0 {
-                panel.surface.setAssignedGrid(columns: node.width, rows: node.height)
+                if panel.surface.setAssignedGrid(columns: node.width, rows: node.height) {
+                    pinGrew = true
+                }
             } else {
                 panel.surface.clearAssignedGrid()
             }
+        }
+        // A pin that grows the grid after tmux already streamed those rows
+        // leaves the late-granted cells blank: tmux repaints only on
+        // change, and the content that belonged there was clipped while
+        // the grid was short. One coalesced redraw kick refills them.
+        if pinGrew {
+            connection?.scheduleAttachRedrawKickIfNeeded()
         }
     }
 

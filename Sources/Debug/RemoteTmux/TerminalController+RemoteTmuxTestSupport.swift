@@ -459,7 +459,15 @@ extension TerminalController {
                     // column under its span wraps every full line,
                     // while surplus is blank margin (the trailing
                     // pane legitimately absorbs sub-cell leftover).
-                    guard let rendered = mirror.lastRenderedGrids[leaf] else {
+                    // Judge the surface's LIVE grid, not the cached
+                    // sample ledger: applied-resize reports can lag or
+                    // miss a pin's resize, and a stale cache entry here
+                    // failed a pane whose actual surface held exactly
+                    // its assignment. The cache stays as the fallback
+                    // for a surface with no live report yet.
+                    let liveGrid = mirror.panelsByPaneId[leaf]?.surface.rawSizingSample()
+                        .map { (cols: $0.columns, rows: $0.rows) }
+                    guard let rendered = liveGrid ?? mirror.lastRenderedGrids[leaf] else {
                         // No size report yet: absence of evidence is
                         // not settled evidence — keep pollers waiting.
                         mismatches.append(
