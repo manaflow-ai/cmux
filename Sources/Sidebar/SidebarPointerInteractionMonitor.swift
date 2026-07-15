@@ -15,6 +15,7 @@ final class SidebarPointerInteractionMonitor {
     @ObservationIgnored private var rowFrames: [SidebarWorkspaceRenderItemID: CGRect] = [:]
     @ObservationIgnored private var workspaceIdsByRowId: [SidebarWorkspaceRenderItemID: UUID] = [:]
     @ObservationIgnored private var lastPointerLocation: CGPoint?
+    @ObservationIgnored private weak var resolvedScrollView: NSScrollView?
     @ObservationIgnored private weak var scrollView: NSScrollView?
     @ObservationIgnored private var trackingView: SidebarPointerTrackingView?
     @ObservationIgnored private var middleClickMonitor: Any?
@@ -23,6 +24,13 @@ final class SidebarPointerInteractionMonitor {
 
     func start(onMiddleClickWorkspace: @escaping (UUID) -> Void) {
         self.onMiddleClickWorkspace = onMiddleClickWorkspace
+
+        // SwiftUI may restart this view without remounting the resolver. Keep
+        // the resolver-owned host separate from the active tracking surface so
+        // start() can restore pointer delivery after a transient stop().
+        if trackingView == nil, let resolvedScrollView {
+            installTrackingView(on: resolvedScrollView)
+        }
 
         if middleClickMonitor == nil {
             middleClickMonitor = NSEvent.addLocalMonitorForEvents(matching: .otherMouseDown) { [weak self] event in
@@ -54,17 +62,24 @@ final class SidebarPointerInteractionMonitor {
             self.menuEndObserver = nil
         }
         onMiddleClickWorkspace = nil
+        // Keep the resolved host and geometry registry across a transient
+        // SwiftUI stop/start cycle. Neither the resolver nor onGeometryChange
+        // is guaranteed to fire again when the same sidebar view restarts.
         detachTrackingView()
-        rowFrames.removeAll(keepingCapacity: true)
-        workspaceIdsByRowId.removeAll(keepingCapacity: true)
         lastPointerLocation = nil
+        setHoveredRowId(nil)
     }
 
     func attach(to scrollView: NSScrollView?) {
+        resolvedScrollView = scrollView
         guard self.scrollView !== scrollView || trackingView?.superview !== scrollView else { return }
         detachTrackingView()
         guard let scrollView else { return }
 
+        installTrackingView(on: scrollView)
+    }
+
+    private func installTrackingView(on scrollView: NSScrollView) {
         let trackingView = SidebarPointerTrackingView(frame: scrollView.bounds)
         trackingView.autoresizingMask = [.width, .height]
         trackingView.onPointerEvent = { [weak self] event in
