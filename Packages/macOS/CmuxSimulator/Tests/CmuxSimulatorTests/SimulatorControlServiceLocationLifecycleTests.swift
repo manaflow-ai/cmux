@@ -101,6 +101,12 @@ struct SimulatorControlServiceLocationLifecycleTests {
             }
             #expect(await service.locationRouteTokens["DEVICE"] != nil)
             #expect(await service.locationLifecycleTasks["DEVICE"] != nil)
+            let arguments = await commands.arguments()
+            if failureInvocationIndex == 2 {
+                #expect(arguments.last?.prefix(4) == ["simctl", "location", "DEVICE", "start"])
+            } else {
+                #expect(arguments.count == 2)
+            }
         }
     }
 

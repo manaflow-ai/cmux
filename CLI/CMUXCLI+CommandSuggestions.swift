@@ -179,6 +179,7 @@ extension CMUXCLI {
         "setup-hooks",
         "shortcuts",
         "simulate-app-active",
+        "simulator",
         "sidebar",
         "sidebar-state",
         "split-off",
