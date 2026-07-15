@@ -236,8 +236,7 @@ final class DockSplitStore: BonsplitDelegate {
         guard let tabId = bonsplitController.selectedTab(inPane: paneId)?.id,
               let panelId = surfaceIdToPanelId[tabId],
               let panel = panels[panelId] else { return false }
-        panel.focus()
-        return true
+        return restoreExplicitFocus(to: panel)
     }
 
     // MARK: - In-app creation
@@ -278,7 +277,7 @@ final class DockSplitStore: BonsplitDelegate {
         if focus {
             bonsplitController.focusPane(paneId)
             bonsplitController.selectTab(tabId)
-            panel.focus()
+            _ = restoreExplicitFocus(to: panel)
         } else {
             restoreDockPaneSelection(previousFocus)
         }
@@ -323,7 +322,7 @@ final class DockSplitStore: BonsplitDelegate {
             if focus {
                 bonsplitController.focusPane(rootPane)
                 bonsplitController.selectTab(tabId)
-                panel.focus()
+                _ = restoreExplicitFocus(to: panel)
             } else {
                 restoreDockPaneSelection(previousFocus)
             }
@@ -386,10 +385,13 @@ final class DockSplitStore: BonsplitDelegate {
     func containsPane(_ paneId: UUID) -> Bool { bonsplitController.allPaneIds.contains(where: { $0.id == paneId }) }
 
     func focusPanel(_ panelId: UUID) {
-        guard let paneId = paneId(forPanelId: panelId), let tabId = surfaceId(forPanelId: panelId) else { return }
+        guard let paneId = paneId(forPanelId: panelId),
+              let tabId = surfaceId(forPanelId: panelId),
+              let panel = panels[panelId] else { return }
         bonsplitController.focusPane(paneId)
         bonsplitController.selectTab(tabId)
         applyDockSelection(tabId: tabId, inPane: paneId)
+        _ = restoreExplicitFocus(to: panel)
     }
 
     func triggerFocusFlash(panelId: UUID) {
