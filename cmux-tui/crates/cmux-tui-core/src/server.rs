@@ -426,11 +426,18 @@ const OUTBOUND_CONTROL_BYTE_RESERVE: usize = 16 * 1024 * 1024;
 struct OutboundStream {
     id: u64,
     open: Arc<AtomicBool>,
+    terminal_enqueued: Arc<AtomicBool>,
+    overflow_text: Arc<str>,
 }
 
 impl OutboundStream {
-    fn new(id: u64) -> Self {
-        Self { id, open: Arc::new(AtomicBool::new(true)) }
+    fn new(id: u64, overflow_text: String) -> Self {
+        Self {
+            id,
+            open: Arc::new(AtomicBool::new(true)),
+            terminal_enqueued: Arc::new(AtomicBool::new(false)),
+            overflow_text: overflow_text.into(),
+        }
     }
 
     fn is_open(&self) -> bool {
@@ -467,8 +474,11 @@ impl MessageWriter {
         }
     }
 
-    fn start_stream(&self) -> OutboundStream {
-        OutboundStream::new(self.next_stream_id.fetch_add(1, Ordering::Relaxed))
+    fn start_stream(&self, overflow: &Value) -> std::io::Result<OutboundStream> {
+        Ok(OutboundStream::new(
+            self.next_stream_id.fetch_add(1, Ordering::Relaxed),
+            serde_json::to_string(overflow)?,
+        ))
     }
 
     fn send_stream(&self, value: &Value, stream: &OutboundStream) -> std::io::Result<()> {
@@ -532,7 +542,7 @@ struct BoundedOutboundState {
 
 struct RegularOutbound {
     text: String,
-    stream_id: u64,
+    stream: OutboundStream,
 }
 
 impl BoundedOutbound {
@@ -545,16 +555,40 @@ impl BoundedOutbound {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "stream closed"));
         }
         let bytes = text.len();
-        if state.regular.len() >= OUTBOUND_CAPACITY
-            || bytes > OUTBOUND_BYTE_CAPACITY.saturating_sub(state.regular_bytes)
-        {
+        if bytes > OUTBOUND_BYTE_CAPACITY {
+            Self::terminate_stream_locked(&mut state, stream)?;
+            self.changed.notify_one();
             return Err(std::io::Error::new(
                 std::io::ErrorKind::WouldBlock,
                 "outbound queue overflowed",
             ));
         }
+        loop {
+            let byte_full = bytes > OUTBOUND_BYTE_CAPACITY.saturating_sub(state.regular_bytes);
+            let count_full = state.regular.len() >= OUTBOUND_CAPACITY;
+            if !byte_full && !count_full {
+                break;
+            }
+            let Some(victim) = Self::largest_stream(&state, byte_full) else {
+                Self::terminate_stream_locked(&mut state, stream)?;
+                self.changed.notify_one();
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::WouldBlock,
+                    "outbound queue overflowed",
+                ));
+            };
+            let incoming_terminated = victim.id == stream.id;
+            Self::terminate_stream_locked(&mut state, &victim)?;
+            if incoming_terminated {
+                self.changed.notify_one();
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::WouldBlock,
+                    "outbound queue overflowed",
+                ));
+            }
+        }
         state.regular_bytes += bytes;
-        state.regular.push_back(RegularOutbound { text, stream_id: stream.id });
+        state.regular.push_back(RegularOutbound { text, stream: stream.clone() });
         self.changed.notify_one();
         Ok(())
     }
@@ -567,11 +601,40 @@ impl BoundedOutbound {
     }
 
     fn push_terminal(&self, text: String, stream: &OutboundStream) -> std::io::Result<()> {
-        stream.close();
         let mut state = self.state.lock().unwrap();
+        stream.close();
+        Self::purge_stream_locked(&mut state, stream.id);
+        if stream.terminal_enqueued.swap(true, Ordering::AcqRel) {
+            return Ok(());
+        }
+        Self::push_control_locked(&mut state, text)?;
+        self.changed.notify_one();
+        Ok(())
+    }
+
+    fn terminate_stream_locked(
+        state: &mut BoundedOutboundState,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        stream.close();
+        Self::purge_stream_locked(state, stream.id);
+        if stream.terminal_enqueued.swap(true, Ordering::AcqRel) {
+            return Ok(());
+        }
+        if let Err(error) = Self::push_control_locked(state, stream.overflow_text.to_string()) {
+            state.closed = true;
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                format!("could not report stream overflow: {error}"),
+            ));
+        }
+        Ok(())
+    }
+
+    fn purge_stream_locked(state: &mut BoundedOutboundState, stream_id: u64) {
         let mut removed_bytes = 0;
         state.regular.retain(|message| {
-            if message.stream_id == stream.id {
+            if message.stream.id == stream_id {
                 removed_bytes += message.text.len();
                 false
             } else {
@@ -579,9 +642,20 @@ impl BoundedOutbound {
             }
         });
         state.regular_bytes -= removed_bytes;
-        Self::push_control_locked(&mut state, text)?;
-        self.changed.notify_one();
-        Ok(())
+    }
+
+    fn largest_stream(state: &BoundedOutboundState, by_bytes: bool) -> Option<OutboundStream> {
+        let mut usage = HashMap::<u64, (usize, usize, OutboundStream)>::new();
+        for message in &state.regular {
+            let entry =
+                usage.entry(message.stream.id).or_insert_with(|| (0, 0, message.stream.clone()));
+            entry.0 += 1;
+            entry.1 += message.text.len();
+        }
+        usage
+            .into_values()
+            .max_by_key(|(messages, bytes, _)| if by_bytes { *bytes } else { *messages })
+            .map(|(_, _, stream)| stream)
     }
 
     fn push_control_locked(state: &mut BoundedOutboundState, text: String) -> std::io::Result<()> {
@@ -1265,7 +1339,7 @@ fn spawn_attach_notification_stream(
     std::thread::Builder::new()
         .name("mux-attach-notifications".into())
         .spawn(move || {
-            while writer.is_open() && !lifecycle.is_canceled() {
+            while writer.is_open() && outbound_stream.is_open() && !lifecycle.is_canceled() {
                 let event = match events.recv_timeout(STREAM_DISCONNECT_POLL) {
                     Ok(event) => event,
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
@@ -1316,15 +1390,7 @@ fn report_attach_overflow(
     outbound_stream: &OutboundStream,
 ) {
     if lifecycle.claim_overflow_report() {
-        let _ = writer.send_terminal(
-            &json!({
-                "event": "overflow",
-                "scope": "surface",
-                "surface": surface_id,
-                "error": "surface stream fell behind; reattach the surface",
-            }),
-            outbound_stream,
-        );
+        let _ = writer.send_terminal(&attach_overflow_json(surface_id), outbound_stream);
     }
 }
 
@@ -1830,10 +1896,10 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &MessageWriter) -> anyho
         Command::Subscribe => {
             let events = mux.subscribe();
             let writer = writer.clone();
-            let outbound_stream = writer.start_stream();
+            let outbound_stream = writer.start_stream(&subscription_overflow_json())?;
             std::thread::Builder::new().name("mux-events-out".into()).spawn(move || {
                 let mut transport_overflow = false;
-                while writer.is_open() {
+                while writer.is_open() && outbound_stream.is_open() {
                     let event = match events.recv_timeout(STREAM_DISCONNECT_POLL) {
                         Ok(event) => event,
                         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
@@ -1854,7 +1920,7 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &MessageWriter) -> anyho
         Command::AttachSurface { surface: surface_id } => {
             let surface = get_surface(mux, surface_id)?;
             let lifecycle = AttachLifecycle::default();
-            let outbound_stream = writer.start_stream();
+            let outbound_stream = writer.start_stream(&attach_overflow_json(surface_id))?;
             spawn_attach_notification_stream(
                 mux.clone(),
                 surface_id,
@@ -1878,7 +1944,8 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &MessageWriter) -> anyho
                 }
                 let writer = writer.clone();
                 std::thread::Builder::new().name("mux-attach-out".into()).spawn(move || {
-                    while writer.is_open() && !lifecycle.is_canceled() {
+                    while writer.is_open() && outbound_stream.is_open() && !lifecycle.is_canceled()
+                    {
                         match frames.notify.recv_timeout(STREAM_DISCONNECT_POLL) {
                             Ok(()) => {}
                             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
@@ -1939,7 +2006,10 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &MessageWriter) -> anyho
             }
             let writer = writer.clone();
             std::thread::Builder::new().name("mux-attach-out".into()).spawn(move || {
-                while writer.is_open() && !attach.lifecycle.is_canceled() {
+                while writer.is_open()
+                    && outbound_stream.is_open()
+                    && !attach.lifecycle.is_canceled()
+                {
                     let frame = match attach.stream.recv_timeout(STREAM_DISCONNECT_POLL) {
                         Ok(frame) => frame,
                         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
@@ -2026,6 +2096,15 @@ fn subscription_overflow_json() -> Value {
     })
 }
 
+fn attach_overflow_json(surface: SurfaceId) -> Value {
+    json!({
+        "event": "overflow",
+        "scope": "surface",
+        "surface": surface,
+        "error": "surface stream fell behind; reattach the surface",
+    })
+}
+
 /// Remove the socket file (call on clean shutdown).
 pub fn cleanup(path: &Path) {
     let _ = std::fs::remove_file(path);
@@ -2050,25 +2129,22 @@ mod tests {
     fn bounded_writer_reserves_a_control_lane_for_responses_and_overflow() {
         let outbound = Arc::new(BoundedOutbound::default());
         let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone() });
-        let backlog = writer.start_stream();
+        let backlog = writer.start_stream(&json!({"event": "overflow"})).unwrap();
 
-        for sequence in 0..OUTBOUND_CAPACITY {
+        for sequence in 0..OUTBOUND_CAPACITY - 1 {
             writer
                 .send_stream(&json!({"event": "output", "sequence": sequence}), &backlog)
                 .unwrap();
         }
-        let error = writer.send_stream(&json!({"event": "extra"}), &backlog).unwrap_err();
-        assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
-        assert!(writer.is_open());
 
-        let failed_stream = writer.start_stream();
+        let failed_stream = writer.start_stream(&subscription_overflow_json()).unwrap();
         writer.send_control(&json!({"id": 42, "ok": true, "data": {}})).unwrap();
         writer.send_terminal(&subscription_overflow_json(), &failed_stream).unwrap();
         let response: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
         assert_eq!(response["id"], 42);
         let terminal: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
         assert_eq!(terminal["event"], "overflow");
-        let drained = (0..OUTBOUND_CAPACITY)
+        let drained = (0..OUTBOUND_CAPACITY - 1)
             .map(|_| outbound.try_pop().expect("accepted output"))
             .collect::<Vec<_>>();
         assert!(drained[0].contains("\"sequence\":0"));
@@ -2076,9 +2152,34 @@ mod tests {
     }
 
     #[test]
+    fn global_pressure_terminates_the_stream_occupying_the_backlog() {
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone() });
+        let noisy = writer.start_stream(&json!({"event": "overflow", "stream": "noisy"})).unwrap();
+        let quiet = writer.start_stream(&json!({"event": "overflow", "stream": "quiet"})).unwrap();
+
+        for sequence in 0..OUTBOUND_CAPACITY {
+            writer.send_stream(&json!({"event": "output", "sequence": sequence}), &noisy).unwrap();
+        }
+        writer.send_stream(&json!({"event": "tree-changed"}), &quiet).unwrap();
+
+        let terminal: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(terminal["stream"], "noisy");
+        let quiet_event: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(quiet_event["event"], "tree-changed");
+        assert_eq!(outbound.try_pop(), None);
+        assert_eq!(
+            writer.send_stream(&json!({"event": "late"}), &noisy).unwrap_err().kind(),
+            std::io::ErrorKind::BrokenPipe
+        );
+        assert!(quiet.is_open());
+        assert!(writer.is_open());
+    }
+
+    #[test]
     fn bounded_writer_rejects_payloads_beyond_each_byte_budget() {
         let outbound = BoundedOutbound::default();
-        let stream = OutboundStream::new(1);
+        let stream = OutboundStream::new(1, r#"{"event":"overflow"}"#.to_string());
 
         let regular =
             outbound.push_regular("x".repeat(OUTBOUND_BYTE_CAPACITY + 1), &stream).unwrap_err();
@@ -2086,6 +2187,8 @@ mod tests {
         let control =
             outbound.push_control("x".repeat(OUTBOUND_CONTROL_BYTE_RESERVE + 1)).unwrap_err();
         assert_eq!(control.kind(), std::io::ErrorKind::WouldBlock);
+        let terminal: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(terminal["event"], "overflow");
         assert_eq!(outbound.try_pop(), None);
     }
 
@@ -2093,8 +2196,8 @@ mod tests {
     fn terminal_overflow_purges_only_its_stream_and_rejects_late_frames() {
         let outbound = Arc::new(BoundedOutbound::default());
         let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone() });
-        let stale = writer.start_stream();
-        let unrelated = writer.start_stream();
+        let stale = writer.start_stream(&subscription_overflow_json()).unwrap();
+        let unrelated = writer.start_stream(&subscription_overflow_json()).unwrap();
 
         writer.send_stream(&json!({"event": "output", "stream": "stale"}), &stale).unwrap();
         writer.send_stream(&json!({"event": "output", "stream": "unrelated"}), &unrelated).unwrap();
