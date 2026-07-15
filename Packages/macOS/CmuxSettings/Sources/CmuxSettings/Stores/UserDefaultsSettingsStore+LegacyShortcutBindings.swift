@@ -16,6 +16,38 @@ extension UserDefaultsSettingsStore {
         })
     }
 
+    /// Returns the current legacy shortcut overrides and later UserDefaults changes.
+    public nonisolated func legacyShortcutBindingValues() -> AsyncStream<[String: StoredShortcut]> {
+        let storage = self.storage
+        return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            let (signals, signalContinuation) = AsyncStream<Void>.makeStream(
+                bufferingPolicy: .bufferingNewest(1)
+            )
+            let observer = storage.addDidChangeObserver { _, _ in signalContinuation.yield() }
+            let drainTask = Task { [weak self] in
+                guard let self else {
+                    continuation.finish()
+                    return
+                }
+                var lastYielded = initialLegacyShortcutBindings()
+                continuation.yield(lastYielded)
+                for await _ in signals {
+                    if Task.isCancelled { break }
+                    let current = initialLegacyShortcutBindings()
+                    guard current != lastYielded else { continue }
+                    lastYielded = current
+                    continuation.yield(current)
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in
+                drainTask.cancel()
+                signalContinuation.finish()
+                observer.remove()
+            }
+        }
+    }
+
     /// Removes the legacy UserDefaults override after an authoritative JSON binding is saved.
     ///
     /// - Parameter action: The shortcut action whose legacy value should be removed.

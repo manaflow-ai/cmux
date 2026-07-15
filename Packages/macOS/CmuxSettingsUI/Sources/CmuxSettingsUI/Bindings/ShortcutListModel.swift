@@ -32,12 +32,13 @@ final class ShortcutListModel {
     @ObservationIgnored private let catalog: SettingCatalog
     @ObservationIgnored private let errorLog: SettingsErrorLog
     @ObservationIgnored private let bindingsDriver = SettingReadDriver<[String: StoredShortcut]>()
+    @ObservationIgnored private let legacyBindingsDriver = SettingReadDriver<[String: StoredShortcut]>()
     @ObservationIgnored private let whenDriver = SettingReadDriver<[String: String]>()
 
     // MARK: - Init
 
     /// Creates the model bound to the given stores. Legacy shortcut overrides are
-    /// snapshotted immediately; call ``startObserving()`` to populate JSON state.
+    /// loaded immediately; call ``startObserving()`` to observe both stores.
     init(
         jsonStore: JSONConfigStore,
         userDefaultsStore: UserDefaultsSettingsStore? = nil,
@@ -62,6 +63,12 @@ final class ShortcutListModel {
             { [jsonStore, bindingsKey] in jsonStore.values(for: bindingsKey) },
             sink: { [weak self] dictionary in self?.ingestBindings(dictionary) }
         )
+        if let userDefaultsStore {
+            legacyBindingsDriver.activate(
+                { userDefaultsStore.legacyShortcutBindingValues() },
+                sink: { [weak self] dictionary in self?.ingestLegacyBindings(dictionary) }
+            )
+        }
         whenDriver.activate(
             { [jsonStore, whenKey] in jsonStore.values(for: whenKey) },
             sink: { [weak self] whenMap in
@@ -79,6 +86,15 @@ final class ShortcutListModel {
         let changedActionIds = Set(bindings.keys).union(dictionary.keys)
             .filter { bindings[$0] != dictionary[$0] }
         bindings = dictionary
+        pruneRestoreShortcuts()
+        pruneConflictRejections(changedActionIds: Set(changedActionIds))
+        pruneNumberedDigitRejections(changedActionIds: Set(changedActionIds))
+    }
+
+    private func ingestLegacyBindings(_ dictionary: [String: StoredShortcut]) {
+        let changedActionIds = Set(legacyBindings.keys).union(dictionary.keys)
+            .filter { legacyBindings[$0] != dictionary[$0] }
+        legacyBindings = dictionary
         pruneRestoreShortcuts()
         pruneConflictRejections(changedActionIds: Set(changedActionIds))
         pruneNumberedDigitRejections(changedActionIds: Set(changedActionIds))

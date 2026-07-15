@@ -114,6 +114,27 @@ import Testing
         #expect(model.effective(for: action) == jsonShortcut)
     }
 
+    @Test func externalLegacyChangeRefreshesEffectiveBinding() async throws {
+        let action = ShortcutAction.nextSidebarTab
+        let original = StoredShortcut(first: ShortcutStroke(key: "]", command: true, shift: true))
+        let replacement = StoredShortcut(first: ShortcutStroke(key: "]", command: true, option: true))
+        let (defaultsStore, suiteName) = try makeDefaultsStore(legacyBindings: [action: original])
+        defer { UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName) }
+        let model = ShortcutListModel(
+            jsonStore: makeJSONStore(),
+            userDefaultsStore: defaultsStore,
+            catalog: SettingCatalog(),
+            errorLog: SettingsErrorLog()
+        )
+        model.startObserving()
+
+        let externalDefaults = try #require(UserDefaults(suiteName: suiteName))
+        externalDefaults.set(try legacyShortcutData(replacement), forKey: "shortcut.\(action.rawValue)")
+        await spin(until: { model.effective(for: action) == replacement })
+
+        #expect(model.effective(for: action) == replacement)
+    }
+
     @Test func legacyOverrideParticipatesInConflictDetection() async throws {
         let conflictAction = ShortcutAction.closeWindow
         let targetAction = ShortcutAction.openSettings
