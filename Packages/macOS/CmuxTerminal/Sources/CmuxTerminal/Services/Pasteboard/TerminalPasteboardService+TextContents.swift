@@ -67,12 +67,56 @@ extension TerminalPasteboardService: TerminalClipboardReading {
         plainTextContents(from: pasteboard)
     }
 
-    /// Rewrites only the plain-text representation after the terminal has
-    /// copied its formatted clipboard payload, preserving rich flavors such
-    /// as HTML and RTF.
+    /// Rewrites the terminal's text representations after copy reflow.
+    ///
+    /// Existing plain-text, HTML, and RTF flavors are retained, but every
+    /// retained flavor is regenerated from `string` so paste destinations
+    /// cannot select a stale hard-wrapped representation.
+    ///
+    /// - Parameters:
+    ///   - string: The transformed text to publish through every text flavor.
+    ///   - pasteboard: The terminal pasteboard whose existing flavors are updated.
+    /// - Returns: `true` when every advertised text representation was updated.
     @discardableResult
-    public func rewritePlainText(_ string: String, in pasteboard: NSPasteboard) -> Bool {
-        pasteboard.setString(string, forType: .string)
+    public func rewriteTextRepresentations(_ string: String, in pasteboard: NSPasteboard) -> Bool {
+        let existingTypes = pasteboard.types ?? []
+        let attributed = NSAttributedString(string: string)
+        let range = NSRange(location: 0, length: attributed.length)
+        let richFormats: [(
+            pasteboardType: NSPasteboard.PasteboardType,
+            documentType: NSAttributedString.DocumentType
+        )] = [
+            (.html, .html),
+            (.rtf, .rtf),
+        ]
+        var richReplacements: [(type: NSPasteboard.PasteboardType, data: Data)] = []
+
+        for format in richFormats where existingTypes.contains(format.pasteboardType) {
+            guard let data = try? attributed.data(
+                from: range,
+                documentAttributes: [
+                    .documentType: format.documentType,
+                    .characterEncoding: String.Encoding.utf8.rawValue,
+                ]
+            ) else { return false }
+            richReplacements.append((format.pasteboardType, data))
+        }
+
+        var plainTextTypes = existingTypes.filter(isPlainTextType)
+        if !plainTextTypes.contains(.string) {
+            plainTextTypes.append(.string)
+        }
+
+        var wroteEveryRepresentation = true
+        for type in plainTextTypes {
+            wroteEveryRepresentation = pasteboard.setString(string, forType: type)
+                && wroteEveryRepresentation
+        }
+        for replacement in richReplacements {
+            wroteEveryRepresentation = pasteboard.setData(replacement.data, forType: replacement.type)
+                && wroteEveryRepresentation
+        }
+        return wroteEveryRepresentation
     }
 }
 

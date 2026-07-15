@@ -111,7 +111,7 @@ struct PasteboardTextContentsTests {
         #expect(item.setData(originalRTF, forType: .rtf))
         #expect(scratch.pasteboard.writeObjects([item]))
 
-        #expect(service.rewritePlainText("reflowed", in: scratch.pasteboard))
+        #expect(service.rewriteTextRepresentations("reflowed", in: scratch.pasteboard))
 
         #expect(scratch.pasteboard.string(forType: .string) == "reflowed")
         let htmlText = service.attributedString(

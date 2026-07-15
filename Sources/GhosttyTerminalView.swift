@@ -4941,7 +4941,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                   reflowRequested: reflowRequested,
                   selectionMayBeRectangular: selectionMayBeRectangular
               ) else { return }
-        GhosttyApp.terminalPasteboard.rewritePlainText(reflowed, in: pasteboard)
+        GhosttyApp.terminalPasteboard.rewriteTextRepresentations(reflowed, in: pasteboard)
     }
 
     private func copyReflowBoundsForActiveSelection(surface: ghostty_surface_t) -> (topRow: UInt32, bottomRow: UInt32)? {
