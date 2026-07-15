@@ -58,6 +58,50 @@ import Testing
 }
 
 @MainActor
+@Test func authoritativeSecondaryRemovalPrunesBothFocusLedgersAndEmptyBuckets() {
+    let store = MobileShellComposite.preview()
+    let macID = "secondary-authoritative-prune"
+    let retainedWorkspace = MobileWorkspacePreview(
+        id: "workspace-retained",
+        macDeviceID: macID,
+        name: "Retained",
+        terminals: []
+    )
+    store.workspaceFocusEventRevisionsByMac[macID] = [
+        "workspace-retained": .init(pane: 3, terminal: 4),
+        "workspace-removed": .init(pane: 5, terminal: 6),
+    ]
+    store.workspaceFocusHostSequencesByMac[macID] = [
+        "workspace-retained": 30,
+        "workspace-removed": 40,
+    ]
+
+    store.installAuthoritativeSecondaryWorkspaceState(
+        macID: macID,
+        displayName: "Secondary Mac",
+        workspaces: [retainedWorkspace],
+        actionCapabilities: .none
+    )
+
+    #expect(store.workspaceFocusEventRevisionsByMac[macID] == [
+        "workspace-retained": .init(pane: 3, terminal: 4),
+    ])
+    #expect(store.workspaceFocusHostSequencesByMac[macID] == [
+        "workspace-retained": 30,
+    ])
+
+    store.installAuthoritativeSecondaryWorkspaceState(
+        macID: macID,
+        displayName: "Secondary Mac",
+        workspaces: [],
+        actionCapabilities: .none
+    )
+
+    #expect(store.workspaceFocusEventRevisionsByMac[macID] == nil)
+    #expect(store.workspaceFocusHostSequencesByMac[macID] == nil)
+}
+
+@MainActor
 @Test func foregroundIdentityAdoptionMaxMergesFocusRevisionsAndClearsOldOwner() {
     let store = MobileShellComposite.preview()
     let oldOwner = MobileShellComposite.foregroundAnonymousKey
