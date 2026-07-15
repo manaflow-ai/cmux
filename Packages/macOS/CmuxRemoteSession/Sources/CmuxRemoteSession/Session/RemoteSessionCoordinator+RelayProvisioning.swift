@@ -34,6 +34,7 @@ extension RemoteSessionCoordinator {
         persistentDaemonSlot: String?
     ) -> String {
         let normalizedSlot = normalizedPersistentDaemonSlotForRemoteCleanup(persistentDaemonSlot)
+        guard persistentDaemonSlot == nil || normalizedSlot != nil else { return "exit 64" }
         let ownershipCheck = remoteRelayOwnershipCheckScript(
             persistentDaemonSlot: normalizedSlot
         )
@@ -77,8 +78,10 @@ extension RemoteSessionCoordinator {
         relayPort: Int,
         persistentDaemonSlot: String?
     ) -> String {
+        let normalizedSlot = normalizedPersistentDaemonSlotForRemoteCleanup(persistentDaemonSlot)
+        guard persistentDaemonSlot == nil || normalizedSlot != nil else { return "exit 64" }
         let ownershipCheck = remoteRelayOwnershipCheckScript(
-            persistentDaemonSlot: normalizedPersistentDaemonSlotForRemoteCleanup(persistentDaemonSlot)
+            persistentDaemonSlot: normalizedSlot
         )
         return """
         relay_socket='127.0.0.1:\(relayPort)'
