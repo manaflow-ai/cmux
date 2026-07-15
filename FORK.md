@@ -124,17 +124,23 @@ xcodebuild test -project cmux.xcodeproj -scheme cmux -destination 'platform=macO
   -only-testing:cmuxTests/DirectoryDropFilterTests \
   -only-testing:cmuxTests/SidebarDropRegionRegistryTests
 
-# 8. Push and open a PR on the fork, then dogfood the tagged build.
-git push origin merge/upstream-vX.Y.Z
+# 8. Push the merge branch to the fork, then dogfood the tagged build.
+git push -u origin merge/upstream-vX.Y.Z
 ```
 
-Once the build is dogfooded and good, fast-forward the feature branch to the merge:
+Dogfood the built app first (drag a folder onto the sidebar, confirm it opens a workspace and runs
+claude). Only after it works, fast-forward the feature branch to the merge:
 
 ```bash
 git checkout feat/sidebar-folder-drop
 git merge --ff-only merge/upstream-vX.Y.Z
 git push origin feat/sidebar-folder-drop
 ```
+
+A PR on the fork is optional for a version sync. The real diff is ~1000+ files of already-reviewed
+upstream code, so a bot review is mostly noise. The substance to check is the conflict resolution and
+that the feature still works, which the build + regression tests already prove. Open a PR only if you
+want the record.
 
 ## Build toolchain on this machine (zig / Ghostty CLI helper)
 
