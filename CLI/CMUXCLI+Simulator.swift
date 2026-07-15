@@ -211,17 +211,20 @@ extension CMUXCLI {
         guard values.isEmpty, all || surfaces.count <= 1 else {
             throw CLIError(message: iosSubcommandUsage())
         }
-        let targets: [[String: Any]]
+        var targets: [[String: Any]]
+        let targetsRequireContextResolution: Bool
         if all {
             guard surfaces.isEmpty else { throw CLIError(message: iosSubcommandUsage()) }
             targets = try iosTargetPayloads(
                 workspace: workspace, client: client, windowOverride: windowOverride
             )
+            targetsRequireContextResolution = true
         } else if let surface = surfaces.first {
             guard workspace == nil else { throw CLIError(message: iosSubcommandUsage()) }
             targets = [try iosContextPayload(
                 surface: surface, client: client, windowOverride: windowOverride
             )]
+            targetsRequireContextResolution = false
         } else {
             let candidates = try iosTargetPayloads(
                 workspace: workspace, client: client, windowOverride: windowOverride
@@ -235,12 +238,25 @@ extension CMUXCLI {
                 ))
             }
             targets = candidates
+            targetsRequireContextResolution = true
         }
         guard !targets.isEmpty else {
             throw CLIError(message: String(
                 localized: "cli.ios.error.noTargets",
                 defaultValue: "No matching iOS Simulator panes were found"
             ))
+        }
+        if targetsRequireContextResolution {
+            targets = try targets.map { target in
+                guard let surfaceRef = target["surface_ref"] as? String else {
+                    throw missingIOSSimulatorIdentifier()
+                }
+                return try iosContextPayload(
+                    surface: surfaceRef,
+                    client: client,
+                    windowOverride: windowOverride
+                )
+            }
         }
         let outputURL = output.map { URL(fileURLWithPath: $0).standardizedFileURL }
         if let outputURL {
