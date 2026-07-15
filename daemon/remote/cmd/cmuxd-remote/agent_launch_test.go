@@ -3,9 +3,25 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 )
+
+func TestOpenCodeNativeLaunchArgs(t *testing.T) {
+	t.Setenv("OPENCODE_PORT", "")
+	port := openCodeNativeEffectivePort(nil)
+	if parsed, err := strconv.Atoi(port); err != nil || parsed <= 0 {
+		t.Fatalf("expected an available numeric port, got %q", port)
+	}
+	if got := openCodeNativeLaunchArgs([]string{"--continue"}, port); !reflect.DeepEqual(got, []string{"--port", port, "--continue"}) {
+		t.Fatalf("unexpected launch args: %v", got)
+	}
+	if got := openCodeNativeLaunchArgs([]string{"--port=5000"}, port); !reflect.DeepEqual(got, []string{"--port=5000"}) {
+		t.Fatalf("explicit port changed: %v", got)
+	}
+}
 
 func TestOmoEnsurePluginInvalidJSONErrorDoesNotExposeUserPath(t *testing.T) {
 	home := t.TempDir()

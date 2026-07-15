@@ -49358,6 +49358,41 @@
         }
       }
     },
+    "cli.omoSlim.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux omo-slim [opencode-args...]\n       cmux omos [opencode-args...]\n\nLaunch OpenCode with oh-my-opencode-slim 2.2+ using its native cmux\nmultiplexer. Install and configure the plugin before using this command.\n\nThis command:\n  - preserves the active OpenCode and OMO Slim configuration\n  - selects an available OpenCode API port for background agents\n  - enables OpenCode background subagents\n  - forwards all remaining arguments to opencode\n\nExamples:\n  cmux omo-slim\n  cmux omos --continue\n  cmux omos --model openai/gpt-5.6-sol"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使い方: cmux omo-slim [opencode-args...]\n        cmux omos [opencode-args...]\n\noh-my-opencode-slim 2.2 以降のネイティブ cmux マルチプレクサーを使って OpenCode を起動します。このコマンドを使う前にプラグインをインストールして設定してください。\n\nこのコマンドは次を行います:\n  - 現在の OpenCode と OMO Slim の設定を保持\n  - バックグラウンドエージェント用に利用可能な OpenCode API ポートを選択\n  - OpenCode のバックグラウンドサブエージェントを有効化\n  - 残りの引数を opencode に転送\n\n例:\n  cmux omo-slim\n  cmux omos --continue\n  cmux omos --model openai/gpt-5.6-sol"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux omo-slim [opencode-args...]\n        cmux omos [opencode-args...]\n\noh-my-opencode-slim 2.2 이상의 네이티브 cmux 멀티플렉서를 사용해 OpenCode를 실행합니다. 이 명령을 사용하기 전에 플러그인을 설치하고 구성하세요.\n\n이 명령은:\n  - 현재 OpenCode 및 OMO Slim 구성을 유지합니다\n  - 백그라운드 에이전트용 OpenCode API 포트를 선택합니다\n  - OpenCode 백그라운드 하위 에이전트를 활성화합니다\n  - 나머지 인자를 opencode로 전달합니다\n\n예시:\n  cmux omo-slim\n  cmux omos --continue\n  cmux omos --model openai/gpt-5.6-sol"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використання: cmux omo-slim [аргументи-opencode...]\n              cmux omos [аргументи-opencode...]\n\nЗапускає OpenCode з oh-my-opencode-slim 2.2+ через нативний мультиплексор cmux. Перед використанням встановіть і налаштуйте плагін.\n\nЦя команда:\n  - зберігає активну конфігурацію OpenCode та OMO Slim\n  - вибирає доступний порт OpenCode API для фонових агентів\n  - вмикає фонові субагенти OpenCode\n  - передає решту аргументів до opencode\n\nПриклади:\n  cmux omo-slim\n  cmux omos --continue\n  cmux omos --model openai/gpt-5.6-sol"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux omo-slim [opencode 参数...]\n      cmux omos [opencode 参数...]\n\n使用 oh-my-opencode-slim 2.2+ 原生 cmux 多路复用器启动 OpenCode。使用此命令前，请先安装并配置插件。\n\n此命令会：\n  - 保留当前 OpenCode 和 OMO Slim 配置\n  - 为后台 Agent 选择可用的 OpenCode API 端口\n  - 启用 OpenCode 后台子 Agent\n  - 将其余参数传递给 opencode\n\n示例：\n  cmux omo-slim\n  cmux omos --continue\n  cmux omos --model openai/gpt-5.6-sol"
+          }
+        }
+      }
+    },
     "cli.pathOpen.error.activateFailed": {
       "extractionState": "manual",
       "localizations": {

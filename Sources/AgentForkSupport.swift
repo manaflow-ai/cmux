@@ -134,7 +134,7 @@ enum AgentForkSupport {
             )
         }
         guard snapshot.kind == .opencode else { return true }
-        if snapshot.launchCommand?.launcher == "omo" {
+        if AgentLaunchCaptureTrust.launcherIsOpenCodeSessionWrapper(snapshot.launchCommand?.launcher) {
             return true
         }
         if isRemoteContext {

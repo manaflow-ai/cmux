@@ -208,6 +208,9 @@ doneFlags:
 	if cmdName == "omo" {
 		return runOMORelay(socketPath, cmdArgs, refreshAddr)
 	}
+	if cmdName == "omo-slim" || cmdName == "omos" {
+		return runOMOSlimRelay(cmdName, socketPath, cmdArgs, refreshAddr)
+	}
 	if cmdName == "omx" {
 		return runOMXRelay(socketPath, cmdArgs, refreshAddr)
 	}
@@ -1321,6 +1324,7 @@ func cliUsage() {
 	fmt.Fprintln(os.Stderr, "  browser <sub>             Browser commands through the local cmux browser relay")
 	fmt.Fprintln(os.Stderr, "  claude-teams [args...]    Launch Claude Code in teammate mode")
 	fmt.Fprintln(os.Stderr, "  omo [args...]             Launch OpenCode with cmux integration")
+	fmt.Fprintln(os.Stderr, "  omo-slim [args...]        Launch OMO Slim with native cmux panes (alias: omos)")
 	fmt.Fprintln(os.Stderr, "  omx [args...]             Launch Oh My Codex with cmux integration")
 	fmt.Fprintln(os.Stderr, "  omc [args...]             Launch Oh My Claude Code with cmux integration")
 	fmt.Fprintln(os.Stderr, "  rpc <method> [json-params] Send arbitrary JSON-RPC")

@@ -1,4 +1,5 @@
 import AppKit
+import CMUXAgentLaunch
 import CmuxAppKitSupportUI
 import CmuxCommandPalette
 import CmuxCore
@@ -5800,7 +5801,7 @@ struct ContentView: View {
         case .pi:
             return isRemoteTerminal ? .unsupported : .requiresProbe
         case .opencode:
-            return snapshot.launchCommand?.launcher == "omo" || isRemoteTerminal ? .supportedWithoutProbe : .requiresProbe
+            return AgentLaunchCaptureTrust.launcherIsOpenCodeSessionWrapper(snapshot.launchCommand?.launcher) || isRemoteTerminal ? .supportedWithoutProbe : .requiresProbe
         case .custom:
             if AgentForkSupport.requiresLocalPiFamilyCapabilityProbe(snapshot) {
                 return isRemoteTerminal ? .unsupported : .requiresProbe
