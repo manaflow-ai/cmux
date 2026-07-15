@@ -48,6 +48,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "reorder-notification", title: "Reorder on Notification", synonyms: "app.reorderOnNotification notification reorder move workspace top unread sort"),
             .init(section: .app, id: "menu-bar-only", title: "Menu Bar Only", synonyms: "app.menuBarOnly menubar menu bar dockless hide dock app switcher cmd-tab command-tab"),
             .init(section: .app, id: "telemetry", title: "Send anonymous telemetry", synonyms: "app.sendAnonymousTelemetry analytics crash reports sentry posthog usage anonymous privacy"),
+            .init(section: .app, id: "usage-tips", title: String(localized: "settings.app.showUsageTips", defaultValue: "Show Usage Tips"), synonyms: "app.showUsageTips tips hints learn hidden features disable opt out"),
             .init(section: .app, id: "warn-before-quit", title: "Warn Before Quit", synonyms: "app.confirmQuit quit confirmation command-q cmd-q exit close app"),
             .init(section: .app, id: "warn-before-closing-tab", title: "Warn Before Closing Tab", synonyms: "app.warnBeforeClosingTab close tab confirmation command-w cmd-w terminal surface"),
             .init(section: .app, id: "warn-before-closing-tab-x-button", title: "Warn Before Tab Close Button", synonyms: "app.warnBeforeClosingTabXButton x button close tab confirmation terminal surface"),

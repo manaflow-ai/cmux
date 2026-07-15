@@ -5,12 +5,12 @@ import SwiftUI
 
 /// **App** section — mirrors the legacy in-app section row-for-row
 /// inside a single `SettingsCard`: Language, Appearance, App Icon,
-/// New Workspace Placement, Inherit Working Directory, Minimal Mode,
+/// Usage Tips, New Workspace Placement, Inherit Working Directory, Minimal Mode,
 /// Keep Workspace Open When Closing Last Surface, Focus Pane on
 /// First Click, File Drops, Open Files With, Open Supported Files in
 /// cmux, Terminal Config link, Open Markdown in cmux Viewer,
-/// Markdown Viewer typography, iMessage Mode, Reorder on Notification, Dock Badge, Menu Bar
-/// Only, Show in Menu Bar, Unread Pane Ring, Pane Flash, Desktop
+/// Markdown Viewer typography, iMessage Mode, Reorder on Notification, Dock Badge,
+/// Menu Bar Only, Show in Menu Bar, Unread Pane Ring, Pane Flash, Desktop
 /// Notifications, Notification Sound, Notification Command, Send
 /// anonymous telemetry, Warn Before Quit, Warn Before Closing Tab /
 /// X Button / Hide Tab Close Button, Rename Selects Existing Name,
@@ -19,7 +19,6 @@ import SwiftUI
 public struct AppSection: View {
     private let catalog: SettingCatalog
     private let hostActions: SettingsHostActions
-
     // Every bound value-model lives here as view state, constructed once
     // and persisted across renders so the @Observable change tracking
     // actually drives invalidation.
@@ -62,12 +61,10 @@ public struct AppSection: View {
     @State private var hideCloseButton: DefaultsValueModel<Bool>
     @State private var renameSelects: DefaultsValueModel<Bool>
     @State private var paletteAllSurfaces: DefaultsValueModel<Bool>
-
     @State private var languageAtAppear: AppLanguage?
     // Sticky: a picker change can rewrite the OS AppleLanguages override even when the selection returns to its starting value (clearing a preserved foreign override via an explicit pick, then System), so the restart hint must not rely on the value comparison alone.
     @State private var languageOverrideTouched = false
     @State private var telemetryAtAppear: Bool?
-
     public init(
         defaultsStore: UserDefaultsSettingsStore,
         catalog: SettingCatalog,
@@ -193,6 +190,9 @@ public struct AppSection: View {
                 onSelect: { appIcon.set($0) }
             )
             .settingsSearchAnchors(["setting:app:app-icon"])
+            SettingsCardDivider()
+
+            UsageTipsSettingsRow()
             SettingsCardDivider()
 
             // New Workspace Placement

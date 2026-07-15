@@ -68,7 +68,7 @@ final class SettingsWindowPresenter: NSObject {
     // Navigation-delivery state is internal (not private) because its
     // behavior lives in SettingsWindowNavigationDelivery.swift (split for
     // the file-length budget); no type outside the presenter touches it.
-    var pendingNavigationTarget: SettingsNavigationTarget?
+    var pendingNavigationDestination: SettingsNavigationDestination?
     /// Current re-entrant depth of `performShow` (close-triggered observers
     /// may re-enter). Bounded by `maxReentrantShowDepth`.
     private var activeShowDepth = 0
@@ -108,10 +108,10 @@ final class SettingsWindowPresenter: NSObject {
 
     @discardableResult
     static func show(
-        navigationTarget: SettingsNavigationTarget? = nil,
+        navigationDestination: SettingsNavigationDestination? = nil,
         activateApp: Bool = true
     ) -> SettingsWindowShowResult {
-        shared.show(navigationTarget: navigationTarget, activateApp: activateApp)
+        shared.show(navigationDestination: navigationDestination, activateApp: activateApp)
     }
 
     /// Presents the Settings window, creating it if needed. Synchronous: on
@@ -119,13 +119,13 @@ final class SettingsWindowPresenter: NSObject {
     /// the failure has been logged loudly and is carried in the result.
     @discardableResult
     func show(
-        navigationTarget: SettingsNavigationTarget? = nil,
+        navigationDestination: SettingsNavigationDestination? = nil,
         activateApp: Bool = true
     ) -> SettingsWindowShowResult {
 #if DEBUG
         cmuxDebugLog("settings.window.show path=appkitWindow")
 #endif
-        let result = performShow(navigationTarget: navigationTarget, activateApp: activateApp)
+        let result = performShow(navigationDestination: navigationDestination, activateApp: activateApp)
 #if DEBUG
         // Recorded from the verified outcome, not the request, so UI-test
         // captures cannot claim an open that never presented.
@@ -139,22 +139,22 @@ final class SettingsWindowPresenter: NSObject {
             envKey: "CMUX_UI_TEST_SETTINGS_OPEN_CAPTURE_PATH"
         ) { payload in
             payload["opened"] = presented
-            payload["target"] = navigationTarget?.rawValue ?? ""
+            payload["target"] = navigationDestination?.target.rawValue ?? ""
         }
 #endif
         return result
     }
 
     private func performShow(
-        navigationTarget: SettingsNavigationTarget?,
+        navigationDestination: SettingsNavigationDestination?,
         activateApp: Bool
     ) -> SettingsWindowShowResult {
-        // Only a targeted show may replace the pending target. An untargeted
+        // Only a targeted show may replace the pending destination. An untargeted
         // show expresses no pane preference and must not erase a still-
         // undelivered targeted request (e.g. CLI `settings open account`
         // followed by a menu open before the content appeared).
-        if let navigationTarget {
-            pendingNavigationTarget = navigationTarget
+        if let navigationDestination {
+            pendingNavigationDestination = navigationDestination
         }
 
         // `demolish` closes windows synchronously, and a foreign willClose
@@ -269,13 +269,13 @@ final class SettingsWindowPresenter: NSObject {
         Self.log.fault(
             "settings.window.show FAILED after \(Self.maxPresentAttempts, privacy: .public) attempts: \(failureReason, privacy: .public)"
         )
-        // A failed request must not leak its target into a later open: an
-        // untargeted show deliberately preserves pending targets, so without
+        // A failed request must not leak its destination into a later open: an
+        // untargeted show deliberately preserves pending destinations, so without
         // this a later recovered open would navigate to a pane whose request
-        // already received `.failed`. Only this request's own target is
-        // cleared — a re-entrant show that set a different target supersedes.
-        if pendingNavigationTarget == navigationTarget {
-            pendingNavigationTarget = nil
+        // already received `.failed`. Only this request's own destination is
+        // cleared — a re-entrant show that set a different destination supersedes.
+        if pendingNavigationDestination == navigationDestination {
+            pendingNavigationDestination = nil
         }
         if didUnhideForVerification {
             // The (non-activating) unhide above was a verification gamble

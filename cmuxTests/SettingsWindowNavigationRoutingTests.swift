@@ -31,6 +31,25 @@ extension SettingsWindowSharedStateSuites {
             }
         }
 
+        @Test func queuedFreshWindowPreservesFullNavigationDestination() async {
+            await withCleanSettingsWindows {
+                let presenter = SettingsWindowPresenter(windowFactory: { _ in makePlainFactoryWindow() })
+                let recorder = SettingsNavigationTargetRecorder()
+                let destination = SettingsNavigationDestination(
+                    target: .app,
+                    anchorID: "setting:app:usage-tips",
+                    shouldHighlight: true
+                )
+
+                #expect(presenter.show(navigationDestination: destination) == .presented)
+                presenter.deliverPendingNavigationAfterContentAppears()
+                await drainMainQueue()
+                recorder.stopObserving()
+
+                #expect(recorder.receivedDestinations == [destination])
+            }
+        }
+
         @Test func staleQueuedNavigationIsSupersededByNewerTargetedShow() async {
             await withCleanSettingsWindows {
                 let presenter = SettingsWindowPresenter(windowFactory: { _ in makePlainFactoryWindow() })
@@ -281,7 +300,8 @@ final class SettingsTestHostWindow: SettingsHostWindow {
 /// Records `SettingsNavigationRequest` posts on the main actor.
 @MainActor
 private final class SettingsNavigationTargetRecorder: NSObject {
-    private(set) var receivedTargets: [SettingsNavigationTarget] = []
+    private(set) var receivedDestinations: [SettingsNavigationDestination] = []
+    var receivedTargets: [SettingsNavigationTarget] { receivedDestinations.map(\.target) }
 
     override init() {
         super.init()
@@ -299,8 +319,8 @@ private final class SettingsNavigationTargetRecorder: NSObject {
 
     @objc
     private func didReceive(_ notification: Notification) {
-        if let target = SettingsNavigationRequest.target(from: notification) {
-            receivedTargets.append(target)
+        if let destination = SettingsNavigationRequest.destination(from: notification) {
+            receivedDestinations.append(destination)
         }
     }
 }

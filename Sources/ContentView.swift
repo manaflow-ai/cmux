@@ -3132,7 +3132,6 @@ struct ContentView: View {
                 updateSidebarResizerBandState()
             }
         }
-
         refreshWindowChromeMetrics(for: window)
         // Keep content below the titlebar so drags on Bonsplit's tab bar don't
         // get interpreted as window drags.
@@ -3151,6 +3150,7 @@ struct ContentView: View {
 #endif
         let backdropResult = windowChrome.backdropController.apply(plan: backdropPlan, to: window)
         if backdropResult.didChangeGlassRoot {
+            UsageTipsWindowOverlayController.controller(for: window)?.refreshInstallation()
             refreshTmuxWorkspacePaneWindowOverlay(in: window)
             commandPaletteWindowOverlayController(for: window)
                 .update(

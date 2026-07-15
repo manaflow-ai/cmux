@@ -8,10 +8,12 @@ extension AppDelegate {
     @MainActor
     static func presentPreferencesWindow(
         navigationTarget: SettingsNavigationTarget? = nil,
+        navigationAnchorID: String? = nil,
+        highlight: Bool = false,
         // Test seam only; a substitute presenter must still report a
         // `SettingsWindowShowResult`, so there is no alternate path that can
         // claim success without a verified window (the #7775 failure shape).
-        presentSettingsWindow: (@MainActor (SettingsNavigationTarget?) -> SettingsWindowShowResult)? = nil,
+        presentSettingsWindow: (@MainActor (SettingsNavigationDestination?) -> SettingsWindowShowResult)? = nil,
         // The legacy body also passed .activateIgnoringOtherApps; the option
         // is deprecated and documented as a no-op on macOS 14+ (this target's
         // minimum), so dropping it is behavior-neutral.
@@ -22,9 +24,16 @@ extension AppDelegate {
 #if DEBUG
         cmuxDebugLog("settings.open.present path=appkitWindow")
 #endif
+        let navigationDestination = navigationTarget.map {
+            SettingsNavigationDestination(
+                target: $0,
+                anchorID: navigationAnchorID,
+                shouldHighlight: highlight
+            )
+        }
         let present = presentSettingsWindow
-            ?? { SettingsWindowPresenter.show(navigationTarget: $0) }
-        if case .failed = present(navigationTarget) {
+            ?? { SettingsWindowPresenter.show(navigationDestination: $0) }
+        if case .failed = present(navigationDestination) {
             // The presenter already logged the loud failure diagnostics;
             // surface the failed menu/⌘, action instead of silently activating.
             NSSound.beep()
@@ -37,11 +46,20 @@ extension AppDelegate {
     }
 
     @MainActor
-    func openPreferencesWindow(debugSource: String, navigationTarget: SettingsNavigationTarget? = nil) {
+    func openPreferencesWindow(
+        debugSource: String,
+        navigationTarget: SettingsNavigationTarget? = nil,
+        navigationAnchorID: String? = nil,
+        highlight: Bool = false
+    ) {
 #if DEBUG
         cmuxDebugLog("settings.open.request source=\(debugSource)")
 #endif
-        Self.presentPreferencesWindow(navigationTarget: navigationTarget)
+        Self.presentPreferencesWindow(
+            navigationTarget: navigationTarget,
+            navigationAnchorID: navigationAnchorID,
+            highlight: highlight
+        )
     }
 
     @objc func openPreferencesWindow() {

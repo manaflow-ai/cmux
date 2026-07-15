@@ -18,11 +18,11 @@ struct AppDelegatePresentPreferencesWindowTests {
     @Test func showsCustomSettingsWindowAndActivates() {
         var presentSettingsWindowCallCount = 0
         var activateApplicationCallCount = 0
-        var receivedNavigationTargets: [SettingsNavigationTarget?] = []
+        var receivedNavigationDestinations: [SettingsNavigationDestination?] = []
 
         AppDelegate.presentPreferencesWindow(
-            presentSettingsWindow: { navigationTarget in
-                receivedNavigationTargets.append(navigationTarget)
+            presentSettingsWindow: { navigationDestination in
+                receivedNavigationDestinations.append(navigationDestination)
                 presentSettingsWindowCallCount += 1
                 return .presented
             },
@@ -33,17 +33,17 @@ struct AppDelegatePresentPreferencesWindowTests {
 
         #expect(presentSettingsWindowCallCount == 1)
         #expect(activateApplicationCallCount == 1)
-        #expect(receivedNavigationTargets == [nil])
+        #expect(receivedNavigationDestinations == [nil])
     }
 
     @Test func supportsRepeatedCalls() {
         var presentSettingsWindowCallCount = 0
         var activateApplicationCallCount = 0
-        var receivedNavigationTargets: [SettingsNavigationTarget?] = []
+        var receivedNavigationDestinations: [SettingsNavigationDestination?] = []
 
         AppDelegate.presentPreferencesWindow(
-            presentSettingsWindow: { navigationTarget in
-                receivedNavigationTargets.append(navigationTarget)
+            presentSettingsWindow: { navigationDestination in
+                receivedNavigationDestinations.append(navigationDestination)
                 presentSettingsWindowCallCount += 1
                 return .presented
             },
@@ -53,8 +53,8 @@ struct AppDelegatePresentPreferencesWindowTests {
         )
 
         AppDelegate.presentPreferencesWindow(
-            presentSettingsWindow: { navigationTarget in
-                receivedNavigationTargets.append(navigationTarget)
+            presentSettingsWindow: { navigationDestination in
+                receivedNavigationDestinations.append(navigationDestination)
                 presentSettingsWindowCallCount += 1
                 return .presented
             },
@@ -65,17 +65,17 @@ struct AppDelegatePresentPreferencesWindowTests {
 
         #expect(presentSettingsWindowCallCount == 2)
         #expect(activateApplicationCallCount == 2)
-        #expect(receivedNavigationTargets == [nil, nil])
+        #expect(receivedNavigationDestinations == [nil, nil])
     }
 
     @Test func forwardsNavigationTarget() {
-        var receivedNavigationTarget: SettingsNavigationTarget?
+        var receivedNavigationDestination: SettingsNavigationDestination?
         var activateApplicationCallCount = 0
 
         AppDelegate.presentPreferencesWindow(
             navigationTarget: .keyboardShortcuts,
-            presentSettingsWindow: { navigationTarget in
-                receivedNavigationTarget = navigationTarget
+            presentSettingsWindow: { navigationDestination in
+                receivedNavigationDestination = navigationDestination
                 return .presented
             },
             activateApplication: {
@@ -83,18 +83,18 @@ struct AppDelegatePresentPreferencesWindowTests {
             }
         )
 
-        #expect(receivedNavigationTarget == .keyboardShortcuts)
+        #expect(receivedNavigationDestination == SettingsNavigationDestination(target: .keyboardShortcuts))
         #expect(activateApplicationCallCount == 1)
     }
 
     @Test func forwardsBrowserImportNavigationTarget() {
-        var receivedNavigationTarget: SettingsNavigationTarget?
+        var receivedNavigationDestination: SettingsNavigationDestination?
         var activateApplicationCallCount = 0
 
         AppDelegate.presentPreferencesWindow(
             navigationTarget: .browserImport,
-            presentSettingsWindow: { navigationTarget in
-                receivedNavigationTarget = navigationTarget
+            presentSettingsWindow: { navigationDestination in
+                receivedNavigationDestination = navigationDestination
                 return .presented
             },
             activateApplication: {
@@ -102,8 +102,29 @@ struct AppDelegatePresentPreferencesWindowTests {
             }
         )
 
-        #expect(receivedNavigationTarget == .browserImport)
+        #expect(receivedNavigationDestination == SettingsNavigationDestination(target: .browserImport))
         #expect(activateApplicationCallCount == 1)
+    }
+
+    @Test func forwardsDeepNavigationDestination() {
+        var receivedNavigationDestination: SettingsNavigationDestination?
+
+        AppDelegate.presentPreferencesWindow(
+            navigationTarget: .app,
+            navigationAnchorID: "setting:app:usage-tips",
+            highlight: true,
+            presentSettingsWindow: { navigationDestination in
+                receivedNavigationDestination = navigationDestination
+                return .presented
+            },
+            activateApplication: {}
+        )
+
+        #expect(receivedNavigationDestination == SettingsNavigationDestination(
+            target: .app,
+            anchorID: "setting:app:usage-tips",
+            shouldHighlight: true
+        ))
     }
 
     @Test func doesNotActivateWhenPresentationFails() {
