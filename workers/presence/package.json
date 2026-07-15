@@ -7,7 +7,7 @@
     "deploy": "wrangler deploy",
     "test": "bun test",
     "typecheck": "tsgo --noEmit && tsgo --noEmit -p tsconfig.test.json",
-    "relay-catalog:check": "bun ../../scripts/generate-managed-iroh-relay-catalog.ts --check",
+    "relay-catalog:check": "bun ../../web/tools/generate-managed-iroh-relay-catalog.ts --check",
     "check": "bun run relay-catalog:check && bun run typecheck && bun test && wrangler deploy --dry-run --outdir dist"
   },
   "devDependencies": {
