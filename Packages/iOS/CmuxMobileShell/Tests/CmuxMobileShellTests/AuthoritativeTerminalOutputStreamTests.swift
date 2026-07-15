@@ -25,16 +25,13 @@ import Testing
     await transport.deliver(try renderGridEventFrame(
         surfaceID: "live-terminal",
         seq: 8,
-        text: "authoritative-primary",
-        scrollback: ["retained-history"]
+        text: "authoritative-primary"
     ))
     let deliveredGrid = try await pollUntil { collector.renderGrids.count == 1 }
     #expect(deliveredGrid)
-    let firstGrid = try #require(collector.renderGrids.first)
-    #expect(firstGrid.full == true)
-    #expect(firstGrid.plainRows().first == "authoritative-primary")
-    #expect(!collector.typedGridData[0].isEmpty)
-    #expect(collector.typedGridData == [firstGrid.vtReplacementBytes()])
+    #expect(collector.renderGrids.first?.full == true)
+    #expect(collector.renderGrids.first?.plainRows().first == "authoritative-primary")
+    #expect(collector.typedGridData == [Data()])
 
     await transport.deliver(try terminalBytesEventFrame(
         surfaceID: "live-terminal",
@@ -44,18 +41,11 @@ import Testing
     await transport.deliver(try renderGridEventFrame(
         surfaceID: "live-terminal",
         seq: 9,
-        text: "after-suppressed-raw",
-        scrollback: ["retained-history"]
+        text: "after-suppressed-raw"
     ))
     let deliveredFollowingGrid = try await pollUntil { collector.renderGrids.count == 2 }
     #expect(deliveredFollowingGrid)
     #expect(collector.rawChunks.isEmpty)
-    let semanticDelta = try #require(collector.typedGridData.last)
-    let scrollbackClear = Data("\u{1B}[3J".utf8)
-    #expect(semanticDelta.range(of: scrollbackClear) == nil)
-    #expect(semanticDelta.range(of: Data("after-suppressed-raw".utf8)) != nil)
-    #expect(semanticDelta.range(of: Data("retained-history".utf8)) == nil)
-    #expect(semanticDelta != collector.renderGrids[1].vtReplacementBytes())
 }
 
 @MainActor

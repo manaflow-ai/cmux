@@ -67,7 +67,7 @@ import Testing
         stateSeq: 90,
         producerEpoch: 7,
         renderRevision: 90,
-        columns: 16,
+        columns: 24,
         rows: 4,
         rowSpans: [.init(row: 0, column: 0, text: "old-producer")]
     )
@@ -76,7 +76,7 @@ import Testing
         stateSeq: 1,
         producerEpoch: 8,
         renderRevision: 1,
-        columns: 16,
+        columns: 24,
         rows: 4,
         rowSpans: [.init(row: 0, column: 0, text: "replacement-producer")]
     )

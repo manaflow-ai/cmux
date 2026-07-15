@@ -336,6 +336,27 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return view
     }()
     var authoritativeGridView: AuthoritativeTerminalGridView?
+    /// True from authoritative stream registration until raw rendering resumes.
+    /// The local Ghostty parser is intentionally stale in this mode, so every
+    /// consumer of its text, links, selection, or accessibility state must fail closed.
+    var isAuthoritativeGridAuthorityActive = false
+
+    var allowsGhosttySemanticConsumers: Bool {
+        Self.allowsSemanticConsumer(
+            .selectionCopy,
+            authoritativeGridActive: isAuthoritativeGridAuthorityActive
+        )
+    }
+
+    func setAuthoritativeGridAuthorityActive(_ active: Bool) {
+        guard isAuthoritativeGridAuthorityActive != active else { return }
+        isAuthoritativeGridAuthorityActive = active
+        guard active else { return }
+        #if DEBUG
+        debugAccessibilityProxy.accessibilityLabel = nil
+        #endif
+        resetVisibleArtifactCountTracking()
+    }
 
     var surface: ghostty_surface_t?
     var surfaceGeneration: UInt64 = 0
@@ -2128,7 +2149,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                     }
                 }
                 #if DEBUG
-                if let accessibilityText, !accessibilityText.isEmpty {
+                if self.allowsGhosttySemanticConsumers,
+                   let accessibilityText,
+                   !accessibilityText.isEmpty {
                     self.debugAccessibilityProxy.accessibilityLabel = accessibilityText
                 }
                 self.onOutputProcessedForTesting?()
@@ -2281,7 +2304,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     func renderedTextForTesting(pointTag: ghostty_point_tag_e = GHOSTTY_POINT_VIEWPORT) -> String? {
-        guard let surface else { return nil }
+        guard allowsGhosttySemanticConsumers, let surface else { return nil }
 
         let topLeft = ghostty_point_s(
             tag: pointTag,
@@ -2319,6 +2342,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     #if DEBUG
     func accessibilityRenderedTextForTesting() -> String? {
+        guard Self.allowsSemanticConsumer(
+            .accessibility,
+            authoritativeGridActive: isAuthoritativeGridAuthorityActive
+        ) else { return nil }
         let candidates = [
             renderedTextForTesting(pointTag: GHOSTTY_POINT_SURFACE),
             renderedTextForTesting(pointTag: GHOSTTY_POINT_SCREEN),
@@ -2366,7 +2393,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     func copyableTextForCurrentSurface(surface expectedSurface: ghostty_surface_t) async -> String? {
         let generation = surfaceGeneration
-        guard surface == expectedSurface,
+        guard Self.allowsSemanticConsumer(
+            .selectionCopy,
+            authoritativeGridActive: isAuthoritativeGridAuthorityActive
+        ), surface == expectedSurface,
               !isDismantled,
               !renderPipelineRecoveryPaused,
               !renderingSuspended else {
@@ -2402,7 +2432,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 guard !read.cancellation.isCancelled else { return }
                 Task { @MainActor [weak self] in
                     guard let self else { return }
-                    guard self.surface == read.surface,
+                    guard self.allowsGhosttySemanticConsumers,
+                          self.surface == read.surface,
                           self.surfaceGeneration == read.generation else {
                         self.completePendingCopyableTextRead(id: operationID, returning: nil)
                         return
@@ -2553,6 +2584,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     @objc func handleDisplayLinkFire() {
         let now = CACurrentMediaTime()
+        authoritativeGridView?.advanceBlink(now: now)
         if checkSurfaceOperationDeadlines(now: now) {
             return
         }
@@ -3636,6 +3668,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     @MainActor
+    static func setTitle(_ title: String, surfaceIdentifier: UInt) {
+        view(surfaceIdentifier: surfaceIdentifier)?.surfaceTitle = title
+    }
+
+    @MainActor
     static func ringBell(for surface: ghostty_surface_t) {
         view(for: surface)?.handleBell()
     }
@@ -3643,6 +3680,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     @MainActor
     static func title(for surface: ghostty_surface_t) -> String? {
         view(for: surface)?.surfaceTitle
+    }
+
+    @MainActor
+    static func title(surfaceIdentifier: UInt) -> String? {
+        view(surfaceIdentifier: surfaceIdentifier)?.surfaceTitle
     }
 
     @MainActor

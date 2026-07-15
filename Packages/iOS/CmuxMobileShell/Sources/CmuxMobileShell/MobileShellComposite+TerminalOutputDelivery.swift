@@ -18,6 +18,27 @@ extension MobileShellComposite {
     }
 
     func recordTerminalRenderGridDelivery(_ renderGrid: MobileTerminalRenderGridFrame) {
+        let surfaceID = renderGrid.surfaceID
+        let deliveredEpoch = terminalDeliveredRenderEpochBySurfaceID[surfaceID] ?? 0
+        if renderGrid.producerEpoch > deliveredEpoch {
+            // A TerminalSurface replacement restarts both parser sequence and
+            // paint revision. Rebase every old-producer floor before the new
+            // frame records its own sequence below.
+            terminalDeliveredRenderEpochBySurfaceID[surfaceID] = renderGrid.producerEpoch
+            terminalDeliveredRenderRevisionBySurfaceID[surfaceID] = renderGrid.renderRevision
+            deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+            terminalPreBarrierDeliveredEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+            pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+            pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
+            terminalFullReplacementSeqBySurfaceID.removeValue(forKey: surfaceID)
+            terminalFullReplacementGenerationBySurfaceID.removeValue(forKey: surfaceID)
+        } else if renderGrid.producerEpoch == deliveredEpoch,
+                  renderGrid.renderRevision > 0 {
+            terminalDeliveredRenderRevisionBySurfaceID[renderGrid.surfaceID] = max(
+                terminalDeliveredRenderRevisionBySurfaceID[renderGrid.surfaceID] ?? 0,
+                renderGrid.renderRevision
+            )
+        }
         // The toolbar observes this dictionary via `isAlternateScreen`; same-value
         // writes would re-fire observers for every delivered render-grid frame.
         if terminalActiveScreenBySurfaceID[renderGrid.surfaceID] != renderGrid.activeScreen {
@@ -55,36 +76,13 @@ extension MobileShellComposite {
               hasTerminalOutputSink(surfaceID: renderGrid.surfaceID) else {
             return
         }
-        // The stale floor is the delivered high-water mark, surviving a replay
-        // barrier via the pre-barrier stash: a buffered frame from before the
-        // barrier must not paint (and must not establish an outdated baseline)
-        // while the fresh authoritative replay is pending. Against the STASH
-        // the rejection includes EQUAL sequences — the surface already shows
-        // that content and render grids re-emit at unchanged byte sequences,
-        // so a same-seq buffered full frame must not cancel the pending
-        // replay. Against the live delivered mark only strictly-older frames
-        // are stale, so steady-state same-seq re-emits (resize repaints)
-        // still deliver.
-        let deliveredSeqValue = deliveredTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID] ?? 0
-        let preBarrierFloorSeq = terminalPreBarrierDeliveredEndSeqBySurfaceID[renderGrid.surfaceID]
-        if deliveredSeqValue > renderGrid.stateSeq
-            || preBarrierFloorSeq.map({ $0 >= renderGrid.stateSeq }) ?? false {
-            MobileDebugLog.anchormux(
-                "sync.render_grid_stale source=\(source) surface=\(renderGrid.surfaceID) delivered=\(max(deliveredSeqValue, preBarrierFloorSeq ?? 0)) frame=\(renderGrid.stateSeq)"
-            )
-            return
-        }
-        // Frames behind an outstanding typing ACK (or partial frames while a
-        // dropped-frame replay is pending) must not paint an older cursor
-        // frame or establish a baseline from pre-input content.
-        guard !shouldDropRenderGridBehindPendingInput(renderGrid, source: source) else { return }
+        guard admitsTerminalRenderGrid(
+            renderGrid,
+            source: source,
+            allowRequestBoundEqualPreBarrierSequence: source != "event"
+        ) else { return }
         let hasDeliveredSeq = deliveredTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID] != nil
         let previousScreen = terminalActiveScreenBySurfaceID[renderGrid.surfaceID]
-        // The alternate baseline flag is maintained by DELIVERED frames only,
-        // so gating on it (in both screen directions) cannot be fooled by the
-        // speculative tracked-screen write below: a delta VT patch cannot
-        // switch screens, so it may only paint the screen the local surface
-        // actually shows.
         let hasAlternateBaseline = terminalAlternateRenderGridBaselineSurfaceIDs.contains(renderGrid.surfaceID)
         let establishesRenderGridBaseline = renderGrid.full
             || (
@@ -107,6 +105,78 @@ extension MobileShellComposite {
                     && renderGrid.activeScreen == .alternate
                     && !hasAlternateBaseline
             )
+        deliverAdmittedTerminalRenderGrid(
+            renderGrid,
+            source: source,
+            previousScreen: previousScreen,
+            establishesRenderGridBaseline: establishesRenderGridBaseline,
+            needsRenderGridBaseline: needsRenderGridBaseline
+        )
+    }
+
+    /// Reject a stale paint before the UI is allowed to mutate Ghostty geometry.
+    func admitsTerminalRenderGrid(
+        _ renderGrid: MobileTerminalRenderGridFrame,
+        source: String,
+        allowRequestBoundEqualPreBarrierSequence: Bool = false
+    ) -> Bool {
+        // The stale floor is the delivered high-water mark, surviving a replay
+        // barrier via the pre-barrier stash: a buffered frame from before the
+        // barrier must not paint (and must not establish an outdated baseline)
+        // while the fresh authoritative replay is pending. Against the STASH
+        // the rejection includes EQUAL sequences — the surface already shows
+        // that content and render grids re-emit at unchanged byte sequences,
+        // so a same-seq buffered full frame must not cancel the pending
+        // replay. Against the live delivered mark only strictly-older frames
+        // are stale, so steady-state same-seq re-emits (resize repaints)
+        // still deliver.
+        let deliveredSeqValue = deliveredTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID] ?? 0
+        let preBarrierFloorSeq = terminalPreBarrierDeliveredEndSeqBySurfaceID[renderGrid.surfaceID]
+        let deliveredEpoch = terminalDeliveredRenderEpochBySurfaceID[renderGrid.surfaceID] ?? 0
+        let deliveredRevision = terminalDeliveredRenderRevisionBySurfaceID[renderGrid.surfaceID] ?? 0
+        let comparesProducerEpoch = deliveredEpoch > 0 || renderGrid.producerEpoch > 0
+        let staleProducer = comparesProducerEpoch && renderGrid.producerEpoch < deliveredEpoch
+        let replacementProducer = comparesProducerEpoch && renderGrid.producerEpoch > deliveredEpoch
+        let requestBoundRevisionIsCurrent = allowRequestBoundEqualPreBarrierSequence
+            && renderGrid.renderRevision > 0
+            && renderGrid.renderRevision >= deliveredRevision
+        let staleAtRenderRevision = renderGrid.renderRevision > 0
+            && deliveredRevision > 0
+            && (renderGrid.renderRevision < deliveredRevision
+                || (renderGrid.renderRevision == deliveredRevision
+                    && !allowRequestBoundEqualPreBarrierSequence))
+        let staleAtPreBarrierFloor = preBarrierFloorSeq.map {
+            $0 > renderGrid.stateSeq
+                || ($0 == renderGrid.stateSeq && !requestBoundRevisionIsCurrent)
+        } ?? false
+        if staleProducer
+            || (!replacementProducer && deliveredSeqValue > renderGrid.stateSeq)
+            || (!replacementProducer && staleAtPreBarrierFloor)
+            || (!replacementProducer && staleAtRenderRevision) {
+            MobileDebugLog.anchormux(
+                "sync.render_grid_stale source=\(source) surface=\(renderGrid.surfaceID) delivered=\(max(deliveredSeqValue, preBarrierFloorSeq ?? 0)) frame=\(renderGrid.stateSeq) delivered_revision=\(deliveredRevision) frame_revision=\(renderGrid.renderRevision)"
+            )
+            return false
+        }
+        if replacementProducer { return true }
+        // Frames behind an outstanding typing ACK (or partial frames while a
+        // dropped-frame replay is pending) must not paint an older cursor
+        // frame or establish a baseline from pre-input content.
+        return !shouldDropRenderGridBehindPendingInput(renderGrid, source: source)
+    }
+
+    private func deliverAdmittedTerminalRenderGrid(
+        _ renderGrid: MobileTerminalRenderGridFrame,
+        source: String,
+        previousScreen: MobileTerminalRenderGridFrame.Screen?,
+        establishesRenderGridBaseline: Bool,
+        needsRenderGridBaseline: Bool
+    ) {
+        // The alternate baseline flag is maintained by DELIVERED frames only,
+        // so gating on it (in both screen directions) cannot be fooled by the
+        // speculative tracked-screen write below: a delta VT patch cannot
+        // switch screens, so it may only paint the screen the local surface
+        // actually shows.
         if source == "event", needsRenderGridBaseline, !establishesRenderGridBaseline {
             if renderGrid.activeScreen == .alternate {
                 if terminalActiveScreenBySurfaceID[renderGrid.surfaceID] != .alternate {
@@ -161,8 +231,6 @@ extension MobileShellComposite {
         if bypassLiveBaselineBarrier {
             terminalOutputQueuesBySurfaceID[renderGrid.surfaceID] = TerminalOutputDeliveryQueue()
             terminalOutputStreamTokensBySurfaceID[renderGrid.surfaceID] = UUID()
-            terminalSemanticRenderGridStatesBySurfaceID.removeValue(forKey: renderGrid.surfaceID)
-            pendingTerminalSemanticRenderGridStatesBySurfaceID.removeValue(forKey: renderGrid.surfaceID)
             terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: renderGrid.surfaceID)
             terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID.removeValue(forKey: renderGrid.surfaceID)
         }
@@ -212,8 +280,7 @@ extension MobileShellComposite {
     func deliverTerminalRenderGrid(
         _ frame: MobileTerminalRenderGridFrame,
         surfaceID: String,
-        bypassReplayBarrier: Bool = false,
-        forceSemanticFullReplay: Bool = false
+        bypassReplayBarrier: Bool = false
     ) -> Bool {
         return deliverTerminalOutput(
             TerminalOutputDelivery(
@@ -221,8 +288,7 @@ extension MobileShellComposite {
                 replaceable: usesAuthoritativeRenderGrid(surfaceID: surfaceID)
                     ? frame.full
                     : frame.isReplaceableViewportPatchForMobileDelivery,
-                viewportPolicy: frame.mobileViewportPolicy,
-                requiresFullSemanticReplay: forceSemanticFullReplay
+                viewportPolicy: frame.mobileViewportPolicy
             ),
             surfaceID: surfaceID,
             bypassReplayBarrier: bypassReplayBarrier
@@ -308,11 +374,6 @@ extension MobileShellComposite {
     public func terminalOutputDidProcess(surfaceID: String, streamToken: UUID) {
         guard terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken,
               var queue = terminalOutputQueuesBySurfaceID[surfaceID] else { return }
-        if let pendingState = pendingTerminalSemanticRenderGridStatesBySurfaceID[surfaceID],
-           pendingState.streamToken == streamToken {
-            terminalSemanticRenderGridStatesBySurfaceID[surfaceID] = pendingState
-            pendingTerminalSemanticRenderGridStatesBySurfaceID.removeValue(forKey: surfaceID)
-        }
         let next = queue.completeInFlight()
         terminalOutputQueuesBySurfaceID[surfaceID] = queue
         if terminalReplayBarrierAckStreamTokensBySurfaceID[surfaceID] == streamToken {
@@ -398,33 +459,8 @@ extension MobileShellComposite {
         let renderGrid = usesAuthoritativeRenderGrid(surfaceID: surfaceID)
             ? delivery.renderGrid
             : nil
-        let data: Data
-        if let renderGrid {
-            let previousState = terminalSemanticRenderGridStatesBySurfaceID[surfaceID]
-            let previousFrame = previousState?.streamToken == streamToken
-                ? previousState?.frame
-                : nil
-            data = renderGrid.semanticReplayBytes(
-                comparedTo: previousFrame,
-                forceFull: delivery.requiresFullSemanticReplay
-            )
-            if renderGrid.full {
-                pendingTerminalSemanticRenderGridStatesBySurfaceID[surfaceID] =
-                    TerminalSemanticRenderGridState(
-                        streamToken: streamToken,
-                        frame: renderGrid
-                    )
-            } else {
-                pendingTerminalSemanticRenderGridStatesBySurfaceID.removeValue(forKey: surfaceID)
-            }
-        } else {
-            data = delivery.bytes
-            pendingTerminalSemanticRenderGridStatesBySurfaceID.removeValue(forKey: surfaceID)
-        }
         return MobileTerminalOutputChunk(
-            // A typed grid owns visible pixels, while its synthesized VT replay
-            // keeps the mounted Ghostty surface current for semantic consumers.
-            data: data,
+            data: renderGrid == nil ? delivery.bytes : Data(),
             streamToken: streamToken,
             viewportPolicy: delivery.viewportPolicy,
             renderGrid: renderGrid
@@ -440,8 +476,6 @@ extension MobileShellComposite {
     public func terminalOutputDidReset(surfaceID: String, streamToken: UUID) {
         guard terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken,
               terminalOutputQueuesBySurfaceID[surfaceID] != nil else { return }
-        terminalSemanticRenderGridStatesBySurfaceID.removeValue(forKey: surfaceID)
-        pendingTerminalSemanticRenderGridStatesBySurfaceID.removeValue(forKey: surfaceID)
         if let replayBarrierToken = terminalReplayBarrierTokensBySurfaceID[surfaceID] {
             guard terminalReplayBarrierAckStreamTokensBySurfaceID[surfaceID] == streamToken else {
                 terminalReplayBarrierDroppedOutputSurfaceIDs.insert(surfaceID)
@@ -471,8 +505,6 @@ extension MobileShellComposite {
         }
         terminalOutputQueuesBySurfaceID[surfaceID] = TerminalOutputDeliveryQueue()
         terminalOutputStreamTokensBySurfaceID[surfaceID] = UUID()
-        terminalSemanticRenderGridStatesBySurfaceID.removeValue(forKey: surfaceID)
-        pendingTerminalSemanticRenderGridStatesBySurfaceID.removeValue(forKey: surfaceID)
         // Post-reset retry: rebuilt surface, so drop the floor, don't stash.
         rebaseTerminalReplayStaleFloor(surfaceID: surfaceID)
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)

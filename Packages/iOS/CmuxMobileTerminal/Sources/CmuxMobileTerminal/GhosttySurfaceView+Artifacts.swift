@@ -21,7 +21,10 @@ extension GhosttySurfaceView {
         // add a sleeping timer task or block the main actor.
         var pending: [VisibleSnapshotRequest] = []
         for view in registeredSurfaceViews.values.compactMap(\.value) {
-            guard view.window != nil, !view.isHidden, view.alpha > 0.01,
+            guard GhosttySurfaceView.allowsSemanticConsumer(
+                .accessibility,
+                authoritativeGridActive: view.isAuthoritativeGridAuthorityActive
+            ), view.window != nil, !view.isHidden, view.alpha > 0.01,
                   let surface = view.surface else { continue }
             let grid = view.effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "?"
             pending.append(VisibleSnapshotRequest(
@@ -54,7 +57,10 @@ extension GhosttySurfaceView {
     /// artifact tap hit-testing on iOS.
     @MainActor
     public func visibleTextForArtifactHitTesting() async -> (text: String, columns: Int)? {
-        guard let surface,
+        guard Self.allowsSemanticConsumer(
+            .artifactHitTesting,
+            authoritativeGridActive: isAuthoritativeGridAuthorityActive
+        ), let surface,
               !renderPipelineRecoveryPaused else {
             return nil
         }
@@ -67,7 +73,9 @@ extension GhosttySurfaceView {
     /// This is internal so the local scrollback extension can use the same
     /// coalesced path as output and geometry changes.
     func scheduleVisibleArtifactCountUpdate() {
-        guard artifactFilesEnabled, !isDismantled else { return }
+        guard artifactFilesEnabled,
+              allowsGhosttySemanticConsumers,
+              !isDismantled else { return }
         visibleArtifactSnapshotGeneration &+= 1
         visibleArtifactCountSettleFrames = 0
         visibleArtifactCountTask?.cancel()
@@ -81,7 +89,9 @@ extension GhosttySurfaceView {
         visibleArtifactSnapshotGeneration &+= 1
         visibleArtifactCountTask?.cancel()
         visibleArtifactCountTask = nil
-        visibleArtifactCountSettleFrames = artifactFilesEnabled && !isDismantled ? 0 : nil
+        visibleArtifactCountSettleFrames = artifactFilesEnabled
+            && allowsGhosttySemanticConsumers
+            && !isDismantled ? 0 : nil
         lastVisibleArtifactSnapshotText = nil
         lastReportedVisibleArtifactCount = 0
         delegate?.ghosttySurfaceViewDidResetArtifactCount(self)
@@ -107,7 +117,9 @@ extension GhosttySurfaceView {
     }
 
     func refreshVisibleArtifactCount() {
-        guard artifactFilesEnabled, !isDismantled else { return }
+        guard artifactFilesEnabled,
+              allowsGhosttySemanticConsumers,
+              !isDismantled else { return }
         // Tap hit testing uses the same single visible-snapshot slot. Let that
         // user-initiated read finish instead of replacing it with a count read.
         guard pendingVisibleSnapshot == nil else {
@@ -138,7 +150,8 @@ extension GhosttySurfaceView {
         surface: ghostty_surface_t,
         generation: UInt64
     ) async -> (text: String, columns: Int)? {
-        guard self.surface == surface,
+        guard allowsGhosttySemanticConsumers,
+              self.surface == surface,
               surfaceGeneration == generation,
               !renderPipelineRecoveryPaused else {
             return nil
@@ -162,7 +175,8 @@ extension GhosttySurfaceView {
                 let columns = Int(ghostty_surface_size(read.surface).columns)
                 Task { @MainActor [weak self] in
                     guard let view = self else { return }
-                    guard view.surface == read.surface,
+                    guard view.allowsGhosttySemanticConsumers,
+                          view.surface == read.surface,
                           view.surfaceGeneration == read.generation else {
                         view.completePendingVisibleSnapshot(id: operationID, returning: nil)
                         return
@@ -180,7 +194,8 @@ extension GhosttySurfaceView {
         grid: String,
         font: Int
     ) async -> String? {
-        guard self.surface == surface,
+        guard allowsGhosttySemanticConsumers,
+              self.surface == surface,
               surfaceGeneration == generation,
               !renderPipelineRecoveryPaused else {
             return nil
@@ -206,7 +221,8 @@ extension GhosttySurfaceView {
                 let columns = Int(ghostty_surface_size(read.surface).columns)
                 Task { @MainActor [weak self] in
                     guard let view = self else { return }
-                    guard view.surface == read.surface,
+                    guard view.allowsGhosttySemanticConsumers,
+                          view.surface == read.surface,
                           view.surfaceGeneration == read.generation else {
                         view.completePendingVisibleSnapshot(id: operationID, returning: nil)
                         return

@@ -10,8 +10,18 @@ public struct MobileTerminalRenderGridEmissionState: Equatable, Sendable {
     public let rows: Int
     /// Terminal byte sequence covered by the frame that produced this state.
     public let stateSeq: UInt64
+    /// Process-local identity of the TerminalSurface that produced this state.
+    public let producerEpoch: UInt64
     /// Terminal screen represented by the frame that produced this state.
     public let activeScreen: MobileTerminalRenderGridFrame.Screen
+    /// Resolved cursor paint and geometry from the source frame.
+    public let cursor: MobileTerminalRenderGridFrame.Cursor?
+    /// Default style, which paints empty cells even when no row span changes.
+    public let defaultStyle: MobileTerminalRenderGridFrame.Style?
+    public let terminalForeground: String?
+    public let terminalBackground: String?
+    public let terminalCursorColor: String?
+    public let terminalCursorTextColor: String?
     /// Per-row text/style signatures from ``MobileTerminalRenderGridFrame/rowSignatures()``.
     public let rowSignatures: [String]
 
@@ -28,7 +38,14 @@ public struct MobileTerminalRenderGridEmissionState: Equatable, Sendable {
         columns: Int,
         rows: Int,
         stateSeq: UInt64,
+        producerEpoch: UInt64,
         activeScreen: MobileTerminalRenderGridFrame.Screen,
+        cursor: MobileTerminalRenderGridFrame.Cursor?,
+        defaultStyle: MobileTerminalRenderGridFrame.Style?,
+        terminalForeground: String?,
+        terminalBackground: String?,
+        terminalCursorColor: String?,
+        terminalCursorTextColor: String?,
         rowSignatures: [String]
     ) {
         precondition(columns >= 0, "columns must be non-negative")
@@ -37,7 +54,14 @@ public struct MobileTerminalRenderGridEmissionState: Equatable, Sendable {
         self.columns = columns
         self.rows = rows
         self.stateSeq = stateSeq
+        self.producerEpoch = producerEpoch
         self.activeScreen = activeScreen
+        self.cursor = cursor
+        self.defaultStyle = defaultStyle
+        self.terminalForeground = terminalForeground
+        self.terminalBackground = terminalBackground
+        self.terminalCursorColor = terminalCursorColor
+        self.terminalCursorTextColor = terminalCursorTextColor
         self.rowSignatures = rowSignatures
     }
 }

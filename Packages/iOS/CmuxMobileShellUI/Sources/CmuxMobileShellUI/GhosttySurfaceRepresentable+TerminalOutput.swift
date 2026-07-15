@@ -18,7 +18,11 @@ extension GhosttySurfaceRepresentable.Coordinator {
                 guard !Task.isCancelled, let self, let surfaceView else { return }
                 if authoritativeStreamToken != chunk.streamToken {
                     authoritativeStreamToken = chunk.streamToken
-                    surfaceView.beginAuthoritativeRenderGridReplay(surfaceID: surfaceID)
+                    if Self.shouldBeginReplayForNewStream(
+                        authoritativeGridEnabled: store.supportsAuthoritativeTerminalGrid
+                    ) {
+                        surfaceView.beginAuthoritativeRenderGridReplay(surfaceID: surfaceID)
+                    }
                 }
                 guard await presentOutput(
                     chunk,
@@ -119,9 +123,6 @@ extension GhosttySurfaceRepresentable.Coordinator {
         guard surfaceView.presentAuthoritativeRenderGrid(renderGrid) == .presented else {
             return reject(chunk, store: store, surfaceID: surfaceID)
         }
-        guard await surfaceView.processAuthoritativeSemanticOutputAndWait(chunk.data) else {
-            return reject(chunk, store: store, surfaceID: surfaceID)
-        }
         return true
     }
 
@@ -132,6 +133,22 @@ extension GhosttySurfaceRepresentable.Coordinator {
         store: CMUXMobileShellStore,
         surfaceID: String
     ) async -> Bool {
+        let authoritativeGridEnabled = store.supportsAuthoritativeTerminalGrid
+        guard Self.acceptsRawChunk(
+            authoritativeGridEnabled: authoritativeGridEnabled,
+            dataIsEmpty: chunk.data.isEmpty
+        ) else {
+            return reject(chunk, store: store, surfaceID: surfaceID)
+        }
+        if Self.shouldUseRawRenderer(
+            authoritativeGridEnabled: authoritativeGridEnabled,
+            hasAuthoritativeGrid: chunk.renderGrid != nil
+        ) {
+            // Restore raw presentation even for a viewport-only chunk. A new
+            // ordinary stream token must never leave Ghostty hidden while it
+            // waits for the first non-empty byte chunk.
+            surfaceView.useRawTerminalRenderer()
+        }
         if chunk.data.isEmpty {
             return await applyViewportPolicy(
                 chunk,
@@ -140,7 +157,6 @@ extension GhosttySurfaceRepresentable.Coordinator {
                 surfaceID: surfaceID
             )
         }
-        surfaceView.useRawTerminalRenderer()
         guard await applyViewportPolicy(
             chunk,
             to: surfaceView,

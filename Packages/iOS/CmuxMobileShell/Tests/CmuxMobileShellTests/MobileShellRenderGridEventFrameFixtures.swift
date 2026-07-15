@@ -15,8 +15,7 @@ func renderGridEventFrame(
     columns: Int = 80,
     rows: Int = 4,
     activeScreen: MobileTerminalRenderGridFrame.Screen = .primary,
-    full: Bool = true,
-    scrollback: [String] = []
+    full: Bool = true
 ) throws -> Data {
     let frame = try MobileTerminalRenderGridFrame(
         surfaceID: surfaceID,
@@ -32,16 +31,7 @@ func renderGridEventFrame(
                 text: text
             ),
         ],
-        activeScreen: activeScreen,
-        scrollbackRows: scrollback.count,
-        scrollbackSpans: scrollback.enumerated().map { row, text in
-            MobileTerminalRenderGridFrame.RowSpan(
-                row: row,
-                column: 0,
-                styleID: 0,
-                text: text
-            )
-        }
+        activeScreen: activeScreen
     )
     let envelope: [String: Any] = [
         "kind": "event",

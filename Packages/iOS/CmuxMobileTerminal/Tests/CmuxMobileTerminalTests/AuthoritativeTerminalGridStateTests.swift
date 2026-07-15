@@ -5,15 +5,15 @@ import Testing
 @Suite("Authoritative terminal grid state")
 struct AuthoritativeTerminalGridStateTests {
     @Test func blinkingTextAlternatesWhileSteadyTextRemainsVisible() {
-        #expect(AuthoritativeTerminalBlinkPolicy.shouldDrawText(
+        #expect(AuthoritativeTerminalGridView.shouldDrawText(
             styleBlinks: true,
             blinkPhaseVisible: true
         ))
-        #expect(!AuthoritativeTerminalBlinkPolicy.shouldDrawText(
+        #expect(!AuthoritativeTerminalGridView.shouldDrawText(
             styleBlinks: true,
             blinkPhaseVisible: false
         ))
-        #expect(AuthoritativeTerminalBlinkPolicy.shouldDrawText(
+        #expect(AuthoritativeTerminalGridView.shouldDrawText(
             styleBlinks: false,
             blinkPhaseVisible: false
         ))
@@ -21,15 +21,15 @@ struct AuthoritativeTerminalGridStateTests {
 
     @Test("renderer suppression starts before the first authoritative frame commits")
     func rendererSuppressionCoversPrecommitGeometry() {
-        #expect(GhosttyPresentationSuppression.shouldHideRenderer(
+        #expect(GhosttySurfaceView.shouldHideRenderer(
             isRenderDispatchSuppressed: true,
             isAuthoritativeGridPresented: false
         ))
-        #expect(GhosttyPresentationSuppression.shouldHideRenderer(
+        #expect(GhosttySurfaceView.shouldHideRenderer(
             isRenderDispatchSuppressed: false,
             isAuthoritativeGridPresented: true
         ))
-        #expect(!GhosttyPresentationSuppression.shouldHideRenderer(
+        #expect(!GhosttySurfaceView.shouldHideRenderer(
             isRenderDispatchSuppressed: false,
             isAuthoritativeGridPresented: false
         ))
@@ -119,12 +119,12 @@ struct AuthoritativeTerminalGridStateTests {
         var state = AuthoritativeTerminalGridState(surfaceID: "surface")
         let current = try frame(
             revision: 40,
-            columns: 12,
+            columns: 16,
             rows: ["last-good-one", "last-good-two"]
         )
         let replay = try frame(
             revision: 1,
-            columns: 12,
+            columns: 16,
             rows: ["replayed-one", "replayed-two"]
         )
 

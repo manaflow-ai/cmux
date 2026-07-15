@@ -5,6 +5,15 @@ public import CMUXMobileCore
 // MARK: - Paired-iPhone (mobile) input and grid export
 
 extension TerminalSurface {
+    /// Exact PTY prefix committed to Ghostty's parser for this surface.
+    @MainActor
+    public func mobileAppliedOutputSequence() -> UInt64? {
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "mobileOutputSequence") else {
+            return nil
+        }
+        return ghostty_surface_output_sequence(surface)
+    }
+
     /// Forward a mobile scroll gesture to this real surface. libghostty does the
     /// mode-correct thing: a normal screen moves the viewport into scrollback;
     /// an alt screen with mouse reporting encodes mouse-wheel to the PTY for the
@@ -56,7 +65,6 @@ extension TerminalSurface {
     /// to changed rows).
     @MainActor
     public func mobileRenderGridFrame(
-        stateSeq: UInt64,
         full: Bool = true,
         changedRows: Set<Int>? = nil,
         scrollbackLines: Int = 0
@@ -68,7 +76,6 @@ extension TerminalSurface {
                 surface,
                 ptr,
                 UInt(surfaceID.utf8.count),
-                stateSeq,
                 UInt(max(0, scrollbackLines))
             )
         }
@@ -80,6 +87,7 @@ extension TerminalSurface {
             return nil
         }
         mobileRenderRevision &+= 1
+        fullFrame.producerEpoch = mobileRenderProducerEpoch
         fullFrame.renderRevision = mobileRenderRevision
         let frame: MobileTerminalRenderGridFrame
         if full, changedRows == nil {

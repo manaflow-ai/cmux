@@ -284,10 +284,20 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             // Raw output still feeds libghostty when the paired host predates
             // render-grid support. Ending this task unregisters the surface and
             // clears its viewport pin on the Mac.
-            outputTask = makeTerminalOutputTask(
-                store: store,
-                surfaceView: surfaceView,
-                surfaceID: surfaceID
+            // Suppress Ghostty synchronously before stream registration so a
+            // stale local parser cannot flash before the first direct grid.
+            outputTask = Self.start(
+                authoritativeGridEnabled: store.supportsAuthoritativeTerminalGrid,
+                suppressPresentation: {
+                    surfaceView.beginAuthoritativeRenderGridReplay(surfaceID: surfaceID)
+                },
+                registerStreams: {
+                    makeTerminalOutputTask(
+                        store: store,
+                        surfaceView: surfaceView,
+                        surfaceID: surfaceID
+                    )
+                }
             )
             // Drive Mac-pushed live font-size changes (`terminal.set_font`) into
             // the surface's shared zoom apply path. Runs for the surface's whole

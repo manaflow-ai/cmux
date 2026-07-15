@@ -4,7 +4,7 @@ import Testing
 @Test func authoritativeAttachSuppressesRendererBeforeRegisteringStreams() {
     var steps: [String] = []
 
-    let result = AuthoritativeTerminalAttachmentOrder.start(
+    let result = GhosttySurfaceRepresentable.Coordinator.start(
         authoritativeGridEnabled: true,
         suppressPresentation: { steps.append("suppress") },
         registerStreams: {
@@ -20,7 +20,7 @@ import Testing
 @Test func ordinaryAttachRegistersWithoutSuppressingRenderer() {
     var steps: [String] = []
 
-    let result = AuthoritativeTerminalAttachmentOrder.start(
+    let result = GhosttySurfaceRepresentable.Coordinator.start(
         authoritativeGridEnabled: false,
         suppressPresentation: { steps.append("suppress") },
         registerStreams: {
@@ -34,46 +34,46 @@ import Testing
 }
 
 @Test func ordinaryNewStreamTokenDoesNotBeginAuthoritativeReplay() {
-    #expect(!AuthoritativeTerminalAttachmentOrder.shouldBeginReplayForNewStream(
+    #expect(!GhosttySurfaceRepresentable.Coordinator.shouldBeginReplayForNewStream(
         authoritativeGridEnabled: false
     ))
-    #expect(AuthoritativeTerminalAttachmentOrder.shouldBeginReplayForNewStream(
+    #expect(GhosttySurfaceRepresentable.Coordinator.shouldBeginReplayForNewStream(
         authoritativeGridEnabled: true
     ))
 }
 
 @Test func viewportOnlyOrdinaryChunkStillRestoresRawRenderer() {
-    #expect(AuthoritativeTerminalAttachmentOrder.shouldUseRawRenderer(
+    #expect(GhosttySurfaceRepresentable.Coordinator.shouldUseRawRenderer(
         authoritativeGridEnabled: false,
         hasAuthoritativeGrid: false
     ))
-    #expect(!AuthoritativeTerminalAttachmentOrder.shouldUseRawRenderer(
+    #expect(!GhosttySurfaceRepresentable.Coordinator.shouldUseRawRenderer(
         authoritativeGridEnabled: false,
         hasAuthoritativeGrid: true
     ))
 }
 
 @Test func directGridStreamNeverRestoresRawRendererForFallbackOrViewportOnlyChunks() {
-    #expect(!AuthoritativeTerminalAttachmentOrder.shouldUseRawRenderer(
+    #expect(!GhosttySurfaceRepresentable.Coordinator.shouldUseRawRenderer(
         authoritativeGridEnabled: true,
         hasAuthoritativeGrid: false
     ))
-    #expect(!AuthoritativeTerminalAttachmentOrder.shouldUseRawRenderer(
+    #expect(!GhosttySurfaceRepresentable.Coordinator.shouldUseRawRenderer(
         authoritativeGridEnabled: true,
         hasAuthoritativeGrid: true
     ))
 }
 
 @Test func directGridStreamRejectsNonemptyRawFallbackButAllowsViewportPolicyOnlyChunk() {
-    #expect(AuthoritativeTerminalAttachmentOrder.acceptsRawChunk(
+    #expect(GhosttySurfaceRepresentable.Coordinator.acceptsRawChunk(
         authoritativeGridEnabled: true,
         dataIsEmpty: true
     ))
-    #expect(!AuthoritativeTerminalAttachmentOrder.acceptsRawChunk(
+    #expect(!GhosttySurfaceRepresentable.Coordinator.acceptsRawChunk(
         authoritativeGridEnabled: true,
         dataIsEmpty: false
     ))
-    #expect(AuthoritativeTerminalAttachmentOrder.acceptsRawChunk(
+    #expect(GhosttySurfaceRepresentable.Coordinator.acceptsRawChunk(
         authoritativeGridEnabled: false,
         dataIsEmpty: false
     ))

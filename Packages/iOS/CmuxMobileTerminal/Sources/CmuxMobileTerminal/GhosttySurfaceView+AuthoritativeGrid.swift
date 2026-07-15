@@ -16,6 +16,7 @@ extension GhosttySurfaceView {
 
     /// Keeps Ghostty pixels hidden while an admitted frame changes geometry.
     public func prepareForAuthoritativeRenderGridPresentation() {
+        setAuthoritativeGridAuthorityActive(true)
         suppressGhosttyPresentationForAuthoritativeGrid()
     }
 
@@ -23,12 +24,13 @@ extension GhosttySurfaceView {
     ///
     /// The local Ghostty surface remains mounted for keyboard, accessory, viewport,
     /// and input plumbing. Its renderer is suppressed while the immutable grid view
-    /// is visible, so VT replay cannot become user-visible output.
+    /// is visible. Ghostty's stale parser is not used in this mode.
     /// - Parameter frame: A complete render-grid snapshot for this surface.
     /// - Returns: Whether the frame was presented, ignored as stale, or needs replay.
     public func presentAuthoritativeRenderGrid(
         _ frame: MobileTerminalRenderGridFrame
     ) -> AuthoritativeGridPresentationResult {
+        setAuthoritativeGridAuthorityActive(true)
         let expectedSurfaceID = hostSurfaceID ?? frame.surfaceID
         let gridView = authoritativeGridView ?? makeAuthoritativeGridView(
             surfaceID: expectedSurfaceID
@@ -49,31 +51,21 @@ extension GhosttySurfaceView {
     /// The last-good frame remains visible while resize/replay is awaited.
     /// - Parameter surfaceID: The surface identity the next full frame must carry.
     public func beginAuthoritativeRenderGridReplay(surfaceID: String) {
+        setAuthoritativeGridAuthorityActive(true)
         authoritativeGridView?.beginReplay(surfaceID: surfaceID)
+        suppressGhosttyPresentationForAuthoritativeGrid()
     }
 
     /// Clears direct pixels when the logical terminal is replaced or torn down.
     public func clearAuthoritativeRenderGrid(surfaceID: String) {
         authoritativeGridView?.clear(surfaceID: surfaceID)
         authoritativeGridView?.isHidden = true
-    }
-
-    /// Applies VT replay to the hidden Ghostty semantic mirror.
-    ///
-    /// Render dispatch and every Ghostty-owned layer stay suppressed before,
-    /// during, and after the asynchronous apply, so semantic processing cannot
-    /// blank or overwrite the producer-authored pixels.
-    @discardableResult
-    public func processAuthoritativeSemanticOutputAndWait(_ data: Data) async -> Bool {
-        guard !data.isEmpty else { return true }
-        suppressGhosttyPresentationForAuthoritativeGrid()
-        let applied = await processOutputAndWait(data)
-        suppressGhosttyPresentationForAuthoritativeGrid()
-        return applied
+        setAuthoritativeGridAuthorityActive(false)
     }
 
     /// Restores raw-byte Ghostty presentation for a host without render-grid support.
     public func useRawTerminalRenderer() {
+        setAuthoritativeGridAuthorityActive(false)
         authoritativeGridView?.isHidden = true
         isRenderDispatchSuppressed = false
         setGhosttyRendererLayersHidden(false)
@@ -86,7 +78,7 @@ extension GhosttySurfaceView {
     }
 
     var shouldHideGhosttyRenderer: Bool {
-        GhosttyPresentationSuppression.shouldHideRenderer(
+        Self.shouldHideRenderer(
             isRenderDispatchSuppressed: isRenderDispatchSuppressed,
             isAuthoritativeGridPresented: isAuthoritativeGridPresented
         )

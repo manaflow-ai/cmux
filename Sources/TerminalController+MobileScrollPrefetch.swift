@@ -15,12 +15,10 @@ extension TerminalController {
     func mobileTerminalRenderGridFrame(
         terminalPanel: TerminalPanel,
         surfaceID: UUID,
-        seq: UInt64,
         scrollbackLines: Int = TerminalController.mobileReplayScrollbackLineBudget
     ) -> MobileTerminalRenderGridFrame? {
         guard surfaceID == terminalPanel.id else { return nil }
         return terminalPanel.surface.mobileRenderGridFrame(
-            stateSeq: seq,
             scrollbackLines: scrollbackLines
         )?.frame
     }
@@ -37,11 +35,9 @@ extension TerminalController {
         ]
         let scrollbackRows = mobileScrollPrefetchRows(params: params)
         guard scrollbackRows > 0 else { return payload }
-        let stateSeq = MobileTerminalByteTee.shared.currentSequence(surfaceID: surfaceID) ?? 0
         guard let renderGrid = mobileTerminalRenderGridFrame(
             terminalPanel: terminalPanel,
             surfaceID: surfaceID,
-            seq: stateSeq,
             scrollbackLines: scrollbackRows
         ),
             renderGrid.activeScreen == .primary,

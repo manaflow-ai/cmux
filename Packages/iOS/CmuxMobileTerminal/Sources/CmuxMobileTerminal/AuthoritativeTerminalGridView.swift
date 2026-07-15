@@ -7,13 +7,18 @@ import UIKit
 /// Render-grid v1 carries one font size and boolean style flags, so this UIKit
 /// renderer approximates Ghostty font faces, blinking text, and underline
 /// variants. The wire format does not carry hyperlink identities or terminal
-/// image payloads. A hidden Ghostty mirror retains VT text/semantic state for
-/// copy, artifacts, diagnostics, and accessibility, but those unsupported
-/// visual details are not painted by this direct-pixel view.
+/// image payloads. Ghostty semantic consumers fail closed while this view owns
+/// presentation because a pixel grid is not sufficient to reconstruct parser state.
 @MainActor
 final class AuthoritativeTerminalGridView: UIView {
+    private static let blinkInterval: CFTimeInterval = 0.6
     private var state: AuthoritativeTerminalGridState
     private let cursorLayer = CAShapeLayer()
+    private var blinkOrigin: CFTimeInterval
+    private var textBlinkPhaseVisible = true
+    private var cursorBlinkPhaseVisible = true
+    private var hasBlinkingText = false
+    private var hasBlinkingCursor = false
     var terminalFontSize: CGFloat = 10 {
         didSet {
             guard terminalFontSize != oldValue else { return }
@@ -23,6 +28,7 @@ final class AuthoritativeTerminalGridView: UIView {
 
     init(surfaceID: String) {
         self.state = AuthoritativeTerminalGridState(surfaceID: surfaceID)
+        self.blinkOrigin = CACurrentMediaTime()
         super.init(frame: .zero)
         backgroundColor = .clear
         isOpaque = true
@@ -48,6 +54,9 @@ final class AuthoritativeTerminalGridView: UIView {
     ) -> AuthoritativeGridPresentationResult {
         let result = state.commit(frame)
         guard result == .presented else { return result }
+        let styleIDsWithBlink = Set(frame.styles.lazy.filter(\.blink).map(\.id))
+        hasBlinkingText = frame.rowSpans.contains { styleIDsWithBlink.contains($0.styleID) }
+        hasBlinkingCursor = frame.cursor?.blinking == true
         setNeedsDisplay()
         setNeedsLayout()
         return result
@@ -65,8 +74,28 @@ final class AuthoritativeTerminalGridView: UIView {
 
     func clear(surfaceID: String) {
         state.replaceSurface(surfaceID: surfaceID)
+        textBlinkPhaseVisible = true
+        cursorBlinkPhaseVisible = true
+        hasBlinkingText = false
+        hasBlinkingCursor = false
+        blinkOrigin = CACurrentMediaTime()
         cursorLayer.isHidden = true
         setNeedsDisplay()
+    }
+
+    func advanceBlink(now: CFTimeInterval) {
+        guard let frame = state.frame else { return }
+        let phaseVisible = Int(max(0, now - blinkOrigin) / Self.blinkInterval).isMultiple(of: 2)
+        let textChanged = hasBlinkingText && textBlinkPhaseVisible != phaseVisible
+        let cursorChanged = hasBlinkingCursor && cursorBlinkPhaseVisible != phaseVisible
+        textBlinkPhaseVisible = phaseVisible
+        cursorBlinkPhaseVisible = phaseVisible
+        if textChanged || (cursorChanged && frame.cursor?.style == .block) {
+            setNeedsDisplay()
+        }
+        if cursorChanged {
+            updateCursorLayer()
+        }
     }
 
     override func layoutSubviews() {
@@ -85,12 +114,13 @@ final class AuthoritativeTerminalGridView: UIView {
         }
 
         let theme = TerminalThemeStore.current
+        let frameDefaultStyle = frame.styles.first(where: { $0.id == 0 })
         let defaultBackground = color(
-            frame.terminalBackground,
+            frameDefaultStyle?.background ?? frame.terminalBackground,
             fallback: color(theme.background, fallback: .black)
         )
         let defaultForeground = color(
-            frame.terminalForeground,
+            frameDefaultStyle?.foreground ?? frame.terminalForeground,
             fallback: color(theme.foreground, fallback: .white)
         )
         context.setFillColor(defaultBackground.cgColor)
@@ -126,6 +156,15 @@ final class AuthoritativeTerminalGridView: UIView {
                 )
             )
         }
+        drawBlockCursor(
+            frame: frame,
+            stylesByID: stylesByID,
+            cellWidth: cellWidth,
+            cellHeight: cellHeight,
+            defaultForeground: defaultForeground,
+            defaultBackground: defaultBackground,
+            context: context
+        )
     }
 }
 
@@ -142,19 +181,27 @@ private extension AuthoritativeTerminalGridView {
     private func draw(
         span: MobileTerminalRenderGridFrame.RowSpan,
         style: MobileTerminalRenderGridFrame.Style,
-        environment: SpanDrawingEnvironment
+        environment: SpanDrawingEnvironment,
+        foregroundOverride: UIColor? = nil,
+        drawsBackground: Bool = true
     ) {
-        let colors = resolvedColors(for: style, environment: environment)
-        if let background = colors.background {
+        let resolved = resolvedColors(for: style, environment: environment)
+        let foreground = foregroundOverride ?? resolved.foreground
+        if drawsBackground, let background = resolved.background {
             environment.context.setFillColor(background.cgColor)
             environment.context.fill(environment.rect)
         }
-        guard !style.invisible, !span.text.isEmpty else { return }
+        guard !style.invisible,
+              !span.text.isEmpty,
+              Self.shouldDrawText(
+                styleBlinks: style.blink,
+                blinkPhaseVisible: textBlinkPhaseVisible
+              ) else { return }
         let font = font(for: style, cellHeight: environment.cellHeight)
-        let attributes = textAttributes(for: style, font: font, foreground: colors.foreground)
+        let attributes = textAttributes(for: style, font: font, foreground: foreground)
         drawText(span.text, font: font, attributes: attributes, environment: environment)
         if style.overline {
-            drawOverline(color: colors.foreground, environment: environment)
+            drawOverline(color: foreground, environment: environment)
         }
     }
 
@@ -169,9 +216,7 @@ private extension AuthoritativeTerminalGridView {
             foreground = background ?? environment.defaultBackground
             background = originalForeground
         }
-        if style.faint {
-            foreground = foreground.withAlphaComponent(0.55)
-        }
+        foreground = foreground.withAlphaComponent(style.foregroundOpacity)
         return (foreground, background)
     }
 
@@ -265,10 +310,10 @@ private extension AuthoritativeTerminalGridView {
         guard let frame = state.frame,
               let cursor = frame.cursor,
               cursor.visible,
+              (!cursor.blinking || cursorBlinkPhaseVisible),
               frame.columns > 0,
               frame.rows > 0 else {
             cursorLayer.isHidden = true
-            cursorLayer.removeAnimation(forKey: "blink")
             return
         }
         let cellWidth = bounds.width / CGFloat(frame.columns)
@@ -276,29 +321,38 @@ private extension AuthoritativeTerminalGridView {
         let cellRect = CGRect(
             x: CGFloat(cursor.column) * cellWidth,
             y: CGFloat(cursor.row) * cellHeight,
-            width: cellWidth,
+            width: CGFloat(cursor.cellWidth) * cellWidth,
             height: cellHeight
         )
+        let frameDefaultForeground = frame.styles.first(where: { $0.id == 0 })?.foreground
         let cursorColor = color(
-            frame.terminalCursorColor,
+            frame.terminalCursorColor ?? frameDefaultForeground,
             fallback: color(TerminalThemeStore.current.cursor, fallback: .white)
         )
+        guard cursor.style != .block else {
+            cursorLayer.isHidden = true
+            return
+        }
         cursorLayer.isHidden = false
         cursorLayer.borderColor = nil
         cursorLayer.borderWidth = 0
-        applyCursorStyle(cursor.style, cellRect: cellRect, color: cursorColor)
-        updateCursorBlink(isBlinking: cursor.blinking)
+        applyCursorStyle(
+            cursor.style,
+            cellRect: cellRect,
+            singleCellWidth: cellWidth,
+            color: cursorColor.withAlphaComponent(cursor.opacity)
+        )
     }
 
     private func applyCursorStyle(
         _ style: MobileTerminalRenderGridFrame.Cursor.Style,
         cellRect: CGRect,
+        singleCellWidth: CGFloat,
         color: UIColor
     ) {
         switch style {
         case .block:
-            cursorLayer.frame = cellRect
-            cursorLayer.backgroundColor = color.withAlphaComponent(0.72).cgColor
+            cursorLayer.isHidden = true
         case .blockHollow:
             cursorLayer.frame = cellRect.insetBy(dx: 0.5, dy: 0.5)
             cursorLayer.backgroundColor = UIColor.clear.cgColor
@@ -308,7 +362,7 @@ private extension AuthoritativeTerminalGridView {
             cursorLayer.frame = CGRect(
                 x: cellRect.minX,
                 y: cellRect.minY,
-                width: max(1 / max(contentScaleFactor, 1), cellRect.width * 0.12),
+                width: max(1 / max(contentScaleFactor, 1), singleCellWidth * 0.12),
                 height: cellRect.height
             )
             cursorLayer.backgroundColor = color.cgColor
@@ -324,26 +378,70 @@ private extension AuthoritativeTerminalGridView {
         }
     }
 
-    private func updateCursorBlink(isBlinking: Bool) {
-        if isBlinking {
-            if cursorLayer.animation(forKey: "blink") == nil {
-                let blink = CABasicAnimation(keyPath: "opacity")
-                blink.fromValue = 1
-                blink.toValue = 0.15
-                blink.duration = 0.6
-                blink.autoreverses = true
-                blink.repeatCount = .infinity
-                cursorLayer.add(blink, forKey: "blink")
-            }
-        } else {
-            cursorLayer.removeAnimation(forKey: "blink")
-            cursorLayer.opacity = 1
+    private func drawBlockCursor(
+        frame: MobileTerminalRenderGridFrame,
+        stylesByID: [Int: MobileTerminalRenderGridFrame.Style],
+        cellWidth: CGFloat,
+        cellHeight: CGFloat,
+        defaultForeground: UIColor,
+        defaultBackground: UIColor,
+        context: CGContext
+    ) {
+        guard let cursor = frame.cursor,
+              cursor.visible,
+              cursor.style == .block,
+              !cursor.blinking || cursorBlinkPhaseVisible else { return }
+        let cursorRect = CGRect(
+            x: CGFloat(cursor.column) * cellWidth,
+            y: CGFloat(cursor.row) * cellHeight,
+            width: CGFloat(cursor.cellWidth) * cellWidth,
+            height: cellHeight
+        )
+        let defaultStyle = frame.styles.first(where: { $0.id == 0 })
+        let cursorColor = color(
+            frame.terminalCursorColor ?? defaultStyle?.foreground,
+            fallback: color(TerminalThemeStore.current.cursor, fallback: defaultForeground)
+        ).withAlphaComponent(cursor.opacity)
+        let cursorTextColor = color(
+            frame.terminalCursorTextColor ?? TerminalThemeStore.current.cursorText,
+            fallback: defaultBackground
+        )
+        context.setFillColor(cursorColor.cgColor)
+        context.fill(cursorRect)
+
+        context.saveGState()
+        context.clip(to: cursorRect)
+        for span in frame.rowSpans where span.row == cursor.row {
+            let spanRect = CGRect(
+                x: CGFloat(span.column) * cellWidth,
+                y: CGFloat(span.row) * cellHeight,
+                width: CGFloat(span.gridCellWidth) * cellWidth,
+                height: cellHeight
+            )
+            guard spanRect.intersects(cursorRect) else { continue }
+            draw(
+                span: span,
+                style: stylesByID[span.styleID] ?? .default,
+                environment: SpanDrawingEnvironment(
+                    rect: spanRect,
+                    cellWidth: cellWidth,
+                    cellHeight: cellHeight,
+                    defaultForeground: defaultForeground,
+                    defaultBackground: defaultBackground,
+                    context: context
+                ),
+                foregroundOverride: cursorTextColor,
+                drawsBackground: false
+            )
         }
+        context.restoreGState()
     }
 
     private func backgroundColorForCurrentFrame() -> UIColor {
-        color(
-            state.frame?.terminalBackground,
+        let frame = state.frame
+        let frameDefaultBackground = frame?.styles.first(where: { $0.id == 0 })?.background
+        return color(
+            frameDefaultBackground ?? frame?.terminalBackground,
             fallback: color(TerminalThemeStore.current.background, fallback: .black)
         )
     }

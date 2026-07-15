@@ -5,7 +5,7 @@ import Testing
 struct GhosttySemanticConsumerPolicyTests {
     @Test(arguments: GhosttySemanticConsumer.allCases)
     func authoritativeGridFailsClosed(_ consumer: GhosttySemanticConsumer) {
-        #expect(!GhosttySemanticConsumerPolicy.allows(
+        #expect(!GhosttySurfaceView.allowsSemanticConsumer(
             consumer,
             authoritativeGridActive: true
         ))
@@ -13,7 +13,7 @@ struct GhosttySemanticConsumerPolicyTests {
 
     @Test(arguments: GhosttySemanticConsumer.allCases)
     func ordinaryRendererRemainsAvailable(_ consumer: GhosttySemanticConsumer) {
-        #expect(GhosttySemanticConsumerPolicy.allows(
+        #expect(GhosttySurfaceView.allowsSemanticConsumer(
             consumer,
             authoritativeGridActive: false
         ))

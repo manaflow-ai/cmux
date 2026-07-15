@@ -33,12 +33,30 @@ extension GhosttySurfaceView {
 
     @MainActor
     static func view(for surface: ghostty_surface_t) -> GhosttySurfaceView? {
-        let identifier = surfaceIdentifier(for: surface)
-        guard let view = registeredSurfaceViews[identifier]?.value else {
-            registeredSurfaceViews.removeValue(forKey: identifier)
+        view(surfaceIdentifier: surfaceIdentifier(for: surface))
+    }
+
+    @MainActor
+    static func view(surfaceIdentifier: UInt) -> GhosttySurfaceView? {
+        guard let view = registeredSurfaceViews[surfaceIdentifier]?.value else {
+            registeredSurfaceViews.removeValue(forKey: surfaceIdentifier)
             return nil
         }
         return view
+    }
+
+    @MainActor
+    static func allowsSemanticConsumer(
+        _ consumer: GhosttySemanticConsumer,
+        surfaceIdentifier: UInt
+    ) -> Bool {
+        guard let view = registeredSurfaceViews[surfaceIdentifier]?.value else {
+            return false
+        }
+        return Self.allowsSemanticConsumer(
+            consumer,
+            authoritativeGridActive: view.isAuthoritativeGridAuthorityActive
+        )
     }
 
     static func surfaceIdentifier(for surface: ghostty_surface_t) -> UInt {
@@ -120,6 +138,10 @@ extension GhosttySurfaceView {
                     && candidate.alpha > 0.01
             }
         guard let matchingView,
+              Self.allowsSemanticConsumer(
+                .selectionCopy,
+                authoritativeGridActive: matchingView.isAuthoritativeGridAuthorityActive
+              ),
               let surface = matchingView.surface else { return nil }
         return await matchingView.copyableTextForCurrentSurface(surface: surface)
     }

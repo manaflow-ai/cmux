@@ -7,10 +7,10 @@ public import Foundation
 /// yielded chunk into its selected renderer, then calls
 /// ``terminalOutputDidProcess(surfaceID:streamToken:)``. A chunk preserves its
 /// producer-authored ``renderGrid`` value so an authoritative renderer never has
-/// to reconstruct visible state from VT bytes. When a grid is present, ``data``
-/// is its synthesized VT replay for the hidden semantic mirror; otherwise it is
-/// raw host output for compatibility rendering. Obtaining the stream also arms
-/// a cold-attach replay so a freshly mounted surface catches up to current state; ending iteration
+/// to reconstruct visible state from VT bytes. ``data`` is empty while a direct
+/// grid owns presentation, and remains raw host output in compatibility mode.
+/// Obtaining the stream also arms a cold-attach replay so a
+/// freshly mounted surface catches up to current state; ending iteration
 /// releases the surface so the Mac drops its viewport pin.
 ///
 /// This replaces the previous `(Data) -> Void` sink registry so output
@@ -24,7 +24,7 @@ public enum MobileTerminalOutputViewportPolicy: Equatable, Sendable {
 }
 
 public struct MobileTerminalOutputChunk: Sendable {
-    /// Raw visible output, or VT replay for a typed grid's hidden semantic mirror.
+    /// Raw host output, or empty when ``renderGrid`` owns presentation.
     public let data: Data
     public let streamToken: UUID
     public let viewportPolicy: MobileTerminalOutputViewportPolicy?

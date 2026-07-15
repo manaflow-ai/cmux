@@ -58,6 +58,11 @@ struct AuthoritativeTerminalGridState {
         _ candidate: MobileTerminalRenderGridFrame,
         comparedTo current: MobileTerminalRenderGridFrame
     ) -> Bool {
+        if candidate.producerEpoch > 0 || current.producerEpoch > 0 {
+            if candidate.producerEpoch != current.producerEpoch {
+                return candidate.producerEpoch < current.producerEpoch
+            }
+        }
         if candidate.renderRevision > 0, current.renderRevision > 0 {
             return candidate.renderRevision <= current.renderRevision
         }

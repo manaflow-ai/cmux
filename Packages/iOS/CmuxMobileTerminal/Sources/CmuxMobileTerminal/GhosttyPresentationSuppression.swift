@@ -1,5 +1,5 @@
-enum GhosttyPresentationSuppression {
-    static func shouldHideRenderer(
+extension GhosttySurfaceView {
+    nonisolated static func shouldHideRenderer(
         isRenderDispatchSuppressed: Bool,
         isAuthoritativeGridPresented: Bool
     ) -> Bool {

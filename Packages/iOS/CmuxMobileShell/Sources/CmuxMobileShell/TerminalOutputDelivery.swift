@@ -18,7 +18,6 @@ struct TerminalOutputDelivery: Equatable, Sendable {
     private var payload: Payload
     var replacementScope: ReplacementScope?
     var viewportPolicy: MobileTerminalOutputViewportPolicy?
-    var requiresFullSemanticReplay: Bool
 
     var replaceable: Bool {
         replacementScope != nil
@@ -33,20 +32,17 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         self.payload = .bytes(bytes)
         self.replacementScope = replaceable ? (replacementScope ?? .byteViewport) : nil
         self.viewportPolicy = viewportPolicy
-        self.requiresFullSemanticReplay = false
     }
 
     init(
         renderGrid frame: MobileTerminalRenderGridFrame,
         replaceable: Bool,
         replacementScope: ReplacementScope? = nil,
-        viewportPolicy: MobileTerminalOutputViewportPolicy? = nil,
-        requiresFullSemanticReplay: Bool = false
+        viewportPolicy: MobileTerminalOutputViewportPolicy? = nil
     ) {
         self.payload = .renderGrid(frame)
         self.replacementScope = replaceable ? (replacementScope ?? .renderGridViewport) : nil
         self.viewportPolicy = viewportPolicy
-        self.requiresFullSemanticReplay = requiresFullSemanticReplay
     }
 
     var bytes: Data {
@@ -54,6 +50,9 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         case .bytes(let bytes):
             bytes
         case .renderGrid(let frame):
+            // Compatibility consumers still paint render-grid events by
+            // replaying their VT patch. Direct-grid consumers receive the
+            // typed frame and never read this byte representation.
             frame.vtPatchBytes()
         }
     }
@@ -62,11 +61,6 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         guard case .renderGrid(let frame) = payload else { return nil }
         return frame
     }
-}
-
-struct TerminalSemanticRenderGridState: Sendable {
-    let streamToken: UUID
-    let frame: MobileTerminalRenderGridFrame
 }
 
 /// Backpressure queue for one mounted mobile terminal output stream.

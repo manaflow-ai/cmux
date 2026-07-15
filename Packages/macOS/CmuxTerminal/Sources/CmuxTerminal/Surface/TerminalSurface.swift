@@ -7,6 +7,18 @@ public import CmuxTerminalCore
 internal import CMUXDebugLog
 #endif
 
+private enum TerminalSurfaceMobileProducerEpoch {
+    static let lock = NSLock()
+    nonisolated(unsafe) static var value: UInt64 = 0
+
+    static func allocate() -> UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+        value &+= 1
+        return value
+    }
+}
+
 /// The owner of one `ghostty_surface_t` lifecycle: spawn inputs, runtime
 /// creation/teardown, pending input queues, portal-host leases, and renderer
 /// reclamation state.
@@ -216,6 +228,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// This advances independently of PTY byte sequence so a geometry-only
     /// repaint can be ordered against an earlier frame at the same sequence.
     var mobileRenderRevision: UInt64 = 0
+    /// Process-local incarnation fence for same-UUID TerminalSurface replacement.
+    let mobileRenderProducerEpoch = TerminalSurfaceMobileProducerEpoch.allocate()
     /// Runtime font size to restore when mobile viewport fitting clears.
     var mobileFitBaseFontPointSize: Float?
     /// Last runtime font size applied by mobile viewport fitting.
