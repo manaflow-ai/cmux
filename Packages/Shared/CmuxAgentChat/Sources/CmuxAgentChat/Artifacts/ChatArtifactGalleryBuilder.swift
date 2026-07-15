@@ -72,10 +72,33 @@ public struct ChatArtifactGalleryBuilder: Sendable {
         includeDirectories: Bool
     ) -> [ChatArtifactIndexedReference] {
         guard !includeDirectories else { return items }
-        let reader = ArtifactByteReader()
+        let fileManager = FileManager.default
         return items.filter { reference in
-            (try? reader.stat(path: reference.path).isDirectory) != true
+            var isDirectory: ObjCBool = false
+            fileManager.fileExists(atPath: reference.path, isDirectory: &isDirectory)
+            return !isDirectory.boolValue
         }
+    }
+
+    /// Counts immediate children for a gallery directory row without sorting
+    /// or per-entry metadata, stopping at the shared listing limit so the cost
+    /// never scales past the cap for large folders.
+    private func directoryChildCount(path: String) -> (count: Int, isCapped: Bool)? {
+        guard let enumerator = FileManager.default.enumerator(
+            at: URL(fileURLWithPath: path, isDirectory: true),
+            includingPropertiesForKeys: [],
+            options: [.skipsSubdirectoryDescendants]
+        ) else {
+            return nil
+        }
+        var count = 0
+        while enumerator.nextObject() != nil {
+            count += 1
+            if count > ArtifactByteReader.maximumDirectoryEntryCount {
+                return (count: ArtifactByteReader.maximumDirectoryEntryCount, isCapped: true)
+            }
+        }
+        return (count: count, isCapped: false)
     }
 
     private func statItems(
@@ -85,7 +108,7 @@ public struct ChatArtifactGalleryBuilder: Sendable {
         return references.map { reference in
             do {
                 let stat = try reader.stat(path: reference.path)
-                let listing = stat.isDirectory ? try? reader.list(path: reference.path) : nil
+                let children = stat.isDirectory ? directoryChildCount(path: reference.path) : nil
                 return ChatArtifactGalleryItem(
                     path: reference.path,
                     kind: stat.kind,
@@ -93,8 +116,8 @@ public struct ChatArtifactGalleryBuilder: Sendable {
                     size: stat.size,
                     modifiedAt: stat.modifiedAt,
                     exists: stat.exists,
-                    childCount: listing?.entries.count,
-                    childCountIsCapped: listing?.isTruncated ?? false,
+                    childCount: children?.count,
+                    childCountIsCapped: children?.isCapped ?? false,
                     provenance: reference.provenance
                 )
             } catch {
