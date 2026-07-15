@@ -811,6 +811,19 @@ impl SurfaceHandle {
         }
     }
 
+    /// Run `f` only when the local or mirrored terminal lock is immediately
+    /// available. `None` also covers non-PTY surfaces.
+    pub fn with_terminal_if_uncontended<R>(&self, f: impl FnOnce(&mut Terminal) -> R) -> Option<R> {
+        match self {
+            SurfaceHandle::Local(surface) => surface.with_terminal_if_uncontended(f),
+            SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
+                let mut term = surface.term.try_lock().ok()?;
+                Some(f(&mut term))
+            }
+            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
+        }
+    }
+
     pub fn scroll_delta(&self, delta: isize) -> Option<bool> {
         match self {
             SurfaceHandle::Local(surface) => {

@@ -5246,10 +5246,21 @@ impl App {
             return false;
         }
         let Some(area) = self.pane_area_at(x, y).copied() else { return false };
-        if !area.content.contains(x, y)
-            || self.surface_kind(area.surface) != Some(SurfaceKind::Pty)
-            || !self.pty_mouse_tracking(area.surface)
+        if !area.content.contains(x, y) || self.surface_kind(area.surface) != Some(SurfaceKind::Pty)
         {
+            return false;
+        }
+        if action == MouseAction::Motion {
+            return self.forward_pty_mouse_motion_if_uncontended(
+                area.surface,
+                area.content,
+                x,
+                y,
+                modifiers,
+                any_button_pressed,
+            );
+        }
+        if !self.pty_mouse_tracking(area.surface) {
             return false;
         }
         let _ = self.forward_pty_mouse_to_surface(
@@ -5262,6 +5273,54 @@ impl App {
             modifiers,
             any_button_pressed,
         );
+        true
+    }
+
+    fn forward_pty_mouse_motion_if_uncontended(
+        &mut self,
+        surface_id: SurfaceId,
+        content: Rect,
+        x: u16,
+        y: u16,
+        modifiers: KeyModifiers,
+        any_button_pressed: bool,
+    ) -> bool {
+        let Some(surface) = self.session.surface(surface_id) else { return false };
+        let cell_width = u32::from(self.cell_pixels.0.max(1));
+        let cell_height = u32::from(self.cell_pixels.1.max(1));
+        let input = MouseInput {
+            action: MouseAction::Motion,
+            button: None,
+            mods: Self::ghostty_mouse_mods(modifiers),
+            position: (
+                (x as f32 - content.x as f32 + 0.5) * cell_width as f32,
+                (y as f32 - content.y as f32 + 0.5) * cell_height as f32,
+            ),
+            screen_size: (
+                u32::from(content.width).saturating_mul(cell_width),
+                u32::from(content.height).saturating_mul(cell_height),
+            ),
+            cell_size: (cell_width, cell_height),
+            any_button_pressed,
+        };
+
+        self.encode_buf.clear();
+        let Some(encoded) = surface.with_terminal_if_uncontended(|terminal| {
+            if !terminal.mouse_tracking() {
+                return None;
+            }
+            self.mouse_encoder.sync_from_terminal(terminal);
+            Some(self.mouse_encoder.encode(input, &mut self.encode_buf))
+        }) else {
+            // Motion is coalescible. Drop a sample that races terminal
+            // parsing while the normal cmux hover bookkeeping continues.
+            return true;
+        };
+        let Some(encoded) = encoded else { return false };
+        if encoded.is_err() || self.encode_buf.is_empty() {
+            return true;
+        }
+        let _ = self.write_encoded_pty_bytes(surface_id, surface, PtyInputKind::Motion);
         true
     }
 
@@ -6667,6 +6726,46 @@ mod tests {
         assert!(app.selection.is_some());
         assert!(matches!(app.drag, Some(Drag::Select { .. })));
 
+        mux.close_surface(surface.id);
+    }
+
+    #[test]
+    fn pointer_motion_does_not_wait_for_terminal_parsing() {
+        let mux = Mux::new(
+            "mouse-motion-lock-test",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    "sleep 30".to_string(),
+                ]),
+                ..Default::default()
+            },
+        );
+        let surface = mux.new_workspace(None, Some((20, 8))).unwrap();
+        let held_surface = surface.clone();
+        let (locked_tx, locked_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let holder = std::thread::spawn(move || {
+            held_surface.with_terminal(|_| {
+                locked_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
+            });
+        });
+        locked_rx.recv().unwrap();
+
+        let mut app = test_app(Session::Local(mux.clone()));
+        assert!(app.forward_pty_mouse_motion_if_uncontended(
+            surface.id,
+            Rect { x: 2, y: 3, width: 20, height: 8 },
+            6,
+            5,
+            KeyModifiers::NONE,
+            false,
+        ));
+
+        release_tx.send(()).unwrap();
+        holder.join().unwrap();
         mux.close_surface(surface.id);
     }
 

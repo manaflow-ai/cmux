@@ -248,7 +248,7 @@ Payload:
 object{event:"surface-resize-failed",surface:Id,cols:uint16,rows:uint16,error:string,retry_after_ms:uint64|null}
 ```
 
-Meaning: An accepted asynchronous browser resize failed. A numeric `retry_after_ms` is the delay before the session retries the same geometry. `null` means automatic retries are exhausted; a new geometry request or browser reconnection may retry it.
+Meaning: An accepted asynchronous browser resize failed. A numeric `retry_after_ms` is the delay before the requesting client retries the same geometry. `null` means automatic retries are exhausted; a new geometry request or browser reconnection may retry it. The event is broadcast, so subscribers that did not request this geometry must not echo it.
 
 Example:
 

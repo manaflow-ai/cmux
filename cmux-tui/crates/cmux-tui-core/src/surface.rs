@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{
     Receiver, RecvError, RecvTimeoutError, SyncSender, TryRecvError, TrySendError,
 };
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex, TryLockError, Weak};
 use std::time::Duration;
 
 use ghostty_vt::{Callbacks, CursorShape, RenderState, Rgb, Terminal};
@@ -602,6 +602,18 @@ impl Surface {
     pub fn with_terminal<R>(&self, f: impl FnOnce(&mut Terminal) -> R) -> Option<R> {
         let pty = self.as_pty()?;
         Some(f(&mut pty.term.lock().unwrap()))
+    }
+
+    /// Run `f` only when the terminal state is immediately available.
+    /// High-frequency input paths use this to drop coalescible samples instead
+    /// of parking the UI loop behind PTY parsing or replay generation.
+    pub fn with_terminal_if_uncontended<R>(&self, f: impl FnOnce(&mut Terminal) -> R) -> Option<R> {
+        let pty = self.as_pty()?;
+        match pty.term.try_lock() {
+            Ok(mut term) => Some(f(&mut term)),
+            Err(TryLockError::Poisoned(error)) => Some(f(&mut error.into_inner())),
+            Err(TryLockError::WouldBlock) => None,
+        }
     }
 
     pub fn try_with_terminal<R>(&self, f: impl FnOnce(&mut Terminal) -> R) -> anyhow::Result<R> {

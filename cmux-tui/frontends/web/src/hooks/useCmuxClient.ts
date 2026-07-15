@@ -184,6 +184,12 @@ export function useCmuxClient() {
                 queueSurfaceTitle(changed.surface, changed.title);
               }
             }
+            // This frontend passes only live PTY tabs to useAttachedTerminal;
+            // browser tabs render the unsupported placeholder and never call
+            // resizeSurface. A surface-resize-failed broadcast therefore
+            // belongs to another client and must not be echoed into a
+            // multi-client retry loop. Browser rendering must add explicit
+            // per-client geometry ownership before handling that event.
             if (["tree-changed", "layout-changed", "surface-resized", "surface-exited"].includes(event.event)) {
               discardPendingSurfaceTitles();
               await refresh();
