@@ -40,26 +40,6 @@ private struct FixedMemoryPressureFootprintSampler: MemoryPressureFootprintSampl
     }
 }
 
-@MainActor
-private final class RecordingAppMemoryMonitoringServices: AppMemoryMonitoringServices {
-    private(set) var eventDrivenMonitorStartCount = 0
-
-    func startEventDrivenMemoryPressureMonitoring() {
-        eventDrivenMonitorStartCount += 1
-    }
-}
-
-@MainActor
-struct AppMemoryMonitoringStartupTests {
-    @Test func startsEventDrivenPressureMonitor() {
-        let services = RecordingAppMemoryMonitoringServices()
-
-        AppMemoryMonitoringStartup(services: services).start()
-
-        #expect(services.eventDrivenMonitorStartCount == 1)
-    }
-}
-
 struct MemoryPressureStateTrackerTests {
     @Test func footprintThresholdsMapToSeverity() {
         let thresholds = MemoryPressureFootprintThresholds(

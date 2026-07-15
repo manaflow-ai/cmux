@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 
-nonisolated struct CmuxTopResourceSummary: Sendable {
+struct CmuxTopResourceSummary: Sendable {
     var cpuPercent: Double = 0
     var memoryBytes: Int64 = 0
     var residentBytes: Int64 = 0
@@ -45,7 +45,7 @@ nonisolated struct CmuxTopResourceSummary: Sendable {
     }
 }
 
-nonisolated enum CmuxTopProcessMemorySource: String, Sendable {
+enum CmuxTopProcessMemorySource: String, Sendable {
     case physicalFootprint = "proc_pid_rusage.RUSAGE_INFO_V4.ri_phys_footprint"
     case residentSize = "proc_pidinfo.PROC_PIDTASKINFO.pti_resident_size"
     case rusageResidentSize = "proc_pid_rusage.RUSAGE_INFO_V4.ri_resident_size"
@@ -53,7 +53,7 @@ nonisolated enum CmuxTopProcessMemorySource: String, Sendable {
     case unavailable
 }
 
-nonisolated struct CmuxTopProcessInfo: Sendable {
+struct CmuxTopProcessInfo: Sendable {
     let pid: Int
     let parentPID: Int
     let name: String
@@ -117,7 +117,7 @@ nonisolated struct CmuxTopProcessInfo: Sendable {
     }
 }
 
-nonisolated struct CmuxTopProcessScope: Sendable, Equatable {
+struct CmuxTopProcessScope: Sendable, Equatable {
     let workspaceID: UUID?
     let surfaceID: UUID?
     let attributionReason: String
@@ -129,9 +129,8 @@ nonisolated struct CmuxTopProcessScope: Sendable, Equatable {
     }
 }
 
-nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
+final class CmuxTopProcessSnapshot: @unchecked Sendable {
     let sampledAt: Date
-    let isComplete: Bool
     private let includesProcessDetails: Bool
     private let includesCMUXScope: Bool
     let processesByPID: [Int: CmuxTopProcessInfo]
@@ -144,36 +143,14 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         includeProcessDetails: Bool = false,
         includeCMUXScope: Bool = true
     ) -> CmuxTopProcessSnapshot {
-        let capture = allProcessesWithPerformanceProof(
-            includeProcessDetails: includeProcessDetails,
-            includeCMUXScope: includeCMUXScope
-        )
-        return CmuxTopProcessSnapshot(
-            processes: capture.processes,
+        CmuxTopProcessSnapshot(
+            processes: allProcesses(
+                includeProcessDetails: includeProcessDetails,
+                includeCMUXScope: includeCMUXScope
+            ),
             sampledAt: Date(),
             includesProcessDetails: includeProcessDetails,
-            includesCMUXScope: includeCMUXScope,
-            isComplete: capture.isComplete
-        )
-    }
-
-    static func captureWithPerformanceProof(
-        includeProcessDetails: Bool = false,
-        includeCMUXScope: Bool = true
-    ) -> (snapshot: CmuxTopProcessSnapshot, proof: ProcessPerformanceCaptureProof) {
-        let capture = allProcessesWithPerformanceProof(
-            includeProcessDetails: includeProcessDetails,
-            includeCMUXScope: includeCMUXScope
-        )
-        return (
-            CmuxTopProcessSnapshot(
-                processes: capture.processes,
-                sampledAt: Date(),
-                includesProcessDetails: includeProcessDetails,
-                includesCMUXScope: includeCMUXScope,
-                isComplete: capture.isComplete
-            ),
-            capture.proof
+            includesCMUXScope: includeCMUXScope
         )
     }
 
@@ -181,11 +158,9 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         processes: [CmuxTopProcessInfo],
         sampledAt: Date,
         includesProcessDetails: Bool,
-        includesCMUXScope: Bool = true,
-        isComplete: Bool = true
+        includesCMUXScope: Bool = true
     ) {
         self.sampledAt = sampledAt
-        self.isComplete = isComplete
         self.includesProcessDetails = includesProcessDetails
         self.includesCMUXScope = includesCMUXScope
         var processMap: [Int: CmuxTopProcessInfo] = [:]
@@ -229,8 +204,7 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             "resident_memory_sources": residentMemorySourceNames,
             "resident_memory_fallback_source": CmuxTopProcessMemorySource.rusageResidentSize.rawValue,
             "process_details": includesProcessDetails,
-            "cmux_scope": includesCMUXScope,
-            "complete": isComplete
+            "cmux_scope": includesCMUXScope
         ]
     }
 
@@ -301,12 +275,48 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         var result: Set<Int> = includeRoot && processesByPID[rootPID] != nil ? [rootPID] : []
         var visited: Set<Int> = []
         var stack = childrenByParentPID[rootPID] ?? []
+        stack.append(contentsOf: Self.listedChildPIDs(parentPID: rootPID))
         while let pid = stack.popLast() {
             guard visited.insert(pid).inserted else { continue }
             guard result.insert(pid).inserted else { continue }
             stack.append(contentsOf: childrenByParentPID[pid] ?? [])
+            stack.append(contentsOf: Self.listedChildPIDs(parentPID: pid))
         }
         return result
+    }
+
+    private static func listedChildPIDs(parentPID: Int) -> [Int] {
+        guard parentPID > 0 else { return [] }
+
+        let pidStride = MemoryLayout<pid_t>.stride
+        var capacity = 16
+        var lastChildren: [Int] = []
+        for _ in 0..<4 {
+            var pids = Array(repeating: pid_t(), count: capacity)
+            let returnedCount = pids.withUnsafeMutableBufferPointer { buffer in
+                proc_listchildpids(
+                    pid_t(parentPID),
+                    buffer.baseAddress,
+                    Int32(buffer.count * pidStride)
+                )
+            }
+            guard returnedCount >= 0 else {
+                return lastChildren
+            }
+
+            let count = min(pids.count, Int(returnedCount))
+            lastChildren = pids
+                .prefix(count)
+                .compactMap { pid in
+                    let intPID = Int(pid)
+                    return intPID > 0 ? intPID : nil
+                }
+            if Int(returnedCount) < pids.count {
+                return lastChildren
+            }
+            capacity = max(pids.count * 2, Int(returnedCount) + 16)
+        }
+        return lastChildren
     }
 
     func summaryPayload(for pids: Set<Int>, rootPIDs: Set<Int> = []) -> [String: Any] {
