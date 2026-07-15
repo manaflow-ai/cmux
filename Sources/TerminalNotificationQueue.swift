@@ -212,9 +212,19 @@ final class TerminalMutationBus: @unchecked Sendable {
     ) -> ReliableTerminalNotificationEnqueueResult {
         lock.lock()
         reliablyWaitingNotificationProducerCount += 1
+        let deadline = Date(timeIntervalSinceNow: Self.notificationCapacityWaitTimeout)
         while pending.count - pendingHead >= Self.maximumPendingMutationCount,
               reliableAdmissionsById[admissionToken.id] != nil {
-            lock.wait()
+            guard lock.wait(until: deadline) else {
+                if pending.count - pendingHead >= Self.maximumPendingMutationCount,
+                   reliableAdmissionsById[admissionToken.id] != nil {
+                    reliableAdmissionsById.removeValue(forKey: admissionToken.id)
+                    reliablyWaitingNotificationProducerCount -= 1
+                    lock.unlock()
+                    return .saturated
+                }
+                break
+            }
         }
         reliablyWaitingNotificationProducerCount -= 1
         guard let admission = reliableAdmissionsById.removeValue(forKey: admissionToken.id) else {
