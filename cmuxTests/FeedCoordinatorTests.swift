@@ -31,6 +31,42 @@ struct FeedCoordinatorTests {
         #expect(!FeedSurfaceBridge.isLegacyPackagedFeedURL(URL(string: "https://example.com/feed.html")))
     }
 
+    @Test func restoredFeedSnapshotsRetainTheirNativeCapability() {
+        let feedSnapshot = SessionBrowserPanelSnapshot(
+            urlString: "cmux-diff-viewer://bundled-feed-surface/feed.html",
+            profileID: nil,
+            shouldRenderWebView: true,
+            pageZoom: 1,
+            developerToolsVisible: false,
+            backHistoryURLStrings: nil,
+            forwardHistoryURLStrings: nil,
+            diffViewerToken: CmuxDiffViewerURLSchemeHandler.bundledFeedToken,
+            diffViewerRequestPath: "/feed.html"
+        )
+        let normalSnapshot = SessionBrowserPanelSnapshot(
+            urlString: "https://example.com",
+            profileID: nil,
+            shouldRenderWebView: true,
+            pageZoom: 1,
+            developerToolsVisible: false,
+            backHistoryURLStrings: nil,
+            forwardHistoryURLStrings: nil
+        )
+        let legacySnapshot = SessionBrowserPanelSnapshot(
+            urlString: "file:///Applications/cmux.app/Contents/Resources/markdown-viewer/webviews-app/feed.html",
+            profileID: nil,
+            shouldRenderWebView: true,
+            pageZoom: 1,
+            developerToolsVisible: false,
+            backHistoryURLStrings: nil,
+            forwardHistoryURLStrings: nil
+        )
+
+        #expect(BrowserNativeCapability.restored(from: feedSnapshot) == [.feed])
+        #expect(BrowserNativeCapability.restored(from: legacySnapshot) == [.feed])
+        #expect(BrowserNativeCapability.restored(from: normalSnapshot).isEmpty)
+    }
+
     @Test func bundledFeedAssetsUseZlibDecompression() throws {
         let compressed = Data([
             0x78, 0xda, 0x4b, 0xce, 0xcf, 0x2b, 0xce, 0xcf, 0x49,

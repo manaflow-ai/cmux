@@ -1844,6 +1844,15 @@ enum BrowserInsecureHTTPNavigationResolution {
 
 enum BrowserNativeCapability: Hashable, Sendable {
     case feed
+
+    static func restored(from snapshot: SessionBrowserPanelSnapshot?) -> Set<Self> {
+        guard let snapshot else { return [] }
+        if snapshot.diffViewerToken == CmuxDiffViewerURLSchemeHandler.bundledFeedToken {
+            return [.feed]
+        }
+        let restoredURL = snapshot.urlString.flatMap(URL.init(string:))
+        return FeedSurfaceBridge.isLegacyPackagedFeedURL(restoredURL) ? [.feed] : []
+    }
 }
 
 final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
