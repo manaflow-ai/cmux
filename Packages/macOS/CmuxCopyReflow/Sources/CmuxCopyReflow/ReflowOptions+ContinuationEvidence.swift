@@ -46,9 +46,16 @@ extension ReflowOptions {
     /// Indented code/traceback records use indentation structurally, not as
     /// paragraph wrap continuation.
     func looksLikeStructuredIndentedCode(_ current: String, after previous: String) -> Bool {
-        let trimmed = current.trimmingLeadingWhitespaceForReflow()
+        lineLooksLikeStructuredCode(previous) || lineLooksLikeStructuredCode(current)
+    }
+
+    /// A continuation boundary is code-shaped when either physical line has
+    /// syntax that uses indentation structurally. Checking both sides prevents
+    /// a plain-looking continuation from absorbing a code-shaped lead line.
+    func lineLooksLikeStructuredCode(_ s: String) -> Bool {
+        let trimmed = s.trimmingLeadingWhitespaceForReflow()
         guard !trimmed.isEmpty else { return false }
-        if startsStackTraceFrame(previous) { return true }
+        if startsStackTraceFrame(trimmed) { return true }
         if startsCodeKeyword(trimmed) { return true }
         return containsCodeOperator(trimmed)
     }
