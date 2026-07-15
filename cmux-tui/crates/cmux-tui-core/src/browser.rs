@@ -210,7 +210,7 @@ struct BrowserCaptureOptions {
 
 // Two megapixels leave headroom below the 16 MiB transport message cap even
 // for an incompressible RGBA PNG after base64 and JSON encoding.
-const TRANSPORT_SAFE_CAPTURE_MEGAPIXELS: f64 = 2.0;
+pub const TRANSPORT_SAFE_CAPTURE_MEGAPIXELS: f64 = 2.0;
 const DEFAULT_CAPTURE_MEGAPIXELS: f64 = TRANSPORT_SAFE_CAPTURE_MEGAPIXELS;
 const STALL_THRESHOLD: Duration = Duration::from_secs(2);
 const BROWSER_COMMAND_QUEUE_CAPACITY: usize = 64;

@@ -59,6 +59,7 @@ const DEFERRED_INPUT_FIXED_BYTES: usize = 64;
 const BRACKETED_PASTE_MARKER_BYTES: usize = 12;
 const MAX_DEFERRED_INPUT_BYTES: usize = 4 * 1024 * 1024;
 const ROUTING_REFRESH_RETRIES: u8 = 1;
+const BACKGROUND_REFRESH_RETRIES: u8 = 6;
 const APP_EVENT_CAPACITY: usize = 4_096;
 const PTY_FAILURE_CAPACITY: usize = 512;
 
@@ -2433,12 +2434,16 @@ impl App {
         }
     }
 
-    fn schedule_background_refresh_retry(&mut self) {
-        self.background_refresh_attempts =
-            self.background_refresh_attempts.saturating_add(1).min(6);
+    fn schedule_background_refresh_retry(&mut self) -> bool {
+        if self.background_refresh_attempts >= BACKGROUND_REFRESH_RETRIES {
+            self.background_refresh_retry_at = None;
+            return false;
+        }
+        self.background_refresh_attempts += 1;
         let delay_seconds = 1_u64 << u32::from(self.background_refresh_attempts.saturating_sub(1));
         self.background_refresh_retry_at =
             Some(Instant::now() + Duration::from_secs(delay_seconds.min(30)));
+        true
     }
 
     fn retry_background_refresh_if_due(&mut self) {
@@ -3087,8 +3092,14 @@ impl App {
                         true
                     }
                     Err(error) => {
-                        self.status_message = Some(format!("refresh remote tree failed: {error}"));
-                        self.schedule_background_refresh_retry();
+                        let retrying = self.schedule_background_refresh_retry();
+                        self.status_message = Some(if retrying {
+                            format!("refresh remote tree failed; retrying: {error}")
+                        } else {
+                            format!(
+                                "refresh remote tree failed after {BACKGROUND_REFRESH_RETRIES} attempts; automatic retries stopped, reconnect to retry: {error}"
+                            )
+                        });
                         let _ = self.session.take_background_refresh_dirty();
                         false
                     }
@@ -6208,12 +6219,12 @@ fn browser_key_mapping(
 #[cfg(test)]
 mod tests {
     use super::{
-        App, AppEvent, DeferredInput, Drag, MuxTitleIngress, OrderedSession, PaneArea,
-        PendingSessionMutation, PendingSessionMutationState, PtyFailureIngress, RenderAction,
-        Selection, SessionCompletion, SessionCompletionAction, SidebarPluginSyncClaim,
-        SidebarPluginSyncState, SurfaceResizeDecision, browser_content_size_for_rect,
-        browser_hover_forward_allowed, forward_mux_events, pane_parts_for_rect,
-        sidebar_plugin_status_settles_passive_claim,
+        App, AppEvent, BACKGROUND_REFRESH_RETRIES, DeferredInput, Drag, MuxTitleIngress,
+        OrderedSession, PaneArea, PendingSessionMutation, PendingSessionMutationState,
+        PtyFailureIngress, RenderAction, Selection, SessionCompletion, SessionCompletionAction,
+        SidebarPluginSyncClaim, SidebarPluginSyncState, SurfaceResizeDecision,
+        browser_content_size_for_rect, browser_hover_forward_allowed, forward_mux_events,
+        pane_parts_for_rect, sidebar_plugin_status_settles_passive_claim,
     };
     use std::collections::{HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
@@ -7441,6 +7452,29 @@ mod tests {
         ))))
         .unwrap();
         assert_eq!(app.deferred_input.len(), 1);
+    }
+
+    #[test]
+    fn background_tree_refresh_stops_after_retry_budget() {
+        let mux = Mux::new("background-refresh-budget-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+
+        for refresh_sequence in 1..=u64::from(BACKGROUND_REFRESH_RETRIES) + 1 {
+            app.handle(AppEvent::RemoteTreeUpdated {
+                refresh_sequence,
+                routing_generation: 0,
+                result: Err("offline".to_string()),
+            })
+            .unwrap();
+        }
+
+        assert_eq!(app.background_refresh_attempts, BACKGROUND_REFRESH_RETRIES);
+        assert!(app.background_refresh_retry_at.is_none());
+        assert!(
+            app.status_message
+                .as_deref()
+                .is_some_and(|message| message.contains("automatic retries stopped, reconnect"))
+        );
     }
 
     #[test]

@@ -55,7 +55,7 @@ pub struct SurfaceOptions {
     pub browser_ephemeral: bool,
     /// Maximum browser capture size before downscaling, in megapixels.
     pub browser_max_capture_megapixels: f64,
-    /// Optional fixed browser capture scale, where 1.0 captures at pane pixels.
+    /// Optional maximum browser capture scale, further reduced to honor the megapixel cap.
     pub browser_capture_scale: Option<f64>,
 }
 
@@ -79,7 +79,7 @@ impl Default for SurfaceOptions {
             browser_mode: BrowserMode::Headful,
             browser_session_name: "default".to_string(),
             browser_ephemeral: false,
-            browser_max_capture_megapixels: 2.0,
+            browser_max_capture_megapixels: crate::browser::TRANSPORT_SAFE_CAPTURE_MEGAPIXELS,
             browser_capture_scale: None,
         }
     }

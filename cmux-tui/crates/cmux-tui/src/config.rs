@@ -104,6 +104,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use cmux_tui_core::BrowserMode;
 use cmux_tui_core::SidebarPluginOptions;
 use cmux_tui_core::SurfaceOptions;
+use cmux_tui_core::TRANSPORT_SAFE_CAPTURE_MEGAPIXELS;
 use cmux_tui_core::platform;
 use cmux_tui_core::{DefaultColors, Rgb};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -581,7 +582,7 @@ impl Default for Browser {
             discover_ports: vec![9222],
             user_data_dir: None,
             ephemeral: false,
-            max_capture_megapixels: 2.0,
+            max_capture_megapixels: TRANSPORT_SAFE_CAPTURE_MEGAPIXELS,
             capture_scale: None,
         }
     }
@@ -1154,11 +1155,14 @@ pub fn load() -> Config {
         config.browser.ephemeral = ephemeral;
     }
     if let Some(megapixels) = raw.browser.max_capture_megapixels {
-        if megapixels.is_finite() && megapixels > 0.0 {
+        if megapixels.is_finite()
+            && megapixels > 0.0
+            && megapixels <= TRANSPORT_SAFE_CAPTURE_MEGAPIXELS
+        {
             config.browser.max_capture_megapixels = megapixels;
         } else {
             eprintln!(
-                "cmux-tui: ignoring browser.max_capture_megapixels={megapixels:?}; expected > 0"
+                "cmux-tui: ignoring browser.max_capture_megapixels={megapixels:?}; expected 0 < value <= {TRANSPORT_SAFE_CAPTURE_MEGAPIXELS}"
             );
         }
     }
@@ -1862,13 +1866,22 @@ mod tests {
         let path = dir.join("mux.json");
         std::fs::write(
             &path,
-            r##"{"browser": {"max_capture_megapixels": 3.5, "capture_scale": 0.5}}"##,
+            r##"{"browser": {"max_capture_megapixels": 1.5, "capture_scale": 0.5}}"##,
         )
         .unwrap();
         // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
         unsafe { std::env::set_var("CMUX_MUX_CONFIG", &path) };
         let config = load();
-        assert_eq!(config.browser.max_capture_megapixels, 3.5);
+        assert_eq!(config.browser.max_capture_megapixels, 1.5);
+        assert_eq!(config.browser.capture_scale, Some(0.5));
+
+        std::fs::write(
+            &path,
+            r##"{"browser": {"max_capture_megapixels": 3.5, "capture_scale": 0.5}}"##,
+        )
+        .unwrap();
+        let config = load();
+        assert_eq!(config.browser.max_capture_megapixels, TRANSPORT_SAFE_CAPTURE_MEGAPIXELS);
         assert_eq!(config.browser.capture_scale, Some(0.5));
 
         std::fs::write(
