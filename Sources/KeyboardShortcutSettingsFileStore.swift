@@ -133,11 +133,13 @@ final class CmuxSettingsFileStore {
         }
     }
 
-    func reload(notifyShortcutSettingsEvenIfUnchanged: Bool = false) {
+    /// Returns whether the reload posted `didChangeNotification`, so callers
+    /// that must guarantee a notification can post one without double-firing.
+    @discardableResult
+    func reload() -> Bool {
         reload(
             applyLiveDefaultSideEffects: true,
-            synchronizeManagedAppearanceTerminalTheme: true,
-            notifyShortcutSettingsEvenIfUnchanged: notifyShortcutSettingsEvenIfUnchanged
+            synchronizeManagedAppearanceTerminalTheme: true
         )
     }
 
@@ -145,11 +147,11 @@ final class CmuxSettingsFileStore {
         applyManagedDefaultBatchSideEffects(drainDeferredManagedDefaultSideEffects())
     }
 
+    @discardableResult
     private func reload(
         applyLiveDefaultSideEffects: Bool,
-        synchronizeManagedAppearanceTerminalTheme: Bool,
-        notifyShortcutSettingsEvenIfUnchanged: Bool = false
-    ) {
+        synchronizeManagedAppearanceTerminalTheme: Bool
+    ) -> Bool {
         let previousState = synchronized {
             (
                 shortcuts: shortcutsByAction,
@@ -180,12 +182,13 @@ final class CmuxSettingsFileStore {
         }
         saveImportedManagedDefaults(resolved.managedUserDefaults)
 
-        if notifyShortcutSettingsEvenIfUnchanged
-            || previousState.shortcuts != resolved.shortcuts
+        if previousState.shortcuts != resolved.shortcuts
             || previousState.whenClauses != resolved.whenClauses
             || previousState.sourcePath != resolved.path {
             KeyboardShortcutSettings.notifySettingsFileDidChange(center: notificationCenter)
+            return true
         }
+        return false
     }
 
     func override(for action: KeyboardShortcutSettings.Action) -> StoredShortcut? {

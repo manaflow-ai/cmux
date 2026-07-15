@@ -93,9 +93,13 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func notifyShortcutSettingsDidChange() {
-        KeyboardShortcutSettings.settingsFileStore.reload(
-            notifyShortcutSettingsEvenIfUnchanged: true
-        )
+        // reload() already posts didChangeNotification when the file's
+        // contents changed; posting again here double-notified every
+        // listener. Only post when the reload saw no change, so callers
+        // still get exactly one notification either way.
+        if !KeyboardShortcutSettings.settingsFileStore.reload() {
+            KeyboardShortcutSettings.notifySettingsFileDidChange()
+        }
     }
 
     func applyLanguageOverride(_ language: AppLanguage) {
