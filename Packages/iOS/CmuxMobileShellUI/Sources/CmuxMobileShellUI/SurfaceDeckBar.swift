@@ -45,21 +45,24 @@ struct SurfaceDeckBar: View, Equatable {
         .padding(.horizontal, 8)
         .padding(.top, 4)
         .padding(.bottom, 6)
+        // The deck is terminal chrome: it extends the terminal's themed
+        // background under the glass pills (and into the home-indicator
+        // region), so the light theme foreground stays readable instead of
+        // landing on the system background.
+        .background(
+            TerminalPalette.background
+                .ignoresSafeArea(edges: .bottom)
+        )
         .accessibilityElement(children: .contain)
         .accessibilityLabel(L10n.string("mobile.surfaceDeck.label", defaultValue: "Workspace surfaces"))
         .accessibilityIdentifier("MobileSurfaceDeck")
     }
 
-    @ViewBuilder
+    // No shared GlassEffectContainer here: it composites the pills' glass
+    // above the scroll view's clip, so scrolled-away chips bleed under the
+    // fixed trailing controls. Each pill/circle carries its own glass.
     private var deckSurface: some View {
-        if #available(iOS 26.0, *) {
-            GlassEffectContainer(spacing: 8) {
-                deckContent
-            }
-        } else {
-            deckContent
-                .background(.bar)
-        }
+        deckContent
     }
 
     private var deckContent: some View {
@@ -153,6 +156,7 @@ struct SurfaceDeckBar: View, Equatable {
                 Button(action: actions.presentPaneMap) {
                     Image(systemName: "rectangle.split.2x2")
                         .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(TerminalPalette.foreground)
                         .frame(width: 32, height: 32)
                         .mobileGlassCircle()
                 }
@@ -183,6 +187,7 @@ struct SurfaceDeckBar: View, Equatable {
             } label: {
                 Image(systemName: "plus")
                     .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(TerminalPalette.foreground)
                     .frame(width: 32, height: 32)
                     .mobileGlassCircle()
             }

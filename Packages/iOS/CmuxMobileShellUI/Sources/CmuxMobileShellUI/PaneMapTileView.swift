@@ -84,32 +84,42 @@ struct PaneMapTileView: View {
         ScrollView(.horizontal) {
             HStack(spacing: 3) {
                 ForEach(pane.surfaces, id: \.id) { surface in
+                    let isSelectedTab = surface.id == selectedSurface?.id
                     Button {
                         selectPreviewSurface(surface.id)
                     } label: {
-                        Capsule()
-                            .fill(
-                                surface.id == selectedSurface?.id
-                                    ? TerminalPalette.foreground.opacity(0.72)
-                                    : .clear
+                        Text(surface.title)
+                            .font(.system(size: 9, weight: .semibold))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .foregroundStyle(
+                                isSelectedTab
+                                    ? TerminalPalette.background
+                                    : TerminalPalette.foreground.opacity(0.85)
                             )
-                            .overlay {
-                                Capsule().stroke(TerminalPalette.foreground.opacity(0.28), lineWidth: 1)
-                            }
-                            .frame(width: 16, height: 5)
-                            .frame(width: 24, height: 14)
-                            .contentShape(Rectangle())
+                            .padding(.horizontal, 7)
+                            .frame(height: 14)
+                            .frame(minWidth: 22, maxWidth: 88)
+                            .background(
+                                Capsule().fill(
+                                    isSelectedTab
+                                        ? TerminalPalette.foreground.opacity(0.85)
+                                        : TerminalPalette.foreground.opacity(0.10)
+                                )
+                            )
+                            .contentShape(Capsule())
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(surface.title)
-                    .accessibilityAddTraits(surface.id == selectedSurface?.id ? .isSelected : [])
+                    .accessibilityAddTraits(isSelectedTab ? .isSelected : [])
                     .accessibilityIdentifier("MobilePaneMapTab-\(surface.id)")
                 }
             }
             .padding(.horizontal, 6)
         }
         .scrollIndicators(.hidden)
-        .frame(height: 14)
+        .frame(height: 16)
+        .padding(.bottom, 2)
     }
 
     @ViewBuilder
@@ -190,7 +200,7 @@ struct PaneMapTileView: View {
         guard columns > 0, lineCount > 0 else { return 5 }
         let widthFit = availableSize.width / (CGFloat(columns) * 0.62)
         let heightFit = availableSize.height / (CGFloat(lineCount) * 1.12)
-        return min(7, max(5, min(widthFit, heightFit)))
+        return min(9, max(5, min(widthFit, heightFit)))
     }
 
     private func statusColor(_ kind: ChatAgentStateKind) -> Color {

@@ -163,16 +163,15 @@ struct PaneMapOverlay: View {
     }
 
     private func aspectFitCanvas(in size: CGSize) -> CGRect {
-        let availableWidth = max(0, size.width - 32)
-        let availableHeight = max(0, size.height - 32)
-        let targetAspectRatio: CGFloat = 16 / 10
-        let width = min(availableWidth, availableHeight * targetAspectRatio)
-        let height = min(availableHeight, availableWidth / targetAspectRatio)
-        return CGRect(
-            x: (size.width - width) / 2,
-            y: (size.height - height) / 2,
-            width: width,
-            height: height
+        // Fill the available space rather than forcing the Mac window's
+        // landscape aspect: the split RATIOS carry the structural mental
+        // model, and on a portrait phone larger tiles (more readable
+        // previews) are worth more than aspect fidelity.
+        CGRect(
+            x: 16,
+            y: 8,
+            width: max(0, size.width - 32),
+            height: max(0, size.height - 24)
         )
     }
 
