@@ -66,18 +66,29 @@ final class ChatArtifactViewerModel {
 
             switch route {
             case .text:
-                try await streamText(path: path, isMarkdown: false, loader: loader)
+                try await streamText(
+                    path: path,
+                    stat: loadedStat,
+                    isMarkdown: false,
+                    loader: loader
+                )
             case .markdown:
                 markdownPresentation = ChatArtifactMarkdownPresentation(
                     byteCount: loadedStat.size
                 )
-                try await streamText(path: path, isMarkdown: true, loader: loader)
+                try await streamText(
+                    path: path,
+                    stat: loadedStat,
+                    isMarkdown: true,
+                    loader: loader
+                )
             case .image:
-                try await loadImage(path: path, loader: loader)
+                try await loadImage(path: path, stat: loadedStat, loader: loader)
             case .pdf:
                 if let fileURL = try await loadTemporaryFile(
                     path: path,
                     expectedSize: loadedStat.size,
+                    modifiedAt: loadedStat.modifiedAt,
                     limit: limit,
                     fallbackExtension: "pdf",
                     loader: loader
@@ -88,6 +99,7 @@ final class ChatArtifactViewerModel {
                 if let fileURL = try await loadTemporaryFile(
                     path: path,
                     expectedSize: loadedStat.size,
+                    modifiedAt: loadedStat.modifiedAt,
                     limit: limit,
                     fallbackExtension: nil,
                     loader: loader
@@ -98,6 +110,7 @@ final class ChatArtifactViewerModel {
                 if let fileURL = try await loadTemporaryFile(
                     path: path,
                     expectedSize: loadedStat.size,
+                    modifiedAt: loadedStat.modifiedAt,
                     limit: limit,
                     fallbackExtension: nil,
                     loader: loader
@@ -148,11 +161,16 @@ final class ChatArtifactViewerModel {
 
     private func streamText(
         path: String,
+        stat: ChatArtifactStat,
         isMarkdown: Bool,
         loader: ChatArtifactLoader
     ) async throws {
         let decoder = UTF8ChunkDecoder()
-        try await loader.stream(path: path) { chunk in
+        try await loader.stream(
+            path: path,
+            modifiedAt: stat.modifiedAt,
+            size: stat.size
+        ) { chunk in
             try Task.checkCancellation()
             let decoded = try await decoder.decode(chunk.data, eof: chunk.eof)
             try Task.checkCancellation()
@@ -181,9 +199,17 @@ final class ChatArtifactViewerModel {
         state = isMarkdown ? .markdown : .text
     }
 
-    private func loadImage(path: String, loader: ChatArtifactLoader) async throws {
+    private func loadImage(
+        path: String,
+        stat: ChatArtifactStat,
+        loader: ChatArtifactLoader
+    ) async throws {
         let accumulator = ChatArtifactDataAccumulator()
-        try await loader.stream(path: path) { chunk in
+        try await loader.stream(
+            path: path,
+            modifiedAt: stat.modifiedAt,
+            size: stat.size
+        ) { chunk in
             try Task.checkCancellation()
             await accumulator.append(chunk.data, totalSize: chunk.totalSize)
             await self.receiveNonTextProgress(chunk: chunk, path: path)
@@ -197,6 +223,7 @@ final class ChatArtifactViewerModel {
     private func loadTemporaryFile(
         path: String,
         expectedSize: Int64,
+        modifiedAt: Date?,
         limit: Int64,
         fallbackExtension: String?,
         loader: ChatArtifactLoader
@@ -204,6 +231,7 @@ final class ChatArtifactViewerModel {
         let fileURL = try await temporaryFileStore.fetch(
             path: path,
             expectedSize: expectedSize,
+            modifiedAt: modifiedAt,
             limit: limit,
             fallbackExtension: fallbackExtension,
             loader: loader

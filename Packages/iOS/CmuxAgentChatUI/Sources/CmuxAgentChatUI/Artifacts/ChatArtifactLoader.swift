@@ -93,6 +93,7 @@ public struct ChatArtifactLoader: Sendable {
     private let thumbnailHandler: @Sendable (_ path: String, _ maxDimension: Int) async throws -> ChatArtifactThumbnail
     private let listHandler: @Sendable (_ path: String) async throws -> ChatArtifactDirectoryListing
     private let thumbnailCache: ChatArtifactThumbnailCache
+    private let contentCache: ChatArtifactContentCache
 
     /// Creates a closure-backed artifact loader.
     ///
@@ -101,6 +102,7 @@ public struct ChatArtifactLoader: Sendable {
     ///   - supportsDirectoryBrowsing: Whether directory stat results may be listed.
     ///   - scope: Cache and authorization namespace for this loader.
     ///   - cache: Thumbnail cache shared by rows and viewers.
+    ///   - contentCache: Full-content cache shared by viewer routes.
     ///   - stat: Metadata operation for an absolute host path.
     ///   - fetch: Whole-file operation retained for image and compatibility callers.
     ///   - stream: Optional structured chunk operation; defaults to one callback
@@ -112,6 +114,7 @@ public struct ChatArtifactLoader: Sendable {
         supportsDirectoryBrowsing: Bool = false,
         scope: ChatArtifactLoaderScope = .unsupported,
         cache: ChatArtifactThumbnailCache = ChatArtifactThumbnailCache(),
+        contentCache: ChatArtifactContentCache = .applicationDefault(),
         stat: @escaping @Sendable (_ path: String) async throws -> ChatArtifactStat = { _ in
             throw ChatArtifactError.unsupported
         },
@@ -136,6 +139,7 @@ public struct ChatArtifactLoader: Sendable {
         self.supportsDirectoryBrowsing = supportsDirectoryBrowsing
         self.scope = scope
         self.thumbnailCache = cache
+        self.contentCache = contentCache
         statHandler = stat
         fetchHandler = fetch
         streamHandler = stream ?? { path, onChunk in
@@ -157,13 +161,15 @@ public struct ChatArtifactLoader: Sendable {
     public init(
         source: any ChatEventSource,
         sessionID: String,
-        cache: ChatArtifactThumbnailCache = ChatArtifactThumbnailCache()
+        cache: ChatArtifactThumbnailCache = ChatArtifactThumbnailCache(),
+        contentCache: ChatArtifactContentCache = .applicationDefault()
     ) {
         self.init(
             supportsArtifacts: source.supportsArtifacts,
             supportsDirectoryBrowsing: source.supportsArtifactFolders,
             scope: .chat(sessionID: sessionID),
             cache: cache,
+            contentCache: contentCache,
             stat: { path in
                 try await source.artifactStat(sessionID: sessionID, path: path)
             },
@@ -194,6 +200,7 @@ public struct ChatArtifactLoader: Sendable {
     ///   - supportsArtifacts: Whether terminal artifact operations are available.
     ///   - supportsDirectoryBrowsing: Whether terminal directory listing is available.
     ///   - cache: Thumbnail cache shared by rows and viewers.
+    ///   - contentCache: Full-content cache shared by viewer routes.
     ///   - stat: Metadata operation for an absolute host path.
     ///   - fetch: Whole-file compatibility operation.
     ///   - stream: Optional structured chunk operation.
@@ -205,6 +212,7 @@ public struct ChatArtifactLoader: Sendable {
         supportsArtifacts: Bool,
         supportsDirectoryBrowsing: Bool = false,
         cache: ChatArtifactThumbnailCache = ChatArtifactThumbnailCache(),
+        contentCache: ChatArtifactContentCache = .applicationDefault(),
         stat: @escaping @Sendable (_ path: String) async throws -> ChatArtifactStat,
         fetch: @escaping @Sendable (
             _ path: String,
@@ -224,6 +232,7 @@ public struct ChatArtifactLoader: Sendable {
             supportsDirectoryBrowsing: supportsDirectoryBrowsing,
             scope: .terminal(workspaceID: terminalWorkspaceID, surfaceID: terminalSurfaceID),
             cache: cache,
+            contentCache: contentCache,
             stat: stat,
             fetch: fetch,
             stream: stream,
@@ -232,8 +241,11 @@ public struct ChatArtifactLoader: Sendable {
         )
     }
 
-    public static func unsupported(cache: ChatArtifactThumbnailCache = ChatArtifactThumbnailCache()) -> ChatArtifactLoader {
-        ChatArtifactLoader(cache: cache)
+    public static func unsupported(
+        cache: ChatArtifactThumbnailCache = ChatArtifactThumbnailCache(),
+        contentCache: ChatArtifactContentCache = .applicationDefault()
+    ) -> ChatArtifactLoader {
+        ChatArtifactLoader(cache: cache, contentCache: contentCache)
     }
 
     public func stat(path: String) async throws -> ChatArtifactStat {
@@ -251,12 +263,33 @@ public struct ChatArtifactLoader: Sendable {
     ///
     /// - Parameters:
     ///   - path: Absolute Mac host path.
+    ///   - modifiedAt: Stat modification time used to invalidate cached bytes.
+    ///   - size: Stat byte size used to validate and invalidate cached bytes.
     ///   - onChunk: Structured callback awaited for each chunk in byte order.
     public func stream(
         path: String,
-        onChunk: @Sendable (ChatArtifactChunk) async throws -> Void
+        modifiedAt: Date? = nil,
+        size: Int64? = nil,
+        onChunk: @escaping @Sendable (ChatArtifactChunk) async throws -> Void
     ) async throws {
-        try await streamHandler(path, onChunk)
+        guard let key = ChatArtifactContentCache.key(
+            scopeKey: scope.cacheNamespace,
+            path: path,
+            modifiedAt: modifiedAt,
+            size: size
+        ), let size else {
+            try await streamHandler(path, onChunk)
+            return
+        }
+        let handler = streamHandler
+        _ = try await contentCache.stream(
+            for: key,
+            expectedSize: size,
+            fetch: { receive in
+                try await handler(path, receive)
+            },
+            receive: onChunk
+        )
     }
 
     public func thumbnail(

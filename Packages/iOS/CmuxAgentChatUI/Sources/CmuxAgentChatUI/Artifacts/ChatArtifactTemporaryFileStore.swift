@@ -24,6 +24,7 @@ actor ChatArtifactTemporaryFileStore {
     func fetch(
         path: String,
         expectedSize: Int64,
+        modifiedAt: Date? = nil,
         limit: Int64,
         fallbackExtension: String? = nil,
         loader: ChatArtifactLoader,
@@ -41,7 +42,11 @@ actor ChatArtifactTemporaryFileStore {
             fileExtension: fileExtension
         )
         do {
-            try await loader.stream(path: path) { chunk in
+            try await loader.stream(
+                path: path,
+                modifiedAt: modifiedAt,
+                size: expectedSize
+            ) { chunk in
                 try Task.checkCancellation()
                 try await writer.append(chunk, limit: limit)
                 await progress(chunk)
