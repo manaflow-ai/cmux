@@ -35,14 +35,16 @@ private final class TerminalNotificationFeedStorage {
 
     func appendNewestEvictingOldest(
         _ notification: TerminalNotification,
+        count evictionCount: Int,
         compactingAfter maxOffset: Int
-    ) -> (evicted: TerminalNotification, replacementStorage: TerminalNotificationFeedStorage?)? {
-        guard count > 0 else {
+    ) -> (evicted: [TerminalNotification], replacementStorage: TerminalNotificationFeedStorage?)? {
+        guard evictionCount > 0 else {
             appendNewest(notification)
-            return nil
+            return ([], nil)
         }
-        let evicted = oldestFirst[startOffset]
-        let nextStartOffset = startOffset + 1
+        guard count >= evictionCount else { return nil }
+        let nextStartOffset = startOffset + evictionCount
+        let evicted = Array(oldestFirst[startOffset..<nextStartOffset])
         if nextStartOffset >= maxOffset {
             var active = Array(oldestFirst[nextStartOffset...])
             active.append(notification)
@@ -494,8 +496,12 @@ final class TerminalNotificationStore: ObservableObject {
 
     private enum NotificationMutationHint {
         case insertion(TerminalNotification)
-        case insertionEvicting(inserted: TerminalNotification, evicted: TerminalNotification)
+        case insertionEvicting(inserted: TerminalNotification, evicted: [TerminalNotification])
         case readState(before: TerminalNotification, after: TerminalNotification)
+    }
+
+    private struct NotificationInsertionCommit {
+        let evicted: [TerminalNotification]
     }
 
     /// Every accepted notification, once per stable id, newest first. Equal
@@ -1334,8 +1340,9 @@ final class TerminalNotificationStore: ObservableObject {
         let supersededExternalIds = externalBannerTransition.suppressIncoming
             ? []
             : bannerOwner.map { [$0.id.uuidString] } ?? []
+        let supersededExternalIdSet = Set(supersededExternalIds)
         let suppressExternalDelivery = shouldSuppressExternalDelivery || externalBannerTransition.suppressIncoming
-        guard commitInsertion(notification, at: insertionIndex) else {
+        guard let insertionCommit = commitInsertion(notification, at: insertionIndex) else {
             restoreCooldownReservation(cooldownReservation)
             return
         }
@@ -1356,6 +1363,10 @@ final class TerminalNotificationStore: ObservableObject {
             externalBannerOwnership.clear(tabId: notification.tabId, surfaceId: notification.surfaceId)
             if !suppressExternalDelivery, effects.desktop { externalBannerOwnership.setOwner(notification) }
         }
+        dismissEvictedExternalBannerOwners(
+            insertionCommit.evicted,
+            excluding: supersededExternalIdSet
+        )
         deliverNotificationSideEffects(
             notification,
             shouldSuppressExternalDelivery: suppressExternalDelivery,
@@ -1364,42 +1375,71 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     @discardableResult
-    private func commitInsertion(_ notification: TerminalNotification, at index: Int) -> Bool {
+    private func commitInsertion(
+        _ notification: TerminalNotification,
+        at index: Int
+    ) -> NotificationInsertionCommit? {
         let notificationBytes = Self.notificationContentByteCount(notification)
-        if index == 0, notifications.count < Self.maximumNotificationFeedCount,
-           notificationFeedContentByteCount + notificationBytes <= Self.maximumNotificationFeedContentBytes {
-            notificationFeedRevision &+= 1
-            notificationFeedStorage.appendNewest(notification)
-            notificationFeedContentByteCount += notificationBytes
-            notificationFeedDidChange(oldValue: nil, mutation: .insertion(notification))
-            return true
-        }
-        if index == 0, notifications.count == Self.maximumNotificationFeedCount,
-           let oldest = notifications.last,
-           notificationFeedContentByteCount
-               - Self.notificationContentByteCount(oldest)
-               + notificationBytes <= Self.maximumNotificationFeedContentBytes,
-           let eviction = notificationFeedStorage.appendNewestEvictingOldest(
-               notification,
-               compactingAfter: Self.notificationFeedCompactionOffset
-           ) {
-            if let replacementStorage = eviction.replacementStorage {
-                notificationFeedStorage = replacementStorage
+        if index == 0 {
+            var bytesAfterInsertion = notificationFeedContentByteCount + notificationBytes
+            var countAfterInsertion = notifications.count + 1
+            var evictionCount = 0
+            var evicted: [TerminalNotification] = []
+            while (countAfterInsertion > Self.maximumNotificationFeedCount
+                   || bytesAfterInsertion > Self.maximumNotificationFeedContentBytes),
+                  evictionCount < notifications.count {
+                let oldest = notifications[notifications.count - evictionCount - 1]
+                evicted.append(oldest)
+                bytesAfterInsertion -= Self.notificationContentByteCount(oldest)
+                countAfterInsertion -= 1
+                evictionCount += 1
             }
-            notificationFeedRevision &+= 1
-            notificationFeedContentByteCount += notificationBytes
-            notificationFeedContentByteCount -= Self.notificationContentByteCount(eviction.evicted)
-            notificationFeedDidChange(
-                oldValue: nil,
-                mutation: .insertionEvicting(inserted: notification, evicted: eviction.evicted)
-            )
-            dismissEvictedExternalBannerOwner(eviction.evicted)
-            return true
+            if countAfterInsertion <= Self.maximumNotificationFeedCount,
+               bytesAfterInsertion <= Self.maximumNotificationFeedContentBytes {
+                notificationFeedRevision &+= 1
+                if evictionCount == 0 {
+                    notificationFeedStorage.appendNewest(notification)
+                } else if let eviction = notificationFeedStorage.appendNewestEvictingOldest(
+                    notification,
+                    count: evictionCount,
+                    compactingAfter: Self.notificationFeedCompactionOffset
+                ) {
+                    evicted = eviction.evicted
+                    if let replacementStorage = eviction.replacementStorage {
+                        notificationFeedStorage = replacementStorage
+                    }
+                } else {
+                    return nil
+                }
+                notificationFeedContentByteCount = bytesAfterInsertion
+                notificationFeedDidChange(
+                    oldValue: nil,
+                    mutation: evicted.isEmpty
+                        ? .insertion(notification)
+                        : .insertionEvicting(inserted: notification, evicted: evicted)
+                )
+                return NotificationInsertionCommit(evicted: evicted)
+            }
         }
         var updated = Array(notifications)
         updated.insert(notification, at: index)
-        replaceNotificationFeed(updated, mutation: .insertion(notification))
+        let evicted = replaceNotificationFeed(
+            updated,
+            mutation: .insertion(notification),
+            dismissEvictedExternalBannerOwners: false
+        )
         return indexes.ids.contains(notification.id)
+            ? NotificationInsertionCommit(evicted: evicted)
+            : nil
+    }
+
+    private func dismissEvictedExternalBannerOwners(
+        _ evicted: [TerminalNotification],
+        excluding ids: Set<String> = []
+    ) {
+        for notification in evicted where !ids.contains(notification.id.uuidString) {
+            dismissEvictedExternalBannerOwner(notification)
+        }
     }
 
     private func dismissEvictedExternalBannerOwner(_ evicted: TerminalNotification) {
@@ -1511,10 +1551,12 @@ final class TerminalNotificationStore: ObservableObject {
         replaceNotificationFeed(updated, mutation: .readState(before: before, after: after))
     }
 
+    @discardableResult
     private func replaceNotificationFeed(
         _ next: [TerminalNotification],
-        mutation: NotificationMutationHint? = nil
-    ) {
+        mutation: NotificationMutationHint? = nil,
+        dismissEvictedExternalBannerOwners shouldDismissEvictedExternalBannerOwners: Bool = true
+    ) -> [TerminalNotification] {
         let previous = Array(notifications)
         let retained = Self.retainedNotificationFeed(from: next)
         notificationFeedRevision &+= 1
@@ -1526,9 +1568,10 @@ final class TerminalNotificationStore: ObservableObject {
             oldValue: previous,
             mutation: retained.evicted.isEmpty ? mutation : nil
         )
-        for evicted in retained.evicted {
-            dismissEvictedExternalBannerOwner(evicted)
+        if shouldDismissEvictedExternalBannerOwners {
+            dismissEvictedExternalBannerOwners(retained.evicted)
         }
+        return retained.evicted
     }
 
     private func notificationFeedDidChange(
@@ -1547,7 +1590,8 @@ final class TerminalNotificationStore: ObservableObject {
                 into: &indexes,
                 notifications: notifications
             )
-            deferredUnreadNavigationIds.removeAll { $0 == evicted.id }
+            let evictedIds = Set(evicted.map(\.id))
+            deferredUnreadNavigationIds.removeAll { evictedIds.contains($0) }
             appliedIncrementally = true
         case .readState(let before, let after):
             appliedIncrementally = Self.updateReadState(
@@ -1567,7 +1611,9 @@ final class TerminalNotificationStore: ObservableObject {
         case .insertion(let inserted):
             CmuxEventBus.shared.publishNotificationCreated(inserted, delivery: "store", replacedNotificationIds: [])
         case .insertionEvicting(let inserted, let evicted):
-            CmuxEventBus.shared.publishNotificationRemoved(evicted)
+            for notification in evicted {
+                CmuxEventBus.shared.publishNotificationRemoved(notification)
+            }
             CmuxEventBus.shared.publishNotificationCreated(inserted, delivery: "store", replacedNotificationIds: [])
         case .readState(let before, let after) where appliedIncrementally:
             if !before.isRead, after.isRead {

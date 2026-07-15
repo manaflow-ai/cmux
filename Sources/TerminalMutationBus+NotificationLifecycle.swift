@@ -256,7 +256,8 @@ extension TerminalMutationBus {
                 allowWorkspaceFallbackForValidatedSurface: notification.allowWorkspaceFallbackForValidatedSurface,
                 title: notification.title,
                 subtitle: notification.subtitle,
-                body: notification.body
+                body: notification.body,
+                contentByteCount: notification.contentByteCount
             ))
         case .clearNotificationsForTab(let tabId, let boundary):
             let routed = notificationKeyFollowingReplacementRoutes(

@@ -381,6 +381,106 @@ final class AgentNotificationReliableDeliveryTests: XCTestCase {
         XCTAssertEqual(results.filter { $0 == .cancelled }.count, 0)
     }
 
+    func testReliableAdmissionTruncatesPayloadBeforeQueueing() async {
+        let bus = TerminalMutationBus.shared
+        let title = String(repeating: "é", count: TerminalNotificationStore.maximumNotificationTitleBytes)
+        let subtitle = String(repeating: "s", count: TerminalNotificationStore.maximumNotificationSubtitleBytes + 128)
+        let body = String(repeating: "b", count: TerminalNotificationStore.maximumNotificationBodyBytes + 128)
+        bus.discardPendingNotifications()
+        bus.setDrainsSuspendedForTesting(true)
+        defer { reset(bus) }
+
+        let result = await AgentNotificationDelivery().enqueueReliably(
+            workspaceID: UUID(),
+            surfaceID: UUID(),
+            title: title,
+            subtitle: subtitle,
+            body: body,
+            category: nil,
+            pending: false
+        )
+
+        XCTAssertEqual(result, .accepted)
+        let queuedTitles = bus.notificationQueueStateForTesting().1
+        XCTAssertEqual(queuedTitles.count, 1)
+        XCTAssertLessThanOrEqual(queuedTitles[0].utf8.count, TerminalNotificationStore.maximumNotificationTitleBytes)
+    }
+
+    func testReliableAdmissionContentByteBudgetRejectsBeforeRetainingBacklog() {
+        let bus = TerminalMutationBus.shared
+        let body = String(repeating: "b", count: TerminalNotificationStore.maximumNotificationBodyBytes)
+        let byteLimitedCount = TerminalMutationBus.maximumQueuedNotificationContentBytes / body.utf8.count
+        bus.discardPendingNotifications()
+        bus.setDrainsSuspendedForTesting(true)
+        defer { reset(bus) }
+
+        for _ in 0..<byteLimitedCount {
+            XCTAssertTrue(bus.enqueueNotification(
+                tabId: UUID(),
+                surfaceId: nil,
+                title: "",
+                subtitle: "",
+                body: body
+            ))
+        }
+
+        let result = AgentNotificationDelivery().enqueueReliablySynchronously(
+            workspaceID: UUID(),
+            surfaceID: UUID(),
+            title: "",
+            subtitle: "",
+            body: body,
+            category: nil,
+            pending: false
+        )
+        bus.lock.lock()
+        let admissionCount = bus.reliableAdmissionsById.count
+        bus.lock.unlock()
+        XCTAssertEqual(result, .saturated)
+        XCTAssertEqual(admissionCount, 0)
+    }
+
+    func testReliableAdmissionDeadlineStartsAtCaptureForBackloggedSubmitters() async {
+        let bus = TerminalMutationBus.shared
+        bus.discardPendingNotifications()
+        bus.setDrainsSuspendedForTesting(true)
+        defer { reset(bus) }
+        for index in 0..<TerminalMutationBus.maximumPendingMutationCount {
+            XCTAssertTrue(bus.enqueueNotification(
+                tabId: UUID(),
+                surfaceId: nil,
+                title: "Seed \(index)",
+                subtitle: "",
+                body: ""
+            ))
+        }
+
+        let startedAt = Date()
+        let deliveries = (0..<4).map { index in
+            Task { @MainActor in
+                await AgentNotificationDelivery().enqueueReliably(
+                    workspaceID: UUID(),
+                    surfaceID: UUID(),
+                    title: "Deadline \(index)",
+                    subtitle: "",
+                    body: "",
+                    category: nil,
+                    pending: false
+                )
+            }
+        }
+
+        var results: [AgentNotificationDeliveryResult] = []
+        for delivery in deliveries {
+            results.append(await delivery.value)
+        }
+
+        XCTAssertEqual(results, Array(repeating: .saturated, count: deliveries.count))
+        XCTAssertLessThan(Date().timeIntervalSince(startedAt), TerminalMutationBus.notificationCapacityWaitTimeout + 1.5)
+        XCTAssertEqual(bus.reliablyWaitingNotificationProducerCountForTesting(), 0)
+        XCTAssertFalse(bus.notificationQueueStateForTesting().1.contains { $0.hasPrefix("Deadline ") })
+    }
+
     func testLiveOwnerRoutesAreBoundedAndRemovable() {
         let bus = TerminalMutationBus.shared
         let staleTabId = UUID()

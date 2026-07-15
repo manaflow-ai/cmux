@@ -401,7 +401,8 @@ private extension TerminalSocketMutation {
                 allowWorkspaceFallbackForValidatedSurface: notification.allowWorkspaceFallbackForValidatedSurface,
                 title: notification.title,
                 subtitle: notification.subtitle,
-                body: notification.body
+                body: notification.body,
+                contentByteCount: notification.contentByteCount
             ))
         case .clearNotificationsForTab(let tabId, let boundary) where tabId == fromTabId:
             return .clearNotificationsForTab(toTabId, through: boundary)

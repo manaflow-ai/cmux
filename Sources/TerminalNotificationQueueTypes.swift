@@ -1,4 +1,5 @@
 import CmuxRemoteSession
+import Dispatch
 import Foundation
 
 enum TerminalNotificationQueueErrorMessages {
@@ -23,6 +24,30 @@ struct QueuedTerminalNotification: Sendable {
     let title: String
     let subtitle: String
     let body: String
+    let contentByteCount: Int
+}
+
+struct QueuedTerminalNotificationPayload: Sendable {
+    let title: String
+    let subtitle: String
+    let body: String
+    let contentByteCount: Int
+}
+
+extension QueuedTerminalNotificationPayload {
+    nonisolated init(normalizingTitle title: String, subtitle: String, body: String) {
+        let normalized = TerminalNotificationStore.normalizedNotificationText(
+            title: title,
+            subtitle: subtitle,
+            body: body
+        )
+        self.title = normalized.title
+        self.subtitle = normalized.subtitle
+        self.body = normalized.body
+        contentByteCount = normalized.title.utf8.count
+            + normalized.subtitle.utf8.count
+            + normalized.body.utf8.count
+    }
 }
 
 struct TerminalNotificationAdmissionToken: Sendable {
@@ -34,7 +59,9 @@ struct ReliableTerminalNotificationAdmission {
     let acceptedAt: Date
     var key: QueuedTerminalNotificationKey
     let allowWorkspaceFallbackForValidatedSurface: Bool
+    let payload: QueuedTerminalNotificationPayload
     let notificationGeneration: UInt64
+    let deadline: DispatchTime
 }
 
 struct TerminalNotificationReplacementRoute {

@@ -29,26 +29,24 @@ final class TerminalNotificationBackpressureTests: XCTestCase {
         let bus = TerminalMutationBus.shared
         let tabId = UUID()
         let surfaceId = UUID()
-        bus.discardPendingNotifications()
+        resetBackpressureQueueState(bus)
         bus.setDrainsSuspendedForTesting(true)
         defer {
-            bus.discardPendingNotifications()
-            bus.drainForTesting()
-            bus.setDrainsSuspendedForTesting(false)
+            resetBackpressureQueueState(bus)
         }
 
         for index in 0..<TerminalMutationBus.maximumPendingMutationCount {
             XCTAssertTrue(bus.enqueueNotification(
                 tabId: tabId,
                 surfaceId: surfaceId,
-                title: "Seed \(index)",
+                title: "",
                 subtitle: "",
                 body: ""
-            ))
+            ), "Seed \(index) should be admitted before the count cap")
         }
 
-        let started = expectation(description: "waiting producers started")
-        started.expectedFulfillmentCount = TerminalMutationBus.maximumWaitingNotificationProducerCount
+        let ready = DispatchGroup()
+        let releaseWaiters = DispatchSemaphore(value: 0)
         let completed = expectation(description: "waiting producers completed")
         completed.expectedFulfillmentCount = TerminalMutationBus.maximumWaitingNotificationProducerCount
         let results = NotificationEnqueueResults()
@@ -57,8 +55,10 @@ final class TerminalNotificationBackpressureTests: XCTestCase {
         )
 
         for index in 0..<TerminalMutationBus.maximumWaitingNotificationProducerCount {
+            ready.enter()
             DispatchQueue.global(qos: .userInitiated).async {
-                started.fulfill()
+                ready.leave()
+                releaseWaiters.wait()
                 results.append(bus.enqueueNotification(
                     tabId: tabId,
                     surfaceId: surfaceId,
@@ -69,13 +69,11 @@ final class TerminalNotificationBackpressureTests: XCTestCase {
                 completed.fulfill()
             }
         }
-        await fulfillment(of: [started], timeout: 2)
-        for _ in 0..<10_000 {
-            if bus.notificationQueueStateForTesting().0 == TerminalMutationBus.maximumWaitingNotificationProducerCount {
-                break
-            }
-            await Task.yield()
+        XCTAssertEqual(ready.wait(timeout: .now() + 2), .success)
+        for _ in 0..<TerminalMutationBus.maximumWaitingNotificationProducerCount {
+            releaseWaiters.signal()
         }
+        XCTAssertTrue(waitForWaitingNotificationProducers(bus, count: TerminalMutationBus.maximumWaitingNotificationProducerCount))
 
         let fullState = bus.notificationQueueStateForTesting()
         XCTAssertEqual(fullState.0, TerminalMutationBus.maximumWaitingNotificationProducerCount)
@@ -100,19 +98,31 @@ final class TerminalNotificationBackpressureTests: XCTestCase {
         XCTAssertEqual(Set(acceptedState.2).count, acceptedState.2.count)
     }
 
+    private func waitForWaitingNotificationProducers(
+        _ bus: TerminalMutationBus,
+        count: Int
+    ) -> Bool {
+        let deadline = Date(timeIntervalSinceNow: TerminalMutationBus.notificationCapacityWaitTimeout / 2)
+        while Date() < deadline {
+            if bus.notificationQueueStateForTesting().0 == count {
+                return true
+            }
+            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.002))
+        }
+        return bus.notificationQueueStateForTesting().0 == count
+    }
+
     func testCapacityWaitExpiresBeforeNotificationAcceptance() async {
         let bus = TerminalMutationBus.shared
-        bus.discardPendingNotifications()
+        resetBackpressureQueueState(bus)
         bus.setDrainsSuspendedForTesting(true)
         defer {
-            bus.discardPendingNotifications()
-            bus.drainForTesting()
-            bus.setDrainsSuspendedForTesting(false)
+            resetBackpressureQueueState(bus)
         }
         for index in 0..<TerminalMutationBus.maximumPendingMutationCount {
             XCTAssertTrue(bus.enqueueNotification(
-                tabId: UUID(), surfaceId: nil, title: "Seed \(index)", subtitle: "", body: ""
-            ))
+                tabId: UUID(), surfaceId: nil, title: "", subtitle: "", body: ""
+            ), "Seed \(index) should be admitted before the count cap")
         }
 
         let completed = expectation(description: "capacity wait expired")
@@ -123,10 +133,7 @@ final class TerminalNotificationBackpressureTests: XCTestCase {
             ))
             completed.fulfill()
         }
-        for _ in 0..<10_000 {
-            if bus.notificationQueueStateForTesting().0 == 1 { break }
-            await Task.yield()
-        }
+        XCTAssertTrue(waitForWaitingNotificationProducers(bus, count: 1))
         XCTAssertEqual(bus.notificationQueueStateForTesting().0, 1)
         await fulfillment(of: [completed], timeout: TerminalMutationBus.notificationCapacityWaitTimeout + 1)
         XCTAssertEqual(results.snapshot(), [false])
@@ -134,14 +141,68 @@ final class TerminalNotificationBackpressureTests: XCTestCase {
         XCTAssertFalse(bus.notificationQueueStateForTesting().1.contains("Timed out"))
     }
 
-    func testSharedAgentDeliveryReportsSaturationBeforeAcceptance() {
+    func testQueuedContentByteBudgetRejectsBeforePendingCountLimit() {
         let bus = TerminalMutationBus.shared
-        bus.discardPendingNotifications()
+        let body = String(repeating: "b", count: TerminalNotificationStore.maximumNotificationBodyBytes)
+        let byteLimitedCount = TerminalMutationBus.maximumQueuedNotificationContentBytes / body.utf8.count
+        XCTAssertLessThan(byteLimitedCount, TerminalMutationBus.maximumPendingMutationCount)
+        resetBackpressureQueueState(bus)
         bus.setDrainsSuspendedForTesting(true)
         defer {
-            bus.discardPendingNotifications()
-            bus.drainForTesting()
-            bus.setDrainsSuspendedForTesting(false)
+            resetBackpressureQueueState(bus)
+        }
+
+        for _ in 0..<byteLimitedCount {
+            XCTAssertTrue(bus.enqueueNotification(
+                tabId: UUID(),
+                surfaceId: nil,
+                title: "",
+                subtitle: "",
+                body: body
+            ))
+        }
+
+        XCTAssertEqual(bus.notificationIdentityStateForTesting().count, byteLimitedCount)
+        XCTAssertFalse(bus.enqueueNotification(
+            tabId: UUID(),
+            surfaceId: nil,
+            title: "",
+            subtitle: "",
+            body: body
+        ))
+        XCTAssertEqual(bus.notificationIdentityStateForTesting().count, byteLimitedCount)
+    }
+
+    func testOversizedQueuedTextIsTruncatedBeforePendingAdmission() {
+        let bus = TerminalMutationBus.shared
+        let title = String(repeating: "é", count: TerminalNotificationStore.maximumNotificationTitleBytes)
+        let subtitle = String(repeating: "s", count: TerminalNotificationStore.maximumNotificationSubtitleBytes + 128)
+        let body = String(repeating: "b", count: TerminalNotificationStore.maximumNotificationBodyBytes + 128)
+        resetBackpressureQueueState(bus)
+        bus.setDrainsSuspendedForTesting(true)
+        defer {
+            resetBackpressureQueueState(bus)
+        }
+
+        XCTAssertTrue(bus.enqueueNotification(
+            tabId: UUID(),
+            surfaceId: nil,
+            title: title,
+            subtitle: subtitle,
+            body: body
+        ))
+
+        let queuedTitles = bus.notificationQueueStateForTesting().1
+        XCTAssertEqual(queuedTitles.count, 1)
+        XCTAssertLessThanOrEqual(queuedTitles[0].utf8.count, TerminalNotificationStore.maximumNotificationTitleBytes)
+    }
+
+    func testSharedAgentDeliveryReportsSaturationBeforeAcceptance() {
+        let bus = TerminalMutationBus.shared
+        resetBackpressureQueueState(bus)
+        bus.setDrainsSuspendedForTesting(true)
+        defer {
+            resetBackpressureQueueState(bus)
         }
         for index in 0..<TerminalMutationBus.maximumPendingMutationCount {
             XCTAssertTrue(bus.enqueueNotification(
@@ -165,12 +226,10 @@ final class TerminalNotificationBackpressureTests: XCTestCase {
 
     func testNotifyTargetAsyncReturnsLocalizedSaturationResponse() {
         let bus = TerminalMutationBus.shared
-        bus.discardPendingNotifications()
+        resetBackpressureQueueState(bus)
         bus.setDrainsSuspendedForTesting(true)
         defer {
-            bus.discardPendingNotifications()
-            bus.drainForTesting()
-            bus.setDrainsSuspendedForTesting(false)
+            resetBackpressureQueueState(bus)
         }
 
         for index in 0..<TerminalMutationBus.maximumPendingMutationCount {
@@ -194,6 +253,21 @@ final class TerminalNotificationBackpressureTests: XCTestCase {
                 defaultValue: "ERROR: notification queue saturated; retry"
             )
         )
+    }
+
+    private func resetBackpressureQueueState(_ bus: TerminalMutationBus) {
+        bus.lock.lock()
+        bus.pending.removeAll(keepingCapacity: false)
+        bus.pendingHead = 0
+        bus.reliableAdmissionsById.removeAll()
+        bus.notificationReplacementRoutesByTabId.removeAll()
+        bus.notificationReplacementRouteOrder.removeAll()
+        bus.notificationLiveOwnerTabIdBySurfaceId.removeAll()
+        bus.notificationLiveOwnerSurfaceOrder.removeAll()
+        bus.lock.broadcast()
+        bus.lock.unlock()
+        bus.drainForTesting()
+        bus.setDrainsSuspendedForTesting(false)
     }
 }
 

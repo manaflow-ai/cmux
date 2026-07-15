@@ -207,6 +207,69 @@ struct NotificationFeedScaleTests {
     }
 
     @Test
+    func liveAppendAtByteCapacityEvictsOldestRowsIncrementally() throws {
+        let store = TerminalNotificationStore.shared
+        let eventBus = CmuxEventBus.shared
+        let body = String(repeating: "x", count: TerminalNotificationStore.maximumNotificationBodyBytes / 2)
+        let oldRowBytes = body.utf8.count
+        let retainedByBytes = TerminalNotificationStore.maximumNotificationFeedContentBytes / oldRowBytes
+        let liveBody = String(repeating: "y", count: TerminalNotificationStore.maximumNotificationBodyBytes)
+        let expectedEvictionCount = liveBody.utf8.count / oldRowBytes
+        let existing = (0..<retainedByBytes).map { index in
+            TerminalNotification(
+                id: UUID(),
+                tabId: UUID(),
+                surfaceId: UUID(),
+                retargetsToLiveSurfaceOwner: false,
+                title: "",
+                subtitle: "",
+                body: body,
+                createdAt: Date(timeIntervalSince1970: TimeInterval(index)),
+                isRead: false
+            )
+        }.sorted(by: TerminalNotificationStore.notificationSortPrecedes)
+        let evictedIDs = Set(existing.suffix(expectedEvictionCount).map(\.id))
+        let liveId = UUID()
+        let liveTabId = UUID()
+        let liveSurfaceId = UUID()
+
+        store.replaceNotificationsForTesting(existing)
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        store.configureSuppressedNotificationFeedbackHandlerForTesting { _, _ in }
+        eventBus.resetForTesting()
+        TerminalNotificationStore.resetFullIndexRebuildCountForTesting()
+        defer {
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            store.resetSuppressedNotificationFeedbackHandlerForTesting()
+            eventBus.resetForTesting()
+        }
+
+        store.addNotification(
+            id: liveId,
+            acceptedAt: Date(timeIntervalSince1970: TimeInterval(retainedByBytes + 1)),
+            tabId: liveTabId,
+            surfaceId: liveSurfaceId,
+            title: "",
+            subtitle: "",
+            body: liveBody,
+            retargetsToLiveSurfaceOwner: false
+        )
+
+        #expect(store.notifications.first?.id == liveId)
+        #expect(store.notifications.count == retainedByBytes - expectedEvictionCount + 1)
+        #expect(store.notifications.allSatisfy { !evictedIDs.contains($0.id) })
+        #expect(store.latestNotification(forTabId: liveTabId)?.id == liveId)
+        #expect(TerminalNotificationStore.fullIndexRebuildCountForTesting == 0)
+        let lifecycleNames = eventBus.retainedSnapshot().compactMap { $0["name"] as? String }
+        #expect(
+            lifecycleNames
+                == Array(repeating: "notification.removed", count: expectedEvictionCount)
+                    + ["notification.created"]
+        )
+    }
+
+    @Test
     func notificationAdmissionTruncatesOversizedTextFields() throws {
         let store = TerminalNotificationStore.shared
         let eventBus = CmuxEventBus.shared

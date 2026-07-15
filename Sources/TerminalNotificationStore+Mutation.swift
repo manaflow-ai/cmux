@@ -59,29 +59,54 @@ extension TerminalNotificationStore {
         into indexes: inout NotificationIndexes,
         notifications: Notifications
     ) where Notifications.Element == TerminalNotification {
-        guard indexes.ids.count == notifications.count,
-              indexes.ids.remove(evicted.id) != nil,
+        insertNotification(
+            notification,
+            evicting: [evicted],
+            into: &indexes,
+            notifications: notifications
+        )
+    }
+
+    static func insertNotification<Notifications: Collection>(
+        _ notification: TerminalNotification,
+        evicting evicted: [TerminalNotification],
+        into indexes: inout NotificationIndexes,
+        notifications: Notifications
+    ) where Notifications.Element == TerminalNotification {
+        let expectedPreviousCount = notifications.count + evicted.count - 1
+        guard indexes.ids.count == expectedPreviousCount,
               !indexes.ids.contains(notification.id) else {
             indexes = buildIndexes(for: notifications)
             return
         }
+        for evictedNotification in evicted {
+            guard indexes.ids.remove(evictedNotification.id) != nil else {
+                indexes = buildIndexes(for: notifications)
+                return
+            }
 
-        let evictedTabSurfaceKey = TabSurfaceKey(tabId: evicted.tabId, surfaceId: evicted.surfaceId)
-        let evictedWasLatestForTab = indexes.latestByTabId[evicted.tabId]?.id == evicted.id
-        let evictedWasLatestForSurface = indexes.latestByTabSurface[evictedTabSurfaceKey]?.id == evicted.id
-        if evictedWasLatestForTab {
-            indexes.latestByTabId.removeValue(forKey: evicted.tabId)
-        }
-        if evictedWasLatestForSurface {
-            indexes.latestByTabSurface.removeValue(forKey: evictedTabSurfaceKey)
-        }
-        if !evicted.isRead {
-            indexes.unreadCount -= 1
-            adjustCount(for: evicted.tabId, by: -1, in: &indexes.unreadCountByTabId)
-            for key in unreadIndexKeys(for: evicted) {
-                adjustCount(for: key, by: -1, in: &indexes.unreadCountByTabSurface)
-                if indexes.unreadCountByTabSurface[key] == nil {
-                    indexes.unreadByTabSurface.remove(key)
+            let evictedTabSurfaceKey = TabSurfaceKey(
+                tabId: evictedNotification.tabId,
+                surfaceId: evictedNotification.surfaceId
+            )
+            let evictedWasLatestForTab =
+                indexes.latestByTabId[evictedNotification.tabId]?.id == evictedNotification.id
+            let evictedWasLatestForSurface =
+                indexes.latestByTabSurface[evictedTabSurfaceKey]?.id == evictedNotification.id
+            if evictedWasLatestForTab {
+                indexes.latestByTabId.removeValue(forKey: evictedNotification.tabId)
+            }
+            if evictedWasLatestForSurface {
+                indexes.latestByTabSurface.removeValue(forKey: evictedTabSurfaceKey)
+            }
+            if !evictedNotification.isRead {
+                indexes.unreadCount -= 1
+                adjustCount(for: evictedNotification.tabId, by: -1, in: &indexes.unreadCountByTabId)
+                for key in unreadIndexKeys(for: evictedNotification) {
+                    adjustCount(for: key, by: -1, in: &indexes.unreadCountByTabSurface)
+                    if indexes.unreadCountByTabSurface[key] == nil {
+                        indexes.unreadByTabSurface.remove(key)
+                    }
                 }
             }
         }
