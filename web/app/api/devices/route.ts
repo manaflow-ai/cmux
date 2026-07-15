@@ -408,6 +408,7 @@ export async function GET(request: Request): Promise<Response> {
         tag: string;
         routes: Record<string, unknown>[];
         sessions: ReturnType<typeof liveSessionsFromFreshInstance>;
+        lastSeenAt: string;
       }>;
     }> = [];
     let remainingSessionBudget = MAX_LIVE_SESSIONS_PER_RESPONSE;
@@ -431,6 +432,7 @@ export async function GET(request: Request): Promise<Response> {
           Array.isArray(instance.routes) ? instance.routes : [],
         ),
         sessions,
+        lastSeenAt: instance.lastSeenAt.toISOString(),
       };
       const deviceIndex = liveDevicesPayload.findIndex((entry) => entry.deviceId === device.deviceUuid);
       const candidateDevices = liveDevicesPayload.map((entry) => ({
