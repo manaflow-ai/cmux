@@ -362,7 +362,9 @@ enum AgentForkSupport {
             probe: probe,
             snapshot: snapshot,
             cacheDiscriminator: "opencode-version",
-            outputSupportsFork: openCodeVersionSupportsFork
+            outputSupportsFork: { output in
+                openCodeVersionSupportsFork(output)
+            }
         )
     }
 
@@ -428,7 +430,7 @@ enum AgentForkSupport {
             discriminator: cacheDiscriminator
         )
         let probeStartedAt = Date().timeIntervalSinceReferenceDate
-        if let boundedCacheTTL {
+        if boundedCacheTTL != nil {
             if let cached = await piFamilyVersionProbeCache.value(for: cacheKey, now: probeStartedAt) {
                 return cached
             }
