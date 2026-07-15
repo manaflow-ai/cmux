@@ -55,6 +55,7 @@ extension MobileShellComposite {
             return .immediateRejection
         case let .rpcError(code, _):
             let normalizedCode = code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if normalizedCode == "result_unknown" { return .ambiguous }
             let immediateCodes: Set<String> = [
                 "confirmation_required", "unauthorized", "forbidden",
                 "invalid_token", "token_expired", "expired_token", "auth_required",

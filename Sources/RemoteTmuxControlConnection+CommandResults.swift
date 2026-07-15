@@ -37,7 +37,7 @@ extension RemoteTmuxControlConnection {
                 completion(nil)
             }
             if case let .windowClose(token) = kind,
-               finishWindowCloseRequest(token: token, succeeded: false) {
+               finishWindowCloseRequest(token: token, outcome: .rejected) {
                 requestWindows()
             }
             // A rejected per-window size normally means the server predates
@@ -62,10 +62,17 @@ extension RemoteTmuxControlConnection {
                 completeWindowReorderCommand(isLast: isLast, failed: true)
             }
             if case let .listWindows(requestGeneration, retainedPaneIDs) = kind {
+                let hasCloseRecovery = !windowCloseRecoveryTokensInFlight.isEmpty
+                if hasCloseRecovery {
+                    finishWindowCloseRecoveryRequests(outcome: .unknown)
+                }
                 if windowReorderRecoveryGeneration == requestGeneration {
                     restartAfterWindowReorderRecoveryFailure()
                 } else if !retainedPaneIDs.isEmpty {
                     record("window-list-retention-reconnect")
+                    beginReconnecting()
+                } else if hasCloseRecovery {
+                    record("window-close-recovery-reconnect")
                     beginReconnecting()
                 }
             }
@@ -103,6 +110,7 @@ extension RemoteTmuxControlConnection {
             // verification compare the server order against itself — reporting
             // success for a reorder that never reached the desired order.
             let completesReorderRecovery = windowReorderRecoveryGeneration == requestGeneration
+            let closeRecoveryTokens = windowCloseRecoveryTokensInFlight
             let shouldApplyWindowOrder = requestGeneration == windowReorderGeneration
                 && (windowReorderVerificationGeneration == nil || completesReorderRecovery)
             var order: [Int] = []
@@ -130,6 +138,25 @@ extension RemoteTmuxControlConnection {
                     zoomed: flags.contains("Z") && visibleNode != nil
                 )
                 order.append(id)
+            }
+            let snapshotIsComplete = !order.isEmpty
+                && order.count == lines.count
+                && next.count == lines.count
+            let requiresCompleteSnapshot = completesReorderRecovery
+                || !retainedPaneIDs.isEmpty
+                || !closeRecoveryTokens.isEmpty
+            if requiresCompleteSnapshot, !snapshotIsComplete {
+                finishWindowCloseRecoveryRequests(outcome: .unknown)
+                if completesReorderRecovery {
+                    restartAfterWindowReorderRecoveryFailure()
+                } else if !retainedPaneIDs.isEmpty {
+                    record("window-list-retention-reconnect")
+                    beginReconnecting()
+                } else {
+                    record("window-close-recovery-reconnect")
+                    beginReconnecting()
+                }
+                break
             }
             // `next` holds RAW string geometry — it is never published as-is.
             // Each window is staged and re-published by its own rects reply;
@@ -219,13 +246,16 @@ extension RemoteTmuxControlConnection {
                         let desiredSet = Set(optimisticLiveOrder)
                         finishWindowReorderVerification(
                             generation: generation,
-                            succeeded: order.filter { desiredSet.contains($0) } == optimisticLiveOrder
+                            outcome: order.filter { desiredSet.contains($0) } == optimisticLiveOrder
+                                ? .applied
+                                : .rejected
                         )
                     }
                 }
                 // Publish removals/order/names; geometry rides each window's
                 // rects reply.
                 observers.notifyTopologyChanged()
+                finishWindowCloseRecoveryRequests(liveWindowIDs: liveIDs)
                 // The attach block is drained and the topology is fresh — run the
                 // deferred post-attach work; commands queued here correlate cleanly
                 // (see ``PostAttachAction``).
@@ -270,7 +300,9 @@ extension RemoteTmuxControlConnection {
             let optimisticOrder = windowOrder.filter { knownWindowIDs.contains($0) }
             finishWindowReorderVerification(
                 generation: requestGeneration,
-                succeeded: requestGeneration == windowReorderGeneration && order == windowOrder
+                outcome: requestGeneration == windowReorderGeneration && order == windowOrder
+                    ? .applied
+                    : .rejected
             )
             let reconciledOrder = requestGeneration == windowReorderGeneration
                 ? order
@@ -351,7 +383,7 @@ extension RemoteTmuxControlConnection {
             "list-windows -F \"#{window_id}\"",
             kind: .listWindowOrder(reorderGeneration: generation)
         ) else {
-            finishWindowReorderVerification(generation: generation, succeeded: false)
+            finishWindowReorderVerification(generation: generation, outcome: .unknown)
             requestFullWindowOrderRecovery()
             return
         }
@@ -363,8 +395,17 @@ extension RemoteTmuxControlConnection {
     /// batch is resolved against the recovery's authoritative order instead.
     /// A recovery that itself fails reconnects, which fails the verification.
     func requestFullWindowOrderRecovery() {
+        let verificationGeneration = windowReorderVerificationGeneration
         windowReorderRecoveryGeneration = windowReorderGeneration
-        requestWindows()
+        guard requestWindows() else {
+            if let verificationGeneration {
+                finishWindowReorderVerification(
+                    generation: verificationGeneration,
+                    outcome: .unknown
+                )
+            }
+            return
+        }
     }
 
     /// Reconciles every completed batch while rejected swaps use full recovery.
@@ -377,9 +418,12 @@ extension RemoteTmuxControlConnection {
                 // A mobile mutation reports a rejected swap as failure even if
                 // later reconciliation shows another client reached the same
                 // order. Command acceptance is part of this request's result.
-                finishWindowReorderVerification(generation: generation, succeeded: false)
+                finishWindowReorderVerification(generation: generation, outcome: .rejected)
             }
             requestFullWindowOrderRecovery()
+        } else if windowReorderRecoveryGeneration != nil {
+            // A deadline already queued the authoritative full snapshot after
+            // this batch. Do not append a weaker order-only read behind it.
         } else {
             requestWindowOrder()
         }
@@ -393,7 +437,10 @@ extension RemoteTmuxControlConnection {
     }
 
     @discardableResult
-    func finishWindowReorderVerification(generation: UInt64, succeeded: Bool) -> Bool {
+    func finishWindowReorderVerification(
+        generation: UInt64,
+        outcome: RemoteTmuxMutationOutcome
+    ) -> Bool {
         let cancellation = windowReorderDeadlineCancellations.removeValue(forKey: generation)
         let completion = windowReorderVerifications.removeValue(forKey: generation)
         let tokens = windowReorderVerificationTokens.compactMap { entry in
@@ -411,7 +458,7 @@ extension RemoteTmuxControlConnection {
         if windowReorderVerificationGeneration == generation {
             windowReorderVerificationGeneration = nil
         }
-        completion?(succeeded)
+        completion?(outcome)
         return true
     }
 
@@ -423,31 +470,54 @@ extension RemoteTmuxControlConnection {
             generations.insert(generation)
         }
         for generation in generations.sorted() {
-            finishWindowReorderVerification(generation: generation, succeeded: false)
+            finishWindowReorderVerification(generation: generation, outcome: .unknown)
         }
     }
 
     @discardableResult
-    func finishWindowCloseRequest(token: UUID, succeeded: Bool) -> Bool {
+    func finishWindowCloseRequest(
+        token: UUID,
+        outcome: RemoteTmuxMutationOutcome
+    ) -> Bool {
         windowCloseDeadlineCancellations.removeValue(forKey: token)?()
+        windowCloseRecoveryTokensAwaitingList.remove(token)
+        windowCloseRecoveryTokensInFlight.remove(token)
         guard let request = windowCloseRequests.removeValue(forKey: token) else { return false }
-        request.completion(succeeded)
+        request.completion(outcome)
         return true
     }
 
-    func finishWindowCloseRequests(windowID: Int, succeeded: Bool) {
+    func finishWindowCloseRequests(windowID: Int, outcome: RemoteTmuxMutationOutcome) {
         let tokens = windowCloseRequests.compactMap { entry in
             entry.value.windowID == windowID ? entry.key : nil
         }
         for token in tokens {
-            finishWindowCloseRequest(token: token, succeeded: succeeded)
+            finishWindowCloseRequest(token: token, outcome: outcome)
+        }
+    }
+
+    func finishWindowCloseRecoveryRequests(liveWindowIDs: Set<Int>) {
+        let tokens = windowCloseRecoveryTokensInFlight
+        for token in tokens {
+            guard let request = windowCloseRequests[token] else { continue }
+            finishWindowCloseRequest(
+                token: token,
+                outcome: liveWindowIDs.contains(request.windowID) ? .rejected : .applied
+            )
+        }
+    }
+
+    func finishWindowCloseRecoveryRequests(outcome: RemoteTmuxMutationOutcome) {
+        let tokens = windowCloseRecoveryTokensInFlight
+        for token in tokens {
+            finishWindowCloseRequest(token: token, outcome: outcome)
         }
     }
 
     func failPendingWindowCloseRequests() {
         let tokens = Array(windowCloseRequests.keys)
         for token in tokens {
-            finishWindowCloseRequest(token: token, succeeded: false)
+            finishWindowCloseRequest(token: token, outcome: .unknown)
         }
     }
 }

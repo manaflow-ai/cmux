@@ -326,7 +326,7 @@ struct RemoteTmuxMirrorTargetingTests {
         workspace.isRemoteTmuxMirror = true
         let orderBefore = workspace.bonsplitController.tabs(inPane: paneId)
             .compactMap { workspace.panelIdFromSurfaceId($0.id) }
-        var verification: ((Bool) -> Void)?
+        var verification: ((RemoteTmuxMutationOutcome) -> Void)?
         workspace.remoteTmuxWindowOrderSync = { _, completion in
             verification = completion
             return true
@@ -337,7 +337,7 @@ struct RemoteTmuxMirrorTargetingTests {
         #expect(workspace.isPanelPinned(secondPanel.id))
         #expect(workspace.bonsplitController.tabs(inPane: paneId).first?.id == secondTabId)
 
-        verification?(false)
+        verification?(.rejected)
         #expect(!workspace.isPanelPinned(secondPanel.id))
         #expect(workspace.bonsplitController.tab(secondTabId)?.isPinned == false)
 
@@ -359,7 +359,7 @@ struct RemoteTmuxMirrorTargetingTests {
             return
         }
         workspace.isRemoteTmuxMirror = true
-        var verification: ((Bool) -> Void)?
+        var verification: ((RemoteTmuxMutationOutcome) -> Void)?
         workspace.remoteTmuxWindowOrderSync = { _, completion in
             verification = completion
             return true
@@ -369,7 +369,7 @@ struct RemoteTmuxMirrorTargetingTests {
         let firstVerification = try #require(verification)
         workspace.setPanelPinned(panelId: secondPanel.id, pinned: false)
         workspace.setPanelPinned(panelId: secondPanel.id, pinned: true)
-        firstVerification(false)
+        firstVerification(.rejected)
 
         let secondTabId = try #require(workspace.surfaceIdFromPanelId(secondPanel.id))
         #expect(workspace.isPanelPinned(secondPanel.id))

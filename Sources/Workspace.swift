@@ -3950,7 +3950,7 @@ final class Workspace: Identifiable, ObservableObject {
     private func normalizePinnedTabs(
         in paneId: PaneID,
         beforeMirrorRollback: () -> Void = {},
-        onMirrorVerification: ((Bool) -> Void)? = nil
+        onMirrorVerification: ((RemoteTmuxMutationOutcome) -> Void)? = nil
     ) -> Bool {
         guard !isNormalizingPinnedTabOrder else { return true }
         isNormalizingPinnedTabOrder = true
@@ -3986,7 +3986,7 @@ final class Workspace: Identifiable, ObservableObject {
                 _ = bonsplitController.reorderTab(desiredTab.id, toIndex: index)
             }
         }
-        onMirrorVerification?(true)
+        onMirrorVerification?(.applied)
         return true
     }
 
@@ -4158,12 +4158,16 @@ final class Workspace: Identifiable, ObservableObject {
             if wasPinned { self.pinnedPanelIds.insert(panelId) } else { self.pinnedPanelIds.remove(panelId) }
             self.bonsplitController.updateTab(tabId, isPinned: wasPinned)
         }
-        let handleVerification: (Bool) -> Void = { [weak self] succeeded in
+        let handleVerification: (RemoteTmuxMutationOutcome) -> Void = { [weak self] outcome in
             guard let self,
                   self.pinMutationTokensByPanelId[panelId] == mutationToken else { return }
-            if succeeded {
+            switch outcome {
+            case .applied, .unknown:
+                // An unknown remote result cannot safely roll back a pin whose
+                // corresponding reorder may have landed. Reconnect topology
+                // will reconcile the order; a later user choice owns a new token.
                 self.pinMutationTokensByPanelId.removeValue(forKey: panelId)
-            } else {
+            case .rejected:
                 restorePinState()
             }
         }
@@ -4960,10 +4964,14 @@ final class Workspace: Identifiable, ObservableObject {
     var isRemoteTmuxMirror: Bool = false
     weak var remoteTmuxSessionMirror: RemoteTmuxSessionMirror?
     /// Bound action for this mirror's outbound window-order mutation boundary.
-    var remoteTmuxWindowOrderSync: (([UUID], ((Bool) -> Void)?) -> Bool)?
+    var remoteTmuxWindowOrderSync: (([UUID], ((RemoteTmuxMutationOutcome) -> Void)?) -> Bool)?
     /// Tokenized variant used by cancellable mobile RPCs. The token scopes
     /// cancellation to the exact verification generation it created.
-    var remoteTmuxWindowOrderSyncWithToken: (([UUID], UUID?, ((Bool) -> Void)?) -> Bool)?
+    var remoteTmuxWindowOrderSyncWithToken: ((
+        [UUID],
+        UUID?,
+        ((RemoteTmuxMutationOutcome) -> Void)?
+    ) -> Bool)?
 
     /// Per-window multi-pane renderers, keyed by mirrored window-tab panel id.
     private(set) var remoteTmuxWindowMirrors: [UUID: RemoteTmuxWindowMirror] = [:]

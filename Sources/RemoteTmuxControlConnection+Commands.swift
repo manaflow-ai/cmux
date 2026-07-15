@@ -19,10 +19,10 @@ extension RemoteTmuxControlConnection {
     func sendWindowReorder(
         _ commands: [String],
         verificationToken: UUID? = nil,
-        verification: ((Bool) -> Void)? = nil
+        verification: ((RemoteTmuxMutationOutcome) -> Void)? = nil
     ) -> Bool {
         guard !commands.isEmpty else {
-            verification?(true)
+            verification?(.applied)
             return true
         }
         guard windowReorderRecoveryGeneration == nil,
@@ -41,10 +41,8 @@ extension RemoteTmuxControlConnection {
                 Self.mobileMutationVerificationTimeout
             ) { [weak self] in
                 guard let self,
-                      self.finishWindowReorderVerification(
-                          generation: generation,
-                          succeeded: false
-                      ) else { return }
+                      self.windowReorderVerificationGeneration == generation else { return }
+                self.windowReorderDeadlineCancellations.removeValue(forKey: generation)?()
                 self.requestFullWindowOrderRecovery()
             }
         }
@@ -57,10 +55,10 @@ extension RemoteTmuxControlConnection {
     func requestWindowClose(
         windowID: Int,
         token: UUID,
-        completion: @escaping (Bool) -> Void
+        completion: @escaping (RemoteTmuxMutationOutcome) -> Void
     ) -> Bool {
         guard connectionState == .connected else {
-            completion(false)
+            completion(.rejected)
             return false
         }
         windowCloseRequests[token] = PendingWindowClose(
@@ -68,27 +66,28 @@ extension RemoteTmuxControlConnection {
             completion: completion
         )
         guard sendInternal("kill-window -t @\(windowID)", kind: .windowClose(token)) else {
-            finishWindowCloseRequest(token: token, succeeded: false)
+            finishWindowCloseRequest(token: token, outcome: .rejected)
             return false
         }
         windowCloseDeadlineCancellations[token] = scheduleActivityQueryDeadline(
             Self.mobileMutationVerificationTimeout
         ) { [weak self] in
-            guard let self,
-                  self.finishWindowCloseRequest(token: token, succeeded: false) else { return }
+            guard let self, self.windowCloseRequests[token] != nil else { return }
+            self.windowCloseDeadlineCancellations.removeValue(forKey: token)?()
+            self.windowCloseRecoveryTokensAwaitingList.insert(token)
             self.requestWindows()
         }
         return true
     }
 
     func cancelWindowCloseRequest(token: UUID) {
-        guard finishWindowCloseRequest(token: token, succeeded: false) else { return }
+        guard finishWindowCloseRequest(token: token, outcome: .unknown) else { return }
         requestWindows()
     }
 
     func cancelWindowReorderVerification(token: UUID) {
         guard let generation = windowReorderVerificationTokens[token],
-              finishWindowReorderVerification(generation: generation, succeeded: false) else { return }
+              finishWindowReorderVerification(generation: generation, outcome: .unknown) else { return }
         requestFullWindowOrderRecovery()
     }
 
@@ -109,19 +108,29 @@ extension RemoteTmuxControlConnection {
     /// `#{window_name}` is placed last because it can contain spaces, while the
     /// id and layout tokens never do — so the result parses as
     /// `@id <layout> <name with spaces…>`.
-    func requestWindows() {
+    @discardableResult
+    func requestWindows() -> Bool {
         guard !windowListRequestInFlight else {
             windowListRequestDirty = true
-            return
+            return true
         }
+        let closeRecoveryTokens = windowCloseRecoveryTokensAwaitingList
         guard sendInternal(
             "list-windows -F \"#{window_id} #{window_layout} #{window_visible_layout} [#{window_flags}] #{window_name}\"",
             kind: .listWindows(
                 reorderGeneration: windowReorderGeneration,
                 retainedPaneIDs: paneIDsRetainedUntilWindowList
             )
-        ) else { return }
+        ) else {
+            for token in closeRecoveryTokens {
+                finishWindowCloseRequest(token: token, outcome: .unknown)
+            }
+            return false
+        }
+        windowCloseRecoveryTokensAwaitingList.subtract(closeRecoveryTokens)
+        windowCloseRecoveryTokensInFlight = closeRecoveryTokens
         windowListRequestInFlight = true
+        return true
     }
 
     func completeWindowListRequest() {
@@ -134,6 +143,8 @@ extension RemoteTmuxControlConnection {
     func resetWindowListRequestCoalescing() {
         windowListRequestInFlight = false
         windowListRequestDirty = false
+        windowCloseRecoveryTokensAwaitingList.removeAll()
+        windowCloseRecoveryTokensInFlight.removeAll()
     }
 
     func restartAfterWindowReorderRecoveryFailure() {

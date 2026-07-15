@@ -8,7 +8,7 @@ extension Workspace {
         toIndex index: Int,
         focus: Bool = true,
         remoteVerificationToken: UUID? = nil,
-        onRemoteVerification: ((Bool) -> Void)? = nil
+        onRemoteVerification: ((RemoteTmuxMutationOutcome) -> Void)? = nil
     ) -> Bool {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return false }
         let mirrorPaneId = isRemoteTmuxMirror ? paneId(forPanelId: panelId) : nil
@@ -52,7 +52,7 @@ extension Workspace {
         in paneId: PaneID,
         beforeRollback: () -> Void = {},
         verificationToken: UUID? = nil,
-        onVerification: ((Bool) -> Void)? = nil,
+        onVerification: ((RemoteTmuxMutationOutcome) -> Void)? = nil,
         _ mutation: () -> Bool
     ) -> Bool {
         let tabs = bonsplitController.tabs(inPane: paneId)

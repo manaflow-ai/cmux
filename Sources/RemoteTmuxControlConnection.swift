@@ -2,6 +2,12 @@ import CmuxRemoteSession
 import Foundation
 import os
 
+enum RemoteTmuxMutationOutcome: Equatable {
+    case applied
+    case rejected
+    case unknown
+}
+
 /// A live tmux control-mode connection to one remote session.
 ///
 /// Spawns `ssh -tt <ControlMaster> host tmux -CC attach -t <session>` as a
@@ -20,7 +26,7 @@ final class RemoteTmuxControlConnection {
 
     struct PendingWindowClose {
         let windowID: Int
-        let completion: (Bool) -> Void
+        let completion: (RemoteTmuxMutationOutcome) -> Void
     }
 
     /// The host this connection talks to.
@@ -104,6 +110,11 @@ final class RemoteTmuxControlConnection {
     var newWindowCompletions: [UUID: (Int?) -> Void] = [:]
     var windowCloseRequests: [UUID: PendingWindowClose] = [:]
     var windowCloseDeadlineCancellations: [UUID: ActivityQueryDeadlineCancellation] = [:]
+    /// Close verifications whose deadline fired while the kill command was
+    /// already on the wire. They remain unresolved until a FIFO-following
+    /// `list-windows` snapshot proves whether the target is present.
+    var windowCloseRecoveryTokensAwaitingList: Set<UUID> = []
+    var windowCloseRecoveryTokensInFlight: Set<UUID> = []
 
     private var process: Process?
     var stdinWriter: RemoteTmuxControlPipeWriter?
@@ -124,7 +135,7 @@ final class RemoteTmuxControlConnection {
     var windowReorderGeneration: UInt64 = 0
     var windowReorderRecoveryGeneration: UInt64?
     var windowReorderVerificationGeneration: UInt64?
-    var windowReorderVerifications: [UInt64: (Bool) -> Void] = [:]
+    var windowReorderVerifications: [UInt64: (RemoteTmuxMutationOutcome) -> Void] = [:]
     var windowReorderVerificationTokens: [UUID: UInt64] = [:]
     var windowReorderDeadlineCancellations: [UInt64: ActivityQueryDeadlineCancellation] = [:]
     private var connectionWaiters: [UUID: (Bool) -> Void] = [:]
@@ -826,7 +837,7 @@ final class RemoteTmuxControlConnection {
             observers.notifyTopologyChanged()
             // Only this authoritative notification may release a successful
             // mobile close, and only after observers removed the exact panel.
-            finishWindowCloseRequests(windowID: id, succeeded: true)
+            finishWindowCloseRequests(windowID: id, outcome: .applied)
         case let .windowRenamed(id, name):
             record("window-renamed @\(id)")
             // Update published AND quarantined topology. A rename racing a

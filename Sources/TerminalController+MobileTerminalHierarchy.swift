@@ -3,14 +3,14 @@ import Foundation
 
 @MainActor
 private final class MobileRemoteReorderResolution {
-    private var continuation: CheckedContinuation<Bool, Never>?
+    private var continuation: CheckedContinuation<RemoteTmuxMutationOutcome, Never>?
 
-    init(_ continuation: CheckedContinuation<Bool, Never>) {
+    init(_ continuation: CheckedContinuation<RemoteTmuxMutationOutcome, Never>) {
         self.continuation = continuation
     }
 
-    func resolve(_ succeeded: Bool) {
-        continuation?.resume(returning: succeeded)
+    func resolve(_ outcome: RemoteTmuxMutationOutcome) {
+        continuation?.resume(returning: outcome)
         continuation = nil
     }
 }
@@ -123,15 +123,36 @@ extension TerminalController {
             return .err(code: "protected", message: "Pinned terminals cannot be closed", data: nil)
         }
         if resolved.workspace.isRemoteTmuxMirror {
-            guard let remoteTmuxController = AppDelegate.shared?.remoteTmuxController,
-                  await remoteTmuxController.requestMirrorTabClose(
-                      workspaceId: resolved.workspace.id,
-                      panelId: surfaceID
-                  ),
-                  resolved.workspace.terminalPanel(for: surfaceID) == nil else {
+            guard let remoteTmuxController = AppDelegate.shared?.remoteTmuxController else {
                 return .err(
                     code: "unavailable",
                     message: "Remote terminal close was not confirmed",
+                    data: nil
+                )
+            }
+            let outcome = await remoteTmuxController.requestMirrorTabClose(
+                workspaceId: resolved.workspace.id,
+                panelId: surfaceID
+            )
+            switch outcome {
+            case .applied:
+                guard resolved.workspace.terminalPanel(for: surfaceID) == nil else {
+                    return .err(
+                        code: "result_unknown",
+                        message: "Remote terminal close result is unknown",
+                        data: nil
+                    )
+                }
+            case .rejected:
+                return .err(
+                    code: "unavailable",
+                    message: "Remote terminal close was not confirmed",
+                    data: nil
+                )
+            case .unknown:
+                return .err(
+                    code: "result_unknown",
+                    message: "Remote terminal close result is unknown",
                     data: nil
                 )
             }
@@ -189,11 +210,11 @@ extension TerminalController {
         ) else {
             return .err(code: "invalid_params", message: "Terminal reorder index is out of range", data: nil)
         }
-        let reordered: Bool
+        let reorderOutcome: RemoteTmuxMutationOutcome
         if workspace.isRemoteTmuxMirror {
             let verificationToken = UUID()
             let connection = workspace.remoteTmuxSessionMirror?.connection
-            reordered = await withTaskCancellationHandler {
+            reorderOutcome = await withTaskCancellationHandler {
                 await withCheckedContinuation { continuation in
                     let resolution = MobileRemoteReorderResolution(continuation)
                     let started = workspace.reorderSurface(
@@ -201,11 +222,11 @@ extension TerminalController {
                         toIndex: destinationIndex,
                         focus: false,
                         remoteVerificationToken: verificationToken
-                    ) { succeeded in
-                        resolution.resolve(succeeded)
+                    ) { outcome in
+                        resolution.resolve(outcome)
                     }
                     if !started {
-                        resolution.resolve(false)
+                        resolution.resolve(.rejected)
                     } else if Task.isCancelled {
                         connection?.cancelWindowReorderVerification(token: verificationToken)
                     }
@@ -216,14 +237,23 @@ extension TerminalController {
                 }
             }
         } else {
-            reordered = workspace.reorderSurface(
+            reorderOutcome = workspace.reorderSurface(
                 panelId: surfaceID,
                 toIndex: destinationIndex,
                 focus: false
-            )
+            ) ? .applied : .rejected
         }
-        guard reordered else {
+        switch reorderOutcome {
+        case .applied:
+            break
+        case .rejected:
             return .err(code: "internal_error", message: "Failed to reorder terminal", data: nil)
+        case .unknown:
+            return .err(
+                code: "result_unknown",
+                message: "Remote terminal reorder result is unknown",
+                data: nil
+            )
         }
         return .ok([
             "reordered": true,

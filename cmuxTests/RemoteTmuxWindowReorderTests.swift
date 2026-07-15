@@ -100,7 +100,7 @@ import Testing
         let (connection, writer, pipe) = attachedConnection()
         defer { writer.close(); try? pipe.fileHandleForReading.close() }
         publishWindows(connection, order: [1, 2, 3])
-        var firstVerification: Bool?
+        var firstVerification: RemoteTmuxMutationOutcome?
 
         #expect(connection.sendWindowReorder(
             ["swap-window -d -s @1 -t @2"],
@@ -112,7 +112,7 @@ import Testing
         #expect(connection.pendingCommandKindsForTesting == [.listWindowOrder(reorderGeneration: 1)])
 
         reply(connection, lines: windowOrderLines([2, 1, 3]))
-        #expect(firstVerification == true)
+        #expect(firstVerification == .applied)
         #expect(connection.sendWindowReorder(["swap-window -d -s @1 -t @3"]))
         connection.applyWindowReorder([2, 3, 1])
         reply(connection, lines: [])
@@ -200,7 +200,7 @@ import Testing
         let (connection, writer, pipe) = attachedConnection()
         defer { writer.close(); try? pipe.fileHandleForReading.close() }
         publishWindows(connection, order: [1, 2, 3])
-        var verification: Bool?
+        var verification: RemoteTmuxMutationOutcome?
 
         #expect(connection.sendWindowReorder(
             ["swap-window -d -s @1 -t @2"],
@@ -218,7 +218,7 @@ import Testing
         #expect(connection.windowOrder == [2, 1, 3])
         #expect(verification == nil)
         reply(connection, lines: windowOrderLines([2, 1, 3]))
-        #expect(verification == true)
+        #expect(verification == .applied)
         #expect(connection.windowOrder == [2, 1, 3])
     }
 
@@ -269,7 +269,7 @@ import Testing
         let (connection, writer, pipe) = attachedConnection()
         defer { writer.close(); try? pipe.fileHandleForReading.close() }
         publishWindows(connection, order: [1, 2, 3])
-        var verification: Bool?
+        var verification: RemoteTmuxMutationOutcome?
 
         #expect(connection.sendWindowReorder(
             ["swap-window -d -s @1 -t @2"],
@@ -285,7 +285,7 @@ import Testing
         // Recovery shows tmux holding the desired relative order (plus the
         // new window), so the batch verifies as applied — pin state survives.
         reply(connection, lines: windowLines([2, 1, 3, 4]))
-        #expect(verification == true)
+        #expect(verification == .applied)
         #expect(connection.windowOrder == [2, 1, 3, 4])
         #expect(connection.sendWindowReorder(["swap-window -d -s @2 -t @1"]))
     }
@@ -294,7 +294,7 @@ import Testing
         let (connection, writer, pipe) = attachedConnection()
         defer { writer.close(); try? pipe.fileHandleForReading.close() }
         publishWindows(connection, order: [1, 2, 3])
-        var verification: Bool?
+        var verification: RemoteTmuxMutationOutcome?
 
         #expect(connection.sendWindowReorder(
             ["swap-window -d -s @1 -t @2"],
@@ -307,7 +307,7 @@ import Testing
 
         // Recovery shows the batch's windows NOT in the desired order.
         reply(connection, lines: windowLines([1, 2, 3, 4]))
-        #expect(verification == false)
+        #expect(verification == .rejected)
         #expect(connection.windowOrder == [1, 2, 3, 4])
     }
 
@@ -315,7 +315,7 @@ import Testing
         let (connection, writer, pipe) = attachedConnection()
         defer { writer.close(); try? pipe.fileHandleForReading.close() }
         publishWindows(connection, order: [1, 2])
-        var verification: Bool?
+        var verification: RemoteTmuxMutationOutcome?
 
         #expect(connection.sendWindowReorder(
             ["swap-window -d -s @1 -t @2"],
@@ -326,14 +326,14 @@ import Testing
         #expect(verification == nil)
 
         reply(connection, lines: windowOrderLines([2, 1]))
-        #expect(verification == true)
+        #expect(verification == .applied)
     }
 
     @Test func orderRefreshSendFailureFencesUntilAuthoritativeRecovery() {
         let (connection, writer, pipe) = attachedConnection()
         defer { writer.close(); try? pipe.fileHandleForReading.close() }
         publishWindows(connection, order: [1, 2])
-        var verification: Bool?
+        var verification: RemoteTmuxMutationOutcome?
 
         #expect(connection.sendWindowReorder(
             ["swap-window -d -s @1 -t @2"],
@@ -346,7 +346,7 @@ import Testing
         connection.stdinWriter = nil
         reply(connection, lines: [])
 
-        #expect(verification == false)
+        #expect(verification == .unknown)
         #expect(connection.windowOrder == [2, 1])
         #expect(connection.windowReorderRecoveryGeneration == 1)
         #expect(!connection.sendWindowReorder(["swap-window -d -s @2 -t @1"]))
@@ -382,7 +382,7 @@ import Testing
         reply(connection, lines: [])
         reply(connection, lines: windowOrderLines([1, 2]))
 
-        #expect(events == ["verification:false", "topology"])
+        #expect(events == ["verification:rejected", "topology"])
         #expect(connection.windowOrder == [1, 2])
     }
 }

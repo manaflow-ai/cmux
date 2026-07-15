@@ -35,9 +35,12 @@ extension RemoteTmuxController {
 
     /// Mobile close variant that resolves successfully only after the exact
     /// tmux window disappearance has rebuilt the mirror topology.
-    func requestMirrorTabClose(workspaceId: UUID, panelId: UUID) async -> Bool {
+    func requestMirrorTabClose(
+        workspaceId: UUID,
+        panelId: UUID
+    ) async -> RemoteTmuxMutationOutcome {
         guard let target = mirrorWindowTarget(workspaceId: workspaceId, panelId: panelId),
-              target.mirror.connection.connectionState == .connected else { return false }
+              target.mirror.connection.connectionState == .connected else { return .rejected }
         let connection = target.mirror.connection
         let token = UUID()
         return await withTaskCancellationHandler {
