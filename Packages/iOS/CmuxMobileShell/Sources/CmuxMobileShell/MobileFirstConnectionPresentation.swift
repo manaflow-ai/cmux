@@ -16,10 +16,14 @@ public enum MobileRegistryLoadResult: Equatable, Sendable {
 }
 
 /// Keeps account-discovered sessions fresh before their two-minute registry lease expires.
-public enum MobileFirstConnectionRegistryRefreshPolicy {
-    public static let refreshInterval: TimeInterval = 90
+public struct MobileFirstConnectionRegistryRefreshPolicy: Equatable, Sendable {
+    public let refreshInterval: TimeInterval
 
-    public static func shouldRefresh(lastRefreshAt: Date?, now: Date = Date()) -> Bool {
+    public init(refreshInterval: TimeInterval = 90) {
+        self.refreshInterval = refreshInterval
+    }
+
+    public func shouldRefresh(lastRefreshAt: Date?, now: Date = Date()) -> Bool {
         guard let lastRefreshAt else { return true }
         return now.timeIntervalSince(lastRefreshAt) >= refreshInterval
     }

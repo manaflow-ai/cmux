@@ -10,13 +10,13 @@ struct DisconnectedRegistryUnavailableView: View {
     var body: some View {
         ContentUnavailableView {
             Label(
-                L10n.string("mobile.handoff.failure.title", defaultValue: "Couldn't Continue Session"),
+                L10n.string("mobile.registry.unavailable.title", defaultValue: "Session Discovery Unavailable"),
                 systemImage: "wifi.exclamationmark"
             )
         } description: {
             Text(L10n.string(
-                "mobile.handoff.failure.message",
-                defaultValue: "The session may have ended or its computer may be offline. Refresh and try again."
+                "mobile.registry.unavailable.message",
+                defaultValue: "We couldn't load available computers and sessions. Check your connection and try again."
             ))
         } actions: {
             Button(action: retry) {

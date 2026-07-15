@@ -2636,6 +2636,40 @@
         }
       }
     },
+    "mobile.registry.unavailable.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "We couldn't load available computers and sessions. Check your connection and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "利用可能なコンピュータとセッションを読み込めませんでした。接続を確認して、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "mobile.registry.unavailable.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session Discovery Unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッション検出を利用できません"
+          }
+        }
+      }
+    },
     "mobile.handoff.section.title": {
       "extractionState": "manual",
       "localizations": {

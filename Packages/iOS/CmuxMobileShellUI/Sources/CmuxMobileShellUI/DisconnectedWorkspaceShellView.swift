@@ -41,6 +41,7 @@ struct DisconnectedWorkspaceShellView: View {
     @State private var registryState: MobileFirstConnectionRegistryState = .loading
     @State private var registryRefreshScopeID: String?
     @State private var registryLastRefreshAt: Date?
+    private let registryRefreshPolicy = MobileFirstConnectionRegistryRefreshPolicy()
     @State private var activeDiscoveryScopeID: String?
     @State private var didPresentManualPairing = false
     #endif
@@ -82,7 +83,7 @@ struct DisconnectedWorkspaceShellView: View {
                         try? await Task.sleep(for: .seconds(10))
                         guard !Task.isCancelled else { break }
                         await store?.refreshComputersScreen()
-                        if MobileFirstConnectionRegistryRefreshPolicy.shouldRefresh(
+                        if registryRefreshPolicy.shouldRefresh(
                             lastRefreshAt: registryLastRefreshAt
                         ) {
                             await refreshRegistryAndPresentation(scopeID: scopeID)

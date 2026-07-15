@@ -47,12 +47,13 @@ import Testing
 
     @Test func registryRefreshesBeforeLiveSessionLeaseExpires() {
         let now = Date(timeIntervalSince1970: 1_000)
+        let policy = MobileFirstConnectionRegistryRefreshPolicy()
 
-        #expect(!MobileFirstConnectionRegistryRefreshPolicy.shouldRefresh(
+        #expect(!policy.shouldRefresh(
             lastRefreshAt: now.addingTimeInterval(-89),
             now: now
         ))
-        #expect(MobileFirstConnectionRegistryRefreshPolicy.shouldRefresh(
+        #expect(policy.shouldRefresh(
             lastRefreshAt: now.addingTimeInterval(-90),
             now: now
         ))
