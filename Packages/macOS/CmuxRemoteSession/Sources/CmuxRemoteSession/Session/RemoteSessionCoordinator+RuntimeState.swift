@@ -11,12 +11,51 @@ private enum RuntimeStatePutResult: Sendable {
     case failure(String)
 }
 
+private enum RuntimeStateFinishStatus: Sendable {
+    case wait(Task<Void, Never>)
+    case complete(Bool)
+}
+
 extension RemoteSessionCoordinator {
     private static let maximumRuntimeStateRetryCount = 5
 
     /// Waits until queued runtime-state work commits or reaches a terminal failure.
+    ///
+    /// - Returns: `true` when all queued work committed; otherwise, `false`.
     public func finishPendingRuntimeStateWork() async -> Bool {
-        false
+        while true {
+            let status: RuntimeStateFinishStatus = await withCheckedContinuation { continuation in
+                queue.async { [weak self] in
+                    guard let self else {
+                        continuation.resume(returning: .complete(false))
+                        return
+                    }
+                    continuation.resume(returning: self.runtimeStateFinishStatusLocked())
+                }
+            }
+            switch status {
+            case .wait(let task):
+                await task.value
+            case .complete(let succeeded):
+                return succeeded
+            }
+        }
+    }
+
+    private func runtimeStateFinishStatusLocked() -> RuntimeStateFinishStatus {
+        guard configuration.persistentDaemonSlot != nil else { return .complete(true) }
+        guard !isStopping,
+              runtimeStateCapabilityAvailable,
+              proxyLease != nil else { return .complete(false) }
+        synchronizeRuntimeStateLocked()
+        flushPendingRuntimeStateUploadLocked()
+        if let task = runtimeStateRPCTask ?? runtimeStatePublicationTask ?? runtimeStateRetryTask {
+            return .wait(task)
+        }
+        if runtimeStateRetrySuspended {
+            return .complete(false)
+        }
+        return .complete(runtimeStateSynchronized && pendingRuntimeStateUpload == nil)
     }
 
     /// Queues the latest workspace snapshot for the authoritative daemon slot.
@@ -375,6 +414,7 @@ extension RemoteSessionCoordinator {
                         return
                     }
                     self.cancelRuntimeStateRetryLocked(resetCount: true)
+                    self.runtimeStateRetrySuspended = true
                     return
                 }
                 if self.publishPendingAuthoritativeRuntimeStateDocumentLocked() {
@@ -411,6 +451,7 @@ extension RemoteSessionCoordinator {
                         return
                     }
                     self.cancelRuntimeStateRetryLocked(resetCount: true)
+                    self.runtimeStateRetrySuspended = true
                     return
                 }
                 if self.publishPendingAuthoritativeRuntimeStateDocumentLocked() {

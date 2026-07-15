@@ -5481,6 +5481,7 @@ final class Workspace: Identifiable, ObservableObject {
         remoteSessionController = nil
         if waitingForPendingRemoteRuntimeState, let previousController {
             remoteRuntimeStateEncodingPipeline.finishPendingWork {
+                _ = await previousController.finishPendingRuntimeStateWork()
                 previousController.stop()
             }
         } else {

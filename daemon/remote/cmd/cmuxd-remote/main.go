@@ -943,9 +943,9 @@ func servePersistentDaemonWithVerifierConfig(
 	runtimeState, err := newRuntimeStateStore(config.runtimeStateFile)
 	if err != nil {
 		if stderr != nil {
-			_, _ = fmt.Fprintf(stderr, "runtime state load failed; starting without saved state: %v\n", err)
+			_, _ = fmt.Fprintf(stderr, "runtime state load failed; runtime state unavailable: %v\n", err)
 		}
-		runtimeState = newEmptyRuntimeStateStore(config.runtimeStateFile)
+		runtimeState = nil
 	}
 	var activeConnections int64
 	var idleSince time.Time
