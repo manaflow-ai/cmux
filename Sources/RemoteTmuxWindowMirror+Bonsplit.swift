@@ -651,15 +651,39 @@ extension RemoteTmuxWindowMirror: BonsplitDelegate {
     }
 
     func splitTabBarDividerDragDidEnd(_ controller: BonsplitController) {
-        // A drag ending while a remote layout is being applied cannot run
-        // the divider sync mid-apply; schedule a pass instead. Drag end
-        // always re-arms the pass: any pass that fired mid-drag was held
-        // (performSizingPassNow returns while the session is live), and a
-        // pass with unchanged inputs is a coalesced no-op.
+        // A drag ending while a remote layout is being applied cannot run the
+        // divider sync mid-apply: the apply is rewriting the tree this send
+        // would diff against. Skipping the send outright loses the user's final
+        // divider position — it never reaches tmux, and the scheduled sizing
+        // pass then re-imposes the pre-drag plan. Defer the same drag-end send
+        // one runloop turn, after the apply's synchronous scope clears the
+        // flag; a coalesced no-op if the fraction rounds to the same cells.
         guard !isApplyingRemoteLayout else {
             setNeedsSizingPass()
+            DispatchQueue.main.async { [weak self] in
+                self?.flushDeferredDividerDragEnd()
+            }
             return
         }
+        sendDividerDragEnd(controller)
+    }
+
+    /// Runs the drag-end send once the remote apply that deferred it has
+    /// cleared. Still applying (a re-entered apply) reschedules; otherwise it
+    /// converts the final divider fraction and sends it, exactly as an
+    /// undeferred drag end would.
+    private func flushDeferredDividerDragEnd() {
+        guard !isTornDown else { return }
+        guard !isApplyingRemoteLayout else {
+            DispatchQueue.main.async { [weak self] in
+                self?.flushDeferredDividerDragEnd()
+            }
+            return
+        }
+        sendDividerDragEnd(bonsplitController)
+    }
+
+    private func sendDividerDragEnd(_ controller: BonsplitController) {
         // Bonsplit's final drag geometry notification lands just before this
         // callback and usually does the send; the re-sync here is the
         // fallback for a host that suppressed it. Either path counts. The
