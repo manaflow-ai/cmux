@@ -47,6 +47,7 @@ extension AuthCoordinator {
                 hasTokens: false,
                 mockUser: Self.uiTestMockUser
             ))
+            finishTeamScopeResolution()
             return
         }
 
@@ -61,6 +62,7 @@ extension AuthCoordinator {
                 hasTokens: true,
                 mockUser: Self.uiTestMockUser
             ))
+            finishTeamScopeResolution()
             return
         }
 
@@ -139,6 +141,7 @@ extension AuthCoordinator {
             sessionCache.setHasTokens(true)
             currentUser = fixtureUser
             isAuthenticated = true
+            finishTeamScopeResolution()
             return
         }
 

@@ -160,6 +160,9 @@ struct CMUXMobileRootView: View {
             // the team-bound state (presence, registry, paired-Mac backup,
             // aggregation) to the new team without dropping the live terminal.
             store.currentTeamDidChange()
+        }
+        .onChange(of: authManager.didResolveTeamScope) { _, didResolveTeamScope in
+            guard didResolveTeamScope else { return }
             reconnectStoredMacIfNeeded()
         }
         .onChange(of: scenePhase) { _, phase in
@@ -405,7 +408,7 @@ struct CMUXMobileRootView: View {
               MobileRootAuthGate.shouldReconnectStoredMac(
                 stackAuthenticated: authManager.isAuthenticated,
                 attachTicketAuthenticated: hasActiveAttachTicketAuthentication,
-                hasResolvedTeamScope: authManager.resolvedTeamID != nil,
+                didResolveTeamScope: authManager.didResolveTeamScope,
                 connectionState: store.connectionState
               ) else { return }
         let stackUserID = authManager.currentUser?.id

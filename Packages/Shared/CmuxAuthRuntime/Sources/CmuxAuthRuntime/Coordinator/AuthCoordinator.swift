@@ -41,6 +41,10 @@ public final class AuthCoordinator {
     public private(set) var isRestoringSession = false
     /// The teams the signed-in user belongs to (refreshed on sign-in/restore).
     public private(set) var availableTeams: [CMUXAuthTeam] = []
+    /// Whether team lookup reached a terminal state for the current session.
+    /// A `true` value with no ``resolvedTeamID`` means API calls should use the
+    /// server-default scope, as for personal accounts with no explicit team.
+    public private(set) var didResolveTeamScope = false
     /// The user's selected team id. Writes persist through the injected
     /// ``CMUXAuthCore/CMUXAuthTeamSelectionStore``.
     public var selectedTeamID: String? {
@@ -583,6 +587,7 @@ public final class AuthCoordinator {
         // must not clear or overwrite this newer session when it resumes.
         sessionGeneration &+= 1
         let generation = sessionGeneration
+        didResolveTeamScope = false
         currentUser = user
         isAuthenticated = true
         isRestoringSession = false
@@ -608,6 +613,11 @@ public final class AuthCoordinator {
     /// the writes when a sign-out raced the fetch, so a signed-out shell does
     /// not get the old account's teams persisted back.
     private func refreshTeams(generation: UInt64) async {
+        defer {
+            if generation == sessionGeneration {
+                didResolveTeamScope = true
+            }
+        }
         do {
             let client = self.client
             let teams = try await runPhase(.listTeams, timeout: timeouts.network) {
@@ -632,6 +642,10 @@ public final class AuthCoordinator {
         return teams.first?.id
     }
 
+    func finishTeamScopeResolution() {
+        didResolveTeamScope = true
+    }
+
     func clearAuthState(preservePendingCode: Bool = false) {
         sessionGeneration &+= 1
         latestSignInRefreshToken = nil
@@ -639,6 +653,7 @@ public final class AuthCoordinator {
         userCache.clear()
         sessionCache.clear()
         availableTeams = []
+        didResolveTeamScope = false
         selectedTeamID = nil
         apply(.cleared())
     }
@@ -673,6 +688,7 @@ public final class AuthCoordinator {
         currentUser = cachedUser
         isAuthenticated = cachedUser != nil
         isRestoringSession = false
+        didResolveTeamScope = cachedUser != nil
     }
 
     func clearPersistedAuthForUITest() async {
