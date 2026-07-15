@@ -124,7 +124,7 @@ By default the listener accepts only an IP loopback address such as `127.0.0.1` 
 | Field | Value |
 | --- | --- |
 | status | proposed |
-| since | proposed protocol 6 |
+| since | proposed protocol 8 |
 
 HTTP is opt-in. The server binds localhost by default when enabled:
 
@@ -197,7 +197,7 @@ The attach ordering contract is identical to the socket `attach-surface` command
 | Field | Value |
 | --- | --- |
 | status | proposed |
-| since | proposed protocol 6 |
+| since | proposed protocol 8 |
 
 When HTTP is enabled securely, the server mints one token per mux session at:
 
