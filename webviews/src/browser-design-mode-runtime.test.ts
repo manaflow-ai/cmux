@@ -26,6 +26,8 @@ type SnapshotSelection = {
   selector: string;
   selectors: string[];
   tag_name?: string;
+  react_components?: string[];
+  react_prop_keys?: string[];
   text_content?: string;
   text_editable?: boolean;
   dom_snippet?: string;
@@ -714,6 +716,29 @@ describe("browser design-mode runtime", () => {
     at("pointerup", 12, 12);
 
     expect(runtime.snapshot().selection?.selector).toBe("#b");
+  });
+
+  test("selection captures React component identity but never prop values", () => {
+    const { dom, runtime } = fixture(`<main><button id="b">B</button></main>`);
+    const button = dom.window.document.querySelector("#b") as HTMLElement;
+    function ResultCard() {}
+    function SearchList() {}
+    const fiber = {
+      type: "button",
+      memoizedProps: { children: "B" },
+      return: {
+        type: ResultCard,
+        memoizedProps: { title: "Card", userEmail: "s3cr3t-user-data", children: null },
+        return: { type: SearchList, memoizedProps: {}, return: null },
+      },
+    };
+    (button as unknown as Record<string, unknown>)["__reactFiber$abc123"] = fiber;
+
+    const snap = runtime.select("#b");
+
+    expect(snap.selection?.react_components).toEqual(["ResultCard", "SearchList"]);
+    expect(snap.selection?.react_prop_keys).toEqual(["title", "userEmail"]);
+    expect(JSON.stringify(snap)).not.toContain("s3cr3t-user-data");
   });
 
   test("escape clears the selection first, then requests design-mode exit", () => {

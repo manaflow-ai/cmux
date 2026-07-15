@@ -20,6 +20,10 @@ public nonisolated struct BrowserDesignModeSelection: Codable, Equatable, Sendab
     public let viewport: BrowserDesignModeViewport
     /// The selected computed CSS properties before edits.
     public let computedStyles: [String: String]
+    /// Nearest named React components from the fiber tree, when detectable.
+    public let reactComponents: [String]
+    /// Prop keys of the nearest React component (never prop values).
+    public let reactPropKeys: [String]
 
     private enum CodingKeys: String, CodingKey {
         case selector
@@ -31,6 +35,23 @@ public nonisolated struct BrowserDesignModeSelection: Codable, Equatable, Sendab
         case bounds
         case viewport
         case computedStyles = "computed_styles"
+        case reactComponents = "react_components"
+        case reactPropKeys = "react_prop_keys"
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        selector = try container.decode(String.self, forKey: .selector)
+        selectors = try container.decode([String].self, forKey: .selectors)
+        tagName = try container.decode(String.self, forKey: .tagName)
+        domSnippet = try container.decode(String.self, forKey: .domSnippet)
+        textContent = try container.decode(String.self, forKey: .textContent)
+        textEditable = try container.decode(Bool.self, forKey: .textEditable)
+        bounds = try container.decode(BrowserDesignModeRect.self, forKey: .bounds)
+        viewport = try container.decode(BrowserDesignModeViewport.self, forKey: .viewport)
+        computedStyles = try container.decode([String: String].self, forKey: .computedStyles)
+        reactComponents = try container.decodeIfPresent([String].self, forKey: .reactComponents) ?? []
+        reactPropKeys = try container.decodeIfPresent([String].self, forKey: .reactPropKeys) ?? []
     }
 
     /// Creates selected-element context.
@@ -53,7 +74,9 @@ public nonisolated struct BrowserDesignModeSelection: Codable, Equatable, Sendab
         textEditable: Bool,
         bounds: BrowserDesignModeRect,
         viewport: BrowserDesignModeViewport,
-        computedStyles: [String: String]
+        computedStyles: [String: String],
+        reactComponents: [String] = [],
+        reactPropKeys: [String] = []
     ) {
         self.selector = selector
         self.selectors = selectors
@@ -64,5 +87,7 @@ public nonisolated struct BrowserDesignModeSelection: Codable, Equatable, Sendab
         self.bounds = bounds
         self.viewport = viewport
         self.computedStyles = computedStyles
+        self.reactComponents = reactComponents
+        self.reactPropKeys = reactPropKeys
     }
 }

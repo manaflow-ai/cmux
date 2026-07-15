@@ -337,13 +337,21 @@ final class BrowserDesignModeController {
                 }
             }
             guard operation == operationRevision else { return }
+            // Full-viewport shot for spatial context (layout around the
+            // selections), alongside the per-selection crops.
+            var pageScreenshotPath: String?
+            if let pagePNG = try? BrowserScreenshotPasteboardWriter.pngData(for: capture.image) {
+                pageScreenshotPath = try? await screenshotStore.save(pagePNG, surfaceID: surfaceID).path
+            }
+            guard operation == operationRevision else { return }
             let pageURL = webView.url?.absoluteString ?? "about:blank"
             let prompt = promptFormatter.format(
                 BrowserDesignModePromptContext(
                     pageURL: pageURL,
                     snapshot: capture.snapshot,
                     screenshotPaths: screenshotPaths,
-                    requestedChange: requestedChange
+                    requestedChange: requestedChange,
+                    pageScreenshotPath: pageScreenshotPath
                 )
             )
             guard !prompt.isEmpty else { throw BrowserDesignModeError.invalidRuntimeResponse }

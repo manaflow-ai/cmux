@@ -16,6 +16,7 @@ public nonisolated struct BrowserDesignModePromptFormatter: Sendable {
         let pageURL: String
         let snapshot: BrowserDesignModeSnapshot
         let screenshotPath: String?
+        let pageScreenshotPath: String?
         let elements: [Element]
         let requestedChange: String
 
@@ -23,6 +24,7 @@ public nonisolated struct BrowserDesignModePromptFormatter: Sendable {
             case pageURL = "page_url"
             case snapshot
             case screenshotPath = "screenshot_path"
+            case pageScreenshotPath = "page_screenshot_path"
             case elements
             case requestedChange = "requested_change"
         }
@@ -52,6 +54,7 @@ public nonisolated struct BrowserDesignModePromptFormatter: Sendable {
             pageURL: context.pageURL,
             snapshot: context.snapshot,
             screenshotPath: elements.last?.screenshotPath,
+            pageScreenshotPath: context.pageScreenshotPath,
             elements: elements,
             requestedChange: requestedChange
         )) else { return "" }

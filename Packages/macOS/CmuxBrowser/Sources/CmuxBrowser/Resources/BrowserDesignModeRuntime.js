@@ -406,9 +406,48 @@
     return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
   };
 
+  // React component identity from the fiber tree (Cursor-style): nearest
+  // named components up the owner chain plus the nearest component's prop
+  // KEYS. Prop values are never captured — they can carry user data.
+  const reactContextFor = (element) => {
+    try {
+      let node = element;
+      let hops = 0;
+      while (node && hops < 8) {
+        const fiberKey = Object.keys(node).find((key) => key.startsWith("__reactFiber$"));
+        if (fiberKey) {
+          const components = [];
+          let propKeys = null;
+          let fiber = node[fiberKey];
+          let steps = 0;
+          while (fiber && components.length < 4 && steps < 64) {
+            const type = fiber.type;
+            const name = typeof type === "function"
+              ? (type.displayName || type.name)
+              : (type && typeof type === "object" ? (type.displayName || type.render?.displayName || type.render?.name) : null);
+            if (name && name.length > 1) {
+              components.push(name);
+              if (!propKeys && fiber.memoizedProps && typeof fiber.memoizedProps === "object") {
+                propKeys = Object.keys(fiber.memoizedProps).filter((key) => key !== "children").slice(0, 12);
+              }
+            }
+            fiber = fiber.return;
+            steps += 1;
+          }
+          if (components.length) return { components, propKeys: propKeys || [] };
+          return null;
+        }
+        node = node.parentElement;
+        hops += 1;
+      }
+    } catch (_) {}
+    return null;
+  };
+
   const baselineFor = (element) => {
     const selectors = selectorsFor(element);
     if (!selectors.length) return null;
+    const react = reactContextFor(element);
     return {
       selector: selectors[0],
       selectors,
@@ -417,6 +456,8 @@
       text_content: boundedTextValue(element),
       text_editable: textIsEditable(element),
       computed_styles: computedStylesFor(element),
+      react_components: react?.components || [],
+      react_prop_keys: react?.propKeys || [],
     };
   };
 

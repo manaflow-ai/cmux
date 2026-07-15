@@ -10,6 +10,8 @@ public nonisolated struct BrowserDesignModePromptContext: Equatable, Sendable {
     public let screenshotPaths: [String?]
     /// The local PNG crop path for the most recently selected element.
     public var screenshotPath: String? { screenshotPaths.last ?? nil }
+    /// A full-viewport PNG path for spatial context around the selections.
+    public let pageScreenshotPath: String?
     /// The optional source-level change requested by the user.
     public let requestedChange: String
 
@@ -23,13 +25,15 @@ public nonisolated struct BrowserDesignModePromptContext: Equatable, Sendable {
         pageURL: String,
         snapshot: BrowserDesignModeSnapshot,
         screenshotPath: String?,
-        requestedChange: String
+        requestedChange: String,
+        pageScreenshotPath: String? = nil
     ) {
         self.pageURL = BrowserDesignModePageURL(rawValue: pageURL).sanitizedValue
         self.snapshot = snapshot
         self.screenshotPaths = snapshot.selections.isEmpty
             ? []
             : Array(repeating: nil, count: snapshot.selections.count - 1) + [screenshotPath]
+        self.pageScreenshotPath = pageScreenshotPath
         self.requestedChange = requestedChange
     }
 
@@ -43,11 +47,13 @@ public nonisolated struct BrowserDesignModePromptContext: Equatable, Sendable {
         pageURL: String,
         snapshot: BrowserDesignModeSnapshot,
         screenshotPaths: [String?],
-        requestedChange: String
+        requestedChange: String,
+        pageScreenshotPath: String? = nil
     ) {
         self.pageURL = BrowserDesignModePageURL(rawValue: pageURL).sanitizedValue
         self.snapshot = snapshot
         self.screenshotPaths = screenshotPaths
+        self.pageScreenshotPath = pageScreenshotPath
         self.requestedChange = requestedChange
     }
 }
