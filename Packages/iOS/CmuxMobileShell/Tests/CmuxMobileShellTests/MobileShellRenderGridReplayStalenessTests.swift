@@ -59,6 +59,54 @@ import Testing
 }
 
 @MainActor
+@Test func replayResponseAcceptsLowerSequenceFromReplacementProducer() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let oldProducer = try MobileTerminalRenderGridFrame(
+        surfaceID: "live-terminal",
+        stateSeq: 90,
+        producerEpoch: 7,
+        renderRevision: 90,
+        columns: 16,
+        rows: 4,
+        rowSpans: [.init(row: 0, column: 0, text: "old-producer")]
+    )
+    let replacement = try MobileTerminalRenderGridFrame(
+        surfaceID: "live-terminal",
+        stateSeq: 1,
+        producerEpoch: 8,
+        renderRevision: 1,
+        columns: 16,
+        rows: 4,
+        rowSpans: [.init(row: 0, column: 0, text: "replacement-producer")]
+    )
+    await router.enqueueReplayRenderGrid(oldProducer)
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+
+    let oldDelivered = try await pollUntil {
+        collector.lines.contains { $0.contains("old-producer") }
+    }
+    #expect(oldDelivered)
+
+    await router.enqueueReplayRenderGrid(replacement)
+    store.requestTerminalReplay(surfaceID: "live-terminal")
+
+    let replacementDelivered = try await pollUntil {
+        collector.lines.contains { $0.contains("replacement-producer") }
+    }
+    #expect(
+        replacementDelivered,
+        "a new producer epoch must rebase the replay response's old byte-sequence floor"
+    )
+    #expect(store.terminalDeliveredRenderEpochBySurfaceID["live-terminal"] == 8)
+    #expect(store.deliveredTerminalByteEndSeqBySurfaceID["live-terminal"] == 1)
+    collector.unmount()
+}
+
+@MainActor
 @Test func renderGridReplayAtSameSeqDoesNotOverwriteNewerLiveGrid() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()
