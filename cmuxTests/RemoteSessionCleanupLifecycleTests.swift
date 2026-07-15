@@ -68,12 +68,14 @@ struct RemoteSessionCleanupLifecycleTests {
         _ = try #require(await Self.nextBootstrapRequest(runner))
         await workspace.remoteSessionTransitionTask?.value
 
+        runner.blockNextCleanup()
         workspace.configureRemoteConnection(configurationB, autoConnect: true)
+        let cleanup = try #require(await Self.nextCleanupCommand(runner))
         workspace.configureRemoteConnection(configurationA, autoConnect: true)
 
         let transition = try #require(workspace.remoteSessionTransitionTask)
+        runner.releaseBlockedCleanup()
         await transition.value
-        let cleanup = try #require(runner.recordedCleanupCommands.first)
         #expect(!cleanup.contains("serve --persistent-stop --slot"))
         #expect(cleanup.contains("64007.slot"))
         #expect(workspace.remoteConfiguration == configurationA.scopedToOwnerWorkspace(workspace.id))
