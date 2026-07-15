@@ -10515,14 +10515,17 @@ final class Workspace: Identifiable, ObservableObject {
 
     @discardableResult
     func reconcileTerminalPortalVisibilityForCurrentRenderedLayout() -> Bool {
-        reconcileTerminalPortalVisibilityForCurrentRenderedLayout(candidatePanelIds: nil)
+        reconcileTerminalPortalVisibilityForCurrentRenderedLayout(
+            visiblePanelIds: renderedVisiblePanelIdsForCurrentLayout(),
+            candidatePanelIds: nil
+        )
     }
 
     @discardableResult
     private func reconcileTerminalPortalVisibilityForCurrentRenderedLayout(
+        visiblePanelIds: Set<UUID>,
         candidatePanelIds: Set<UUID>?
     ) -> Bool {
-        let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
         // Focus-exclusivity: when the right sidebar (Dock) owns input focus in this
         // window, no main terminal should be (re)marked active even if it is still
         // this workspace's focused panel — mirroring the SwiftUI `isFocused` gate so
@@ -10589,15 +10592,19 @@ final class Workspace: Identifiable, ObservableObject {
 
     @discardableResult
     func reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: String) -> Bool {
-        reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: reason, candidatePanelIds: nil)
+        reconcileBrowserPortalVisibilityForCurrentRenderedLayout(
+            reason: reason,
+            visiblePanelIds: renderedVisiblePanelIdsForCurrentLayout(),
+            candidatePanelIds: nil
+        )
     }
 
     @discardableResult
     private func reconcileBrowserPortalVisibilityForCurrentRenderedLayout(
         reason: String,
+        visiblePanelIds: Set<UUID>,
         candidatePanelIds: Set<UUID>?
     ) -> Bool {
-        let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
         var didChange = false
 
         for panel in portalReconciliationCandidates(candidatePanelIds) {
@@ -10673,12 +10680,32 @@ final class Workspace: Identifiable, ObservableObject {
     /// the selection hot path proportional to that pane's tab count while
     /// layout and zoom changes continue to use workspace-wide reconciliation.
     private func reconcilePortalVisibilityForTabSelection(inPane pane: PaneID, reason: String) {
+        let paneTabs = bonsplitController.tabs(inPane: pane)
         let candidatePanelIds = Set(
-            bonsplitController.tabs(inPane: pane).compactMap { panelIdFromSurfaceId($0.id) }
+            paneTabs.compactMap { panelIdFromSurfaceId($0.id) }
         )
-        _ = reconcileTerminalPortalVisibilityForCurrentRenderedLayout(candidatePanelIds: candidatePanelIds)
+        let visiblePanelIds: Set<UUID>
+        if layoutMode == .canvas {
+            visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout().intersection(candidatePanelIds)
+        } else if bonsplitController.zoomedPaneId.map({ $0 != pane }) == true {
+            visiblePanelIds = []
+        } else if let selectedTab = bonsplitController.selectedTab(inPane: pane)
+            ?? paneTabs.first,
+            let panelId = panelIdFromSurfaceId(selectedTab.id),
+            panels[panelId] != nil,
+            portalRenderingEnabled {
+            visiblePanelIds = [panelId]
+        } else {
+            visiblePanelIds = []
+        }
+
+        _ = reconcileTerminalPortalVisibilityForCurrentRenderedLayout(
+            visiblePanelIds: visiblePanelIds,
+            candidatePanelIds: candidatePanelIds
+        )
         _ = reconcileBrowserPortalVisibilityForCurrentRenderedLayout(
             reason: reason,
+            visiblePanelIds: visiblePanelIds,
             candidatePanelIds: candidatePanelIds
         )
     }

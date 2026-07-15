@@ -26,6 +26,7 @@ extension Workspace {
             }
             utilityPanel.requestSettingsNavigation(settingsNavigationTarget)
             if focus {
+                clearSplitZoom()
                 focusPanel(existingId)
             }
             return utilityPanel

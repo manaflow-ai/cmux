@@ -75,6 +75,26 @@ struct AppUtilityPanelTests {
         )
     }
 
+    @Test func focusingExistingAppUtilityPaneClearsZoomFromAnotherPane() throws {
+        let workspace = Workspace()
+        let terminalPaneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let terminalPanelId = try #require(workspace.focusedPanelId)
+        let utilityPanel = try #require(workspace.openOrFocusAppUtilityPane(
+            fromPane: terminalPaneId,
+            kind: .mobilePairing,
+            focus: true
+        ))
+
+        workspace.focusPanel(terminalPanelId)
+        #expect(workspace.toggleSplitZoom(panelId: terminalPanelId))
+        #expect(workspace.bonsplitController.zoomedPaneId == terminalPaneId)
+
+        workspace.openMobilePairingSurface(inPane: terminalPaneId)
+
+        #expect(workspace.bonsplitController.zoomedPaneId == nil)
+        #expect(workspace.focusedPanelId == utilityPanel.id)
+    }
+
     @Test func remoteTmuxMirrorDoesNotRequestSplitForAppUtilityPane() throws {
         let workspace = Workspace()
         let paneId = try #require(workspace.bonsplitController.focusedPaneId)
