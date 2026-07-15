@@ -13,16 +13,52 @@ import Testing
 
 // MARK: - Runtime double
 
+private final class RoutingRequestTimeoutPolicy: @unchecked Sendable {
+    private let lock = NSLock()
+    private let firstTimeoutNanoseconds: UInt64
+    private let subsequentTimeoutNanoseconds: UInt64
+    private var hasServedFirstTimeout = false
+
+    init(firstTimeoutNanoseconds: UInt64, subsequentTimeoutNanoseconds: UInt64) {
+        self.firstTimeoutNanoseconds = firstTimeoutNanoseconds
+        self.subsequentTimeoutNanoseconds = subsequentTimeoutNanoseconds
+    }
+
+    func nextTimeoutNanoseconds() -> UInt64 {
+        lock.withLock {
+            guard !hasServedFirstTimeout else { return subsequentTimeoutNanoseconds }
+            hasServedFirstTimeout = true
+            return firstTimeoutNanoseconds
+        }
+    }
+}
+
 struct RoutingTestRuntime: MobileSyncRuntime {
     var transportFactory: any CmxByteTransportFactory
     var stackAccessTokenProvider: @Sendable () async throws -> String = { "test-stack-token" }
     var stackAccessTokenForceRefresher: @Sendable () async throws -> String = { "test-stack-token" }
-    var rpcRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
+    private let requestTimeoutPolicy: RoutingRequestTimeoutPolicy
+    var rpcRequestTimeoutNanoseconds: UInt64 {
+        requestTimeoutPolicy.nextTimeoutNanoseconds()
+    }
     var now: @Sendable () -> Date = { Date() }
     var supportedRouteKinds: [CmxAttachTransportKind] = [.debugLoopback]
     var pairingRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
     var supportsServerPushEvents: Bool = true
     var livenessProbeTimeoutNanoseconds: UInt64 = 200_000_000
+
+    init(
+        transportFactory: any CmxByteTransportFactory,
+        rpcRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000,
+        subsequentRPCRequestTimeoutNanoseconds: UInt64? = nil
+    ) {
+        self.transportFactory = transportFactory
+        requestTimeoutPolicy = RoutingRequestTimeoutPolicy(
+            firstTimeoutNanoseconds: rpcRequestTimeoutNanoseconds,
+            subsequentTimeoutNanoseconds:
+                subsequentRPCRequestTimeoutNanoseconds ?? rpcRequestTimeoutNanoseconds
+        )
+    }
 }
 
 // MARK: - Recording host (router + transport)
@@ -366,11 +402,13 @@ func makeRoutingConnectedStore(
     macScopedWorkspaceMutations: Bool = false,
     connectionState: MobileConnectionState = .disconnected,
     rpcRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000,
+    subsequentRPCRequestTimeoutNanoseconds: UInt64? = nil,
     workspaceActionCapabilities: MobileWorkspaceActionCapabilities = .none
 ) async throws -> MobileShellComposite {
     let runtime = RoutingTestRuntime(
         transportFactory: RoutingTransportFactory(router: router),
-        rpcRequestTimeoutNanoseconds: rpcRequestTimeoutNanoseconds
+        rpcRequestTimeoutNanoseconds: rpcRequestTimeoutNanoseconds,
+        subsequentRPCRequestTimeoutNanoseconds: subsequentRPCRequestTimeoutNanoseconds
     )
     let terminals = [
         MobileTerminalPreview(id: .init(rawValue: RoutingHostRouter.terminalA), name: "A"),

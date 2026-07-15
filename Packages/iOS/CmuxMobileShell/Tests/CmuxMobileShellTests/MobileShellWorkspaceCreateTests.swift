@@ -324,11 +324,13 @@ import Testing
 
     @Test func ambiguousTerminalCreateFailureReconcilesBeforeReleasingReservation() async throws {
         let router = RoutingHostRouter()
+        await router.setHoldFirstTerminalCreate(true)
         await router.setDropTerminalCreateResponse(true)
         let store = try await makeRoutingConnectedStore(
             router: router,
             connectionState: .connected,
-            rpcRequestTimeoutNanoseconds: 20_000_000,
+            rpcRequestTimeoutNanoseconds: 10_000_000_000,
+            subsequentRPCRequestTimeoutNanoseconds: 30_000_000_000,
             workspaceActionCapabilities: MobileWorkspaceActionCapabilities(
                 supportsTerminalCloseActions: true,
                 supportsTerminalCreateInPane: true,
@@ -351,6 +353,9 @@ import Testing
         ) {
             createResult = await store.createRemoteTerminal(in: workspace.id)
         })
+        await router.awaitFirstTerminalCreateReached()
+        await router.releaseFirstTerminalCreate()
+        await router.workspaceListGate.waitUntilRequestCount(1)
         for _ in 0..<300 where owner.isActive {
             try await Task.sleep(for: .milliseconds(1))
         }
@@ -373,12 +378,14 @@ import Testing
 
     @Test func ambiguousTerminalCreateFailureKeepsGateClosedWhenReconciliationFails() async throws {
         let router = RoutingHostRouter()
+        await router.setHoldFirstTerminalCreate(true)
         await router.setDropTerminalCreateResponse(true)
         await router.setRejectWorkspaceList(true)
         let store = try await makeRoutingConnectedStore(
             router: router,
             connectionState: .connected,
-            rpcRequestTimeoutNanoseconds: 20_000_000,
+            rpcRequestTimeoutNanoseconds: 10_000_000_000,
+            subsequentRPCRequestTimeoutNanoseconds: 30_000_000_000,
             workspaceActionCapabilities: MobileWorkspaceActionCapabilities(
                 supportsTerminalCloseActions: true,
                 supportsTerminalCreateInPane: true,
@@ -399,6 +406,9 @@ import Testing
         ) {
             _ = await store.createRemoteTerminal(in: workspace.id)
         })
+        await router.awaitFirstTerminalCreateReached()
+        await router.releaseFirstTerminalCreate()
+        await router.workspaceListGate.waitUntilRequestCount(1)
         for _ in 0..<300 where owner.isActive {
             try await Task.sleep(for: .milliseconds(1))
         }

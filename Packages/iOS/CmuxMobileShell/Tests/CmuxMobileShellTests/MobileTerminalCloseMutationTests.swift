@@ -211,7 +211,8 @@ import Testing
     let store = try await makeRoutingConnectedStore(
         router: router,
         connectionState: .connected,
-        rpcRequestTimeoutNanoseconds: 20_000_000,
+        rpcRequestTimeoutNanoseconds: 10_000_000_000,
+        subsequentRPCRequestTimeoutNanoseconds: 30_000_000_000,
         workspaceActionCapabilities: MobileWorkspaceActionCapabilities(
             supportsTerminalCloseActions: true
         )
@@ -234,6 +235,7 @@ import Testing
         )
     }
     await router.awaitTerminalCloseReached()
+    await router.workspaceListGate.waitUntilRequestCount(1)
     let result = await close.value
 
     guard case .failure(.resultUnknownRefreshed) = result else {
