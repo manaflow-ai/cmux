@@ -148,6 +148,30 @@ struct CmuxRunURLRequestTests {
         #expect(try runInitialTerminalCommand(launchCommand) == EXIT_SUCCESS)
     }
 
+    @Test func shellWrapperSafetyExitsCannotBeAliasedByZshStartupFiles() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let marker = root.appendingPathComponent("command-ran")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try "alias exit=':'\n".write(
+            to: root.appendingPathComponent(".zshenv"),
+            atomically: true,
+            encoding: .utf8
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        let launchCommand = CmuxRunShellCommandBuilder(
+            command: "touch \(marker.path)",
+            workingDirectory: root.path,
+            approvedIdentity: .init(device: 0, inode: 0)
+        ).launchCommand
+        var environment = ProcessInfo.processInfo.environment
+        environment["ZDOTDIR"] = root.path
+
+        #expect(try runInitialTerminalCommand(launchCommand, environment: environment) == 125)
+        #expect(!fileManager.fileExists(atPath: marker.path))
+    }
+
     @Test(arguments: ["\u{0000}", "\r", "\u{202E}", "\u{2066}", "\u{2028}"])
     func rejectsHiddenCommandCharacters(_ hidden: String) throws {
         let result = parse([
@@ -574,10 +598,14 @@ struct CmuxRunURLRequestTests {
         return CmuxRunURLRequest.parse(url, supportedSchemes: [scheme])
     }
 
-    private func runInitialTerminalCommand(_ command: String) throws -> Int32 {
+    private func runInitialTerminalCommand(
+        _ command: String,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) throws -> Int32 {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")
         process.arguments = ["-lc", command]
+        process.environment = environment
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         try process.run()
