@@ -68,7 +68,12 @@ final class FeedSurfaceBridge: NSObject, WKScriptMessageHandlerWithReply {
     }
 
     static func feedURL() -> URL? {
-        try? CmuxDiffViewerURLSchemeHandler.shared.registerBundledFeedAssets()
+        do {
+            return try CmuxDiffViewerURLSchemeHandler.shared.registerBundledFeedAssets()
+        } catch {
+            NSLog("feed.surface.register.failed error=%@", String(describing: error))
+            return nil
+        }
     }
 
     private func handle(

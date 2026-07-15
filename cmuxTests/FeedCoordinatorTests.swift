@@ -11,11 +11,13 @@ import CMUXAgentLaunch
 @Suite("Feed coordinator", .serialized)
 struct FeedCoordinatorTests {
     @Test func feedSurfaceTrustIsLimitedToTheBundledEntryPoint() throws {
-        let feedURL = try #require(CmuxDiffViewerURLSchemeHandler.diffViewerURL(token: "feed", requestPath: "/feed.html"))
+        let token = CmuxDiffViewerURLSchemeHandler.bundledFeedToken
+        #expect(CmuxDiffViewerURLSchemeHandler.isValidToken(token))
+        let feedURL = try #require(CmuxDiffViewerURLSchemeHandler.diffViewerURL(token: token, requestPath: "/feed.html"))
 
         #expect(FeedSurfaceBridge.isTrustedFeedURL(feedURL))
         #expect(!FeedSurfaceBridge.isTrustedFeedURL(URL(string: feedURL.absoluteString + "#feed")))
-        #expect(!FeedSurfaceBridge.isTrustedFeedURL(URL(string: "cmux-diff-viewer://feed/index.html")))
+        #expect(!FeedSurfaceBridge.isTrustedFeedURL(URL(string: "cmux-diff-viewer://\(token)/index.html")))
         #expect(!FeedSurfaceBridge.isTrustedFeedURL(URL(string: "https://example.com/feed.html")))
     }
 

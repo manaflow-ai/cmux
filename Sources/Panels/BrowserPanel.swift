@@ -1845,7 +1845,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
     static let scheme = "cmux-diff-viewer"
     static let shared = CmuxDiffViewerURLSchemeHandler()
     static let maxRegisteredFiles = 1024
-    static let bundledFeedToken = "feed"
+    static let bundledFeedToken = "bundled-feed-surface"
 
     struct RegisteredFile {
         let requestPath: String
