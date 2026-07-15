@@ -197,6 +197,46 @@ import Testing
         store.signOut()
         #expect(!store.isRegistryHandoffFailurePresented)
     }
+
+    @Test func changedAgentIdentityRejectsTheTappedHandoff() async {
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            identityProvider: StaticIdentityProvider(userID: "user-1")
+        )
+        store.registryDevices = [
+            RegistryDevice(
+                deviceId: "mac-a",
+                platform: "mac",
+                displayName: "Review Mac",
+                lastSeenAt: .now,
+                instances: [
+                    RegistryAppInstance(
+                        tag: "stable",
+                        routes: [],
+                        lastSeenAt: .now,
+                        sessions: [
+                            CmxLiveSession(
+                                id: "workspace-a",
+                                workspaceID: "workspace-a",
+                                agentSessionID: "replacement-agent",
+                                title: "App Review",
+                                status: .working,
+                                lastActivityAt: 100
+                            )
+                        ]
+                    )
+                ]
+            )
+        ]
+
+        #expect(await store.prepareRegistrySessionHandoff(
+            deviceID: "mac-a",
+            instanceTag: "stable",
+            sessionID: "workspace-a",
+            expectedAgentSessionID: "selected-agent"
+        ) == nil)
+        #expect(store.isRegistryHandoffFailurePresented)
+    }
 }
 
 private actor FixedOutcomeDeviceRegistry: DeviceRegistryRefreshing {
