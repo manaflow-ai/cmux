@@ -91,15 +91,15 @@ struct BrowserViewportRuntimeTests {
         assertViewportCorners(layout: layout, host: viewportHost, pane: pane)
         assertTargetHitTestsThroughScaledHost(webView: webView, host: viewportHost, pane: pane)
 
-        for pageZoom in [1.25, 0.8, 2.0] {
+        for pageZoom in [1.1, 1.25, 0.8, 2.0] {
             webView.pageZoom = pageZoom
             let zoomedLayout = try #require(webView.cmuxApplyBrowserViewportLayout(in: pane.bounds))
             let zoomedMetrics = try await runtimeMetrics(in: webView)
 
             #expect(zoomedMetrics["width"] as? Int == 1_280)
             #expect(zoomedMetrics["height"] as? Int == 720)
-            #expect(viewportHost.bounds.size == zoomedLayout.webViewBounds.size)
-            #expect(webView.bounds.size == zoomedLayout.webViewBounds.size)
+            assertSizeApproximatelyEquals(viewportHost.bounds.size, zoomedLayout.webViewBounds.size)
+            assertSizeApproximatelyEquals(webView.bounds.size, zoomedLayout.webViewBounds.size)
             assertViewportCorners(layout: zoomedLayout, host: viewportHost, pane: pane)
             assertTargetHitTestsThroughScaledHost(webView: webView, host: viewportHost, pane: pane)
         }
@@ -252,6 +252,15 @@ struct BrowserViewportRuntimeTests {
         #expect(abs(topLeft.y - layout.frame.maxY) < 0.5)
         #expect(abs(bottomRight.x - layout.frame.maxX) < 0.5)
         #expect(abs(bottomRight.y - layout.frame.minY) < 0.5)
+    }
+
+    private func assertSizeApproximatelyEquals(
+        _ actual: CGSize,
+        _ expected: CGSize,
+        epsilon: CGFloat = 0.000_1
+    ) {
+        #expect(abs(actual.width - expected.width) < epsilon)
+        #expect(abs(actual.height - expected.height) < epsilon)
     }
 
     private func assertTargetHitTestsThroughScaledHost(
