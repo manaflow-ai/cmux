@@ -232,7 +232,7 @@ struct CmxIrohRelayCredentialCoordinatorTests {
         )
 
         guard case let .sleep(deadline) = await clockEvents.next() else {
-            Issue.record("Expected the rate-limit retry sleep")
+            Issue.record("Expected the relay retry sleep")
             return
         }
         #expect(deadline == fixture.now.addingTimeInterval(600))
