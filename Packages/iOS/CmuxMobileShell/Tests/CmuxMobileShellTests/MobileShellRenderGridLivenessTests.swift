@@ -456,10 +456,24 @@ import Testing
     let clock = TestClock()
     let router = LivenessHostRouter()
     let box = TransportBox()
-    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let store = try await makeConnectedStore(
+        router: router,
+        box: box,
+        clock: clock,
+        // This success path verifies repair semantics, not the accelerated
+        // failure deadline used by dead-probe tests. Match production so a
+        // saturated full-suite executor cannot turn an immediate scripted
+        // response into a false liveness failure.
+        probeTimeoutNanoseconds: 3_000_000_000
+    )
 
     let sawSubscribe = try await pollUntil { await router.count(of: "mobile.events.subscribe") >= 1 }
     #expect(sawSubscribe, "listener must establish the push subscription")
+    try await waitForSubscribeResponsesServed(
+        1,
+        router: router,
+        "the initial subscription response must settle before the host registration is dropped"
+    )
 
     let collector = OutputCollector()
     collector.mount(store: store, surfaceID: "live-terminal")
@@ -479,15 +493,15 @@ import Testing
     clock.advance(by: 10)
     store.debugRunRenderGridLivenessCheckForTesting()
 
+    try await waitForSubscribeResponsesServed(
+        2,
+        router: router,
+        "the liveness probe response must settle before repair effects are inspected"
+    )
     let replayed = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 2 }
     #expect(
         replayed,
         "a probe that reinstalls a lost registration must request a catch-up replay for mounted surfaces; deltas emitted during the gap were never delivered"
-    )
-    let hostStatusCount = await router.count(of: "mobile.host.status")
-    #expect(
-        hostStatusCount == hostStatusCountBeforeRepair,
-        "the repair must not restart the listener; the phone-side stream is intact"
     )
     // workspace.updated events were missed during the gap too: the repair must
     // re-fetch the authoritative workspace list.
@@ -497,6 +511,11 @@ import Testing
         return current > workspaceListsBeforeRepair
     }
     #expect(workspaceRefetched, "the repaired subscription also carries workspace.updated, so the workspace list must be re-fetched")
+    let hostStatusCount = await router.count(of: "mobile.host.status")
+    #expect(
+        hostStatusCount == hostStatusCountBeforeRepair,
+        "the repair must not restart the listener; the phone-side stream is intact"
+    )
 
     // The repaired stream delivers straight into the still-mounted sink.
     let event = try renderGridEventFrame(
