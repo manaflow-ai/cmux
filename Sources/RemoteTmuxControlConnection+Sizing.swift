@@ -194,8 +194,17 @@ extension RemoteTmuxControlConnection {
     /// the ledger says delivered and dedup suppresses every retry, leaving
     /// the window columns wide of the claim while mirrors render short of
     /// the assignment. Every %layout-change names the window's actual
-    /// size, so it is the parity edge: when it disagrees with a claim the
-    /// ledger says was delivered, drop that ledger entry and resend. The
+    /// size, so it is the parity edge — but only on COLUMNS. tmux fits the
+    /// window width to the client width (dividers come out of panes, not the
+    /// total), so a column disagreement is a real unlanded claim. Rows are
+    /// not comparable this way: tmux spends rows on chrome (status line,
+    /// pane-border title) and hands an odd split remainder to one stacked
+    /// pane or the other from its own prior state, so window rows differ
+    /// from the client claim by design and wobble ±1 across reflows — a
+    /// rows-only difference is tmux rounding, not a lost pin, and resending
+    /// on it just spins a per-layout-event ping. A genuinely short window
+    /// (lost row pin) surfaces instead as mirrors rendering short of their
+    /// assignment, which the output/grid-parity re-arm catches. The
     /// per-episode budget bounds the infeasible-claim case; agreement or a
     /// new claim value opens the next episode. Claims still derive only
     /// from measured containers — this resends a decision already made, it
@@ -205,7 +214,7 @@ extension RemoteTmuxControlConnection {
     ) {
         guard supportsPerWindowSize else { return }
         guard let desired = lastWindowSizes[windowId] else { return }
-        if desired == (layoutColumns, layoutRows) {
+        if desired.0 == layoutColumns {
             windowClaimParityRearmsSpent.removeValue(forKey: windowId)
             return
         }
@@ -349,6 +358,11 @@ extension RemoteTmuxControlConnection {
             sendSessionRedrawKick(size: size)
             return
         }
+        // The caller (the mirror's applyAssignedGrids) already decides WHEN a
+        // kick is warranted — only when a pane's grid reaches a size not yet
+        // refilled at the current claim, which starves tmux's odd-split
+        // re-round oscillation. So this path kicks unconditionally; a second
+        // dedup here would double-suppress and drop a legitimate refill.
         let kicks: [(windowId: Int, columns: Int, rows: Int)] = windowIds
             .compactMap { id in
                 guard let size = lastWindowSizes[id], size.1 > 2 else { return nil }
@@ -389,38 +403,35 @@ extension RemoteTmuxControlConnection {
         }
     }
 
-    /// Per-window shrink→restore SIGWINCH kick. Shared by the attach kick and
-    /// ``forceRedrawKick(windowIds:)``. Re-checks each window's live claim so
-    /// a window that got a real size change since scheduling is skipped.
+    /// Per-window shrink→restore SIGWINCH kick. Each window runs its own task,
+    /// keyed by id: a shared task would be cancelled by the next window's kick
+    /// and skip the first window's restore, stranding it at the shrunk size.
+    /// Each task re-checks its window's live claim so a window that got a real
+    /// size change since scheduling is skipped.
     private func sendPerWindowRedrawKick(kicks: [(windowId: Int, columns: Int, rows: Int)]) {
         #if DEBUG
         let kickList = kicks.map { "@\($0.windowId)" }.joined(separator: ",")
         cmuxDebugLog("remote.size.kick windows=\(kickList)")
         #endif
-        attachRedrawKickTask?.cancel()
-        attachRedrawKickTask = Task { @MainActor [weak self] in
-            guard let self, self.connectionState == .connected else { return }
-            // Skip any window that got a newer size meanwhile — that was a real
-            // size change and already delivered the SIGWINCH for that window.
-            let liveKicks = kicks.filter { kick in
-                guard let current = self.lastWindowSizes[kick.windowId] else { return false }
-                return current == (kick.columns, kick.rows)
-            }
-            guard !liveKicks.isEmpty else { return }
-            for kick in liveKicks {
+        for kick in kicks {
+            perWindowRedrawKickTasks[kick.windowId]?.cancel()
+            perWindowRedrawKickTasks[kick.windowId] = Task { @MainActor [weak self] in
+                guard let self, self.connectionState == .connected else { return }
+                // Skip if the window got a newer size since scheduling — that was
+                // a real size change and already delivered the SIGWINCH.
+                guard self.lastWindowSizes[kick.windowId].map({ $0 == (kick.columns, kick.rows) }) == true
+                else { return }
                 #if DEBUG
                 cmuxDebugLog("remote.size.kick @\(kick.windowId) shrink to \(kick.columns)x\(kick.rows - 1)")
                 #endif
                 self.sendPerWindowSize(windowId: kick.windowId, columns: kick.columns, rows: kick.rows - 1)
-            }
-            do {
-                try await ContinuousClock().sleep(for: .milliseconds(Self.attachRedrawKickGapMs))
-            } catch {
-                return
-            }
-            guard self.connectionState == .connected else { return }
-            for kick in liveKicks {
-                guard let restore = self.lastWindowSizes[kick.windowId] else { continue }
+                do {
+                    try await ContinuousClock().sleep(for: .milliseconds(Self.attachRedrawKickGapMs))
+                } catch {
+                    return
+                }
+                guard self.connectionState == .connected,
+                      let restore = self.lastWindowSizes[kick.windowId] else { return }
                 #if DEBUG
                 cmuxDebugLog("remote.size.kick @\(kick.windowId) restore to \(restore.0)x\(restore.1)")
                 #endif

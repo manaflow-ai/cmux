@@ -243,7 +243,7 @@ extension RemoteTmuxWindowMirror {
         // left alone: it applies tmux's own assignment, never a stale one.
         let suppressPin = visibleHostingContext()?.window?.inLiveResize == true
             || TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive
-        var pinGrew = false
+        var needsKick = false
         for (paneId, panel) in panelsByPaneId {
             // Under zoom the visible tree is the single zoomed leaf, but the
             // hidden BASE panes are still live and still receiving output —
@@ -255,32 +255,43 @@ extension RemoteTmuxWindowMirror {
                 panel.surface.clearAssignedGrid()
                 continue
             }
-            if panel.surface.setAssignedGrid(columns: node.width, rows: node.height) {
-                pinGrew = true
-            } else if !suppressPin,
-                      let rendered = lastRenderedGrids[paneId],
-                      rendered.cols != node.width || rendered.rows != node.height {
-                // The pin value already equals the assignment, but the
-                // surface rendered a DIFFERENT grid: tmux grew the pane after
-                // the pin last applied (against stale cell metrics between our
-                // claim and settle) and an unchanged setAssignedGrid is a
-                // no-op, or the surface over-rendered past the assignment.
-                // Re-apply against the current metrics — reapplyAssignedGrid
-                // clamps both directions — and owe a redraw kick only when it
-                // grew (a shrink has nothing new to paint), or the short pane
-                // renders under its span and wraps forever.
+            let grewPin = panel.surface.setAssignedGrid(columns: node.width, rows: node.height)
+            var laggedShort = false
+            if !grewPin, !suppressPin,
+               let rendered = lastRenderedGrids[paneId],
+               rendered.cols != node.width || rendered.rows != node.height {
+                // The pin value already equals the assignment, but the surface
+                // rendered a DIFFERENT grid: tmux grew the pane after the pin
+                // last applied (against stale cell metrics between our claim and
+                // settle) and an unchanged setAssignedGrid is a no-op, or the
+                // surface over-rendered past the assignment. Re-apply against the
+                // current metrics — reapplyAssignedGrid clamps both directions.
                 panel.surface.reapplyAssignedGrid()
-                if rendered.cols < node.width || rendered.rows < node.height {
-                    pinGrew = true
-                }
+                laggedShort = rendered.cols < node.width || rendered.rows < node.height
+            }
+            // A pin that grows the grid after tmux streamed those rows leaves
+            // the late-granted cells blank until a repaint, so we owe a kick —
+            // but ONLY when this pane's grid reaches a size not yet refilled at
+            // the current claim. The kick shrinks and restores the client size
+            // to force that repaint, and that resize makes tmux re-round an odd
+            // split and hand this pane a row more or less next reflow. Kicking
+            // on every such change loops forever at an unchanged claim; kicking
+            // on a new high refills the genuine grow once and starves the
+            // oscillation (which never exceeds the high). The high-water resets
+            // when the claim changes (see updateClientSize).
+            let hw = redrawKickHighWater[paneId]
+            let reachesNewHigh = node.width > (hw?.cols ?? 0) || node.height > (hw?.rows ?? 0)
+            if (grewPin || laggedShort) && reachesNewHigh {
+                needsKick = true
+            }
+            if grewPin || laggedShort {
+                redrawKickHighWater[paneId] = (
+                    cols: max(node.width, hw?.cols ?? 0),
+                    rows: max(node.height, hw?.rows ?? 0)
+                )
             }
         }
-        // A pin that grows the grid after tmux already streamed those rows
-        // leaves the late-granted cells blank: tmux repaints only on
-        // change, and the content that belonged there was clipped while
-        // the grid was short. Force a redraw kick (independent of the
-        // attach one-shot) to refill them mid-session.
-        if pinGrew {
+        if needsKick {
             connection?.forceRedrawKick(windowIds: [windowId])
         }
     }
@@ -741,6 +752,14 @@ extension RemoteTmuxWindowMirror {
               containerSizePt.width > 1, containerSizePt.height > 1,
               let cells = clientGrid(contentSize: containerSizePt)
         else { return false }
+        // A changed claim is a real resize: drop the per-pane redraw
+        // high-water so a grow against the new size refills again. tmux
+        // re-rounding an odd split at a STEADY claim leaves this unchanged,
+        // so that oscillation stays starved (see applyAssignedGrids).
+        if redrawKickClaim?.cols != cells.columns || redrawKickClaim?.rows != cells.rows {
+            redrawKickClaim = (cols: cells.columns, rows: cells.rows)
+            redrawKickHighWater.removeAll()
+        }
         connection.setWindowSize(
             windowId: windowId,
             columns: cells.columns,

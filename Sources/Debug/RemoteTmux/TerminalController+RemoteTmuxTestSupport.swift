@@ -570,11 +570,23 @@ extension TerminalController {
                     "claimed": claimed.map { "\($0.0)x\($0.1)" } ?? "none",
                     "layout": "\(mirror.layout.width)x\(mirror.layout.height)",
                     "derivable": derivable.map { "\($0.columns)x\($0.rows)" } ?? "none",
-                    "settled": claimed.map {
+                    // The claim is a CLIENT size; `windowGrid` is the WINDOW tmux
+                    // laid out. Columns agree exactly (tmux fits the window to the
+                    // client width; dividers come out of panes, not the total), so
+                    // a column disagreement is a real unlanded claim and stays in
+                    // the gate. Rows do NOT: tmux spends rows on chrome (status
+                    // line, pane-border title), and with an odd row remainder it
+                    // hands the leftover to one stacked pane or the other from its
+                    // own prior state (window 38 vs 39 for one stable claim of 39)
+                    // — not a function of what we sent. So rows can't be asserted
+                    // client==window; we settle on the panes rendering their
+                    // assigned grids (gridParity, inside sizingReady) and the claim
+                    // re-deriving from the current container (derivationSettled).
+                    "settled": claimed.map { claim in
                         guard let windowGrid else { return false }
                         return connected && publicationReady && sizingReady
                             && derivationSettled
-                            && $0.0 == windowGrid.width && $0.1 == windowGrid.height
+                            && claim.0 == windowGrid.width
                     } ?? false,
                     "mismatches": mismatches,
                 ])

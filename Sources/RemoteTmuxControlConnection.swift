@@ -199,6 +199,10 @@ final class RemoteTmuxControlConnection {
     /// ``scheduleAttachRedrawKickIfNeeded()`` for why attach needs a redraw kick.
     var pendingAttachRedrawKick = false
     var attachRedrawKickTask: Task<Void, Never>?
+    /// Per-window mid-session redraw kicks, keyed by window id. Each window
+    /// owns its own shrink→restore task so a second window's kick cannot
+    /// cancel the first window's restore and strand it at the shrunk size.
+    var perWindowRedrawKickTasks: [Int: Task<Void, Never>] = [:]
     /// Gap between the kick's shrink push and its restore push. Must exceed tmux's
     /// pane-resize coalescing (~250 ms), otherwise the two pushes collapse into a
     /// net-zero size change and no SIGWINCH is ever delivered.
@@ -492,6 +496,8 @@ final class RemoteTmuxControlConnection {
         windowSizeDebounceTasks.removeAll()
         attachRedrawKickTask?.cancel()
         attachRedrawKickTask = nil
+        for task in perWindowRedrawKickTasks.values { task.cancel() }
+        perWindowRedrawKickTasks.removeAll()
         pendingAttachRedrawKick = false
     }
 
