@@ -77,76 +77,16 @@ extension AppDelegate {
         ) != nil
     }
 
-    /// Routes configurable surface/focus commands through the focused Dock's
-    /// own controller. Configurable matching stays in `KeyboardShortcutSettings`,
-    /// while the existing legacy-tab and Ghostty compatibility resolvers are
-    /// shared with the main-area dispatcher. The Dock receives only semantic
-    /// commands and never duplicates those bindings.
-    func handleFocusedDockSurfaceShortcut(event: NSEvent) -> Bool {
+    /// Executes a semantic surface/focus command when the Dock owns keyboard
+    /// focus. Callers invoke this from the command's existing dispatcher
+    /// position so configured and compatibility shortcuts keep the same
+    /// conflict precedence as the main area.
+    func performFocusedDockShortcut(_ command: DockShortcutCommand, event: NSEvent) -> Bool {
         guard let store = focusedDockStoreForShortcut(preferredWindow: event.window) else {
             return false
         }
-
-        let commands: [(KeyboardShortcutSettings.Action, DockShortcutCommand)] = [
-            (.nextSurface, .selectNextSurface),
-            (.prevSurface, .selectPreviousSurface),
-            (.moveSurfaceLeft, .moveSurface(offset: -1)),
-            (.moveSurfaceRight, .moveSurface(offset: 1)),
-            (.toggleSplitZoom, .togglePaneZoom),
-            (.triggerFlash, .triggerFlash),
-        ]
-        for (action, command) in commands where matchConfiguredShortcut(event: event, action: action) {
-            if !store.performShortcutCommand(command) { NSSound.beep() }
-            return true
-        }
-
-        if matchesLegacyNextSurfaceShortcut(event: event) {
-            if !store.performShortcutCommand(.selectNextSurface) { NSSound.beep() }
-            return true
-        }
-        if matchesLegacyPreviousSurfaceShortcut(event: event) {
-            if !store.performShortcutCommand(.selectPreviousSurface) { NSSound.beep() }
-            return true
-        }
-
-        if let digit = routableNumberedConfiguredShortcutDigit(event: event, action: .selectSurfaceByNumber) {
-            if !store.performShortcutCommand(.selectSurface(number: digit)) { NSSound.beep() }
-            return true
-        }
-
-        let directionalCommands: [(
-            action: KeyboardShortcutSettings.Action,
-            glyph: String,
-            keyCode: UInt16,
-            direction: NavigationDirection,
-            command: DockShortcutCommand
-        )] = [
-            (.focusLeft, "←", 123, .left, .focusPane(.left)),
-            (.focusRight, "→", 124, .right, .focusPane(.right)),
-            (.focusUp, "↑", 126, .up, .focusPane(.up)),
-            (.focusDown, "↓", 125, .down, .focusPane(.down)),
-        ]
-        for route in directionalCommands where (
-            matchConfiguredDirectionalShortcut(
-                event: event,
-                action: route.action,
-                arrowGlyph: route.glyph,
-                arrowKeyCode: route.keyCode
-            ) || matchesGhosttyGotoSplitShortcut(event: event, direction: route.direction)
-        ) {
-            if !store.performShortcutCommand(route.command) { NSSound.beep() }
-            return true
-        }
-
-        if matchConfiguredShortcut(event: event, action: .focusHistoryBack) {
-            if !store.performShortcutCommand(.focusHistoryBack) { NSSound.beep() }
-            return true
-        }
-        if matchConfiguredShortcut(event: event, action: .focusHistoryForward) {
-            if !store.performShortcutCommand(.focusHistoryForward) { NSSound.beep() }
-            return true
-        }
-        return false
+        if !store.performShortcutCommand(command) { NSSound.beep() }
+        return true
     }
 
     func matchesLegacyNextSurfaceShortcut(event: NSEvent) -> Bool {

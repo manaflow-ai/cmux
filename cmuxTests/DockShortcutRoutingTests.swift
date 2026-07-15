@@ -281,6 +281,16 @@ struct DockShortcutRoutingTests {
         try await AppContextSerialGate.withExclusiveAppContext {
             try Self.withHarness { harness in
                 let panel = try harness.dock.seedShortcutTestPanel(inPane: harness.rootPane)
+                _ = try #require(
+                    harness.dock.newSplit(
+                        kind: .terminal,
+                        orientation: .horizontal,
+                        insertFirst: false,
+                        sourcePanelId: panel.id,
+                        focus: true
+                    )
+                )
+                harness.dock.focusPanel(panel.id)
                 let mainPanelBefore = harness.mainWorkspace.focusedPanelId
 
                 let zoom = Self.customShortcut(key: "y")
