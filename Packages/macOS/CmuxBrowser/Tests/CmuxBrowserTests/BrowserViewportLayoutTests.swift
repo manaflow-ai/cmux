@@ -222,7 +222,7 @@ struct BrowserViewportLayoutTests {
             hasPreviousHost: true,
             hasVisibleWebKitCompanion: false
         )
-        #expect(detached.shouldRestorePreviousHost)
+        #expect(!detached.shouldRestorePreviousHost)
 
         let newerHost = BrowserViewportRestorationPolicy(
             hasCurrentHost: true,
