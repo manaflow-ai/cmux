@@ -82,7 +82,7 @@ private extension ReflowOptions {
 
         func flush() {
             if let p = para {
-                output.append(p.hasJoined ? p.text : p.standaloneText)
+                output.append(p.hasJoined ? p.fragments.joined() : p.standaloneText)
                 para = nil
             }
         }
@@ -111,7 +111,7 @@ private extension ReflowOptions {
                 // own wrapped continuation can rejoin onto it.
                 flush()
                 para = Paragraph(
-                    text: trimTrailingSpaceLike(preservedLine[...]),
+                    fragments: [trimTrailingSpaceLike(preservedLine[...])],
                     standaloneText: preservedLine,
                     hasJoined: false,
                     baseIndent: line.indentWidth,
@@ -140,7 +140,7 @@ private extension ReflowOptions {
                     // still records the original indent so the s1 continuation-indent
                     // join signal keeps working.
                     para = Paragraph(
-                        text: content.trimmingLeadingWhitespace(),
+                        fragments: [content.trimmingLeadingWhitespace()],
                         standaloneText: standaloneContent,
                         hasJoined: false,
                         baseIndent: indent,
@@ -156,6 +156,8 @@ private extension ReflowOptions {
                 }
 
                 if var p = para {
+                    // Move the value out before mutating its COW fragment storage.
+                    para = nil
                     // s1: an explicit continuation indent (line indented past the
                     //     paragraph's first line).
                     let indentationDelta = indent - p.baseIndent
@@ -201,7 +203,7 @@ private extension ReflowOptions {
 
                     if canJoin {
                         let joiner = s3 ? "" : " "
-                        p.text += joiner + content.trimmingLeadingWhitespace()
+                        p.fragments.append(joiner + content.trimmingLeadingWhitespace())
                         p.hasJoined = true
                         didJoin = true
                         p.prevVisibleLength = visLen
@@ -211,6 +213,7 @@ private extension ReflowOptions {
                         p.prevContent = content
                         para = p
                     } else {
+                        para = p
                         flush()
                         openParagraph()
                     }
@@ -409,11 +412,11 @@ private extension ReflowOptions {
 }
 
 private struct Paragraph {
-    /// Accumulated, emitted text of the paragraph so far.
-    var text: String
+    /// Physical-line fragments joined once when the paragraph is emitted.
+    var fragments: [String]
     /// Original line text to emit if this paragraph never actually joins.
     var standaloneText: String
-    /// Whether at least one physical line has been joined into ``text``.
+    /// Whether at least one physical line has been joined into ``fragments``.
     var hasJoined: Bool
     /// Indent (in columns, post common-indent strip) of the paragraph's first
     /// line. Continuation lines indented past this signal a wrap.
