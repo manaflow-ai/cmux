@@ -9,6 +9,7 @@ struct ChatArtifactViewerPager: View {
     let onDone: () -> Void
 
     @State private var selectedPath: String
+    @State private var zoomedPath: String?
 
     init(
         initialPath: String,
@@ -35,6 +36,7 @@ struct ChatArtifactViewerPager: View {
                 }
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
+            .scrollDisabled(zoomedPath != nil)
         } else {
             viewer(path: initialPath)
         }
@@ -48,6 +50,15 @@ struct ChatArtifactViewerPager: View {
             ChatArtifactViewerRouteView(
                 path: path,
                 scope: scope,
+                onImageMinimumZoomChanged: { isAtMinimum in
+                    if isAtMinimum {
+                        if zoomedPath == path {
+                            zoomedPath = nil
+                        }
+                    } else {
+                        zoomedPath = path
+                    }
+                },
                 onDone: onDone
             )
         }

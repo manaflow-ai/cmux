@@ -15,6 +15,7 @@ struct ChatArtifactViewerRouteView: View {
     let path: String
     let scope: ChatArtifactViewerScope
     let onDone: () -> Void
+    let onImageMinimumZoomChanged: (Bool) -> Void
     private let textPreferences: ChatArtifactTextPreferences
     private let textLayoutKind: ChatArtifactTextLayoutKind
 
@@ -48,11 +49,13 @@ struct ChatArtifactViewerRouteView: View {
         textPreferences: ChatArtifactTextPreferences = ChatArtifactTextPreferences(
             defaults: .standard
         ),
+        onImageMinimumZoomChanged: @escaping (Bool) -> Void = { _ in },
         onDone: @escaping () -> Void
     ) {
         self.path = path
         self.scope = scope
         self.onDone = onDone
+        self.onImageMinimumZoomChanged = onImageMinimumZoomChanged
         self.textPreferences = textPreferences
         let layoutKind = ChatArtifactTextLayoutKind(path: path)
         textLayoutKind = layoutKind
@@ -352,12 +355,32 @@ struct ChatArtifactViewerRouteView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding()
         case .folder:
-            ChatArtifactFolderView(path: path, scope: scope, onDone: onDone)
+            ChatArtifactFolderView(
+                path: path,
+                scope: scope,
+                onImageMinimumZoomChanged: onImageMinimumZoomChanged,
+                onDone: onDone
+            )
         case .image(let data):
+            #if os(iOS)
+            if let image = UIImage(data: data) {
+                ChatArtifactZoomableImageView(
+                    image: image,
+                    onMinimumZoomChanged: onImageMinimumZoomChanged
+                )
+                .ignoresSafeArea(.container, edges: .bottom)
+                .onDisappear {
+                    onImageMinimumZoomChanged(true)
+                }
+            } else {
+                Color.clear
+            }
+            #else
             artifactImage(data: data)
                 .scaledToFit()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding()
+            #endif
         case .pdf(let fileURL):
             #if os(iOS)
             ChatArtifactPDFView(fileURL: fileURL)
