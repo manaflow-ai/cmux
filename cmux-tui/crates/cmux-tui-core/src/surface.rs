@@ -6,10 +6,14 @@
 //! VT operations.
 
 use std::io::{Read, Write};
+use std::mem::size_of;
 use std::ops::Deref;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{SyncSender, TrySendError};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::mpsc::{
+    Receiver, RecvError, RecvTimeoutError, SyncSender, TryRecvError, TrySendError,
+};
 use std::sync::{Arc, Mutex, Weak};
+use std::time::Duration;
 
 use ghostty_vt::{Callbacks, RenderState, Rgb, Terminal};
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
@@ -98,7 +102,7 @@ pub struct AttachStream {
     pub cols: u16,
     pub rows: u16,
     pub replay: Vec<u8>,
-    pub stream: std::sync::mpsc::Receiver<AttachFrame>,
+    pub stream: AttachFrameReceiver,
     pub(crate) lifecycle: AttachLifecycle,
 }
 
@@ -109,6 +113,46 @@ pub enum AttachFrame {
 }
 
 const ATTACH_STREAM_CAPACITY: usize = 256;
+const ATTACH_STREAM_MAX_BYTES: usize = 16 * 1024 * 1024;
+
+pub struct AttachFrameReceiver {
+    receiver: Receiver<AttachFrame>,
+    queued_bytes: Arc<AtomicUsize>,
+}
+
+impl AttachFrameReceiver {
+    fn account_received(&self, frame: &AttachFrame) {
+        self.queued_bytes.fetch_sub(frame.retained_bytes(), Ordering::AcqRel);
+    }
+
+    pub fn recv(&self) -> Result<AttachFrame, RecvError> {
+        let frame = self.receiver.recv()?;
+        self.account_received(&frame);
+        Ok(frame)
+    }
+
+    pub fn recv_timeout(&self, timeout: Duration) -> Result<AttachFrame, RecvTimeoutError> {
+        let frame = self.receiver.recv_timeout(timeout)?;
+        self.account_received(&frame);
+        Ok(frame)
+    }
+
+    pub fn try_recv(&self) -> Result<AttachFrame, TryRecvError> {
+        let frame = self.receiver.try_recv()?;
+        self.account_received(&frame);
+        Ok(frame)
+    }
+}
+
+impl AttachFrame {
+    fn retained_bytes(&self) -> usize {
+        size_of::<Self>()
+            + match self {
+                Self::Output(bytes) => bytes.capacity(),
+                Self::Resized { replay, .. } => replay.capacity(),
+            }
+    }
+}
 
 #[derive(Clone, Default)]
 pub(crate) struct AttachLifecycle {
@@ -153,6 +197,8 @@ impl AttachLifecycle {
 struct AttachTap {
     sender: SyncSender<AttachFrame>,
     lifecycle: AttachLifecycle,
+    queued_bytes: Arc<AtomicUsize>,
+    max_queued_bytes: usize,
 }
 
 impl AttachTap {
@@ -160,13 +206,26 @@ impl AttachTap {
         if self.lifecycle.is_canceled() {
             return false;
         }
+        let frame_bytes = frame.retained_bytes();
+        if self
+            .queued_bytes
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |queued| {
+                queued.checked_add(frame_bytes).filter(|next| *next <= self.max_queued_bytes)
+            })
+            .is_err()
+        {
+            self.lifecycle.mark_overflow();
+            return false;
+        }
         match self.sender.try_send(frame) {
             Ok(()) => true,
             Err(TrySendError::Full(_)) => {
+                self.queued_bytes.fetch_sub(frame_bytes, Ordering::AcqRel);
                 self.lifecycle.mark_overflow();
                 false
             }
             Err(TrySendError::Disconnected(_)) => {
+                self.queued_bytes.fetch_sub(frame_bytes, Ordering::AcqRel);
                 self.lifecycle.cancel();
                 false
             }
@@ -665,12 +724,24 @@ impl Surface {
         };
         let mut term = pty.term.lock().unwrap();
         let (tx, rx) = std::sync::mpsc::sync_channel(ATTACH_STREAM_CAPACITY);
+        let queued_bytes = Arc::new(AtomicUsize::new(0));
         // Snapshot and tap registration under the same terminal lock:
         // the reader thread cannot apply bytes between the two.
         let replay = term.vt_replay()?;
         let (cols, rows) = (term.cols(), term.rows());
-        pty.taps.lock().unwrap().push(AttachTap { sender: tx, lifecycle: lifecycle.clone() });
-        Ok(AttachStream { cols, rows, replay, stream: rx, lifecycle })
+        pty.taps.lock().unwrap().push(AttachTap {
+            sender: tx,
+            lifecycle: lifecycle.clone(),
+            queued_bytes: queued_bytes.clone(),
+            max_queued_bytes: ATTACH_STREAM_MAX_BYTES,
+        });
+        Ok(AttachStream {
+            cols,
+            rows,
+            replay,
+            stream: AttachFrameReceiver { receiver: rx, queued_bytes },
+            lifecycle,
+        })
     }
 
     pub fn kill(&self) {
@@ -901,7 +972,12 @@ mod tests {
     fn attach_tap_overflow_cancels_the_shared_lifecycle_once() {
         let lifecycle = AttachLifecycle::default();
         let (sender, _receiver) = std::sync::mpsc::sync_channel(1);
-        let tap = AttachTap { sender, lifecycle: lifecycle.clone() };
+        let tap = AttachTap {
+            sender,
+            lifecycle: lifecycle.clone(),
+            queued_bytes: Arc::new(AtomicUsize::new(0)),
+            max_queued_bytes: usize::MAX,
+        };
 
         assert!(tap.try_send(AttachFrame::Output(vec![1])));
         assert!(!tap.try_send(AttachFrame::Output(vec![2])));
@@ -909,5 +985,22 @@ mod tests {
         assert!(lifecycle.overflowed());
         assert!(lifecycle.claim_overflow_report());
         assert!(!lifecycle.claim_overflow_report());
+    }
+
+    #[test]
+    fn attach_tap_overflow_is_bounded_by_retained_bytes() {
+        let lifecycle = AttachLifecycle::default();
+        let (sender, _receiver) = std::sync::mpsc::sync_channel(4);
+        let frame_bytes = AttachFrame::Output(vec![1]).retained_bytes();
+        let tap = AttachTap {
+            sender,
+            lifecycle: lifecycle.clone(),
+            queued_bytes: Arc::new(AtomicUsize::new(0)),
+            max_queued_bytes: frame_bytes,
+        };
+
+        assert!(tap.try_send(AttachFrame::Output(vec![1])));
+        assert!(!tap.try_send(AttachFrame::Output(vec![2])));
+        assert!(lifecycle.overflowed());
     }
 }

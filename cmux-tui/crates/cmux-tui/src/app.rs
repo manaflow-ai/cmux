@@ -120,8 +120,20 @@ fn forward_mux_events(
         // during recovery are retained by the new mailbox.
         session_events = event_source.events();
         let routing_generation = routing_mutation_committed.load(Ordering::Acquire);
+        let title_snapshot_epoch = mux_titles.current_epoch();
         let recovered = event_source.refresh_tree().map_err(|error| error.to_string());
         let recovery_succeeded = recovered.is_ok();
+        if let Ok(tree) = &recovered {
+            let live_surfaces = tree
+                .workspaces
+                .iter()
+                .flat_map(|workspace| workspace.screens.iter())
+                .flat_map(|screen| screen.panes.iter())
+                .flat_map(|pane| pane.tabs.iter())
+                .map(|tab| tab.surface)
+                .collect::<HashSet<_>>();
+            mux_titles.reconcile_authoritative(&live_surfaces, title_snapshot_epoch);
+        }
         if tx
             .send(AppEvent::MuxSubscriptionRecovered {
                 recovery_generation,
@@ -172,15 +184,23 @@ fn forward_mux_event(
 #[derive(Default)]
 struct MuxTitleIngressState {
     wake_queued: bool,
-    titles: HashMap<SurfaceId, Arc<str>>,
+    epoch: u64,
+    titles: HashMap<SurfaceId, RetainedMuxTitle>,
     dirty: HashSet<SurfaceId>,
+}
+
+struct RetainedMuxTitle {
+    title: Arc<str>,
+    epoch: u64,
 }
 
 impl MuxTitleIngress {
     /// Returns true when the app channel needs one wake event.
     fn push(&self, surface: SurfaceId, title: impl Into<Arc<str>>) -> bool {
         let mut state = self.state.lock().unwrap();
-        state.titles.insert(surface, title.into());
+        state.epoch = state.epoch.saturating_add(1);
+        let epoch = state.epoch;
+        state.titles.insert(surface, RetainedMuxTitle { title: title.into(), epoch });
         state.dirty.insert(surface);
         if state.wake_queued {
             false
@@ -202,13 +222,28 @@ impl MuxTitleIngress {
         let dirty = std::mem::take(&mut state.dirty);
         dirty
             .into_iter()
-            .filter_map(|surface| state.titles.get(&surface).cloned().map(|title| (surface, title)))
+            .filter_map(|surface| {
+                state.titles.get(&surface).map(|retained| (surface, retained.title.clone()))
+            })
             .collect()
     }
 
     fn snapshot(&self) -> HashMap<SurfaceId, Arc<str>> {
         let state = self.state.lock().unwrap();
-        state.titles.clone()
+        state.titles.iter().map(|(surface, retained)| (*surface, retained.title.clone())).collect()
+    }
+
+    fn current_epoch(&self) -> u64 {
+        self.state.lock().unwrap().epoch
+    }
+
+    fn reconcile_authoritative(&self, live_surfaces: &HashSet<SurfaceId>, through_epoch: u64) {
+        let mut state = self.state.lock().unwrap();
+        state.titles.retain(|surface, retained| {
+            live_surfaces.contains(surface) || retained.epoch > through_epoch
+        });
+        let retained_surfaces = state.titles.keys().copied().collect::<HashSet<_>>();
+        state.dirty.retain(|surface| retained_surfaces.contains(surface));
     }
 }
 
@@ -6949,6 +6984,20 @@ mod tests {
         app.handle(AppEvent::MuxTitlesReady).unwrap();
         app.replace_tree(notify_tree(42, false));
         assert_eq!(app.tree.pane(2).unwrap().tabs[0].title, "future-title");
+    }
+
+    #[test]
+    fn title_ingress_prunes_pre_snapshot_orphans_but_keeps_concurrent_updates() {
+        let titles = MuxTitleIngress::default();
+        titles.push(41, "stale-title");
+        let snapshot_epoch = titles.current_epoch();
+        titles.push(42, "concurrent-title");
+
+        titles.reconcile_authoritative(&HashSet::new(), snapshot_epoch);
+
+        let retained = titles.snapshot();
+        assert!(!retained.contains_key(&41));
+        assert_eq!(retained.get(&42).map(AsRef::as_ref), Some("concurrent-title"));
     }
 
     #[test]

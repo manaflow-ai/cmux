@@ -33,8 +33,9 @@ pub use mux::{
 };
 pub use short_id::assign_short_ids;
 pub use surface::{
-    AttachFrame, AttachStream, BrowserAttachState, BrowserFrame, BrowserFrameStream, BrowserSource,
-    BrowserStatus, DefaultColors, Surface, SurfaceKind, SurfaceOptions,
+    AttachFrame, AttachFrameReceiver, AttachStream, BrowserAttachState, BrowserFrame,
+    BrowserFrameStream, BrowserSource, BrowserStatus, DefaultColors, Surface, SurfaceKind,
+    SurfaceOptions,
 };
 
 pub use cmux_tui_cdp::BrowserMode;
