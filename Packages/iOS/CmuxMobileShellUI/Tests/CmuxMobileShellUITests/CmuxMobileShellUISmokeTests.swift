@@ -6,6 +6,11 @@ import Testing
         #expect(MobileWorkspaceSettingsIcon.systemName == "gearshape")
     }
 
+    @Test @MainActor func appViewRetainsSignOutHookInjection() {
+        let hook = MobileSignOutHook(begin: { { _, _ in } })
+        _ = CMUXMobileAppView(signOutHook: hook)
+    }
+
     @Test func knownMacRecoveryKeepsTheWorkspaceShellMounted() {
         #expect(MobileRootWorkspaceShellPolicy(
             isConnected: true,
