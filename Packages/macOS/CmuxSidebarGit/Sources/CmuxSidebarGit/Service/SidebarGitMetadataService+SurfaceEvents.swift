@@ -109,8 +109,8 @@ extension SidebarGitMetadataService {
         let current = host.panelGitBranch(workspaceId: workspaceId, panelId: panelId)
         let normalizedBranch = GitMetadataService.normalizedBranchName(branch) ?? branch
         let nextIsDirty = isDirty ?? (current?.branch == normalizedBranch ? current?.isDirty ?? false : false)
-        let projectionChanged = current?.branch != normalizedBranch || current?.isDirty != nextIsDirty
-        if projectionChanged {
+        let branchChanged = current?.branch != normalizedBranch || current?.isDirty != nextIsDirty
+        if branchChanged {
             host.updatePanelGitBranch(
                 workspaceId: workspaceId,
                 panelId: panelId,
@@ -125,18 +125,15 @@ extension SidebarGitMetadataService {
             pullRequestProbing.clearWorkspacePullRequestTracking(workspaceId: workspaceId, panelId: panelId)
             return
         }
-        guard projectionChanged else { return }
-        let directory = host.gitProbeDirectory(workspaceId: workspaceId, panelId: panelId)
-        if let directory {
+        guard branchChanged else { return }
+        if let directory = host.gitProbeDirectory(workspaceId: workspaceId, panelId: panelId) {
             workspaceGitTrackedDirectoryByKey[probeKey] = directory
             updateWorkspaceGitMetadataWatcher(for: probeKey, directory: directory)
             updateWorkspaceGitMetadataFallbackTimer()
         }
-        pullRequestProbing.seedWorkspacePullRequestRefreshIfNeeded(
+        pullRequestProbing.scheduleWorkspacePullRequestRefresh(
             workspaceId: workspaceId,
             panelId: panelId,
-            directory: directory ?? "",
-            branch: normalizedBranch,
             reason: "branchChange"
         )
         scheduleWorkspaceGitMetadataRefreshIfPossible(
