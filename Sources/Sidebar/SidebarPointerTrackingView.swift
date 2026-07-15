@@ -7,6 +7,20 @@ final class SidebarPointerTrackingView: NSView {
     var onPointerExit: ((NSEvent) -> Void)?
 
     private var pointerTrackingArea: NSTrackingArea?
+    private weak var mouseMovedWindow: NSWindow?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard mouseMovedWindow !== window else { return }
+
+        if let mouseMovedWindow {
+            WindowMouseMovedEventsCoordinator.disable(for: mouseMovedWindow, owner: self)
+        }
+        mouseMovedWindow = window
+        if let window {
+            WindowMouseMovedEventsCoordinator.enable(for: window, owner: self)
+        }
+    }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -37,5 +51,9 @@ final class SidebarPointerTrackingView: NSView {
 
     override func mouseExited(with event: NSEvent) {
         onPointerExit?(event)
+    }
+
+    deinit {
+        WindowMouseMovedEventsCoordinator.disableOwner(self)
     }
 }
