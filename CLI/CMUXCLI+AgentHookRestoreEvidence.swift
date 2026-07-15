@@ -44,7 +44,8 @@ extension CMUXCLI {
         if let current = replaySafeCodexLaunchCommand(kind: kind, launchCommand: current) {
             return current
         }
-        if let mapped = replaySafeCodexLaunchCommand(kind: kind, launchCommand: mapped?.launchCommand) {
+        if agentHookMappedSessionHasDurableTargetEvidence(kind: kind, mapped: mapped),
+           let mapped = replaySafeCodexLaunchCommand(kind: kind, launchCommand: mapped?.launchCommand) {
             return mapped
         }
         if let current, currentSource == "default", agentHookSessionHasDurableResumeEvidence(kind: kind, launchCommand: current) {

@@ -95,11 +95,21 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
+    func testCodexWeakMappedCaptureWithoutDurableTargetDoesNotPublishResumeBinding() throws {
+        try assertCodexWeakCapturePreservesFlags(
+            currentArguments: nil,
+            mappedArguments: ["/usr/local/bin/codex", "--yolo"],
+            expectedFlag: nil,
+            transcriptBacked: false
+        )
+    }
+
     private func assertCodexWeakCapturePreservesFlags(
         currentArguments: [String]?,
         mappedArguments: [String],
-        expectedFlag: String,
-        unexpectedFlag: String? = nil
+        expectedFlag: String?,
+        unexpectedFlag: String? = nil,
+        transcriptBacked: Bool = true
     ) throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex-weak-env-preserve")
@@ -116,15 +126,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let ttyName = "ttys306"
 
         try FileManager.default.createDirectory(at: worktree, withIntermediateDirectories: true)
-        try #"{"type":"event_msg","payload":{"type":"task_complete"}}"#
-            .write(to: transcript, atomically: true, encoding: .utf8)
+        if transcriptBacked {
+            try #"{"type":"event_msg","payload":{"type":"task_complete"}}"#
+                .write(to: transcript, atomically: true, encoding: .utf8)
+        }
         try writeCodexHookStore(
             root: root,
             sessionId: sessionId,
             workspaceId: workspaceId,
             surfaceId: surfaceId,
             cwd: repo.path,
-            transcriptPath: transcript.path,
+            transcriptPath: transcriptBacked ? transcript.path : nil,
             launchCommand: [
                 "launcher": "codex",
                 "executablePath": "/usr/local/bin/codex",
@@ -205,14 +217,23 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(result.status, 0, result.stderr)
 
         let commands = state.snapshot()
-        XCTAssertFalse(
-            commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.clear" },
-            "weak current Codex captures must not clear durable mapped bindings: \(commands)"
-        )
+        if expectedFlag != nil {
+            XCTAssertFalse(
+                commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.clear" },
+                "weak current Codex captures must not clear durable mapped bindings: \(commands)"
+            )
+        }
         let resumeRequests = commands.compactMap { command -> [String: Any]? in
             guard let payload = self.jsonObject(command),
                   payload["method"] as? String == "surface.resume.set" else { return nil }
             return payload["params"] as? [String: Any]
+        }
+        guard let expectedFlag else {
+            XCTAssertTrue(
+                resumeRequests.isEmpty,
+                "weak mapped Codex captures must not become durable without target evidence: \(commands)"
+            )
+            return
         }
         let resume = try XCTUnwrap(resumeRequests.last, "expected durable mapped resume binding, saw \(commands)")
         XCTAssertEqual(resume["checkpoint_id"] as? String, sessionId)
