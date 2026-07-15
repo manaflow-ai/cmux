@@ -110,11 +110,15 @@ extension RemoteTmuxControlConnection {
     /// `@id <layout> <name with spaces…>`.
     @discardableResult
     func requestWindows() -> Bool {
+        let closeRecoveryTokens = windowCloseRecoveryTokensAwaitingList
         guard !windowListRequestInFlight else {
             windowListRequestDirty = true
+            armWindowCloseCoalescedWaitDeadlines(for: closeRecoveryTokens)
+            if let requestGeneration = windowReorderRecoveryGeneration {
+                armWindowReorderCoalescedWaitDeadline(for: requestGeneration)
+            }
             return true
         }
-        let closeRecoveryTokens = windowCloseRecoveryTokensAwaitingList
         guard sendInternal(
             "list-windows -F \"#{window_id} #{window_layout} #{window_visible_layout} [#{window_flags}] #{window_name}\"",
             kind: .listWindows(
@@ -133,6 +137,52 @@ extension RemoteTmuxControlConnection {
         armWindowCloseRecoveryDeadlines(for: closeRecoveryTokens)
         armWindowReorderRecoveryDeadline(for: windowReorderGeneration)
         return true
+    }
+
+    /// A recovery queued behind an older `list-windows` gets its own bounded
+    /// wait. Repeated coalesced requests keep the original deadline, while the
+    /// eventual FIFO-following write replaces it with the in-flight deadline.
+    private func armWindowCloseCoalescedWaitDeadlines(for tokens: Set<UUID>) {
+        for token in tokens where windowCloseRequests[token] != nil
+            && windowCloseDeadlineCancellations[token] == nil
+        {
+            windowCloseDeadlineCancellations[token] = scheduleActivityQueryDeadline(
+                Self.mobileMutationVerificationTimeout
+            ) { [weak self] in
+                guard let self,
+                      self.windowCloseRequests[token] != nil,
+                      self.windowCloseRecoveryTokensAwaitingList.contains(token) else { return }
+                self.windowCloseDeadlineCancellations.removeValue(forKey: token)?()
+                guard self.finishWindowCloseRequest(token: token, outcome: .unknown) else { return }
+                self.record("window-close-coalesced-wait-deadline")
+                self.beginReconnecting()
+            }
+        }
+    }
+
+    private func armWindowReorderCoalescedWaitDeadline(for requestGeneration: UInt64) {
+        guard windowReorderRecoveryGeneration == requestGeneration,
+              windowReorderRecoveryAwaitingListGeneration != requestGeneration,
+              let verificationGeneration = windowReorderVerificationGeneration,
+              windowReorderDeadlineCancellations[verificationGeneration] == nil else { return }
+        windowReorderRecoveryAwaitingListGeneration = requestGeneration
+        windowReorderDeadlineCancellations[verificationGeneration] =
+            scheduleActivityQueryDeadline(Self.mobileMutationVerificationTimeout) { [weak self] in
+                guard let self,
+                      self.windowReorderRecoveryAwaitingListGeneration == requestGeneration,
+                      self.windowReorderRecoveryGeneration == requestGeneration,
+                      self.windowReorderVerificationGeneration == verificationGeneration else { return }
+                self.windowReorderRecoveryAwaitingListGeneration = nil
+                self.windowReorderDeadlineCancellations.removeValue(
+                    forKey: verificationGeneration
+                )?()
+                guard self.finishWindowReorderVerification(
+                    generation: verificationGeneration,
+                    outcome: .unknown
+                ) else { return }
+                self.record("window-reorder-coalesced-wait-deadline")
+                self.beginReconnecting()
+            }
     }
 
     /// A FIFO-following recovery read gets a fresh bounded budget only once it
@@ -161,6 +211,9 @@ extension RemoteTmuxControlConnection {
     private func armWindowReorderRecoveryDeadline(for requestGeneration: UInt64) {
         guard windowReorderRecoveryGeneration == requestGeneration,
               let verificationGeneration = windowReorderVerificationGeneration else { return }
+        if windowReorderRecoveryAwaitingListGeneration == requestGeneration {
+            windowReorderRecoveryAwaitingListGeneration = nil
+        }
         windowReorderDeadlineCancellations.removeValue(forKey: verificationGeneration)?()
         windowReorderDeadlineCancellations[verificationGeneration] = scheduleActivityQueryDeadline(
             Self.mobileMutationVerificationTimeout
@@ -190,6 +243,7 @@ extension RemoteTmuxControlConnection {
         windowListRequestDirty = false
         windowCloseRecoveryTokensAwaitingList.removeAll()
         windowCloseRecoveryTokensInFlight.removeAll()
+        windowReorderRecoveryAwaitingListGeneration = nil
     }
 
     func restartAfterWindowReorderRecoveryFailure() {

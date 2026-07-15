@@ -134,6 +134,10 @@ final class RemoteTmuxControlConnection {
     var windowReorderBatchFailed = false
     var windowReorderGeneration: UInt64 = 0
     var windowReorderRecoveryGeneration: UInt64?
+    /// Recovery generation waiting behind an older coalesced `list-windows`
+    /// request. Distinct from an already-written recovery so each FIFO phase
+    /// receives one bounded deadline without repeated dirty marks extending it.
+    var windowReorderRecoveryAwaitingListGeneration: UInt64?
     var windowReorderVerificationGeneration: UInt64?
     var windowReorderVerifications: [UInt64: (RemoteTmuxMutationOutcome) -> Void] = [:]
     var windowReorderVerificationTokens: [UUID: UInt64] = [:]
