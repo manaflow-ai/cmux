@@ -5,11 +5,12 @@ struct BrowserDesignModeToolbarButton: View {
     let iconPointSize: CGFloat
     let hitSize: CGFloat
     let inactiveColor: Color
+    let onToggle: @MainActor () async -> Bool
 
     var body: some View {
         Button {
             Task { @MainActor in
-                await controller.toggle(reason: "toolbar")
+                guard await onToggle() else { return }
             }
         } label: {
             CmuxSystemSymbolImage(
@@ -22,9 +23,10 @@ struct BrowserDesignModeToolbarButton: View {
         }
         .buttonStyle(OmnibarAddressButtonStyle())
         .frame(width: hitSize, height: hitSize, alignment: .center)
-        .disabled(controller.phase == .activating || controller.phase == .deactivating)
+        .disabled(!controller.canToggle)
+        .opacity(controller.canToggle ? 1 : 0.4)
         .safeHelp(
-            String(
+            controller.unavailableMessage ?? String(
                 format: String(
                     localized: "browser.designMode.buttonHelpFormat",
                     defaultValue: "Design Mode (%@)"

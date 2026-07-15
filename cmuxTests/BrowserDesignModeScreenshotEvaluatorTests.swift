@@ -144,7 +144,6 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
             .appendingPathComponent("cmux-design-mode-copy-test-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         var copiedPrompt: String?
-        let (copied, copiedContinuation) = AsyncStream<Void>.makeStream()
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
         let controller = BrowserDesignModeController(
             surfaceID: UUID(),
@@ -158,8 +157,6 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
             canEnable: { true },
             clipboardWriter: { prompt in
                 copiedPrompt = prompt
-                copiedContinuation.yield()
-                copiedContinuation.finish()
                 return true
             },
             onActivityChanged: {}
@@ -181,17 +178,17 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
         let state = try await evaluator.call(
             """
             globalThis.__cmuxDesignMode?.select('#target');
-            return globalThis.__cmuxDesignMode?.requestCopy();
+            return globalThis.__cmuxDesignMode?.composerState();
             """,
             arguments: [:],
             in: webView,
             contentWorld: BrowserDesignModeController.contentWorld
         )
         #expect(controller.snapshot?.edits.isEmpty == true)
-        #expect((state as? [String: Any])?["copy_state"] as? String == "copying")
+        #expect((state as? [String: Any])?["can_copy"] as? Bool == true)
+        #expect((state as? [String: Any])?["requested_change"] == nil)
 
-        var copiedIterator = copied.makeAsyncIterator()
-        _ = await copiedIterator.next()
+        await controller.copySelection()
 
         let prompt = try #require(copiedPrompt)
         #expect(prompt.contains("<cmux_design_mode>"))
@@ -210,7 +207,6 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
             .appendingPathComponent("cmux-design-mode-stack-test-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         var copiedPrompt: String?
-        let (copied, copiedContinuation) = AsyncStream<Void>.makeStream()
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
         let controller = BrowserDesignModeController(
             surfaceID: UUID(),
@@ -224,8 +220,6 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
             canEnable: { true },
             clipboardWriter: { prompt in
                 copiedPrompt = prompt
-                copiedContinuation.yield()
-                copiedContinuation.finish()
                 return true
             },
             onActivityChanged: {}
@@ -270,7 +264,6 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
             const hover = runtime.composerState();
             document.dispatchEvent(new MouseEvent('click', eventInit));
             const stacked = runtime.composerState();
-            runtime.requestCopy();
             return { hover, stacked };
             """,
             arguments: [:],
@@ -281,14 +274,13 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
         let hover = try #require(state["hover"] as? [String: Any])
         let stacked = try #require(state["stacked"] as? [String: Any])
 
-        #expect(hover["visible"] as? Bool == true)
+        #expect(hover["visible"] as? Bool == false)
         #expect(hover["hovered_selector"] as? String == "#second")
         #expect(hover["selection_count"] as? Int == 1)
         #expect(stacked["selection_count"] as? Int == 2)
         #expect(stacked["selectors"] as? [String] == ["#first", "#second"])
 
-        var copiedIterator = copied.makeAsyncIterator()
-        _ = await copiedIterator.next()
+        await controller.copySelection()
 
         let prompt = try #require(copiedPrompt)
         let payload = try payload(from: prompt)

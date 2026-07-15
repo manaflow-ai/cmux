@@ -1150,6 +1150,11 @@ struct BrowserPortalSearchOverlayConfiguration {
     let onFieldDidFocus: () -> Void
 }
 
+struct BrowserPortalDesignComposerConfiguration {
+    let panelId: UUID
+    let controller: BrowserDesignModeController
+}
+
 struct BrowserPaneDropContext: Equatable {
     let workspaceId: UUID
     let panelId: UUID
@@ -1167,6 +1172,8 @@ final class WindowBrowserSlotView: NSView {
     private let paneDropTargetView = BrowserPaneDropTargetView(frame: .zero)
     private let dropZoneOverlayView = BrowserDropZoneOverlayView(frame: .zero)
     private var searchOverlayHostingView: NSHostingView<BrowserSearchOverlay>?
+    private var designComposerHostingView: NSHostingView<BrowserDesignModePopoverHost>?
+    private var designComposerPanelId: UUID?
     private var omnibarSuggestionsHostingView: BrowserPortalOmnibarSuggestionsHostingView?
     private weak var hostedWebView: WKWebView?
     private var hostedWebViewConstraints: [NSLayoutConstraint] = []
@@ -1384,6 +1391,49 @@ final class WindowBrowserSlotView: NSView {
         ])
         searchOverlayHostingView = overlay
         logSearchOverlayEvent("create", panelId: configuration.panelId)
+        bringInteractionLayersToFrontIfNeeded()
+    }
+
+    func setDesignComposer(_ configuration: BrowserPortalDesignComposerConfiguration?) {
+        guard let configuration else {
+            designComposerHostingView?.removeFromSuperview()
+            designComposerHostingView = nil
+            designComposerPanelId = nil
+            return
+        }
+
+        let rootView = BrowserDesignModePopoverHost(controller: configuration.controller)
+
+        if let overlay = designComposerHostingView {
+            if designComposerPanelId != configuration.panelId {
+                overlay.rootView = rootView
+                designComposerPanelId = configuration.panelId
+            }
+            if overlay.superview !== self {
+                overlay.removeFromSuperview()
+                addSubview(overlay)
+                NSLayoutConstraint.activate([
+                    overlay.topAnchor.constraint(equalTo: topAnchor),
+                    overlay.bottomAnchor.constraint(equalTo: bottomAnchor),
+                    overlay.leadingAnchor.constraint(equalTo: leadingAnchor),
+                    overlay.trailingAnchor.constraint(equalTo: trailingAnchor),
+                ])
+            }
+            bringInteractionLayersToFrontIfNeeded()
+            return
+        }
+
+        let overlay = NSHostingView(rootView: rootView)
+        overlay.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(overlay)
+        NSLayoutConstraint.activate([
+            overlay.topAnchor.constraint(equalTo: topAnchor),
+            overlay.bottomAnchor.constraint(equalTo: bottomAnchor),
+            overlay.leadingAnchor.constraint(equalTo: leadingAnchor),
+            overlay.trailingAnchor.constraint(equalTo: trailingAnchor),
+        ])
+        designComposerHostingView = overlay
+        designComposerPanelId = configuration.panelId
         bringInteractionLayersToFrontIfNeeded()
     }
 
@@ -1652,9 +1702,10 @@ final class WindowBrowserSlotView: NSView {
     }
 
     private func interactionLayerPriority(of view: NSView) -> Int {
-        if view === paneDropTargetView { return 3 }
-        if view === omnibarSuggestionsHostingView { return 2 }
-        if view === searchOverlayHostingView { return 1 }
+        if view === paneDropTargetView { return 4 }
+        if view === omnibarSuggestionsHostingView { return 3 }
+        if view === searchOverlayHostingView { return 2 }
+        if view === designComposerHostingView { return 1 }
         return 0
     }
 
@@ -1742,6 +1793,7 @@ final class WindowBrowserPortal: NSObject {
         var dropZone: DropZone?
         var paneDropContext: BrowserPaneDropContext?
         var searchOverlay: BrowserPortalSearchOverlayConfiguration?
+        var designComposer: BrowserPortalDesignComposerConfiguration?
         var omnibarSuggestions: BrowserPortalOmnibarSuggestionsConfiguration?
         var paneTopChromeHeight: CGFloat
         var transientRecoveryReason: String?
@@ -2054,6 +2106,20 @@ final class WindowBrowserPortal: NSObject {
         }
     }
 
+    private static func designComposerConfigurationsEquivalent(
+        _ lhs: BrowserPortalDesignComposerConfiguration?,
+        _ rhs: BrowserPortalDesignComposerConfiguration?
+    ) -> Bool {
+        switch (lhs, rhs) {
+        case (nil, nil):
+            return true
+        case let (lhs?, rhs?):
+            return lhs.panelId == rhs.panelId && lhs.controller === rhs.controller
+        default:
+            return false
+        }
+    }
+
     private static func omnibarSuggestionsConfigurationsEquivalent(
         _ lhs: BrowserPortalOmnibarSuggestionsConfiguration?,
         _ rhs: BrowserPortalOmnibarSuggestionsConfiguration?
@@ -2305,6 +2371,7 @@ final class WindowBrowserPortal: NSObject {
         if let existing = entry.containerView {
             existing.setPaneDropContext(entry.paneDropContext)
             existing.setSearchOverlay(entry.searchOverlay)
+            existing.setDesignComposer(entry.designComposer)
             existing.setOmnibarSuggestions(entry.omnibarSuggestions)
             existing.setPaneTopChromeHeight(entry.paneTopChromeHeight)
             return existing
@@ -2312,6 +2379,7 @@ final class WindowBrowserPortal: NSObject {
         let created = WindowBrowserSlotView(frame: .zero)
         created.setPaneDropContext(entry.paneDropContext)
         created.setSearchOverlay(entry.searchOverlay)
+        created.setDesignComposer(entry.designComposer)
         created.setOmnibarSuggestions(entry.omnibarSuggestions)
         created.setPaneTopChromeHeight(entry.paneTopChromeHeight)
 #if DEBUG
@@ -2748,6 +2816,17 @@ final class WindowBrowserPortal: NSObject {
         entry.containerView?.setSearchOverlay(configuration)
     }
 
+    func updateDesignComposer(
+        forWebViewId webViewId: ObjectIdentifier,
+        configuration: BrowserPortalDesignComposerConfiguration?
+    ) {
+        guard var entry = entriesByWebViewId[webViewId] else { return }
+        guard !Self.designComposerConfigurationsEquivalent(entry.designComposer, configuration) else { return }
+        entry.designComposer = configuration
+        entriesByWebViewId[webViewId] = entry
+        entry.containerView?.setDesignComposer(configuration)
+    }
+
     func updateOmnibarSuggestions(
         forWebViewId webViewId: ObjectIdentifier,
         configuration: BrowserPortalOmnibarSuggestionsConfiguration?
@@ -2841,6 +2920,7 @@ final class WindowBrowserPortal: NSObject {
                 dropZone: nil,
                 paneDropContext: nil,
                 searchOverlay: nil,
+                designComposer: nil,
                 omnibarSuggestions: nil,
                 paneTopChromeHeight: 0,
                 transientRecoveryReason: nil,
@@ -2878,6 +2958,7 @@ final class WindowBrowserPortal: NSObject {
             dropZone: previousEntry?.dropZone,
             paneDropContext: previousEntry?.paneDropContext,
             searchOverlay: previousEntry?.searchOverlay,
+            designComposer: previousEntry?.designComposer,
             omnibarSuggestions: previousEntry?.omnibarSuggestions,
             paneTopChromeHeight: previousEntry?.paneTopChromeHeight ?? 0,
             transientRecoveryReason: previousEntry?.transientRecoveryReason,
@@ -3074,6 +3155,7 @@ final class WindowBrowserPortal: NSObject {
             cancelPendingHostedWebViewRefreshes(for: webViewId)
             containerView.setPaneTopChromeHeight(0)
             containerView.setSearchOverlay(nil)
+            containerView.setDesignComposer(nil)
             containerView.setOmnibarSuggestions(nil)
             containerView.setPaneDropContext(nil)
             containerView.setPortalDragDropZone(nil)
@@ -3505,6 +3587,7 @@ final class WindowBrowserPortal: NSObject {
         }
         containerView.setPaneTopChromeHeight(shouldHide ? 0 : entry.paneTopChromeHeight)
         containerView.setSearchOverlay(shouldHide ? nil : entry.searchOverlay)
+        containerView.setDesignComposer(shouldHide ? nil : entry.designComposer)
         containerView.setOmnibarSuggestions(shouldHide ? nil : entry.omnibarSuggestions)
         containerView.setPaneDropContext(containerView.isHidden ? nil : entry.paneDropContext)
         containerView.setDropZoneOverlay(zone: containerView.isHidden ? nil : entry.dropZone)
@@ -3875,6 +3958,16 @@ enum BrowserWindowPortalRegistry {
         guard let windowId = webViewToWindowId[webViewId],
               let portal = portalsByWindowId[windowId] else { return }
         portal.updateSearchOverlay(forWebViewId: webViewId, configuration: configuration)
+    }
+
+    static func updateDesignComposer(
+        for webView: WKWebView,
+        configuration: BrowserPortalDesignComposerConfiguration?
+    ) {
+        let webViewId = ObjectIdentifier(webView)
+        guard let windowId = webViewToWindowId[webViewId],
+              let portal = portalsByWindowId[windowId] else { return }
+        portal.updateDesignComposer(forWebViewId: webViewId, configuration: configuration)
     }
 
     static func updateOmnibarSuggestions(
