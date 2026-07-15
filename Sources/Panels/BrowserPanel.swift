@@ -14,6 +14,7 @@ import CFNetwork
 import SQLite3
 import CryptoKit
 import Darwin
+import zlib
 import CmuxTerminal
 #if canImport(CommonCrypto)
 import CommonCrypto
@@ -1869,6 +1870,11 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
     private var sessions: [String: Session] = [:]
     private var activeSchemeTasks: [ObjectIdentifier: SchemeTaskState] = [:]
     private let streamQueue = DispatchQueue(label: "com.manaflow.cmux.diff-viewer-stream", qos: .userInitiated)
+    private let bundledAssetQueue = DispatchQueue(
+        label: "com.manaflow.cmux.bundled-webview-assets",
+        qos: .userInitiated,
+        attributes: .concurrent
+    )
     // Branch picker routes shell out to the bundled CLI (git). Run them on a
     // dedicated concurrent queue, NOT the serial file-serving streamQueue, so a
     // slow/hung git invocation cannot stall restored diff-viewer file serving.
@@ -2494,9 +2500,15 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         activeSchemeTasks[taskID] = state
         lock.unlock()
 
-        streamQueue.async { [weak self] in
+        let queue = file.fileURL.lastPathComponent.hasSuffix(".deflate")
+            ? bundledAssetQueue
+            : streamQueue
+        queue.async { [weak self] in
             guard let self else { return }
             do {
+                let inflatedData = file.fileURL.lastPathComponent.hasSuffix(".deflate")
+                    ? try Self.inflateZlibFile(file.fileURL)
+                    : nil
                 let response = HTTPURLResponse(
                     url: requestURL,
                     statusCode: 200,
@@ -2505,7 +2517,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
                 ) ?? URLResponse(
                     url: requestURL,
                     mimeType: file.mimeType,
-                    expectedContentLength: Self.fileSize(for: file.fileURL),
+                    expectedContentLength: inflatedData?.count ?? Self.fileSize(for: file.fileURL),
                     textEncodingName: "utf-8"
                 )
 
@@ -2513,19 +2525,31 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
                     urlSchemeTask.didReceive(response)
                 }) else { return }
 
-                let handle = try FileHandle(forReadingFrom: file.fileURL)
-                defer {
-                    try? handle.close()
-                }
-
-                while self.isSchemeTaskActive(taskID) {
-                    let data = try handle.read(upToCount: 64 * 1024) ?? Data()
-                    if data.isEmpty {
-                        break
+                if let inflatedData {
+                    var offset = 0
+                    while offset < inflatedData.count, self.isSchemeTaskActive(taskID) {
+                        let end = min(offset + 64 * 1024, inflatedData.count)
+                        let data = inflatedData.subdata(in: offset..<end)
+                        guard self.performSchemeTaskCallback(taskID, {
+                            urlSchemeTask.didReceive(data)
+                        }) else { return }
+                        offset = end
                     }
-                    guard self.performSchemeTaskCallback(taskID, {
-                        urlSchemeTask.didReceive(data)
-                    }) else { return }
+                } else {
+                    let handle = try FileHandle(forReadingFrom: file.fileURL)
+                    defer {
+                        try? handle.close()
+                    }
+
+                    while self.isSchemeTaskActive(taskID) {
+                        let data = try handle.read(upToCount: 64 * 1024) ?? Data()
+                        if data.isEmpty {
+                            break
+                        }
+                        guard self.performSchemeTaskCallback(taskID, {
+                            urlSchemeTask.didReceive(data)
+                        }) else { return }
+                    }
                 }
 
                 guard self.performSchemeTaskCallback(taskID, {
@@ -2605,6 +2629,49 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         return fileSize
     }
 
+    private static func inflateZlibFile(_ url: URL) throws -> Data {
+        let compressed = try Data(contentsOf: url, options: .mappedIfSafe)
+        return try inflateZlibData(compressed)
+    }
+
+    static func inflateZlibData(_ compressed: Data) throws -> Data {
+        let maximumSize = 128 * 1024 * 1024
+        var capacity = max(64 * 1024, compressed.count * 4)
+
+        while capacity <= maximumSize {
+            var output = Data(count: capacity)
+            var decodedCount = uLongf(capacity)
+            let status = output.withUnsafeMutableBytes { destinationBuffer in
+                compressed.withUnsafeBytes { sourceBuffer in
+                    guard let destination = destinationBuffer.bindMemory(to: UInt8.self).baseAddress,
+                          let source = sourceBuffer.bindMemory(to: UInt8.self).baseAddress else {
+                        return Z_DATA_ERROR
+                    }
+                    return uncompress(
+                        destination,
+                        &decodedCount,
+                        source,
+                        uLong(compressed.count)
+                    )
+                }
+            }
+            if status == Z_OK {
+                output.count = Int(decodedCount)
+                return output
+            }
+            guard status == Z_BUF_ERROR else {
+                throw NSError(domain: "CmuxDiffViewerURLSchemeHandler", code: 8, userInfo: [
+                    NSLocalizedDescriptionKey: "Bundled webview asset has invalid zlib data"
+                ])
+            }
+            capacity *= 2
+        }
+
+        throw NSError(domain: "CmuxDiffViewerURLSchemeHandler", code: 8, userInfo: [
+            NSLocalizedDescriptionKey: "Bundled webview asset could not be decompressed"
+        ])
+    }
+
     private func isTrustedDiffViewerFileURL(_ url: URL) -> Bool {
         let rootPath = trustedRootURL.path
         return url.isFileURL && url.path.hasPrefix(rootPath + "/")
@@ -2633,7 +2700,6 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
             "X-Content-Type-Options": "nosniff",
             "Cross-Origin-Resource-Policy": "same-origin"
         ]
-        if file.fileURL.lastPathComponent.hasSuffix(".deflate") { headers["Content-Encoding"] = "deflate" }
         if file.mimeType == "text/html" {
             headers["Content-Security-Policy"] = [
                 "default-src 'none'",

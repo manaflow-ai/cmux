@@ -21,6 +21,18 @@ struct FeedCoordinatorTests {
         #expect(!FeedSurfaceBridge.isTrustedFeedURL(URL(string: "https://example.com/feed.html")))
     }
 
+    @Test func bundledFeedAssetsUseZlibDecompression() throws {
+        let compressed = Data([
+            0x78, 0xda, 0x4b, 0xce, 0xcf, 0x2b, 0xce, 0xcf, 0x49,
+            0xd5, 0xcb, 0xc9, 0x4f, 0xd7, 0x50, 0x4f, 0x4b, 0x4d,
+            0x4d, 0x51, 0xd7, 0x04, 0x00, 0x47, 0xe8, 0x06, 0x97,
+        ])
+
+        let decoded = try CmuxDiffViewerURLSchemeHandler.inflateZlibData(compressed)
+
+        #expect(String(decoding: decoded, as: UTF8.self) == "console.log('feed')")
+    }
+
     @Test func codexTeamsResolvesExplicitWorkingDirectoryFlags() {
         let base = "/tmp/cmux-base"
 
