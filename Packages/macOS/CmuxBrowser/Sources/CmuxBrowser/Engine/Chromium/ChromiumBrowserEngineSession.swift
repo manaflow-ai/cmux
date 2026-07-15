@@ -15,6 +15,9 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
     /// The local viewport view hosted by the browser pane portal.
     public var contentView: NSView { viewportWebView }
 
+    /// The page zoom factor requested from Chromium.
+    public private(set) var pageZoomFactor: CGFloat = 1.0
+
     /// The latest Chromium state snapshot.
     public private(set) var state = BrowserEngineState()
 
@@ -28,6 +31,7 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
     private let processController = ChromiumProcessController()
     private let viewportHandler = ChromiumViewportMessageHandler()
     private let cookieCodec = ChromiumBrowserCookieCodec()
+    private let documentTitleObservation = ChromiumDocumentTitleObservation()
     var connection: CDPConnection?
     var cdpSessionID: String?
     private var startupTask: Task<Void, Never>?
@@ -35,6 +39,9 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
     private var pendingRequest: URLRequest?
     private var initializationScripts: [String]
     private var initializationScriptInstallations: [Int: Task<Void, any Error>] = [:]
+    private var appliedPageZoomFactor: CGFloat?
+    private var isPageZoomReady = false
+    private var pageZoomUpdateTask: Task<Void, Never>?
     private var isViewportVisible = false
     private var isScreencastActive = false
     private var screencastUpdateTask: Task<Void, Never>?
@@ -140,6 +147,13 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
         guard let connection, let cdpSessionID else { return }
         Task { try? await connection.send(method: "Page.stopLoading", sessionID: cdpSessionID) }
         updateState { $0.isLoading = false }
+    }
+
+    /// Applies Chromium's native page scale without changing the canvas transport.
+    public func setPageZoomFactor(_ pageZoomFactor: CGFloat) {
+        guard pageZoomFactor.isFinite, pageZoomFactor > 0 else { return }
+        self.pageZoomFactor = pageZoomFactor
+        startPageZoomUpdateIfNeeded()
     }
 
     /// Starts or suspends Chromium frame delivery for the viewport's visibility.
@@ -303,6 +317,10 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
         eventTask?.cancel()
         initializationScriptInstallations.values.forEach { $0.cancel() }
         initializationScriptInstallations.removeAll()
+        pageZoomUpdateTask?.cancel()
+        pageZoomUpdateTask = nil
+        appliedPageZoomFactor = nil
+        isPageZoomReady = false
         screencastUpdateTask?.cancel()
         screencastUpdateTask = nil
         isViewportVisible = false
@@ -386,6 +404,16 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
         beginEvents(connection: connection, sessionID: sessionID)
         _ = try await connection.send(method: "Page.enable", sessionID: sessionID)
         _ = try await connection.send(method: "Runtime.enable", sessionID: sessionID)
+        try await installDocumentTitleObservation(connection: connection, sessionID: sessionID)
+        let initialPageZoomFactor = pageZoomFactor
+        try await sendPageZoomFactor(
+            initialPageZoomFactor,
+            connection: connection,
+            sessionID: sessionID
+        )
+        appliedPageZoomFactor = initialPageZoomFactor
+        isPageZoomReady = true
+        startPageZoomUpdateIfNeeded()
         try await sendDeviceMetrics(connection: connection, sessionID: sessionID)
         startScreencastUpdateIfNeeded()
         try await installAllInitializationScripts(connection: connection, sessionID: sessionID)
@@ -506,9 +534,78 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
                let rawURL = frame["url"]?.stringValue {
                 updateState { $0.url = URL(string: rawURL) }
             }
+        case "Runtime.bindingCalled":
+            guard let title = documentTitleObservation.title(from: event) else { return }
+            updateState { $0.title = title }
         default:
             break
         }
+    }
+
+    private func installDocumentTitleObservation(
+        connection: CDPConnection,
+        sessionID: String
+    ) async throws {
+        _ = try await connection.send(
+            method: "Runtime.addBinding",
+            parameters: documentTitleObservation.bindingParameters,
+            sessionID: sessionID
+        )
+        _ = try await connection.send(
+            method: "Page.addScriptToEvaluateOnNewDocument",
+            parameters: documentTitleObservation.scriptParameters,
+            sessionID: sessionID
+        )
+    }
+
+    private func startPageZoomUpdateIfNeeded() {
+        guard isPageZoomReady,
+              pageZoomUpdateTask == nil,
+              appliedPageZoomFactor != pageZoomFactor,
+              let connection,
+              let cdpSessionID else { return }
+        pageZoomUpdateTask = Task { [weak self] in
+            await self?.drainPageZoomUpdates(connection: connection, sessionID: cdpSessionID)
+        }
+    }
+
+    private func drainPageZoomUpdates(
+        connection: CDPConnection,
+        sessionID: String
+    ) async {
+        defer { pageZoomUpdateTask = nil }
+        while !Task.isCancelled,
+              self.connection === connection,
+              cdpSessionID == sessionID,
+              appliedPageZoomFactor != pageZoomFactor {
+            let nextPageZoomFactor = pageZoomFactor
+            do {
+                try await sendPageZoomFactor(
+                    nextPageZoomFactor,
+                    connection: connection,
+                    sessionID: sessionID
+                )
+            } catch is CancellationError {
+                return
+            } catch {
+                presentOperationFailure()
+                return
+            }
+            guard self.connection === connection, cdpSessionID == sessionID else { return }
+            appliedPageZoomFactor = nextPageZoomFactor
+        }
+    }
+
+    private func sendPageZoomFactor(
+        _ pageZoomFactor: CGFloat,
+        connection: CDPConnection,
+        sessionID: String
+    ) async throws {
+        _ = try await connection.send(
+            method: "Emulation.setPageScaleFactor",
+            parameters: ["pageScaleFactor": .number(Double(pageZoomFactor))],
+            sessionID: sessionID
+        )
     }
 
     private func refreshDocumentState(connection: CDPConnection, sessionID: String) async {

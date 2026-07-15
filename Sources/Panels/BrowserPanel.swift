@@ -3313,7 +3313,7 @@ final class BrowserPanel: Panel, ObservableObject {
         let restoreURL = restorableDisplayURLForCurrentErrorPage(liveURL: oldWebView.url)
         let history = sessionNavigationHistorySnapshot()
         let historyCurrentURL = preferredURLStringForOmnibar() ?? restoreURL?.absoluteString
-        let desiredZoom = max(minPageZoom, min(maxPageZoom, oldWebView.pageZoom))
+        let desiredZoom = max(minPageZoom, min(maxPageZoom, currentPageZoomFactor()))
 
         clearBrowserFocusMode(reason: "webViewDiscard")
         invalidateSearchFocusRequests(reason: "webViewDiscard")
@@ -3339,11 +3339,11 @@ final class BrowserPanel: Panel, ObservableObject {
             profileID: profileID,
             websiteDataStore: websiteDataStore
         )
-        replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
         hasCommittedDocumentSinceWebViewReplacement = false; userStoppedLoadSinceWebViewReplacement = false
         webView = replacement
         replaceEngineSession(for: replacement)
+        engineSession.setPageZoomFactor(desiredZoom)
         hiddenWebViewDiscardManager.markDiscarded(reason: reason, now: now)
         currentURL = restoreURL
         shouldRenderWebView = false
@@ -4753,7 +4753,7 @@ final class BrowserPanel: Panel, ObservableObject {
         let shouldRestoreURL = wasRenderable && restoreURLString != nil && restoreURLString != blankURLString
         let history = sessionNavigationHistorySnapshot()
         let historyCurrentURL = preferredURLStringForOmnibar()
-        let desiredZoom = max(minPageZoom, min(maxPageZoom, previousWebView.pageZoom))
+        let desiredZoom = max(minPageZoom, min(maxPageZoom, currentPageZoomFactor()))
         let restoreDeveloperTools = preferredDeveloperToolsVisible || isDeveloperToolsVisible()
 
         invalidateSearchFocusRequests(reason: "profileSwitch")
@@ -4791,12 +4791,12 @@ final class BrowserPanel: Panel, ObservableObject {
             profileID: resolvedProfileID,
             websiteDataStore: websiteDataStore
         )
-        replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
         hasCommittedDocumentSinceWebViewReplacement = false; userStoppedLoadSinceWebViewReplacement = false
         resetWebViewLifecycleMetadata(resetVisibility: false)
         webView = replacement
         replaceEngineSession(for: replacement)
+        engineSession.setPageZoomFactor(desiredZoom)
         currentURL = restoreURL
         shouldRenderWebView = wasRenderable
         refreshWebViewLifecycleState()
@@ -5254,7 +5254,7 @@ final class BrowserPanel: Panel, ObservableObject {
         let wasRenderable = shouldRenderWebView
         let attemptedURL = Self.remoteProxyDisplayURL(for: navigationDelegate?.lastAttemptedURL)
             ?? navigationDelegate?.lastAttemptedURL
-        let engineURL = engineKind == .chromium
+        let engineURL = engineSession.kind == .chromium
             ? (engineSession.state.url ?? currentURL)
             : oldWebView.url
         let liveURL = restorableDisplayURLForCurrentErrorPage(liveURL: engineURL)
@@ -5268,7 +5268,7 @@ final class BrowserPanel: Panel, ObservableObject {
         let shouldShowManualRecovery = waitForManualRecovery && wasRenderable && hasRecoveryTarget
         let history = sessionNavigationHistorySnapshot()
         let historyCurrentURL = preferredURLStringForOmnibar()
-        let desiredZoom = max(minPageZoom, min(maxPageZoom, oldWebView.pageZoom))
+        let desiredZoom = max(minPageZoom, min(maxPageZoom, currentPageZoomFactor()))
         let restoreDevTools = preferredDeveloperToolsVisible
 
         if oldWebView.configuration.websiteDataStore !== websiteDataStore {
@@ -5308,12 +5308,12 @@ final class BrowserPanel: Panel, ObservableObject {
             profileID: profileID,
             websiteDataStore: websiteDataStore
         )
-        replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
         hasCommittedDocumentSinceWebViewReplacement = false; userStoppedLoadSinceWebViewReplacement = false
         resetWebViewLifecycleMetadata(resetVisibility: false)
         webView = replacement
         replaceEngineSession(for: replacement)
+        engineSession.setPageZoomFactor(desiredZoom)
         shouldRenderWebView = wasRenderable
         refreshWebViewLifecycleState()
 
@@ -7209,12 +7209,12 @@ extension BrowserPanel {
 
     @discardableResult
     func zoomIn() -> Bool {
-        applyPageZoom(webView.pageZoom + pageZoomStep)
+        applyPageZoom(currentPageZoomFactor() + pageZoomStep)
     }
 
     @discardableResult
     func zoomOut() -> Bool {
-        applyPageZoom(webView.pageZoom - pageZoomStep)
+        applyPageZoom(currentPageZoomFactor() - pageZoomStep)
     }
 
     @discardableResult
@@ -7223,7 +7223,7 @@ extension BrowserPanel {
     }
 
     func currentPageZoomFactor() -> CGFloat {
-        webView.pageZoom
+        engineSession.pageZoomFactor
     }
 
     @discardableResult
@@ -8217,10 +8217,10 @@ private extension BrowserPanel {
     @discardableResult
     func applyPageZoom(_ candidate: CGFloat) -> Bool {
         let clamped = max(minPageZoom, min(maxPageZoom, candidate))
-        if abs(webView.pageZoom - clamped) < 0.0001 {
+        if abs(engineSession.pageZoomFactor - clamped) < 0.0001 {
             return false
         }
-        webView.pageZoom = clamped
+        engineSession.setPageZoomFactor(clamped)
         return true
     }
 

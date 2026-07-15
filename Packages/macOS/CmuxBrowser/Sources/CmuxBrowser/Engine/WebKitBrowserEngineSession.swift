@@ -22,6 +22,9 @@ public final class WebKitBrowserEngineSession: BrowserEngineSession {
     /// The native view hosted by the browser pane portal.
     public var contentView: NSView { webView }
 
+    /// The page zoom factor applied by WebKit.
+    public var pageZoomFactor: CGFloat { webView.pageZoom }
+
     /// The latest WebKit state snapshot.
     public private(set) var state: BrowserEngineState
 
@@ -66,6 +69,11 @@ public final class WebKitBrowserEngineSession: BrowserEngineSession {
 
     /// Stops the active WebKit load.
     public func stopLoading() { webView.stopLoading() }
+
+    /// Applies WebKit's native page zoom factor.
+    public func setPageZoomFactor(_ pageZoomFactor: CGFloat) {
+        webView.pageZoom = pageZoomFactor
+    }
 
     /// Keeps WebKit active because its native view owns offscreen presentation throttling.
     public func setViewportVisible(_: Bool) {}

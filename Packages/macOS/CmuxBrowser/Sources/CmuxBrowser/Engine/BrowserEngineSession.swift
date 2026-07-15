@@ -14,6 +14,9 @@ public protocol BrowserEngineSession: AnyObject {
     /// The native view hosted by the browser pane portal.
     var contentView: NSView { get }
 
+    /// The page zoom factor applied by the browser engine.
+    var pageZoomFactor: CGFloat { get }
+
     /// The latest browser state snapshot.
     var state: BrowserEngineState { get }
 
@@ -46,6 +49,11 @@ public protocol BrowserEngineSession: AnyObject {
 
     /// Stops the current navigation.
     func stopLoading()
+
+    /// Applies a page zoom factor through the browser engine.
+    ///
+    /// - Parameter pageZoomFactor: A positive scale where `1.0` is the default page size.
+    func setPageZoomFactor(_ pageZoomFactor: CGFloat)
 
     /// Evaluates JavaScript in an engine-defined content world.
     ///
