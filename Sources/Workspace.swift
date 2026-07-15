@@ -2070,6 +2070,15 @@ final class Workspace: Identifiable, ObservableObject {
     private var surfaceTabBarCommandButtons: [String: SurfaceTabBarExecutableButton] = [:]
     private var surfaceTabBarButtonSourcePath: String?
     private var surfaceTabBarButtonGlobalConfigPath: String?
+    private struct SurfaceTabBarButtonConfiguration {
+        let buttons: [CmuxSurfaceTabBarButton]
+        let sourcePath: String?
+        let globalConfigPath: String
+        let terminalCommandSourcePaths: [String: String]
+        let workspaceCommands: [String: CmuxResolvedCommand]
+    }
+    private var surfaceTabBarButtonConfiguration: SurfaceTabBarButtonConfiguration?
+    private var featureFlagsObserver: NSObjectProtocol?
 
     /// The pane-tree sub-model (CmuxPanes): owns the panel registry, the
     /// surface-id mapping, and the pane-layout bookkeeping. The legacy
@@ -3153,6 +3162,15 @@ final class Workspace: Identifiable, ObservableObject {
                 self.objectWillChange.send()
             }
         }
+        featureFlagsObserver = NotificationCenter.default.addObserver(
+            forName: .cmuxFeatureFlagsDidChange,
+            object: CmuxFeatureFlags.shared,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.reapplySurfaceTabBarButtonsForFeatureFlags()
+            }
+        }
     }
 
     private var sharedLiveAgentIndexObserver: NSObjectProtocol?
@@ -3167,6 +3185,9 @@ final class Workspace: Identifiable, ObservableObject {
         }
         if let sharedLiveAgentIndexObserver {
             NotificationCenter.default.removeObserver(sharedLiveAgentIndexObserver)
+        }
+        if let featureFlagsObserver {
+            NotificationCenter.default.removeObserver(featureFlagsObserver)
         }
         activeRemoteSessionControllerID = nil
         remoteSessionController?.stop()
@@ -3202,8 +3223,13 @@ final class Workspace: Identifiable, ObservableObject {
         terminalCommandSourcePaths: [String: String],
         workspaceCommands: [String: CmuxResolvedCommand]
     ) {
-        // Built-in surface-tab-bar buttons are feature-flagged when applied, so
-        // dashboard changes land on the next config reload or launch.
+        surfaceTabBarButtonConfiguration = SurfaceTabBarButtonConfiguration(
+            buttons: buttons,
+            sourcePath: sourcePath,
+            globalConfigPath: globalConfigPath,
+            terminalCommandSourcePaths: terminalCommandSourcePaths,
+            workspaceCommands: workspaceCommands
+        )
         let buttons = buttons.filter { button in
             guard case .builtIn(let builtInAction) = button.action else { return true }
             if builtInAction == .mobileConnect { return CmuxFeatureFlags.shared.isMobileConnectButtonEnabled }
@@ -3286,6 +3312,17 @@ final class Workspace: Identifiable, ObservableObject {
         guard configuration.appearance.splitButtons != bonsplitButtons else { return }
         configuration.appearance.splitButtons = bonsplitButtons
         bonsplitController.configuration = configuration
+    }
+
+    private func reapplySurfaceTabBarButtonsForFeatureFlags() {
+        guard let configuration = surfaceTabBarButtonConfiguration else { return }
+        applySurfaceTabBarButtons(
+            configuration.buttons,
+            sourcePath: configuration.sourcePath,
+            globalConfigPath: configuration.globalConfigPath,
+            terminalCommandSourcePaths: configuration.terminalCommandSourcePaths,
+            workspaceCommands: configuration.workspaceCommands
+        )
     }
 
     // MARK: - Surface ID to Panel ID Mapping

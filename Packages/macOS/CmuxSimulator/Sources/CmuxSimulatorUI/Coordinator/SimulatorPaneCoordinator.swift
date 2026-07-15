@@ -76,7 +76,9 @@ public final class SimulatorPaneCoordinator {
     public internal(set) var locationRouteIsPaused = false
     var chromeProfile: SimulatorDeviceChromeProfile?
     /// Whether the native tools inspector is visible.
-    public var showsTools = false
+    public var showsTools = false {
+        didSet { setLiveStatusVisibility(paneIsVisible && showsTools) }
+    }
     /// A monotonically increasing request observed by the AppKit input surface.
     public internal(set) var focusRequestGeneration: UInt64 = 0
 
@@ -124,6 +126,7 @@ public final class SimulatorPaneCoordinator {
     @ObservationIgnored var liveStatusGeneration: UInt64 = 0
     @ObservationIgnored var liveStatusIsVisible = false
     @ObservationIgnored var liveStatusPollingActive = false
+    @ObservationIgnored var paneIsVisible = false
     @ObservationIgnored var frameIsVisible = false
     @ObservationIgnored var locationRouteDeviceID: String?
     @ObservationIgnored var locationRoute: SimulatorLocationRoute?

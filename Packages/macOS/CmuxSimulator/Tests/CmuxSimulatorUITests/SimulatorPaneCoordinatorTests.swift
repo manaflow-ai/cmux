@@ -119,8 +119,14 @@ struct SimulatorPaneCoordinatorTests {
         coordinator.setPaneVisibility(true)
 
         #expect(coordinator.frameIsVisible)
-        #expect(coordinator.liveStatusIsVisible)
+        #expect(!coordinator.liveStatusIsVisible)
         #expect(coordinator.accessibilityOverlayIsVisible)
+
+        coordinator.showsTools = true
+        #expect(coordinator.liveStatusIsVisible)
+
+        coordinator.showsTools = false
+        #expect(!coordinator.liveStatusIsVisible)
     }
 
     @Test("Explicit recovery returns only after the selected device streams")
