@@ -12648,7 +12648,11 @@ extension Workspace: BonsplitDelegate {
             case .cloudVM:
                 _ = AppDelegate.shared?.performCloudVMAction(tabManager: owningTabManager, preferredWindow: presentingWindow, debugSource: "surfaceTabBar.cloudVM")
             case .mobileConnect:
-                openMobilePairingSurface(inPane: pane)
+                _ = AppDelegate.shared?.openMobilePairingPane(
+                    debugSource: "surfaceTabBar.mobileConnect",
+                    tabManager: owningTabManager,
+                    preferredWindow: presentingWindow
+                )
             case .newTerminal, .newBrowser, .splitRight, .splitDown:
                 break
             }
