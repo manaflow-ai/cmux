@@ -195,6 +195,151 @@ struct NotificationRestoreBannerOwnershipTests {
         )
     }
 
+    @Test func transferCollisionDrainsDestinationBacklogWhenDestinationOwnerLoses() {
+        let store = TerminalNotificationStore.shared
+        let previousNotifications = store.notifications
+        let tombstoneKey = TerminalNotificationStore.dismissedTombstoneDefaultsKey
+        let previousTombstones = UserDefaults.standard.object(forKey: tombstoneKey)
+        let sourceTabId = UUID()
+        let destinationTabId = UUID()
+        let sourceSurfaceId = UUID()
+        let destinationSurfaceId = UUID()
+        let sourceSupersededId = UUID()
+        let destinationSupersededId = UUID()
+        let sourceOwner = notification(
+            id: UUID(), tabId: sourceTabId, surfaceId: sourceSurfaceId,
+            title: "Newer source owner", createdAt: Date(timeIntervalSince1970: 30)
+        )
+        let destinationOwner = notification(
+            id: UUID(), tabId: destinationTabId, surfaceId: destinationSurfaceId,
+            title: "Older destination owner", createdAt: Date(timeIntervalSince1970: 20)
+        )
+        defer {
+            if let previousTombstones {
+                UserDefaults.standard.set(previousTombstones, forKey: tombstoneKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: tombstoneKey)
+            }
+            _ = store.flushSupersededPhoneDismissIDsForTesting(
+                tabId: sourceTabId,
+                surfaceId: sourceSurfaceId
+            )
+            _ = store.flushSupersededPhoneDismissIDsForTesting(
+                tabId: destinationTabId,
+                surfaceId: destinationSurfaceId
+            )
+            store.reloadDismissedTombstonesForTesting()
+            store.replaceNotificationsForTesting(previousNotifications)
+        }
+
+        UserDefaults.standard.removeObject(forKey: tombstoneKey)
+        store.reloadDismissedTombstonesForTesting()
+        store.replaceNotificationsForTesting([sourceOwner, destinationOwner])
+        store.stashSupersededPhoneDismissIDsForTesting(
+            [sourceSupersededId.uuidString],
+            tabId: sourceTabId,
+            surfaceId: sourceSurfaceId
+        )
+        store.stashSupersededPhoneDismissIDsForTesting(
+            [destinationSupersededId.uuidString],
+            tabId: destinationTabId,
+            surfaceId: destinationSurfaceId
+        )
+
+        store.transferSessionNotificationState(
+            fromTabId: sourceTabId,
+            toTabId: destinationTabId,
+            panelIdMap: [sourceSurfaceId: destinationSurfaceId]
+        )
+
+        #expect(
+            store.externalBannerOwnerIDForTesting(
+                tabId: destinationTabId,
+                surfaceId: destinationSurfaceId
+            ) == sourceOwner.id
+        )
+        let tombstones = UserDefaults.standard.stringArray(forKey: tombstoneKey) ?? []
+        #expect(tombstones.contains(destinationOwner.id.uuidString))
+        #expect(tombstones.contains(destinationSupersededId.uuidString))
+        #expect(!tombstones.contains(sourceOwner.id.uuidString))
+        #expect(!tombstones.contains(sourceSupersededId.uuidString))
+        #expect(
+            store.flushSupersededPhoneDismissIDsForTesting(
+                tabId: destinationTabId,
+                surfaceId: destinationSurfaceId
+            ) == [sourceSupersededId.uuidString]
+        )
+    }
+
+    @Test func rebindCollisionDrainsDestinationBacklogWhenDestinationOwnerLoses() {
+        let store = TerminalNotificationStore.shared
+        let previousNotifications = store.notifications
+        let tombstoneKey = TerminalNotificationStore.dismissedTombstoneDefaultsKey
+        let previousTombstones = UserDefaults.standard.object(forKey: tombstoneKey)
+        let sourceTabId = UUID()
+        let destinationTabId = UUID()
+        let surfaceId = UUID()
+        let sourceSupersededId = UUID()
+        let destinationSupersededId = UUID()
+        let sourceOwner = notification(
+            id: UUID(), tabId: sourceTabId, surfaceId: surfaceId,
+            title: "Newer source owner", createdAt: Date(timeIntervalSince1970: 30)
+        )
+        let destinationOwner = notification(
+            id: UUID(), tabId: destinationTabId, surfaceId: surfaceId,
+            title: "Older destination owner", createdAt: Date(timeIntervalSince1970: 20)
+        )
+        defer {
+            if let previousTombstones {
+                UserDefaults.standard.set(previousTombstones, forKey: tombstoneKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: tombstoneKey)
+            }
+            _ = store.flushSupersededPhoneDismissIDsForTesting(tabId: sourceTabId, surfaceId: surfaceId)
+            _ = store.flushSupersededPhoneDismissIDsForTesting(tabId: destinationTabId, surfaceId: surfaceId)
+            store.reloadDismissedTombstonesForTesting()
+            store.replaceNotificationsForTesting(previousNotifications)
+        }
+
+        UserDefaults.standard.removeObject(forKey: tombstoneKey)
+        store.reloadDismissedTombstonesForTesting()
+        store.replaceNotificationsForTesting([sourceOwner, destinationOwner])
+        store.stashSupersededPhoneDismissIDsForTesting(
+            [sourceSupersededId.uuidString],
+            tabId: sourceTabId,
+            surfaceId: surfaceId
+        )
+        store.stashSupersededPhoneDismissIDsForTesting(
+            [destinationSupersededId.uuidString],
+            tabId: destinationTabId,
+            surfaceId: surfaceId
+        )
+
+        store.rebindSurfaceNotifications(
+            fromTabId: sourceTabId,
+            toTabId: destinationTabId,
+            surfaceId: surfaceId
+        )
+
+        #expect(
+            store.externalBannerOwnerIDForTesting(
+                tabId: destinationTabId,
+                surfaceId: surfaceId
+            ) == sourceOwner.id
+        )
+        let tombstones = UserDefaults.standard.stringArray(forKey: tombstoneKey) ?? []
+        #expect(tombstones.contains(destinationOwner.id.uuidString))
+        #expect(tombstones.contains(destinationSupersededId.uuidString))
+        #expect(!tombstones.contains(sourceOwner.id.uuidString))
+        #expect(!tombstones.contains(sourceSupersededId.uuidString))
+        #expect(
+            store.flushSupersededPhoneDismissIDsForTesting(
+                tabId: destinationTabId,
+                surfaceId: surfaceId
+            ) == [sourceSupersededId.uuidString]
+        )
+    }
+
     @Test func transferPreservesSourceConfinedBannerOwner() throws {
         let sourceTabId = UUID()
         let destinationTabId = UUID()
@@ -513,6 +658,112 @@ struct NotificationRestoreBannerOwnershipTests {
         #expect(store.externalBannerOwnerIDForTesting(tabId: evictedTabId, surfaceId: evictedSurfaceId) == nil)
         let tombstones = UserDefaults.standard.stringArray(forKey: tombstoneKey) ?? []
         #expect(tombstones.contains(evictedId.uuidString))
+    }
+
+    @Test func feedCapMiddleInsertionDismissesEvictedBannerOwner() {
+        let store = TerminalNotificationStore.shared
+        let previousNotifications = store.notifications
+        let tombstoneKey = TerminalNotificationStore.dismissedTombstoneDefaultsKey
+        let previousTombstones = UserDefaults.standard.object(forKey: tombstoneKey)
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+        let evictedTabId = UUID()
+        let evictedSurfaceId = UUID()
+        let evictedId = UUID()
+        let evicted = notification(
+            id: evictedId,
+            tabId: evictedTabId,
+            surfaceId: evictedSurfaceId,
+            title: "Evicted owner",
+            createdAt: Date(timeIntervalSince1970: 0)
+        )
+        let retained = (1..<TerminalNotificationStore.maximumNotificationFeedCount).map { index in
+            notification(
+                id: UUID(),
+                tabId: UUID(),
+                surfaceId: UUID(),
+                title: "Retained \(index)",
+                createdAt: Date(timeIntervalSince1970: TimeInterval(index))
+            )
+        }
+        defer {
+            if let previousTombstones {
+                UserDefaults.standard.set(previousTombstones, forKey: tombstoneKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: tombstoneKey)
+            }
+            store.reloadDismissedTombstonesForTesting()
+            store.replaceNotificationsForTesting(previousNotifications)
+            store.resetNotificationDeliveryHandlerForTesting()
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+        }
+
+        UserDefaults.standard.removeObject(forKey: tombstoneKey)
+        store.reloadDismissedTombstonesForTesting()
+        AppFocusState.overrideIsFocused = false
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        store.replaceNotificationsForTesting(([evicted] + retained).sorted(by: TerminalNotificationStore.notificationSortPrecedes))
+        #expect(store.externalBannerOwnerIDForTesting(tabId: evictedTabId, surfaceId: evictedSurfaceId) == evictedId)
+
+        store.addNotification(
+            id: UUID(),
+            acceptedAt: Date(timeIntervalSince1970: 10_000.5),
+            tabId: UUID(),
+            surfaceId: UUID(),
+            title: "Middle retained",
+            subtitle: "",
+            body: "",
+            retargetsToLiveSurfaceOwner: false
+        )
+
+        #expect(!store.notifications.contains(where: { $0.id == evictedId }))
+        #expect(store.externalBannerOwnerIDForTesting(tabId: evictedTabId, surfaceId: evictedSurfaceId) == nil)
+        let tombstones = UserDefaults.standard.stringArray(forKey: tombstoneKey) ?? []
+        #expect(tombstones.contains(evictedId.uuidString))
+    }
+
+    @Test func feedCapOlderInsertionDoesNotDeliverAbsentRow() {
+        let store = TerminalNotificationStore.shared
+        let previousNotifications = store.notifications
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+        let oldId = UUID()
+        let oldTabId = UUID()
+        var deliveredIds: [UUID] = []
+        let retained = (1...TerminalNotificationStore.maximumNotificationFeedCount).map { index in
+            notification(
+                id: UUID(),
+                tabId: UUID(),
+                surfaceId: UUID(),
+                title: "Retained \(index)",
+                createdAt: Date(timeIntervalSince1970: TimeInterval(index))
+            )
+        }
+        defer {
+            store.replaceNotificationsForTesting(previousNotifications)
+            store.resetNotificationDeliveryHandlerForTesting()
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+        }
+
+        AppFocusState.overrideIsFocused = false
+        store.configureNotificationDeliveryHandlerForTesting { _, notification in
+            deliveredIds.append(notification.id)
+        }
+        store.replaceNotificationsForTesting(retained.sorted(by: TerminalNotificationStore.notificationSortPrecedes))
+        store.markUnread(forTabId: oldTabId)
+
+        store.addNotification(
+            id: oldId,
+            acceptedAt: Date(timeIntervalSince1970: 0),
+            tabId: oldTabId,
+            surfaceId: UUID(),
+            title: "Too old",
+            subtitle: "",
+            body: "",
+            retargetsToLiveSurfaceOwner: false
+        )
+
+        #expect(!store.notifications.contains(where: { $0.id == oldId }))
+        #expect(deliveredIds.isEmpty)
+        #expect(store.hasManualUnread(forTabId: oldTabId))
     }
 
     private func notification(

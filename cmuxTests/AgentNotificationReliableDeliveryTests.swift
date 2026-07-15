@@ -433,6 +433,34 @@ final class AgentNotificationReliableDeliveryTests: XCTestCase {
         )
     }
 
+    func testLiveOwnerRouteContinuesThroughLaterSessionReplacementRoute() {
+        let bus = TerminalMutationBus.shared
+        let staleTabId = UUID()
+        let liveOwnerTabId = UUID()
+        let restoredTabId = UUID()
+        let oldSurfaceId = UUID()
+        let restoredSurfaceId = UUID()
+        defer {
+            bus.removeNotificationLiveOwnerRoute(surfaceId: oldSurfaceId)
+            bus.removeNotificationLiveOwnerRoute(surfaceId: restoredSurfaceId)
+        }
+
+        bus.rebindPendingNotifications(
+            fromTabId: staleTabId,
+            toTabId: liveOwnerTabId,
+            surfaceId: oldSurfaceId
+        )
+        bus.transferPendingNotifications(
+            fromTabId: liveOwnerTabId,
+            toTabId: restoredTabId,
+            panelIdMap: [oldSurfaceId: restoredSurfaceId]
+        )
+
+        let routed = bus.routedNotificationKey(tabId: staleTabId, surfaceId: oldSurfaceId)
+        XCTAssertEqual(routed.tabId, restoredTabId)
+        XCTAssertEqual(routed.surfaceId, restoredSurfaceId)
+    }
+
     private func waitForReliableAdmissionBlock(_ bus: TerminalMutationBus) async {
         for _ in 0..<10_000 {
             if bus.reliablyWaitingNotificationProducerCountForTesting() == 1 { return }
