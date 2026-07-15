@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 
@@ -9,6 +10,7 @@ import Testing
 
 /// Inline `type: "workspace"` config actions: decoding, resolution defaults,
 /// plus-button menu auto-append, trust disclosure, and executor behavior.
+@Suite(.serialized)
 struct CmuxConfigWorkspaceActionTests {
     private func decode(_ json: String) throws -> CmuxConfigFile {
         try JSONDecoder().decode(CmuxConfigFile.self, from: Data(json.utf8))
@@ -296,6 +298,7 @@ struct CmuxConfigWorkspaceActionTests {
     @MainActor
     @Test func inlineWorkspaceActionCreatesWorkspace() throws {
         let manager = TabManager()
+        defer { manager.tabs.forEach { $0.teardownAllPanels() } }
         let action = try #require(CmuxResolvedConfigAction.fromDefinition(
             id: "dev-setup",
             definition: CmuxConfigActionDefinition(
@@ -319,8 +322,56 @@ struct CmuxConfigWorkspaceActionTests {
     }
 
     @MainActor
+    @Test func inlineWorkspaceActionUsesSavedParametersWithoutPrompting() throws {
+        let manager = TabManager()
+        let presentingWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        presentingWindow.isReleasedWhenClosed = false
+        defer {
+            if let sheet = presentingWindow.attachedSheet {
+                presentingWindow.endSheet(sheet, returnCode: .alertSecondButtonReturn)
+            }
+            presentingWindow.close()
+        }
+        defer { manager.tabs.forEach { $0.teardownAllPanels() } }
+        let action = try #require(CmuxResolvedConfigAction.fromDefinition(
+            id: "ticket-dev",
+            definition: CmuxConfigActionDefinition(
+                action: .workspace(
+                    CmuxWorkspaceDefinition(
+                        name: "{{ticket}} Dev",
+                        params: ["ticket": "CMUX-8059"]
+                    ),
+                    restart: nil
+                ),
+                title: "Ticket Dev"
+            ),
+            sourcePath: nil
+        ))
+
+        #expect(CmuxConfigExecutor.execute(
+            action: action,
+            commands: [],
+            commandSourcePaths: [:],
+            tabManager: manager,
+            baseCwd: NSTemporaryDirectory(),
+            globalConfigPath: "/tmp/cmux-test-global-config.json",
+            presentingWindow: presentingWindow
+        ))
+
+        #expect(presentingWindow.attachedSheet == nil)
+        #expect(manager.tabs.count == 2)
+        #expect(manager.selectedWorkspace?.customTitle == "CMUX-8059 Dev")
+    }
+
+    @MainActor
     @Test func inlineWorkspaceSurfaceTabBarButtonExecutesOnClick() throws {
         let manager = TabManager()
+        defer { manager.tabs.forEach { $0.teardownAllPanels() } }
         let workspace = try #require(manager.tabs.first)
         let button = CmuxSurfaceTabBarButton(
             id: "review-setup",
@@ -349,6 +400,7 @@ struct CmuxConfigWorkspaceActionTests {
     @MainActor
     @Test func inlineWorkspaceActionHonorsIgnoreRestart() throws {
         let manager = TabManager()
+        defer { manager.tabs.forEach { $0.teardownAllPanels() } }
         let existingWorkspace = manager.tabs[0]
         existingWorkspace.setCustomTitle("Dev Setup")
 

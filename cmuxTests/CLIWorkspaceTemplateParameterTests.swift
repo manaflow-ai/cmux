@@ -95,6 +95,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(requests.contains { $0["method"] as? String == "surface.send_text" })
     }
 
+    @MainActor
     func testWorkspaceCreateResolvesTemplatedInitialShellInputWithoutProcessCommand() throws {
         let tabManager = TabManager(autoWelcomeIfNeeded: false)
         defer {
