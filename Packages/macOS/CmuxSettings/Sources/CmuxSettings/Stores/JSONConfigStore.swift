@@ -120,6 +120,33 @@ public actor JSONConfigStore {
         }
     }
 
+    /// Atomically transforms and persists the current value for a key.
+    ///
+    /// The read, transformation, and write run as one actor-isolated operation,
+    /// so concurrent callers cannot overwrite each other's changes with stale
+    /// snapshots.
+    ///
+    /// - Parameters:
+    ///   - key: The typed JSON setting to update.
+    ///   - transform: A synchronous transformation from the current value to the
+    ///     replacement value.
+    /// - Returns: The value written to disk.
+    /// - Throws: Errors from reading, encoding, or atomically writing the config.
+    @discardableResult
+    public func update<Value>(
+        for key: JSONKey<Value>,
+        _ transform: @Sendable (Value) -> Value
+    ) throws -> Value {
+        var updated = key.defaultValue
+        try mutateRoot { root in
+            let raw = key.path.lookup(in: root)
+            let current = Value.decodeFromJSON(raw) ?? key.defaultValue
+            updated = transform(current)
+            key.path.assign(updated.encodeForJSON(), in: &root)
+        }
+        return updated
+    }
+
     /// Removes the key's entry from the file. Parent objects that become
     /// empty are pruned. The file itself is not deleted even when no entries
     /// remain.

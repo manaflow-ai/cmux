@@ -1,4 +1,5 @@
 import AppKit
+import CmuxTerminalCore
 import Foundation
 
 @MainActor
@@ -31,7 +32,10 @@ struct CmuxConfigExecutor {
                 confirm: command.confirm ?? false,
                 configSourcePath: configSourcePath,
                 globalConfigPath: globalConfigPath,
-                displayCommand: workspaceShellDisclosure(command),
+                displayCommand: workspaceShellDisclosure(
+                    command,
+                    savedSetupCommand: tabManager.savedTerminalCommand(named: workspace.setupCommand)
+                ),
                 displayTitle: displayTitle ?? command.name,
                 presentingWindow: presentingWindow
             ) {
@@ -58,7 +62,7 @@ struct CmuxConfigExecutor {
                 iconSourcePath: iconSourcePath,
                 presentingWindow: presentingWindow
             ) { shellInput in
-                targetTerminal.sendInput(shellInput)
+                guard targetTerminal.submitCommand(shellInput).accepted else { return }
                 onExecuted?()
             }
         }
@@ -129,13 +133,19 @@ struct CmuxConfigExecutor {
             iconSourcePath: action.iconSourcePath,
             presentingWindow: presentingWindow
         ) { shellInput in
+            let submitted: Bool
             switch target {
             case .currentTerminal:
-                targetTerminal?.sendInput(shellInput)
+                submitted = targetTerminal?.submitCommand(shellInput).accepted ?? false
             case .newTabInCurrentPane:
                 targetWorkspace?.clearSplitZoom()
-                targetWorkspace?.newTerminalSurfaceInFocusedPane(focus: true, initialInput: shellInput)
+                let panel = targetWorkspace?.newTerminalSurfaceInFocusedPane(
+                    focus: true,
+                    initialInput: nil
+                )
+                submitted = panel?.submitCommand(shellInput).accepted ?? false
             }
+            guard submitted else { return }
             onExecuted?()
         }
     }
@@ -155,7 +165,8 @@ struct CmuxConfigExecutor {
         onAuthorized: @escaping (String) -> Void
     ) -> Bool {
         let shellCommand = sanitizeForDisplay(rawCommand)
-        guard !shellCommand.isEmpty else { return false }
+        guard !shellCommand.isEmpty,
+              TerminalCommandSubmission(command: shellCommand).rejection == nil else { return false }
 
         let descriptor = terminalTrustDescriptor(
             command: shellCommand,
@@ -175,7 +186,7 @@ struct CmuxConfigExecutor {
             displayTitle: displayTitle,
             presentingWindow: presentingWindow
         ) {
-            onAuthorized(shellCommand + "\n")
+            onAuthorized(shellCommand)
         }
     }
 

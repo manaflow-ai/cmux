@@ -784,6 +784,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// `ContentView` environment so `@LiveSetting` can resolve the stores it
     /// observes inside the sidebar.
     var settingsRuntime: SettingsRuntime?
+    private(set) var repositoryScriptRuntime: RepositoryScriptRuntime?
     weak var fileExplorerState: FileExplorerState?
     weak var fullscreenControlsViewModel: TitlebarControlsViewModel?
     weak var sidebarSelectionState: SidebarSelectionState?
@@ -2032,6 +2033,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) {
         self.tabManager = tabManager
         self.settingsRuntime = settingsRuntime
+        let repositoryScriptRuntime = RepositoryScriptRuntime(
+            configStore: settingsRuntime.jsonStore,
+            catalog: settingsRuntime.catalog,
+            commandRunner: CommandRunner()
+        )
+        self.repositoryScriptRuntime = repositoryScriptRuntime
+        tabManager.configureTerminalScripts(runtime: repositoryScriptRuntime)
         self.notificationStore = notificationStore
         self.sidebarState = sidebarState
         self.auth = auth
@@ -4654,6 +4662,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let didApplyStartupSessionRestore = attemptStartupSessionRestoreIfNeeded(primaryWindow: window)
+        if !didApplyStartupSessionRestore, !isApplyingSessionRestore {
+            tabManager.runRepositoryScriptsForSelectedWorkspaceIfNeeded()
+        }
         if Self.shouldSaveSessionSnapshotAfterMainWindowRegistration(
             isTerminatingApp: isTerminatingApp,
             didApplyStartupSessionRestore: didApplyStartupSessionRestore,
@@ -8632,6 +8643,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             initialTerminalInput: initialTerminalInput,
             autoWelcomeIfNeeded: initialTerminalInput == nil
         )
+        if let repositoryScriptRuntime {
+            tabManager.configureTerminalScripts(runtime: repositoryScriptRuntime)
+        }
         tabManager.windowId = windowId
         if let sessionWindowSnapshot {
             let restoredPanelIdsByWorkspaceIndex = tabManager.restoreSessionSnapshot(
@@ -8684,7 +8698,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         tabManager.syncWorkspaceTabBarLeadingInset(initialTabBarLeadingInset)
         let notificationStore = TerminalNotificationStore.shared
 
-        let cmuxConfigStore = CmuxConfigStore()
+        let cmuxConfigStore = CmuxConfigStore(
+            globalConfigPath: settingsRuntime?.jsonStore.fileURL.path
+                ?? CmuxConfigStore.defaultGlobalConfigPath(),
+            terminalScriptSettingsStore: settingsRuntime?.jsonStore,
+            settingCatalog: settingsRuntime?.catalog ?? SettingCatalog()
+        )
         cmuxConfigStore.wireDirectoryTracking(tabManager: tabManager)
         cmuxConfigStore.loadAll()
 
@@ -9855,7 +9874,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
             for index in 0..<self.debugStressWorkspaceCount {
                 let workspaceStart = ProcessInfo.processInfo.systemUptime
-                let workspace = tabManager.addWorkspace(select: false, placementOverride: .end)
+                let workspace = tabManager.addWorkspace(
+                    select: false,
+                    placementOverride: .end,
+                    runRepositoryScripts: false
+                )
                 created.append(workspace)
                 tabManager.setCustomTitle(
                     tabId: workspace.id,
@@ -16205,6 +16228,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if let closingContext, !closingWindowIsCrashDiagnostic {
             recordClosedWindowHistoryIfNeeded(for: closingContext)
+        }
+        if let closingContext, !isTerminatingApp {
+            repositoryScriptRuntime?.lifecycleCoordinator.workspacesWillClose(
+                closingContext.tabManager.tabs
+            )
         }
 
         // Keep geometry available as a fallback for the next window placement,

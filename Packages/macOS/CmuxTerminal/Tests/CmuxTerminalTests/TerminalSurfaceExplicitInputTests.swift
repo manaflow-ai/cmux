@@ -1,4 +1,5 @@
 import AppKit
+import CmuxTerminalCore
 import GhosttyKit
 import Testing
 @testable import CmuxTerminal
@@ -22,6 +23,35 @@ struct TerminalSurfaceExplicitInputTests {
         #expect(fixture.surface.sendInputResult("hello").accepted)
 
         #expect(fixture.paneHost.explicitInputCount == 1)
+    }
+
+    @Test func multilineCommandQueuesOneOrderedRawSubmissionOnAColdSurface() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+
+        #expect(fixture.surface.submitCommand("one\ntwo") == .submitted(.queued))
+
+        #expect(fixture.surface.pendingSocketInputQueue.count == 1)
+        guard let queuedInput = fixture.surface.pendingSocketInputQueue.first,
+              case .inputText(let queuedData) = queuedInput else {
+            Issue.record("Expected one raw input-text queue item")
+            return
+        }
+        #expect(queuedData == Data("\u{001B}[200~one\ntwo\u{001B}[201~\r".utf8))
+        #expect(fixture.paneHost.explicitInputCount == 1)
+    }
+
+    @Test func unsafeCommandIsRejectedBeforeItBecomesExplicitInput() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        let command = "echo visible\n\(TerminalCommandSubmission.bracketedPasteEnd)echo hidden"
+
+        #expect(
+            fixture.surface.submitCommand(command)
+                == .rejected(.unsafeControlCharacter)
+        )
+        #expect(fixture.surface.pendingSocketInputQueue.isEmpty)
+        #expect(fixture.paneHost.explicitInputCount == 0)
     }
 
     @Test func namedKeyNotifiesPaneHostBeforeQueueingOnAColdSurface() {

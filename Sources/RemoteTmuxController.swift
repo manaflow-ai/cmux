@@ -303,7 +303,8 @@ final class RemoteTmuxController {
         let workspace = tabManager.addWorkspace(
             title: sessionName,
             select: false,
-            autoWelcomeIfNeeded: false
+            autoWelcomeIfNeeded: false,
+            runRepositoryScripts: false
         )
         workspace.isRemoteTmuxMirror = true
         workspace.remoteTmuxWindowOrderSync = { [weak self, weak workspace] orderedPanelIds, verification in
@@ -606,7 +607,11 @@ final class RemoteTmuxController {
         let workspace = mirrorWorkspace ?? manager?.tabs.first(where: { $0.id == workspaceId })
         if let manager, let workspace {
             if manager.tabs.count == 1 {
-                _ = manager.addWorkspace(inheritWorkingDirectory: false, select: false)
+                _ = manager.addWorkspace(
+                    inheritWorkingDirectory: false,
+                    select: false,
+                    runRepositoryScripts: false
+                )
             }
             manager.closeWorkspace(workspace)
         }

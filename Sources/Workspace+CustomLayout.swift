@@ -50,7 +50,7 @@ extension Workspace {
             return nil
         }()
         guard let firstTerminal else { return }
-        sendInputWhenReady(command + "\n", to: firstTerminal)
+        sendInputWhenReady(command, to: firstTerminal)
     }
 
     private func buildCustomLayoutTree(
@@ -148,7 +148,7 @@ extension Workspace {
             lines.append(command)
         }
         guard !lines.isEmpty else { return nil }
-        return lines.map { $0 + "\n" }.joined()
+        return lines.joined(separator: "\n")
     }
 
     private func configureExistingSurface(

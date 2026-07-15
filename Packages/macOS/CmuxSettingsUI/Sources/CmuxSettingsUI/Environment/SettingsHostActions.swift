@@ -55,6 +55,37 @@ public protocol SettingsHostActions: AnyObject {
     /// window scene so the package can't open it directly.
     func openTerminalConfigWindow()
 
+    /// Returns scripts for the repository owning the focused workspace.
+    ///
+    /// This is asynchronous because repository discovery and project-config reads
+    /// run outside the main actor.
+    func repositoryScriptSettingsContext() async -> RepositoryScriptSettingsContext?
+
+    /// Saves private script overrides for the repository displayed in Settings.
+    ///
+    /// - Parameters:
+    ///   - context: Repository snapshot currently displayed in Settings.
+    ///   - setup: Setup script, or an empty string to clear it.
+    ///   - archive: Archive script, or an empty string to clear it.
+    /// - Returns: The updated snapshot, or `nil` when persistence failed or the
+    ///   repository no longer matches the displayed context.
+    @discardableResult
+    func saveRepositoryScripts(
+        context: RepositoryScriptSettingsContext,
+        setup: String,
+        archive: String
+    ) async -> RepositoryScriptSettingsContext?
+
+    /// Imports project-config scripts as private overrides for the displayed repository.
+    ///
+    /// - Parameter context: Repository snapshot currently displayed in Settings.
+    /// - Returns: The updated snapshot, or `nil` when persistence failed or the
+    ///   repository no longer matches the displayed context.
+    @discardableResult
+    func importProjectRepositoryScripts(
+        context: RepositoryScriptSettingsContext
+    ) async -> RepositoryScriptSettingsContext?
+
     /// Opens the user's workspace-layout action definitions for editing.
     func customizeWorkspaceLayouts()
 
@@ -190,6 +221,21 @@ public extension SettingsHostActions {
 
     /// Default no-op for package previews and tests without host layout editing.
     func customizeWorkspaceLayouts() {}
+
+    /// Default empty repository context for previews and package-only hosts.
+    func repositoryScriptSettingsContext() async -> RepositoryScriptSettingsContext? { nil }
+
+    /// Default failed save for hosts without repository-script persistence.
+    func saveRepositoryScripts(
+        context: RepositoryScriptSettingsContext,
+        setup: String,
+        archive: String
+    ) async -> RepositoryScriptSettingsContext? { nil }
+
+    /// Default failed import for hosts without repository-script persistence.
+    func importProjectRepositoryScripts(
+        context: RepositoryScriptSettingsContext
+    ) async -> RepositoryScriptSettingsContext? { nil }
 
     /// Default no-op for package previews and tests without app-language ownership.
     func applyLanguageOverride(_ language: AppLanguage) {}

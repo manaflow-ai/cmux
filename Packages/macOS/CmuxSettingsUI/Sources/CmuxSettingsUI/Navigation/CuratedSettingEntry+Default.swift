@@ -114,6 +114,36 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .terminal, id: "renderer-realization-max", title: "Max Warm Renderers", synonyms: "terminal.rendererRealization.maxWarmRenderers max warm renderers limit count reclaim offscreen gpu"),
             .init(
                 section: .terminal,
+                id: "setup-script-location",
+                title: String(localized: "settings.terminal.setup.location", defaultValue: "Setup Script Location"),
+                paths: ["terminal.setupScriptLocation"],
+                synonyms: String(
+                    localized: "settings.search.alias.setting.terminal.setup-script-location",
+                    defaultValue: "repository setup script automatic workspace background tab vertical horizontal split"
+                )
+            ),
+            .init(
+                section: .terminal,
+                id: "saved-commands",
+                title: String(localized: "settings.terminal.savedCommands", defaultValue: "Saved Commands"),
+                paths: ["terminal.savedCommands"],
+                synonyms: String(
+                    localized: "settings.search.alias.setting.terminal.saved-commands",
+                    defaultValue: "custom scripts commands library multiline run command palette terminal"
+                )
+            ),
+            .init(
+                section: .terminal,
+                id: "repository-scripts",
+                title: String(localized: "settings.terminal.repositoryScripts", defaultValue: "Repository Scripts"),
+                paths: ["terminal.repositoryScripts"],
+                synonyms: String(
+                    localized: "settings.search.alias.setting.terminal.repository-scripts",
+                    defaultValue: "repo per repository setup archive cleanup worktree trust import cmux json"
+                )
+            ),
+            .init(
+                section: .terminal,
                 id: "memory-guardrail",
                 title: String(localized: "settings.terminal.memoryGuardrail", defaultValue: "Runaway Memory Guardrail"),
                 detailText: [

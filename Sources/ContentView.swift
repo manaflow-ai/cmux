@@ -1685,54 +1685,81 @@ struct ContentView: View {
         let mountedWorkspaces = tabManager.tabs.filter { mountedWorkspaceIdSet.contains($0.id) }
         let selectedWorkspaceId = tabManager.selectedTabId
         let retiringWorkspaceId = self.retiringWorkspaceId
+        let repositoryPromptStore = tabManager.repositorySetupPromptStore
+        let repositoryPrompts = repositoryPromptStore?.prompts ?? [:]
+        let repositoryPromptDismissalFailures = repositoryPromptStore?.dismissalFailures ?? []
 
-        return ZStack {
-            ZStack {
-                ForEach(mountedWorkspaces) { tab in
-                    let isSelectedWorkspace = selectedWorkspaceId == tab.id
-                    let isRetiringWorkspace = retiringWorkspaceId == tab.id
-                    let presentation = MountedWorkspacePresentation.resolve(
-                        isSelectedWorkspace: isSelectedWorkspace,
-                        isRetiringWorkspace: isRetiringWorkspace
-                    )
-                    // Keep the retiring workspace visible during handoff, but never input-active.
-                    // Allowing both selected+retiring workspaces to be input-active lets the
-                    // old workspace steal first responder (notably with WKWebView), which can
-                    // delay handoff completion and make browser returns feel laggy.
-                    let isInputActive = isSelectedWorkspace
-                    let portalPriority = isSelectedWorkspace ? 2 : (isRetiringWorkspace ? 1 : 0)
-                    WorkspaceContentView(
-                        workspace: tab,
-                        isWorkspaceVisible: presentation.isPanelVisible,
-                        isWorkspaceInputActive: isInputActive,
-                        rightSidebarOwnsInputFocus: fileExplorerState.rightSidebarOwnsInputFocus,
-                        isFullScreen: isFullScreen,
-                        workspacePortalPriority: portalPriority,
-                        windowAppearance: appearance,
-                        onThemeRefreshRequest: { reason, eventId, source, payloadHex in
-                            scheduleTitlebarThemeRefreshFromWorkspace(
-                                workspaceId: tab.id,
-                                reason: reason,
-                                backgroundEventId: eventId,
-                                backgroundSource: source,
-                                notificationPayloadHex: payloadHex
-                            )
-                        }
-                    )
-                    .opacity(presentation.renderOpacity)
-                    .allowsHitTesting(isSelectedWorkspace)
-                    .accessibilityHidden(!presentation.isRenderedVisible)
-                    .zIndex(isSelectedWorkspace ? 2 : (isRetiringWorkspace ? 1 : 0))
-                }
+        let selectedRepositoryPrompt = selectedWorkspaceId.flatMap { repositoryPrompts[$0] }
+        let selectedRepositoryPromptDismissalFailed = selectedWorkspaceId.map {
+            repositoryPromptDismissalFailures.contains($0)
+        } ?? false
+
+        return VStack(spacing: 0) {
+            if sidebarSelectionState.selection == .tabs,
+               let prompt = selectedRepositoryPrompt {
+                RepositorySetupPromptCard(
+                    prompt: prompt,
+                    showsDismissError: selectedRepositoryPromptDismissalFailed,
+                    onConfigure: {
+                        AppDelegate.shared?.openPreferencesWindow(
+                            debugSource: "repositorySetupPrompt",
+                            navigationTarget: .terminal
+                        )
+                    },
+                    onDismiss: {
+                        Task { await repositoryPromptStore?.dismiss(prompt) }
+                    }
+                )
             }
-            .opacity(sidebarSelectionState.selection == .tabs ? 1 : 0)
-            .allowsHitTesting(sidebarSelectionState.selection == .tabs)
-            .accessibilityHidden(sidebarSelectionState.selection != .tabs)
 
-            NotificationsPage(selection: $sidebarSelectionState.selection)
-                .opacity(sidebarSelectionState.selection == .notifications ? 1 : 0)
-                .allowsHitTesting(sidebarSelectionState.selection == .notifications)
-                .accessibilityHidden(sidebarSelectionState.selection != .notifications)
+            ZStack {
+                ZStack {
+                    ForEach(mountedWorkspaces) { tab in
+                        let isSelectedWorkspace = selectedWorkspaceId == tab.id
+                        let isRetiringWorkspace = retiringWorkspaceId == tab.id
+                        let presentation = MountedWorkspacePresentation.resolve(
+                            isSelectedWorkspace: isSelectedWorkspace,
+                            isRetiringWorkspace: isRetiringWorkspace
+                        )
+                        // Keep the retiring workspace visible during handoff, but never input-active.
+                        // Allowing both selected+retiring workspaces to be input-active lets the
+                        // old workspace steal first responder (notably with WKWebView), which can
+                        // delay handoff completion and make browser returns feel laggy.
+                        let isInputActive = isSelectedWorkspace
+                        let portalPriority = isSelectedWorkspace ? 2 : (isRetiringWorkspace ? 1 : 0)
+                        WorkspaceContentView(
+                            workspace: tab,
+                            isWorkspaceVisible: presentation.isPanelVisible,
+                            isWorkspaceInputActive: isInputActive,
+                            rightSidebarOwnsInputFocus: fileExplorerState.rightSidebarOwnsInputFocus,
+                            isFullScreen: isFullScreen,
+                            workspacePortalPriority: portalPriority,
+                            windowAppearance: appearance,
+                            onThemeRefreshRequest: { reason, eventId, source, payloadHex in
+                                scheduleTitlebarThemeRefreshFromWorkspace(
+                                    workspaceId: tab.id,
+                                    reason: reason,
+                                    backgroundEventId: eventId,
+                                    backgroundSource: source,
+                                    notificationPayloadHex: payloadHex
+                                )
+                            }
+                        )
+                        .opacity(presentation.renderOpacity)
+                        .allowsHitTesting(isSelectedWorkspace)
+                        .accessibilityHidden(!presentation.isRenderedVisible)
+                        .zIndex(isSelectedWorkspace ? 2 : (isRetiringWorkspace ? 1 : 0))
+                    }
+                }
+                .opacity(sidebarSelectionState.selection == .tabs ? 1 : 0)
+                .allowsHitTesting(sidebarSelectionState.selection == .tabs)
+                .accessibilityHidden(sidebarSelectionState.selection != .tabs)
+
+                NotificationsPage(selection: $sidebarSelectionState.selection)
+                    .opacity(sidebarSelectionState.selection == .notifications ? 1 : 0)
+                    .allowsHitTesting(sidebarSelectionState.selection == .notifications)
+                    .accessibilityHidden(sidebarSelectionState.selection != .notifications)
+            }
         }
         .modifier(WorkspacePresentationModeContentTopPaddingModifier(
             isFullScreen: isFullScreen,

@@ -178,6 +178,55 @@ extension TerminalSurface {
         return .sent
     }
 
+    /// Inserts a complete command into an interactive shell and submits it once.
+    /// Multiline commands are delivered as one bracketed paste so embedded newlines
+    /// cannot be interpreted as individual Return key presses.
+    ///
+    /// - Parameter command: Shell input to insert and submit.
+    /// - Returns: Whether validation rejected the command or terminal delivery was attempted.
+    @MainActor
+    @discardableResult
+    public func submitCommand(_ command: String) -> TerminalCommandSubmitResult {
+        submitCommand(TerminalCommandSubmission(command: command))
+    }
+
+    /// Submits a previously validated command representation.
+    ///
+    /// - Parameter submission: Command bytes and any validation rejection.
+    /// - Returns: Whether validation rejected the command or terminal delivery was attempted.
+    @MainActor
+    @discardableResult
+    public func submitCommand(
+        _ submission: TerminalCommandSubmission
+    ) -> TerminalCommandSubmitResult {
+        if let rejection = submission.rejection {
+            return .rejected(rejection)
+        }
+        return .submitted(sendRawInput(submission.data))
+    }
+
+    @MainActor
+    private func sendRawInput(_ data: Data) -> InputSendResult {
+        guard !data.isEmpty else { return .sent }
+        didReceiveExplicitInput()
+        guard surface != nil else {
+            guard allowsRuntimeSurfaceCreation() else { return .surfaceUnavailable }
+            let queued = enqueuePendingSocketInput(.inputText(data))
+            if queued {
+                hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
+                requestInputDemandSurfaceStartIfNeeded()
+            }
+            return queued ? .queued : .inputQueueFull
+        }
+        guard let liveSurface = liveSurfaceForSocketWrite(reason: "command.submit") else {
+            return .surfaceUnavailable
+        }
+        guard !ghostty_surface_process_exited(liveSurface) else { return .processExited }
+        hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
+        writeInputTextData(data, to: liveSurface)
+        return .sent
+    }
+
     @MainActor
     private func sendInput(_ text: String, to surface: ghostty_surface_t) {
         for event in Self.parsedSocketInputEvents(for: text) {

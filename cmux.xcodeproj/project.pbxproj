@@ -584,6 +584,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		CC0DE10000000000000000A3 /* CmuxRemoteDaemon in Frameworks */ = {isa = PBXBuildFile; productRef = CC0DE10000000000000000A2 /* CmuxRemoteDaemon */; };
 		CC0DE30000000000000000A3 /* CmuxRemoteSession in Frameworks */ = {isa = PBXBuildFile; productRef = CC0DE30000000000000000A2 /* CmuxRemoteSession */; };
 		CC0DE20000000000000000A3 /* CmuxRemoteWorkspace in Frameworks */ = {isa = PBXBuildFile; productRef = CC0DE20000000000000000A2 /* CmuxRemoteWorkspace */; };
+		F71400010000000000000001 /* CmuxRepositoryScriptsDefinition.swift in Sources */ = {isa = PBXBuildFile; fileRef = F71400010000000000000002 /* CmuxRepositoryScriptsDefinition.swift */; };
 		A9F200000000000000000005 /* CmuxRuntimeDebugCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000005 /* CmuxRuntimeDebugCapture.swift */; };
 		A9F200000000000000000006 /* CmuxRuntimeDebugCaptureConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000006 /* CmuxRuntimeDebugCaptureConfiguration.swift */; };
 		A9F20000000000000000001A /* CmuxRuntimeDebugCaptureSender.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F10000000000000000001A /* CmuxRuntimeDebugCaptureSender.swift */; };
@@ -888,6 +889,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		CD0CFE6000000000CD0CFE60 /* HostAccountFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD0CFE6100000000CD0CFE61 /* HostAccountFlow.swift */; };
 		B1F0C0030000000000000001 /* HostedInspectorDockControlScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F0C0030000000000000002 /* HostedInspectorDockControlScript.swift */; };
 		B1F0C0040000000000000001 /* HostedInspectorDockControlScriptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F0C0040000000000000002 /* HostedInspectorDockControlScriptTests.swift */; };
+		F71400020000000000000001 /* HostSettingsActions+RepositoryScripts.swift in Sources */ = {isa = PBXBuildFile; fileRef = F71400020000000000000002 /* HostSettingsActions+RepositoryScripts.swift */; };
 		CD0CFE6200000000CD0CFE62 /* HostSettingsActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD0CFE6300000000CD0CFE63 /* HostSettingsActions.swift */; };
 		809100000000000000000001 /* HostSettingsShortcutNotificationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 809100000000000000000002 /* HostSettingsShortcutNotificationTests.swift */; };
 		F1C1AA21B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1C1AA20B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift */; };
@@ -1286,6 +1288,24 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D36A00050000000000000001 /* RendererRealizationPlannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00050000000000000002 /* RendererRealizationPlannerTests.swift */; };
 		D36A00070000000000000001 /* RendererRealizationReclaimTrigger.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00070000000000000002 /* RendererRealizationReclaimTrigger.swift */; };
 		804100000000000000000003 /* ReorderShortcutActionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 804100000000000000000004 /* ReorderShortcutActionTests.swift */; };
+		F71400030000000000000001 /* RepositoryArchiveScriptRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = F71400030000000000000002 /* RepositoryArchiveScriptRunner.swift */; };
+		F71400120000000000000001 /* RepositoryScriptAuthorizationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F71400120000000000000002 /* RepositoryScriptAuthorizationService.swift */; };
+		F71400110000000000000001 /* RepositoryScriptAuthorizing.swift in Sources */ = {isa = PBXBuildFile; fileRef = F71400110000000000000002 /* RepositoryScriptAuthorizing.swift */; };
+		F71400040000000000000001 /* RepositoryScriptIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = F71400040000000000000002 /* RepositoryScriptIdentity.swift */; };
+		F71400050000000000000001 /* RepositoryScriptLifecycleCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F71400050000000000000002 /* RepositoryScriptLifecycleCoordinator.swift */; };
+		F71400130000000000000001 /* RepositoryScriptLifecycleCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F71400130000000000000002 /* RepositoryScriptLifecycleCoordinatorTests.swift */; };
+		F71400060000000000000001 /* RepositoryScriptResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = F71400060000000000000002 /* RepositoryScriptResolution.swift */; };
+		F71400070000000000000001 /* RepositoryScriptResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = F71400070000000000000002 /* RepositoryScriptResolver.swift */; };
+		F71400080000000000000001 /* RepositoryScriptRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = F71400080000000000000002 /* RepositoryScriptRuntime.swift */; };
+		F71400160000000000000001 /* RepositoryScriptSettingsTrustTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F71400160000000000000002 /* RepositoryScriptSettingsTrustTests.swift */; };
+		F71400090000000000000001 /* RepositoryScriptSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = F71400090000000000000002 /* RepositoryScriptSource.swift */; };
+		F71400140000000000000001 /* RepositoryScriptTestAuthorizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F71400140000000000000002 /* RepositoryScriptTestAuthorizer.swift */; };
+		F71400150000000000000001 /* RepositoryScriptWorkspaceLifecycleState.swift in Sources */ = {isa = PBXBuildFile; fileRef = F71400150000000000000002 /* RepositoryScriptWorkspaceLifecycleState.swift */; };
+		F714000A0000000000000001 /* RepositorySetupLaunchPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = F714000A0000000000000002 /* RepositorySetupLaunchPlan.swift */; };
+		F714000B0000000000000001 /* RepositorySetupPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = F714000B0000000000000002 /* RepositorySetupPrompt.swift */; };
+		F714000C0000000000000001 /* RepositorySetupPromptCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = F714000C0000000000000002 /* RepositorySetupPromptCard.swift */; };
+		F714000D0000000000000001 /* RepositorySetupPromptStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F714000D0000000000000002 /* RepositorySetupPromptStore.swift */; };
+		F71400100000000000000001 /* RepositoryTerminalScriptsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F71400100000000000000002 /* RepositoryTerminalScriptsTests.swift */; };
 		F5410004A1B2C3D4E5F60718 /* RestorableAgentHookProviderHermesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5410005A1B2C3D4E5F60718 /* RestorableAgentHookProviderHermesTests.swift */; };
 		F5410000A1B2C3D4E5F60718 /* RestorableAgentHookProviderResumeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5410001A1B2C3D4E5F60718 /* RestorableAgentHookProviderResumeTests.swift */; };
 		C6711A040000000000000001 /* RestorableAgentHookSessionRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6711B040000000000000001 /* RestorableAgentHookSessionRecord.swift */; };
@@ -1568,6 +1588,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C0DE1A030000000000000001 /* TabManager+SavedLayouts.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1A030000000000000002 /* TabManager+SavedLayouts.swift */; };
 		C548600B0000000000000001 /* TabManager+SessionRestoreIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C548600B0000000000000002 /* TabManager+SessionRestoreIdentity.swift */; };
 		C5B6A10000000000000000B1 /* TabManager+SidebarGitHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5B6A10000000000000000B2 /* TabManager+SidebarGitHosting.swift */; };
+		F714000E0000000000000001 /* TabManager+TerminalScripts.swift in Sources */ = {isa = PBXBuildFile; fileRef = F714000E0000000000000002 /* TabManager+TerminalScripts.swift */; };
 		604500100000000000000007 /* TabManager+WindowTitle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 604500100000000000000008 /* TabManager+WindowTitle.swift */; };
 		736200000000000000000004 /* TabManager+WorkspaceCustomTitle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 736200000000000000000003 /* TabManager+WorkspaceCustomTitle.swift */; };
 		A5001003 /* TabManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001013 /* TabManager.swift */; };
@@ -2520,6 +2541,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		468140000000000000000008 /* CmuxNotificationHookParsedConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxNotificationHookParsedConfig.swift; sourceTree = "<group>"; };
 		C0DE31390000000000000102 /* CMUXOpenCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXOpenCommandTests.swift; sourceTree = "<group>"; };
 		C0DE31390000000000000112 /* CMUXOpenHTMLFocusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXOpenHTMLFocusTests.swift; sourceTree = "<group>"; };
+		F71400010000000000000002 /* CmuxRepositoryScriptsDefinition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxRepositoryScriptsDefinition.swift; sourceTree = "<group>"; };
 		A9F100000000000000000005 /* CmuxRuntimeDebugCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxRuntimeDebugCapture.swift; sourceTree = "<group>"; };
 		A9F100000000000000000006 /* CmuxRuntimeDebugCaptureConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxRuntimeDebugCaptureConfiguration.swift; sourceTree = "<group>"; };
 		A9F10000000000000000001A /* CmuxRuntimeDebugCaptureSender.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxRuntimeDebugCaptureSender.swift; sourceTree = "<group>"; };
@@ -2803,6 +2825,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		CD0CFE6100000000CD0CFE61 /* HostAccountFlow.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HostAccountFlow.swift; sourceTree = "<group>"; };
 		B1F0C0030000000000000002 /* HostedInspectorDockControlScript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/HostedInspectorDockControlScript.swift; sourceTree = "<group>"; };
 		B1F0C0040000000000000002 /* HostedInspectorDockControlScriptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostedInspectorDockControlScriptTests.swift; sourceTree = "<group>"; };
+		F71400020000000000000002 /* HostSettingsActions+RepositoryScripts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HostSettingsActions+RepositoryScripts.swift"; sourceTree = "<group>"; };
 		CD0CFE6300000000CD0CFE63 /* HostSettingsActions.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HostSettingsActions.swift; sourceTree = "<group>"; };
 		809100000000000000000002 /* HostSettingsShortcutNotificationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostSettingsShortcutNotificationTests.swift; sourceTree = "<group>"; };
 		F1C1AA20B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InactivePaneFirstClickFocusTests.swift; sourceTree = "<group>"; };
@@ -3194,6 +3217,24 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D36A00050000000000000002 /* RendererRealizationPlannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RendererRealizationPlannerTests.swift; sourceTree = "<group>"; };
 		D36A00070000000000000002 /* RendererRealizationReclaimTrigger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/RendererRealizationReclaimTrigger.swift; sourceTree = "<group>"; };
 		804100000000000000000004 /* ReorderShortcutActionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReorderShortcutActionTests.swift; sourceTree = "<group>"; };
+		F71400030000000000000002 /* RepositoryArchiveScriptRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepositoryArchiveScriptRunner.swift; sourceTree = "<group>"; };
+		F71400120000000000000002 /* RepositoryScriptAuthorizationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepositoryScriptAuthorizationService.swift; sourceTree = "<group>"; };
+		F71400110000000000000002 /* RepositoryScriptAuthorizing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepositoryScriptAuthorizing.swift; sourceTree = "<group>"; };
+		F71400040000000000000002 /* RepositoryScriptIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepositoryScriptIdentity.swift; sourceTree = "<group>"; };
+		F71400050000000000000002 /* RepositoryScriptLifecycleCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepositoryScriptLifecycleCoordinator.swift; sourceTree = "<group>"; };
+		F71400130000000000000002 /* RepositoryScriptLifecycleCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepositoryScriptLifecycleCoordinatorTests.swift; sourceTree = "<group>"; };
+		F71400060000000000000002 /* RepositoryScriptResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepositoryScriptResolution.swift; sourceTree = "<group>"; };
+		F71400070000000000000002 /* RepositoryScriptResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepositoryScriptResolver.swift; sourceTree = "<group>"; };
+		F71400080000000000000002 /* RepositoryScriptRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepositoryScriptRuntime.swift; sourceTree = "<group>"; };
+		F71400160000000000000002 /* RepositoryScriptSettingsTrustTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepositoryScriptSettingsTrustTests.swift; sourceTree = "<group>"; };
+		F71400090000000000000002 /* RepositoryScriptSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepositoryScriptSource.swift; sourceTree = "<group>"; };
+		F71400140000000000000002 /* RepositoryScriptTestAuthorizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepositoryScriptTestAuthorizer.swift; sourceTree = "<group>"; };
+		F71400150000000000000002 /* RepositoryScriptWorkspaceLifecycleState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepositoryScriptWorkspaceLifecycleState.swift; sourceTree = "<group>"; };
+		F714000A0000000000000002 /* RepositorySetupLaunchPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepositorySetupLaunchPlan.swift; sourceTree = "<group>"; };
+		F714000B0000000000000002 /* RepositorySetupPrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepositorySetupPrompt.swift; sourceTree = "<group>"; };
+		F714000C0000000000000002 /* RepositorySetupPromptCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepositorySetupPromptCard.swift; sourceTree = "<group>"; };
+		F714000D0000000000000002 /* RepositorySetupPromptStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepositorySetupPromptStore.swift; sourceTree = "<group>"; };
+		F71400100000000000000002 /* RepositoryTerminalScriptsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepositoryTerminalScriptsTests.swift; sourceTree = "<group>"; };
 		F5410005A1B2C3D4E5F60718 /* RestorableAgentHookProviderHermesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentHookProviderHermesTests.swift; sourceTree = "<group>"; };
 		F5410001A1B2C3D4E5F60718 /* RestorableAgentHookProviderResumeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentHookProviderResumeTests.swift; sourceTree = "<group>"; };
 		C6711B040000000000000001 /* RestorableAgentHookSessionRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentHookSessionRecord.swift; sourceTree = "<group>"; };
@@ -3464,6 +3505,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C0DE1A030000000000000002 /* TabManager+SavedLayouts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+SavedLayouts.swift"; sourceTree = "<group>"; };
 		C548600B0000000000000002 /* TabManager+SessionRestoreIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+SessionRestoreIdentity.swift"; sourceTree = "<group>"; };
 		C5B6A10000000000000000B2 /* TabManager+SidebarGitHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+SidebarGitHosting.swift"; sourceTree = "<group>"; };
+		F714000E0000000000000002 /* TabManager+TerminalScripts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+TerminalScripts.swift"; sourceTree = "<group>"; };
 		604500100000000000000008 /* TabManager+WindowTitle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+WindowTitle.swift"; sourceTree = "<group>"; };
 		736200000000000000000003 /* TabManager+WorkspaceCustomTitle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+WorkspaceCustomTitle.swift"; sourceTree = "<group>"; };
 		A5001013 /* TabManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManager.swift; sourceTree = "<group>"; };
@@ -4118,6 +4160,23 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A5001041 /* Sources */ = {
 			isa = PBXGroup;
 			children = (
+				F71400010000000000000002 /* CmuxRepositoryScriptsDefinition.swift */,
+				F71400020000000000000002 /* HostSettingsActions+RepositoryScripts.swift */,
+				F71400030000000000000002 /* RepositoryArchiveScriptRunner.swift */,
+				F71400040000000000000002 /* RepositoryScriptIdentity.swift */,
+				F71400050000000000000002 /* RepositoryScriptLifecycleCoordinator.swift */,
+				F71400120000000000000002 /* RepositoryScriptAuthorizationService.swift */,
+				F71400110000000000000002 /* RepositoryScriptAuthorizing.swift */,
+				F71400060000000000000002 /* RepositoryScriptResolution.swift */,
+				F71400070000000000000002 /* RepositoryScriptResolver.swift */,
+				F71400080000000000000002 /* RepositoryScriptRuntime.swift */,
+				F71400090000000000000002 /* RepositoryScriptSource.swift */,
+				F71400150000000000000002 /* RepositoryScriptWorkspaceLifecycleState.swift */,
+				F714000A0000000000000002 /* RepositorySetupLaunchPlan.swift */,
+				F714000B0000000000000002 /* RepositorySetupPrompt.swift */,
+				F714000C0000000000000002 /* RepositorySetupPromptCard.swift */,
+				F714000D0000000000000002 /* RepositorySetupPromptStore.swift */,
+				F714000E0000000000000002 /* TabManager+TerminalScripts.swift */,
 				3023B1003023B1003023B100 /* ConfigSource.swift */,
 				3023B1013023B1013023B101 /* ConfigSettingsView.swift */,
 				A11EAB000000000000000001 /* AppearanceSettings.swift */,
@@ -5338,6 +5397,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		F1000003A1B2C3D4E5F60718 /* cmuxTests */ = {
 			isa = PBXGroup;
 			children = (
+				F71400160000000000000002 /* RepositoryScriptSettingsTrustTests.swift */,
+				F71400100000000000000002 /* RepositoryTerminalScriptsTests.swift */,
+				F71400130000000000000002 /* RepositoryScriptLifecycleCoordinatorTests.swift */,
+				F71400140000000000000002 /* RepositoryScriptTestAuthorizer.swift */,
 				F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */,
 				F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */,
 				D3571003A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift */,
@@ -6567,6 +6630,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				468140000000000000000001 /* CmuxNotificationHookCacheKey.swift in Sources */,
 				468140000000000000000003 /* CmuxNotificationHookFileFingerprint.swift in Sources */,
 				468140000000000000000007 /* CmuxNotificationHookParsedConfig.swift in Sources */,
+				F71400010000000000000001 /* CmuxRepositoryScriptsDefinition.swift in Sources */,
 				A9F200000000000000000005 /* CmuxRuntimeDebugCapture.swift in Sources */,
 				A9F200000000000000000006 /* CmuxRuntimeDebugCaptureConfiguration.swift in Sources */,
 				A9F20000000000000000001A /* CmuxRuntimeDebugCaptureSender.swift in Sources */,
@@ -6759,6 +6823,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					F5320000A1B2C3D4E5F60718 /* HermesAgentIndex.swift in Sources */,
 				CD0CFE6000000000CD0CFE60 /* HostAccountFlow.swift in Sources */,
 				B1F0C0030000000000000001 /* HostedInspectorDockControlScript.swift in Sources */,
+				F71400020000000000000001 /* HostSettingsActions+RepositoryScripts.swift in Sources */,
 				CD0CFE6200000000CD0CFE62 /* HostSettingsActions.swift in Sources */,
 				C0DEA7720000000000000001 /* InternalFlagsWindow.swift in Sources */,
 				4D8B37E0E11A29997632765F /* InternalTabDragConfiguration.swift in Sources */,
@@ -7028,6 +7093,20 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				7490C00E7490C00E7490C00E /* RendererRealizationMemoryPressureResponder.swift in Sources */,
 				D36A00060000000000000001 /* RendererRealizationPlanner.swift in Sources */,
 				D36A00070000000000000001 /* RendererRealizationReclaimTrigger.swift in Sources */,
+				F71400030000000000000001 /* RepositoryArchiveScriptRunner.swift in Sources */,
+				F71400120000000000000001 /* RepositoryScriptAuthorizationService.swift in Sources */,
+				F71400110000000000000001 /* RepositoryScriptAuthorizing.swift in Sources */,
+				F71400040000000000000001 /* RepositoryScriptIdentity.swift in Sources */,
+				F71400050000000000000001 /* RepositoryScriptLifecycleCoordinator.swift in Sources */,
+				F71400060000000000000001 /* RepositoryScriptResolution.swift in Sources */,
+				F71400070000000000000001 /* RepositoryScriptResolver.swift in Sources */,
+				F71400080000000000000001 /* RepositoryScriptRuntime.swift in Sources */,
+				F71400090000000000000001 /* RepositoryScriptSource.swift in Sources */,
+				F71400150000000000000001 /* RepositoryScriptWorkspaceLifecycleState.swift in Sources */,
+				F714000A0000000000000001 /* RepositorySetupLaunchPlan.swift in Sources */,
+				F714000B0000000000000001 /* RepositorySetupPrompt.swift in Sources */,
+				F714000C0000000000000001 /* RepositorySetupPromptCard.swift in Sources */,
+				F714000D0000000000000001 /* RepositorySetupPromptStore.swift in Sources */,
 				C6711A040000000000000001 /* RestorableAgentHookSessionRecord.swift in Sources */,
 				C6711A060000000000000001 /* RestorableAgentHookSessionStoreFile.swift in Sources */,
 				A5001662 /* RestorableAgentSession+Campfire.swift in Sources */,
@@ -7203,6 +7282,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE1A030000000000000001 /* TabManager+SavedLayouts.swift in Sources */,
 				C548600B0000000000000001 /* TabManager+SessionRestoreIdentity.swift in Sources */,
 				C5B6A10000000000000000B1 /* TabManager+SidebarGitHosting.swift in Sources */,
+				F714000E0000000000000001 /* TabManager+TerminalScripts.swift in Sources */,
 				604500100000000000000007 /* TabManager+WindowTitle.swift in Sources */,
 				736200000000000000000004 /* TabManager+WorkspaceCustomTitle.swift in Sources */,
 				A5001003 /* TabManager.swift in Sources */,
@@ -7959,6 +8039,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C58410010000000000000001 /* RenderableSystemSymbolTests.swift in Sources */,
 				D36A00050000000000000001 /* RendererRealizationPlannerTests.swift in Sources */,
 				804100000000000000000003 /* ReorderShortcutActionTests.swift in Sources */,
+				F71400130000000000000001 /* RepositoryScriptLifecycleCoordinatorTests.swift in Sources */,
+				F71400160000000000000001 /* RepositoryScriptSettingsTrustTests.swift in Sources */,
+				F71400140000000000000001 /* RepositoryScriptTestAuthorizer.swift in Sources */,
+				F71400100000000000000001 /* RepositoryTerminalScriptsTests.swift in Sources */,
 					F5410004A1B2C3D4E5F60718 /* RestorableAgentHookProviderHermesTests.swift in Sources */,
 					F5410000A1B2C3D4E5F60718 /* RestorableAgentHookProviderResumeTests.swift in Sources */,
 					F5410002A1B2C3D4E5F60718 /* RestorableAgentNonInteractiveTests.swift in Sources */,

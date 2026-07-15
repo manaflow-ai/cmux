@@ -138,6 +138,24 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         defaultValue: []
     )
 
+    /// Destination used for automatic repository setup scripts.
+    public let setupScriptLocation = JSONKey<TerminalSetupScriptLocation>(
+        id: "terminal.setupScriptLocation",
+        defaultValue: .backgroundTab
+    )
+
+    /// Named commands available in Settings and the command palette.
+    public let savedCommands = JSONKey<SavedTerminalCommandLibrary>(
+        id: "terminal.savedCommands",
+        defaultValue: SavedTerminalCommandLibrary()
+    )
+
+    /// Private script overrides and no-setup prompt preferences keyed by repository.
+    public let repositoryScripts = JSONKey<[RepositoryScriptPreference]>(
+        id: "terminal.repositoryScripts",
+        defaultValue: []
+    )
+
     /// Multiplier applied to terminal scroll wheel and trackpad deltas.
     public let scrollSpeed = DefaultsKey<Double>(
         id: "terminal.scrollSpeed",

@@ -10,13 +10,16 @@ extension CmuxConfigExecutor {
     /// env assignments (ZDOTDIR/BASH_ENV/PATH-style keys change what
     /// executes), and the cwd values commands run in — not just the action's
     /// (arbitrary, benign-looking) name.
-    static func workspaceShellDisclosure(_ command: CmuxCommandDefinition) -> String {
+    static func workspaceShellDisclosure(
+        _ command: CmuxCommandDefinition,
+        savedSetupCommand: String? = nil
+    ) -> String {
         guard let workspace = command.workspace else { return command.name }
         var shellLines: [String] = []
         if let cwd = workspace.cwd {
             shellLines.append(String(format: Self.cwdDisclosureFormat, cwd))
         }
-        if let setup = workspace.setup {
+        if let setup = workspace.setup ?? savedSetupCommand {
             // Setup runs in the first terminal surface, whose own cwd wins
             // over the workspace cwd — disclose the one that actually applies.
             if let setupCwd = workspace.layout.flatMap(firstTerminalSurfaceCwd) {
@@ -148,9 +151,11 @@ extension CmuxConfigExecutor {
         }
 
         let resolvedCwd = CmuxConfigStore.resolveCwd(wsDef.cwd, relativeTo: baseCwd)
+        let resolvedSetup = wsDef.setup ?? tabManager.savedTerminalCommand(named: wsDef.setupCommand)
         let newWorkspace = tabManager.addWorkspace(
             workingDirectory: resolvedCwd,
-            workspaceEnvironment: wsDef.env ?? [:]
+            workspaceEnvironment: wsDef.env ?? [:],
+            runRepositoryScripts: false
         )
         newWorkspace.setCustomTitle(workspaceName)
         if let color = wsDef.color {
@@ -162,10 +167,11 @@ extension CmuxConfigExecutor {
         }
 
         if let layout = wsDef.layout {
-            newWorkspace.applyCustomLayout(layout, baseCwd: resolvedCwd, setupCommand: wsDef.setup)
-        } else if let setup = wsDef.setup {
+            newWorkspace.applyCustomLayout(layout, baseCwd: resolvedCwd, setupCommand: resolvedSetup)
+        } else if let setup = resolvedSetup {
             newWorkspace.sendConfigSetupCommand(setup)
         }
+        tabManager.runRepositoryScripts(for: newWorkspace, directory: resolvedCwd)
         return true
     }
 }

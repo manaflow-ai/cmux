@@ -30,6 +30,22 @@ struct JSONConfigStoreTests {
         #expect(automation?["socketPassword"] as? String == "hunter2")
     }
 
+    @Test func concurrentUpdatesComposeWithoutLosingChanges() async throws {
+        let (store, _, _) = makeStore()
+        let key = JSONKey<Int>(id: "test.counter", defaultValue: 0)
+
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for _ in 0..<50 {
+                group.addTask {
+                    _ = try await store.update(for: key) { $0 + 1 }
+                }
+            }
+            try await group.waitForAll()
+        }
+
+        #expect(await store.value(for: key) == 50)
+    }
+
     @Test func resetRemovesEntryAndPrunesEmptyParents() async throws {
         let (store, fileURL, _) = makeStore()
         try await store.set("hunter2", for: JSONKey<String>(id: "automation.socketPassword", defaultValue: ""))

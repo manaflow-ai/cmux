@@ -17,11 +17,12 @@ struct CmuxConfigFile: Codable, Sendable {
     var newWorkspaceCommand: String?
     var surfaceTabBarButtons: [CmuxSurfaceTabBarButton]?
     var commands: [CmuxCommandDefinition]
+    var scripts: CmuxRepositoryScriptsDefinition?
     var vault: CmuxVaultConfigDefinition?
     var workspaceGroups: CmuxConfigWorkspaceGroupsDefinition?
 
     private enum CodingKeys: String, CodingKey {
-        case actions, ui, notifications, agentChat, newWorkspaceCommand, surfaceTabBarButtons, commands, vault, workspaceGroups
+        case actions, ui, notifications, agentChat, newWorkspaceCommand, surfaceTabBarButtons, commands, scripts, vault, workspaceGroups
     }
 
     init(
@@ -32,6 +33,7 @@ struct CmuxConfigFile: Codable, Sendable {
         newWorkspaceCommand: String? = nil,
         surfaceTabBarButtons: [CmuxSurfaceTabBarButton]? = nil,
         commands: [CmuxCommandDefinition] = [],
+        scripts: CmuxRepositoryScriptsDefinition? = nil,
         vault: CmuxVaultConfigDefinition? = nil,
         workspaceGroups: CmuxConfigWorkspaceGroupsDefinition? = nil
     ) {
@@ -42,6 +44,7 @@ struct CmuxConfigFile: Codable, Sendable {
         self.newWorkspaceCommand = newWorkspaceCommand
         self.surfaceTabBarButtons = surfaceTabBarButtons
         self.commands = commands
+        self.scripts = scripts
         self.vault = vault
         self.workspaceGroups = workspaceGroups
     }
@@ -91,6 +94,7 @@ struct CmuxConfigFile: Codable, Sendable {
             surfaceTabBarButtons = nil
         }
         commands = try container.decodeIfPresent([CmuxCommandDefinition].self, forKey: .commands) ?? []
+        scripts = try container.decodeIfPresent(CmuxRepositoryScriptsDefinition.self, forKey: .scripts)
         vault = try container.decodeIfPresent(CmuxVaultConfigDefinition.self, forKey: .vault)
         workspaceGroups = try container.decodeIfPresent(
             CmuxConfigWorkspaceGroupsDefinition.self,
@@ -1741,6 +1745,8 @@ final class CmuxConfigStore: ObservableObject {
     private weak var tabManager: TabManager?
     let globalConfigPath: String
     private let fileWatchingEnabled: Bool
+    private let terminalScriptSettingsStore: JSONConfigStore
+    private let settingCatalog: SettingCatalog
 
     nonisolated static func defaultGlobalConfigPath() -> String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
@@ -1809,6 +1815,7 @@ final class CmuxConfigStore: ObservableObject {
     private var localFallbackDirectoryDescriptor: Int32 = -1
     private var globalWatcher: FileWatcher?
     private var globalWatchTask: Task<Void, Never>?
+    private var savedTerminalCommandsWatchTask: Task<Void, Never>?
     private let watchQueue = DispatchQueue(label: "com.cmux.config-file-watch")
 
     private static let maxReattachAttempts = 5
@@ -1829,12 +1836,32 @@ final class CmuxConfigStore: ObservableObject {
     init(
         globalConfigPath: String = CmuxConfigStore.defaultGlobalConfigPath(),
         localConfigPath: String? = nil,
-        startFileWatchers: Bool = false
+        startFileWatchers: Bool = false,
+        terminalScriptSettingsStore: JSONConfigStore? = nil,
+        settingCatalog: SettingCatalog = SettingCatalog()
     ) {
         self.globalConfigPath = globalConfigPath
         self.localConfigPath = localConfigPath
         self.fileWatchingEnabled = startFileWatchers
+        self.terminalScriptSettingsStore = terminalScriptSettingsStore
+            ?? JSONConfigStore(fileURL: URL(fileURLWithPath: globalConfigPath))
+        self.settingCatalog = settingCatalog
         self.localConfigSearchDirectory = localConfigPath.map(Self.searchDirectoryForLocalConfigPath(_:))
+        let initialSavedCommands = self.terminalScriptSettingsStore.snapshotValue(
+            for: settingCatalog.terminal.savedCommands
+        )
+        let savedCommands = self.terminalScriptSettingsStore.values(
+            for: settingCatalog.terminal.savedCommands
+        )
+        savedTerminalCommandsWatchTask = Task { @MainActor [weak self] in
+            var previous = initialSavedCommands
+            for await current in savedCommands {
+                guard current != previous else { continue }
+                previous = current
+                guard let self else { break }
+                self.loadAll()
+            }
+        }
         NotificationCenter.default.publisher(for: CmuxActionTrust.didChangeNotification)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
@@ -1855,6 +1882,7 @@ final class CmuxConfigStore: ObservableObject {
         localFallbackDirectoryWatchSource?.cancel()
         hookWatchTasks.values.forEach { $0.cancel() }
         globalWatchTask?.cancel()
+        savedTerminalCommandsWatchTask?.cancel()
     }
 
     // MARK: - Public API
@@ -2033,14 +2061,28 @@ final class CmuxConfigStore: ObservableObject {
                 configuredSurfaceTabBarButtonSourcePath = localPath
             }
             for command in localConfig.commands {
-                if !seenNames.contains(command.name) {
+                if !seenNames.contains(command.name.folding(options: .caseInsensitive, locale: nil)) {
                     commands.append(command)
-                    seenNames.insert(command.name)
+                    seenNames.insert(command.name.folding(options: .caseInsensitive, locale: nil))
                     if let localPath {
                         sourcePaths[command.id] = localPath
                     }
                 }
             }
+        }
+
+        let savedTerminalCommands = terminalScriptSettingsStore.snapshotValue(
+            for: settingCatalog.terminal.savedCommands
+        ).commands
+        for savedCommand in savedTerminalCommands {
+            let name = savedCommand.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty,
+                  !savedCommand.command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  !seenNames.contains(name.folding(options: .caseInsensitive, locale: nil)) else { continue }
+            let command = CmuxCommandDefinition(name: name, command: savedCommand.command)
+            commands.append(command)
+            seenNames.insert(name.folding(options: .caseInsensitive, locale: nil))
+            sourcePaths[command.id] = globalConfigPath
         }
 
         // Global config fills in the rest
@@ -2072,9 +2114,9 @@ final class CmuxConfigStore: ObservableObject {
                 configuredSurfaceTabBarButtonSourcePath = globalConfigPath
             }
             for command in globalConfig.commands {
-                if !seenNames.contains(command.name) {
+                if !seenNames.contains(command.name.folding(options: .caseInsensitive, locale: nil)) {
                     commands.append(command)
-                    seenNames.insert(command.name)
+                    seenNames.insert(command.name.folding(options: .caseInsensitive, locale: nil))
                     sourcePaths[command.id] = globalConfigPath
                 }
             }

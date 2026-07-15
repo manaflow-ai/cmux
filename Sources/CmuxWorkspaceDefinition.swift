@@ -10,6 +10,9 @@ struct CmuxWorkspaceDefinition: Codable, Sendable, Hashable {
     /// Bootstrap command sent to the workspace's first terminal before that
     /// terminal's own surface `command`. Other panes do not wait for it.
     var setup: String?
+    /// Name of a global saved terminal command used as the workspace setup.
+    /// This lets saved layouts compose with the same command library as the palette.
+    var setupCommand: String?
     var layout: CmuxLayoutNode?
 
     init(
@@ -18,6 +21,7 @@ struct CmuxWorkspaceDefinition: Codable, Sendable, Hashable {
         color: String? = nil,
         env: [String: String]? = nil,
         setup: String? = nil,
+        setupCommand: String? = nil,
         layout: CmuxLayoutNode? = nil
     ) {
         self.name = name
@@ -25,6 +29,7 @@ struct CmuxWorkspaceDefinition: Codable, Sendable, Hashable {
         self.color = color
         self.env = env
         self.setup = setup
+        self.setupCommand = setupCommand
         self.layout = layout
     }
 
@@ -38,6 +43,23 @@ struct CmuxWorkspaceDefinition: Codable, Sendable, Hashable {
             setup = trimmed.isEmpty ? nil : trimmed
         } else {
             setup = nil
+        }
+        if let rawSetupCommand = try container.decodeIfPresent(String.self, forKey: .setupCommand) {
+            let trimmed = rawSetupCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+            setupCommand = trimmed.isEmpty ? nil : trimmed
+        } else {
+            setupCommand = nil
+        }
+        if setup != nil && setupCommand != nil {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: String(
+                        localized: "error.cmuxConfig.workspace.setupConflict",
+                        defaultValue: "Workspace must not define both setup and setupCommand"
+                    )
+                )
+            )
         }
         layout = try container.decodeIfPresent(CmuxLayoutNode.self, forKey: .layout)
 

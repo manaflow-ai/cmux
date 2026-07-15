@@ -319,6 +319,69 @@ struct CmuxConfigWorkspaceActionTests {
     }
 
     @MainActor
+    @Test func multilineTerminalActionUsesSubmissionSeamForNewTab() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let existingPanelIDs = Set(workspace.panels.keys)
+        let command = "printf 'first\\n'\nprintf 'second\\n'"
+        let action = try #require(CmuxResolvedConfigAction.fromDefinition(
+            id: "multiline-command",
+            definition: CmuxConfigActionDefinition(
+                action: .command(command),
+                terminalCommandTarget: .newTabInCurrentPane
+            ),
+            sourcePath: nil
+        ))
+
+        #expect(CmuxConfigExecutor.execute(
+            action: action,
+            commands: [],
+            commandSourcePaths: [:],
+            tabManager: manager,
+            baseCwd: NSTemporaryDirectory(),
+            globalConfigPath: "/tmp/cmux-test-global-config.json"
+        ))
+
+        let panel = try #require(
+            workspace.panels.values
+                .compactMap { $0 as? TerminalPanel }
+                .first { !existingPanelIDs.contains($0.id) }
+        )
+        #expect(panel.surface.initialInput == nil)
+    }
+
+    @MainActor
+    @Test func unsafeTerminalActionIsRejectedBeforeCreatingNewTab() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let existingPanelIDs = Set(workspace.panels.keys)
+        let action = try #require(CmuxResolvedConfigAction.fromDefinition(
+            id: "unsafe-command",
+            definition: CmuxConfigActionDefinition(
+                action: .command("echo visible\n\u{001B}[201~echo hidden"),
+                terminalCommandTarget: .newTabInCurrentPane
+            ),
+            sourcePath: nil
+        ))
+        var executed = false
+
+        let accepted = CmuxConfigExecutor.execute(
+            action: action,
+            commands: [],
+            commandSourcePaths: [:],
+            tabManager: manager,
+            baseCwd: NSTemporaryDirectory(),
+            globalConfigPath: "/tmp/cmux-test-global-config.json"
+        ) {
+            executed = true
+        }
+
+        #expect(!accepted)
+        #expect(Set(workspace.panels.keys) == existingPanelIDs)
+        #expect(!executed)
+    }
+
+    @MainActor
     @Test func inlineWorkspaceSurfaceTabBarButtonExecutesOnClick() throws {
         let manager = TabManager()
         let workspace = try #require(manager.tabs.first)
