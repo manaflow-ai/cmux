@@ -44,6 +44,30 @@ struct ReorderShortcutActionTests {
         #expect(panelOrder(in: workspace, paneId: paneId) == [panelId])
     }
 
+    @Test func selectedCanvasSurfaceMovesWithinVisiblePaneWithoutMutatingSplitOrder() throws {
+        let workspace = Workspace()
+        let firstPanelId = try #require(workspace.focusedPanelId)
+        let splitPaneId = try #require(workspace.paneId(forPanelId: firstPanelId))
+        let secondPanel = try #require(workspace.newTerminalSurface(inPane: splitPaneId, focus: false))
+        let thirdPanel = try #require(workspace.newTerminalSurface(inPane: splitPaneId, focus: false))
+        let originalOrder = [firstPanelId, secondPanel.id, thirdPanel.id]
+
+        workspace.canvasModel.syncPanes(panelIds: originalOrder, focusedPanelId: firstPanelId)
+        #expect(workspace.canvasModel.joinPanel(secondPanel.id, withPaneContaining: firstPanelId))
+        #expect(workspace.canvasModel.joinPanel(thirdPanel.id, withPaneContaining: firstPanelId))
+        workspace.setLayoutMode(.canvas)
+        workspace.focusPanel(firstPanelId)
+        let canvasPaneId = try #require(workspace.canvasModel.paneID(containing: firstPanelId))
+
+        #expect(workspace.moveSelectedSurface(by: 1))
+        #expect(
+            workspace.canvasModel.layout.panelIds(in: canvasPaneId)?.map(\.rawValue) ==
+                [secondPanel.id, firstPanelId, thirdPanel.id]
+        )
+        #expect(workspace.focusedPanelId == firstPanelId)
+        #expect(panelOrder(in: workspace, paneId: splitPaneId) == originalOrder)
+    }
+
     @Test func selectedWorkspaceMovesWithinItsPinTierAndStaysSelected() {
         let manager = TabManager()
         let firstPinned = manager.tabs[0]
