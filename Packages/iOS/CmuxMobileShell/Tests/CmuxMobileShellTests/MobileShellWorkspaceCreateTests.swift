@@ -274,6 +274,38 @@ import Testing
         #expect(store.selectedTerminalID?.rawValue == "terminal-route-created")
     }
 
+    @Test func delayedTerminalCreateCannotOverwriteNewerUserTerminalSelection() async throws {
+        let router = RoutingHostRouter()
+        await router.setHoldFirstTerminalCreate(true)
+        let store = try await makeRoutingConnectedStore(
+            router: router,
+            connectionState: .connected
+        )
+        let workspaceID = try #require(store.workspaces.first?.id)
+        let originalTerminalID = MobileTerminalPreview.ID(rawValue: RoutingHostRouter.terminalA)
+        let userSelectedTerminalID = MobileTerminalPreview.ID(rawValue: RoutingHostRouter.terminalB)
+        store.setSelectedWorkspaceID(workspaceID)
+        store.selectTerminal(originalTerminalID)
+
+        let create = Task { @MainActor in
+            await store.createRemoteTerminal(in: workspaceID)
+        }
+        await router.awaitFirstTerminalCreateReached()
+
+        store.selectTerminal(userSelectedTerminalID)
+        await router.releaseFirstTerminalCreate()
+
+        guard case .success = await create.value else {
+            Issue.record("Expected delayed terminal create to succeed")
+            return
+        }
+        #expect(store.selectedWorkspaceID == workspaceID)
+        #expect(store.selectedTerminalID == userSelectedTerminalID)
+        #expect(store.workspaces.first?.terminals.contains(where: {
+            $0.id.rawValue == "terminal-route-created"
+        }) == true)
+    }
+
     @Test func acknowledgedWorkspaceCreateReportsFailedAuthoritativeReconciliation() async throws {
         let router = RoutingHostRouter()
         await router.setHoldFirstWorkspaceCreate(true)
