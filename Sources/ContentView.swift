@@ -9917,6 +9917,9 @@ struct VerticalTabsSidebar: View {
     @State private var frozenShortcutHintsValue: Bool = false
     @State private var pendingSelectedWorkspaceScrollId: UUID?
     @State private var workspaceScrollContentMinHeight: CGFloat = 0
+    /// Sidebar viewport height, used to cap the tab-search dropdown so it never
+    /// extends past the sidebar into clipped space.
+    @State private var sidebarViewportHeight: CGFloat = 0
     @State private var collapsedExtensionSidebarSectionIds: Set<String> = []
     @State private var extensionSidebarWorktreeCreationInFlightSectionIds: Set<String> = []
     @State private var extensionSidebarUpdateToken: UInt64 = 0
@@ -10027,6 +10030,20 @@ struct VerticalTabsSidebar: View {
     /// Total band reserved under the titlebar strip for the field, so the
     /// first workspace row sits flush below it.
     static let sidebarTabSearchBandHeight: CGFloat = sidebarTabSearchFieldTopGap + sidebarTabSearchFieldHeight
+    /// Breathing room kept between the tab-search dropdown and the sidebar's
+    /// bottom edge.
+    private static let sidebarTabSearchDropdownBottomMargin: CGFloat = 12
+
+    /// Room left below the search field inside the sidebar. Caps the dropdown so
+    /// its lower rows never land past the sidebar edge where scrolling can't
+    /// reveal them. Zero until the viewport is measured.
+    private var sidebarTabSearchAvailableDropdownHeight: CGFloat {
+        guard sidebarViewportHeight > 0 else { return 0 }
+        let consumed = sidebarTitlebarInteractionHeight
+            + Self.sidebarTabSearchBandHeight
+            + Self.sidebarTabSearchDropdownBottomMargin
+        return max(0, sidebarViewportHeight - consumed)
+    }
 
     /// Adapter binding for unmigrated consumers (extension sidebar drop
     /// delegates, bonsplit overlays) that still expect @Binding<UUID?>. Reads
@@ -10513,7 +10530,8 @@ struct VerticalTabsSidebar: View {
                 // Padded below the draggable titlebar strip / window controls.
                 SidebarTabSearchView(
                     entriesProvider: sidebarTabSearchEntriesProvider,
-                    focusTargetWindow: observedWindow
+                    focusTargetWindow: observedWindow,
+                    availableDropdownHeight: sidebarTabSearchAvailableDropdownHeight
                 )
                     .padding(.top, sidebarTitlebarInteractionHeight + Self.sidebarTabSearchFieldTopGap)
                     .padding(.horizontal, SidebarWorkspaceListMetrics.rowOuterHorizontalPadding)
@@ -10524,6 +10542,10 @@ struct VerticalTabsSidebar: View {
             .onGeometryChange(for: CGFloat.self) {
                 SidebarWorkspaceScrollLayout.contentMinHeight(viewportHeight: $0.size.height, insets: scrollInsets)
             } action: { updateWorkspaceScrollContentMinHeight($0) }
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                guard sidebarViewportHeight != height else { return }
+                sidebarViewportHeight = height
+            }
             .onAppear {
                 requestSelectedWorkspaceScroll(scrollProxy, renderContext: renderContext)
             }

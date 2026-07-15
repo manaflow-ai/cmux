@@ -34,6 +34,10 @@ struct SidebarTabSearchView: View {
     /// This sidebar's window, used to accept only the `searchTabs` focus request
     /// routed to this window (the notification is posted per target window).
     var focusTargetWindow: NSWindow?
+    /// Space left below the field inside the sidebar. The dropdown never grows
+    /// past it, so its lower rows can't land in clipped-away space that even
+    /// scrolling can't reveal. Zero means "not measured yet".
+    var availableDropdownHeight: CGFloat = 0
 
     @State private var query: String = ""
     @State private var results: [SidebarTabSearchResult] = []
@@ -119,6 +123,16 @@ struct SidebarTabSearchView: View {
         return rowsHeight + headersHeight + Self.dropdownVerticalPadding
     }
 
+    /// The dropdown's rendered height: its content, capped by the fixed maximum
+    /// and by whatever room the sidebar actually leaves below the field.
+    private var dropdownHeight: CGFloat {
+        var cap = Self.maxDropdownHeight
+        if availableDropdownHeight > 0 {
+            cap = min(cap, availableDropdownHeight)
+        }
+        return min(dropdownContentHeight, cap)
+    }
+
     private var searchField: some View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass")
@@ -194,7 +208,7 @@ struct SidebarTabSearchView: View {
                         }
                         .padding(.vertical, 4)
                     }
-                    .frame(height: min(dropdownContentHeight, Self.maxDropdownHeight))
+                    .frame(height: dropdownHeight)
                     // Keep the arrow-selected row visible while scrolling.
                     .onChange(of: selectedIndex) { _, _ in
                         guard let id = selectedResultID else { return }
@@ -291,19 +305,12 @@ struct SidebarTabSearchView: View {
         return (SidebarTabSearchIndex(candidates: candidates), actions)
     }
 
+    /// Runs the highlighted hit. Ranking is synchronous, so `results` always
+    /// reflects the current query: an out-of-range selection means there simply
+    /// are no matches, and there is nothing to fall back to.
     private func runSelectedResult() {
-        if orderedResults.indices.contains(selectedIndex) {
-            run(orderedResults[selectedIndex])
-            return
-        }
-        // Defensive fallback: rank a fresh corpus if no row is selectable yet.
-        let searchQuery = trimmedQuery
-        guard !searchQuery.isEmpty else { return }
-        let built = buildCorpus()
-        guard let top = built.index.rankedResults(matching: searchQuery, limit: 1).first,
-              let action = built.actions[top.id] else { return }
-        action()
-        clear()
+        guard orderedResults.indices.contains(selectedIndex) else { return }
+        run(orderedResults[selectedIndex])
     }
 
     private func run(_ result: SidebarTabSearchResult) {
