@@ -1,7 +1,12 @@
 import AppKit
 import Foundation
 import Testing
+
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
 @testable import cmux
+#endif
 
 // SAFETY: every mutable field is accessed only while `lock` is held.
 private final class TitleScheduleRecorder: @unchecked Sendable {
