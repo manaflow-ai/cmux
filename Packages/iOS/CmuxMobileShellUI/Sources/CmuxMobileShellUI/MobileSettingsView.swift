@@ -172,6 +172,28 @@ struct MobileSettingsView: View {
 
                 #if DEBUG
                 Section(L10n.string("mobile.settings.developer", defaultValue: "Developer")) {
+                    Picker(selection: $displaySettings.diffNavigationModel) {
+                        Text(String(localized:
+                            "mobile.settings.diffNavigation.filesFirst",
+                            defaultValue: "Files first",
+                            bundle: .module
+                        ))
+                        .tag(DiffNavigationModel.filesFirst)
+                        Text(String(localized:
+                            "mobile.settings.diffNavigation.diffFirst",
+                            defaultValue: "Diff first",
+                            bundle: .module
+                        ))
+                        .tag(DiffNavigationModel.diffFirst)
+                    } label: {
+                        Text(String(localized:
+                            "mobile.settings.diffNavigation",
+                            defaultValue: "Diff Navigation",
+                            bundle: .module
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsDiffNavigation")
+
                     NavigationLink {
                         DiffFixtureScreen(defaults: .standard)
                     } label: {

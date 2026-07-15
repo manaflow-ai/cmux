@@ -14,6 +14,7 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../CmuxMobileRPC"),
+        .package(path: "../CmuxMobileShell"),
         .package(
             url: "https://github.com/smittytone/HighlighterSwift",
             exact: "3.1.0"
@@ -24,6 +25,7 @@ let package = Package(
             name: "CmuxDiffUI",
             dependencies: [
                 "CmuxMobileRPC",
+                "CmuxMobileShell",
                 .product(name: "Highlighter", package: "HighlighterSwift"),
             ],
             resources: [.process("Resources")],

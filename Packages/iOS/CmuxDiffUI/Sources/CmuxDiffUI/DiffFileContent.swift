@@ -2,6 +2,8 @@ public import CmuxMobileRPC
 
 /// The currently available body state for one changed file.
 public enum DiffFileContent: Sendable, Equatable {
+    /// The file body has not loaded yet or is currently loading.
+    case loading
     /// Parsed hunks ready for rendering.
     case loaded([MobileDiffHunk])
     /// Git reported binary content rather than line-oriented hunks.

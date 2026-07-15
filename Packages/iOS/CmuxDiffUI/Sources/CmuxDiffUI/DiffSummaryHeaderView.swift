@@ -39,6 +39,8 @@ struct DiffSummaryHeaderView: View {
                     .fontWeight(.medium)
             }
             .font(.caption)
+            ProgressView(value: fileCount == 0 ? 0 : Double(viewedCount), total: Double(max(fileCount, 1)))
+                .tint(.green)
         }
         .padding(.vertical, 6)
     }

@@ -5,7 +5,7 @@ internal import Foundation
 ///
 /// Instances borrow the shell's persistent client. They never disconnect or replace it;
 /// ``MobileShellComposite`` remains the sole owner of connection lifecycle.
-public actor MobileDiffsService {
+public actor MobileDiffsService: MobileDiffsServing {
     private let client: MobileCoreRPCClient
 
     /// Creates a service that borrows an already-connected RPC client.
