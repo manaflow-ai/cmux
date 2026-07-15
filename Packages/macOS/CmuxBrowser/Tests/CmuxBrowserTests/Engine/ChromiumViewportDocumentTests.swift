@@ -7,7 +7,13 @@ import WebKit
 struct ChromiumViewportDocumentTests {
     @Test
     func forwardsCompositionAndPasteAsCommittedText() async throws {
-        let webView = WKWebView()
+        let configuration = WKWebViewConfiguration()
+        let messageHandler = ChromiumViewportNoOpMessageHandler()
+        configuration.userContentController.add(
+            messageHandler,
+            name: "cmuxChromiumViewport"
+        )
+        let webView = WKWebView(frame: .zero, configuration: configuration)
         let loadDelegate = ChromiumViewportDocumentLoadDelegate()
         webView.navigationDelegate = loadDelegate
         try await loadDelegate.load(
