@@ -1,6 +1,15 @@
 import Darwin
 import Foundation
 
+private struct HookStoreFileStamp: Equatable, Sendable {
+    let filename: String
+    let deviceID: UInt64
+    let inode: UInt64
+    let size: Int64
+    let modificationTimeSeconds: Int64
+    let modificationTimeNanoseconds: Int64
+}
+
 /// Process-wide cache of `RestorableAgentSessionIndex` results for agent fork and restore paths.
 @MainActor
 final class SharedLiveAgentIndex {
@@ -18,7 +27,7 @@ final class SharedLiveAgentIndex {
     private var processScopeFingerprint: Set<String> = []
     private var changePending = false
     private var deferredReloadTimer: DispatchSourceTimer?
-    private var hookStoreInputStamp: [String]?
+    private var hookStoreInputStamp: [HookStoreFileStamp]?
     private var latestCompletedLoadWorkloadCount = 0
     private var latestCompletedLiveAgentProcessCount = 0
 
@@ -349,32 +358,32 @@ final class SharedLiveAgentIndex {
         }
     }
 
-    private func handleHookStoreDirectoryEvent(_ currentStamp: [String]) {
+    private func handleHookStoreDirectoryEvent(_ currentStamp: [HookStoreFileStamp]) {
         guard currentStamp != hookStoreInputStamp else { return }
         hookStoreInputStamp = currentStamp
         handleHookStoreChange()
     }
 
-    nonisolated private static func hookStoreInputStamp(in directory: String) -> [String] {
+    nonisolated private static func hookStoreInputStamp(in directory: String) -> [HookStoreFileStamp] {
         let filenames = (try? FileManager.default.contentsOfDirectory(atPath: directory)) ?? []
         let directoryURL = URL(fileURLWithPath: directory, isDirectory: true)
         return filenames
             .filter { $0.hasSuffix("-hook-sessions.json") }
             .sorted()
-            .compactMap { filename -> String? in
+            .compactMap { filename -> HookStoreFileStamp? in
                 let path = directoryURL
                     .appendingPathComponent(filename, isDirectory: false)
                     .path
                 var info = stat()
                 guard stat(path, &info) == 0 else { return nil }
-                return [
-                    filename,
-                    String(info.st_dev),
-                    String(info.st_ino),
-                    String(info.st_size),
-                    String(info.st_mtimespec.tv_sec),
-                    String(info.st_mtimespec.tv_nsec),
-                ].joined(separator: "\u{0}")
+                return HookStoreFileStamp(
+                    filename: filename,
+                    deviceID: UInt64(info.st_dev),
+                    inode: UInt64(info.st_ino),
+                    size: Int64(info.st_size),
+                    modificationTimeSeconds: Int64(info.st_mtimespec.tv_sec),
+                    modificationTimeNanoseconds: Int64(info.st_mtimespec.tv_nsec)
+                )
             }
     }
 
