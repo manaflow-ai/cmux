@@ -10,10 +10,12 @@ struct MobileLeadingToolbarTitleWidth {
     let hasBackButton: Bool
     let hasTrailingCluster: Bool
     let hasChatToggle: Bool
+    var hasChangesButton = false
 
     static let backButtonReserve: CGFloat = 44
     static let trailingReserveBase: CGFloat = 64
     static let chatToggleReserve: CGFloat = 60
+    static let changesButtonReserve: CGFloat = 60
     static let barMarginsAndSpacing: CGFloat = 84
     static let unmeasuredFallback: CGFloat = 140
     static let maximumMeasuredCap: CGFloat = unmeasuredFallback
@@ -23,7 +25,9 @@ struct MobileLeadingToolbarTitleWidth {
         guard contentWidth > 0 else { return Self.unmeasuredFallback }
         let leading = hasBackButton ? Self.backButtonReserve : 0
         let trailing = hasTrailingCluster
-            ? Self.trailingReserveBase + (hasChatToggle ? Self.chatToggleReserve : 0)
+            ? Self.trailingReserveBase
+                + (hasChatToggle ? Self.chatToggleReserve : 0)
+                + (hasChangesButton ? Self.changesButtonReserve : 0)
             : 0
         let measuredCap = max(0, contentWidth - leading - trailing - Self.barMarginsAndSpacing)
         return min(Self.maximumMeasuredCap, measuredCap)

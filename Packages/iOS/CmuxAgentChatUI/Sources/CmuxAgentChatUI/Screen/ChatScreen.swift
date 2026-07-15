@@ -23,6 +23,7 @@ public struct ChatScreen: View {
     private let accessoryLeadingShortcuts: [ChatAccessoryShortcut]
     private let accessoryShortcuts: [ChatAccessoryShortcut]
     private let onOpenTerminal: () -> Void
+    private let onOpenFileChanges: ((String) -> Void)?
     private let providesOwnChrome: Bool
     private let runsStoreTask: Bool
 
@@ -33,6 +34,7 @@ public struct ChatScreen: View {
     ///     platform ``ChatEventSource``.
     ///   - onOpenTerminal: Opens the session's raw terminal surface (the
     ///     escape hatch); the host owns that navigation.
+    ///   - onOpenFileChanges: Optional host navigation into native changes at a file path.
     ///   - draft: Host-owned composer draft, so a dismissed cover keeps
     ///     the half-typed prompt. Pass `.constant("")` to opt out.
     ///   - accessoryLeadingShortcuts: Host-provided fixed composer shortcut
@@ -53,6 +55,7 @@ public struct ChatScreen: View {
         accessoryShortcuts: [ChatAccessoryShortcut] = [],
         providesOwnChrome: Bool = true,
         runsStoreTask: Bool = true,
+        onOpenFileChanges: ((String) -> Void)? = nil,
         onOpenTerminal: @escaping () -> Void
     ) {
         _store = State(initialValue: store)
@@ -62,6 +65,7 @@ public struct ChatScreen: View {
         self.providesOwnChrome = providesOwnChrome
         self.runsStoreTask = runsStoreTask
         self.onOpenTerminal = onOpenTerminal
+        self.onOpenFileChanges = onOpenFileChanges
     }
 
     public var body: some View {
@@ -296,6 +300,7 @@ public struct ChatScreen: View {
                 store.discard(pendingID: id)
             },
             openTerminal: onOpenTerminal,
+            openFileChanges: onOpenFileChanges,
             showMessageDetail: { message in
                 selectedBlockSelection = .message(id: message.id)
             },

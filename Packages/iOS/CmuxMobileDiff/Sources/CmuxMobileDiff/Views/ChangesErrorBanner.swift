@@ -3,6 +3,7 @@ internal import SwiftUI
 struct ChangesErrorBanner: View {
     let error: ChangesErrorSnapshot
     let retry: @MainActor @Sendable () -> Void
+    let useWorkingTree: @MainActor @Sendable () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -11,8 +12,17 @@ struct ChangesErrorBanner: View {
             Text(error.message)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-            Button(String(localized: "diff.action.retry", defaultValue: "Retry", bundle: .module), action: retry)
-                .buttonStyle(.borderedProminent)
+            HStack {
+                if error.kind == .baseline {
+                    Button(
+                        String(localized: "diff.base.useWorkingTree", defaultValue: "Use Working tree", bundle: .module),
+                        action: useWorkingTree
+                    )
+                    .buttonStyle(.borderedProminent)
+                }
+                Button(String(localized: "diff.action.retry", defaultValue: "Retry", bundle: .module), action: retry)
+                    .buttonStyle(.bordered)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)

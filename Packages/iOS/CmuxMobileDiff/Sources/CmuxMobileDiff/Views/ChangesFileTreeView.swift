@@ -16,12 +16,17 @@ struct ChangesFileTreeView: View {
                 if snapshot.isLoadingSummary {
                     ChangesSkeletonView()
                 } else if let error = snapshot.error {
-                    ChangesErrorBanner(error: error, retry: actions.retrySummary)
+                    ChangesErrorBanner(
+                        error: error,
+                        retry: actions.retrySummary,
+                        useWorkingTree: { actions.selectBase(.workingTree) }
+                    )
                 } else if let totals = snapshot.totals {
                     ChangesSummaryHeader(
                         totals: totals,
                         viewedCount: snapshot.viewedCount,
                         ignoresWhitespace: snapshot.ignoresWhitespace,
+                        baseKind: snapshot.baseKind,
                         layoutPreference: layoutPreference,
                         setLayoutPreference: setLayoutPreference,
                         actions: actions

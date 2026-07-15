@@ -10,12 +10,15 @@ public struct ChangesScreen: View {
     @State private var drawerDetent: DiffDrawerDetent = .collapsed
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var activeLayoutPreference: DiffLayoutPreference
+    @State private var noteContext: DiffNoteContext?
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     private let navigationModel: DiffNavigationModel
     private let layoutPreference: DiffLayoutPreference
     private let persistLayoutPreference: @MainActor @Sendable (DiffLayoutPreference) -> Void
+    private let sendToAgent: (@MainActor (String) async throws -> Void)?
+    private let editInComposer: (@MainActor (String) -> Void)?
 
     /// Creates a live native changes screen.
     /// - Parameters:
@@ -27,6 +30,8 @@ public struct ChangesScreen: View {
     ///   - layoutPreference: Automatic or forced unified/split row layout.
     ///   - setLayoutPreference: Persistence callback for overflow-menu changes.
     ///   - defaults: Injected device-local defaults.
+    ///   - sendToAgent: Existing workspace-chat send path, when an agent session is available.
+    ///   - editInComposer: Prefills and opens the existing workspace chat composer.
     public init(
         service: any MobileChangesLoading,
         workspace: ChangesWorkspaceContext,
@@ -35,7 +40,9 @@ public struct ChangesScreen: View {
         navigationModel: DiffNavigationModel = .filesFirst,
         layoutPreference: DiffLayoutPreference = .automatic,
         setLayoutPreference: @escaping @MainActor @Sendable (DiffLayoutPreference) -> Void = { _ in },
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = .standard,
+        sendToAgent: (@MainActor (String) async throws -> Void)? = nil,
+        editInComposer: (@MainActor (String) -> Void)? = nil
     ) {
         _model = State(initialValue: ChangesViewModel(
             service: service,
@@ -45,9 +52,12 @@ public struct ChangesScreen: View {
         ))
         _scrollAnchorID = State(initialValue: scrollToPath)
         _activeLayoutPreference = State(initialValue: layoutPreference)
+        _noteContext = State(initialValue: nil)
         self.navigationModel = navigationModel
         self.layoutPreference = layoutPreference
         persistLayoutPreference = setLayoutPreference
+        self.sendToAgent = sendToAgent
+        self.editInComposer = editInComposer
     }
 
     /// The live, continuously scrolling changed-files surface.
@@ -76,6 +86,13 @@ public struct ChangesScreen: View {
             if model == .diffFirst { phoneShowsDiff = false }
         }
         .onDisappear { model.cancelTransientWork() }
+        .sheet(item: $noteContext) { context in
+            DiffQuickNoteSheet(
+                context: context,
+                sendToAgent: sendToAgent,
+                editInComposer: editInComposer
+            )
+        }
     }
 
     private var filesFirstShell: some View {
@@ -133,7 +150,8 @@ public struct ChangesScreen: View {
             renderingMode: renderingMode,
             layoutPreference: activeLayoutPreference,
             setLayoutPreference: setLayoutPreference,
-            scrollAnchorID: $scrollAnchorID
+            scrollAnchorID: $scrollAnchorID,
+            requestNote: noteEntryPointsAvailable ? requestNote : nil
         )
     }
 
@@ -160,5 +178,21 @@ public struct ChangesScreen: View {
     private func selectFileFromDrawer(_ path: String) {
         revealFile(path)
         withAnimation(.snappy) { drawerDetent = .collapsed }
+    }
+
+    private var noteEntryPointsAvailable: Bool {
+        sendToAgent != nil || editInComposer != nil
+    }
+
+    private func requestNote(
+        file: DiffFileSnapshot,
+        row: DiffRowSnapshot,
+        scope: DiffNoteSelectionScope
+    ) {
+        noteContext = DiffNoteContextBuilder().context(
+            file: file,
+            presentedRow: row,
+            scope: scope
+        )
     }
 }

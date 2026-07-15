@@ -193,6 +193,14 @@ struct MobileSettingsView: View {
                     }
                     .accessibilityIdentifier("MobileSettingsNativeChangesNavigation")
 
+                    Toggle(isOn: $displaySettings.nativeChangesFileEditLinks) {
+                        Text(L10n.string(
+                            "mobile.settings.nativeChanges.fileEditLinks",
+                            defaultValue: "Open Changes from File Edits"
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsNativeChangesFileEditLinks")
+
                     if let store,
                        store.supportsWorkspaceChanges,
                        let workspaceID = store.selectedWorkspaceID,

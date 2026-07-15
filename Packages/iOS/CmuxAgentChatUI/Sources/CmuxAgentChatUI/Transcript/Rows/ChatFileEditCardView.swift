@@ -6,6 +6,7 @@ import SwiftUI
 public struct ChatFileEditCardView: View {
     private let edit: ChatFileEdit
     private let rowID: String
+    private let onOpenChanges: ((String) -> Void)?
     private let onShowDetail: () -> Void
 
     @Environment(\.chatTheme) private var theme
@@ -18,15 +19,22 @@ public struct ChatFileEditCardView: View {
     /// - Parameters:
     ///   - edit: The file modification payload.
     ///   - rowID: The row's stable identity, for cached diff rendering.
+    ///   - onOpenChanges: Opens native workspace changes at this file when enabled by the host.
     ///   - onShowDetail: Opens the full diff in a stable detail sheet.
-    public init(edit: ChatFileEdit, rowID: String, onShowDetail: @escaping () -> Void = {}) {
+    public init(
+        edit: ChatFileEdit,
+        rowID: String,
+        onOpenChanges: ((String) -> Void)? = nil,
+        onShowDetail: @escaping () -> Void = {}
+    ) {
         self.edit = edit
         self.rowID = rowID
+        self.onOpenChanges = onOpenChanges
         self.onShowDetail = onShowDetail
     }
 
     public var body: some View {
-        Button(action: onShowDetail) {
+        Button(action: openCard) {
             VStack(spacing: 0) {
                 header
                 if let diff = edit.unifiedDiff, !diff.isEmpty {
@@ -47,12 +55,29 @@ public struct ChatFileEditCardView: View {
         .buttonStyle(.plain)
         .accessibilityIdentifier("ChatFileEditDetail-\(rowID)")
         .accessibilityLabel(fileEditAccessibilityLabel)
-        .accessibilityHint(
-            String(
-                localized: "chat.detail.show.hint",
-                defaultValue: "Opens a sheet with the full block content",
+        .accessibilityHint(accessibilityHint)
+    }
+
+    private func openCard() {
+        if let onOpenChanges {
+            onOpenChanges(edit.filePath)
+        } else {
+            onShowDetail()
+        }
+    }
+
+    private var accessibilityHint: String {
+        if onOpenChanges != nil {
+            return String(
+                localized: "chat.file_edit.changes.hint",
+                defaultValue: "Opens Changes at this file",
                 bundle: .module
             )
+        }
+        return String(
+            localized: "chat.detail.show.hint",
+            defaultValue: "Opens a sheet with the full block content",
+            bundle: .module
         )
     }
 

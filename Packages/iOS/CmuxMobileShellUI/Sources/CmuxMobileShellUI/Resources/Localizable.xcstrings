@@ -1,6 +1,34 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "mobile.changes.unavailable.message" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Reconnect to your Mac and try again." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Macに再接続して、もう一度お試しください。" } }
+      }
+    },
+    "mobile.changes.unavailable.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Changes unavailable" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "変更を利用できません" } }
+      }
+    },
+    "mobile.settings.nativeChanges.fileEditLinks" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Open Changes from File Edits" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ファイル編集から変更を開く" } }
+      }
+    },
+    "mobile.workspace.changes" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Changes" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "変更" } }
+      }
+    },
     "^[%lld file](inflect: true)" : {
       "extractionState" : "manual",
       "localizations" : {

@@ -6,6 +6,7 @@ struct ChangesSummaryHeader: View {
     let totals: MobileChangesTotals
     let viewedCount: Int
     let ignoresWhitespace: Bool
+    let baseKind: MobileChangesBaseKind
     let layoutPreference: DiffLayoutPreference
     let setLayoutPreference: @MainActor @Sendable (DiffLayoutPreference) -> Void
     let actions: ChangesScreenActions
@@ -26,6 +27,7 @@ struct ChangesSummaryHeader: View {
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
+            DiffBasePicker(selectedKind: baseKind, select: actions.selectBase)
             Menu {
                 layoutButton(
                     .automatic,

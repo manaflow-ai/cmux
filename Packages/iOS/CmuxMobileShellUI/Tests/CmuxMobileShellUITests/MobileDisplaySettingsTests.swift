@@ -111,8 +111,10 @@ import CmuxMobileDiff
         let settings = MobileDisplaySettings(defaults: defaults)
         #expect(settings.diffNavigationModel == .filesFirst)
         #expect(settings.diffLayoutPreference == .automatic)
+        #expect(settings.nativeChangesFileEditLinks == false)
         #expect(defaults.object(forKey: "cmux.mobile.debug.diffNavigationModel") == nil)
         #expect(defaults.object(forKey: "cmux.mobile.diffLayoutPreference") == nil)
+        #expect(defaults.object(forKey: "cmux.mobile.debug.nativeChangesFileEditLinks") == nil)
     }
 
     @Test func diffPreferencesPersistAcrossInstances() throws {
@@ -120,10 +122,12 @@ import CmuxMobileDiff
         let settings = MobileDisplaySettings(defaults: defaults)
         settings.diffNavigationModel = .diffFirst
         settings.diffLayoutPreference = .split
+        settings.nativeChangesFileEditLinks = true
 
         let reloaded = MobileDisplaySettings(defaults: defaults)
         #expect(reloaded.diffNavigationModel == .diffFirst)
         #expect(reloaded.diffLayoutPreference == .split)
+        #expect(reloaded.nativeChangesFileEditLinks)
     }
 
     @Test func invalidDiffPreferencesFallBackToDefaults() throws {

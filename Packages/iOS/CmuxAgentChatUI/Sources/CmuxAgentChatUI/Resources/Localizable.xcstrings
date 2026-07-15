@@ -1,6 +1,13 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "chat.file_edit.changes.hint" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Opens Changes at this file" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このファイルの変更を開きます" } }
+      }
+    },
     "chat.attachment.image" : {
       "extractionState" : "manual",
       "localizations" : {

@@ -49,6 +49,11 @@ struct DiffScrollAnchorResolver: Sendable {
     func filePath(containing anchor: String?, files: [DiffFileSnapshot]) -> String? {
         guard let anchor else { return nil }
         if files.contains(where: { $0.path == anchor }) { return anchor }
+        if let file = files
+            .filter({ anchor.hasSuffix("/\($0.path)") })
+            .max(by: { $0.path.count < $1.path.count }) {
+            return file.path
+        }
         return files.first { file in
             file.rows.contains { $0.id == anchor || $0.sourceRowIDs.contains(anchor) }
         }?.path

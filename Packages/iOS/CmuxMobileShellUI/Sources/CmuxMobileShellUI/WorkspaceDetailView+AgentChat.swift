@@ -57,6 +57,22 @@ extension WorkspaceDetailView {
         return chatToggleSession
     }
 
+    /// Live agent session used by native-diff send and composer escape paths.
+    private var changesAgentSession: ChatSessionDescriptor? {
+        if let sessionForSelectedTerminal,
+           sessionForSelectedTerminal.kind == .agent,
+           sessionForSelectedTerminal.state != .ended {
+            return sessionForSelectedTerminal
+        }
+        return ChatSessionDescriptor.openable(visibleChatSessions.filter { session in
+            session.kind == .agent && session.state != .ended
+        }).first
+    }
+
+    var canRouteChangesToAgent: Bool {
+        changesAgentSession != nil
+    }
+
     /// The session whose full chat model should stay warm while this detail is
     /// visible. In terminal mode this is the selected terminal's session; in
     /// chat mode it is the pinned session.
@@ -101,7 +117,8 @@ extension WorkspaceDetailView {
                         isChatMode = false
                     }
                     pinnedChatSessionID = nil
-                }
+                },
+                onOpenFileChanges: fileEditChangesAction
             )
             .id(session.id)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -117,6 +134,10 @@ extension WorkspaceDetailView {
     @ViewBuilder
     var toolbarTrailingCluster: some View {
         HStack(spacing: 8) {
+            if store.supportsWorkspaceChanges {
+                changesToolbarButton
+                    .frame(width: 44, height: 44)
+            }
             if shouldShowChatToggle {
                 chatToggleButton
                     .frame(width: 44, height: 44)
@@ -125,8 +146,22 @@ extension WorkspaceDetailView {
             terminalPickerToolbarButton
                 .frame(width: 44, height: 44)
         }
-        .frame(width: shouldShowChatToggle ? 96 : 44, height: 44, alignment: .trailing)
+        .frame(width: trailingClusterWidth, height: 44, alignment: .trailing)
         .animation(.snappy(duration: 0.25), value: shouldShowChatToggle)
+    }
+
+    private var trailingClusterWidth: CGFloat {
+        let buttonCount = 1 + (shouldShowChatToggle ? 1 : 0) + (store.supportsWorkspaceChanges ? 1 : 0)
+        return CGFloat(buttonCount * 44 + max(0, buttonCount - 1) * 8)
+    }
+
+    private var fileEditChangesAction: ((String) -> Void)? {
+        #if DEBUG
+        guard displaySettings.nativeChangesFileEditLinks else { return nil }
+        return { path in presentChanges(scrollToPath: path) }
+        #else
+        return nil
+        #endif
     }
 
     var chatToggleButton: some View {
@@ -365,6 +400,25 @@ extension WorkspaceDetailView {
             isChatMode = true
         }
         pinnedChatSessionID = openingSession.id
+    }
+
+    func sendChangesPrompt(_ prompt: String) async throws {
+        guard let session = changesAgentSession,
+              let source = store.makeChatEventSource()
+        else { throw WorkspaceChangesAgentError.unavailable }
+        try await source.send(text: prompt, attachments: [], sessionID: session.id)
+    }
+
+    func editChangesPromptInComposer(_ prompt: String) {
+        guard let session = changesAgentSession,
+              ensureChatConversationStore(for: session) != nil
+        else { return }
+        chatDrafts[session.id] = prompt
+        pinnedChatSessionID = session.id
+        withAnimation(.snappy(duration: 0.28)) {
+            isChatMode = true
+            changesPresentation = nil
+        }
     }
 
     /// Keeps the active transcript store warm without retaining stores for every

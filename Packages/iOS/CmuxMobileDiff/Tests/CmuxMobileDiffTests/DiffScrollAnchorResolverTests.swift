@@ -34,6 +34,15 @@ import Testing
         ) == collapsed.path)
     }
 
+    @Test func resolvesAbsoluteChatEditPathToRepositoryRelativeFile() {
+        let file = fileSnapshot(isCollapsed: false)
+        let resolver = DiffScrollAnchorResolver()
+        #expect(resolver.filePath(
+            containing: "/Users/example/repo/Sources/App.swift",
+            files: [file]
+        ) == "Sources/App.swift")
+    }
+
     private func fileSnapshot(isCollapsed: Bool) -> DiffFileSnapshot {
         let file = MobileChangesFile(
             path: "Sources/App.swift",

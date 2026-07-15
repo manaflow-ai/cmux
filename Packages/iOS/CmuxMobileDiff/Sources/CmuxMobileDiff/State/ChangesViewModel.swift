@@ -11,7 +11,7 @@ internal import UIKit
 final class ChangesViewModel {
     private let service: any MobileChangesLoading
     private let workspace: ChangesWorkspaceContext
-    private let baseSpec: MobileChangesBaseSpec
+    private var baseSpec: MobileChangesBaseSpec
     private let rowBuilder: DiffRowBuilder
     private let splicer: ContextRowSplicer
     private let languageInference: CodeLanguageInference
@@ -22,6 +22,7 @@ final class ChangesViewModel {
     private var fileStates: [String: DiffFileState] = [:]
     private var highlightTasks: [String: Task<Void, Never>] = [:]
     private var highlightScheme: DiffHighlightScheme = .light
+    private var loadGeneration: UInt64 = 0
     private(set) var isLoadingSummary = false
     private(set) var ignoresWhitespace = false
     private(set) var error: ChangesErrorSnapshot?
@@ -62,7 +63,8 @@ final class ChangesViewModel {
             files: files,
             fileTree: treeBuilder.build(files: summary?.files ?? [], viewedPaths: viewedPaths),
             viewedCount: files.lazy.filter(\.isViewed).count,
-            ignoresWhitespace: ignoresWhitespace
+            ignoresWhitespace: ignoresWhitespace,
+            baseKind: baseSpec.kind
         )
     }
 
@@ -70,6 +72,7 @@ final class ChangesViewModel {
     var actions: ChangesScreenActions {
         ChangesScreenActions(
             retrySummary: { [weak self] in self?.startLoad() },
+            selectBase: { [weak self] in self?.selectBase($0) },
             toggleWhitespace: { [weak self] in self?.toggleWhitespace() },
             collapseAll: { [weak self] in self?.setAllCollapsed(true) },
             expandAll: { [weak self] in self?.setAllCollapsed(false) },
@@ -85,14 +88,25 @@ final class ChangesViewModel {
 
     /// Loads the summary and ordinary file diffs.
     func load() async {
+        loadGeneration &+= 1
+        let generation = loadGeneration
+        let requestedBase = baseSpec
+        await performLoad(generation: generation, baseSpec: requestedBase)
+    }
+
+    private func performLoad(
+        generation: UInt64,
+        baseSpec requestedBase: MobileChangesBaseSpec
+    ) async {
         cancelHighlighting()
         isLoadingSummary = true
         error = nil
         summary = nil
         fileStates = [:]
         do {
-            let response = try await service.summary(baseSpec: baseSpec, ignoreWhitespace: ignoresWhitespace)
+            let response = try await service.summary(baseSpec: requestedBase, ignoreWhitespace: ignoresWhitespace)
             try Task.checkCancellation()
+            guard generation == loadGeneration else { return }
             summary = response
             for file in response.files {
                 let key = ViewedFileKey(workspaceID: workspace.workspaceID, path: file.path, patchDigest: file.patchDigest)
@@ -101,11 +115,13 @@ final class ChangesViewModel {
             isLoadingSummary = false
             for file in response.files where !file.isBinary && !file.isLarge {
                 try Task.checkCancellation()
-                await loadFile(path: file.path)
+                await loadFile(path: file.path, baseSpec: requestedBase, generation: generation)
             }
         } catch is CancellationError {
+            guard generation == loadGeneration else { return }
             isLoadingSummary = false
         } catch {
+            guard generation == loadGeneration else { return }
             isLoadingSummary = false
             self.error = errorSnapshot(error)
         }
@@ -125,7 +141,10 @@ final class ChangesViewModel {
     }
 
     private func startLoad() {
-        Task { await load() }
+        loadGeneration &+= 1
+        let generation = loadGeneration
+        let requestedBase = baseSpec
+        Task { await performLoad(generation: generation, baseSpec: requestedBase) }
     }
 
     private func initialState(file: MobileChangesFile, isViewed: Bool) -> DiffFileState {
@@ -150,10 +169,17 @@ final class ChangesViewModel {
     }
 
     private func startFileLoad(path: String) {
-        Task { await loadFile(path: path) }
+        let generation = loadGeneration
+        let requestedBase = baseSpec
+        Task { await loadFile(path: path, baseSpec: requestedBase, generation: generation) }
     }
 
-    private func loadFile(path: String) async {
+    private func loadFile(
+        path: String,
+        baseSpec requestedBase: MobileChangesBaseSpec,
+        generation: UInt64
+    ) async {
+        guard generation == loadGeneration else { return }
         guard var state = fileStates[path], !state.file.isBinary else { return }
         state.isLoading = true
         state.isCollapsed = false
@@ -176,9 +202,10 @@ final class ChangesViewModel {
                     oldPath: state.file.oldPath,
                     cursor: cursor,
                     ignoreWhitespace: ignoresWhitespace,
-                    baseSpec: baseSpec
+                    baseSpec: requestedBase
                 )
                 try Task.checkCancellation()
+                guard generation == loadGeneration else { return }
                 hunks.append(contentsOf: page.hunks)
                 exceededAbsoluteLimit = exceededAbsoluteLimit || page.tooLarge
                 pages += 1
@@ -207,11 +234,13 @@ final class ChangesViewModel {
             fileStates[path] = loaded
             startHighlighting(path: path)
         } catch is CancellationError {
+            guard generation == loadGeneration else { return }
             if var cancelled = fileStates[path] {
                 cancelled.isLoading = false
                 fileStates[path] = cancelled
             }
         } catch {
+            guard generation == loadGeneration else { return }
             if var failed = fileStates[path] {
                 failed.isLoading = false
                 failed.errorMessage = String(localized: "diff.error.file", defaultValue: "Couldn’t load this file. Try again.", bundle: .module)
@@ -226,6 +255,8 @@ final class ChangesViewModel {
     }
 
     private func expandGap(path: String, gapID: String, direction: ContextExpansionDirection) async {
+        let generation = loadGeneration
+        let requestedBase = baseSpec
         guard let state = fileStates[path],
               let gap = state.rows.first(where: { $0.expansionGap?.id == gapID })?.expansionGap,
               let plan = ContextExpansionPlan(gap: gap, direction: direction) else { return }
@@ -234,14 +265,16 @@ final class ChangesViewModel {
                 path: path,
                 start: plan.requestedRange.lowerBound,
                 end: plan.requestedRange.upperBound,
-                baseSpec: baseSpec
+                baseSpec: requestedBase
             )
             try Task.checkCancellation()
+            guard generation == loadGeneration else { return }
             guard var current = fileStates[path] else { return }
             current.rows = splicer.splice(rows: current.rows, gapID: gapID, plan: plan, texts: response.rows)
             fileStates[path] = current
             startHighlighting(path: path)
         } catch {
+            guard generation == loadGeneration else { return }
             guard var current = fileStates[path] else { return }
             current.errorMessage = String(localized: "diff.error.context", defaultValue: "Couldn’t expand context. Try again.", bundle: .module)
             current.rows.append(DiffRowSnapshot(id: "context-error:\(gapID)", kind: .error, text: ""))
@@ -279,6 +312,12 @@ final class ChangesViewModel {
 
     private func toggleWhitespace() {
         ignoresWhitespace.toggle()
+        startLoad()
+    }
+
+    private func selectBase(_ kind: MobileChangesBaseKind) {
+        guard baseSpec.kind != kind else { return }
+        baseSpec = MobileChangesBaseSpec(kind: kind)
         startLoad()
     }
 

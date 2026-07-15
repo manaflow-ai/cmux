@@ -8,6 +8,7 @@ struct ChangesListView: View {
     let layoutPreference: DiffLayoutPreference
     let setLayoutPreference: @MainActor @Sendable (DiffLayoutPreference) -> Void
     @Binding var scrollAnchorID: String?
+    let requestNote: (@MainActor @Sendable (DiffFileSnapshot, DiffRowSnapshot, DiffNoteSelectionScope) -> Void)?
     @State private var visibleFilePath: String?
     private let rowBuilder = DiffRowBuilder()
     private let anchorResolver = DiffScrollAnchorResolver()
@@ -18,12 +19,17 @@ struct ChangesListView: View {
                 if snapshot.isLoadingSummary {
                     ChangesSkeletonView()
                 } else if let error = snapshot.error {
-                    ChangesErrorBanner(error: error, retry: actions.retrySummary)
+                    ChangesErrorBanner(
+                        error: error,
+                        retry: actions.retrySummary,
+                        useWorkingTree: { actions.selectBase(.workingTree) }
+                    )
                 } else if let totals = snapshot.totals {
                     ChangesSummaryHeader(
                         totals: totals,
                         viewedCount: snapshot.viewedCount,
                         ignoresWhitespace: snapshot.ignoresWhitespace,
+                        baseKind: snapshot.baseKind,
                         layoutPreference: layoutPreference,
                         setLayoutPreference: setLayoutPreference,
                         actions: actions
@@ -36,7 +42,7 @@ struct ChangesListView: View {
                 Section {
                     if !file.isCollapsed || file.rows.contains(where: { $0.kind == .largeDiff }) {
                         ForEach(projectedRows(file).filter { $0.kind != .fileHeader }) { row in
-                            DiffRowView(file: file, row: row, actions: actions)
+                            DiffRowView(file: file, row: row, actions: actions, requestNote: requestNote)
                                 .listRowInsets(EdgeInsets())
                                 .listRowSeparator(.hidden)
                         }
@@ -63,6 +69,12 @@ struct ChangesListView: View {
             )
         }
         .onChange(of: snapshot.files) { _, _ in
+            if let matchedPath = anchorResolver.filePath(containing: scrollAnchorID, files: snapshot.files),
+               matchedPath != scrollAnchorID {
+                visibleFilePath = matchedPath
+                scrollAnchorID = matchedPath
+                return
+            }
             guard !anchorResolver.containsVisibleAnchor(
                 scrollAnchorID,
                 files: snapshot.files,

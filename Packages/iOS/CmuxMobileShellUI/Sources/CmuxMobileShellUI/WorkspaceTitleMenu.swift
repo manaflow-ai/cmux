@@ -5,6 +5,7 @@ struct WorkspaceTitleMenu<Label: View, MenuContent: View>: View {
     let hasBackButton: Bool
     let hasTrailingCluster: Bool
     let hasChatToggle: Bool
+    var hasChangesButton = false
     var isEnabled = true
     @ViewBuilder let menuContent: () -> MenuContent
     @ViewBuilder let label: () -> Label
@@ -33,7 +34,8 @@ struct WorkspaceTitleMenu<Label: View, MenuContent: View>: View {
             contentWidth: contentWidth,
             hasBackButton: hasBackButton,
             hasTrailingCluster: hasTrailingCluster,
-            hasChatToggle: hasChatToggle
+            hasChatToggle: hasChatToggle,
+            hasChangesButton: hasChangesButton
         ).cap
 
         return label()

@@ -29,6 +29,7 @@ public final class MobileDisplaySettings {
     private static let profilePictureSizeKey = "cmux.mobile.debug.profilePictureSize"
     private static let diffNavigationModelKey = "cmux.mobile.debug.diffNavigationModel"
     private static let diffLayoutPreferenceKey = "cmux.mobile.diffLayoutPreference"
+    private static let nativeChangesFileEditLinksKey = "cmux.mobile.debug.nativeChangesFileEditLinks"
 
     /// The preview line counts the "Preview Lines" setting offers.
     public static let workspacePreviewLineCountRange = 1...2
@@ -112,6 +113,11 @@ public final class MobileDisplaySettings {
         didSet { defaults.set(diffLayoutPreference.rawValue, forKey: Self.diffLayoutPreferenceKey) }
     }
 
+    /// Whether chat file-edit cards open native Changes at their file path.
+    public var nativeChangesFileEditLinks: Bool {
+        didSet { defaults.set(nativeChangesFileEditLinks, forKey: Self.nativeChangesFileEditLinksKey) }
+    }
+
     /// Creates the display settings, seeding stored values from `defaults`.
     /// - Parameter defaults: The store backing the persisted preferences.
     ///   Defaults to `.standard`; tests pass a scoped suite. Stored properties
@@ -144,6 +150,7 @@ public final class MobileDisplaySettings {
             .flatMap(DiffNavigationModel.init(rawValue:)) ?? .filesFirst
         self.diffLayoutPreference = defaults.string(forKey: Self.diffLayoutPreferenceKey)
             .flatMap(DiffLayoutPreference.init(rawValue:)) ?? .automatic
+        self.nativeChangesFileEditLinks = defaults.bool(forKey: Self.nativeChangesFileEditLinksKey)
     }
 
     /// Clamps a stored or assigned preview line count to the supported range.

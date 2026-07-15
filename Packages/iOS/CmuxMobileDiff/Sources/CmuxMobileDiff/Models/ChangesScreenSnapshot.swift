@@ -16,6 +16,8 @@ struct ChangesScreenSnapshot: Sendable, Equatable {
     let viewedCount: Int
     /// Whether whitespace changes are ignored.
     let ignoresWhitespace: Bool
+    /// Active Git comparison strategy.
+    let baseKind: MobileChangesBaseKind
 
     /// Creates a list projection.
     init(
@@ -25,7 +27,8 @@ struct ChangesScreenSnapshot: Sendable, Equatable {
         files: [DiffFileSnapshot],
         fileTree: [FileTreeNode],
         viewedCount: Int,
-        ignoresWhitespace: Bool
+        ignoresWhitespace: Bool,
+        baseKind: MobileChangesBaseKind
     ) {
         self.isLoadingSummary = isLoadingSummary
         self.error = error
@@ -34,5 +37,6 @@ struct ChangesScreenSnapshot: Sendable, Equatable {
         self.fileTree = fileTree
         self.viewedCount = viewedCount
         self.ignoresWhitespace = ignoresWhitespace
+        self.baseKind = baseKind
     }
 }

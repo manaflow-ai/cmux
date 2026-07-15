@@ -1,7 +1,11 @@
+internal import CmuxMobileRPC
+
 /// Main-actor actions passed through the lazy-list snapshot boundary.
 struct ChangesScreenActions: Sendable {
     /// Retries the summary request.
     let retrySummary: @MainActor @Sendable () -> Void
+    /// Selects a Git comparison base and refreshes the screen.
+    let selectBase: @MainActor @Sendable (MobileChangesBaseKind) -> Void
     /// Toggles whitespace-ignore and refreshes all data.
     let toggleWhitespace: @MainActor @Sendable () -> Void
     /// Collapses every file section.
@@ -22,6 +26,7 @@ struct ChangesScreenActions: Sendable {
     /// Creates an action bundle for immutable list rows.
     init(
         retrySummary: @escaping @MainActor @Sendable () -> Void,
+        selectBase: @escaping @MainActor @Sendable (MobileChangesBaseKind) -> Void,
         toggleWhitespace: @escaping @MainActor @Sendable () -> Void,
         collapseAll: @escaping @MainActor @Sendable () -> Void,
         expandAll: @escaping @MainActor @Sendable () -> Void,
@@ -32,6 +37,7 @@ struct ChangesScreenActions: Sendable {
         expandGap: @escaping @MainActor @Sendable (String, String, ContextExpansionDirection) -> Void
     ) {
         self.retrySummary = retrySummary
+        self.selectBase = selectBase
         self.toggleWhitespace = toggleWhitespace
         self.collapseAll = collapseAll
         self.expandAll = expandAll
