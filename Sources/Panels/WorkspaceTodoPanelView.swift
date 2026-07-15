@@ -55,6 +55,17 @@ enum WorkspaceTodoPaneHeaderTitle {
     }
 }
 
+enum WorkspaceTodoPaneHeaderStatusLabel {
+    nonisolated static func displayName(
+        effective: WorkspaceTaskStatus?,
+        hasOverride: Bool
+    ) -> String? {
+        guard let effective else { return nil }
+        if effective == .todo && !hasOverride { return nil }
+        return effective.displayName
+    }
+}
+
 private struct WorkspaceTodoPanelOpaqueBackground: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         WorkspaceTodoPanelOpaqueBackgroundView()
@@ -113,6 +124,10 @@ private struct WorkspaceTodoPaneContent: View {
         let hasOverride = todoControlsEnabled && todoState.statusOverride != nil && !resolution.shouldClearOverride
         let progress = todoState.checklist.checklistProgressSummary
         let headerTitle = WorkspaceTodoPaneHeaderTitle.title(paneTitle: paneTitle)
+        let headerStatusLabel = WorkspaceTodoPaneHeaderStatusLabel.displayName(
+            effective: todoControlsEnabled ? resolution.effective : nil,
+            hasOverride: hasOverride
+        )
 
         VStack(alignment: .leading, spacing: 0) {
             header(
@@ -120,6 +135,7 @@ private struct WorkspaceTodoPaneContent: View {
                 effective: todoControlsEnabled ? resolution.effective : nil,
                 inferred: inferred,
                 hasOverride: hasOverride,
+                statusLabel: headerStatusLabel,
                 progress: progress
             )
             .padding(.horizontal, 14)
@@ -189,6 +205,7 @@ private struct WorkspaceTodoPaneContent: View {
         effective: WorkspaceTaskStatus?,
         inferred: WorkspaceTaskStatus,
         hasOverride: Bool,
+        statusLabel: String?,
         progress: WorkspaceChecklistProgressSummary
     ) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -237,8 +254,8 @@ private struct WorkspaceTodoPaneContent: View {
                 .foregroundColor(.primary)
                 .lineLimit(1)
                 .truncationMode(.tail)
-            if let effective {
-                Text(effective.displayName)
+            if let statusLabel {
+                Text(statusLabel)
                     .font(.system(size: 12))
                     .foregroundColor(.secondary)
             }

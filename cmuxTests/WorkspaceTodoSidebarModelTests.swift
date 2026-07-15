@@ -208,6 +208,26 @@ struct WorkspaceTodoSidebarModelTests {
         #expect(source.contains("WorkspaceTodoPaneHeaderTitle.title"))
     }
 
+    @Test
+    func todoPaneHeaderHidesAutomaticTodoStatusLabel() {
+        #expect(WorkspaceTodoPaneHeaderStatusLabel.displayName(
+            effective: .todo,
+            hasOverride: false
+        ) == nil)
+        #expect(WorkspaceTodoPaneHeaderStatusLabel.displayName(
+            effective: .review,
+            hasOverride: false
+        ) == WorkspaceTaskStatus.review.displayName)
+        #expect(WorkspaceTodoPaneHeaderStatusLabel.displayName(
+            effective: .todo,
+            hasOverride: true
+        ) == WorkspaceTaskStatus.todo.displayName)
+        #expect(WorkspaceTodoPaneHeaderStatusLabel.displayName(
+            effective: nil,
+            hasOverride: false
+        ) == nil)
+    }
+
     // MARK: - Checklist display policy
 
     private func item(_ text: String, _ state: WorkspaceChecklistItem.State) -> WorkspaceChecklistItem {
