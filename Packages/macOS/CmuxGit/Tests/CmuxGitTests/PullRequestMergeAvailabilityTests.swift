@@ -53,6 +53,11 @@ import Testing
         )
     }
 
+    @Test func emptyReviewDecisionRemainsMergeable() throws {
+        let pullRequest = try PullRequestFixtureLoader().pullRequest(reviewDecision: "")
+        #expect(PullRequestMergeAvailability.derive(pullRequest: pullRequest) == .allowed)
+    }
+
     @Test func optionalCheckFailureDoesNotOverrideCleanGitHubState() throws {
         let snapshot = PullRequestPanelSnapshot(
             context: PullRequestPanelContext(

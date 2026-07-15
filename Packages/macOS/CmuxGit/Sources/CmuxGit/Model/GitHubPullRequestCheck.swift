@@ -16,16 +16,7 @@ public struct GitHubPullRequestCheck: Decodable, Equatable, Hashable, Identifiab
 
     /// The normalized presentation state.
     public var presentationState: PullRequestCheckState {
-        switch state.uppercased() {
-        case "SUCCESS":
-            return .success
-        case "FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "ERROR":
-            return .failure
-        case "PENDING", "QUEUED", "IN_PROGRESS", "WAITING", "REQUESTED":
-            return .pending
-        default:
-            return .neutral
-        }
+        PullRequestCheckState.derive(from: state)
     }
 
     /// Creates a detailed pull-request check.

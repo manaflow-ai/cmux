@@ -14,29 +14,30 @@ public enum PullRequestMergeAvailability: Equatable, Sendable {
         switch pullRequest.state.uppercased() {
         case "MERGED": return .blocked(.alreadyMerged)
         case "CLOSED": return .blocked(.closed)
-        default: break
+        case "OPEN": break
+        default: return .blocked(.githubBlocked)
         }
         if pullRequest.isDraft { return .blocked(.draft) }
 
         switch pullRequest.reviewDecision?.uppercased() {
         case "CHANGES_REQUESTED": return .blocked(.changesRequested)
         case "REVIEW_REQUIRED": return .blocked(.reviewRequired)
-        default: break
+        case nil, "", "APPROVED": break
+        default: return .blocked(.githubBlocked)
         }
 
-        if pullRequest.mergeable.uppercased() == "UNKNOWN"
-            || pullRequest.mergeStateStatus.uppercased() == "UNKNOWN" {
-            return .blocked(.computing)
+        switch pullRequest.mergeable.uppercased() {
+        case "UNKNOWN": return .blocked(.computing)
+        case "CONFLICTING": return .blocked(.githubBlocked)
+        case "MERGEABLE": break
+        default: return .blocked(.githubBlocked)
         }
-        if pullRequest.mergeable.uppercased() == "CONFLICTING" {
-            return .blocked(.githubBlocked)
+
+        switch pullRequest.mergeStateStatus.uppercased() {
+        case "UNKNOWN": return .blocked(.computing)
+        case "BLOCKED", "DIRTY", "DRAFT": return .blocked(.githubBlocked)
+        case "BEHIND", "CLEAN", "HAS_HOOKS", "UNSTABLE": return .allowed
+        default: return .blocked(.githubBlocked)
         }
-        let blockedMergeStates: Set<String> = [
-            "BLOCKED", "DIRTY", "DRAFT",
-        ]
-        if blockedMergeStates.contains(pullRequest.mergeStateStatus.uppercased()) {
-            return .blocked(.githubBlocked)
-        }
-        return .allowed
     }
 }

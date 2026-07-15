@@ -4,7 +4,7 @@ import Foundation
 public enum PullRequestChecksStatus: Equatable, Sendable {
     /// No checks have been reported.
     case noChecks
-    /// At least one check failed, timed out, was cancelled, or requires action.
+    /// At least one check failed, errored, timed out, was cancelled, or requires action.
     case failure
     /// No check failed, but at least one check has not completed or has no conclusion.
     case pending
@@ -19,25 +19,27 @@ public enum PullRequestChecksStatus: Equatable, Sendable {
     static func derive(from checks: [GitHubPullRequestRollupCheck]) -> PullRequestChecksStatus {
         guard !checks.isEmpty else { return .noChecks }
 
-        let failureConclusions: Set<String> = [
-            "FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED",
-        ]
-        if checks.contains(where: { check in
-            check.effectiveConclusion.map { failureConclusions.contains($0.uppercased()) } == true
-        }) {
-            return .failure
+        var hasPending = false
+        var hasSuccess = false
+        for check in checks {
+            guard check.isCompleted, let conclusion = check.effectiveConclusion else {
+                hasPending = true
+                continue
+            }
+            switch PullRequestCheckState.derive(from: conclusion) {
+            case .failure:
+                return .failure
+            case .pending:
+                hasPending = true
+            case .success:
+                hasSuccess = true
+            case .neutral:
+                break
+            }
         }
 
-        if checks.contains(where: { check in
-            let conclusion = check.effectiveConclusion?.uppercased()
-            return !check.isCompleted || conclusion == nil || conclusion == "PENDING"
-        }) {
-            return .pending
-        }
-
-        if checks.contains(where: { $0.effectiveConclusion?.uppercased() == "SUCCESS" }) {
-            return .success
-        }
+        if hasPending { return .pending }
+        if hasSuccess { return .success }
         return .neutral
     }
 }
