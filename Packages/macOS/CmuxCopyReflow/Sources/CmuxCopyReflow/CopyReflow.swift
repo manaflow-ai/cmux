@@ -206,12 +206,12 @@ private extension ReflowOptions {
                     let previousLineWasFull = p.prevVisibleLength >= minWrapWidth
                         && p.prevVisibleLength + max(0, widthTolerance) >= candidateMaxVisibleLength
                     let proseContinuation = proseContinuationShape
-                        && hasProseContinuationEvidence(
-                            previous: p.prevContent,
-                            current: content,
-                            commonIndent: commonIndent,
-                            alreadyJoined: p.hasJoined
-                        )
+                        && ((caselessContinuation && previousLineReachedTerminalWidth)
+                            || hasProseContinuationEvidence(
+                                previous: p.prevContent,
+                                current: content,
+                                alreadyJoined: p.hasJoined
+                            ))
                     let reachedTerminalWidth = (terminalWidth ?? 0) >= minWrapWidth
                         && previousLineReachedTerminalWidth
                     let commandContinuation = startsCommandContinuationToken(content)

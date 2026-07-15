@@ -53,16 +53,15 @@ extension ReflowOptions {
             }
     }
 
-    /// Width-only prose joins are intentionally narrower than command/indent
-    /// joins: without indentation, independent log rows can look like prose. Join
-    /// only when the surrounding words have a sentence-continuation shape.
+    /// Width-only prose joins are intentionally narrower than command/relative-
+    /// indent joins: uniform indentation also occurs in line-oriented terminal
+    /// output, so require a sentence-continuation shape.
     func hasProseContinuationEvidence(
         previous: String,
         current: String,
-        commonIndent: Int,
         alreadyJoined: Bool
     ) -> Bool {
-        if commonIndent > 0 || alreadyJoined { return true }
+        if alreadyJoined { return true }
         if let word = lastWord(in: previous), Self.continuationTailWords.contains(word) {
             return true
         }

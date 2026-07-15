@@ -250,7 +250,10 @@ struct ReflowParagraphTests {
     @Test func fullWidthCJKWrappedProseRejoins() {
         let first = String(repeating: "界", count: 20)
         let input = "  \(first)\n  続きの文章です\n"
-        #expect(reflow(input) == "\(first) 続きの文章です\n")
+        #expect(
+            ReflowOptions.default.reflow(input, terminalWidth: 40)
+                == "\(first) 続きの文章です\n"
+        )
     }
 
     @Test func unindentedFullWidthCJKRowsStaySeparate() {
