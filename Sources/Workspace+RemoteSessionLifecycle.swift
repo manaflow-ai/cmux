@@ -1,6 +1,7 @@
 import CmuxCore
 import CmuxRemoteDaemon
 import CmuxRemoteSession
+import CmuxRemoteWorkspace
 import Foundation
 
 @MainActor
@@ -168,7 +169,7 @@ extension Workspace {
         return terminalPanelIds.count == 1 ? terminalPanelIds.first : nil
     }
 
-    private static func normalizedForegroundAuthToken(_ token: String?) -> String? {
+    static func normalizedForegroundAuthToken(_ token: String?) -> String? {
         guard let token else { return nil }
         let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed

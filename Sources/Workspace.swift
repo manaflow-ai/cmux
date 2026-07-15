@@ -3828,7 +3828,7 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
-    private func applyBrowserRemoteWorkspaceStatusToPanels() {
+    func applyBrowserRemoteWorkspaceStatusToPanels() {
         let snapshot = browserRemoteWorkspaceStatusSnapshot()
         for panel in panels.values { (panel as? BrowserPanel)?.setRemoteWorkspaceStatus(snapshot) }
         _dockSplit?.applyRemoteWorkspaceStatus(snapshot)
@@ -5898,7 +5898,7 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
-    private func postRemoteConnectionPresentationDidChange() {
+    func postRemoteConnectionPresentationDidChange() {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             NotificationCenter.default.post(
