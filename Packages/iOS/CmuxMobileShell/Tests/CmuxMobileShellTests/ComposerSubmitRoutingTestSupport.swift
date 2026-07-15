@@ -93,6 +93,12 @@ actor RoutingHostRouter {
     private var selectedHostWorkspaceID = "ws-route"
     private var rejectWorkspaceCreate = false
     private var rejectWorkspaceList = false
+    private var workspaceMutationErrorCode: String?
+    private var workspaceMutationMethods: [String] = []
+    private var holdFirstWorkspaceMutation = false
+    private var firstWorkspaceMutationHeld = false
+    private var firstWorkspaceMutationContinuation: CheckedContinuation<Void, Never>?
+    private var firstWorkspaceMutationReachedWaiters: [CheckedContinuation<Void, Never>] = []
     private var terminalCloseErrorCode: String?
     private var dropTerminalCloseResponse = false
     private var terminalCloseCount = 0
@@ -158,6 +164,25 @@ actor RoutingHostRouter {
         rejectWorkspaceList = reject
     }
 
+    func setWorkspaceMutationErrorCode(_ code: String?) {
+        workspaceMutationErrorCode = code
+    }
+
+    func setHoldFirstWorkspaceMutation(_ hold: Bool) {
+        holdFirstWorkspaceMutation = hold
+    }
+
+    func awaitFirstWorkspaceMutationReached() async {
+        if firstWorkspaceMutationHeld { return }
+        await withCheckedContinuation { firstWorkspaceMutationReachedWaiters.append($0) }
+    }
+
+    func releaseFirstWorkspaceMutation() {
+        let continuation = firstWorkspaceMutationContinuation
+        firstWorkspaceMutationContinuation = nil
+        continuation?.resume()
+    }
+
     func setTerminalCloseErrorCode(_ code: String?) {
         terminalCloseErrorCode = code
     }
@@ -206,6 +231,7 @@ actor RoutingHostRouter {
 
     func recordedWorkspaceCreateCount() -> Int { workspaceCreateCount }
     func recordedWorkspaceCreateGroupIDs() -> [String?] { workspaceCreateGroupIDs }
+    func recordedWorkspaceMutationMethods() -> [String] { workspaceMutationMethods }
     func recordedTerminalCloseCount() -> Int { terminalCloseCount }
     func recordedTerminalReorderCount() -> Int { terminalReorderCount }
     func recordedTerminalCreateCount() -> Int { terminalCreateCount }
@@ -304,6 +330,24 @@ actor RoutingHostRouter {
                 "created_workspace_id": "workspace-created",
                 "created_terminal_id": "terminal-created",
             ])
+        case "workspace.close", "workspace.move":
+            let method = method ?? ""
+            workspaceMutationMethods.append(method)
+            if workspaceMutationMethods.count == 1 && holdFirstWorkspaceMutation {
+                firstWorkspaceMutationHeld = true
+                let reachedWaiters = firstWorkspaceMutationReachedWaiters
+                firstWorkspaceMutationReachedWaiters = []
+                for waiter in reachedWaiters { waiter.resume() }
+                await withCheckedContinuation { firstWorkspaceMutationContinuation = $0 }
+            }
+            if let workspaceMutationErrorCode {
+                return try? Self.errorFrame(
+                    id: id,
+                    code: workspaceMutationErrorCode,
+                    message: "\(method) rejected"
+                )
+            }
+            return try? Self.resultFrame(id: id, result: [:])
         case "terminal.create":
             terminalCreateCount += 1
             terminalCreateWorkspaceIDs.append(info.workspaceID)
@@ -505,7 +549,8 @@ func installFreshRemoteClient(on store: MobileShellComposite, router: RoutingHos
 func installSecondaryClient(
     on store: MobileShellComposite,
     macDeviceID: String,
-    router: RoutingHostRouter
+    router: RoutingHostRouter,
+    macScopedWorkspaceMutations: Bool = false
 ) throws {
     let runtime = RoutingTestRuntime(
         transportFactory: RoutingTransportFactory(router: router)
@@ -516,12 +561,13 @@ func installSecondaryClient(
         endpoint: .hostPort(host: "127.0.0.1", port: 56587)
     )
     let ticket = try CmxAttachTicket(
-        workspaceID: RoutingHostRouter.workspaceID,
-        terminalID: RoutingHostRouter.terminalA,
+        workspaceID: macScopedWorkspaceMutations ? "" : RoutingHostRouter.workspaceID,
+        terminalID: macScopedWorkspaceMutations ? nil : RoutingHostRouter.terminalA,
         macDeviceID: macDeviceID,
         macDisplayName: macDeviceID,
         routes: [route],
-        expiresAt: Date().addingTimeInterval(3600)
+        expiresAt: Date().addingTimeInterval(3600),
+        authToken: macScopedWorkspaceMutations ? "ticket-secret" : nil
     )
     let client = MobileCoreRPCClient(
         runtime: runtime,
