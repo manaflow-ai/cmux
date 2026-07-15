@@ -103,7 +103,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
             surfaceId: surfaceId,
             cwd: repo.path,
             transcriptPath: transcript.path,
-            launchCommand: nil
+            launchCommand: [
+                "launcher": "codex",
+                "executablePath": "/usr/local/bin/codex",
+                "arguments": ["/usr/local/bin/codex", "--yolo"],
+                "workingDirectory": repo.path,
+                "environment": [
+                    "ANTHROPIC_BASE_URL": "http://subrouter-team:31415",
+                    "CLAUDE_CONFIG_DIR": root.appendingPathComponent(".codex-accounts/claude/work").path,
+                ],
+                "capturedAt": Date().timeIntervalSince1970,
+                "source": "environment",
+            ]
         )
         defer {
             Darwin.close(listenerFD)
@@ -178,6 +189,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(resume["checkpoint_id"] as? String, sessionId)
         XCTAssertEqual(resume["cwd"] as? String, repo.path)
         XCTAssertTrue((resume["command"] as? String)?.contains("codex") == true)
+        XCTAssertTrue(
+            (resume["command"] as? String)?.contains("--yolo") == true,
+            "a transcript-backed Codex resume must preserve safe launch flags: \(resume)"
+        )
     }
 
     func testCodexPlainHookWithoutLaunchCapturePublishesDefaultResumeBinding() throws {
