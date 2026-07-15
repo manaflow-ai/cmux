@@ -42,49 +42,8 @@ extension TerminalController {
             switch panel.setAutomationViewport(requestedViewport) {
             case .success(let appliedLayout):
                 layout = appliedLayout
-            case .failure(.attachedBrowserInspector):
-                return .err(
-                    code: "invalid_state",
-                    message: String(
-                        localized: "browser.viewport.error.attachedBrowserInspector",
-                        defaultValue: "Close or detach the browser inspector before changing the browser viewport"
-                    ),
-                    data: [
-                        "reason": "attached_browser_inspector",
-                        "supported_modes": ["native", "emulated"],
-                    ]
-                )
-            case .failure(.elementFullscreen):
-                return .err(
-                    code: "invalid_state",
-                    message: String(
-                        localized: "browser.viewport.error.elementFullscreen",
-                        defaultValue: "Exit browser element fullscreen before changing the browser viewport"
-                    ),
-                    data: [
-                        "reason": "element_fullscreen",
-                        "supported_modes": ["native", "emulated"],
-                    ]
-                )
-            case let .failure(.renderGeometryTooLarge(
-                requestedPageZoom,
-                maximumPageZoom
-            )):
-                let limits = BrowserViewportRenderLimits.standard
-                return .err(
-                    code: "invalid_params",
-                    message: String(
-                        localized: "browser.viewport.error.renderGeometryTooLarge",
-                        defaultValue: "Viewport and page zoom exceed WKWebView render limits"
-                    ),
-                    data: [
-                        "reason": "viewport_zoom_render_geometry_too_large",
-                        "requested_page_zoom": requestedPageZoom,
-                        "maximum_page_zoom": maximumPageZoom,
-                        "maximum_render_dimension": limits.maximumDimension,
-                        "maximum_render_area": limits.maximumArea,
-                    ]
-                )
+            case .failure(let error):
+                return v2BrowserAutomationViewportError(error)
             }
 
             return .ok([
@@ -103,5 +62,62 @@ extension TerminalController {
                 "presentation": layout.mode == .emulated ? "aspect_fit" : "native",
             ])
         }
+    }
+
+    func v2BrowserAutomationViewportError(
+        _ error: BrowserAutomationViewportError
+    ) -> V2CallResult {
+        switch error {
+        case .attachedBrowserInspector:
+            return .err(
+                code: "invalid_state",
+                message: String(
+                    localized: "browser.viewport.error.attachedBrowserInspector",
+                    defaultValue: "Close or detach the browser inspector before changing the browser viewport"
+                ),
+                data: [
+                    "reason": "attached_browser_inspector",
+                    "supported_modes": ["native", "emulated"],
+                ]
+            )
+        case .elementFullscreen:
+            return .err(
+                code: "invalid_state",
+                message: String(
+                    localized: "browser.viewport.error.elementFullscreen",
+                    defaultValue: "Exit browser element fullscreen before changing the browser viewport"
+                ),
+                data: [
+                    "reason": "element_fullscreen",
+                    "supported_modes": ["native", "emulated"],
+                ]
+            )
+        case let .renderGeometryTooLarge(requestedPageZoom, maximumPageZoom):
+            return v2BrowserViewportRenderLimitError(
+                requestedPageZoom: requestedPageZoom,
+                maximumPageZoom: maximumPageZoom
+            )
+        }
+    }
+
+    func v2BrowserViewportRenderLimitError(
+        requestedPageZoom: Double,
+        maximumPageZoom: Double
+    ) -> V2CallResult {
+        let limits = BrowserViewportRenderLimits.standard
+        return .err(
+            code: "invalid_params",
+            message: String(
+                localized: "browser.viewport.error.renderGeometryTooLarge",
+                defaultValue: "Viewport and page zoom exceed WKWebView render limits"
+            ),
+            data: [
+                "reason": "viewport_zoom_render_geometry_too_large",
+                "requested_page_zoom": requestedPageZoom,
+                "maximum_page_zoom": maximumPageZoom,
+                "maximum_render_dimension": limits.maximumDimension,
+                "maximum_render_area": limits.maximumArea,
+            ]
+        )
     }
 }

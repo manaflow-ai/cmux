@@ -7002,16 +7002,28 @@ extension BrowserPanel {
 
     @discardableResult
     func zoomIn() -> Bool {
-        applyPageZoom(webView.pageZoom + pageZoomStep)
+        pageZoomMutationHandled(zoomInResult())
     }
 
     @discardableResult
     func zoomOut() -> Bool {
-        applyPageZoom(webView.pageZoom - pageZoomStep)
+        pageZoomMutationHandled(zoomOutResult())
     }
 
     @discardableResult
     func resetZoom() -> Bool {
+        pageZoomMutationHandled(resetZoomResult())
+    }
+
+    func zoomInResult() -> Result<Bool, BrowserAutomationViewportError> {
+        applyPageZoom(webView.pageZoom + pageZoomStep)
+    }
+
+    func zoomOutResult() -> Result<Bool, BrowserAutomationViewportError> {
+        applyPageZoom(webView.pageZoom - pageZoomStep)
+    }
+
+    func resetZoomResult() -> Result<Bool, BrowserAutomationViewportError> {
         applyPageZoom(1.0)
     }
 
@@ -7022,7 +7034,7 @@ extension BrowserPanel {
     @discardableResult
     func setPageZoomFactor(_ pageZoom: CGFloat) -> Bool {
         let clamped = max(minPageZoom, min(maxPageZoom, pageZoom))
-        return applyPageZoom(clamped)
+        return pageZoomMutationHandled(applyPageZoom(clamped))
     }
 
     /// Take a snapshot of the web view
@@ -7953,22 +7965,37 @@ extension BrowserPanel {
 #endif
 
 private extension BrowserPanel {
-    @discardableResult
-    func applyPageZoom(_ candidate: CGFloat) -> Bool {
+    func applyPageZoom(_ candidate: CGFloat) -> Result<Bool, BrowserAutomationViewportError> {
         let clamped = max(minPageZoom, min(maxPageZoom, candidate))
         if abs(webView.pageZoom - clamped) < 0.0001 {
-            return false
+            return .success(false)
         }
-        if let viewport = viewportModel.requestedViewport,
-           !BrowserViewportRenderLimits.standard.supports(
-               viewport: viewport,
-               pageZoom: Double(clamped)
-           ) {
-            return false
+        if let viewport = viewportModel.requestedViewport {
+            let limits = BrowserViewportRenderLimits.standard
+            if !limits.supports(
+                viewport: viewport,
+                pageZoom: Double(clamped)
+            ) {
+                return .failure(.renderGeometryTooLarge(
+                    requestedPageZoom: Double(clamped),
+                    maximumPageZoom: limits.maximumPageZoom(for: viewport)
+                ))
+            }
         }
         webView.pageZoom = clamped
         reapplyAutomationViewportAfterPageZoom()
-        return true
+        return .success(true)
+    }
+
+    func pageZoomMutationHandled(
+        _ result: Result<Bool, BrowserAutomationViewportError>
+    ) -> Bool {
+        switch result {
+        case .success(let handled):
+            return handled
+        case .failure:
+            return false
+        }
     }
 
     static func responderChainContains(_ start: NSResponder?, target: NSResponder) -> Bool {
