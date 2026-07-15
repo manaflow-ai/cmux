@@ -8,6 +8,12 @@ import UIKit
 
 @MainActor
 extension GhosttySurfaceView {
+    nonisolated static func requiresVerifiedReplayPresentedDrain(
+        hasPresentedContents: Bool
+    ) -> Bool {
+        hasPresentedContents
+    }
+
     /// Retains an immutable copy of the last presented pixels and cursor above
     /// the live renderer while a replacement grid is replayed and verified.
     @discardableResult
@@ -68,7 +74,7 @@ extension GhosttySurfaceView {
     ) async -> VerifiedReplayFrozenPresentation? {
         let renderer = (layer.sublayers ?? []).first(where: isGhosttyRendererLayer)
         let presentedContents = renderer?.presentation()?.contents ?? renderer?.contents
-        let requiresPresentedDrain = VerifiedReplayFreezeDrainPolicy.requiresPresentedDrain(
+        let requiresPresentedDrain = Self.requiresVerifiedReplayPresentedDrain(
             hasPresentedContents: presentedContents != nil
         )
         if requiresPresentedDrain {

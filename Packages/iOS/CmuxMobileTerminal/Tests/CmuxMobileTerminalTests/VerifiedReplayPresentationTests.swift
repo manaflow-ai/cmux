@@ -9,10 +9,10 @@ import Testing
 struct VerifiedReplayPresentationTests {
     @Test("a cold surface does not wait for an impossible presented-frame drain")
     func coldSurfaceSkipsPresentedFrameDrain() {
-        #expect(!VerifiedReplayFreezeDrainPolicy.requiresPresentedDrain(
+        #expect(!GhosttySurfaceView.requiresVerifiedReplayPresentedDrain(
             hasPresentedContents: false
         ))
-        #expect(VerifiedReplayFreezeDrainPolicy.requiresPresentedDrain(
+        #expect(GhosttySurfaceView.requiresVerifiedReplayPresentedDrain(
             hasPresentedContents: true
         ))
     }
