@@ -239,3 +239,37 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         )
     }
 }
+
+
+@Suite struct TerminalLineColumnLocatorResolutionTests {
+    @Test func resolvesLineLocatorToTheFileItself() {
+        let existingFile = "/repo/src/state.js"
+        #expect(
+            TerminalPathResolver(fileExists: existsIn([existingFile])).resolveQuicklookPath(
+                "src/state.js:87",
+                cwd: "/repo"
+            ) == existingFile
+        )
+    }
+
+    @Test func resolvesLineColumnLocatorToTheFileItself() {
+        let existingFile = "/repo/src/state.js"
+        #expect(
+            TerminalPathResolver(fileExists: existsIn([existingFile])).resolveQuicklookPath(
+                "src/state.js:87:12",
+                cwd: "/repo"
+            ) == existingFile
+        )
+    }
+
+    @Test func prefersLiteralFileEndingInColonNumberOverStrippedForm() {
+        let literalFile = "/repo/weird:87"
+        let strippedFile = "/repo/weird"
+        #expect(
+            TerminalPathResolver(fileExists: existsIn([literalFile, strippedFile])).resolveQuicklookPath(
+                "weird:87",
+                cwd: "/repo"
+            ) == literalFile
+        )
+    }
+}
