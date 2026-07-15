@@ -8,6 +8,8 @@ struct StopActionArea: View {
     @Binding var draft: FeedStopDraft
     @Binding var focusRequest: Int
 
+    let placement: FeedPlacement
+    let focusScopeID: UUID
     let onFocusRow: () -> Void
     let onActionRow: () -> Void
     let onBlurRow: () -> Void
@@ -43,6 +45,8 @@ struct StopActionArea: View {
                 placeholder: String(localized: "feed.stop.placeholder", defaultValue: "Reply to Claude…"),
                 isEnabled: true,
                 font: replyFont,
+                placement: placement,
+                focusScopeID: focusScopeID,
                 onFocus: onFocusRow,
                 onBlur: onBlurRow,
                 onSubmit: sendReply
@@ -63,7 +67,6 @@ struct StopActionArea: View {
                     .stroke(Color.primary.opacity(canSend ? 0.25 : 0.10), lineWidth: 1)
             )
             .contentShape(Rectangle())
-            .feedIBeamCursorOnHover(enabled: true)
             .onTapGesture {
                 onFocusRow()
                 requestReplyFocus()

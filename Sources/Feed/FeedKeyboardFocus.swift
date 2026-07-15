@@ -19,6 +19,8 @@ struct FeedRowSurface: View {
     let isFocusActive: Bool
     let showsDivider: Bool
     @Binding var stopDraft: FeedStopDraft
+    let placement: FeedPlacement
+    let focusScopeID: UUID
     let onPressSelect: () -> Void
     let onControlFocus: () -> Void
     let onControlAction: () -> Void
@@ -42,7 +44,9 @@ struct FeedRowSurface: View {
                 stopDraft: $stopDraft,
                 stopDraftValue: stopDraft,
                 stopFocusRequest: $stopReplyFocusRequest,
-                stopFocusRequestValue: stopReplyFocusRequest
+                stopFocusRequestValue: stopReplyFocusRequest,
+                placement: placement,
+                focusScopeID: focusScopeID
             )
             .equatable()
             if showsDivider {
@@ -104,6 +108,10 @@ extension View {
 }
 
 struct FeedKeyboardFocusBridge: NSViewRepresentable {
+    let placement: FeedPlacement
+    let focusScopeID: UUID
+    let focusRequest: Int
+    let onHostChange: (FeedKeyboardFocusView?) -> Void
     let onEscape: () -> Void
     let onMoveSelection: (Int) -> Void
     let onActivateSelection: () -> Void
@@ -111,18 +119,55 @@ struct FeedKeyboardFocusBridge: NSViewRepresentable {
     let onFocusChanged: (Bool) -> Void
     let onFocusSnapshotChanged: (FeedFocusSnapshot) -> Void
 
+    final class Coordinator {
+        var onHostChange: (FeedKeyboardFocusView?) -> Void
+        weak var host: FeedKeyboardFocusView?
+        var lastFocusRequest: Int
+
+        init(
+            onHostChange: @escaping (FeedKeyboardFocusView?) -> Void,
+            focusRequest: Int
+        ) {
+            self.onHostChange = onHostChange
+            self.lastFocusRequest = focusRequest
+        }
+
+        func attach(_ host: FeedKeyboardFocusView) {
+            guard self.host !== host else { return }
+            self.host = host
+            onHostChange(host)
+        }
+
+        func detach(_ host: FeedKeyboardFocusView) {
+            guard self.host === host else { return }
+            self.host = nil
+            onHostChange(nil)
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onHostChange: onHostChange, focusRequest: focusRequest)
+    }
+
     func makeNSView(context: Context) -> FeedKeyboardFocusView {
         let view = FeedKeyboardFocusView(frame: NSRect(x: 0, y: 0, width: 1, height: 1))
+        view.placement = placement
+        view.feedFocusScopeID = focusScopeID
         view.onEscape = onEscape
         view.onMoveSelection = onMoveSelection
         view.onActivateSelection = onActivateSelection
         view.onFocusFirstItemRequested = onFocusFirstItemRequested
         view.onFocusChanged = onFocusChanged
         view.onFocusSnapshotChanged = onFocusSnapshotChanged
+        context.coordinator.attach(view)
         return view
     }
 
     func updateNSView(_ nsView: FeedKeyboardFocusView, context: Context) {
+        context.coordinator.onHostChange = onHostChange
+        context.coordinator.attach(nsView)
+        nsView.placement = placement
+        nsView.feedFocusScopeID = focusScopeID
         nsView.onEscape = onEscape
         nsView.onMoveSelection = onMoveSelection
         nsView.onActivateSelection = onActivateSelection
@@ -130,10 +175,21 @@ struct FeedKeyboardFocusBridge: NSViewRepresentable {
         nsView.onFocusChanged = onFocusChanged
         nsView.onFocusSnapshotChanged = onFocusSnapshotChanged
         nsView.registerWithKeyboardFocusCoordinatorIfNeeded()
+        if !placement.usesRightSidebarFocusCoordinator,
+           focusRequest != context.coordinator.lastFocusRequest {
+            context.coordinator.lastFocusRequest = focusRequest
+            _ = nsView.focusHostFromCoordinator()
+        }
+    }
+
+    static func dismantleNSView(_ nsView: FeedKeyboardFocusView, coordinator: Coordinator) {
+        coordinator.detach(nsView)
     }
 }
 
 final class FeedKeyboardFocusView: NSView {
+    var placement: FeedPlacement = .rightSidebar
+    var feedFocusScopeID = UUID()
     var onEscape: (() -> Void)?
     var onMoveSelection: ((Int) -> Void)?
     var onActivateSelection: (() -> Void)?
@@ -146,15 +202,16 @@ final class FeedKeyboardFocusView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        guard let window else { return }
-        AppDelegate.shared?.keyboardFocusCoordinator(for: window)?.registerFeedHost(self)
+        registerWithKeyboardFocusCoordinatorIfNeeded()
 #if DEBUG
-        dlog("feed.focus.host attach window=\(ObjectIdentifier(window))")
+        if let window {
+            dlog("feed.focus.host attach window=\(ObjectIdentifier(window)) placement=\(placement)")
+        }
 #endif
     }
 
     func registerWithKeyboardFocusCoordinatorIfNeeded() {
-        guard let window else { return }
+        guard placement.usesRightSidebarFocusCoordinator, let window else { return }
         AppDelegate.shared?.keyboardFocusCoordinator(for: window)?.registerFeedHost(self)
     }
 
@@ -282,7 +339,9 @@ final class FeedKeyboardFocusView: NSView {
     }
 
     func ownsKeyboardFocus(_ responder: NSResponder) -> Bool {
-        responder === self || responder is FeedKeyboardFocusResponder
+        if responder === self { return true }
+        guard let feedResponder = responder as? FeedKeyboardFocusResponder else { return false }
+        return feedResponder.feedFocusScopeID == feedFocusScopeID
     }
 }
 

@@ -72,8 +72,20 @@ struct FeedPanelView: View {
         }
     }
 
+    let placement: FeedPlacement
+    let onFocusHostChange: (FeedKeyboardFocusView?) -> Void
+
     @State private var filter: Filter = .actionable
     @State private var viewModel = FeedPanelViewModel()
+    @State private var focusScopeID = UUID()
+
+    init(
+        placement: FeedPlacement = .rightSidebar,
+        onFocusHostChange: @escaping (FeedKeyboardFocusView?) -> Void = { _ in }
+    ) {
+        self.placement = placement
+        self.onFocusHostChange = onFocusHostChange
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -81,6 +93,9 @@ struct FeedPanelView: View {
             FeedListView(
                 filter: filter,
                 items: viewModel.items,
+                placement: placement,
+                focusScopeID: focusScopeID,
+                onFocusHostChange: onFocusHostChange,
                 hasMorePersistedItems: viewModel.hasMorePersistedItems,
                 isLoadingOlderItems: viewModel.isLoadingOlderItems,
                 onLoadOlderItems: viewModel.loadOlderItems

@@ -1,4 +1,3 @@
-import AppKit
 import CMUXAgentLaunch
 import CmuxFoundation
 import Foundation
@@ -306,15 +305,6 @@ struct FeedButton: View {
 
     private func handleHover(_ hovering: Bool) {
         isHovered = hovering
-        // Only swap the cursor when the button is disabled —
-        // enabled buttons keep the default arrow so the Feed
-        // feels like the rest of the app. Pop on mouseout so a
-        // stale "not allowed" cursor doesn't stick.
-        if dimmed, hovering {
-            NSCursor.operationNotAllowed.push()
-        } else if dimmed, !hovering {
-            NSCursor.pop()
-        }
     }
 
 #if DEBUG
@@ -417,8 +407,8 @@ struct FeedButton: View {
 
     // MARK: - Style resolution
 
-    private var labelSize: CGFloat { size == .compact ? 10 : 10.5 }
-    private var iconSize: CGFloat { size == .compact ? 9 : 10 }
+    private var labelSize: CGFloat { size == .compact ? 11 : 12 }
+    private var iconSize: CGFloat { size == .compact ? 10 : 11 }
     private var iconSpacing: CGFloat { size == .compact ? 3 : 5 }
     private var cornerRadius: CGFloat {
 #if DEBUG
@@ -447,7 +437,7 @@ struct FeedButton: View {
             ? CGFloat(FeedButtonDebugSettings.compactVerticalPadding)
             : CGFloat(FeedButtonDebugSettings.mediumVerticalPadding)
 #else
-        return size == .compact ? 4 : 5
+        return size == .compact ? 5 : 7
 #endif
     }
 

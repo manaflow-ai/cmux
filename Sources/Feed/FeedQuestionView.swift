@@ -14,6 +14,8 @@ struct QuestionActionArea: View {
     let onActionRow: () -> Void
     let onBlurRow: () -> Void
     let context: WorkstreamContext?
+    let placement: FeedPlacement
+    let focusScopeID: UUID
     let onReply: ([String]) -> Void
 
     private static let skipInterviewAndPlanAnswer = "Skip interview and plan immediately"
@@ -126,7 +128,7 @@ struct QuestionActionArea: View {
         } label: {
             HStack(alignment: .top, spacing: 10) {
                 Text("\(index)")
-                    .cmuxFont(size: 11, weight: .bold, monospacedDigit: true)
+                    .cmuxFont(size: 12, weight: .bold, monospacedDigit: true)
                     .foregroundColor(selected ? .white : .secondary)
                     .frame(width: 20, height: 20)
                     .background(
@@ -135,11 +137,11 @@ struct QuestionActionArea: View {
                     )
                 VStack(alignment: .leading, spacing: 2) {
                     Text(option.label)
-                        .cmuxFont(size: 12, weight: .semibold)
+                        .cmuxFont(size: 13, weight: .semibold)
                         .foregroundColor(.primary)
                     if let description = option.description, !description.isEmpty {
                         Text(description)
-                            .cmuxFont(size: 11)
+                            .cmuxFont(size: 12)
                             .foregroundColor(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -173,10 +175,10 @@ struct QuestionActionArea: View {
         let customId = Self.customAnswerSelectionId
         let selected = selections[questionId]?.contains(customId) == true
         let focusKey = customAnswerFocusKey(questionId)
-        let font = GlobalFontMagnification.systemFont(ofSize: 12, weight: .semibold)
+        let font = GlobalFontMagnification.systemFont(ofSize: 13, weight: .semibold)
         return HStack(alignment: .top, spacing: 10) {
             Text("\(index)")
-                .cmuxFont(size: 11, weight: .bold, monospacedDigit: true)
+                .cmuxFont(size: 12, weight: .bold, monospacedDigit: true)
                 .foregroundColor(selected ? .white : .secondary)
                 .frame(width: 20, height: 20)
                 .background(
@@ -216,7 +218,6 @@ struct QuestionActionArea: View {
             selectCustomAnswer(questionId: questionId, multi: multi)
             requestCustomAnswerFocus(focusKey)
         }
-        .feedIBeamCursorOnHover(enabled: status.isPending)
         .disabled(!status.isPending)
     }
 
@@ -224,28 +225,12 @@ struct QuestionActionArea: View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .top, spacing: 5) {
                 Text("\(index).")
-                    .cmuxFont(size: 11, weight: .semibold, monospacedDigit: true)
+                    .cmuxFont(size: 12, weight: .semibold, monospacedDigit: true)
                     .foregroundColor(.blue)
                 Text(question.prompt)
-                    .cmuxFont(size: 11, weight: .medium)
+                    .cmuxFont(size: 13, weight: .medium)
                     .foregroundColor(.primary.opacity(0.95))
                     .fixedSize(horizontal: false, vertical: true)
-            }
-            if question.multiSelect {
-                HStack(spacing: 3) {
-                    Image(systemName: "checklist")
-                        .cmuxFont(size: 8, weight: .medium)
-                    Text(String(localized: "feed.question.multiSelect", defaultValue: "Multi-select"))
-                        .cmuxFont(size: 9, weight: .semibold)
-                        .tracking(0.3)
-                }
-                .foregroundColor(.orange)
-                .padding(.horizontal, 4)
-                .padding(.vertical, 1)
-                .background(
-                    RoundedRectangle(cornerRadius: 3, style: .continuous)
-                        .fill(Color.orange.opacity(0.18))
-                )
             }
             if question.options.isEmpty {
                 Text(String(localized: "feed.question.noOptions",
@@ -275,7 +260,7 @@ struct QuestionActionArea: View {
     /// preset option selection for that question on submit.
     private func freeFormField(questionId: String, multi: Bool) -> some View {
         let focusKey = customAnswerFocusKey(questionId)
-        let font = GlobalFontMagnification.systemFont(ofSize: 11)
+        let font = GlobalFontMagnification.systemFont(ofSize: 12)
         return customAnswerField(
             text: customAnswerBinding(questionId: questionId, multi: multi),
             focusRequest: focusRequest(forCustomAnswerKey: focusKey),
@@ -297,7 +282,6 @@ struct QuestionActionArea: View {
                 .stroke(Color.primary.opacity(0.10), lineWidth: 1)
         )
         .contentShape(Rectangle())
-        .feedIBeamCursorOnHover(enabled: status.isPending)
         .onTapGesture {
             guard status.isPending else { return }
             onFocusRow()
@@ -320,6 +304,8 @@ struct QuestionActionArea: View {
                                 defaultValue: "Type something..."),
             isEnabled: status.isPending,
             font: font,
+            placement: placement,
+            focusScopeID: focusScopeID,
             onFocus: onFocus,
             onBlur: onBlur,
             onSubmit: nil
@@ -517,6 +503,7 @@ final class FeedInlineNativeTextView: NSTextView, FeedKeyboardFocusResponder {
     var onActivate: (() -> Void)?
     var onEscape: (() -> Void)?
     var onSubmit: (() -> Void)?
+    var feedFocusScopeID = UUID()
 
     static func blurActiveEditor() {
         guard let activeEditor else { return }
@@ -769,6 +756,8 @@ struct FeedInlineTextField: NSViewRepresentable {
     let placeholder: String
     let isEnabled: Bool
     let font: NSFont
+    let placement: FeedPlacement
+    let focusScopeID: UUID
     let onFocus: () -> Void
     let onBlur: () -> Void
     let onSubmit: (() -> Void)?
@@ -798,7 +787,12 @@ struct FeedInlineTextField: NSViewRepresentable {
 #if DEBUG
             dlog("feed.editor.blurField frBefore=\(feedDebugResponderSummary(window.firstResponder))")
 #endif
-            Task { @MainActor in
+            guard parent.placement.usesRightSidebarFocusCoordinator else {
+                window.makeFirstResponder(nil)
+                return
+            }
+            Task { @MainActor [weak window] in
+                guard let window else { return }
                 if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
                     mode: .feed,
                     focusFirstItem: false,
@@ -896,6 +890,10 @@ struct FeedInlineTextField: NSViewRepresentable {
     }
 
     private func moveFocusToFeedHost(in window: NSWindow) {
+        guard placement.usesRightSidebarFocusCoordinator else {
+            window.makeFirstResponder(nil)
+            return
+        }
         if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
             mode: .feed,
             focusFirstItem: false,
@@ -908,6 +906,7 @@ struct FeedInlineTextField: NSViewRepresentable {
 
     private func configure(_ view: FeedInlineTextEditorView) {
         view.placeholder = placeholder
+        view.textView.feedFocusScopeID = focusScopeID
         view.apply(font: font, isEnabled: isEnabled)
     }
 
@@ -924,45 +923,6 @@ struct FeedInlineTextField: NSViewRepresentable {
         nsView.textView.onActivate = nil
         nsView.textView.onEscape = nil
         nsView.textView.onSubmit = nil
-    }
-}
-
-private struct FeedHoverCursorModifier: ViewModifier {
-    let enabled: Bool
-    let cursor: NSCursor
-
-    @State private var cursorPushed = false
-
-    func body(content: Content) -> some View {
-        content
-            .onHover { hovering in
-                if hovering, enabled {
-                    pushIfNeeded()
-                } else {
-                    popIfNeeded()
-                }
-            }
-            .onDisappear {
-                popIfNeeded()
-            }
-    }
-
-    private func pushIfNeeded() {
-        guard !cursorPushed else { return }
-        cursor.push()
-        cursorPushed = true
-    }
-
-    private func popIfNeeded() {
-        guard cursorPushed else { return }
-        NSCursor.pop()
-        cursorPushed = false
-    }
-}
-
-extension View {
-    func feedIBeamCursorOnHover(enabled: Bool) -> some View {
-        modifier(FeedHoverCursorModifier(enabled: enabled, cursor: .iBeam))
     }
 }
 

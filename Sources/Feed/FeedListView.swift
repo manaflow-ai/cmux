@@ -7,6 +7,9 @@ import SwiftUI
 struct FeedListView: View {
     let filter: FeedPanelView.Filter
     let items: [WorkstreamItem]
+    let placement: FeedPlacement
+    let focusScopeID: UUID
+    let onFocusHostChange: (FeedKeyboardFocusView?) -> Void
     let hasMorePersistedItems: Bool
     let isLoadingOlderItems: Bool
     let onLoadOlderItems: () -> Void
@@ -15,6 +18,7 @@ struct FeedListView: View {
     @State private var scrollRequest: FeedScrollRequest?
     @State private var scrollRequestSequence = 0
     @State private var stopDrafts: [UUID: FeedStopDraft] = [:]
+    @State private var focusHostRequest = 0
 
     var body: some View {
         let snapshots = visibleSnapshots(items)
@@ -39,12 +43,22 @@ struct FeedListView: View {
             }
             .background(
                 FeedKeyboardFocusBridge(
+                    placement: placement,
+                    focusScopeID: focusScopeID,
+                    focusRequest: focusHostRequest,
+                    onHostChange: onFocusHostChange,
                     onEscape: {
                         let window = activeFeedWindow()
-                        if AppDelegate.shared?.keyboardFocusCoordinator(for: window)?.focusTerminal() != true {
+                        if placement.usesRightSidebarFocusCoordinator,
+                           AppDelegate.shared?.keyboardFocusCoordinator(for: window)?.focusTerminal() == true {
+                            syncFeedFocusSnapshot(window: window)
+                            return
+                        }
+                        if window?.firstResponder is FeedKeyboardFocusResponder
+                            || window?.firstResponder is FeedKeyboardFocusView {
                             window?.makeFirstResponder(nil)
                         }
-                        syncFeedFocusSnapshot(window: window)
+                        focusSnapshot.isKeyboardActive = false
                     },
                     onMoveSelection: { delta in
                         moveSelection(in: focusSnapshots, delta: delta)
@@ -57,13 +71,17 @@ struct FeedListView: View {
                     },
                     onFocusChanged: { focused in
                         let window = activeFeedWindow()
-                        if !focused {
+                        if !placement.usesRightSidebarFocusCoordinator {
+                            focusSnapshot.isKeyboardActive = focused
+                        } else if !focused {
                             AppDelegate.shared?.syncKeyboardFocusAfterFirstResponderChange(in: window)
+                            syncFeedFocusSnapshot(window: window)
                         }
-                        syncFeedFocusSnapshot(window: window)
                     },
                     onFocusSnapshotChanged: { snapshot in
-                        focusSnapshot = snapshot
+                        if placement.usesRightSidebarFocusCoordinator {
+                            focusSnapshot = snapshot
+                        }
                     }
                 )
                 .frame(width: 1, height: 1)
@@ -195,6 +213,8 @@ struct FeedListView: View {
             isFocusActive: focusSnapshot.isKeyboardActive && focusSnapshot.selectedItemId == snapshot.id,
             showsDivider: showsDivider,
             stopDraft: stopDraftBinding(for: snapshot.id),
+            placement: placement,
+            focusScopeID: focusScopeID,
             onPressSelect: {
                 selectRow(snapshot.id, focusFeed: false)
             },
@@ -205,10 +225,14 @@ struct FeedListView: View {
                 selectRow(snapshot.id, focusFeed: true)
             },
             onControlBlur: {
-                syncFeedFocusSnapshot()
+                if !placement.usesRightSidebarFocusCoordinator {
+                    focusSnapshot.isKeyboardActive = false
+                } else {
+                    syncFeedFocusSnapshot()
+                }
             },
             onActivate: {
-                selectRow(snapshot.id, focusFeed: true)
+                selectRow(snapshot.id, focusFeed: false)
                 actions.jump(snapshot.workstreamId)
             }
         )
@@ -301,6 +325,12 @@ struct FeedListView: View {
         }
         let optimisticSnapshot = FeedFocusSnapshot(selectedItemId: id, isKeyboardActive: true)
         focusSnapshot = optimisticSnapshot
+        if !placement.usesRightSidebarFocusCoordinator {
+            if focusFeed {
+                focusHostRequest &+= 1
+            }
+            return
+        }
         if let controller = AppDelegate.shared?.keyboardFocusCoordinator(for: window) {
             _ = controller.selectFeedItem(id, focusFeed: focusFeed)
             focusSnapshot = controller.feedFocusSnapshot()
@@ -321,7 +351,12 @@ struct FeedListView: View {
     private func focusFirstVisibleItem(in snapshots: [FeedItemSnapshot], focusHost: Bool = true) {
         guard let targetId = preferredFocusItemId(in: snapshots) else {
             let window = activeFeedWindow()
-            if focusHost {
+            if !placement.usesRightSidebarFocusCoordinator {
+                if focusHost {
+                    focusHostRequest &+= 1
+                }
+                focusSnapshot.isKeyboardActive = focusHost
+            } else if focusHost {
                 _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
                     mode: .feed,
                     focusFirstItem: false,
@@ -343,6 +378,13 @@ struct FeedListView: View {
 
     private func preferredFocusItemId(in snapshots: [FeedItemSnapshot]) -> UUID? {
         let ids = snapshots.map(\.id)
+        if !placement.usesRightSidebarFocusCoordinator {
+            if let selectedItemId = focusSnapshot.selectedItemId,
+               ids.contains(selectedItemId) {
+                return selectedItemId
+            }
+            return ids.first
+        }
         let window = activeFeedWindow()
         if let controllerSelectedId = AppDelegate.shared?
             .keyboardFocusCoordinator(for: window)?
@@ -370,6 +412,12 @@ struct FeedListView: View {
             targetIndex = delta >= 0 ? 0 : ids.count - 1
         }
         let targetId = ids[targetIndex]
+        if !placement.usesRightSidebarFocusCoordinator {
+            focusSnapshot = FeedFocusSnapshot(selectedItemId: targetId, isKeyboardActive: true)
+            scrollRequestSequence &+= 1
+            scrollRequest = FeedScrollRequest(id: targetId, sequence: scrollRequestSequence)
+            return
+        }
         let window = activeFeedWindow()
         if let controller = AppDelegate.shared?.keyboardFocusCoordinator(for: window) {
             _ = controller.selectFeedItem(targetId, focusFeed: false)
@@ -399,7 +447,7 @@ struct FeedListView: View {
         } else {
             snapshot = snapshots[0]
         }
-        selectRow(snapshot.id, focusFeed: true)
+        selectRow(snapshot.id, focusFeed: false)
         actions.jump(snapshot.workstreamId)
     }
 
@@ -408,6 +456,7 @@ struct FeedListView: View {
     }
 
     private func syncFeedFocusSnapshot(window: NSWindow? = nil) {
+        guard placement.usesRightSidebarFocusCoordinator else { return }
         let targetWindow = window ?? activeFeedWindow()
         guard let controller = AppDelegate.shared?.keyboardFocusCoordinator(for: targetWindow) else {
             return

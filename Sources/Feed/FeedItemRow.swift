@@ -17,6 +17,8 @@ struct FeedItemRow: View, Equatable {
     let stopDraftValue: FeedStopDraft
     @Binding var stopFocusRequest: Int
     let stopFocusRequestValue: Int
+    let placement: FeedPlacement
+    let focusScopeID: UUID
 
     @State private var didHandlePressSelection = false
 
@@ -25,20 +27,29 @@ struct FeedItemRow: View, Equatable {
             && lhs.isSelected == rhs.isSelected
             && lhs.stopDraftValue == rhs.stopDraftValue
             && lhs.stopFocusRequestValue == rhs.stopFocusRequestValue
+            && lhs.placement == rhs.placement
+            && lhs.focusScopeID == rhs.focusScopeID
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            chipHeader
-            if let context = displayContext {
-                FeedContextBlock(context: context, source: snapshot.source)
-            } else if let echo = promptEcho, !echo.isEmpty {
-                Text(echo)
-                    .cmuxFont(size: 11)
-                    .foregroundColor(.secondary)
-                    .lineLimit(2)
-                    .truncationMode(.tail)
+            Button(action: onActivate) {
+                VStack(alignment: .leading, spacing: 10) {
+                    chipHeader
+                    if let context = displayContext {
+                        FeedContextBlock(context: context, source: snapshot.source)
+                    } else if let echo = promptEcho, !echo.isEmpty {
+                        Text(echo)
+                            .cmuxFont(size: 12)
+                            .foregroundColor(.secondary)
+                            .lineLimit(2)
+                            .truncationMode(.tail)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
             actionArea
         }
         .padding(.horizontal, 12)
@@ -59,7 +70,6 @@ struct FeedItemRow: View, Equatable {
                     didHandlePressSelection = false
                 }
         )
-        .onTapGesture(count: 2, perform: onActivate)
     }
 
     private var promptEcho: String? {
@@ -98,7 +108,7 @@ struct FeedItemRow: View, Equatable {
                 .foregroundColor(kindTint)
                 .frame(width: 14, height: 14)
             Text(headerTitle)
-                .cmuxFont(size: 12, weight: .medium)
+                .cmuxFont(size: 13, weight: .medium)
                 .foregroundColor(.primary.opacity(0.92))
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -273,6 +283,8 @@ struct FeedItemRow: View, Equatable {
                 onActionRow: onControlAction,
                 onBlurRow: onControlBlur,
                 context: displayContext,
+                placement: placement,
+                focusScopeID: focusScopeID,
                 onReply: { selections in
                     actions.replyQuestion(snapshot.id, selections)
                 }
@@ -281,6 +293,8 @@ struct FeedItemRow: View, Equatable {
             StopActionArea(
                 draft: $stopDraft,
                 focusRequest: $stopFocusRequest,
+                placement: placement,
+                focusScopeID: focusScopeID,
                 onFocusRow: onControlFocus,
                 onActionRow: onControlAction,
                 onBlurRow: onControlBlur,
