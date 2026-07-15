@@ -188,6 +188,32 @@ struct SharedLiveAgentIndexAgentLivenessTests {
     }
 
     @Test
+    func autosaveProcessScopeMismatchRequestsImmediateSharedRefresh() async {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-autosave-process-scope-mismatch-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let loadCalls = OSAllocatedUnfairLock(initialState: 0)
+        let loadCompleted = DispatchSemaphore(value: 0)
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                loadCalls.withLock { $0 += 1 }
+                loadCompleted.signal()
+                return Self.loadResult(index: .empty)
+            },
+            hookStoreDirectoryProvider: { root.path },
+            dateProvider: { Date(timeIntervalSince1970: 100) }
+        )
+
+        sharedIndex.scheduleRefreshIfStale()
+        #expect(await Self.wait(for: loadCompleted))
+
+        sharedIndex.requestRefreshForAutosaveProcessScopeMismatch()
+        #expect(await Self.wait(for: loadCompleted))
+        #expect(loadCalls.withLock { $0 } == 2)
+    }
+
+    @Test
     func hookStoreReloadCadenceScalesWithIndexedHistory() async throws {
         let index = Self.index(entryCount: 270)
         let reloadStarted = try await Self.hookStoreReloadStarted(

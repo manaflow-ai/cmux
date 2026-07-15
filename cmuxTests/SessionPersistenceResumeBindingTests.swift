@@ -55,6 +55,7 @@ import Testing
     @Test func autosaveResumeIndexesSkipWhenProcessDetectedAgentsChange() async {
         let processSnapshotCalls = OSAllocatedUnfairLock(initialState: 0)
         let fingerprintCalls = OSAllocatedUnfairLock(initialState: 0)
+        let processScopeMismatchCalls = OSAllocatedUnfairLock(initialState: 0)
 
         let resumeIndexes: ProcessDetectedResumeIndexes? = await ProcessDetectedResumeIndexes.loadForAutosave(
             cachedAgentIndex: ProcessDetectedResumeIndexes.AutosaveAgentIndexCache(
@@ -72,12 +73,16 @@ import Testing
             processScopeFingerprintProvider: { _ in
                 fingerprintCalls.withLock { $0 += 1 }
                 return ["new-process-scope"]
+            },
+            processScopeMismatchHandler: {
+                processScopeMismatchCalls.withLock { $0 += 1 }
             }
         )
 
         #expect(resumeIndexes == nil)
         #expect(processSnapshotCalls.withLock { $0 } == 1)
         #expect(fingerprintCalls.withLock { $0 } == 1)
+        #expect(processScopeMismatchCalls.withLock { $0 } == 1)
     }
 
     @Test func processScopeFingerprintTracksSamePIDExecutableChanges() {
