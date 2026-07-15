@@ -167,7 +167,7 @@ struct SimulatorPanelIntegrationTests {
         let previousOverride = flags.overrideValue(for: simulatorFlag)
         flags.setOverride(true, for: simulatorFlag)
         defer { flags.setOverride(previousOverride, for: simulatorFlag) }
-        let firstClient = SimulatorFeatureFlagPaneClient()
+        let firstClient = SimulatorFeatureFlagPaneClient(blockStop: true)
         let secondClient = SimulatorFeatureFlagPaneClient()
         var clients: [SimulatorFeatureFlagPaneClient] = [firstClient, secondClient]
         let panel = SimulatorPanel(clientFactory: { clients.removeFirst() })
@@ -182,6 +182,14 @@ struct SimulatorPanelIntegrationTests {
 
         #expect(await firstClient.stopCount == 1)
         flags.setOverride(true, for: simulatorFlag)
+        for _ in 0..<100 { await Task.yield() }
+        #expect(panel.coordinator === firstCoordinator)
+
+        await firstClient.releaseStop()
+        for _ in 0..<100 {
+            if panel.coordinator !== firstCoordinator { break }
+            await Task.yield()
+        }
         #expect(panel.coordinator !== firstCoordinator)
 
         await panel.coordinator.start()
@@ -355,6 +363,12 @@ private actor SimulatorFeatureFlagPaneClient: SimulatorPaneClient {
     )
     private(set) var discoveryCount = 0
     private(set) var stopCount = 0
+    private let blockStop: Bool
+    private var stopContinuation: CheckedContinuation<Void, Never>?
+
+    init(blockStop: Bool = false) {
+        self.blockStop = blockStop
+    }
 
     func discoverDevices() async throws -> [SimulatorDevice] {
         discoveryCount += 1
@@ -367,7 +381,18 @@ private actor SimulatorFeatureFlagPaneClient: SimulatorPaneClient {
     func send(_ message: SimulatorWorkerInbound) async {}
     func perform(_ action: SimulatorControlAction) async throws -> SimulatorControlResult { .none }
     func invalidateWorker() async {}
-    func stop() async { stopCount += 1 }
+    func stop() async {
+        stopCount += 1
+        guard blockStop else { return }
+        await withCheckedContinuation { continuation in
+            stopContinuation = continuation
+        }
+    }
+
+    func releaseStop() {
+        stopContinuation?.resume()
+        stopContinuation = nil
+    }
 }
 
 private final class TestSimulatorResponder: NSView, SimulatorInputResponder {

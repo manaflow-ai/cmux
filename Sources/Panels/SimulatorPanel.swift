@@ -22,6 +22,8 @@ final class SimulatorPanel: Panel {
     private var preferredRuntimeIdentifier: String?
     private var preferredDeviceTypeIdentifier: String?
     @ObservationIgnored private var featureFlagsObserver: (any NSObjectProtocol)?
+    @ObservationIgnored private var shutdownTask: Task<Void, Never>?
+    @ObservationIgnored private var featureTransitionGeneration = 0
     private var isFeatureDisabled = false
     private var isClosed = false
 
@@ -86,33 +88,50 @@ final class SimulatorPanel: Panel {
     func suspendForRemoteDisable() {
         guard !isClosed, !isFeatureDisabled else { return }
         isFeatureDisabled = true
+        featureTransitionGeneration += 1
         rememberSelection()
         let coordinator = self.coordinator
-        Task {
+        let previousShutdown = shutdownTask
+        shutdownTask = Task {
+            await previousShutdown?.value
             await coordinator.close()
         }
     }
 
     func resumeAfterRemoteEnable() {
         guard !isClosed, isFeatureDisabled else { return }
-        coordinator = SimulatorPaneCoordinator(
-            client: clientFactory(),
-            preferredDeviceID: preferredDeviceID,
-            preferredRuntimeIdentifier: preferredRuntimeIdentifier,
-            preferredDeviceTypeIdentifier: preferredDeviceTypeIdentifier
-        )
         isFeatureDisabled = false
+        featureTransitionGeneration += 1
+        let generation = featureTransitionGeneration
+        let shutdownTask = self.shutdownTask
+        Task { @MainActor [weak self] in
+            await shutdownTask?.value
+            guard let self,
+                  !self.isClosed,
+                  !self.isFeatureDisabled,
+                  self.featureTransitionGeneration == generation else { return }
+            self.shutdownTask = nil
+            self.coordinator = SimulatorPaneCoordinator(
+                client: self.clientFactory(),
+                preferredDeviceID: self.preferredDeviceID,
+                preferredRuntimeIdentifier: self.preferredRuntimeIdentifier,
+                preferredDeviceTypeIdentifier: self.preferredDeviceTypeIdentifier
+            )
+        }
     }
 
     func close() {
         guard !isClosed else { return }
         isClosed = true
+        featureTransitionGeneration += 1
         if let featureFlagsObserver {
             NotificationCenter.default.removeObserver(featureFlagsObserver)
             self.featureFlagsObserver = nil
         }
         let coordinator = self.coordinator
+        let pendingShutdown = shutdownTask
         Task {
+            await pendingShutdown?.value
             await coordinator.close()
         }
     }
