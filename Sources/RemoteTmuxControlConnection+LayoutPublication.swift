@@ -75,6 +75,14 @@ extension RemoteTmuxControlConnection {
         zoomed: Bool,
         name: String
     ) {
+        // Every window that ever has a layout passes through here, so this is the
+        // one place that covers attach, %window-add, and a reconnect's restage:
+        // watch `pane-border-status`, the only layout input tmux changes without
+        // announcing it (see borderStatusSubscriptionPrefix).
+        if !borderStatusSubscribedWindows.contains(windowId) {
+            borderStatusSubscribedWindows.insert(windowId)
+            subscribeWindowBorderStatus(windowId: windowId)
+        }
         var pending = pendingLayouts[windowId] ?? RemoteTmuxPendingLayout(
             node: node, visibleNode: visibleNode, zoomed: zoomed, name: name, generation: 0
         )

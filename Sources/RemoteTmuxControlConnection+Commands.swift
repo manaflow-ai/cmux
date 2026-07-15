@@ -225,6 +225,12 @@ extension RemoteTmuxControlConnection {
         // against the old transport must not suppress re-arms when this
         // reseed's own resends get lost or raced the same way.
         windowClaimParityRearmsSpent.removeAll()
+        // Subscriptions belong to the client, so the fresh ssh client holds none:
+        // forget which windows were watched (and their last values) and let the
+        // reseed's restage re-issue them. Keeping the flags would leave
+        // `pane-border-status` unwatched for the connection's whole life.
+        borderStatusSubscribedWindows.removeAll()
+        borderStatusByWindow.removeAll()
         if let size = lastClientSize {
             send("refresh-client -C \(size.columns)x\(size.rows)")
         }

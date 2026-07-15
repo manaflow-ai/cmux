@@ -264,6 +264,27 @@ check_screen_oracle() {
     remote_lines=$(printf '%s\n' "$REMOTE_SCREEN" | grep -c . || true)
     mirror_lines=$(printf '%s\n' "$MIRROR_SCREEN" | grep -c . || true)
     echo "  text evidence pane=$pane remote_lines=$remote_lines mirror_lines=$mirror_lines"
+    # Is the surface the size tmux assigned it? A content miss with a MATCHING
+    # grid is lost/stale output; a content miss with a SHORT grid is a sizing
+    # miss the grid oracle should have caught. Print both so the failure names
+    # which, instead of leaving it to inference (the ruler's lines are all
+    # identical, so the diff cannot say which line went missing).
+    echo "  tmux pane geometry: $(t display-message -p -t "$pane" '#{pane_width}x#{pane_height} win=#{window_width}x#{window_height} border=#{pane-border-status} zoom=#{window_zoomed_flag}' 2>/dev/null)"
+    echo "  tmux list-panes (id WxH top): $(t list-panes -t "$pane" -F '#{pane_id}=#{pane_width}x#{pane_height}@#{pane_top}' 2>/dev/null | tr '\n' ' ')"
+    echo "  app assigned (all panes of the window):"
+    "$TIMEOUT_BIN" 8 "$CLI" rpc remote.tmux.pane_grids \
+      "{\"host\":\"$HOST\",\"session\":\"$SESSION\"}" 2>/dev/null \
+      | jq -r --arg p "$pane" '
+          .windows[]? | select(.panes[]?.pane_id == $p)
+          | .panes[] | "    \(.pane_id)=\(.assigned.cols)x\(.assigned.rows) rendered=\(.rendered.cols // "?")x\(.rendered.rows // "?")"
+        ' 2>/dev/null || true
+    "$TIMEOUT_BIN" 8 "$CLI" rpc remote.tmux.pane_grids \
+      "{\"host\":\"$HOST\",\"session\":\"$SESSION\"}" 2>/dev/null \
+      | jq -c --arg p "$pane" '
+          .windows[]? | select(.panes[]?.pane_id == $p)
+          | {win: .window_id, base, pushed, zoomed, visible: .visible_for_sizing,
+             pane: (.panes[] | select(.pane_id == $p) | {assigned, rendered, match})}
+        ' 2>/dev/null | sed 's/^/  pane_grids: /' || true
     diff -u \
       <(printf '%s\n' "$REMOTE_SCREEN") \
       <(printf '%s\n' "$MIRROR_SCREEN") \
