@@ -46,10 +46,12 @@ extension RemoteSessionCoordinator {
               !runtimeStateSynchronized,
               runtimeStatePublicationTask == nil,
               proxyLease != nil else { return }
+        cancelRuntimeStateRetryLocked(resetCount: false)
         let isInitialSynchronization = !hasCompletedInitialRuntimeStateSynchronization
         let previousRevision = lastKnownRuntimeStateRevision
         do {
             if let document = try proxyBroker.getRuntimeState(configuration: configuration) {
+                pendingAuthoritativeRuntimeStateDocument = nil
                 lastKnownRuntimeStateRevision = document.revision
                 if isInitialSynchronization {
                     pendingRuntimeStateUpload = nil
@@ -72,7 +74,9 @@ extension RemoteSessionCoordinator {
                 )
             }
         } catch {
+            runtimeStateSynchronized = false
             debugLog("remote.runtimeState.fetchFailed error=\(error.localizedDescription)")
+            scheduleRuntimeStateRetryLocked(reason: "fetchFailed")
         }
     }
 
@@ -110,7 +114,31 @@ extension RemoteSessionCoordinator {
         } catch {
             runtimeStateSynchronized = false
             debugLog("remote.runtimeState.putFailed error=\(error.localizedDescription)")
+            scheduleRuntimeStateRetryLocked(reason: "putFailed")
         }
+    }
+
+    func handleRuntimeStateDocumentLocked(
+        _ document: RemoteRuntimeStateDocument,
+        leaseGeneration: UInt64
+    ) {
+        guard !isStopping,
+              runtimeStateCapabilityAvailable,
+              proxyLease != nil,
+              proxyLeaseGeneration == leaseGeneration,
+              document.revision > lastKnownRuntimeStateRevision else { return }
+        cancelRuntimeStateRetryLocked(resetCount: false)
+        pendingRuntimeStateUpload = nil
+        runtimeStateSynchronized = false
+        lastKnownRuntimeStateRevision = document.revision
+        guard runtimeStatePublicationTask == nil else {
+            if pendingAuthoritativeRuntimeStateDocument?.revision ?? 0 < document.revision {
+                pendingAuthoritativeRuntimeStateDocument = document
+            }
+            debugLog("remote.runtimeState.defer reason=newerServerRevision revision=\(document.revision)")
+            return
+        }
+        publishRuntimeStateToHostLocked(document)
     }
 
     func cancelRuntimeStatePublicationLocked() {
@@ -119,10 +147,69 @@ extension RemoteSessionCoordinator {
         runtimeStatePublicationTask = nil
     }
 
+    func cancelRuntimeStateRetryLocked(resetCount: Bool) {
+        runtimeStateRetryTask?.cancel()
+        runtimeStateRetryTask = nil
+        runtimeStateRetryToken = nil
+        if resetCount {
+            runtimeStateRetryCount = 0
+        }
+    }
+
+    private func scheduleRuntimeStateRetryLocked(reason: String) {
+        guard !isStopping,
+              runtimeStateCapabilityAvailable,
+              proxyLease != nil,
+              runtimeStateRetryTask == nil else { return }
+        runtimeStateRetryCount += 1
+        let delayMilliseconds = Self.runtimeStateRetryDelayMilliseconds(
+            retry: runtimeStateRetryCount
+        )
+        let token = UUID()
+        runtimeStateRetryToken = token
+        debugLog(
+            "remote.runtimeState.retry reason=\(reason) " +
+                "attempt=\(runtimeStateRetryCount) delayMs=\(delayMilliseconds)"
+        )
+        runtimeStateRetryTask = Task { [weak self] in
+            guard let self else { return }
+            guard (try? await self.clock.sleep(forMilliseconds: delayMilliseconds)) != nil else { return }
+            self.queue.async {
+                self.runtimeStateRetryDelayElapsed(token: token)
+            }
+        }
+    }
+
+    private func runtimeStateRetryDelayElapsed(token: UUID) {
+        guard runtimeStateRetryToken == token else { return }
+        runtimeStateRetryTask = nil
+        runtimeStateRetryToken = nil
+        synchronizeRuntimeStateLocked()
+    }
+
+    private static func runtimeStateRetryDelayMilliseconds(retry: Int) -> Int {
+        let exponent = min(max(0, retry - 1), 4)
+        return min(500 << exponent, 8_000)
+    }
+
     private func completeRuntimeStateSynchronizationLocked() {
         runtimeStateSynchronized = true
         hasCompletedInitialRuntimeStateSynchronization = true
         flushPendingRuntimeStateUploadLocked()
+        if runtimeStateSynchronized,
+           runtimeStatePublicationTask == nil,
+           pendingRuntimeStateUpload == nil {
+            cancelRuntimeStateRetryLocked(resetCount: true)
+        }
+    }
+
+    @discardableResult
+    private func publishPendingAuthoritativeRuntimeStateDocumentLocked() -> Bool {
+        guard runtimeStatePublicationTask == nil,
+              let document = pendingAuthoritativeRuntimeStateDocument else { return false }
+        pendingAuthoritativeRuntimeStateDocument = nil
+        publishRuntimeStateToHostLocked(document)
+        return true
     }
 
     private func publishRuntimeStateToHostLocked(_ document: RemoteRuntimeStateDocument) {
@@ -143,6 +230,13 @@ extension RemoteSessionCoordinator {
                 guard accepted else {
                     self.runtimeStateSynchronized = false
                     self.debugLog("remote.runtimeState.publishRejected kind=document")
+                    if self.publishPendingAuthoritativeRuntimeStateDocumentLocked() {
+                        return
+                    }
+                    self.cancelRuntimeStateRetryLocked(resetCount: true)
+                    return
+                }
+                if self.publishPendingAuthoritativeRuntimeStateDocumentLocked() {
                     return
                 }
                 self.completeRuntimeStateSynchronizationLocked()
@@ -172,6 +266,13 @@ extension RemoteSessionCoordinator {
                 guard accepted else {
                     self.runtimeStateSynchronized = false
                     self.debugLog("remote.runtimeState.publishRejected kind=revision")
+                    if self.publishPendingAuthoritativeRuntimeStateDocumentLocked() {
+                        return
+                    }
+                    self.cancelRuntimeStateRetryLocked(resetCount: true)
+                    return
+                }
+                if self.publishPendingAuthoritativeRuntimeStateDocumentLocked() {
                     return
                 }
                 if let previousRevision,
@@ -187,6 +288,11 @@ extension RemoteSessionCoordinator {
                     self.completeRuntimeStateSynchronizationLocked()
                 } else {
                     self.flushPendingRuntimeStateUploadLocked()
+                    if self.runtimeStateSynchronized,
+                       self.runtimeStatePublicationTask == nil,
+                       self.pendingRuntimeStateUpload == nil {
+                        self.cancelRuntimeStateRetryLocked(resetCount: true)
+                    }
                 }
             }
         }

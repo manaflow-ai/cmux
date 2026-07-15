@@ -83,8 +83,12 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     var hasCompletedInitialRuntimeStateSynchronization = false
     var lastKnownRuntimeStateRevision: UInt64 = 0
     var pendingRuntimeStateUpload: RemoteRuntimeStateUpload?
+    var pendingAuthoritativeRuntimeStateDocument: RemoteRuntimeStateDocument?
     var runtimeStatePublicationTask: Task<Void, Never>?
     var runtimeStatePublicationGeneration: UInt64 = 0
+    var runtimeStateRetryTask: Task<Void, Never>?
+    var runtimeStateRetryToken: UUID?
+    var runtimeStateRetryCount = 0
     var reverseRelayProcess: Process?
     var reverseRelayControlMasterForwardSpec: String?
     var cliRelayServer: RemoteCLIRelayServer?
@@ -406,14 +410,34 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
 
         proxyLeaseGeneration &+= 1
         let leaseGeneration = proxyLeaseGeneration
-        let lease = proxyBroker.acquire(
-            configuration: configuration,
-            remotePath: remotePath
-        ) { [weak self] update in
+        let onProxyUpdate: @Sendable (RemoteProxyBrokerUpdate) -> Void = { [weak self] update in
             guard let coordinator = self else { return }
             coordinator.queue.async {
                 coordinator.handleProxyBrokerUpdateLocked(update, leaseGeneration: leaseGeneration)
             }
+        }
+        let lease: RemoteProxyLease
+        if runtimeStateCapabilityAvailable {
+            lease = proxyBroker.acquire(
+                configuration: configuration,
+                remotePath: remotePath,
+                onUpdate: onProxyUpdate,
+                onRuntimeState: { [weak self] document in
+                    guard let coordinator = self else { return }
+                    coordinator.queue.async {
+                        coordinator.handleRuntimeStateDocumentLocked(
+                            document,
+                            leaseGeneration: leaseGeneration
+                        )
+                    }
+                }
+            )
+        } else {
+            lease = proxyBroker.acquire(
+                configuration: configuration,
+                remotePath: remotePath,
+                onUpdate: onProxyUpdate
+            )
         }
         proxyLease = lease
     }
