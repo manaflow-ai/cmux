@@ -109,13 +109,26 @@ fn forward_mux_events(
 ) {
     let mut next_recovery_generation = 0_u64;
     loop {
-        while let Ok(event) = session_events.recv() {
-            if !forward_mux_event(event, &tx, &mux_titles) {
-                return;
+        let needs_recovery = if session_events.overflowed() {
+            true
+        } else {
+            match session_events.recv() {
+                Ok(event) => match forward_mux_event(event, &tx, &mux_titles) {
+                    ForwardMuxOutcome::Continue => false,
+                    ForwardMuxOutcome::Recover => true,
+                    ForwardMuxOutcome::Stop => return,
+                },
+                Err(_) => {
+                    if session_events.overflowed() {
+                        true
+                    } else {
+                        return;
+                    }
+                }
             }
-        }
-        if !session_events.overflowed() {
-            return;
+        };
+        if !needs_recovery {
+            continue;
         }
         next_recovery_generation = next_recovery_generation.wrapping_add(1).max(1);
         let recovery_generation = next_recovery_generation;
@@ -151,12 +164,18 @@ fn forward_mux_events(
         if !recovery_succeeded {
             continue;
         }
+        let mut app_channel_full = false;
         for event in session_events.try_iter() {
-            if !forward_mux_event(event, &tx, &mux_titles) {
-                return;
+            match forward_mux_event(event, &tx, &mux_titles) {
+                ForwardMuxOutcome::Continue => {}
+                ForwardMuxOutcome::Recover => {
+                    app_channel_full = true;
+                    break;
+                }
+                ForwardMuxOutcome::Stop => return,
             }
         }
-        if session_events.overflowed() {
+        if app_channel_full || session_events.overflowed() {
             continue;
         }
         // A prior title wake may precede the authoritative snapshot. Queue a
@@ -169,20 +188,38 @@ fn forward_mux_events(
     }
 }
 
+enum ForwardMuxOutcome {
+    Continue,
+    Recover,
+    Stop,
+}
+
 fn forward_mux_event(
     event: MuxEvent,
     tx: &SyncSender<AppEvent>,
     mux_titles: &MuxTitleIngress,
-) -> bool {
+) -> ForwardMuxOutcome {
     match event {
         MuxEvent::TitleChanged { surface, title } => {
-            return !mux_titles.push(surface, title) || tx.send(AppEvent::MuxTitlesReady).is_ok();
+            if !mux_titles.push(surface, title) {
+                return ForwardMuxOutcome::Continue;
+            }
+            return match tx.try_send(AppEvent::MuxTitlesReady) {
+                Ok(()) => ForwardMuxOutcome::Continue,
+                Err(TrySendError::Full(_)) => ForwardMuxOutcome::Recover,
+                Err(TrySendError::Disconnected(_)) => ForwardMuxOutcome::Stop,
+            };
         }
         MuxEvent::SurfaceExited(surface) => mux_titles.remove(surface),
         _ => {}
     }
     let terminal = matches!(event, MuxEvent::Empty);
-    tx.send(AppEvent::Mux(event)).is_ok() && !terminal
+    match tx.try_send(AppEvent::Mux(event)) {
+        Ok(()) if terminal => ForwardMuxOutcome::Stop,
+        Ok(()) => ForwardMuxOutcome::Continue,
+        Err(TrySendError::Full(_)) => ForwardMuxOutcome::Recover,
+        Err(TrySendError::Disconnected(_)) => ForwardMuxOutcome::Stop,
+    }
 }
 
 #[derive(Default)]
@@ -7149,24 +7186,36 @@ mod tests {
             mux.emit(MuxEvent::Bell(surface));
         }
 
-        let mut recovered = false;
-        for _ in 0..5_000 {
-            let event = rx.recv_timeout(Duration::from_secs(1)).unwrap();
-            if matches!(event, AppEvent::MuxSubscriptionRecovered { result: Ok(_), .. }) {
-                recovered = true;
-                break;
-            }
+        let first = rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while recovery_generation.load(Ordering::Acquire) == 0 && Instant::now() < deadline {
+            std::thread::yield_now();
         }
-        assert!(recovered);
-        assert_eq!(recovery_generation.load(Ordering::Acquire), 1);
-        assert!(matches!(
-            rx.recv_timeout(Duration::from_secs(1)).unwrap(),
-            AppEvent::MuxTitlesReady
-        ));
-        assert!(matches!(
-            rx.recv_timeout(Duration::from_secs(1)).unwrap(),
-            AppEvent::MuxRecoveryComplete { recovery_generation: 1 }
-        ));
+        assert!(
+            recovery_generation.load(Ordering::Acquire) > 0,
+            "the routing barrier must rise before the stale app backlog is drained"
+        );
+
+        let mut next = Some(first);
+        let mut recovered_generations = HashSet::new();
+        let final_generation = loop {
+            let event =
+                next.take().unwrap_or_else(|| rx.recv_timeout(Duration::from_secs(1)).unwrap());
+            match event {
+                AppEvent::MuxSubscriptionRecovered {
+                    recovery_generation, result: Ok(_), ..
+                } => {
+                    recovered_generations.insert(recovery_generation);
+                }
+                AppEvent::MuxRecoveryComplete { recovery_generation }
+                    if recovered_generations.contains(&recovery_generation) =>
+                {
+                    break recovery_generation;
+                }
+                _ => {}
+            }
+        };
+        assert_eq!(recovery_generation.load(Ordering::Acquire), final_generation);
 
         mux.emit(MuxEvent::Bell(9_999));
         assert!(matches!(
