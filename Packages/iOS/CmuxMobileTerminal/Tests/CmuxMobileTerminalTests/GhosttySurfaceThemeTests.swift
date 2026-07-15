@@ -176,7 +176,8 @@ import UIKit
 
     #expect(await view.processOutputAndWait(Data("\u{1B}[1mX".utf8)))
     let frame = try exportThemeFrame(from: view, surfaceID: "local-optional-color-reset")
-    let boldStyle = try #require(frame.styles.first(where: \.bold))
+    let matchingStyle = frame.styles.first(where: { $0.bold })
+    let boldStyle = try #require(matchingStyle)
 
     #expect(boldStyle.foreground?.lowercased() == remoteTheme.foreground.lowercased())
     #expect(frame.terminalConfigTheme?.cursorText == nil)
