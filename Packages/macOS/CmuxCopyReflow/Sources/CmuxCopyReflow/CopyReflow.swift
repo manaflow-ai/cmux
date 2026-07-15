@@ -135,7 +135,7 @@ private extension ReflowOptions {
 
             case .prose, .urlLine:
                 let indent = line.indentWidth
-                let standaloneContent = stripDecoration(preservedLine[...])
+                let standaloneContent = preservedLine
                 let content = stripDecoration(cleanProseWhitespace(line)[...])
                 let visLen = line.visibleLength
                 let endsTerminator = lastNonSpaceIsTerminator(line)
