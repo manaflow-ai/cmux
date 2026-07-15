@@ -135,16 +135,10 @@ extension BrowserWebExtensionSupport {
     }
 
     func focusOwningCmuxTab(panelID: UUID, workspaceId: UUID) -> Bool {
-        if let workspace = AppDelegate.shared?.workspaceContainingPanel(
-            panelId: panelID,
-            preferredWorkspaceId: workspaceId
-        )?.workspace {
-            workspace.focusPanel(panelID)
-            return true
-        }
-        guard let dock = dockContainingPanel(panelID) else { return false }
-        dock.focusPanel(panelID)
-        return true
+        TerminalController.shared.focusLocalPanel(
+            panelID: panelID,
+            preferredWorkspaceID: workspaceId
+        )
     }
 
     func dockContainingPanel(_ panelID: UUID) -> DockSplitStore? {

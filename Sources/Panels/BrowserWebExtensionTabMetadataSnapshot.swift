@@ -10,9 +10,9 @@ struct BrowserWebExtensionTabMetadataSnapshot: Equatable {
     let isMuted: Bool
 
     init(panel: BrowserPanel) {
-        title = panel.webView.title
-        url = panel.webView.url
-        isLoading = panel.webView.isLoading
+        title = panel.displayTitle
+        url = panel.currentURLForTabDuplication
+        isLoading = panel.isLoading
         isMuted = panel.isMuted
     }
 

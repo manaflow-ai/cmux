@@ -31,16 +31,16 @@ final class BrowserWebExtensionTabAdapter: NSObject, WKWebExtensionTab {
     }
 
     func url(for context: WKWebExtensionContext) -> URL? {
-        panel?.webView.url
+        panel?.currentURLForTabDuplication
     }
 
     func title(for context: WKWebExtensionContext) -> String? {
-        panel?.webView.title
+        panel?.displayTitle
     }
 
     func isLoadingComplete(for context: WKWebExtensionContext) -> Bool {
-        guard let webView = panel?.webView else { return true }
-        return !webView.isLoading
+        guard let panel else { return true }
+        return !panel.isLoading
     }
 
     func isMuted(for context: WKWebExtensionContext) -> Bool {
@@ -79,20 +79,20 @@ final class BrowserWebExtensionTabAdapter: NSObject, WKWebExtensionTab {
 
     func reload(fromOrigin: Bool, for context: WKWebExtensionContext, completionHandler: @escaping (Error?) -> Void) {
         if fromOrigin {
-            panel?.webView.reloadFromOrigin()
+            panel?.hardReload()
         } else {
-            panel?.webView.reload()
+            panel?.reload()
         }
         completionHandler(nil)
     }
 
     func goBack(for context: WKWebExtensionContext, completionHandler: @escaping (Error?) -> Void) {
-        panel?.webView.goBack()
+        panel?.goBack()
         completionHandler(nil)
     }
 
     func goForward(for context: WKWebExtensionContext, completionHandler: @escaping (Error?) -> Void) {
-        panel?.webView.goForward()
+        panel?.goForward()
         completionHandler(nil)
     }
 
