@@ -19,25 +19,6 @@ private func cmux_ghostty_surface_clear_selection(_ surface: ghostty_surface_t) 
 public struct GhosttyRuntimeCInterop {
     private init() {}
 
-    /// Creates a runtime surface with a separate scrollback upper bound.
-    ///
-    /// The limit stays outside ``ghostty_surface_config_s`` so adding this cmux
-    /// extension does not change that public C structure's byte layout.
-    ///
-    /// - Parameters:
-    ///   - app: The live Ghostty application that will own the surface.
-    ///   - config: The standard Ghostty surface configuration.
-    ///   - scrollbackLimitBytes: The per-surface upper bound, or zero to inherit
-    ///     the configured `scrollback-limit`.
-    /// - Returns: The created surface, or `nil` when Ghostty initialization fails.
-    public static func createSurface(
-        app: ghostty_app_t,
-        config: UnsafePointer<ghostty_surface_config_s>,
-        scrollbackLimitBytes: Int
-    ) -> ghostty_surface_t? {
-        ghostty_surface_new_with_scrollback_limit(app, config, scrollbackLimitBytes)
-    }
-
     /// Clears the active selection on a runtime surface.
     ///
     /// Mirrors `ghostty_surface_clear_selection` from the cmux libghostty

@@ -26,6 +26,8 @@ public struct TerminalSection: View {
     @State private var rendererReclaim: DefaultsValueModel<Bool>
     @State private var rendererIdleSeconds: DefaultsValueModel<Double>
     @State private var rendererMaxWarm: DefaultsValueModel<Int>
+    @State private var memGuardrailEnabled: DefaultsValueModel<Bool>
+    @State private var memGuardrailThresholdGB: DefaultsValueModel<Double>
 
     public init(
         defaultsStore: UserDefaultsSettingsStore,
@@ -47,6 +49,8 @@ public struct TerminalSection: View {
         _rendererReclaim = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.rendererRealizationEnabled))
         _rendererIdleSeconds = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.rendererRealizationIdleSeconds))
         _rendererMaxWarm = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.rendererRealizationMaxWarmRenderers))
+        _memGuardrailEnabled = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.runawayMemoryGuardrailEnabled))
+        _memGuardrailThresholdGB = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.runawayMemoryGuardrailThresholdGB))
     }
 
     public var body: some View {
@@ -70,6 +74,8 @@ public struct TerminalSection: View {
             rendererReclaim,
             rendererIdleSeconds,
             rendererMaxWarm,
+            memGuardrailEnabled,
+            memGuardrailThresholdGB,
         ]
         models.forEach { $0.startObserving() }
     }
@@ -320,6 +326,37 @@ public struct TerminalSection: View {
                     step: 1
                 )
                 .accessibilityIdentifier("SettingsTerminalRendererRealizationMaxWarmStepper")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .settingsOnly,
+                searchAnchorID: "setting:terminal:memory-guardrail",
+                String(localized: "settings.terminal.memoryGuardrail", defaultValue: "Runaway Memory Guardrail"),
+                subtitle: memGuardrailEnabled.current
+                    ? String(localized: "settings.terminal.memoryGuardrail.subtitleOn", defaultValue: "cmux warns you with a badge and a banner when one pane's process tree uses too much memory, so a single leak can't crash the whole app.")
+                    : String(localized: "settings.terminal.memoryGuardrail.subtitleOff", defaultValue: "No warning is shown when a pane's process tree grows large. A leaking process can OOM-suspend the entire app.")
+            ) {
+                Toggle("", isOn: Binding(get: { memGuardrailEnabled.current }, set: { memGuardrailEnabled.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsTerminalMemoryGuardrailToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .settingsOnly,
+                searchAnchorID: "setting:terminal:memory-guardrail-threshold",
+                String(localized: "settings.terminal.memoryGuardrail.threshold", defaultValue: "Memory Warning Threshold (GB)"),
+                subtitle: String(localized: "settings.terminal.memoryGuardrail.threshold.subtitle", defaultValue: "A pane is flagged once its combined process-tree memory crosses this many gigabytes."),
+                controlWidth: 120
+            ) {
+                Stepper(
+                    "\(Int(memGuardrailThresholdGB.current))",
+                    value: Binding(get: { memGuardrailThresholdGB.current }, set: { memGuardrailThresholdGB.set($0) }),
+                    in: 1...256,
+                    step: 1
+                )
+                .disabled(!memGuardrailEnabled.current)
+                .accessibilityIdentifier("SettingsTerminalMemoryGuardrailThresholdStepper")
             }
         }
     }

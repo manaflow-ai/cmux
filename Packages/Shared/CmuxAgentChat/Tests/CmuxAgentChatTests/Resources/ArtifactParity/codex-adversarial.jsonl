@@ -16,3 +16,4 @@
 {"timestamp":"2026-07-13T12:00:00.000Z","type":"event_msg","payload":{"type":"agent_message","message":"Event-only prose /tmp/parity/CODEX-event-agent.png","phase":"commentary"}}
 {"timestamp":"2026-07-13T12:00:00.000Z","type":"event_msg","payload":{"type":"exec_command_begin","call_id":"event-exec","command":"cat /tmp/parity/CODEX-event-command.txt"}}
 {"timestamp":"2026-07-13T12:00:00.000Z","type":"event_msg","payload":{"type":"exec_command_end","call_id":"event-exec","stdout":"saved /tmp/parity/CODEX-event-output.txt","stderr":"","exit_code":0}}
+
