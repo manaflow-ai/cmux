@@ -124,10 +124,14 @@ extension AppDelegate {
             windowForMainWindowId(ensureInitialMainWindowIfNeeded(shouldActivate: false))
         }
         guard let targetTabs = explicitTabManager
-            ?? activeTabManagerForCommands(preferredWindow: targetWindow),
-              let workspace = targetTabs.selectedWorkspace
-                ?? targetTabs.tabs.first,
-              let paneId = workspace.bonsplitController.focusedPaneId
+            ?? activeTabManagerForCommands(preferredWindow: targetWindow) else {
+#if DEBUG
+            cmuxDebugLog("appUtility.open.failed source=\(debugSource) kind=\(kind.rawValue)")
+#endif
+            return false
+        }
+        let workspace = appUtilityTargetWorkspace(in: targetTabs)
+        guard let paneId = workspace.bonsplitController.focusedPaneId
                 ?? workspace.bonsplitController.allPaneIds.first else {
 #if DEBUG
             cmuxDebugLog("appUtility.open.failed source=\(debugSource) kind=\(kind.rawValue)")
@@ -145,16 +149,55 @@ extension AppDelegate {
             return false
         }
 
-        if activateApplication, let targetWindow, contextForMainWindow(targetWindow) != nil {
-            NSRunningApplication.current.activate(options: [.activateAllWindows])
-            if targetWindow.isMiniaturized {
-                targetWindow.deminiaturize(nil)
-            }
-            targetWindow.makeKeyAndOrderFront(nil)
+        let hostWindow = [targetTabs.window, targetWindow]
+            .compactMap { $0 }
+            .first { contextForMainWindow($0)?.tabManager === targetTabs }
+        if let hostWindow {
+            presentAppUtilityHostWindow(hostWindow, activateApplication: activateApplication)
         }
 #if DEBUG
         cmuxDebugLog("appUtility.open.succeeded source=\(debugSource) kind=\(kind.rawValue)")
 #endif
         return true
+    }
+
+    /// Utility panes cannot join a remote-tmux mirror's server-owned split
+    /// topology. Keep them in the same window by selecting a local workspace,
+    /// creating one in the same tab manager only when none exists.
+    func appUtilityTargetWorkspace(in tabManager: TabManager) -> Workspace {
+        if let selectedWorkspace = tabManager.selectedWorkspace,
+           !selectedWorkspace.isRemoteTmuxMirror {
+            return selectedWorkspace
+        }
+        if let localWorkspace = tabManager.tabs.first(where: { !$0.isRemoteTmuxMirror }) {
+            tabManager.selectWorkspace(localWorkspace)
+            return localWorkspace
+        }
+        return tabManager.addWorkspace(
+            inheritWorkingDirectory: false,
+            select: true,
+            autoWelcomeIfNeeded: false
+        )
+    }
+
+    func presentAppUtilityHostWindow(_ window: NSWindow, activateApplication: Bool) {
+        if let mainWindow = window as? CmuxMainWindow {
+            mainWindow.setSoftHiddenForVisibilityController(false)
+        } else {
+            window.alphaValue = 1
+            window.ignoresMouseEvents = false
+        }
+        if !activateApplication, NSApp.isHidden {
+            NSApp.unhideWithoutActivation()
+        }
+        if window.isMiniaturized {
+            window.deminiaturize(nil)
+        }
+        if activateApplication {
+            NSRunningApplication.current.activate(options: [.activateAllWindows])
+            window.makeKeyAndOrderFront(nil)
+        } else {
+            window.orderFront(nil)
+        }
     }
 }

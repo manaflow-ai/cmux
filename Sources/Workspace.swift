@@ -8076,7 +8076,7 @@ final class Workspace: Identifiable, ObservableObject {
             applyTabSelection(tabId: newTabId, inPane: paneId)
         } else {
             if selectWhenNotFocused {
-                reconcilePortalVisibilityForCurrentRenderedLayout(reason: "workspace.browserTabSelection")
+                reconcilePortalVisibilityForTabSelection(inPane: paneId, reason: "workspace.browserTabSelection")
             }
             preserveFocusAfterNonFocusSplit(
                 preferredPanelId: previousFocusedPanelId,

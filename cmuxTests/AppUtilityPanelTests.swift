@@ -1,3 +1,4 @@
+import AppKit
 import Bonsplit
 import CmuxWorkspaces
 import Foundation
@@ -94,6 +95,62 @@ struct AppUtilityPanelTests {
         #expect(workspace.bonsplitController.allPaneIds.count == 1)
     }
 
+    @Test func appUtilityOpenUsesExistingLocalWorkspaceWhenRemoteMirrorIsSelected() throws {
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        let remoteWorkspace = try #require(tabManager.selectedWorkspace)
+        remoteWorkspace.isRemoteTmuxMirror = true
+        let localWorkspace = tabManager.addWorkspace(
+            inheritWorkingDirectory: false,
+            select: false,
+            autoWelcomeIfNeeded: false
+        )
+
+        let didOpen = appDelegate.openMobilePairingPane(
+            debugSource: "test.existingLocalFallback",
+            tabManager: tabManager
+        )
+
+        #expect(didOpen)
+        #expect(tabManager.tabs.count == 2)
+        #expect(tabManager.selectedWorkspace === localWorkspace)
+        #expect(remoteWorkspace.panels.values.allSatisfy { !($0 is AppUtilityPanel) })
+        #expect(localWorkspace.panels.values.contains { ($0 as? AppUtilityPanel)?.kind == .mobilePairing })
+    }
+
+    @Test func appUtilityOpenCreatesLocalWorkspaceWhenOnlyRemoteMirrorsExist() throws {
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        let remoteWorkspace = try #require(tabManager.selectedWorkspace)
+        remoteWorkspace.isRemoteTmuxMirror = true
+
+        let didOpen = appDelegate.openMobilePairingPane(
+            debugSource: "test.newLocalFallback",
+            tabManager: tabManager
+        )
+
+        let localWorkspace = try #require(tabManager.selectedWorkspace)
+        #expect(didOpen)
+        #expect(tabManager.tabs.count == 2)
+        #expect(!localWorkspace.isRemoteTmuxMirror)
+        #expect(localWorkspace !== remoteWorkspace)
+        #expect(remoteWorkspace.panels.values.allSatisfy { !($0 is AppUtilityPanel) })
+        #expect(localWorkspace.panels.values.contains { ($0 as? AppUtilityPanel)?.kind == .mobilePairing })
+    }
+
+    @Test func nonActivatingUtilityPresentationOrdersAndDeminiaturizesWithoutMakingKey() {
+        let appDelegate = AppDelegate()
+        let window = AppUtilityPresentationTestWindow()
+        window.simulatesMiniaturized = true
+
+        appDelegate.presentAppUtilityHostWindow(window, activateApplication: false)
+
+        #expect(window.deminiaturizeCallCount == 1)
+        #expect(window.orderFrontCallCount == 1)
+        #expect(window.makeKeyAndOrderFrontCallCount == 0)
+        #expect(window.makeKeyCallCount == 0)
+    }
+
     @Test func appUtilityKindsCreateIndependentPanes() throws {
         let workspace = Workspace()
         let paneId = try #require(workspace.bonsplitController.focusedPaneId)
@@ -154,5 +211,42 @@ struct AppUtilityPanelTests {
         workspace.focusPanel(utilityPanel.id)
 
         #expect(!terminalPanel.hostedView.debugPortalVisibleInUI)
+    }
+}
+
+@MainActor
+private final class AppUtilityPresentationTestWindow: NSWindow {
+    var simulatesMiniaturized = false
+    private(set) var deminiaturizeCallCount = 0
+    private(set) var orderFrontCallCount = 0
+    private(set) var makeKeyAndOrderFrontCallCount = 0
+    private(set) var makeKeyCallCount = 0
+
+    init() {
+        super.init(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+    }
+
+    override var isMiniaturized: Bool { simulatesMiniaturized }
+
+    override func deminiaturize(_ sender: Any?) {
+        deminiaturizeCallCount += 1
+        simulatesMiniaturized = false
+    }
+
+    override func orderFront(_ sender: Any?) {
+        orderFrontCallCount += 1
+    }
+
+    override func makeKeyAndOrderFront(_ sender: Any?) {
+        makeKeyAndOrderFrontCallCount += 1
+    }
+
+    override func makeKey() {
+        makeKeyCallCount += 1
     }
 }
