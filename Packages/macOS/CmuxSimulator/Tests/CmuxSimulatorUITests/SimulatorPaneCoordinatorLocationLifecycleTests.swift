@@ -79,6 +79,25 @@ struct SimulatorPaneCoordinatorLocationLifecycleTests {
         await coordinator.close()
     }
 
+    @Test("Failed teardown retains the route identity for retry and reports the failure")
+    func failedTeardownRemainsPending() async {
+        let client = LocationLifecyclePaneClient(devices: [Self.device("A")])
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        await coordinator.start()
+        await coordinator.startLocationRoute(Self.route())
+        await client.failNextStops(1)
+
+        await client.emit(.message(.status(.deviceUnavailable)))
+        await eventually { coordinator.failure?.code == "injected_stop_failure" }
+
+        #expect(coordinator.locationRouteDeviceID == "A")
+        #expect(await client.operations().filter { $0 == "stop:A" }.count == 1)
+
+        await coordinator.close()
+        #expect(await client.operations().filter { $0 == "stop:A" }.count == 2)
+        #expect(coordinator.locationRouteDeviceID == nil)
+    }
+
     @Test("Discovery restores a removed device route before selecting its fallback")
     func discoveryLossStopsRoute() async {
         let client = LocationLifecyclePaneClient(devices: [Self.device("A"), Self.device("B")])

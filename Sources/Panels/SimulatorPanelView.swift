@@ -25,7 +25,7 @@ struct SimulatorPanelView: View {
             )
             .onAppear {
                 panel.coordinator.setActive(isFocused)
-                panel.coordinator.setPaneVisibility(isVisibleInUI)
+                panel.setVisibleInUI(isVisibleInUI)
             }
             .onChange(of: isFocused) { _, focused in
                 panel.coordinator.setActive(focused)
@@ -34,11 +34,11 @@ struct SimulatorPanelView: View {
                 if !visible {
                     panel.coordinator.releaseInputs()
                 }
-                panel.coordinator.setPaneVisibility(visible)
+                panel.setVisibleInUI(visible)
             }
             .onDisappear {
                 panel.coordinator.releaseInputs()
-                panel.coordinator.setPaneVisibility(false)
+                panel.setVisibleInUI(false)
             }
     }
 }

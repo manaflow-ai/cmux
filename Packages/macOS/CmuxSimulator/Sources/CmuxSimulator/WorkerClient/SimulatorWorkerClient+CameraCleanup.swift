@@ -57,14 +57,13 @@ extension SimulatorWorkerClient {
             )
             switch outcome {
             case .completed:
-                if revision == cameraCleanupRevision { return }
+                if revision == cameraCleanupRevision {
+                    cameraCleanupTask = nil
+                    return
+                }
             case .timedOut, .cancelled:
-                task.cancel()
-                cameraCleanupTask?.cancel()
-                await cameraCleanupPermit.cancel()
-                cameraCleanupPermit = SimulatorCameraCleanupPermit()
-                cameraCleanupTask = nil
-                cameraCleanupRevision &+= 1
+                // Bound the caller's wait without discarding the cleanup. The
+                // next activation joins the same durable obligation again.
                 return
             }
         }

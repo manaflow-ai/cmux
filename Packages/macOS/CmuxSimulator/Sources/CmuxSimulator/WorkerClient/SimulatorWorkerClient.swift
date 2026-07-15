@@ -155,13 +155,16 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
            !bundleIdentifiers.isEmpty {
             let pendingCleanup = cameraCleanupTask
             let simulatorControl = self.simulatorControl
-            Task {
-                await pendingCleanup?.value
-                await cleanSimulatorCameraInjections(
-                    deviceIdentifier: deviceIdentifier,
-                    bundleIdentifiers: bundleIdentifiers,
-                    simulatorControl: simulatorControl
-                )
+            if let pendingCleanup {
+                Task { await pendingCleanup.value }
+            } else {
+                Task {
+                    await cleanSimulatorCameraInjections(
+                        deviceIdentifier: deviceIdentifier,
+                        bundleIdentifiers: bundleIdentifiers,
+                        simulatorControl: simulatorControl
+                    )
+                }
             }
         }
         if let child {

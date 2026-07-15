@@ -92,14 +92,22 @@ extension SimulatorPaneCoordinator {
         let previousTeardown = locationRouteTeardownTask
         let deviceID = locationRouteDeviceID
         let completionTask = cancelLocationRouteCompletion()
-        clearLocationRouteSessionState()
         guard deviceID != nil || completionTask != nil else { return previousTeardown }
         let client = client
-        let teardown = Task { @MainActor in
+        let teardown = Task { @MainActor [weak self] in
             _ = await previousTeardown?.value
             _ = await completionTask?.value
-            if let deviceID {
-                _ = try? await client.perform(.stopLocationRoute(deviceID: deviceID))
+            guard let self, let deviceID else { return }
+            do {
+                _ = try await client.perform(.stopLocationRoute(deviceID: deviceID))
+                if self.locationRouteDeviceID == deviceID {
+                    self.clearLocationRouteSessionState()
+                }
+            } catch {
+                self.failure = simulatorPaneFailure(
+                    from: error,
+                    code: "location_route_teardown_failed"
+                )
             }
         }
         locationRouteTeardownTask = teardown

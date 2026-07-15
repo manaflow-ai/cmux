@@ -3,7 +3,7 @@ import Testing
 @testable import CmuxSimulator
 
 extension SimulatorWorkerClientTests {
-    @Test("Pane close times out blocked camera cleanup without a late relaunch")
+    @Test("Pane close timeout preserves camera cleanup through its late relaunch")
     func cameraCleanupCloseDeadline() async throws {
         let deviceIdentifier = "CAMERA-DEADLINE-\(UUID().uuidString)"
         let bundleIdentifier = "com.example.camera-deadline"
@@ -60,11 +60,20 @@ extension SimulatorWorkerClientTests {
         await control.release()
         await stop.value
         await control.waitUntilBlockedCallReturns()
+        for _ in 0..<2_000 {
+            if await control.actions.count == 2 { break }
+            await Task.yield()
+        }
         #expect(await control.blockedCallReturned)
         #expect(await control.actions == [
             .terminateApplication(
                 deviceID: deviceIdentifier,
                 bundleIdentifier: bundleIdentifier
+            ),
+            .launchApplication(
+                deviceID: deviceIdentifier,
+                bundleIdentifier: bundleIdentifier,
+                configuration: SimulatorLaunchConfiguration(terminateRunningProcess: true)
             ),
         ])
     }

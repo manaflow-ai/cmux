@@ -27,6 +27,7 @@ final class SimulatorPanel: Panel {
     @ObservationIgnored private var featureTransitionGeneration = 0
     private var isFeatureDisabled = false
     private var isClosed = false
+    private var isVisibleInUI = false
 
     var displayTitle: String {
         String(localized: "simulator.pane.title", defaultValue: "Simulator")
@@ -70,7 +71,6 @@ final class SimulatorPanel: Panel {
             }
         }
         reconcileRemoteFeatureFlag()
-        if !isFeatureDisabled { startCoordinator() }
     }
 
     convenience init(
@@ -123,8 +123,16 @@ final class SimulatorPanel: Panel {
                 preferredRuntimeIdentifier: self.preferredRuntimeIdentifier,
                 preferredDeviceTypeIdentifier: self.preferredDeviceTypeIdentifier
             )
-            self.startCoordinator()
+            self.coordinator.setPaneVisibility(self.isVisibleInUI)
+            if self.isVisibleInUI { self.startCoordinator() }
         }
+    }
+
+    func setVisibleInUI(_ visible: Bool) {
+        guard !isClosed else { return }
+        isVisibleInUI = visible
+        coordinator.setPaneVisibility(visible)
+        if visible { startCoordinator() }
     }
 
     func close() {
@@ -185,7 +193,7 @@ final class SimulatorPanel: Panel {
     }
 
     private func startCoordinator() {
-        guard !isClosed, !isFeatureDisabled, startupTask == nil else { return }
+        guard !isClosed, !isFeatureDisabled, isVisibleInUI, startupTask == nil else { return }
         let coordinator = self.coordinator
         startupTask = Task { await coordinator.start() }
     }

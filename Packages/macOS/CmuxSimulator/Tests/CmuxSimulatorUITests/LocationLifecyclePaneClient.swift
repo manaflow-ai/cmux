@@ -7,6 +7,7 @@ actor LocationLifecyclePaneClient: SimulatorPaneClient {
     private let continuation: SimulatorWorkerEventStream.Continuation
     private var operationValues: [String] = []
     private var discoveryFailure: SimulatorFailure?
+    private var stopFailuresRemaining = 0
 
     init(devices: [SimulatorDevice]) {
         deviceValues = devices
@@ -41,6 +42,14 @@ actor LocationLifecyclePaneClient: SimulatorPaneClient {
             operationValues.append("start:\(deviceID)")
         case let .stopLocationRoute(deviceID):
             operationValues.append("stop:\(deviceID)")
+            if stopFailuresRemaining > 0 {
+                stopFailuresRemaining -= 1
+                throw SimulatorFailure(
+                    code: "injected_stop_failure",
+                    message: "Injected location stop failure",
+                    isRecoverable: true
+                )
+            }
         default:
             break
         }
@@ -60,5 +69,6 @@ actor LocationLifecyclePaneClient: SimulatorPaneClient {
 
     func setDevices(_ devices: [SimulatorDevice]) { deviceValues = devices }
     func setDiscoveryFailure(_ failure: SimulatorFailure?) { discoveryFailure = failure }
+    func failNextStops(_ count: Int) { stopFailuresRemaining = count }
     func operations() -> [String] { operationValues }
 }

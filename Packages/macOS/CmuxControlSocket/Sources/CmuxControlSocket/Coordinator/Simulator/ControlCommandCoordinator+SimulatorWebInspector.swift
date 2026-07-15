@@ -55,7 +55,14 @@ extension ControlCommandCoordinator {
 
     private nonisolated func simulatorWebInspectorMessageID(_ value: JSONValue?) -> Bool {
         switch value {
-        case .string?, .int?, .double?: true
+        case let .string(value)?:
+            value.utf8.count <= 1_024
+        case let .int(value)?:
+            abs(Double(value)) <= 9_007_199_254_740_991
+        case let .double(value)?:
+            value.isFinite
+                && value.rounded() == value
+                && abs(value) <= 9_007_199_254_740_991
         default: false
         }
     }

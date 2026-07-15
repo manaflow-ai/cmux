@@ -159,6 +159,8 @@ struct ControlCommandCoordinatorSimulatorTests {
         context.webResolution = .started(surfaceID: UUID(), timeoutSeconds: 1, receipt: receipt)
 
         for json in ["[]", "{", #"{"id":null}"#, #"{"id":true}"#,
+                     #"{"id":1.5}"#, #"{"id":9007199254740992}"#,
+                     "{\"id\":\"\(String(repeating: "x", count: 1_025))\"}",
                      String(repeating: "x", count: 1_048_577)] {
             guard case let .err(code, _, _) = coordinator.handleSocketWorkerV2(
                 request("simulator.web_inspector.send", ["json": .string(json)]),
