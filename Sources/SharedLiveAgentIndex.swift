@@ -345,7 +345,6 @@ final class SharedLiveAgentIndex {
         guard let index else {
             return
         }
-        let now = dateProvider()
         for probeKey in pendingProbeKeys {
             let panelKey = probeKey.panelKey
             let fallbackSnapshot = fallbackSnapshots[probeKey]
@@ -354,7 +353,7 @@ final class SharedLiveAgentIndex {
                 panelId: panelKey.panelId
             )
             if snapshot == nil {
-                validatedMissingForkPanels[panelKey] = now
+                validatedMissingForkPanels[panelKey] = dateProvider()
             } else if let validationKey = validatedForkPanelKey(for: panelKey)
                         ?? (fallbackSnapshot == nil ? nil : panelKey),
                       let snapshot {
