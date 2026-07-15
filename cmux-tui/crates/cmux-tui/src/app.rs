@@ -627,6 +627,10 @@ impl OrderedSession {
         self.inner.has_surface(id)
     }
 
+    fn surface_overflow_retry_due(&self) -> bool {
+        self.inner.surface_overflow_retry_due()
+    }
+
     fn forget_surface(&self, id: SurfaceId) {
         if self.remote {
             self.exited_surfaces.lock().unwrap().insert(id);
@@ -731,6 +735,7 @@ impl OrderedSession {
 
     fn can_attach_surface(&self, id: SurfaceId) -> bool {
         self.inner.cached_surface(id).is_none()
+            && self.inner.can_attach_after_overflow(id)
             && !self.exited_surfaces.lock().unwrap().contains(&id)
             && !self
                 .surface_attach_failures
@@ -2191,6 +2196,9 @@ impl App {
             }
             self.retry_sidebar_plugin_if_due();
             self.retry_background_refresh_if_due();
+            if self.session.surface_overflow_retry_due() {
+                action = action.merge(RenderAction::Draw);
+            }
             self.render_action(terminal, action)?;
             if self.routing_refresh_pending {
                 self.routing_refresh_pending = false;

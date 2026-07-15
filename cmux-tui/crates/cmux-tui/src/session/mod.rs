@@ -274,6 +274,20 @@ impl Session {
         }
     }
 
+    pub fn can_attach_after_overflow(&self, id: SurfaceId) -> bool {
+        match self {
+            Session::Local(_) => true,
+            Session::Remote(remote) => remote.can_attach_after_overflow(id),
+        }
+    }
+
+    pub fn surface_overflow_retry_due(&self) -> bool {
+        match self {
+            Session::Local(_) => false,
+            Session::Remote(remote) => remote.surface_overflow_retry_due(),
+        }
+    }
+
     /// Like [`Session::surface`], but passes the render size for remote
     /// mirrors created on first use (the server surface is resized before
     /// the attach replay, so the replay arrives at final geometry).

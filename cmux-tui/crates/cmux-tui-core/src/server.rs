@@ -417,6 +417,7 @@ struct Response {
 }
 
 const STREAM_DISCONNECT_POLL: Duration = Duration::from_millis(100);
+const WEBSOCKET_READ_POLL: Duration = Duration::from_millis(10);
 const STREAM_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 #[cfg(not(test))]
 const WEBSOCKET_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -1013,7 +1014,7 @@ fn handle_websocket_connection(mux: Arc<Mux>, stream: TcpStream, token: Option<&
             return;
         }
     }
-    let _ = websocket.get_mut().set_read_timeout(Some(STREAM_DISCONNECT_POLL));
+    let _ = websocket.get_mut().set_read_timeout(Some(WEBSOCKET_READ_POLL));
     let _ = websocket.get_mut().set_write_timeout(Some(STREAM_WRITE_TIMEOUT));
     let Ok(writer_stream) = websocket.get_ref().try_clone() else { return };
     let _ = writer_stream.set_write_timeout(Some(STREAM_WRITE_TIMEOUT));
@@ -1044,7 +1045,11 @@ fn handle_websocket_connection(mux: Arc<Mux>, stream: TcpStream, token: Option<&
             break;
         }
 
-        match websocket.read() {
+        let incoming = {
+            let _guard = write_lock.lock().unwrap();
+            websocket.read()
+        };
+        match incoming {
             Ok(Message::Text(text)) => {
                 if !handle_message(&mux, &text, &writer) {
                     break;

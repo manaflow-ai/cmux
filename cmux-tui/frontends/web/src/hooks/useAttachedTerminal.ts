@@ -10,7 +10,7 @@ import type {
   Id,
   OverflowEvent,
 } from "cmux/browser";
-import { attachRecoveryDelay } from "../lib/attachRecovery";
+import { ATTACH_RECOVERY_STABLE_MS, attachRecoveryDelay } from "../lib/attachRecovery";
 import { debounce } from "../lib/debounce";
 import { t } from "../i18n";
 
@@ -70,6 +70,7 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
     const input = terminal.onData((text) => void client.send(surface, { text }).catch(onError));
     let stream: Awaited<ReturnType<CmuxClient["attachSurface"]>> | null = null;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let stableTimer: ReturnType<typeof setTimeout> | undefined;
     let wakeRetry: (() => void) | null = null;
 
     const waitForRetry = (delayMs: number) =>
@@ -109,7 +110,11 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
               terminal.resize(replay.cols, replay.rows);
               terminal.write(replay.data);
               terminal.options.disableStdin = false;
-              recoveryAttempt = 0;
+              if (stableTimer !== undefined) clearTimeout(stableTimer);
+              stableTimer = setTimeout(() => {
+                stableTimer = undefined;
+                recoveryAttempt = 0;
+              }, ATTACH_RECOVERY_STABLE_MS);
             } else if (event.event === "output") {
               terminal.write((event as DecodedOutputEvent).data);
             } else if (event.event === "resized") {
@@ -121,6 +126,10 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
               const overflow = event as OverflowEvent;
               if (overflow.scope === "surface" && overflow.surface === surface) {
                 terminal.options.disableStdin = true;
+                if (stableTimer !== undefined) {
+                  clearTimeout(stableTimer);
+                  stableTimer = undefined;
+                }
                 overflowed = true;
                 break;
               }
@@ -154,6 +163,7 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
       sendResize.cancel();
       input.dispose();
       if (retryTimer !== undefined) clearTimeout(retryTimer);
+      if (stableTimer !== undefined) clearTimeout(stableTimer);
       wakeRetry?.();
       stream?.close();
       terminal.dispose();

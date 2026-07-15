@@ -22,6 +22,9 @@ use serde_json::{Value, json};
 use super::tree::{TreeView, parse_tree};
 
 const SUPPORTED_PROTOCOL_VERSION: u64 = 7;
+const SURFACE_OVERFLOW_RETRY_DELAYS: [Duration; 3] =
+    [Duration::from_millis(250), Duration::from_millis(500), Duration::from_secs(1)];
+const SURFACE_OVERFLOW_STABLE: Duration = Duration::from_secs(5);
 #[cfg(not(test))]
 const REMOTE_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 #[cfg(test)]
@@ -98,6 +101,14 @@ struct RemoteTreeCache {
     surface_tabs: HashMap<SurfaceId, [usize; 4]>,
     title_generation: u64,
     title_updates: HashMap<SurfaceId, TitleUpdate>,
+}
+
+#[derive(Clone, Copy)]
+struct SurfaceOverflowRecovery {
+    attempts: u8,
+    retry_after: Option<Instant>,
+    attached_at: Option<Instant>,
+    stopped: bool,
 }
 
 struct TitleUpdate {
@@ -303,6 +314,7 @@ pub struct RemoteSession {
     subscription_recovery_in_flight: AtomicBool,
     subscribers: MuxEventBroadcaster,
     frame_logs: Mutex<HashMap<SurfaceId, Vec<String>>>,
+    surface_overflow_recovery: Mutex<HashMap<SurfaceId, SurfaceOverflowRecovery>>,
 }
 
 impl RemoteSession {
@@ -335,6 +347,7 @@ impl RemoteSession {
             subscription_recovery_in_flight: AtomicBool::new(false),
             subscribers: MuxEventBroadcaster::default(),
             frame_logs: Mutex::new(HashMap::new()),
+            surface_overflow_recovery: Mutex::new(HashMap::new()),
         });
 
         let reader_session = Arc::downgrade(&session);
@@ -499,6 +512,7 @@ impl RemoteSession {
             }
             Some("surface-exited") => {
                 if let Some(id) = surface_id() {
+                    self.surface_overflow_recovery.lock().unwrap().remove(&id);
                     self.tree_stale.store(true, Ordering::Release);
                     self.emit(MuxEvent::SurfaceExited(id));
                 }
@@ -552,12 +566,19 @@ impl RemoteSession {
                     let surface_id = surface_id();
                     if let Some(surface_id) = surface_id {
                         self.surfaces.lock().unwrap().remove(&surface_id);
+                        let (delay, stopped) = self.record_surface_overflow(surface_id);
                         self.emit(MuxEvent::SurfaceOutput(surface_id));
+                        self.emit(MuxEvent::Status(if stopped {
+                            format!(
+                                "surface {surface_id} event stream repeatedly overflowed; detach and reconnect to recover"
+                            )
+                        } else {
+                            format!(
+                                "surface {surface_id} event stream overflowed; retrying in {} ms",
+                                delay.unwrap_or_default().as_millis()
+                            )
+                        }));
                     }
-                    let surface = surface_id.map_or_else(String::new, |id| format!(" {id}"));
-                    self.emit(MuxEvent::Status(format!(
-                        "surface{surface} event stream overflowed; mirror will reattach"
-                    )));
                     return;
                 }
                 self.tree_stale.store(true, Ordering::Release);
@@ -724,6 +745,43 @@ impl RemoteSession {
         true
     }
 
+    fn record_surface_overflow(&self, id: SurfaceId) -> (Option<Duration>, bool) {
+        let now = Instant::now();
+        let mut recoveries = self.surface_overflow_recovery.lock().unwrap();
+        let recovery = recoveries.entry(id).or_insert(SurfaceOverflowRecovery {
+            attempts: 0,
+            retry_after: None,
+            attached_at: None,
+            stopped: false,
+        });
+        if recovery
+            .attached_at
+            .is_some_and(|attached| now.duration_since(attached) >= SURFACE_OVERFLOW_STABLE)
+        {
+            recovery.attempts = 0;
+        }
+        recovery.attached_at = None;
+        let delay = SURFACE_OVERFLOW_RETRY_DELAYS.get(usize::from(recovery.attempts)).copied();
+        recovery.attempts = recovery.attempts.saturating_add(1);
+        recovery.stopped = delay.is_none();
+        recovery.retry_after = delay.map(|delay| now + delay);
+        (delay, recovery.stopped)
+    }
+
+    pub fn can_attach_after_overflow(&self, id: SurfaceId) -> bool {
+        self.surface_overflow_recovery.lock().unwrap().get(&id).is_none_or(|recovery| {
+            !recovery.stopped
+                && recovery.retry_after.is_none_or(|retry_after| Instant::now() >= retry_after)
+        })
+    }
+
+    pub fn surface_overflow_retry_due(&self) -> bool {
+        self.surface_overflow_recovery.lock().unwrap().values().any(|recovery| {
+            !recovery.stopped
+                && recovery.retry_after.is_some_and(|retry_after| Instant::now() >= retry_after)
+        })
+    }
+
     /// Mirror for a surface, attaching on first use. When a size is
     /// provided, the caller's immediately following `resize` sends the
     /// server resize after the attach tap is installed, so the resize
@@ -747,6 +805,9 @@ impl RemoteSession {
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Option<Arc<RemoteSurface>>> {
         if self.exited_surfaces.lock().unwrap().contains(&id) {
+            return Ok(None);
+        }
+        if !self.can_attach_after_overflow(id) {
             return Ok(None);
         }
         if let Some(surface) = self.surfaces.lock().unwrap().get(&id) {
@@ -774,11 +835,16 @@ impl RemoteSession {
             self.surfaces.lock().unwrap().remove(&id);
             return Err(error);
         }
+        if let Some(recovery) = self.surface_overflow_recovery.lock().unwrap().get_mut(&id) {
+            recovery.attached_at = Some(Instant::now());
+            recovery.retry_after = None;
+        }
         Ok(Some(surface))
     }
 
     pub fn drop_surface(&self, id: SurfaceId) {
         self.surfaces.lock().unwrap().remove(&id);
+        self.surface_overflow_recovery.lock().unwrap().remove(&id);
         self.exited_surfaces.lock().unwrap().insert(id);
     }
 
@@ -968,6 +1034,7 @@ mod tests {
             subscription_recovery_in_flight: AtomicBool::new(false),
             subscribers: MuxEventBroadcaster::default(),
             frame_logs: Mutex::new(HashMap::new()),
+            surface_overflow_recovery: Mutex::new(HashMap::new()),
         })
     }
 
@@ -1017,6 +1084,38 @@ mod tests {
             ))
         }));
         assert!(session.pending.lock().unwrap().is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn repeated_surface_overflow_stops_until_reconnect() {
+        let (client, _server) = UnixStream::pair().unwrap();
+        let session = socket_test_session(client);
+
+        for _ in 0..SURFACE_OVERFLOW_RETRY_DELAYS.len() {
+            let (delay, stopped) = session.record_surface_overflow(7);
+            assert!(delay.is_some());
+            assert!(!stopped);
+            let mut recoveries = session.surface_overflow_recovery.lock().unwrap();
+            let recovery = recoveries.get_mut(&7).unwrap();
+            recovery.retry_after = Some(Instant::now() - Duration::from_millis(1));
+            recovery.attached_at = Some(Instant::now());
+            drop(recoveries);
+            assert!(session.can_attach_after_overflow(7));
+        }
+
+        let (delay, stopped) = session.record_surface_overflow(7);
+        assert!(delay.is_none());
+        assert!(stopped);
+        assert!(!session.can_attach_after_overflow(7));
+
+        let mut recoveries = session.surface_overflow_recovery.lock().unwrap();
+        let recovery = recoveries.get_mut(&7).unwrap();
+        recovery.attached_at = Some(Instant::now() - SURFACE_OVERFLOW_STABLE);
+        drop(recoveries);
+        let (delay, stopped) = session.record_surface_overflow(7);
+        assert_eq!(delay, Some(SURFACE_OVERFLOW_RETRY_DELAYS[0]));
+        assert!(!stopped);
     }
 
     #[cfg(unix)]
