@@ -12,6 +12,77 @@ import Testing
 @Suite("Remote runtime state restore", .serialized)
 struct RemoteRuntimeStateRestoreTests {
     @MainActor
+    @Test("serializes encoding and coalesces cancelled snapshots")
+    func serializesEncodingAndCoalescesCancelledSnapshots() async {
+        let pipeline = RemoteRuntimeStateEncodingPipeline()
+        let firstStarted = DispatchSemaphore(value: 0)
+        let releaseFirst = DispatchSemaphore(value: 0)
+        let staleStarted = DispatchSemaphore(value: 0)
+        let latestStarted = DispatchSemaphore(value: 0)
+
+        _ = pipeline.enqueue {
+            firstStarted.signal()
+            releaseFirst.wait()
+        }
+        #expect(firstStarted.wait(timeout: .now() + 1) == .success)
+
+        _ = pipeline.enqueue {
+            staleStarted.signal()
+        }
+        let latest = pipeline.enqueue {
+            latestStarted.signal()
+        }
+
+        #expect(staleStarted.wait(timeout: .now() + 0.1) == .timedOut)
+        #expect(latestStarted.wait(timeout: .now() + 0.1) == .timedOut)
+
+        releaseFirst.signal()
+        await latest.value
+
+        #expect(staleStarted.wait(timeout: .now()) == .timedOut)
+        #expect(latestStarted.wait(timeout: .now()) == .success)
+    }
+
+    @MainActor
+    @Test("waits for the final snapshot enqueue before stopping the remote session")
+    func waitsForFinalSnapshotBeforeStoppingRemoteSession() async {
+        let pipeline = RemoteRuntimeStateEncodingPipeline()
+        let finalSnapshotStarted = DispatchSemaphore(value: 0)
+        let releaseFinalSnapshot = DispatchSemaphore(value: 0)
+        let stopped = DispatchSemaphore(value: 0)
+        _ = pipeline.enqueue {
+            finalSnapshotStarted.signal()
+            releaseFinalSnapshot.wait()
+        }
+        #expect(finalSnapshotStarted.wait(timeout: .now() + 1) == .success)
+
+        let stop = pipeline.finishPendingWork {
+            stopped.signal()
+        }
+
+        #expect(stopped.wait(timeout: .now() + 0.1) == .timedOut)
+        releaseFinalSnapshot.signal()
+        await stop.value
+        #expect(stopped.wait(timeout: .now()) == .success)
+    }
+
+    @MainActor
+    @Test("omits attaching-machine configuration from portable runtime state")
+    func omitsRemoteConfigurationFromPortableRuntimeState() throws {
+        let workspace = Workspace()
+        workspace.configureRemoteConnection(Self.configuration(), autoConnect: false)
+        let source = workspace.sessionSnapshot(includeScrollback: false)
+        let sourceRemote = try #require(source.remote)
+
+        let portable = workspace.remoteRuntimeStateSnapshot(from: source)
+
+        #expect(sourceRemote.destination == "developer@example.test")
+        #expect(sourceRemote.identityFile == "/tmp/cmux-runtime-test-key")
+        #expect(sourceRemote.sshOptions == ["StrictHostKeyChecking=no"])
+        #expect(portable.remote == nil)
+    }
+
+    @MainActor
     @Test("keeps the attaching connection while restoring server-owned presentation state")
     func preservesAttachingConnection() throws {
         let workspace = Workspace()
