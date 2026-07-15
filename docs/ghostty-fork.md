@@ -17,6 +17,9 @@ Current cmux pinned fork head: `bb30526cd`. It advances the previous cmux pin
 updates, then preserves authoritative sprite-font shaping runs. The commit is
 reachable from fork `main` through the merged
 https://github.com/manaflow-ai/ghostty/pull/120.
+The corresponding universal ReleaseFast GhosttyKit archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-bb30526cdab8f5fb08ae43e404e3aacc40d3ffc3-crashsubdir-cmux-crash-v1
+and pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### Authoritative sprite-font shaping runs
 
