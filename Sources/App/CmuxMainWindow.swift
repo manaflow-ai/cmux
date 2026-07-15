@@ -43,6 +43,28 @@ final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
         // to explicit window management, never to content measurement.
     }
 
+    /// The hosting view's own frame may never exceed its window. The paths
+    /// above cover the hosting view's OWN sizing behavior, but AppKit's
+    /// layout engine can hand this view an inflated frame directly: hosted
+    /// AppKit subtrees carry required constraints, and when one of them is
+    /// laid out oversized the engine resolves the conflict by growing the
+    /// containers — observed live as this view at 6373pt inside a 1728pt
+    /// window, with every space-filling descendant (including terminal
+    /// surfaces, whose rendered grids feed remote size claims) inheriting
+    /// the inflated width. The frame setter is the last line: clamp to the
+    /// window, so the host answers the window, never the content.
+    override func setFrameSize(_ newSize: NSSize) {
+        var size = newSize
+        if let window {
+            let bound = window.frame.size
+            if bound.width >= 1, bound.height >= 1 {
+                size.width = min(size.width, bound.width)
+                size.height = min(size.height, bound.height)
+            }
+        }
+        super.setFrameSize(size)
+    }
+
     required init(rootView: Content) {
         super.init(rootView: rootView)
         // Belt with the suspenders above: keep the hosting view from creating
