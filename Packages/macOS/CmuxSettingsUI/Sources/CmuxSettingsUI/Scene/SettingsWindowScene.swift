@@ -482,6 +482,9 @@ public struct SettingsWindowRoot: View {
         MobileSection(defaultsStore: defaultsStore, catalog: catalog, hostActions: hostActions)
             .id(anchorID(for: .mobile))
 
+        IrohNetworkingSection(hostActions: hostActions)
+            .id(anchorID(for: .networking))
+
         SidebarSection(defaultsStore: defaultsStore, catalog: catalog, hostActions: hostActions)
             .id(anchorID(for: .sidebarAppearance))
 

@@ -1,6 +1,7 @@
 import XCTest
 import CMUXAgentLaunch
 import Darwin
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -592,5 +593,206 @@ final class CmuxEventBusTests: XCTestCase {
     private func fileSize(_ url: URL) throws -> UInt64 {
         let size = try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber
         return try XCTUnwrap(size).uint64Value
+    }
+}
+
+@Suite("Cached cmux event frames")
+struct CmuxEventFrameCacheSwiftTests {
+    private final class CodecCounter {
+        var sanitizations = 0
+        var encodings = 0
+    }
+
+    @Test func boundedRingBufferClearsWrappedElementsAndReusesStorage() {
+        var buffer = CmuxBoundedRingBuffer<Int>(capacity: 3)
+        buffer.appendDroppingOldest(1)
+        buffer.appendDroppingOldest(2)
+        buffer.appendDroppingOldest(3)
+        #expect(buffer.removeFirst() == 1)
+        buffer.appendDroppingOldest(4)
+        #expect(buffer.elements == [2, 3, 4])
+
+        buffer.removeAll()
+        #expect(buffer.isEmpty)
+        #expect(buffer.elements.isEmpty)
+
+        buffer.appendDroppingOldest(5)
+        buffer.appendDroppingOldest(6)
+        #expect(buffer.elements == [5, 6])
+    }
+
+    @Test func onePublishSanitizesAndEncodesOnceAcrossSixteenSubscribers() throws {
+        let counter = CodecCounter()
+        let bus = CmuxEventBus(
+            retainedEventLimit: 8,
+            sanitize: { value in
+                counter.sanitizations += 1
+                return CmuxEventBus.sanitizedJSONValue(value)
+            },
+            encodeSanitizedLine: { object in
+                counter.encodings += 1
+                return CmuxEventBus.encodeSanitizedLine(object)
+            }
+        )
+        let snapshots = (0..<16).map { _ in
+            bus.subscribe(afterSequence: nil, names: [], categories: [])
+        }
+        defer { snapshots.forEach { bus.unsubscribe($0.subscription) } }
+
+        bus.publish(
+            name: "agent.hook.PreToolUse",
+            category: "agent",
+            source: "test",
+            payload: ["nested": ["value": UUID()]]
+        )
+
+        let frames = try snapshots.map {
+            try #require($0.subscription.nextFrame(timeout: 0.1))
+        }
+        #expect(counter.sanitizations == 1)
+        #expect(counter.encodings == 1)
+        #expect(frames.dropFirst().allSatisfy { $0 === frames[0] })
+    }
+
+    @Test func liveReplayAndDurableLogReuseIdenticalPrivateBytes() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-event-frame-cache-\(UUID().uuidString)", isDirectory: true)
+        let logURL = directory.appendingPathComponent("events.jsonl")
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let bus = CmuxEventBus(retainedEventLimit: 8, eventLogURL: logURL)
+        let live = bus.subscribe(afterSequence: nil, names: [], categories: ["agent"])
+        defer { bus.unsubscribe(live.subscription) }
+        let workstream = WorkstreamEvent(
+            sessionId: "session",
+            hookEventName: .preToolUse,
+            source: "claude",
+            workspaceId: "workspace",
+            cwd: "/tmp/workspace",
+            toolName: "Bash",
+            toolInputJSON: #"{"command":"echo secret-tool-input"}"#,
+            context: WorkstreamContext(
+                lastUserMessage: "secret-user-message",
+                assistantPreamble: "secret-assistant-message"
+            ),
+            requestId: "request",
+            ppid: 42,
+            receivedAt: Date(timeIntervalSince1970: 0),
+            extraFieldsJSON: #"{"message":"secret-extra-field"}"#
+        )
+
+        bus.publish(
+            name: "agent.hook.PreToolUse",
+            category: "agent",
+            source: "test",
+            payload: CmuxEventBus.workstreamPayload(workstream)
+        )
+
+        let liveFrame = try #require(live.subscription.nextFrame(timeout: 0.1))
+        let replay = bus.subscribe(afterSequence: 0, names: [], categories: ["agent"])
+        defer { bus.unsubscribe(replay.subscription) }
+        let replayFrame = try #require(replay.replayFrames.first)
+        bus.flushEventLogForTesting()
+        let logLine = try #require(
+            try String(contentsOf: logURL, encoding: .utf8).split(separator: "\n").first.map(String.init)
+        )
+
+        #expect(liveFrame === replayFrame)
+        #expect(logLine == liveFrame.encodedLine)
+        #expect(liveFrame.wireData == Data((liveFrame.encodedLine + "\n").utf8))
+        #expect(!liveFrame.encodedLine.contains("secret"))
+    }
+
+    @Test func concurrentPublishersPreserveSequenceOrderForLiveAndReplay() async throws {
+        let eventCount = 200
+        let bus = CmuxEventBus(
+            retainedEventLimit: eventCount,
+            maxPendingEventsPerSubscription: eventCount
+        )
+        let live = bus.subscribe(afterSequence: nil, names: [], categories: [])
+        defer { bus.unsubscribe(live.subscription) }
+
+        await withTaskGroup(of: Void.self) { group in
+            for index in 0..<eventCount {
+                group.addTask {
+                    bus.publish(
+                        name: "event.\(index)",
+                        category: "test",
+                        source: "concurrency-test"
+                    )
+                }
+            }
+        }
+
+        var liveSequences: [Int64] = []
+        for _ in 0..<eventCount {
+            let frame = try #require(live.subscription.nextFrame(timeout: 0.1))
+            liveSequences.append(frame.sequence)
+        }
+        let replay = bus.subscribe(afterSequence: 0, names: [], categories: [])
+        defer { bus.unsubscribe(replay.subscription) }
+        let expected = Array(Int64(1)...Int64(eventCount))
+
+        #expect(liveSequences == expected)
+        #expect(replay.replayFrames.map(\.sequence) == expected)
+    }
+
+    @Test func workstreamPhasesStillPublishAllFourOrderedFrames() {
+        let bus = CmuxEventBus(retainedEventLimit: 8)
+        let workstream = WorkstreamEvent(
+            sessionId: "session",
+            hookEventName: .preToolUse,
+            source: "claude",
+            workspaceId: "workspace",
+            cwd: nil,
+            toolName: "Bash",
+            toolInputJSON: nil,
+            context: nil,
+            requestId: nil,
+            ppid: nil,
+            receivedAt: Date(timeIntervalSince1970: 0),
+            extraFieldsJSON: nil
+        )
+
+        bus.publishWorkstreamEvent(workstream, phase: "received")
+        bus.publishWorkstreamEvent(workstream, phase: "completed", result: ["ok": true])
+
+        #expect(bus.retainedSnapshot().compactMap { $0["name"] as? String } == [
+            "agent.hook.PreToolUse",
+            "feed.item.received",
+            "agent.hook.PreToolUse",
+            "feed.item.completed"
+        ])
+    }
+
+    @Test func oversizedTopLevelMetadataIsBoundedOrSafelyDropped() throws {
+        let oversizedSource = "source-marker-" + String(repeating: "s", count: 20_000)
+        let oversizedWorkspace = "workspace-marker-" + String(repeating: "w", count: 20_000)
+        let bus = CmuxEventBus(retainedEventLimit: 4, maxEventLineBytes: 1_024)
+
+        bus.publish(
+            name: "agent.hook.PreToolUse",
+            category: "agent",
+            source: oversizedSource,
+            workspaceId: oversizedWorkspace,
+            payload: ["ok": true]
+        )
+
+        let replay = bus.subscribe(afterSequence: 0, names: [], categories: [])
+        defer { bus.unsubscribe(replay.subscription) }
+        let frame = try #require(replay.replayFrames.first)
+        #expect(frame.encodedLine.utf8.count <= 1_024)
+        #expect((frame.object["source"] as? String)?.utf8.count ?? .max < oversizedSource.utf8.count)
+        #expect((frame.object["workspace_id"] as? String)?.utf8.count ?? .max < oversizedWorkspace.utf8.count)
+
+        let impossiblySmallBus = CmuxEventBus(retainedEventLimit: 4, maxEventLineBytes: 32)
+        impossiblySmallBus.publish(
+            name: "event",
+            category: "test",
+            source: oversizedSource,
+            workspaceId: oversizedWorkspace
+        )
+        #expect(impossiblySmallBus.retainedSnapshot().isEmpty)
+        #expect(impossiblySmallBus.latestSequence == 0)
     }
 }

@@ -14,6 +14,7 @@ public enum PanelType: String, Codable, Sendable {
     case agentSession
     case project
     case extensionBrowser
+    case workspaceTodo
     case cloudVMLoading
     case appUtility
 
@@ -38,6 +39,10 @@ public enum PanelType: String, Codable, Sendable {
         }
         if rawValue.lowercased() == Self.agentSession.rawValue.lowercased() {
             self = .agentSession
+            return
+        }
+        if rawValue.lowercased() == Self.workspaceTodo.rawValue.lowercased() {
+            self = .workspaceTodo
             return
         }
         if rawValue.lowercased() == Self.cloudVMLoading.rawValue.lowercased() {

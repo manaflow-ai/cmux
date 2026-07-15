@@ -33,25 +33,23 @@ extension TerminalController {
         ]
     }
 
-    nonisolated func socketClientInitialReadLimits(
-        peerProcessID: pid_t?
-    ) -> ControlClientLineReadLimits? {
-        guard socketServer.accessMode == .cmuxOnly,
-              !(peerProcessID.map(isDescendant) ?? false) else {
-            return nil
-        }
+    /// Bounds every cmux-only peer until its first command can choose capability
+    /// or ancestry authorization without a speculative process-tree walk.
+    nonisolated func socketClientInitialReadLimits() -> ControlClientLineReadLimits? {
+        guard socketServer.accessMode == .cmuxOnly else { return nil }
         return Self.socketClientPreauthorizationLimits
     }
 
     nonisolated func authorizedSocketCommand(
         _ command: String,
         peerProcessID: pid_t?,
-        peerHasSameUID: Bool
+        peerHasSameUID: Bool,
+        authorization: inout SocketClientAuthorization
     ) -> String? {
         guard socketServer.accessMode == .cmuxOnly else {
             return SocketClientCapabilityCommand(command)?.command ?? command
         }
-        return SocketClientAuthorization().authorizedCommand(
+        return authorization.authorizedCommand(
             command,
             peerProcessID: peerProcessID,
             peerHasSameUID: peerHasSameUID,
