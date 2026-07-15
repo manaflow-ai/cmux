@@ -553,6 +553,19 @@ struct WorkspaceForkConversationContextMenuTests {
         var sharedOmpSnapshot = sharedPiSnapshot
         sharedOmpSnapshot.launchCommand?.launcher = "omp"
         #expect(!(await AgentForkSupport.supportsFork(snapshot: sharedOmpSnapshot)))
+
+        let environmentWrapper = root.appendingPathComponent("environment-wrapper", isDirectory: false)
+        try "#!/bin/sh\nif [ \"$PI_CONFIG_DIR\" = \"supported\" ]; then printf '%s\\n' '0.80.6'; else printf '%s\\n' '0.59.0'; fi\n"
+            .write(to: environmentWrapper, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: environmentWrapper.path)
+        var supportedEnvironmentSnapshot = snapshot
+        supportedEnvironmentSnapshot.launchCommand?.executablePath = environmentWrapper.path
+        supportedEnvironmentSnapshot.launchCommand?.arguments = [environmentWrapper.path]
+        supportedEnvironmentSnapshot.launchCommand?.environment = ["PI_CONFIG_DIR": "supported"]
+        #expect(await AgentForkSupport.supportsFork(snapshot: supportedEnvironmentSnapshot))
+        var unsupportedEnvironmentSnapshot = supportedEnvironmentSnapshot
+        unsupportedEnvironmentSnapshot.launchCommand?.environment = ["PI_CONFIG_DIR": "unsupported"]
+        #expect(!(await AgentForkSupport.supportsFork(snapshot: unsupportedEnvironmentSnapshot)))
     }
 
     @Test
