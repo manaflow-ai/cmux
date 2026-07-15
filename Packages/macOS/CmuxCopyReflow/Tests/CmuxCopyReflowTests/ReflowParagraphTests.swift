@@ -309,6 +309,25 @@ struct ReflowParagraphTests {
         )
     }
 
+    /// A selection near the copy path's 20,000-line limit must scale with its
+    /// input size. The ratio leaves ample runner noise while catching repeated
+    /// copying of the accumulated paragraph, which grows quadratically.
+    @Test func nearLimitSelectionReflowsWithLinearScaling() {
+        let smallInput = performanceInput(lineCount: 4_000)
+        let largeInput = performanceInput(lineCount: 20_000)
+        #expect(largeInput.utf8.count < 2 * 1024 * 1024)
+
+        let smallDuration = timedReflow(smallInput)
+        let largeDuration = timedReflow(largeInput)
+        let smallSeconds = seconds(smallDuration)
+        let largeSeconds = seconds(largeDuration)
+
+        #expect(
+            largeSeconds < smallSeconds * 12,
+            "20,000 lines took \(largeSeconds)s after 4,000 lines took \(smallSeconds)s"
+        )
+    }
+
     /// The shape of the originally reported paste: multiple paragraphs, every
     /// line sharing a 2-space indent, wrapped at viewport width, separated by a
     /// truly blank line. Each paragraph should collapse to one clean line.
@@ -321,5 +340,26 @@ struct ReflowParagraphTests {
         let input = "  \(p1a)\n  \(p1b)\n\n  \(p2a)\n  \(p2b)\n"
         let expected = "\(p1a) \(p1b)\n\n\(p2a) \(p2b)\n"
         #expect(reflow(input) == expected)
+    }
+
+    private func performanceInput(lineCount: Int) -> String {
+        let first = "The copied terminal paragraph reaches the viewport edge with ordinary prose that must continue"
+        let continuation = "  continuation words remain ordinary prose and keep reaching the same viewport edge"
+        let lines = [first] + Array(repeating: continuation, count: lineCount - 1)
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    private func timedReflow(_ input: String) -> Duration {
+        let clock = ContinuousClock()
+        let start = clock.now
+        let result = reflow(input)
+        let duration = start.duration(to: clock.now)
+        #expect(result.filter { $0 == "\n" }.count == 1)
+        return duration
+    }
+
+    private func seconds(_ duration: Duration) -> Double {
+        let components = duration.components
+        return Double(components.seconds) + Double(components.attoseconds) / 1e18
     }
 }
