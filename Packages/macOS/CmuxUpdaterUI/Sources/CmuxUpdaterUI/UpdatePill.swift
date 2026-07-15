@@ -102,7 +102,7 @@ public struct UpdatePill: View {
     }
 }
 
-private struct UpdatePillPopoverAnchor: NSViewRepresentable {
+struct UpdatePillPopoverAnchor: NSViewRepresentable {
     @Binding var isPresented: Bool
     let model: UpdateStateModel
     let actions: any UpdateActionsHost
@@ -148,8 +148,9 @@ private struct UpdatePillPopoverAnchor: NSViewRepresentable {
         private let hostingController = NSHostingController(rootView: AnyView(EmptyView()))
         private var popover: NSPopover?
 
-        init(isPresented: Binding<Bool>) {
+        init(isPresented: Binding<Bool>, popover: NSPopover? = nil) {
             _isPresented = isPresented
+            self.popover = popover
         }
 
         func updateRootView(_ rootView: AnyView) {
