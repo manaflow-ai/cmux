@@ -21,6 +21,15 @@ extension TabManager: NotificationDismissalHosting {
         AppDelegate.shared?.notificationStore != nil
     }
 
+    func storeHasDismissibleState(workspaceId: UUID) -> Bool {
+        AppDelegate.shared?.notificationStore?.hasDismissibleState(forTabId: workspaceId) ?? false
+    }
+
+    func workspaceHasDismissiblePanelState(workspaceId: UUID) -> Bool {
+        guard let workspace = workspacesById[workspaceId] else { return false }
+        return !workspace.manualUnreadPanelIds.isEmpty || workspace.hasAnyRestoredUnreadPanelIndicator
+    }
+
     // focusedPanelId(in:) is already witnessed by the SidebarGitHosting
     // conformance (TabManager+SidebarGitHosting.swift); one declaration
     // satisfies both seams.
@@ -63,6 +72,11 @@ extension TabManager: NotificationDismissalHosting {
 
     func storeHasUnreadNotification(workspaceId: UUID, surfaceId: UUID?) -> Bool {
         AppDelegate.shared?.notificationStore?.hasUnreadNotification(forTabId: workspaceId, surfaceId: surfaceId) ?? false
+    }
+
+    func storeHasPendingNotification(workspaceId: UUID, surfaceId: UUID?) -> Bool {
+        AppDelegate.shared?.notificationStore?
+            .hasPendingNotification(forTabId: workspaceId, surfaceId: surfaceId) ?? false
     }
 
     func storeHasVisibleNotificationIndicator(workspaceId: UUID, surfaceId: UUID?) -> Bool {
