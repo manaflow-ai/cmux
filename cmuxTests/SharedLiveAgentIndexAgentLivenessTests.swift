@@ -94,6 +94,69 @@ struct SharedLiveAgentIndexAgentLivenessTests {
     }
 
     @Test
+    func hookStoreReloadCadenceUsesLatestUnpublishedWorkload() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-hook-cadence-unpublished-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let hookStoreURL = root.appendingPathComponent("claude-hook-sessions.json")
+        try Data("{\"sessions\":{}}".utf8).write(to: hookStoreURL, options: .atomic)
+
+        let modestIndex = Self.index(entryCount: 1)
+        let largeIndex = try Self.index(repeatedHookRecordCount: 270)
+        let nextLoadIndex = OSAllocatedUnfairLock(initialState: 0)
+        let loadStarted = DispatchSemaphore(value: 0)
+        let initialLoadCompleted = DispatchSemaphore(value: 0)
+        var now = Date(timeIntervalSince1970: 100)
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                let loadIndex = nextLoadIndex.withLock { loadIndex in
+                    defer { loadIndex += 1 }
+                    return loadIndex
+                }
+                loadStarted.signal()
+                return Self.loadResult(index: loadIndex == 0 ? modestIndex : largeIndex)
+            },
+            hookStoreDirectoryProvider: { root.path },
+            dateProvider: { now }
+        )
+        let observer = NotificationCenter.default.addObserver(
+            forName: .sharedLiveAgentIndexDidChange,
+            object: sharedIndex,
+            queue: nil
+        ) { _ in
+            initialLoadCompleted.signal()
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        sharedIndex.scheduleRefreshIfStale()
+        #expect(await Self.wait(for: loadStarted))
+        #expect(await Self.wait(for: initialLoadCompleted))
+
+        now.addTimeInterval(10)
+        await sharedIndex.refreshForkAvailabilityNow()
+        #expect(await Self.wait(for: loadStarted))
+        #expect(
+            sharedIndex.index?.loadWorkloadCount == modestIndex.loadWorkloadCount,
+            "Unchanged process fingerprints should leave the published snapshot untouched."
+        )
+
+        now.addTimeInterval(10)
+        try Data("{\"sessions\":{},\"revision\":1}".utf8).write(
+            to: hookStoreURL,
+            options: .atomic
+        )
+
+        let thirdLoadStarted = await Self.wait(for: loadStarted, timeout: 0.5)
+        #expect(
+            !thirdLoadStarted,
+            "The latest completed 270-record workload must apply even when its index was not published."
+        )
+    }
+
+    @Test
     func hookStoreReloadCadenceKeepsModestHistoryResponsive() async throws {
         let index = Self.index(entryCount: 41)
         let reloadStarted = try await Self.hookStoreReloadStarted(
