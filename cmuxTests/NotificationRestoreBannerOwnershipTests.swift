@@ -50,6 +50,33 @@ struct NotificationRestoreBannerOwnershipTests {
         #expect(ownership.owner(tabId: tabId, surfaceId: surfaceId) == nil)
     }
 
+    @Test func clearingBannerOwnerByIDPreservesOtherOwners() throws {
+        let tabId = UUID()
+        let owners = (0..<512).map { index in
+            notification(
+                id: UUID(),
+                tabId: tabId,
+                surfaceId: UUID(),
+                title: "Owner \(index)",
+                createdAt: Date(timeIntervalSince1970: TimeInterval(index))
+            )
+        }
+        var ownership = ExternalNotificationBannerOwnership()
+
+        for owner in owners {
+            ownership.setOwner(owner)
+        }
+
+        ownership.clear(id: UUID())
+        #expect(Set(ownership.ownerIDs(tabId: tabId)) == Set(owners.map(\.id)))
+
+        let removed = try #require(owners.dropFirst(257).first)
+        ownership.clear(id: removed.id)
+
+        #expect(ownership.owner(tabId: tabId, surfaceId: removed.surfaceId) == nil)
+        #expect(Set(ownership.ownerIDs(tabId: tabId)) == Set(owners.map(\.id)).subtracting([removed.id]))
+    }
+
     @Test func transferCollisionDismissesDisplacedBannerOwner() {
         let store = TerminalNotificationStore.shared
         let previousNotifications = store.notifications

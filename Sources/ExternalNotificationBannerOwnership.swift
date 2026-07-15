@@ -5,6 +5,7 @@ import Foundation
 /// ahead without ever displaying.
 struct ExternalNotificationBannerOwnership {
     private var ownerByKey: [String: TerminalNotification] = [:]
+    private var keyByOwnerID: [UUID: String] = [:]
 
     func owner(tabId: UUID, surfaceId: UUID?) -> TerminalNotification? {
         ownerByKey[SupersededPhoneDismissBuffer.key(tabId: tabId, surfaceId: surfaceId)]
@@ -20,29 +21,51 @@ struct ExternalNotificationBannerOwnership {
 
     mutating func setOwner(_ notification: TerminalNotification?) {
         guard let notification else { return }
-        ownerByKey[Self.key(notification)] = notification
+        let key = Self.key(notification)
+        if let previousKey = keyByOwnerID[notification.id], previousKey != key {
+            ownerByKey.removeValue(forKey: previousKey)
+        }
+        if let replaced = ownerByKey[key], replaced.id != notification.id {
+            keyByOwnerID.removeValue(forKey: replaced.id)
+        }
+        ownerByKey[key] = notification
+        keyByOwnerID[notification.id] = key
     }
 
     mutating func clear(tabId: UUID, surfaceId: UUID?) {
-        ownerByKey.removeValue(forKey: SupersededPhoneDismissBuffer.key(tabId: tabId, surfaceId: surfaceId))
+        let key = SupersededPhoneDismissBuffer.key(tabId: tabId, surfaceId: surfaceId)
+        if let removed = ownerByKey.removeValue(forKey: key) {
+            keyByOwnerID.removeValue(forKey: removed.id)
+        }
     }
 
     mutating func clear(tabId: UUID) {
-        ownerByKey = ownerByKey.filter { $0.value.tabId != tabId }
+        let keys = ownerByKey.compactMap { key, owner in
+            owner.tabId == tabId ? key : nil
+        }
+        for key in keys {
+            if let removed = ownerByKey.removeValue(forKey: key) {
+                keyByOwnerID.removeValue(forKey: removed.id)
+            }
+        }
     }
 
     mutating func clear(id: UUID) {
-        ownerByKey = ownerByKey.filter { $0.value.id != id }
+        guard let key = keyByOwnerID.removeValue(forKey: id) else { return }
+        if ownerByKey[key]?.id == id {
+            ownerByKey.removeValue(forKey: key)
+        }
     }
 
     mutating func clear(ids: [String]) {
-        let ids = Set(ids.compactMap(UUID.init(uuidString:)))
-        guard !ids.isEmpty else { return }
-        ownerByKey = ownerByKey.filter { !ids.contains($0.value.id) }
+        for id in ids.compactMap(UUID.init(uuidString:)) {
+            clear(id: id)
+        }
     }
 
     mutating func clearAll() {
         ownerByKey.removeAll()
+        keyByOwnerID.removeAll()
     }
 
     /// Preserve live owners by stable notification id while rows move during
@@ -63,21 +86,21 @@ struct ExternalNotificationBannerOwnership {
             let key = Self.key(owner)
             if reconciled[key] == nil { reconciled[key] = owner }
         }
-        ownerByKey = reconciled
+        replaceOwners(reconciled)
 
         let restoredOwners = restoredOwnerIDs.compactMap { mergedById[$0] }
             .sorted(by: TerminalNotificationStore.notificationSortPrecedes)
         for notification in restoredOwners {
             let key = Self.key(notification)
-            if ownerByKey[key] == nil { ownerByKey[key] = notification }
+            if ownerByKey[key] == nil { setOwner(notification) }
         }
     }
 
     mutating func resetAssumingOwners(from notifications: [TerminalNotification]) {
-        ownerByKey.removeAll()
+        clearAll()
         for notification in notifications {
             let key = Self.key(notification)
-            if ownerByKey[key] == nil { ownerByKey[key] = notification }
+            if ownerByKey[key] == nil { setOwner(notification) }
         }
     }
 
@@ -99,7 +122,7 @@ struct ExternalNotificationBannerOwnership {
             if let existing = ownerByKey[Self.key(moved)] {
                 guard existing.id != moved.id else { continue }
                 if TerminalNotificationStore.notificationSortPrecedes(moved, existing) {
-                    ownerByKey[Self.key(moved)] = moved
+                    setOwner(moved)
                     displaced.append(existing)
                 } else {
                     displaced.append(moved)
@@ -135,5 +158,13 @@ struct ExternalNotificationBannerOwnership {
 
     private static func key(_ notification: TerminalNotification) -> String {
         SupersededPhoneDismissBuffer.key(tabId: notification.tabId, surfaceId: notification.surfaceId)
+    }
+
+    private mutating func replaceOwners(_ owners: [String: TerminalNotification]) {
+        ownerByKey = owners
+        keyByOwnerID.removeAll(keepingCapacity: true)
+        for (key, owner) in ownerByKey {
+            keyByOwnerID[owner.id] = key
+        }
     }
 }

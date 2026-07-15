@@ -87,15 +87,10 @@ extension TerminalNotificationStore {
         }
 
         insertNotification(notification, into: &indexes, notifications: notifications)
-
-        if evictedWasLatestForTab, indexes.latestByTabId[evicted.tabId] == nil {
-            indexes.latestByTabId[evicted.tabId] = notifications.first { $0.tabId == evicted.tabId }
-        }
-        if evictedWasLatestForSurface, indexes.latestByTabSurface[evictedTabSurfaceKey] == nil {
-            indexes.latestByTabSurface[evictedTabSurfaceKey] = notifications.first {
-                $0.tabId == evicted.tabId && $0.surfaceId == evicted.surfaceId
-            }
-        }
+        // This path is only used by append-newest-at-capacity. The evicted row
+        // is the oldest retained row, so if it owned the latest slot for its
+        // tab or surface there is no replacement row for that key. Avoid a
+        // full-feed scan on every capped insertion.
     }
 
     static func updateReadState(

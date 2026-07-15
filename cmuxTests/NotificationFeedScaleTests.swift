@@ -119,6 +119,57 @@ struct NotificationFeedScaleTests {
     }
 
     @Test
+    func cappedAppendWithOneRowPerSurfaceDropsEvictedLatestWithoutHistoryRecovery() throws {
+        let store = TerminalNotificationStore.shared
+        let eventBus = CmuxEventBus.shared
+        let limit = TerminalNotificationStore.maximumNotificationFeedCount
+
+        let notifications = (0..<limit).map { index in
+            TerminalNotification(
+                id: UUID(),
+                tabId: UUID(),
+                surfaceId: UUID(),
+                retargetsToLiveSurfaceOwner: false,
+                title: "Distinct \(index)",
+                subtitle: "",
+                body: "",
+                createdAt: Date(timeIntervalSince1970: TimeInterval(index)),
+                isRead: false
+            )
+        }.sorted(by: TerminalNotificationStore.notificationSortPrecedes)
+        let evicted = try #require(notifications.last)
+
+        store.replaceNotificationsForTesting(notifications)
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        store.configureSuppressedNotificationFeedbackHandlerForTesting { _, _ in }
+        eventBus.resetForTesting()
+        TerminalNotificationStore.resetFullIndexRebuildCountForTesting()
+        defer {
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            store.resetSuppressedNotificationFeedbackHandlerForTesting()
+            eventBus.resetForTesting()
+        }
+
+        store.addNotification(
+            id: UUID(),
+            acceptedAt: Date(timeIntervalSince1970: TimeInterval(limit + 1)),
+            tabId: UUID(),
+            surfaceId: UUID(),
+            title: "Distinct live at cap",
+            subtitle: "",
+            body: "",
+            retargetsToLiveSurfaceOwner: false
+        )
+
+        #expect(store.notifications.count == limit)
+        #expect(!store.notifications.contains { $0.id == evicted.id })
+        #expect(store.latestNotification(forTabId: evicted.tabId) == nil)
+        #expect(!store.hasUnreadNotification(forTabId: evicted.tabId, surfaceId: evicted.surfaceId))
+        #expect(TerminalNotificationStore.fullIndexRebuildCountForTesting == 0)
+    }
+
+    @Test
     func frozenFeedSnapshotSurvivesStorageCompaction() {
         let store = TerminalNotificationStore.shared
         let eventBus = CmuxEventBus.shared

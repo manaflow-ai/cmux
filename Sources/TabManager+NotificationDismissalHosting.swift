@@ -95,7 +95,10 @@ extension TabManager: NotificationDismissalHosting {
         into hasher: inout Hasher
     ) {
         hasher.combine(notifications.count)
-        for notification in notifications.sorted(by: { uuidSortPrecedes($0.id, $1.id) }) {
+        // SessionAutosaveNotificationIndex assembles buckets in retained feed
+        // order. Hash that deterministic order directly instead of sorting
+        // every notification bucket on each autosave tick.
+        for notification in notifications {
             hasher.combine(notification.id)
             hasher.combine(notification.title)
             hasher.combine(notification.subtitle)
