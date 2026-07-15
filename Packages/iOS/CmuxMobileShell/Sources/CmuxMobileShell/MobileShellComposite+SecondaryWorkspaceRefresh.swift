@@ -16,6 +16,7 @@ extension MobileShellComposite {
     func applySecondaryCreateResponseIfCurrent(
         _ response: MobileSyncWorkspaceListResponse,
         macID: String,
+        remoteWorkspaceID: MobileWorkspacePreview.ID,
         subscription: SecondaryMacSubscription,
         refreshStartedGeneration: UInt64,
         listStartedAtFocusRevision: UInt64
@@ -28,9 +29,8 @@ extension MobileShellComposite {
         let previews = response.workspaces.map { remote -> MobileWorkspacePreview in
             var workspace = MobileWorkspacePreview(remote: remote)
             workspace.macDeviceID = macID
-            if let existingWorkspace = workspaces.first(where: {
+            if let existingWorkspace = workspacesByMac[macID]?.workspaces.first(where: {
                 $0.rpcWorkspaceID == workspace.rpcWorkspaceID
-                    && $0.macDeviceID == macID
             }) {
                 preserveNewerWorkspaceFocusIfNeeded(
                     in: &workspace,
@@ -41,9 +41,11 @@ extension MobileShellComposite {
             }
             return workspace
         }
-        installAuthoritativeSecondaryWorkspaceState(
+        guard previews.contains(where: { $0.rpcWorkspaceID == remoteWorkspaceID }) else {
+            return false
+        }
+        mergeScopedSecondaryWorkspaceState(
             macID: macID,
-            displayName: workspacesByMac[macID]?.displayName,
             workspaces: previews,
             actionCapabilities: subscription.actionCapabilities
         )
@@ -153,6 +155,55 @@ extension MobileShellComposite {
             }
             return workspace.macDeviceID == nil ? workspace.id : nil
         })
+    }
+
+    func workspaceRowIDs(
+        ownedByMacDeviceID macDeviceID: String,
+        matchingRemoteWorkspaceIDs remoteWorkspaceIDs: Set<MobileWorkspacePreview.ID>
+    ) -> Set<MobileWorkspacePreview.ID> {
+        Set(workspaces.compactMap { workspace in
+            guard workspace.macDeviceID == macDeviceID,
+                  remoteWorkspaceIDs.contains(workspace.rpcWorkspaceID) else { return nil }
+            return workspace.id
+        })
+    }
+
+    /// Merges a mutation-scoped response into one secondary Mac without
+    /// interpreting omitted siblings as deletions. Returned rows replace their
+    /// existing slots (preserving order); genuinely new rows append. Groups,
+    /// display identity, sibling focus revisions, and unrelated recovery gates
+    /// remain owned by the last authoritative full-list refresh.
+    func mergeScopedSecondaryWorkspaceState(
+        macID: String,
+        workspaces scopedWorkspaces: [MobileWorkspacePreview],
+        actionCapabilities: MobileWorkspaceActionCapabilities
+    ) {
+        let remoteWorkspaceIDs = Set(scopedWorkspaces.map(\.rpcWorkspaceID))
+        let previousWorkspaceIDs = workspaceRowIDs(
+            ownedByMacDeviceID: macID,
+            matchingRemoteWorkspaceIDs: remoteWorkspaceIDs
+        )
+        var state = workspacesByMac[macID] ?? MacWorkspaceState(macDeviceID: macID)
+        for workspace in scopedWorkspaces {
+            if let index = state.workspaces.firstIndex(where: {
+                $0.rpcWorkspaceID == workspace.rpcWorkspaceID
+            }) {
+                state.workspaces[index] = workspace
+            } else {
+                state.workspaces.append(workspace)
+            }
+        }
+        state.status = .connected
+        state.actionCapabilities = actionCapabilities
+        workspacesByMac[macID] = state
+        terminalReorderGate.reconcileAfterAuthoritativeRefresh(
+            workspaceIDs: previousWorkspaceIDs.union(
+                workspaceRowIDs(
+                    ownedByMacDeviceID: macID,
+                    matchingRemoteWorkspaceIDs: remoteWorkspaceIDs
+                )
+            )
+        )
     }
 
     /// Installs a full secondary-Mac list and reconciles hierarchy recovery for

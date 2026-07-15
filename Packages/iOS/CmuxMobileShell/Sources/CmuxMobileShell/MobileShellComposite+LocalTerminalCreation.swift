@@ -92,6 +92,7 @@ extension MobileShellComposite {
                    applySecondaryCreateResponseIfCurrent(
                        response,
                        macID: macDeviceID,
+                       remoteWorkspaceID: requestedWorkspaceID,
                        subscription: secondarySubscription,
                        refreshStartedGeneration: secondaryRefreshStartedGeneration,
                        listStartedAtFocusRevision: focusRevision
