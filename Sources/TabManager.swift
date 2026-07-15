@@ -541,7 +541,7 @@ class TabManager: ObservableObject {
                 guard let change = GhosttyTitleChange(notification: notification),
                       let workspace = workspacesById[change.tabId],
                       workspace.owningTabManager === self,
-                      let sourceSurface = (notification.object as? TerminalSurface) ?? workspace.terminalPanel(for: change.surfaceId)?.surface else { return }
+                      let sourceSurface = (notification.object as? TerminalSurface) ?? workspace.terminalPanel(for: change.surfaceId)?.surface, change.matches(sourceSurface: sourceSurface) else { return }
                 enqueuePanelTitleUpdate(change, sourceSurface: sourceSurface)
             }
         })
@@ -2866,7 +2866,7 @@ class TabManager: ObservableObject {
     }
 
     func titleForTab(_ tabId: UUID) -> String? {
-        tabs.first(where: { $0.id == tabId })?.title
+        workspacesById[tabId]?.title
     }
 
     // MARK: - Panel/Surface ID Access
