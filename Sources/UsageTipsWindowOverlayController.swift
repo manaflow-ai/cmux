@@ -102,9 +102,9 @@ final class UsageTipsWindowOverlayController: NSObject {
         )
         containerView.addSubview(hostingView)
         NSLayoutConstraint.activate([
-            hostingView.leadingAnchor.constraint(greaterThanOrEqualTo: containerView.leadingAnchor),
+            hostingView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
             hostingView.topAnchor.constraint(greaterThanOrEqualTo: containerView.topAnchor),
-            hostingView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+            hostingView.trailingAnchor.constraint(lessThanOrEqualTo: containerView.trailingAnchor),
             hostingView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
         ])
     }
@@ -260,15 +260,7 @@ final class UsageTipsWindowOverlayController: NSObject {
         return AnyView(
             UsageTipCard(
                 presentation: presentation,
-                onAcknowledge: { [weak self] in self?.usageTipsController?.acknowledge() },
-                onDismiss: { [weak self] in self?.usageTipsController?.dismiss() },
-                onOpenSettings: {
-                    AppDelegate.presentPreferencesWindow(
-                        navigationTarget: .app,
-                        navigationAnchorID: "setting:app:usage-tips",
-                        highlight: true
-                    )
-                }
+                onAcknowledge: { [weak self] in self?.usageTipsController?.acknowledge() }
             )
             // Usage tips are passive chrome: terminal keyboard focus must never enter this overlay.
             .focusable(false)
