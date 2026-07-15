@@ -17,15 +17,20 @@ struct BrowserViewportRuntimeTests {
         let panel = BrowserPanel(workspaceId: UUID(), initialURL: URL(string: "about:blank")!)
         let webView = panel.webView
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 380, height: 610))
+        let lowerSibling = NSView(frame: .zero)
+        let upperSibling = NSView(frame: .zero)
         defer {
             webView.cmuxBrowserViewportPresentationView.removeFromSuperview()
             panel.close()
         }
 
         #expect(webView.cmuxBrowserViewportPresentationView === webView)
-        container.addSubview(webView.cmuxBrowserViewportPresentationView)
+        container.addSubview(lowerSibling)
+        container.addSubview(webView, positioned: .above, relativeTo: lowerSibling)
+        container.addSubview(upperSibling, positioned: .above, relativeTo: webView)
         #expect(webView.superview === container)
         #expect(panel.viewportHostView.superview == nil)
+        #expect(container.subviews[1] === webView)
 
         let viewport = try #require(BrowserViewport(width: 1_280, height: 720))
         let emulatedLayout = try panel.setAutomationViewport(viewport).get()
@@ -34,11 +39,20 @@ struct BrowserViewportRuntimeTests {
         #expect(webView.cmuxBrowserViewportPresentationView === panel.viewportHostView)
         #expect(webView.superview === panel.viewportHostView)
         #expect(panel.viewportHostView.superview === container)
+        #expect(container.subviews[1] === panel.viewportHostView)
 
         let nativeLayout = try panel.setAutomationViewport(nil).get()
 
         #expect(nativeLayout.mode == .native)
         #expect(webView.cmuxBrowserViewportPresentationView === webView)
+        #expect(webView.superview === container)
+        #expect(panel.viewportHostView.superview == nil)
+        #expect(container.subviews[1] === webView)
+        #expect(webView.cmuxBrowserViewportLayoutMatches(container.bounds))
+
+        panel.scheduleBrowserViewportHostRestoration(reason: "nativeRegressionTest")
+        #expect(panel.browserViewportHostRestorationTask == nil)
+        #expect(!panel.browserViewportHostRestorationPending)
         #expect(webView.superview === container)
         #expect(panel.viewportHostView.superview == nil)
     }
@@ -60,7 +74,7 @@ struct BrowserViewportRuntimeTests {
         webView.browserViewportModel = viewportModel
         webView.navigationDelegate = loadDelegate
         viewportHost.installWebView(webView)
-        pane.addSubview(viewportHost)
+        pane.addSubview(webView)
         window.contentView = pane
         window.orderFrontRegardless()
         defer {
@@ -93,6 +107,7 @@ struct BrowserViewportRuntimeTests {
 
         let viewport = try #require(BrowserViewport(width: 1_280, height: 720))
         viewportModel.setViewport(viewport)
+        #expect(webView.cmuxRestoreIntoBrowserViewportHostAfterExternalGeometryIfSafe())
         let layout = try #require(webView.cmuxApplyBrowserViewportLayout(in: pane.bounds))
         #expect(layout.mode == .emulated)
 
@@ -169,10 +184,12 @@ struct BrowserViewportRuntimeTests {
         #expect(restoredMetrics["height"] as? Int == 720)
 
         viewportModel.setViewport(nil)
-        let nativeLayout = try #require(webView.cmuxApplyBrowserViewportLayout(in: pane.bounds))
+        let nativeLayout = try #require(webView.cmuxBrowserViewportLayout(in: pane.bounds))
+        #expect(viewportHost.deactivateWebView(using: nativeLayout))
         let nativeMetrics = try await runtimeMetrics(in: webView)
         #expect(nativeLayout.mode == .native)
-        #expect(viewportHost.autoresizesSubviews)
+        #expect(webView.superview === pane)
+        #expect(viewportHost.superview == nil)
         #expect(nativeMetrics["width"] as? Int == Int(nativeLayout.bounds.width))
         #expect(nativeMetrics["height"] as? Int == Int(nativeLayout.bounds.height))
     }

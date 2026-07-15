@@ -2,10 +2,12 @@ import AppKit
 import CmuxBrowser
 import WebKit
 
-/// Persistent presentation host that maps a logical browser viewport into pane geometry.
+/// Lazily activated presentation host that maps a logical browser viewport into pane geometry.
 ///
 /// Scaling the host's bounds, rather than only the `WKWebView` bounds, gives WebKit a real
 /// layout size while preserving the pane's displayed size and AppKit coordinate conversion.
+/// Native browsers stay directly attached to their portal container so this extra AppKit layer
+/// exists only while an automation viewport is active.
 @MainActor
 final class BrowserViewportHostView: NSView {
     private(set) weak var webView: WKWebView?
@@ -29,7 +31,9 @@ final class BrowserViewportHostView: NSView {
     func installWebView(_ nextWebView: WKWebView) {
         if webView === nextWebView {
             nextWebView.cmuxBrowserViewportHostView = self
-            restoreWebViewIfNeeded()
+            if hasActiveViewport(for: nextWebView) {
+                restoreWebViewIfNeeded()
+            }
             return
         }
 
@@ -44,12 +48,18 @@ final class BrowserViewportHostView: NSView {
 
         webView = nextWebView
         nextWebView.cmuxBrowserViewportHostView = self
-        restoreWebViewIfNeeded()
+        if hasActiveViewport(for: nextWebView) {
+            restoreWebViewIfNeeded()
+        } else if subviews.isEmpty {
+            appliedLayout = nil
+            removeFromSuperview()
+        }
     }
 
     @discardableResult
     func restoreWebViewIfNeeded() -> Bool {
         guard let webView else { return false }
+        guard hasActiveViewport(for: webView) else { return false }
         guard webView.superview !== self else {
             applyRawWebViewGeometryIfSafe()
             return false
@@ -64,6 +74,7 @@ final class BrowserViewportHostView: NSView {
     @discardableResult
     func restoreWebViewAfterExternalGeometryIfSafe() -> Bool {
         guard let webView else { return false }
+        guard hasActiveViewport(for: webView) else { return false }
         guard webView.superview !== self else {
             applyRawWebViewGeometryIfSafe()
             return false
@@ -110,6 +121,59 @@ final class BrowserViewportHostView: NSView {
         } else {
             applyRawWebViewGeometryIfSafe()
         }
+        return true
+    }
+
+    /// Replaces this host with its raw web view when pane geometry becomes authoritative again.
+    ///
+    /// The raw view is inserted at the host's exact sibling position so portal overlays and hit
+    /// testing retain their ordering across native → emulated → native transitions.
+    @discardableResult
+    func deactivateWebView(using nativeLayout: BrowserViewportLayout) -> Bool {
+        guard let webView, webView.superview === self else {
+            webView?.cmuxApplyBrowserViewportLayout(nativeLayout)
+            if subviews.isEmpty {
+                appliedLayout = nil
+                removeFromSuperview()
+            }
+            return false
+        }
+        guard !browserPortalHasVisibleWebKitCompanionSubview(for: webView) else {
+            apply(nativeLayout, updateWebView: false)
+            return false
+        }
+
+        let container = superview
+        let hostFrame = frame
+        let hostBounds = bounds
+        let hostAutoresizingMask = autoresizingMask
+        let hostTranslatesAutoresizingMaskIntoConstraints = translatesAutoresizingMaskIntoConstraints
+        let siblings = container?.subviews ?? []
+        let hostIndex = siblings.firstIndex(of: self)
+        let previousSibling = hostIndex.flatMap { index in
+            index > 0 ? siblings[index - 1] : nil
+        }
+
+        webView.removeFromSuperview()
+        removeFromSuperview()
+
+        if let container {
+            if let previousSibling, previousSibling.superview === container {
+                container.addSubview(webView, positioned: .above, relativeTo: previousSibling)
+            } else if let firstSibling = container.subviews.first {
+                container.addSubview(webView, positioned: .below, relativeTo: firstSibling)
+            } else {
+                container.addSubview(webView)
+            }
+        } else {
+            webView.frame = hostFrame
+            webView.bounds = hostBounds
+            webView.autoresizingMask = hostAutoresizingMask
+            webView.translatesAutoresizingMaskIntoConstraints = hostTranslatesAutoresizingMaskIntoConstraints
+        }
+
+        appliedLayout = nil
+        webView.cmuxApplyBrowserViewportLayout(nativeLayout)
         return true
     }
 
@@ -160,6 +224,10 @@ final class BrowserViewportHostView: NSView {
         guard let webView, webView.superview === self else { return }
         guard !browserPortalHasVisibleWebKitCompanionSubview(for: webView) else { return }
         webView.cmuxApplyRawBrowserViewportGeometry(bounds)
+    }
+
+    private func hasActiveViewport(for webView: WKWebView) -> Bool {
+        (webView as? CmuxWebView)?.browserViewportModel?.viewport != nil
     }
 
     private static func rect(

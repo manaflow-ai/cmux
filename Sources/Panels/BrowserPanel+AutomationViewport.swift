@@ -14,8 +14,9 @@ extension BrowserPanel {
            host.browserPortalHasVisibleWebKitCompanionSubview(for: webView) {
             return .failure(.attachedBrowserInspector)
         }
-
-        _ = webView.cmuxRestoreIntoBrowserViewportHostAfterExternalGeometryIfSafe()
+        if viewportHostView.browserPortalHasVisibleWebKitCompanionSubview(for: webView) {
+            return .failure(.attachedBrowserInspector)
+        }
 
         let containerBounds = webView.cmuxBrowserViewportContainerBounds
             ?? fallbackAutomationViewportContainerBounds
@@ -37,6 +38,11 @@ extension BrowserPanel {
         viewportModel.setViewport(viewport)
         if let webView = webView as? CmuxWebView {
             webView.browserViewportModel = viewportModel
+        }
+        if viewport != nil {
+            _ = webView.cmuxRestoreIntoBrowserViewportHostAfterExternalGeometryIfSafe()
+        } else {
+            _ = viewportHostView.deactivateWebView(using: layout)
         }
         webView.cmuxApplyBrowserViewportLayout(layout)
         webView.needsLayout = true
@@ -82,6 +88,12 @@ extension BrowserPanel {
     func scheduleBrowserViewportHostRestoration(
         reason: String
     ) {
+        guard viewportModel.requestedViewport != nil else {
+            browserViewportHostRestorationTask?.cancel()
+            browserViewportHostRestorationTask = nil
+            browserViewportHostRestorationPending = false
+            return
+        }
         browserViewportHostRestorationPending = true
         browserViewportHostRestorationTask?.cancel()
         let expectedWebView = webView
@@ -91,7 +103,8 @@ extension BrowserPanel {
                   let self,
                   let expectedWebView,
                   self.webView === expectedWebView,
-                  self.browserViewportHostRestorationPending else {
+                  self.browserViewportHostRestorationPending,
+                  self.viewportModel.requestedViewport != nil else {
                 return
             }
             self.browserViewportHostRestorationTask = nil
