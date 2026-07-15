@@ -7,9 +7,11 @@ import SwiftUI
 public struct TerminalHierarchyPreviewView: View {
     @State private var workspace: MobileWorkspacePreview
     @State private var selectedTerminalID: MobileTerminalPreview.ID?
+    @State private var hasSimulatedCreateFailure = false
     @State private var hasSimulatedMutationFailure = false
     @State private var reorderGate = MobileTerminalReorderGate()
     @State private var isCloseUnavailablePresented: Bool
+    private let simulatesCreateFailure: Bool
     private let simulatesMutationFailure: Bool
     private let simulatesProtectedClose: Bool
     private let simulatesResultUnknownRefreshed: Bool
@@ -26,6 +28,18 @@ public struct TerminalHierarchyPreviewView: View {
             workspace.terminals = []
             workspace.panes = []
             workspace.focusedPaneID = nil
+            workspace.selectedTerminalID = nil
+        case "empty-error-recovery":
+            workspace.terminals = []
+            workspace.panes = [
+                MobilePanePreview(
+                    id: "pane-left",
+                    spatialIndex: 0,
+                    isFocused: true,
+                    terminalIDs: []
+                ),
+            ]
+            workspace.focusedPaneID = "pane-left"
             workspace.selectedTerminalID = nil
         case "single":
             workspace.terminals = Array(workspace.terminals.prefix(1))
@@ -49,6 +63,7 @@ public struct TerminalHierarchyPreviewView: View {
         _workspace = State(initialValue: workspace)
         _selectedTerminalID = State(initialValue: workspace.selectedTerminalID)
         _isCloseUnavailablePresented = State(initialValue: scenario == "close-unavailable")
+        simulatesCreateFailure = scenario == "empty-error-recovery"
         simulatesMutationFailure = scenario == "error"
         simulatesProtectedClose = scenario == "close-protected"
         simulatesResultUnknownRefreshed = scenario == "result-unknown-refreshed"
@@ -74,6 +89,11 @@ public struct TerminalHierarchyPreviewView: View {
     private func createTerminal(
         completion: @escaping @MainActor (Result<Void, MobileWorkspaceMutationFailure>) -> Void
     ) {
+        if simulatesCreateFailure, !hasSimulatedCreateFailure {
+            hasSimulatedCreateFailure = true
+            completion(.failure(.notConnected(hostDisplayName: workspace.macDisplayName)))
+            return
+        }
         guard let paneID = workspace.terminalCreationPaneID,
               let paneIndex = workspace.panes.firstIndex(where: { $0.id == paneID }) else {
             completion(.failure(.rejected(hostDisplayName: nil)))

@@ -188,6 +188,50 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testTerminalHierarchyEmptyCreateFailureRetryRecoversContinuously() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_TERMINAL_HIERARCHY_PREVIEW": "1",
+            "CMUX_UITEST_TERMINAL_HIERARCHY_SCENARIO": "empty-error-recovery",
+        ])
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.otherElements["MobileTerminalHierarchySheet"].waitForExistence(timeout: 8))
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileTerminalHierarchyPane-pane-left"]
+                .waitForExistence(timeout: 3)
+        )
+        let emptyState = app.staticTexts["No terminals in this pane"]
+        let createdTerminal = app.buttons["MobileTerminalHierarchyRow-terminal-created-1"]
+        XCTAssertTrue(emptyState.waitForExistence(timeout: 3))
+        XCTAssertFalse(createdTerminal.exists)
+
+        let createTerminal = app.buttons["MobileTerminalHierarchyNewTerminal"]
+        XCTAssertTrue(createTerminal.exists)
+        createTerminal.tap()
+
+        let failureTitle = app.staticTexts["Couldn't Update Terminals"]
+        XCTAssertTrue(failureTitle.waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts[
+            "The Mac kept the previous terminal state. Check the connection and try again."
+        ].exists)
+        XCTAssertTrue(emptyState.exists, "The failed create must leave the pane unchanged")
+        XCTAssertFalse(createdTerminal.exists)
+
+        app.buttons["OK"].tap()
+        XCTAssertFalse(failureTitle.waitForExistence(timeout: 1))
+        XCTAssertTrue(emptyState.exists)
+
+        createTerminal.tap()
+
+        XCTAssertTrue(createdTerminal.waitForExistence(timeout: 3))
+        XCTAssertTrue(
+            createdTerminal.label.contains("Active"),
+            "The retry must select the newly created stable terminal identity"
+        )
+        XCTAssertFalse(emptyState.exists)
+    }
+
+    @MainActor
     func testTerminalHierarchyProtectedCloseExplainsUnpinRecovery() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_TERMINAL_HIERARCHY_PREVIEW": "1",
