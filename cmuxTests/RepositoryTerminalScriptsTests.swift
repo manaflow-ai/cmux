@@ -59,27 +59,6 @@ struct RepositoryTerminalScriptsTests {
         #expect(resolver.trustDescriptor(for: overridden) == nil)
     }
 
-    @Test func oversizedProjectConfigIsIgnored() throws {
-        let root = try makeTemporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-        try makeNormalRepository(at: root)
-        let padding = String(repeating: "x", count: 1_048_576)
-        let config = #"{"scripts":{"setup":"pnpm install"},"padding":"\#(padding)"}"#
-        #expect(config.utf8.count > 1_048_576)
-        try writeConfig(
-            config,
-            at: root.appendingPathComponent(".cmux/cmux.json")
-        )
-
-        let resolution = try #require(
-            RepositoryScriptResolver().resolve(directory: root.path, preferences: [])
-        )
-
-        #expect(resolution.setup == nil)
-        #expect(resolution.projectScripts.isEmpty)
-        #expect(resolution.source == .none)
-    }
-
     @Test func scopedConfigWinsOverLegacyRootConfig() throws {
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -143,42 +122,6 @@ struct RepositoryTerminalScriptsTests {
         #expect(RepositorySetupLaunchPlan(location: .horizontalSplit) == .split(.vertical))
     }
 
-    @Test func archiveScriptUsesBoundedDiscardingCommandInvocation() async throws {
-        let commands = RecordingRepositoryArchiveCommandRunner()
-        let script = "printf 'cleanup output'\nprintf 'cleanup error' >&2"
-
-        _ = await RepositoryArchiveScriptRunner(commands: commands).run(script, in: "/repo")
-
-        let recorded = await commands.lastInvocation()
-        let invocation = try #require(recorded)
-        #expect(invocation.directory == "/repo")
-        #expect(invocation.executable == "/bin/zsh")
-        #expect(invocation.arguments.prefix(2) == ["-l", "-c"])
-        let shellPayload = try #require(invocation.arguments.last)
-        #expect(shellPayload != script)
-        #expect(shellPayload.contains("/dev/null"))
-        #expect(shellPayload.contains("2>&1"))
-        #expect(shellPayload.contains(script))
-        #expect(invocation.timeout == 300)
-    }
-
-    @Test func archiveScriptDiscardsOutputWithTheProductionCommandRunner() async throws {
-        let root = try makeTemporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let script = "printf 'cleanup output'\nprintf 'cleanup error' >&2"
-
-        let result = await RepositoryArchiveScriptRunner(commands: CommandRunner()).run(
-            script,
-            in: root.path
-        )
-
-        #expect(result.executionError == nil)
-        #expect(!result.timedOut)
-        #expect(result.exitStatus == 0)
-        #expect(result.stdout == "")
-        #expect(result.stderr == "")
-    }
-
     @MainActor
     @Test func savedCommandsJoinTheCommandPaletteModelAsTrustedGlobalCommands() throws {
         let root = try makeTemporaryDirectory()
@@ -216,6 +159,87 @@ struct RepositoryTerminalScriptsTests {
         try FileManager.default.createDirectory(at: gitDirectory, withIntermediateDirectories: true)
         try Data("gitdir: \(gitDirectory.path)\n".utf8).write(to: root.appendingPathComponent(".git"))
         try Data("../..\n".utf8).write(to: gitDirectory.appendingPathComponent("commondir"))
+    }
+
+    private func writeConfig(_ contents: String, at url: URL) throws {
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data(contents.utf8).write(to: url)
+    }
+}
+
+struct RepositoryScriptSafetyTests {
+    @Test func oversizedProjectConfigIsIgnored() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try makeNormalRepository(at: root)
+        let padding = String(repeating: "x", count: 1_048_576)
+        let config = #"{"scripts":{"setup":"pnpm install"},"padding":"\#(padding)"}"#
+        #expect(config.utf8.count > 1_048_576)
+        try writeConfig(
+            config,
+            at: root.appendingPathComponent(".cmux/cmux.json")
+        )
+
+        let resolution = try #require(
+            RepositoryScriptResolver().resolve(directory: root.path, preferences: [])
+        )
+
+        #expect(resolution.setup == nil)
+        #expect(resolution.projectScripts.isEmpty)
+        #expect(resolution.source == .none)
+    }
+
+    @Test func archiveScriptUsesBoundedDiscardingCommandInvocation() async throws {
+        let commands = RecordingRepositoryArchiveCommandRunner()
+        let script = "printf 'cleanup output'\nprintf 'cleanup error' >&2"
+
+        _ = await RepositoryArchiveScriptRunner(commands: commands).run(script, in: "/repo")
+
+        let recorded = await commands.lastInvocation()
+        let invocation = try #require(recorded)
+        #expect(invocation.directory == "/repo")
+        #expect(invocation.executable == "/bin/zsh")
+        #expect(invocation.arguments.prefix(2) == ["-l", "-c"])
+        let shellPayload = try #require(invocation.arguments.last)
+        #expect(shellPayload != script)
+        #expect(shellPayload.contains("/dev/null"))
+        #expect(shellPayload.contains("2>&1"))
+        #expect(shellPayload.contains(script))
+        #expect(invocation.timeout == 300)
+    }
+
+    @Test func archiveScriptDiscardsOutputWithTheProductionCommandRunner() async throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let script = "printf 'cleanup output'\nprintf 'cleanup error' >&2"
+
+        let result = await RepositoryArchiveScriptRunner(commands: CommandRunner()).run(
+            script,
+            in: root.path
+        )
+
+        #expect(result.executionError == nil)
+        #expect(!result.timedOut)
+        #expect(result.exitStatus == 0)
+        #expect(result.stdout == "")
+        #expect(result.stderr == "")
+    }
+
+    private func makeTemporaryDirectory() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-repository-script-safety-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    private func makeNormalRepository(at root: URL) throws {
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent(".git"),
+            withIntermediateDirectories: true
+        )
     }
 
     private func writeConfig(_ contents: String, at url: URL) throws {
