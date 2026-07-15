@@ -62,6 +62,11 @@ final class UsageTipsController {
     func windowDidResignKey(windowID: UUID) {
         guard activeWindowID == windowID else { return }
         activeWindowID = nil
+        guard case let .presenting(presentation) = state,
+              presentation.windowID == windowID else { return }
+        cancelAutoHide?()
+        cancelAutoHide = nil
+        state = .idle
     }
 
     func unregister(windowID: UUID) {
