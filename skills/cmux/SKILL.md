@@ -33,6 +33,10 @@ cmux move-surface --surface surface:7 --pane pane:2 --focus true
 cmux split-off --surface surface:7 right
 cmux reorder-surface --surface surface:7 --before surface:3
 
+# workspace context-menu actions (color, description, rename, pin, ...)
+cmux workspace-action --action set-color --color Blue
+cmux workspace-action --action set-description --description "Ship checklist"
+
 # attention cue
 cmux trigger-flash --surface surface:7
 ```
@@ -75,7 +79,7 @@ cmux settings shortcuts
 | Reference | When to Use |
 |-----------|-------------|
 | [references/handles-and-identify.md](references/handles-and-identify.md) | Handle syntax, self-identify, caller targeting |
-| [references/windows-workspaces.md](references/windows-workspaces.md) | Window/workspace lifecycle and reorder/move |
+| [references/windows-workspaces.md](references/windows-workspaces.md) | Window/workspace lifecycle, reorder/move, and context-menu actions (color, description, rename) |
 | [references/panes-surfaces.md](references/panes-surfaces.md) | Splits, surfaces, move/reorder, focus routing |
 | [references/trigger-flash-and-health.md](references/trigger-flash-and-health.md) | Flash cue and surface health checks |
 | [../cmux-workspace/SKILL.md](../cmux-workspace/SKILL.md) | Current caller workspace rules and non-disruptive automation |
