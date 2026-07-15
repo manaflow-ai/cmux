@@ -71,52 +71,6 @@ struct GhosttyDesktopNotificationIngressTests {
         #expect(!store.hasUnreadNotification(forTabId: workspace.id, surfaceId: surfaceId))
     }
 
-    @Test func codexDesktopNotificationsBypassStructuredAgentRawNotificationSuppression() async throws {
-        let store = TerminalNotificationStore.shared
-        let originalAppDelegate = AppDelegate.shared
-        let appDelegate = originalAppDelegate ?? AppDelegate()
-        let manager = TabManager()
-        let originalTabManager = appDelegate.tabManager
-        let originalNotificationStore = appDelegate.notificationStore
-        let originalAppFocusOverride = AppFocusState.overrideIsFocused
-
-        store.replaceNotificationsForTesting([])
-        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
-        appDelegate.tabManager = manager
-        appDelegate.notificationStore = store
-        AppFocusState.overrideIsFocused = false
-
-        let workspace = manager.addWorkspace(select: true)
-        defer {
-            if manager.tabs.contains(where: { $0.id == workspace.id }) {
-                manager.closeWorkspace(workspace)
-            }
-            store.replaceNotificationsForTesting([])
-            store.resetNotificationDeliveryHandlerForTesting()
-            appDelegate.tabManager = originalTabManager
-            appDelegate.notificationStore = originalNotificationStore
-            AppDelegate.shared = originalAppDelegate
-            AppFocusState.overrideIsFocused = originalAppFocusOverride
-        }
-
-        let surfaceID = try #require(workspace.focusedPanelId)
-        workspace.recordAgentPID(key: "codex.session-mcp", pid: 12345, panelId: surfaceID)
-
-        await store.addDesktopNotificationResolvingHooks(
-            tabId: workspace.id,
-            surfaceId: surfaceID,
-            hookDirectory: nil,
-            title: "",
-            body: "Approval requested by GitHub"
-        )
-
-        #expect(store.notifications.contains { notification in
-            notification.tabId == workspace.id &&
-                notification.surfaceId == surfaceID &&
-                notification.body == "Approval requested by GitHub"
-        })
-    }
-
     @Test func overflowDropsOldestBufferedRequest() async {
         let (deliveries, deliveryContinuation) = AsyncStream<GhosttyDesktopNotificationRequest>.makeStream()
         let (releaseFirstDelivery, releaseContinuation) = AsyncStream<Void>.makeStream(

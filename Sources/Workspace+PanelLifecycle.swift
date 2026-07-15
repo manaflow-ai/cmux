@@ -228,15 +228,7 @@ extension Workspace {
             return true
         }
 
-        let panelKeys = agentPIDKeysByPanelId[panelId] ?? []
-        // Codex's OSC notification is the only live, authoritative signal for
-        // transient MCP elicitations, which Codex omits from both rollouts and
-        // hooks. Preserve Codex-owned terminal notifications instead of trying
-        // to reconstruct their kind from user-visible copy.
-        if panelKeys.contains(where: { agentStatusKey(forAgentPIDKey: $0) == "codex" }) {
-            return false
-        }
-        return panelKeys.contains { isStructuredAgentHookPIDKey($0) }
+        return (agentPIDKeysByPanelId[panelId] ?? []).contains { isStructuredAgentHookPIDKey($0) }
     }
 
     private func terminalPanelHasManagedSubagentStartupEnvironment(panelId: UUID) -> Bool {
