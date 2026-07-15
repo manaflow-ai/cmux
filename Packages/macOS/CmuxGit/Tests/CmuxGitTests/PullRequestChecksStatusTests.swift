@@ -6,13 +6,29 @@ import Testing
         #expect(PullRequestChecksStatus.derive(from: []) == .noChecks)
     }
 
-    @Test(arguments: ["FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED"])
+    @Test(arguments: [
+        "FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "ERROR", "STARTUP_FAILURE",
+    ])
     func blockingConclusionWinsOverSuccess(_ conclusion: String) {
         let checks = [
             GitHubPullRequestRollupCheck(status: "COMPLETED", conclusion: "SUCCESS"),
             GitHubPullRequestRollupCheck(status: "COMPLETED", conclusion: conclusion),
         ]
         #expect(PullRequestChecksStatus.derive(from: checks) == .failure)
+    }
+
+    @Test(arguments: ["ERROR", "STARTUP_FAILURE"])
+    func detailedFailureStateMatchesRollup(_ state: String) {
+        let check = GitHubPullRequestCheck(name: "CI", state: state, link: nil)
+        #expect(check.presentationState == .failure)
+    }
+
+    @Test func staleCheckRemainsPending() {
+        let rollup = [GitHubPullRequestRollupCheck(status: "COMPLETED", conclusion: "STALE")]
+        let check = GitHubPullRequestCheck(name: "CI", state: "STALE", link: nil)
+
+        #expect(PullRequestChecksStatus.derive(from: rollup) == .pending)
+        #expect(check.presentationState == .pending)
     }
 
     @Test func incompleteOrMissingConclusionIsPending() {

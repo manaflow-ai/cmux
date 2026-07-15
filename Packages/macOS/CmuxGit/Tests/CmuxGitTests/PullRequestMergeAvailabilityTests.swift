@@ -21,6 +21,38 @@ import Testing
         #expect(PullRequestMergeAvailability.derive(pullRequest: pullRequest) == .allowed)
     }
 
+    @Test func unknownPullRequestStateBlocksMerge() throws {
+        let pullRequest = try PullRequestFixtureLoader().pullRequest(state: "FUTURE_STATE")
+        #expect(
+            PullRequestMergeAvailability.derive(pullRequest: pullRequest)
+                == .blocked(.githubBlocked)
+        )
+    }
+
+    @Test func unknownMergeableValueBlocksMerge() throws {
+        let pullRequest = try PullRequestFixtureLoader().pullRequest(mergeable: "FUTURE_STATE")
+        #expect(
+            PullRequestMergeAvailability.derive(pullRequest: pullRequest)
+                == .blocked(.githubBlocked)
+        )
+    }
+
+    @Test func unknownMergeStateStatusBlocksMerge() throws {
+        let pullRequest = try PullRequestFixtureLoader().pullRequest(mergeStateStatus: "FUTURE_STATE")
+        #expect(
+            PullRequestMergeAvailability.derive(pullRequest: pullRequest)
+                == .blocked(.githubBlocked)
+        )
+    }
+
+    @Test func unknownReviewDecisionBlocksMerge() throws {
+        let pullRequest = try PullRequestFixtureLoader().pullRequest(reviewDecision: "FUTURE_STATE")
+        #expect(
+            PullRequestMergeAvailability.derive(pullRequest: pullRequest)
+                == .blocked(.githubBlocked)
+        )
+    }
+
     @Test func optionalCheckFailureDoesNotOverrideCleanGitHubState() throws {
         let snapshot = PullRequestPanelSnapshot(
             context: PullRequestPanelContext(

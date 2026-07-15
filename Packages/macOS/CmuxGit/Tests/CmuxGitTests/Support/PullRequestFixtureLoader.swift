@@ -16,6 +16,7 @@ struct PullRequestFixtureLoader {
     }
 
     func pullRequest(
+        state: String = "OPEN",
         mergeable: String = "MERGEABLE",
         mergeStateStatus: String = "CLEAN",
         reviewDecision: String? = nil
@@ -24,6 +25,7 @@ struct PullRequestFixtureLoader {
         var object = try #require(
             JSONSerialization.jsonObject(with: data) as? [String: Any]
         )
+        object["state"] = state
         object["mergeable"] = mergeable
         object["mergeStateStatus"] = mergeStateStatus
         object["reviewDecision"] = reviewDecision ?? NSNull()
