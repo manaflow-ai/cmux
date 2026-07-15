@@ -103,7 +103,9 @@ extension MobileHostAuthorizationTests {
             workspaceID: "",
             terminalID: nil,
             routes: [iroh, tailscale],
-            ttl: 3600
+            ttl: 3600,
+            macUserEmail: "private@example.com",
+            macUserID: "opaque-user-id"
         )
 
         let payload = try store.payload(
