@@ -3,30 +3,24 @@
 import PackageDescription
 
 let package = Package(
-    name: "CmuxMobileRPC",
+    name: "CmuxMobileTransport",
     platforms: [
         .iOS(.v18),
         .macOS(.v14),
     ],
     products: [
         .library(
-            name: "CmuxMobileRPC",
-            targets: ["CmuxMobileRPC"]
+            name: "CmuxMobileTransport",
+            targets: ["CmuxMobileTransport"]
         ),
     ],
     dependencies: [
-        .package(path: "../../Shared/CMUXMobileCore"),
-        .package(path: "../CmuxMobileShellModel"),
-        .package(path: "../CmuxMobileSupport"),
+        .package(path: "../CMUXMobileCore"),
     ],
     targets: [
         .target(
-            name: "CmuxMobileRPC",
-            dependencies: [
-                "CMUXMobileCore",
-                "CmuxMobileShellModel",
-                "CmuxMobileSupport",
-            ],
+            name: "CmuxMobileTransport",
+            dependencies: ["CMUXMobileCore"],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),
@@ -34,12 +28,8 @@ let package = Package(
             ]
         ),
         .testTarget(
-            name: "CmuxMobileRPCTests",
-            dependencies: [
-                "CmuxMobileRPC",
-                "CMUXMobileCore",
-                "CmuxMobileShellModel",
-            ],
+            name: "CmuxMobileTransportTests",
+            dependencies: ["CmuxMobileTransport", "CMUXMobileCore"],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),

@@ -3,29 +3,39 @@
 import PackageDescription
 
 let package = Package(
-    name: "CmuxSyncStore",
+    name: "CmuxMobileShell",
     platforms: [
         .iOS(.v18),
         .macOS(.v14),
     ],
     products: [
         .library(
-            name: "CmuxSyncStore",
-            targets: ["CmuxSyncStore"]
+            name: "CmuxMobileShell",
+            targets: ["CmuxMobileShell"]
         ),
     ],
     dependencies: [
         .package(path: "../CMUXMobileCore"),
+        .package(path: "../CmuxAgentChat"),
+        .package(path: "../CmuxMobileDiagnostics"),
         .package(path: "../CmuxMobilePairedMac"),
+        .package(path: "../CmuxMobileRPC"),
         .package(path: "../CmuxMobileShellModel"),
+        .package(path: "../CmuxMobileSupport"),
+        .package(path: "../CmuxMobileTransport"),
     ],
     targets: [
         .target(
-            name: "CmuxSyncStore",
+            name: "CmuxMobileShell",
             dependencies: [
                 "CMUXMobileCore",
+                "CmuxAgentChat",
+                "CmuxMobileDiagnostics",
                 "CmuxMobilePairedMac",
+                "CmuxMobileRPC",
                 "CmuxMobileShellModel",
+                "CmuxMobileSupport",
+                "CmuxMobileTransport",
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
@@ -34,8 +44,16 @@ let package = Package(
             ]
         ),
         .testTarget(
-            name: "CmuxSyncStoreTests",
-            dependencies: ["CmuxSyncStore", "CmuxMobilePairedMac", "CMUXMobileCore", "CmuxMobileShellModel"],
+            name: "CmuxMobileShellTests",
+            dependencies: [
+                "CmuxMobileShell",
+                "CMUXMobileCore",
+                "CmuxAgentChat",
+                "CmuxMobilePairedMac",
+                "CmuxMobileRPC",
+                "CmuxMobileShellModel",
+                "CmuxMobileTransport",
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),

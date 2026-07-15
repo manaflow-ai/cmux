@@ -16,7 +16,7 @@ let package = Package(
     dependencies: [
         .package(path: "../CmuxHive"),
         .package(path: "../../Shared/CMUXMobileCore"),
-        .package(path: "../../iOS/CmuxMobileTerminalKit"),
+        .package(path: "../../Shared/CmuxMobileTerminalKit"),
     ],
     targets: [
         .target(
