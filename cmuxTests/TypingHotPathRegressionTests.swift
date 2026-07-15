@@ -70,7 +70,7 @@ struct GhosttyTitleUpdateMailboxTests {
         let operations = mailbox.takePendingOperations()
         #expect(operations.count == 1)
         let operation = try #require(operations.first)
-        #expect(operation.retirement == GhosttyTitleUpdateMailbox.SurfaceKey(
+        #expect(operation.retirement == GhosttyTitleUpdateSurfaceKey(
             tabId: tabId,
             surfaceId: surfaceId,
             sourceSurfaceIdentifier: sourceIdentifier
@@ -111,7 +111,7 @@ struct GhosttyTitleUpdateMailboxTests {
         let operations = mailbox.takePendingOperations()
         #expect(operations.count == 1)
         let operation = try #require(operations.first)
-        #expect(operation.retirement == GhosttyTitleUpdateMailbox.SurfaceKey(
+        #expect(operation.retirement == GhosttyTitleUpdateSurfaceKey(
             tabId: tabId,
             surfaceId: surfaceId,
             sourceSurfaceIdentifier: sourceIdentifier
