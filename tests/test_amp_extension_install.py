@@ -88,6 +88,7 @@ def main() -> int:
         fake_bin.mkdir()
         fake_amp = fake_bin / "amp"
         make_executable(fake_amp, "#!/usr/bin/env bash\nexit 0\n")
+        make_executable(fake_bin / "cmux", "#!/usr/bin/env bash\nexit 73\n")
         make_executable(
             fake_cmux,
             """#!/usr/bin/env bash
@@ -107,7 +108,7 @@ printf '\n---\n' >> "$FAKE_CMUX_STDIN_LOG"
         check_env = env.copy()
         check_env["CMUX_TEST_AMP_EXTENSION_PATH"] = str(extension_path)
         check_env["CMUX_SURFACE_ID"] = "surface-amp-test"
-        check_env["CMUX_AMP_CMUX_BIN"] = str(fake_cmux)
+        check_env["CMUX_BUNDLED_CLI_PATH"] = str(fake_cmux)
         check_env["AMP_API_KEY"] = "secret-should-not-propagate"
         check_env["FAKE_CMUX_ARGS_LOG"] = str(fake_args_log)
         check_env["FAKE_CMUX_STDIN_LOG"] = str(fake_stdin_log)
