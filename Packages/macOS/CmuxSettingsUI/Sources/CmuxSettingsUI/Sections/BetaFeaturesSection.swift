@@ -78,6 +78,8 @@ public struct BetaFeaturesSection: View {
                 .labelsHidden()
                 .controlSize(.small)
                 .accessibilityIdentifier("SettingsBetaNotesToggle")
+        }
+    }
 
     private var workspaceTodosChecklistStyleRow: some View {
         SettingsCardRow(
