@@ -172,8 +172,9 @@ public struct SettingsWindowRoot: View {
                     )
                     Divider()
                 }
-                detailScroll
-                    .dynamicTypeSize(.xLarge)
+                SettingsPaneDetail {
+                    detailScroll
+                }
             }
         }
     }
@@ -603,6 +604,13 @@ private struct SettingsPaneSidebar: View {
             }
         }
         .frame(width: 210)
+        .onChange(of: model.searchText) { oldValue, newValue in
+            guard
+                !oldValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else { return }
+            onSearchCleared()
+        }
     }
 
     private var searchField: some View {
@@ -620,7 +628,6 @@ private struct SettingsPaneSidebar: View {
             if !model.searchText.isEmpty {
                 Button {
                     model.searchText = ""
-                    onSearchCleared()
                     isSearchFocused = true
                 } label: {
                     Image(systemName: "xmark.circle.fill")
@@ -645,6 +652,34 @@ private struct SettingsPaneSidebar: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 9)
+    }
+}
+
+@MainActor
+private struct SettingsPaneDetail<Content: View>: View {
+    @Environment(\.dynamicTypeSize) private var inheritedTypeSize
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        content.dynamicTypeSize(inheritedTypeSize.settingsDetailStepUp)
+    }
+}
+
+private extension DynamicTypeSize {
+    var settingsDetailStepUp: DynamicTypeSize {
+        switch self {
+        case .xSmall: .small
+        case .small: .medium
+        case .medium: .large
+        case .large: .xLarge
+        case .xLarge: .xxLarge
+        case .xxLarge: .xxxLarge
+        case .xxxLarge: .accessibility1
+        case .accessibility1, .accessibility2, .accessibility3, .accessibility4, .accessibility5:
+            self
+        @unknown default:
+            self
+        }
     }
 }
 
