@@ -42,8 +42,8 @@ struct DisconnectedWorkspaceShellView: View {
     @State private var connectFailedComputerName: String?
     /// The account-discovered session currently attaching.
     @State private var pendingHandoffID: String?
-    /// The advertised session that could not be resolved after attaching.
-    @State private var failedHandoffSessionTitle: String?
+    @State private var registryState: MobileFirstConnectionRegistryState = .loading
+    @State private var didPresentManualPairing = false
     #endif
 
     var body: some View {
@@ -76,18 +76,7 @@ struct DisconnectedWorkspaceShellView: View {
                     // account-discovered session can connect this installation.
                     await store?.loadPairedMacs()
                     #if os(iOS)
-                    await store?.loadRegistryDevices()
-                    let hasAccountSession = !handoffSessions.isEmpty
-                    #else
-                    let hasAccountSession = false
-                    #endif
-                    if MobileFirstConnectionState(
-                        hasSavedComputer: !(store?.pairedMacs.isEmpty ?? true),
-                        hasAccountSession: hasAccountSession
-                    ).shouldPresentManualPairing {
-                        showAddDevice()
-                    }
-                    #if os(iOS)
+                    await refreshRegistryAndPresentation()
                     // Registry + presence enrich the rows (online dots, build
                     // labels). The loop then keeps presence and last-seen fresh
                     // while the app is parked on this screen; like the Computers
@@ -98,6 +87,11 @@ struct DisconnectedWorkspaceShellView: View {
                         try? await Task.sleep(for: .seconds(10))
                         guard !Task.isCancelled else { break }
                         await store?.refreshComputersScreen()
+                        await refreshRegistryAndPresentation()
+                    }
+                    #else
+                    if store?.pairedMacs.isEmpty ?? true {
+                        showAddDevice()
                     }
                     #endif
                 }
@@ -137,20 +131,6 @@ struct DisconnectedWorkspaceShellView: View {
                 defaultValue: "Make sure the computer is awake and online, then try again."
             ))
         }
-        .alert(
-            L10n.string("mobile.handoff.failure.title", defaultValue: "Couldn't Continue Session"),
-            isPresented: Binding(
-                get: { failedHandoffSessionTitle != nil },
-                set: { if !$0 { failedHandoffSessionTitle = nil } }
-            )
-        ) {
-            Button(L10n.string("mobile.common.ok", defaultValue: "OK"), role: .cancel) {}
-        } message: {
-            Text(L10n.string(
-                "mobile.handoff.failure.message",
-                defaultValue: "The session may have ended or its computer may be offline. Refresh and try again."
-            ))
-        }
         #endif
     }
 
@@ -171,7 +151,18 @@ struct DisconnectedWorkspaceShellView: View {
         if !savedComputers.isEmpty || !handoffSessions.isEmpty {
             connectionOptionsList(savedComputers)
         } else {
-            emptyState
+            switch registryState {
+            case .loading:
+                ProgressView()
+                    .accessibilityLabel(L10n.string(
+                        "mobile.handoff.section.title",
+                        defaultValue: "Continue on This Device"
+                    ))
+            case .unavailable:
+                registryUnavailableState
+            case .loaded:
+                emptyState
+            }
         }
     }
 
@@ -267,12 +258,55 @@ struct DisconnectedWorkspaceShellView: View {
                 sessionID: session.sessionID
             ) else {
                 await store.loadRegistryDevices()
-                failedHandoffSessionTitle = session.workspaceTitle
                 return
             }
             // The shell mounts after this first successful connection. Reuse its
             // one-shot navigation request so the selected workspace opens there.
             store.navigateToWorkspaceForDeeplink(workspaceID)
+        }
+    }
+
+    private func refreshRegistryAndPresentation() async {
+        let loadResult = await store?.loadRegistryDevices() ?? .unavailable
+        let nextState: MobileFirstConnectionRegistryState = switch loadResult {
+        case .loaded:
+            .loaded(hasAccountSession: !handoffSessions.isEmpty)
+        case .unavailable:
+            .unavailable
+        }
+        registryState = nextState
+        let presentation = MobileFirstConnectionState(
+            hasSavedComputer: !savedComputers.isEmpty,
+            registryState: nextState
+        )
+        guard !didPresentManualPairing,
+              presentation.shouldPresentManualPairing else { return }
+        didPresentManualPairing = true
+        showAddDevice()
+    }
+
+    private var registryUnavailableState: some View {
+        ContentUnavailableView {
+            Label(
+                L10n.string("mobile.handoff.failure.title", defaultValue: "Couldn't Continue Session"),
+                systemImage: "wifi.exclamationmark"
+            )
+        } description: {
+            Text(L10n.string(
+                "mobile.handoff.failure.message",
+                defaultValue: "The session may have ended or its computer may be offline. Refresh and try again."
+            ))
+        } actions: {
+            Button {
+                registryState = .loading
+                Task { await refreshRegistryAndPresentation() }
+            } label: {
+                Text(L10n.string("mobile.common.retry", defaultValue: "Retry"))
+            }
+            .buttonStyle(.borderedProminent)
+            Button(action: showAddDevice) {
+                Text(L10n.string("mobile.computers.add", defaultValue: "Add Computer"))
+            }
         }
     }
 

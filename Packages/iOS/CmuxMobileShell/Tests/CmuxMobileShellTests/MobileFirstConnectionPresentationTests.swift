@@ -2,22 +2,26 @@ import Testing
 @testable import CmuxMobileShell
 
 @Suite struct MobileFirstConnectionPresentationTests {
-    @Test func manualPairingRequiresNoSavedComputerAndNoAccountSession() {
+    @Test func manualPairingRequiresAnAuthoritativeEmptyRegistry() {
         #expect(MobileFirstConnectionState(
             hasSavedComputer: false,
-            hasAccountSession: false
+            registryState: .loaded(hasAccountSession: false)
         ).shouldPresentManualPairing)
         #expect(!MobileFirstConnectionState(
             hasSavedComputer: true,
-            hasAccountSession: false
+            registryState: .loaded(hasAccountSession: false)
         ).shouldPresentManualPairing)
         #expect(!MobileFirstConnectionState(
             hasSavedComputer: false,
-            hasAccountSession: true
+            registryState: .loaded(hasAccountSession: true)
         ).shouldPresentManualPairing)
         #expect(!MobileFirstConnectionState(
-            hasSavedComputer: true,
-            hasAccountSession: true
+            hasSavedComputer: false,
+            registryState: .loading
+        ).shouldPresentManualPairing)
+        #expect(!MobileFirstConnectionState(
+            hasSavedComputer: false,
+            registryState: .unavailable
         ).shouldPresentManualPairing)
     }
 }

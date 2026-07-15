@@ -83,4 +83,22 @@ import Testing
 
         #expect(resolved == advertisingMac.id)
     }
+
+    @Test func failedHandoffPresentationSurvivesAConnectionTransition() async {
+        let store = CMUXMobileShellStore.preview()
+
+        #expect(await store.prepareRegistrySessionHandoff(
+            deviceID: "missing-device",
+            instanceTag: "missing-instance",
+            sessionID: "missing-session"
+        ) == nil)
+        #expect(store.isRegistryHandoffFailurePresented)
+
+        store.connectionState = .connected
+        #expect(store.connectionState == .connected)
+        #expect(store.isRegistryHandoffFailurePresented)
+
+        store.dismissRegistryHandoffFailure()
+        #expect(!store.isRegistryHandoffFailurePresented)
+    }
 }

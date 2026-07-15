@@ -1833,6 +1833,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// known paired Macs, so the tree degrades to the same hosts the switcher
     /// shows rather than going blank.
     public internal(set) var registryDevices: [RegistryDevice] = []
+    /// Root-owned presentation state so a failed handoff remains visible even if
+    /// connecting replaces the view that started the operation.
+    public internal(set) var isRegistryHandoffFailurePresented = false
 
     /// The cmux device id of the Mac the live connection currently targets, or
     /// `nil` when not connected. Used by the device tree to mark which device row
@@ -1875,11 +1878,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// currently-connected one first, then by most-recently-seen, so the tree
     /// leads with the host the user is on. Mirrors ``loadPairedMacs()``: signed
     /// out yields an empty list.
-    public func loadRegistryDevices() async {
+    @discardableResult
+    public func loadRegistryDevices() async -> MobileRegistryLoadResult {
         guard let deviceRegistry,
               let scope = await currentScopeSnapshot() else {
             registryDevices = []
-            return
+            return .unavailable
         }
         let outcome = await deviceRegistry.listDevices()
         let loaded: [RegistryDevice]
@@ -1897,26 +1901,27 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             if await isScopeCurrent(scope) {
                 registryDevices = []
             }
-            return
+            return .unavailable
         case .transientFailure:
             // Network blip / 5xx / malformed body: keep what we have rather than
             // blanking a populated tree on a transient failure.
-            return
+            return .unavailable
         }
         // The await above suspended the main actor; discard the result unless we
         // are still in the same signed-in account/team scope, so a slow load can
         // never repopulate another scope's devices after sign-out, account switch,
         // or same-account team switch.
-        guard await isScopeCurrent(scope) else { return }
+        guard await isScopeCurrent(scope) else { return .unavailable }
         let connectedID = connectedMacDeviceID
         let forgottenIDs = await forgottenMacDeviceIDs(scope: scope)
-        guard await isScopeCurrent(scope) else { return }
+        guard await isScopeCurrent(scope) else { return .unavailable }
         registryDevices = loaded.filter { !forgottenIDs.contains($0.deviceId) }.sorted { lhs, rhs in
             let lhsConnected = lhs.deviceId == connectedID
             let rhsConnected = rhs.deviceId == connectedID
             if lhsConnected != rhsConnected { return lhsConnected }
             return lhs.lastSeenAt > rhs.lastSeenAt
         }
+        return .loaded
     }
 
     /// The device-tree data source, honoring the registry's best-effort/fallback
@@ -2050,9 +2055,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         instanceTag: String,
         sessionID: String
     ) async -> MobileWorkspacePreview.ID? {
+        isRegistryHandoffFailurePresented = false
         guard let device = registryDevices.first(where: { $0.deviceId == deviceID }),
               let instance = device.instances.first(where: { $0.tag == instanceTag }),
               let session = instance.sessions.first(where: { $0.id == sessionID }) else {
+            isRegistryHandoffFailurePresented = true
             return nil
         }
 
@@ -2060,6 +2067,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard connectionState == .connected,
               connectedMacDeviceID == device.deviceId,
               activeMacInstanceTag == instance.tag else {
+            isRegistryHandoffFailurePresented = true
             return nil
         }
         let authoritativeRefreshSucceeded = await refreshWorkspaces()
@@ -2070,6 +2078,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             authoritativeRefreshSucceeded: authoritativeRefreshSucceeded
         ) else {
             await loadRegistryDevices()
+            isRegistryHandoffFailurePresented = true
             return nil
         }
         if let terminalID = session.terminalID,
@@ -2078,6 +2087,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             selectTerminal(terminal.id)
         }
         return workspaceID
+    }
+
+    public func dismissRegistryHandoffFailure() {
+        isRegistryHandoffFailurePresented = false
     }
 
     /// Resolve a registry's runtime-local workspace identity into the current

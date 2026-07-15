@@ -32,8 +32,6 @@ struct DeviceTreeView: View {
     /// The registry session currently attaching; row identity keeps repeated
     /// taps from launching competing destructive Mac switches.
     @State private var pendingHandoffID: String?
-    /// The advertised session that could not be resolved after attaching.
-    @State private var failedHandoffSessionTitle: String?
 
     /// The user's computers as immutable snapshots, sourced from the paired-Mac
     /// backup (`pairedMacs`) — this feature's source of truth, the same set that
@@ -122,20 +120,6 @@ struct DeviceTreeView: View {
                     await store.refreshComputersScreen()
                 }
             }
-        }
-        .alert(
-            L10n.string("mobile.handoff.failure.title", defaultValue: "Couldn't Continue Session"),
-            isPresented: Binding(
-                get: { failedHandoffSessionTitle != nil },
-                set: { if !$0 { failedHandoffSessionTitle = nil } }
-            )
-        ) {
-            Button(L10n.string("mobile.common.ok", defaultValue: "OK"), role: .cancel) {}
-        } message: {
-            Text(L10n.string(
-                "mobile.handoff.failure.message",
-                defaultValue: "The session may have ended or its computer may be offline. Refresh and try again."
-            ))
         }
         .accessibilityIdentifier("MobileDeviceTree")
     }
@@ -233,7 +217,6 @@ struct DeviceTreeView: View {
                 sessionID: session.sessionID
             ) else {
                 await reload()
-                failedHandoffSessionTitle = session.workspaceTitle
                 return
             }
             selectWorkspace(workspaceID)

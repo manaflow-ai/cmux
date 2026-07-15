@@ -115,6 +115,20 @@ struct CMUXMobileRootView: View {
         .sheet(isPresented: addDeviceSheetBinding) {
             pairingSheet
         }
+        .alert(
+            L10n.string("mobile.handoff.failure.title", defaultValue: "Couldn't Continue Session"),
+            isPresented: Binding(
+                get: { store.isRegistryHandoffFailurePresented },
+                set: { if !$0 { store.dismissRegistryHandoffFailure() } }
+            )
+        ) {
+            Button(L10n.string("mobile.common.ok", defaultValue: "OK"), role: .cancel) {}
+        } message: {
+            Text(L10n.string(
+                "mobile.handoff.failure.message",
+                defaultValue: "The session may have ended or its computer may be offline. Refresh and try again."
+            ))
+        }
         .animation(.snappy(duration: 0.18), value: isAuthenticated)
         .animation(.snappy(duration: 0.18), value: store.phase)
         .onAppear {
