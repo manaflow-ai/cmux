@@ -7919,7 +7919,6 @@ final class Workspace: Identifiable, ObservableObject {
         guard let paneId = sourcePaneId else { return nil }
 
         // Create browser panel
-        let inheritedEngineKind = browserEngineKind ?? (panels[panelId] as? BrowserPanel)?.engineKind
         let browserPanel = BrowserPanel(
             workspaceId: id,
             profileID: resolvedNewBrowserProfileID(
@@ -7935,7 +7934,7 @@ final class Workspace: Identifiable, ObservableObject {
             bypassRemoteProxy: bypassRemoteProxy,
             isRemoteWorkspace: isRemoteWorkspace,
             remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil,
-            engineSelection: .current(restoring: inheritedEngineKind)
+            engineSelection: .current(restoring: browserEngineKind)
         )
         configureBrowserPanel(browserPanel)
         panels[browserPanel.id] = browserPanel
@@ -8029,9 +8028,6 @@ final class Workspace: Identifiable, ObservableObject {
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalPanel?.hostedView
 
-        let inheritedEngineKind = browserEngineKind ?? sourcePanelId.flatMap {
-            (panels[$0] as? BrowserPanel)?.engineKind
-        }
         let browserPanel = BrowserPanel(
             workspaceId: id,
             profileID: resolvedNewBrowserProfileID(
@@ -8049,7 +8045,7 @@ final class Workspace: Identifiable, ObservableObject {
             bypassRemoteProxy: bypassRemoteProxy,
             isRemoteWorkspace: isRemoteWorkspace,
             remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil,
-            engineSelection: .current(restoring: inheritedEngineKind)
+            engineSelection: .current(restoring: browserEngineKind)
         )
         configureBrowserPanel(browserPanel)
         panels[browserPanel.id] = browserPanel
