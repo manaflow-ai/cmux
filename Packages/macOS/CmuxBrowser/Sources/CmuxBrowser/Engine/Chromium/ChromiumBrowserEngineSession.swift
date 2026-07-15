@@ -24,6 +24,13 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
     /// State snapshots emitted from CDP lifecycle events.
     public let stateUpdates: AsyncStream<BrowserEngineState>
 
+    /// The cmux-owned policy applied before Chromium commits a top-level navigation.
+    public var navigationPolicyHandler: BrowserEngineNavigationPolicyHandler? {
+        didSet {
+            navigationInterceptor?.policyHandler = navigationPolicyHandler
+        }
+    }
+
     private let stateContinuation: AsyncStream<BrowserEngineState>.Continuation
     private let viewportWebView: WKWebView
     private let application: BrowserApplication?
@@ -31,6 +38,7 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
     private let viewportHandler = ChromiumViewportMessageHandler()
     private let cookieCodec = ChromiumBrowserCookieCodec()
     private let documentTitleObservation = ChromiumDocumentTitleObservation()
+    private var navigationInterceptor: ChromiumNavigationInterceptor?
     var connection: CDPConnection?
     private var targetID: String?
     var cdpSessionID: String?
@@ -358,6 +366,7 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
         deviceMetricsPending = false
         startupTask = nil
         eventTask = nil
+        navigationInterceptor = nil
         viewportWebView.configuration.userContentController.removeScriptMessageHandler(
             forName: "cmuxChromiumViewport"
         )
@@ -418,6 +427,15 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
             beginEvents(connection: connection, sessionID: sessionID)
             _ = try await connection.send(method: "Page.enable", sessionID: sessionID)
             _ = try await connection.send(method: "Runtime.enable", sessionID: sessionID)
+            let navigationInterceptor = ChromiumNavigationInterceptor(
+                targetID: lease.targetID,
+                policyHandler: navigationPolicyHandler
+            )
+            self.navigationInterceptor = navigationInterceptor
+            try await navigationInterceptor.install(
+                connection: connection,
+                sessionID: sessionID
+            )
             try await installDocumentTitleObservation(connection: connection, sessionID: sessionID)
             let initialPageZoomFactor = pageZoomFactor
             try await sendPageZoomFactor(
@@ -437,6 +455,9 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
                 updateState { $0.isLoading = false }
             }
         } catch {
+            eventTask?.cancel()
+            eventTask = nil
+            navigationInterceptor = nil
             self.connection = nil
             self.targetID = nil
             cdpSessionID = nil
@@ -530,6 +551,21 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
     }
 
     func handle(_ event: CDPEvent, connection: CDPConnection, sessionID: String) async {
+        do {
+            if try await navigationInterceptor?.handle(
+                event,
+                connection: connection,
+                sessionID: sessionID
+            ) == true {
+                return
+            }
+        } catch is CancellationError {
+            return
+        } catch {
+            guard !isClosed else { return }
+            presentOperationFailure()
+            return
+        }
         switch event.method {
         case "Page.screencastFrame":
             guard let data = event.parameters["data"]?.stringValue,
@@ -752,6 +788,7 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
         viewportInputTask?.cancel()
         viewportInputTask = nil
         viewportInputQueue.removeAll()
+        navigationInterceptor = nil
         let targetID = targetID
         self.connection = nil
         self.targetID = nil

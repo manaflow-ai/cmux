@@ -64,6 +64,39 @@ struct ChromiumNavigationInterceptorTests {
     }
 
     @Test
+    func continuesSubframeDocumentWithoutApplyingTopLevelPolicy() async throws {
+        let transport = NavigationTestCDPTransport()
+        let connection = CDPConnection(transport: transport)
+        await connection.connect()
+        var policyInvocationCount = 0
+        let interceptor = ChromiumNavigationInterceptor(
+            targetID: "opener-target",
+            policyHandler: { _ in
+                policyInvocationCount += 1
+                return .cancel
+            }
+        )
+        try await interceptor.install(connection: connection, sessionID: "opener-session")
+
+        _ = try await interceptor.handle(
+            requestPausedEvent(
+                url: "http://subframe.example/embedded",
+                frameID: "child-frame"
+            ),
+            connection: connection,
+            sessionID: "opener-session"
+        )
+
+        #expect(policyInvocationCount == 0)
+        let commands = await transport.commands()
+        #expect(commands.contains { command in
+            command["method"] == .string("Fetch.continueRequest") &&
+                command["params"]?.objectValue?["requestId"] == .string("paused-request")
+        })
+        await connection.close()
+    }
+
+    @Test
     func routesAndClosesNewWindowBeforeItCanResume() async throws {
         let transport = NavigationTestCDPTransport()
         let connection = CDPConnection(transport: transport)
@@ -126,12 +159,53 @@ struct ChromiumNavigationInterceptorTests {
         await connection.close()
     }
 
-    private func requestPausedEvent(url: String) -> CDPEvent {
+    @Test
+    func resumesNonPageTargetsPausedByAutoAttach() async throws {
+        let transport = NavigationTestCDPTransport()
+        let connection = CDPConnection(transport: transport)
+        await connection.connect()
+        let interceptor = ChromiumNavigationInterceptor(
+            targetID: "opener-target",
+            policyHandler: nil
+        )
+        try await interceptor.install(connection: connection, sessionID: "opener-session")
+
+        let handled = try await interceptor.handle(
+            CDPEvent(
+                method: "Target.attachedToTarget",
+                parameters: [
+                    "sessionId": .string("worker-session"),
+                    "targetInfo": .object([
+                        "targetId": .string("worker-target"),
+                        "type": .string("worker"),
+                        "url": .string("https://example.com/worker.js"),
+                    ]),
+                    "waitingForDebugger": .bool(true),
+                ],
+                sessionID: "opener-session"
+            ),
+            connection: connection,
+            sessionID: "opener-session"
+        )
+
+        #expect(handled)
+        let commands = await transport.commands()
+        #expect(commands.contains { command in
+            command["method"] == .string("Runtime.runIfWaitingForDebugger") &&
+                command["sessionId"] == .string("worker-session")
+        })
+        await connection.close()
+    }
+
+    private func requestPausedEvent(
+        url: String,
+        frameID: String = "main-frame"
+    ) -> CDPEvent {
         CDPEvent(
             method: "Fetch.requestPaused",
             parameters: [
                 "requestId": .string("paused-request"),
-                "frameId": .string("main-frame"),
+                "frameId": .string(frameID),
                 "resourceType": .string("Document"),
                 "request": .object([
                     "url": .string(url),

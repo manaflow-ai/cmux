@@ -4259,6 +4259,7 @@ final class BrowserPanel: Panel, ObservableObject {
             self.webViewDidRequestClose?()
         }
         self.uiDelegate = browserUIDelegate
+        configureEngineNavigationPolicy()
 
         if engineKind == .webKit {
             bindWebView(webView)
@@ -4331,6 +4332,61 @@ final class BrowserPanel: Panel, ObservableObject {
         webView.onMouseForwardButton = { [weak self] in self?.goForward() }
     }
 
+    private func configureEngineNavigationPolicy() {
+        guard let chromiumSession = engineSessionStorage as? ChromiumBrowserEngineSession else {
+            return
+        }
+        chromiumSession.navigationPolicyHandler = { [weak self] request in
+            self?.engineNavigationDecision(for: request) ?? .cancel
+        }
+    }
+
+    private func engineNavigationDecision(
+        for navigation: BrowserEngineNavigationRequest
+    ) -> BrowserEngineNavigationDecision {
+        guard let url = navigation.request.url else { return .cancel }
+        let insecureIntent: BrowserInsecureHTTPNavigationIntent = switch navigation.disposition {
+        case .currentTab: .currentTab
+        case .newTab: .newTab
+        }
+        if shouldBlockInsecureHTTPNavigation(to: url) {
+            presentInsecureHTTPAlert(
+                for: navigation.request,
+                intent: insecureIntent,
+                recordTypedNavigation: false
+            )
+            return .cancel
+        }
+        if browserShouldRouteExternalNavigation(url) {
+            browserHandleExternalNavigation(
+                url,
+                source: "chromiumPolicy",
+                webView: webView,
+                loadFallbackRequest: { [weak self] request in
+                    self?.requestNavigation(request, intent: .currentTab)
+                },
+                presentAlert: { [weak self] alert, webView, completion, cancel in
+                    guard let self else {
+                        cancel()
+                        return
+                    }
+                    self.presentBrowserAlert(
+                        alert,
+                        in: webView,
+                        completion: completion,
+                        cancel: cancel
+                    )
+                }
+            )
+            return .cancel
+        }
+        if navigation.disposition == .newTab {
+            requestNavigation(navigation.request, intent: .newTab)
+            return .cancel
+        }
+        return .allow
+    }
+
     private static func makeEngineSession(
         kind: BrowserEngineKind,
         chromiumApplication: BrowserApplication?,
@@ -4371,6 +4427,7 @@ final class BrowserPanel: Panel, ObservableObject {
             webView: webView,
             initializationScripts: engineInitializationScripts
         )
+        configureEngineNavigationPolicy()
         syncEngineViewportVisibility()
         if engineKind == .chromium, let webView = webView as? CmuxWebView {
             bindChromiumViewport(webView)
