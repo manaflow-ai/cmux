@@ -8,7 +8,7 @@ extension AppDelegate {
         }
         guard let panel = shortcutEventBrowserPanel(event) else { return false }
         Task { @MainActor in
-            _ = await panel.designModeController.toggle(reason: "configuredShortcut")
+            _ = await panel.toggleDesignMode(reason: "configuredShortcut")
         }
         return true
     }

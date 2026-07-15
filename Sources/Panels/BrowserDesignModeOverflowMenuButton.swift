@@ -2,12 +2,12 @@ import SwiftUI
 
 struct BrowserDesignModeOverflowMenuButton: View {
     let controller: BrowserDesignModeController
-    let isAvailable: Bool
+    let onToggle: @MainActor () async -> Bool
 
     var body: some View {
         Button {
             Task { @MainActor in
-                await controller.toggle(reason: "overflowMenu")
+                guard await onToggle() else { return }
             }
         } label: {
             Label(
@@ -15,6 +15,6 @@ struct BrowserDesignModeOverflowMenuButton: View {
                 systemImage: "paintbrush.pointed"
             )
         }
-        .disabled(!isAvailable)
+        .disabled(!controller.canToggle)
     }
 }
