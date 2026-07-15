@@ -121,7 +121,7 @@ extension TerminalNotificationStore {
         return TerminalNotificationPolicyRequest(
             tabId: target.tabId,
             surfaceId: target.surfaceId,
-            panelId: request.panelId,
+            panelId: target.surfaceId == nil ? nil : request.panelId,
             retargetsToLiveSurfaceOwner: true,
             title: request.title,
             subtitle: request.subtitle,

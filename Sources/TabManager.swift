@@ -5540,22 +5540,36 @@ extension TabManager {
     private struct SessionAutosaveNotificationIndex {
         private struct Key: Hashable {
             let tabId: UUID
-            let surfaceId: UUID?
+            let panelId: UUID
         }
 
-        private var notificationsByKey: [Key: [TerminalNotification]] = [:]
+        private var notificationsByTabId: [UUID: [TerminalNotification]] = [:]
+        private var notificationsByPanelKey: [Key: [TerminalNotification]] = [:]
 
         init(notifications: TerminalNotificationFeed) {
             for notification in notifications {
-                notificationsByKey[
-                    Key(tabId: notification.tabId, surfaceId: notification.surfaceId),
-                    default: []
-                ].append(notification)
+                notificationsByTabId[notification.tabId, default: []].append(notification)
+                if let surfaceId = notification.surfaceId {
+                    notificationsByPanelKey[
+                        Key(tabId: notification.tabId, panelId: surfaceId),
+                        default: []
+                    ].append(notification)
+                }
+                if let panelId = notification.panelId, panelId != notification.surfaceId {
+                    notificationsByPanelKey[
+                        Key(tabId: notification.tabId, panelId: panelId),
+                        default: []
+                    ].append(notification)
+                }
             }
         }
 
-        func notifications(forTabId tabId: UUID, surfaceId: UUID?) -> [TerminalNotification] {
-            notificationsByKey[Key(tabId: tabId, surfaceId: surfaceId)] ?? []
+        func notifications(forTabId tabId: UUID) -> [TerminalNotification] {
+            notificationsByTabId[tabId] ?? []
+        }
+
+        func notifications(forTabId tabId: UUID, panelId: UUID) -> [TerminalNotification] {
+            notificationsByPanelKey[Key(tabId: tabId, panelId: panelId)] ?? []
         }
     }
 
@@ -5605,7 +5619,7 @@ extension TabManager {
             hasher.combine(notificationStore?.hasManualUnread(forTabId: workspace.id) ?? false)
             hasher.combine(notificationStore?.workspaceIsUnread(forTabId: workspace.id) ?? false)
             Self.hashNotifications(
-                notificationIndex?.notifications(forTabId: workspace.id, surfaceId: nil) ?? [],
+                notificationIndex?.notifications(forTabId: workspace.id) ?? [],
                 into: &hasher
             )
             let panelIds = workspace.panels.keys.sorted { $0.uuidString < $1.uuidString }
@@ -5625,7 +5639,7 @@ extension TabManager {
                     ) ?? false
                 )
                 Self.hashNotifications(
-                    notificationIndex?.notifications(forTabId: workspace.id, surfaceId: panelId) ?? [],
+                    notificationIndex?.notifications(forTabId: workspace.id, panelId: panelId) ?? [],
                     into: &hasher
                 )
                 Self.hashRestorableAgentSnapshot(

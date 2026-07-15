@@ -1355,17 +1355,33 @@ final class TerminalNotificationStore: ObservableObject {
             if let replacementStorage = eviction.replacementStorage {
                 notificationFeedStorage = replacementStorage
             }
-            externalBannerOwnership.clear(id: eviction.evicted.id)
             notificationFeedRevision &+= 1
             notificationFeedDidChange(
                 oldValue: nil,
                 mutation: .insertionEvicting(inserted: notification, evicted: eviction.evicted)
             )
+            dismissEvictedExternalBannerOwner(eviction.evicted)
             return
         }
         var updated = Array(notifications)
         updated.insert(notification, at: index)
         replaceNotificationFeed(updated, mutation: .insertion(notification))
+    }
+
+    private func dismissEvictedExternalBannerOwner(_ evicted: TerminalNotification) {
+        guard externalBannerOwnership.owner(
+            tabId: evicted.tabId,
+            surfaceId: evicted.surfaceId
+        )?.id == evicted.id else {
+            externalBannerOwnership.clear(id: evicted.id)
+            return
+        }
+        let id = evicted.id.uuidString
+        let drainedSuperseded = supersededPhoneDismissesForRowAction(evicted)
+        externalBannerOwnership.clear(id: evicted.id)
+        center.removeDeliveredNotificationsOffMain(withIdentifiers: [id])
+        center.removePendingNotificationRequestsOffMain(withIdentifiers: [id])
+        emitNotificationsDismissed(ids: [id], drainedSuperseded: drainedSuperseded)
     }
 
     private static func retainedNotificationFeed(

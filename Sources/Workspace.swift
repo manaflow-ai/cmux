@@ -8700,7 +8700,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     /// Tear down all panels before removing the workspace.
-    func teardownAllPanels() {
+    func teardownAllPanels(clearSurfaceNotifications: Bool = true) {
         portalRenderingEnabled = false
         clearLayoutFollowUp()
         hideAllTerminalPortalViews()
@@ -8715,7 +8715,7 @@ final class Workspace: Identifiable, ObservableObject {
                 origin: "workspace_teardown",
                 closePanel: true,
                 publishSurfaceClosedEvent: true,
-                clearSurfaceNotifications: true,
+                clearSurfaceNotifications: clearSurfaceNotifications,
                 requestTransferredRemoteCleanup: true,
                 cleanupControllerSurfaceState: true
             )

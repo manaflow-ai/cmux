@@ -51,10 +51,11 @@ extension TabManager {
                 toTabId: replacement.workspace.id,
                 panelIdMap: replacement.panelIdMap
             )
+            workspace.teardownAllPanels(clearSurfaceNotifications: false)
         } else {
             AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
+            workspace.teardownAllPanels()
         }
-        workspace.teardownAllPanels()
         workspace.teardownRemoteConnection()
         workspace.owningTabManager = nil
     }
