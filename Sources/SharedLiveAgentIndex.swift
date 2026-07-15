@@ -64,7 +64,7 @@ final class SharedLiveAgentIndex {
 
     /// Production loaders acquire the centralized process snapshot before moving
     /// synchronous parsing and file I/O to a detached utility task.
-    let indexLoader: @Sendable (@escaping @Sendable () -> Void) async -> LoadResult
+    let indexLoader: @Sendable (Date?, @escaping @Sendable () -> Void) async -> LoadResult
     let processScopeFingerprintProvider: @Sendable () async -> Set<String>
     let generationTimeoutWaiter: GenerationTimeoutWaiter
     private let hookStoreDirectoryProvider: @MainActor () -> String
@@ -72,7 +72,10 @@ final class SharedLiveAgentIndex {
 
     init(
         indexLoader: (@Sendable () -> SharedLiveAgentIndexLoader.LoadResult)? = nil,
-        capturingIndexLoader: (@Sendable (@escaping @Sendable () -> Void) -> SharedLiveAgentIndexLoader.LoadResult)? = nil,
+        capturingIndexLoader: (@Sendable (
+            Date?,
+            @escaping @Sendable () -> Void
+        ) -> SharedLiveAgentIndexLoader.LoadResult)? = nil,
         processScopeFingerprintProvider: (@Sendable () -> Set<String>)? = nil,
         generationTimeoutWaiter: @escaping @Sendable () async -> Bool = {
             do {
@@ -95,23 +98,27 @@ final class SharedLiveAgentIndex {
         }
     ) {
         if let capturingIndexLoader {
-            self.indexLoader = { didCaptureProcessMetadata in
+            self.indexLoader = { minimumProcessCaptureStartedAt, didCaptureProcessMetadata in
                 await Task.detached(priority: .utility) {
-                    capturingIndexLoader(didCaptureProcessMetadata)
+                    capturingIndexLoader(
+                        minimumProcessCaptureStartedAt,
+                        didCaptureProcessMetadata
+                    )
                 }.value
             }
         } else if let indexLoader {
-            self.indexLoader = { didCaptureProcessMetadata in
+            self.indexLoader = { _, didCaptureProcessMetadata in
                 await Task.detached(priority: .utility) {
                     didCaptureProcessMetadata()
                     return indexLoader()
                 }.value
             }
         } else {
-            self.indexLoader = { didCaptureProcessMetadata in
+            self.indexLoader = { minimumProcessCaptureStartedAt, didCaptureProcessMetadata in
                 let processSnapshot = await snapshotStore.snapshot(
                     requirements: [.processDetails, .cmuxScope],
                     maximumAge: 3,
+                    minimumCaptureStartedAt: minimumProcessCaptureStartedAt,
                     consumer: .sharedLiveAgentIndex
                 )
                 return await Task.detached(priority: .utility) {

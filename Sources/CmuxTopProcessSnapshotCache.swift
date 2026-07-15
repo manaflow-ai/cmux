@@ -27,6 +27,7 @@ actor CmuxTopProcessSnapshotStore {
     private struct CachedSnapshot {
         let snapshot: CmuxTopProcessSnapshot
         let requirements: CmuxTopProcessSnapshotRequirements
+        let captureStartedAt: Date
         let storedAt: Date
         let generation: UInt64
         let metricsToken: ProcessPerformanceMetricToken
@@ -35,6 +36,7 @@ actor CmuxTopProcessSnapshotStore {
     private struct InFlightCapture {
         let id: UInt64
         let requirements: CmuxTopProcessSnapshotRequirements
+        let startedAt: Date
         let task: Task<(
             snapshot: CmuxTopProcessSnapshot,
             proof: ProcessPerformanceCaptureProof
@@ -82,6 +84,7 @@ actor CmuxTopProcessSnapshotStore {
     func snapshot(
         requirements: CmuxTopProcessSnapshotRequirements,
         maximumAge: TimeInterval,
+        minimumCaptureStartedAt: Date? = nil,
         consumer: ProcessSnapshotConsumer = .unspecified
     ) async -> CmuxTopProcessSnapshot {
         if let exercise = performanceExercise,
@@ -91,6 +94,7 @@ actor CmuxTopProcessSnapshotStore {
             return await snapshot(
                 requirements: requirements,
                 maximumAge: maximumAge,
+                minimumCaptureStartedAt: minimumCaptureStartedAt,
                 consumer: consumer
             )
         }
@@ -99,6 +103,7 @@ actor CmuxTopProcessSnapshotStore {
         if let cached = validCachedSnapshot(
             requirements: requirements,
             maximumAge: maximumAge,
+            minimumCaptureStartedAt: minimumCaptureStartedAt,
             now: requestedAt
         ) {
             metrics.recordProcessSnapshotReuse(
@@ -119,7 +124,8 @@ actor CmuxTopProcessSnapshotStore {
                 }
                 let captureResult = await inFlight.task.value
                 await finishCapture(inFlight, captureResult: captureResult)
-                if inFlight.requirements.isSuperset(of: requirements) {
+                if inFlight.requirements.isSuperset(of: requirements),
+                   captureStartedAt(inFlight.startedAt, satisfies: minimumCaptureStartedAt) {
                     metrics.recordProcessSnapshotReuse(
                         consumer: consumer,
                         generation: inFlight.id,
@@ -132,6 +138,7 @@ actor CmuxTopProcessSnapshotStore {
                 if let cached = validCachedSnapshot(
                     requirements: requirements,
                     maximumAge: maximumAge,
+                    minimumCaptureStartedAt: minimumCaptureStartedAt,
                     now: now
                 ) {
                     metrics.recordProcessSnapshotReuse(
@@ -147,6 +154,7 @@ actor CmuxTopProcessSnapshotStore {
 
             nextCaptureID &+= 1
             let id = nextCaptureID
+            let captureStartedAt = await now()
             let capture = self.capture
             let exerciseGate = consumer == .performanceExercisePrimary
                 ? performanceExercise?.gate
@@ -169,6 +177,7 @@ actor CmuxTopProcessSnapshotStore {
             let started = InFlightCapture(
                 id: id,
                 requirements: requirements,
+                startedAt: captureStartedAt,
                 task: task,
                 metricsToken: metricsToken
             )
@@ -313,6 +322,7 @@ actor CmuxTopProcessSnapshotStore {
         cached = CachedSnapshot(
             snapshot: captureResult.snapshot,
             requirements: completed.requirements,
+            captureStartedAt: completed.startedAt,
             storedAt: storedAt,
             generation: completed.id,
             metricsToken: completed.metricsToken
@@ -329,14 +339,20 @@ actor CmuxTopProcessSnapshotStore {
     private func validCachedSnapshot(
         requirements: CmuxTopProcessSnapshotRequirements,
         maximumAge: TimeInterval,
+        minimumCaptureStartedAt: Date?,
         now: Date
     ) -> CachedSnapshot? {
         guard let cached,
               cached.requirements.isSuperset(of: requirements),
+              captureStartedAt(cached.captureStartedAt, satisfies: minimumCaptureStartedAt),
               now.timeIntervalSince(cached.storedAt) <= max(0, maximumAge) else {
             return nil
         }
         return cached
+    }
+
+    private func captureStartedAt(_ startedAt: Date, satisfies minimum: Date?) -> Bool {
+        minimum.map { startedAt >= $0 } ?? true
     }
 }
 

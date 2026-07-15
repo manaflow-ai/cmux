@@ -21,6 +21,9 @@ extension SharedLiveAgentIndex {
         validating panelKey: PanelKey?,
         cachedResultToValidate: LoadResult? = nil
     ) -> RefreshRequest {
+        let minimumProcessCaptureStartedAt = freshness == .captureAfterRequest
+            ? dateProvider()
+            : nil
         if let refreshTailID,
            var generation = refreshGenerationsByID[refreshTailID],
            let task = refreshTasksByID[refreshTailID],
@@ -31,6 +34,12 @@ extension SharedLiveAgentIndex {
                 generation.cachedResultRevision = nil
             }
             generation.publication.include(publication)
+            if let minimumProcessCaptureStartedAt {
+                generation.minimumProcessCaptureStartedAt = max(
+                    generation.minimumProcessCaptureStartedAt ?? .distantPast,
+                    minimumProcessCaptureStartedAt
+                )
+            }
             if let panelKey {
                 generation.validationPanelsByPanelID[panelKey.panelId] = panelKey
                 pendingForkValidationGenerationByPanelID[panelKey.panelId] = generation.id
@@ -69,6 +78,7 @@ extension SharedLiveAgentIndex {
             ordinal: nextRefreshOrdinal,
             phase: .queued,
             publication: publication,
+            minimumProcessCaptureStartedAt: minimumProcessCaptureStartedAt,
             validationPanelsByPanelID: validationPanelsByPanelID,
             cachedResultToValidate: cachedResultToValidate
         )
@@ -239,7 +249,9 @@ extension SharedLiveAgentIndex {
     private func loadIndex(generationID: UUID) async -> LoadResult {
         let indexLoader = self.indexLoader
         let processMetadataCapture = processMetadataCaptureByGenerationID[generationID]
-        let result = await indexLoader {
+        let minimumProcessCaptureStartedAt = refreshGenerationsByID[generationID]?
+            .minimumProcessCaptureStartedAt
+        let result = await indexLoader(minimumProcessCaptureStartedAt) {
             processMetadataCapture?.resolve(captured: true)
         }
         return result
