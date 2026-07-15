@@ -104,8 +104,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use cmux_tui_core::BrowserMode;
 use cmux_tui_core::SidebarPluginOptions;
 use cmux_tui_core::SurfaceOptions;
+use cmux_tui_core::TRANSPORT_SAFE_CAPTURE_MEGAPIXELS;
 use cmux_tui_core::platform;
-use cmux_tui_core::{DefaultColors, Rgb};
+use cmux_tui_core::{CursorShape, DefaultColors, Rgb};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::style::Color;
 use serde::{Deserialize, Deserializer};
@@ -581,7 +582,7 @@ impl Default for Browser {
             discover_ports: vec![9222],
             user_data_dir: None,
             ephemeral: false,
-            max_capture_megapixels: 2.0,
+            max_capture_megapixels: TRANSPORT_SAFE_CAPTURE_MEGAPIXELS,
             capture_scale: None,
         }
     }
@@ -987,6 +988,8 @@ fn parse_chord(s: &str) -> Option<Chord> {
 pub struct Config {
     pub theme: Theme,
     pub theme_overrides: ThemeOverrides,
+    pub cursor_style: Option<CursorShape>,
+    pub cursor_blink: Option<bool>,
     pub chrome: ChromeMode,
     pub tabs: Tabs,
     pub sidebar: Sidebar,
@@ -1031,15 +1034,17 @@ pub struct SidebarPluginConfig {
 pub fn load() -> Config {
     let mut config = Config::default();
 
-    if let Some((bg, fg)) = ghostty_selection_colors() {
-        if let Some(bg) = bg {
+    if let Some(defaults) = ghostty_defaults() {
+        if let Some(bg) = defaults.selection_bg {
             config.theme.selection_bg = bg;
             config.theme_overrides.selection = true;
         }
-        if fg.is_some() {
+        if defaults.selection_fg.is_some() {
             config.theme_overrides.selection = true;
         }
-        config.theme.selection_fg = fg;
+        config.theme.selection_fg = defaults.selection_fg;
+        config.cursor_style = defaults.cursor_style;
+        config.cursor_blink = defaults.cursor_blink;
     }
 
     let raw = load_raw_config();
@@ -1154,11 +1159,14 @@ pub fn load() -> Config {
         config.browser.ephemeral = ephemeral;
     }
     if let Some(megapixels) = raw.browser.max_capture_megapixels {
-        if megapixels.is_finite() && megapixels > 0.0 {
+        if megapixels.is_finite()
+            && megapixels > 0.0
+            && megapixels <= TRANSPORT_SAFE_CAPTURE_MEGAPIXELS
+        {
             config.browser.max_capture_megapixels = megapixels;
         } else {
             eprintln!(
-                "cmux-tui: ignoring browser.max_capture_megapixels={megapixels:?}; expected > 0"
+                "cmux-tui: ignoring browser.max_capture_megapixels={megapixels:?}; expected 0 < value <= {TRANSPORT_SAFE_CAPTURE_MEGAPIXELS}"
             );
         }
     }
@@ -1330,24 +1338,44 @@ fn parse_color(s: &str) -> Option<Color> {
     s.parse::<u8>().ok().map(Color::Indexed)
 }
 
-/// The user's Ghostty selection colors, if a Ghostty config exists.
-/// Returns (background, foreground); either may be absent. Ghostty's
-/// config is `key = value` lines; later entries win, matching Ghostty.
-fn ghostty_selection_colors() -> Option<(Option<Color>, Option<Color>)> {
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct GhosttyDefaults {
+    selection_bg: Option<Color>,
+    selection_fg: Option<Color>,
+    cursor_style: Option<CursorShape>,
+    cursor_blink: Option<bool>,
+}
+
+/// The user's relevant Ghostty defaults, if a Ghostty config exists.
+fn ghostty_defaults() -> Option<GhosttyDefaults> {
     let text =
         platform::ghostty_config_paths().iter().find_map(|p| std::fs::read_to_string(p).ok())?;
-    let mut bg = None;
-    let mut fg = None;
+    Some(parse_ghostty_defaults(&text))
+}
+
+/// Parse the subset of Ghostty's `key = value` config used by cmux-tui.
+/// Later entries win, including invalid later entries clearing a value.
+fn parse_ghostty_defaults(text: &str) -> GhosttyDefaults {
+    let mut defaults = GhosttyDefaults::default();
     for line in text.lines() {
         let line = line.trim();
         let Some((key, value)) = line.split_once('=') else { continue };
         match key.trim() {
-            "selection-background" => bg = parse_color(value.trim()),
-            "selection-foreground" => fg = parse_color(value.trim()),
+            "selection-background" => defaults.selection_bg = parse_color(value.trim()),
+            "selection-foreground" => defaults.selection_fg = parse_color(value.trim()),
+            "cursor-style" => {
+                defaults.cursor_style = match value.trim() {
+                    "block" => Some(CursorShape::Block),
+                    "underline" => Some(CursorShape::Underline),
+                    "bar" => Some(CursorShape::Bar),
+                    _ => None,
+                }
+            }
+            "cursor-style-blink" => defaults.cursor_blink = value.trim().parse::<bool>().ok(),
             _ => {}
         }
     }
-    Some((bg, fg))
+    defaults
 }
 
 #[cfg(test)]
@@ -1375,6 +1403,27 @@ mod tests {
         assert_eq!(parse_color("110"), Some(Color::Indexed(110)));
         assert_eq!(parse_color("not-a-color"), None);
         assert_eq!(parse_color("#12345"), None);
+    }
+
+    #[test]
+    fn parses_ghostty_cursor_defaults_with_later_entry_wins() {
+        let defaults = parse_ghostty_defaults(
+            "cursor-style = block\n\
+             cursor-style-blink = true\n\
+             cursor-style = bar\n\
+             cursor-style-blink = false\n",
+        );
+        assert_eq!(defaults.cursor_style, Some(CursorShape::Bar));
+        assert_eq!(defaults.cursor_blink, Some(false));
+
+        let invalid = parse_ghostty_defaults(
+            "cursor-style = underline\n\
+             cursor-style-blink = true\n\
+             cursor-style = beam\n\
+             cursor-style-blink = sometimes\n",
+        );
+        assert_eq!(invalid.cursor_style, None);
+        assert_eq!(invalid.cursor_blink, None);
     }
 
     #[test]
@@ -1436,7 +1485,7 @@ mod tests {
     }
 
     #[test]
-    fn ghostty_selection_survives_light_chrome_defaults() {
+    fn ghostty_defaults_survive_light_chrome_defaults() {
         let _guard = CONFIG_ENV_LOCK.lock().unwrap();
         let old_mux_config = std::env::var_os("CMUX_MUX_CONFIG");
         let old_xdg_config_home = std::env::var_os("XDG_CONFIG_HOME");
@@ -1446,7 +1495,10 @@ mod tests {
         std::fs::create_dir_all(&ghostty_dir).unwrap();
         std::fs::write(
             ghostty_dir.join("config"),
-            "selection-background = #445566\nselection-foreground = #abcdef\n",
+            "selection-background = #445566\n\
+             selection-foreground = #abcdef\n\
+             cursor-style = bar\n\
+             cursor-style-blink = false\n",
         )
         .unwrap();
         // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
@@ -1463,12 +1515,19 @@ mod tests {
         config.apply_chrome_defaults(ChromeTheme::light());
         assert_eq!(config.theme.selection_bg, Color::Rgb(0x44, 0x55, 0x66));
         assert_eq!(config.theme.selection_fg, Some(Color::Rgb(0xab, 0xcd, 0xef)));
+        assert_eq!(config.cursor_style, Some(CursorShape::Bar));
+        assert_eq!(config.cursor_blink, Some(false));
     }
 
     #[test]
     fn chrome_theme_selection_honors_auto_and_overrides() {
-        let light_defaults = DefaultColors { fg: None, bg: Some(Rgb { r: 240, g: 240, b: 240 }) };
-        let dark_defaults = DefaultColors { fg: None, bg: Some(Rgb { r: 20, g: 20, b: 20 }) };
+        let light_defaults = DefaultColors {
+            fg: None,
+            bg: Some(Rgb { r: 240, g: 240, b: 240 }),
+            ..Default::default()
+        };
+        let dark_defaults =
+            DefaultColors { fg: None, bg: Some(Rgb { r: 20, g: 20, b: 20 }), ..Default::default() };
         assert_eq!(
             ChromeTheme::for_defaults(ChromeMode::Auto, light_defaults),
             ChromeTheme::light()
@@ -1862,13 +1921,22 @@ mod tests {
         let path = dir.join("mux.json");
         std::fs::write(
             &path,
-            r##"{"browser": {"max_capture_megapixels": 3.5, "capture_scale": 0.5}}"##,
+            r##"{"browser": {"max_capture_megapixels": 1.5, "capture_scale": 0.5}}"##,
         )
         .unwrap();
         // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
         unsafe { std::env::set_var("CMUX_MUX_CONFIG", &path) };
         let config = load();
-        assert_eq!(config.browser.max_capture_megapixels, 3.5);
+        assert_eq!(config.browser.max_capture_megapixels, 1.5);
+        assert_eq!(config.browser.capture_scale, Some(0.5));
+
+        std::fs::write(
+            &path,
+            r##"{"browser": {"max_capture_megapixels": 3.5, "capture_scale": 0.5}}"##,
+        )
+        .unwrap();
+        let config = load();
+        assert_eq!(config.browser.max_capture_megapixels, TRANSPORT_SAFE_CAPTURE_MEGAPIXELS);
         assert_eq!(config.browser.capture_scale, Some(0.5));
 
         std::fs::write(

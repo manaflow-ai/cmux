@@ -415,6 +415,19 @@
         "p3": "I migliori developer hanno sempre costruito i propri strumenti. Nessuno ha ancora trovato il modo migliore per lavorare con gli agenti, e i team che costruiscono prodotti chiusi sicuramente nemmeno. I developer più vicini alle proprie codebase lo troveranno per primi.",
         "p4": "Dai a un milione di developer elementi componibili e troveranno collettivamente i workflow più efficienti più velocemente di qualsiasi team di prodotto potrebbe progettare dall'alto."
       },
+      "cmuxFork": {
+        "title": "Presentazione di cmux Fork",
+        "summary": "Dirama una conversazione con un agente in una nuova divisione, scheda o area di lavoro senza perderne il contesto.",
+        "date": "14 luglio 2026",
+        "p1": "Le conversazioni con gli agenti di programmazione raggiungono punti in cui una diramazione è utile. Puoi conservare un approccio mentre un altro agente prova un’implementazione diversa, esplora una deviazione o esamina lo stesso problema da una nuova prospettiva.",
+        "p2": "Fork Conversation crea una nuova sessione agente dal thread corrente, mantenendo la cronologia della conversazione e la directory di lavoro. Supporta Codex, Claude Code, OpenCode, Pi, Hermes e altri agenti con sessioni diramabili.",
+        "destinationsTitle": "Dirama dove vuoi lavorare",
+        "destinationsP": "Fai clic destro su un terminale o una scheda e scegli Fork Conversation, oppure premi <code>Cmd+Shift+P</code> e cerca Fork Conversation. Invia la diramazione a una divisione su qualsiasi lato, a una nuova scheda o a una nuova area di lavoro.",
+        "parallelTitle": "Esplora più direzioni contemporaneamente",
+        "parallelP1": "Dirama più volte la stessa conversazione per confrontare implementazioni o far suddividere un problema tra più agenti con lo stesso contesto iniziale. Ogni diramazione prosegue in modo indipendente e il thread originale resta disponibile.",
+        "parallelP2": "Le diramazioni possono lavorare nella stessa directory. Assegna attività o file separati quando le modifiche simultanee potrebbero sovrapporsi.",
+        "release": "cmux Fork è disponibile nella versione v0.64.19."
+      },
       "showHnLaunch": {
         "title": "Lancio di cmux su Show HN",
         "summary": "cmux ha raggiunto il 2° posto su Hacker News, è stato condiviso da Mitchell Hashimoto ed è diventato virale in Giappone.",
@@ -582,6 +595,10 @@
     "zenOfCmux": {
       "metaTitle": "Lo Zen di cmux",
       "metaDescription": "cmux è una primitiva, non una soluzione. Ti dà pezzi componibili e il tuo workflow dipende da te."
+    },
+    "cmuxFork": {
+      "metaTitle": "Presentazione di cmux Fork",
+      "metaDescription": "Dirama una conversazione di Codex, Claude Code, OpenCode, Pi, Hermes o un altro agente supportato in una nuova divisione, scheda o area di lavoro senza perderne il contesto."
     },
     "cmdShiftU": {
       "metaTitle": "Cmd+Shift+U",
@@ -939,6 +956,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "notificationMessageLineLimit": "Numero massimo di righe mostrate per la notifica più recente sotto il titolo di ogni area di lavoro.",
           "rightMaxWidth": "Larghezza massima in punti della barra laterale destra. Se omessa, si applica il limite dinamico integrato."
         },
         "fileExplorer": {

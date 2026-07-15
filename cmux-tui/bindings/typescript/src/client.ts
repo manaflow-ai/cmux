@@ -29,6 +29,7 @@ import type {
   Json,
   JsonObject,
   ListAgentsResult,
+  ListClientsResult,
   NotificationLevel,
   NotifyResult,
   PaneDirection,
@@ -37,6 +38,7 @@ import type {
   ProcessInfoResult,
   ReadScreenResult,
   ReloadConfigResult,
+  ResizeSurfaceResult,
   ReportAgentResult,
   RunResult,
   SidebarPluginResult,
@@ -274,6 +276,7 @@ export class CmuxClient {
   private readonly streamTransportFactory?: () => Transport;
   private nextRequestId = 1;
   private protocol: number | null = null;
+  private sharedSubscriptionActive = false;
 
   constructor(options: CmuxClientOptions) {
     this.transport = options.transport;
@@ -321,6 +324,11 @@ export class CmuxClient {
   }
 
   ping(): Promise<PingResult> { return this.request("ping"); }
+  setClientInfo(name?: string, kind?: string): Promise<EmptyResult> {
+    return this.request("set-client-info", { name, kind });
+  }
+  listClients(): Promise<ListClientsResult> { return this.request("list-clients"); }
+  detachClient(client: Id): Promise<EmptyResult> { return this.request("detach-client", { client }); }
   reloadConfig(): Promise<ReloadConfigResult> { return this.request("reload-config"); }
   setWindowTitle(title: string): Promise<EmptyResult> { return this.request("set-window-title", { title }); }
   clearWindowTitle(): Promise<EmptyResult> { return this.request("clear-window-title"); }
@@ -372,8 +380,9 @@ export class CmuxClient {
   renameSurface(surface: Id, name: string): Promise<EmptyResult> { return this.request("rename-surface", { surface, name }); }
   renameScreen(screen: Id, name: string): Promise<EmptyResult> { return this.request("rename-screen", { screen, name }); }
   renameWorkspace(workspace: Id, name: string): Promise<EmptyResult> { return this.request("rename-workspace", { workspace, name }); }
-  resizeSurface(surface: Id, cols: number, rows: number): Promise<EmptyResult> {
-    return this.request("resize-surface", { surface, cols, rows });
+  async resizeSurface(surface: Id, cols: number, rows: number): Promise<ResizeSurfaceResult> {
+    const result = await this.request("resize-surface", { surface, cols, rows });
+    return { ...result, accepted: result.accepted ?? true };
   }
   focusPane(pane: Id): Promise<EmptyResult> { return this.request("focus-pane", { pane }); }
   selectTab(options: SelectTabOptions = {}): Promise<EmptyResult> { return this.request("select-tab", options); }
@@ -387,20 +396,23 @@ export class CmuxClient {
     return this.openStream(
       { cmd: "subscribe", ...options },
       (event) => event as SubscribeEvent,
-      (event, dedicated) => dedicated || !this.attachOnlyEvent(event.event),
+      (event, dedicated) => dedicated
+        || (!this.attachOnlyEvent(event.event) && !this.isSurfaceOverflow(event)),
+      (event) => event.event === "overflow" && !this.isSurfaceOverflow(event),
+      true,
     );
   }
 
   async attachSurface(surface: Id): Promise<CmuxStream<DecodedAttachEvent>> {
     const protocol = this.protocol ?? (await this.identify()).protocol;
-    if (protocol > 6 || (protocol > 5 && !this.allowProtocolV6Attach)) {
+    if (protocol > 7 || (protocol > 5 && !this.allowProtocolV6Attach)) {
       throw new CmuxProtocolError(`unsupported attach protocol ${protocol}`);
     }
     return this.openStream(
       { cmd: "attach-surface", surface },
       (event) => this.decodeAttachEvent(event as AttachEvent),
       (event, dedicated) => dedicated || this.matchesAttachEvent(event, surface),
-      (event) => event.event === "detached",
+      (event) => event.event === "detached" || this.isSurfaceOverflow(event, surface),
     );
   }
 
@@ -435,8 +447,17 @@ export class CmuxClient {
     map: (event: UnknownEvent) => T,
     accept: (event: UnknownEvent, dedicated: boolean) => boolean,
     terminal: (event: T) => boolean = () => false,
+    exclusiveSharedSubscription = false,
   ): Promise<CmuxStream<T>> {
     const dedicated = this.streamTransportFactory !== undefined;
+    if (exclusiveSharedSubscription && !dedicated) {
+      if (this.sharedSubscriptionActive) {
+        throw new CmuxProtocolError(
+          "concurrent subscriptions require streamTransportFactory",
+        );
+      }
+      this.sharedSubscriptionActive = true;
+    }
     const transport = this.streamTransportFactory?.() ?? this.transport;
     const router = dedicated ? new MessageRouter(transport) : this.router;
     let eventSubscription: Unsubscribe = () => undefined;
@@ -444,6 +465,9 @@ export class CmuxClient {
     const stream = new CmuxStream<T>(this.timeoutMs, () => {
       eventSubscription();
       terminalSubscription();
+      if (exclusiveSharedSubscription && !dedicated) {
+        this.sharedSubscriptionActive = false;
+      }
       if (dedicated) transport.close();
     });
     eventSubscription = router.onEvent((event) => {
@@ -490,12 +514,31 @@ export class CmuxClient {
   }
 
   private matchesAttachEvent(event: UnknownEvent, surface: Id): boolean {
+    // colors-changed is scoped by its attach connection and intentionally has
+    // no surface field in protocol v6.
+    if (event.event === "colors-changed") return true;
     if (!("surface" in event) || event.surface !== surface) return false;
-    return this.attachOnlyEvent(event.event) || event.event === "scroll-changed";
+    return this.attachOnlyEvent(event.event)
+      || event.event === "scroll-changed"
+      || this.isSurfaceOverflow(event, surface);
+  }
+
+  private isSurfaceOverflow(
+    event: { event: string; scope?: unknown; surface?: unknown },
+    surface?: Id,
+  ): boolean {
+    return event.event === "overflow"
+      && event.scope === "surface"
+      && "surface" in event
+      && (surface === undefined || event.surface === surface);
   }
 
   private attachOnlyEvent(event: string): boolean {
-    return event === "vt-state" || event === "output" || event === "resized" || event === "detached";
+    return event === "vt-state"
+      || event === "output"
+      || event === "resized"
+      || event === "colors-changed"
+      || event === "detached";
   }
 
   private dropUndefined(value: Record<string, unknown>): JsonObject {

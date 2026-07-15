@@ -3,7 +3,9 @@
     "agent-session-web:build": "sh scripts/build-agent-session-web.sh",
     "agent-session-web:test": "bun test webviews/src/agent-session/shared/*.test.ts",
     "biome:check": "biome check .",
-    "feed-tui": "bun Resources/feed-tui/index.ts"
+    "feed-tui": "bun Resources/feed-tui/index.ts",
+    "iroh:relay-catalog:check": "bun web/tools/generate-managed-iroh-relay-catalog.ts --check",
+    "iroh:relay-catalog:generate": "bun web/tools/generate-managed-iroh-relay-catalog.ts"
   },
   "dependencies": {
     "@opentui/core": "^0.1.106",

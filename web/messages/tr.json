@@ -415,6 +415,19 @@
         "p3": "En iyi geliştiriciler her zaman kendi araçlarını yapmışlardır. Henüz kimse ajanlarla çalışmanın en iyi yolunu bulmadı ve kapalı ürünler geliştiren ekipler kesinlikle bulmadı. Kendi kod tabanlarına en yakın geliştiriciler bunu ilk bulacaklardır.",
         "p4": "Bir milyon geliştiriciye birleştirilebilir ilkel yapılar verin, herhangi bir ürün ekibinin yukarıdan aşağıya tasarlayabileceğinden daha hızlı bir şekilde en verimli iş akışlarını toplu olarak bulacaklardır."
       },
+      "cmuxFork": {
+        "title": "cmux Fork ile tanışın",
+        "summary": "Bir ajan konuşmasını bağlamını kaybetmeden yeni bir bölmeye, sekmeye veya çalışma alanına dallandırın.",
+        "date": "14 Temmuz 2026",
+        "p1": "Kodlama ajanı konuşmalarında dallanmanın yararlı olduğu noktalar oluşur. Bir yaklaşımı korurken başka bir ajan farklı bir uygulamayı deneyebilir, bir yan konuyu araştırabilir veya aynı sorunu yeni bir açıdan inceleyebilir.",
+        "p2": "Fork Conversation, mevcut konuşmadan yeni bir ajan oturumu oluşturur ve konuşma geçmişiyle çalışma dizinini korur. Codex, Claude Code, OpenCode, Pi, Hermes ve dallandırılabilir oturumlara sahip diğer ajanları destekler.",
+        "destinationsTitle": "Çalışmak istediğiniz yere dallandırın",
+        "destinationsP": "Bir terminale veya sekmeye sağ tıklayıp Fork Conversation'ı seçin ya da <code>Cmd+Shift+P</code> tuşlarına basıp Fork Conversation'ı arayın. Dalı herhangi bir yöndeki bölmeye, yeni bir sekmeye veya yeni bir çalışma alanına gönderin.",
+        "parallelTitle": "Birden fazla yönü aynı anda keşfedin",
+        "parallelP1": "Uygulamaları karşılaştırmak veya birkaç ajanın aynı başlangıç bağlamıyla bir sorunu paylaşmasını sağlamak için aynı konuşmayı birden fazla kez dallandırın. Her dal bağımsız devam ederken özgün konuşma kullanılabilir kalır.",
+        "parallelP2": "Dallar aynı dizinde çalışabilir. Eşzamanlı düzenlemeler çakışabilecekse onlara ayrı görevler veya dosyalar verin.",
+        "release": "cmux Fork, v0.64.19 sürümünde kullanılabilir."
+      },
       "showHnLaunch": {
         "title": "cmux'u Show HN'de Yayınlama",
         "summary": "cmux Hacker News'te #2'ye ulaştı, Mitchell Hashimoto tarafından paylaşıldı ve Japonya'da viral oldu.",
@@ -582,6 +595,10 @@
     "zenOfCmux": {
       "metaTitle": "cmux'un Zeni",
       "metaDescription": "cmux bir çözüm değil, bir ilkeldir. Size birleştirilebilir parçalar verir ve iş akışınız size bağlıdır."
+    },
+    "cmuxFork": {
+      "metaTitle": "cmux Fork ile tanışın",
+      "metaDescription": "Codex, Claude Code, OpenCode, Pi, Hermes veya desteklenen başka bir ajanın konuşmasını bağlamını kaybetmeden yeni bir bölmeye, sekmeye veya çalışma alanına dallandırın."
     },
     "cmdShiftU": {
       "metaTitle": "Cmd+Shift+U",
@@ -939,6 +956,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "notificationMessageLineLimit": "Her çalışma alanı başlığının altında en son bildirim için gösterilen en fazla satır sayısı.",
           "rightMaxWidth": "Sağ kenar çubuğu için puan cinsinden en fazla genişlik. Atlanırsa yerleşik dinamik sınır uygulanır."
         },
         "fileExplorer": {

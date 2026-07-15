@@ -434,6 +434,19 @@
         "cmuxP1": "cmux benötigt keinen integrierten universellen Worktree-Manager. Es bietet Ihnen benutzerdefinierte <customCommands>-Befehle</customCommands>, einen programmierbaren <api>CLI und einen Socket API</api> sowie wiederverwendbare <skills>skills</skills>. Mit der Plus-Schaltfläche können Sie Ihren eigenen Worktree-Befehl, ein Multi-Repo-Setup, eine No-Git-Sandbox oder eine Remote-Umgebung starten.",
         "cmuxP2": "Deshalb ist <home>cmux home</home> wichtig. Der beste Worktree-Manager ist derjenige, den Ihre Agenten ändern können, wenn sich Ihr Workflow ändert, und das beste Terminal für diese Schleife hält Benachrichtigungen, Cmd+Shift+U und Cmd+Control+U in der Oberfläche fest."
       },
+      "cmuxFork": {
+        "title": "Wir stellen cmux Fork vor",
+        "summary": "Verzweigen Sie eine Agentenkonversation in einen neuen Split, Tab oder Workspace, ohne ihren Kontext zu verlieren.",
+        "date": "14. Juli 2026",
+        "p1": "Konversationen mit Coding-Agenten erreichen Punkte, an denen eine Verzweigung nützlich ist. Sie können einen Ansatz beibehalten, während ein anderer Agent eine andere Implementierung ausprobiert, eine Nebenfrage untersucht oder dasselbe Problem aus einer neuen Perspektive prüft.",
+        "p2": "Fork Conversation erstellt aus dem aktuellen Verlauf eine neue Agentensitzung und übernimmt Konversationsverlauf und Arbeitsverzeichnis. Unterstützt werden Codex, Claude Code, OpenCode, Pi, Hermes und weitere Agenten mit verzweigbaren Sitzungen.",
+        "destinationsTitle": "Verzweigen Sie dorthin, wo Sie arbeiten möchten",
+        "destinationsP": "Klicken Sie mit der rechten Maustaste auf ein Terminal oder einen Tab und wählen Sie Fork Conversation, oder drücken Sie <code>Cmd+Shift+P</code> und suchen Sie nach Fork Conversation. Öffnen Sie die Verzweigung in einem Split auf einer beliebigen Seite, einem neuen Tab oder einem neuen Workspace.",
+        "parallelTitle": "Erkunden Sie mehrere Richtungen gleichzeitig",
+        "parallelP1": "Verzweigen Sie dieselbe Konversation mehrfach, um Implementierungen zu vergleichen oder mehrere Agenten ein Problem mit demselben Ausgangskontext aufteilen zu lassen. Jede Verzweigung läuft unabhängig weiter, während der ursprüngliche Verlauf verfügbar bleibt.",
+        "parallelP2": "Verzweigungen können im selben Verzeichnis arbeiten. Weisen Sie ihnen getrennte Aufgaben oder Dateien zu, wenn sich gleichzeitige Änderungen überschneiden könnten.",
+        "release": "cmux Fork ist ab v0.64.19 verfügbar."
+      },
       "showHnLaunch": {
         "title": "cmux-Launch auf Show HN",
         "summary": "cmux erreichte Platz #2 auf Hacker News, wurde von Mitchell Hashimoto geteilt und ging in Japan viral.",
@@ -597,6 +610,10 @@
         "Terminal-Workflow",
         "agentische Entwicklung"
       ]
+    },
+    "cmuxFork": {
+      "metaTitle": "Wir stellen cmux Fork vor",
+      "metaDescription": "Verzweigen Sie eine Konversation in Codex, Claude Code, OpenCode, Pi, Hermes oder einem anderen unterstützten Agenten in einen neuen Split, Tab oder Workspace, ohne ihren Kontext zu verlieren."
     },
     "cmdShiftU": {
       "metaTitle": "Cmd+Shift+U",
@@ -939,6 +956,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "notificationMessageLineLimit": "Maximale Anzahl der Zeilen, die für die neueste Benachrichtigung unter jedem Workspace-Titel angezeigt werden.",
           "rightMaxWidth": "Maximale Breite der rechten Seitenleiste in Punkten. Wenn weggelassen, gilt die integrierte dynamische Obergrenze."
         },
         "fileExplorer": {

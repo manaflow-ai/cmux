@@ -27,16 +27,24 @@ import SwiftUI
 /// source shapes; this is the mechanism-independent backstop.
 @Suite(.serialized)
 final class SidebarLazyLayoutScaleTests {
-    private static let workspaceCount = 300
+    static let workspaceCount = 300
     /// Generous ceiling for "how many rows may be realized for one viewport".
     /// A 640pt window shows ~20 rows; LazyVStack prefetch and a second layout
     /// pass can multiply that, but a virtualization defeat realizes all 300.
     private static let realizedRowCeiling = 150
 
+    final class InjectableMouseLocationWindow: NSWindow {
+        var injectedMouseLocation = NSPoint.zero
+
+        override var mouseLocationOutsideOfEventStream: NSPoint {
+            injectedMouseLocation
+        }
+    }
+
     // Plain class (not @MainActor) so the probe's nonisolated `() -> Void`
     // closures can mutate it; bodies only run on the main thread. Same shape
     // as MinimalModeBodyProbeCounts in WorkspaceContentViewVisibilityTests.
-    private final class RowBodyCounter {
+    final class RowBodyCounter {
         var workspaceRowBodies = 0
         var groupHeaderBodies = 0
         var workspaceSnapshotBuilds = 0
@@ -58,11 +66,11 @@ final class SidebarLazyLayoutScaleTests {
     }
 
     @MainActor
-    private struct Harness {
+    struct Harness {
         let tabManager: TabManager
         let unread: SidebarUnreadModel
         let counter: RowBodyCounter
-        let window: NSWindow
+        let window: InjectableMouseLocationWindow
         let defaultsSuiteName: String
 
         func tearDown() {
@@ -74,7 +82,7 @@ final class SidebarLazyLayoutScaleTests {
     }
 
     @MainActor
-    private static func mountSidebar(workspaceCount: Int) async throws -> Harness {
+    static func mountSidebar(workspaceCount: Int) async throws -> Harness {
         _ = NSApplication.shared
 
         // Hermetic defaults: VerticalTabsSidebar picks between the workspace
@@ -177,7 +185,7 @@ final class SidebarLazyLayoutScaleTests {
         )
         .defaultAppStorage(defaults)
 
-        let window = NSWindow(
+        let window = InjectableMouseLocationWindow(
             contentRect: NSRect(x: 0, y: 0, width: 280, height: 640),
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
@@ -205,7 +213,7 @@ final class SidebarLazyLayoutScaleTests {
     /// own autorelease pool so drained main-queue work cannot pile objects
     /// into the enclosing job's pool.
     @MainActor
-    private static func turnMainRunLoopOnce(layingOut window: NSWindow?) {
+    static func turnMainRunLoopOnce(layingOut window: NSWindow?) {
         autoreleasepool {
             window?.contentView?.layoutSubtreeIfNeeded()
             _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
@@ -213,12 +221,13 @@ final class SidebarLazyLayoutScaleTests {
     }
 
     @MainActor
-    private static func drainMainRunLoop(for window: NSWindow, iterations: Int = 25) async {
+    static func drainMainRunLoop(for window: NSWindow, iterations: Int = 25) async {
         for _ in 0..<iterations {
             Self.turnMainRunLoopOnce(layingOut: window)
             await Task.yield()
         }
     }
+
 
     /// Mounting the sidebar with 300 workspaces must realize only the rows a
     /// single viewport needs. Realizing all of them is the #5323/#6210 defeat:
@@ -352,6 +361,7 @@ final class SidebarLazyLayoutScaleTests {
             """
         )
     }
+
 
     /// Harness self-test: prove the drain loop + body counter actually detect
     /// a layout feedback loop. This fixture reproduces the historical

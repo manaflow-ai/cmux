@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { stripeSubscriptions } from "../db/schema";
 import enMessages from "../messages/en.json";
+import { createNextNavigationMock } from "./helpers/next-navigation-mock";
 
 const dbClientModule = await import("../db/client");
 const realCloseCloudDbForTests = dbClientModule.closeCloudDbForTests;
@@ -18,6 +19,17 @@ const proUser = {
   update: mock(async () => undefined),
 };
 const getUser = mock(async () => proUser);
+const redirect = mock((href: unknown) => {
+  throw Object.assign(new Error("redirect"), { href });
+});
+
+mock.module("next/navigation", () => createNextNavigationMock(redirect));
+
+mock.module("next-intl", () => ({
+  NextIntlClientProvider: ({ children }: { children: React.ReactNode }) => children,
+  useLocale: () => "en",
+  useTranslations: (namespace?: string) => translator(namespace),
+}));
 
 mock.module("next-intl/server", () => ({
   getTranslations: async (namespace?: string | { namespace?: string }) =>
@@ -27,10 +39,6 @@ mock.module("next-intl/server", () => ({
 
 mock.module("../app/[locale]/components/site-header", () => ({
   SiteHeader: () => <header />,
-}));
-
-mock.module("../app/[locale]/components/pro-welcome-banner", () => ({
-  ProWelcomeBanner: () => null,
 }));
 
 mock.module("../app/[locale]/components/pro-cta-link", () => ({
