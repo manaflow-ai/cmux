@@ -37,11 +37,11 @@ extension TerminalController {
                     if statusOnly {
                         handled = true
                     } else if mode == "enable" {
-                        handled = await controller.setEnabled(true, reason: "cli.designMode")
+                        handled = await panel.setDesignModeEnabled(true, reason: "cli.designMode")
                     } else if mode == "disable" {
-                        handled = await controller.setEnabled(false, reason: "cli.designMode")
+                        handled = await panel.setDesignModeEnabled(false, reason: "cli.designMode")
                     } else {
-                        handled = await controller.toggle(reason: "cli.designMode")
+                        handled = await panel.toggleDesignMode(reason: "cli.designMode")
                     }
                     guard !Task.isCancelled else { return }
                     finish((

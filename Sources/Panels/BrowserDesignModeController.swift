@@ -11,6 +11,7 @@ final class BrowserDesignModeController {
 
     static let contentWorld = WKContentWorld.world(name: "cmuxDesignMode")
     static let messageHandlerName = BrowserDesignModeMessageHandler.name
+    private static let maximumRequestedChangeCharacters = 4_000
 
     private(set) var phase: BrowserDesignModePhase = .inactive {
         didSet {
@@ -20,6 +21,19 @@ final class BrowserDesignModeController {
     }
     private(set) var snapshot: BrowserDesignModeSnapshot?
     private(set) var errorMessage: String?
+    var isComposerPresented = false
+    var requestedChange = "" {
+        didSet {
+            let bounded = String(requestedChange.prefix(Self.maximumRequestedChangeCharacters))
+            if requestedChange != bounded {
+                requestedChange = bounded
+                return
+            }
+            didCopy = false
+        }
+    }
+    private(set) var isCopying = false
+    private(set) var didCopy = false
 
     @ObservationIgnored private let surfaceID: UUID
     @ObservationIgnored private let script: BrowserDesignModeScript
@@ -38,6 +52,23 @@ final class BrowserDesignModeController {
     @ObservationIgnored private var copyTaskID: UUID?
     var isActive: Bool { phase == .active || phase == .activating }
     var protectsFromDiscard: Bool { phase != .inactive }
+    var canToggle: Bool {
+        guard phase != .activating, phase != .deactivating else { return false }
+        return phase == .active || canEnable()
+    }
+    var canCopy: Bool {
+        phase == .active
+            && snapshot?.selections.isEmpty == false
+            && copyTask == nil
+            && !isCopying
+    }
+    var unavailableMessage: String? {
+        guard !isActive, !canEnable() else { return nil }
+        return String(
+            localized: "browser.designMode.error.noPage",
+            defaultValue: "Open a page before entering Design Mode."
+        )
+    }
 
     init(
         surfaceID: UUID,
@@ -72,9 +103,6 @@ final class BrowserDesignModeController {
         let handler = BrowserDesignModeMessageHandler(
             onSnapshot: { [weak self] data in
                 self?.receiveSnapshotData(data)
-            },
-            onCopy: { [weak self] requestedChange in
-                self?.startCopy(requestedChange: requestedChange)
             }
         )
         messageHandler = handler
@@ -126,6 +154,7 @@ final class BrowserDesignModeController {
                     localized: "browser.designMode.error.noPage",
                     defaultValue: "Open a page before entering Design Mode."
                 )
+                isComposerPresented = true
                 return false
             }
             phase = .activating
@@ -138,13 +167,12 @@ final class BrowserDesignModeController {
                 let value = try await evaluate(
                     """
                     \(source)
-                    return globalThis.__cmuxDesignMode.enable(strings);
+                    return globalThis.__cmuxDesignMode.enable();
                     """,
-                    arguments: ["strings": runtimeStrings],
                     in: webView
                 )
                 guard operation == operationRevision else { return false }
-                let next = try decodeSnapshot(value)
+                let next = try BrowserDesignModeSupport.decodeSnapshot(value)
                 apply(next)
                 phase = .active
                 return true
@@ -154,11 +182,12 @@ final class BrowserDesignModeController {
                     invalidateOperation()
                     bestEffortRuntimeCleanup(in: webView)
                     resetNativeState()
-                    recordInternalFailure(enableError, operation: "enable")
+                    BrowserDesignModeSupport.record(enableError, operation: "enable")
                     errorMessage = String(
                         localized: "browser.designMode.error.enable",
                         defaultValue: "Design Mode could not start."
                     )
+                    isComposerPresented = true
                     return false
                 }
                 let cleanupSucceeded: Bool
@@ -173,11 +202,12 @@ final class BrowserDesignModeController {
                 } else {
                     phase = .active
                 }
-                recordInternalFailure(enableError, operation: "enable")
+                BrowserDesignModeSupport.record(enableError, operation: "enable")
                 errorMessage = String(
                     localized: "browser.designMode.error.enable",
                     defaultValue: "Design Mode could not start."
                 )
+                isComposerPresented = true
                 return false
             }
         }
@@ -195,16 +225,79 @@ final class BrowserDesignModeController {
         } catch let disableError {
             guard operation == operationRevision else { return false }
             phase = .active
-            recordInternalFailure(disableError, operation: "disable")
+            BrowserDesignModeSupport.record(disableError, operation: "disable")
             errorMessage = String(
                 localized: "browser.designMode.error.disable",
                 defaultValue: "Design Mode cleanup failed. Reload the page or try again."
             )
+            isComposerPresented = true
             return false
         }
     }
 
-    func copySelection(requestedChange: String) async {
+    func copySelection() async {
+        if let copyTask {
+            await copyTask.value
+            return
+        }
+        guard canCopy else { return }
+        isCopying = true
+        didCopy = false
+        let taskID = UUID()
+        copyTaskID = taskID
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.performCopySelection()
+        }
+        copyTask = task
+        await task.value
+        guard copyTaskID == taskID else { return }
+        copyTask = nil
+        copyTaskID = nil
+        isCopying = false
+    }
+
+    func removeSelection(at index: Int) async {
+        guard phase == .active,
+              snapshot?.selections.indices.contains(index) == true,
+              let webView else { return }
+        do {
+            let value = try await evaluate(
+                "return globalThis.__cmuxDesignMode?.removeSelection(index);",
+                arguments: ["index": index],
+                in: webView
+            )
+            let next = try BrowserDesignModeSupport.decodeSnapshot(value)
+            apply(next)
+            didCopy = false
+            errorMessage = nil
+            if next.selections.isEmpty {
+                requestedChange = ""
+                isComposerPresented = false
+            }
+        } catch {
+            BrowserDesignModeSupport.record(error, operation: "removeSelection")
+            errorMessage = BrowserDesignModeSupport.productMessage(
+                for: error,
+                fallback: String(
+                    localized: "browser.designMode.error.updateSelection",
+                    defaultValue: "Could not update the selected elements."
+                )
+            )
+            isComposerPresented = true
+        }
+    }
+
+    func presentError(_ message: String) {
+        errorMessage = message
+        isComposerPresented = true
+    }
+
+    func dismissComposer() {
+        isComposerPresented = false
+    }
+
+    private func performCopySelection() async {
         let requestedChange = requestedChange.trimmingCharacters(in: .whitespacesAndNewlines)
         guard phase == .active,
               snapshot?.selections.isEmpty == false,
@@ -224,7 +317,7 @@ final class BrowserDesignModeController {
                 do {
                     let crop = try BrowserScreenshotCrop.croppedImage(
                         from: capture.image,
-                        selectionInView: Self.captureRect(
+                        selectionInView: BrowserDesignModeSupport.captureRect(
                             selection: selection.bounds,
                             viewport: selection.viewport,
                             viewBounds: capture.viewBounds
@@ -250,11 +343,11 @@ final class BrowserDesignModeController {
             guard !prompt.isEmpty else { throw BrowserDesignModeError.invalidRuntimeResponse }
             guard operation == operationRevision else { return }
             guard clipboardWriter(prompt) else { throw BrowserScreenshotError.pasteboardWriteFailed }
-            await setRuntimeCopyResult(state: "copied", message: nil, in: webView)
+            didCopy = true
         } catch let copyError {
             guard operation == operationRevision else { return }
-            recordInternalFailure(copyError, operation: "copy")
-            let message = productMessage(
+            BrowserDesignModeSupport.record(copyError, operation: "copy")
+            let message = BrowserDesignModeSupport.productMessage(
                 for: copyError,
                 fallback: String(
                     localized: "browser.designMode.error.copy",
@@ -262,29 +355,8 @@ final class BrowserDesignModeController {
                 )
             )
             errorMessage = message
-            await setRuntimeCopyResult(state: "failed", message: message, in: webView)
+            isComposerPresented = true
         }
-    }
-
-    private func startCopy(requestedChange: String) {
-        guard copyTask == nil else { return }
-        let taskID = UUID()
-        copyTaskID = taskID
-        copyTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            await copySelection(requestedChange: requestedChange)
-            guard copyTaskID == taskID else { return }
-            copyTask = nil
-            copyTaskID = nil
-        }
-    }
-
-    private func setRuntimeCopyResult(state: String, message: String?, in webView: WKWebView) async {
-        _ = try? await evaluate(
-            "return globalThis.__cmuxDesignMode?.setCopyResult(state, message);",
-            arguments: ["state": state, "message": message ?? NSNull()],
-            in: webView
-        )
     }
 
     private func captureStableSelection(
@@ -292,7 +364,7 @@ final class BrowserDesignModeController {
     ) async throws -> (snapshot: BrowserDesignModeSnapshot, image: NSImage, viewBounds: NSRect) {
         for _ in 0..<2 {
             let candidate = try await captureCandidate(in: webView)
-            if Self.captureMatches(
+            if BrowserDesignModeSupport.captureMatches(
                 before: candidate.before,
                 after: candidate.after,
                 beforeViewBounds: candidate.beforeViewBounds,
@@ -315,10 +387,12 @@ final class BrowserDesignModeController {
     ) {
         do {
             let prepared = try await evaluate("return globalThis.__cmuxDesignMode?.prepareCapture();", in: webView)
-            let before = try decodeSnapshot(prepared)
+            let before = try BrowserDesignModeSupport.decodeSnapshot(prepared)
             let beforeViewBounds = webView.bounds
             let image = try await screenshotEvaluator.captureVisibleViewport(from: webView)
-            let after = try decodeSnapshot(try await evaluate("return globalThis.__cmuxDesignMode?.snapshot();", in: webView))
+            let after = try BrowserDesignModeSupport.decodeSnapshot(
+                try await evaluate("return globalThis.__cmuxDesignMode?.snapshot();", in: webView)
+            )
             let afterViewBounds = webView.bounds
             try await finishCapture(in: webView)
             return (before, after, image, beforeViewBounds, afterViewBounds)
@@ -335,36 +409,12 @@ final class BrowserDesignModeController {
         }
     }
 
-    private static func captureMatches(
-        before: BrowserDesignModeSnapshot,
-        after: BrowserDesignModeSnapshot,
-        beforeViewBounds: NSRect,
-        afterViewBounds: NSRect
-    ) -> Bool {
-        before.enabled && after.enabled
-            && before.revision == after.revision
-            && before.selections == after.selections
-            && beforeViewBounds == afterViewBounds
-    }
-
     private func finishCapture(in webView: WKWebView) async throws {
         _ = try await evaluate("return globalThis.__cmuxDesignMode?.finishCapture();", in: webView)
     }
 
     private func destroyRuntime(in webView: WKWebView) async throws {
         _ = try await evaluate("return globalThis.__cmuxDesignMode?.destroy();", in: webView)
-    }
-
-    private func productMessage(for error: any Error, fallback: String) -> String {
-        if let error = error as? BrowserDesignModeError { return error.localizedDescription }
-        if let error = error as? BrowserScreenshotError { return error.localizedDescription }
-        return fallback
-    }
-
-    private func recordInternalFailure(_ error: any Error, operation: String) {
-#if DEBUG
-        cmuxDebugLog("browser.designMode.\(operation).failed error=\(String(reflecting: error))")
-#endif
     }
 
     private func evaluate(
@@ -380,21 +430,17 @@ final class BrowserDesignModeController {
         )
     }
 
-    private func decodeSnapshot(_ value: Any?) throws -> BrowserDesignModeSnapshot {
-        guard let value, JSONSerialization.isValidJSONObject(value) else {
-            throw BrowserDesignModeError.invalidRuntimeResponse
-        }
-        let data = try JSONSerialization.data(withJSONObject: value)
-        return try JSONDecoder().decode(BrowserDesignModeSnapshot.self, from: data)
-    }
-
     private func receiveSnapshotData(_ data: Data) {
         guard phase == .active || phase == .activating else { return }
         guard let next = try? JSONDecoder().decode(BrowserDesignModeSnapshot.self, from: data) else { return }
         let previousSelectors = snapshot?.selections.map(\.selector)
         apply(next)
         if next.enabled { phase = .active }
-        if next.selections.map(\.selector) != previousSelectors { errorMessage = nil }
+        if next.selections.map(\.selector) != previousSelectors {
+            errorMessage = nil
+            didCopy = false
+            isComposerPresented = !next.selections.isEmpty
+        }
     }
 
     private func apply(_ next: BrowserDesignModeSnapshot) {
@@ -429,6 +475,10 @@ final class BrowserDesignModeController {
         phase = .inactive
         snapshot = nil
         errorMessage = nil
+        isComposerPresented = false
+        requestedChange = ""
+        isCopying = false
+        didCopy = false
         activePageURL = nil
         copyTask?.cancel()
     }
@@ -445,51 +495,4 @@ final class BrowserDesignModeController {
         screenshotEvaluator.cancelAll()
     }
 
-    private var runtimeStrings: [String: String] {
-        [
-            "describeChange": String(
-                localized: "browser.designMode.composer.describeChange",
-                defaultValue: "Describe the change"
-            ),
-            "copy": String(localized: "browser.designMode.copy", defaultValue: "Copy"),
-            "copying": String(
-                localized: "browser.designMode.copy.copying",
-                defaultValue: "Copying…"
-            ),
-            "copied": String(
-                localized: "browser.designMode.copy.copied",
-                defaultValue: "Copied"
-            ),
-            "copyFailed": String(
-                localized: "browser.designMode.error.copy",
-                defaultValue: "Could not copy the design context."
-            ),
-            "removeSelection": String(
-                localized: "browser.designMode.composer.removeSelection",
-                defaultValue: "Remove selected element"
-            ),
-            "copyShortcut": String(
-                localized: "browser.designMode.copy.shortcut",
-                defaultValue: "⌘↩"
-            ),
-        ]
-    }
-
-    private static func captureRect(
-        selection: BrowserDesignModeRect,
-        viewport: BrowserDesignModeViewport,
-        viewBounds: NSRect
-    ) -> NSRect {
-        guard viewport.width > 0, viewport.height > 0 else { return .zero }
-        let scaleX = viewBounds.width / viewport.width
-        let scaleY = viewBounds.height / viewport.height
-        let width = selection.width * scaleX
-        let height = selection.height * scaleY
-        return NSRect(
-            x: viewBounds.minX + selection.x * scaleX,
-            y: viewBounds.maxY - selection.y * scaleY - height,
-            width: width,
-            height: height
-        )
-    }
 }

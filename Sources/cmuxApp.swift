@@ -948,7 +948,7 @@ struct cmuxApp: App {
             }
             splitCommandButton(title: String(localized: "menu.view.toggleDesignMode", defaultValue: "Toggle Design Mode"), shortcut: menuShortcut(for: .toggleBrowserDesignMode)) {
                 guard let panel = activeTabManager.focusedBrowserPanel else { NSSound.beep(); return }
-                Task { @MainActor in _ = await panel.designModeController.toggle(reason: "viewMenu") }
+                Task { @MainActor in _ = await panel.toggleDesignMode(reason: "viewMenu") }
             }
             let browserFocusModeMenu = browserFocusModeMenuSnapshot
             Button(browserFocusModeMenu.title) {
