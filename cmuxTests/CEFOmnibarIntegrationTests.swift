@@ -316,6 +316,25 @@ struct CEFOmnibarIntegrationTests {
     }
 
     @Test
+    func chromiumTabBarNewTabCreatesChromiumSibling() throws {
+        let workspace = Workspace()
+        let pane = try #require(workspace.bonsplitController.focusedPaneId)
+        let existingPanelIDs = Set(workspace.panels.keys)
+
+        workspace.splitTabBar(
+            workspace.bonsplitController,
+            didRequestNewTab: "cefBrowser",
+            inPane: pane
+        )
+
+        let createdPanels = workspace.panels
+            .filter { !existingPanelIDs.contains($0.key) }
+            .map(\.value)
+        #expect(createdPanels.count == 1)
+        #expect(createdPanels.first is CEFBrowserPanel)
+    }
+
+    @Test
     func extensionDownloadsRequirePinnedSHA256Digests() throws {
         let temporary = temporaryDirectory(named: "extension-digest")
         defer { try? FileManager.default.removeItem(at: temporary) }
@@ -367,6 +386,94 @@ struct CEFOmnibarIntegrationTests {
         #expect(process.terminationStatus != 0)
         #expect(errorOutput.contains("SHA-256 mismatch"))
         #expect(!FileManager.default.fileExists(atPath: unzipMarker.path))
+    }
+
+    @Test
+    func cachedExtensionContentIsRevalidatedBeforeReuse() throws {
+        let temporary = temporaryDirectory(named: "cached-extension-digest")
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let scriptURL = repositoryRoot
+            .appendingPathComponent("Packages/macOS/CEFKit/scripts/fetch-extensions.sh")
+        let extensionRoot = temporary.appendingPathComponent("extensions", isDirectory: true)
+        let cached = extensionRoot.appendingPathComponent("ublock-origin-lite", isDirectory: true)
+        try FileManager.default.createDirectory(at: cached, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: cached.appendingPathComponent("manifest.json"))
+        try Data("modified".utf8).write(to: cached.appendingPathComponent("background.js"))
+        try "2026.711.25".write(
+            to: cached.appendingPathComponent(".fetched-version"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "invalid-cached-digest".write(
+            to: cached.appendingPathComponent(".fetched-content-sha256"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let requestedURL = temporary.appendingPathComponent("requested-url")
+        let fakeCurl = temporary.appendingPathComponent("curl")
+        try """
+        #!/bin/sh
+        while [ "$#" -gt 0 ]; do
+          if [ "$1" = "-o" ]; then output="$2"; shift 2
+          else url="$1"; shift
+          fi
+        done
+        printf '%s' "$url" > "$CEF_TEST_REQUESTED_URL"
+        printf 'corrupt' > "$output"
+        """.write(to: fakeCurl, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCurl.path)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = [scriptURL.path]
+        process.standardError = Pipe()
+        process.standardOutput = Pipe()
+        process.environment = [
+            "PATH": "/usr/bin:/bin",
+            "CEFKIT_EXTENSIONS_DIR": extensionRoot.path,
+            "CEFKIT_CURL_BIN": fakeCurl.path,
+            "CEF_TEST_REQUESTED_URL": requestedURL.path,
+        ]
+
+        try process.run()
+        process.waitUntilExit()
+
+        #expect(process.terminationStatus != 0)
+        let fetchedURL = try String(contentsOf: requestedURL, encoding: .utf8)
+        #expect(fetchedURL.contains("uBOLite_2026.711.25.chromium.zip"))
+    }
+
+    @Test
+    func extensionBundlingAllowsEmptyOptionalDirectory() throws {
+        let temporary = temporaryDirectory(named: "empty-extension-bundle")
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let scriptURL = repositoryRoot.appendingPathComponent("scripts/copy-cef-runtime-dev.sh")
+        let source = temporary.appendingPathComponent("source", isDirectory: true)
+        let destination = temporary.appendingPathComponent("destination", isDirectory: true)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = [scriptURL.path]
+        process.standardError = Pipe()
+        process.standardOutput = Pipe()
+        process.environment = [
+            "PATH": "/usr/bin:/bin",
+            "CEFKIT_COPY_EXTENSIONS_ONLY": "1",
+            "CEFKIT_EXTENSION_SOURCE_DIR": source.path,
+            "CEFKIT_EXTENSION_DESTINATION_DIR": destination.path,
+        ]
+
+        try process.run()
+        process.waitUntilExit()
+
+        #expect(process.terminationStatus == 0)
+        #expect(FileManager.default.fileExists(atPath: destination.path))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: destination.path).isEmpty)
     }
 
     @Test
