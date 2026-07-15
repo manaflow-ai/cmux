@@ -21,6 +21,16 @@ struct FeedCoordinatorTests {
         #expect(!FeedSurfaceBridge.isTrustedFeedURL(URL(string: "https://example.com/feed.html")))
     }
 
+    @Test func legacyPackagedFeedURLIsRecognizedForSessionMigration() throws {
+        let legacyURL = try #require(URL(string:
+            "file:///Applications/cmux.app/Contents/Resources/markdown-viewer/webviews-app/feed.html"
+        ))
+
+        #expect(FeedSurfaceBridge.isLegacyPackagedFeedURL(legacyURL))
+        #expect(!FeedSurfaceBridge.isLegacyPackagedFeedURL(URL(string: "file:///tmp/feed.html")))
+        #expect(!FeedSurfaceBridge.isLegacyPackagedFeedURL(URL(string: "https://example.com/feed.html")))
+    }
+
     @Test func bundledFeedAssetsUseZlibDecompression() throws {
         let compressed = Data([
             0x78, 0xda, 0x4b, 0xce, 0xcf, 0x2b, 0xce, 0xcf, 0x49,

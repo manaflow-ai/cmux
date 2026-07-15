@@ -2103,6 +2103,19 @@ final class CmuxLayoutEncodingTests: XCTestCase {
         }
     }
 
+    func testBrowserSurfaceOmnibarVisibilityRoundTrips() throws {
+        let original = CmuxSurfaceDefinition(
+            type: .browser,
+            url: "https://example.com",
+            omnibarVisible: false
+        )
+
+        let data = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(CmuxSurfaceDefinition.self, from: data)
+
+        XCTAssertEqual(decoded.omnibarVisible, false)
+    }
+
     func testSplitNodeRoundTrips() throws {
         let original = CmuxLayoutNode.split(CmuxSplitDefinition(
             direction: .vertical,
