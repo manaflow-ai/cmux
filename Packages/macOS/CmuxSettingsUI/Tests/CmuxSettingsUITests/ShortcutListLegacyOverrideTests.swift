@@ -255,4 +255,29 @@ import Testing
         #expect(model.effective(for: nextAction) == nextAction.defaultShortcut)
         #expect(model.effective(for: previousAction) == previousAction.defaultShortcut)
     }
+
+    @Test func resetNotifiesHostAfterLegacyCleanup() async throws {
+        let action = ShortcutAction.nextSidebarTab
+        let (defaultsStore, suiteName) = try makeDefaultsStore(
+            legacyBindings: [
+                action: StoredShortcut(first: ShortcutStroke(key: "]", command: true, shift: true)),
+            ]
+        )
+        defer { UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName) }
+        var legacyWasPresentWhenNotified: Bool?
+        let model = ShortcutListModel(
+            jsonStore: makeJSONStore(),
+            userDefaultsStore: defaultsStore,
+            catalog: SettingCatalog(),
+            errorLog: SettingsErrorLog(),
+            onShortcutsChanged: {
+                legacyWasPresentWhenNotified = UserDefaults(suiteName: suiteName)?
+                    .object(forKey: "shortcut.\(action.rawValue)") != nil
+            }
+        )
+
+        await model.resetAll()
+
+        #expect(legacyWasPresentWhenNotified == false)
+    }
 }

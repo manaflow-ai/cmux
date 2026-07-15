@@ -31,6 +31,7 @@ final class ShortcutListModel {
     @ObservationIgnored private let userDefaultsStore: UserDefaultsSettingsStore?
     @ObservationIgnored private let catalog: SettingCatalog
     @ObservationIgnored private let errorLog: SettingsErrorLog
+    @ObservationIgnored private let onShortcutsChanged: @MainActor () -> Void
     @ObservationIgnored private let bindingsDriver = SettingReadDriver<[String: StoredShortcut]>()
     @ObservationIgnored private let legacyBindingsDriver = SettingReadDriver<[String: StoredShortcut]>()
     @ObservationIgnored private let whenDriver = SettingReadDriver<[String: String]>()
@@ -43,13 +44,15 @@ final class ShortcutListModel {
         jsonStore: JSONConfigStore,
         userDefaultsStore: UserDefaultsSettingsStore? = nil,
         catalog: SettingCatalog,
-        errorLog: SettingsErrorLog
+        errorLog: SettingsErrorLog,
+        onShortcutsChanged: @escaping @MainActor () -> Void = {}
     ) {
         self.jsonStore = jsonStore
         self.userDefaultsStore = userDefaultsStore
         self.legacyBindings = userDefaultsStore?.initialLegacyShortcutBindings() ?? [:]
         self.catalog = catalog
         self.errorLog = errorLog
+        self.onShortcutsChanged = onShortcutsChanged
     }
 
     // MARK: - Lifecycle
@@ -421,6 +424,7 @@ final class ShortcutListModel {
                 await userDefaultsStore?.resetLegacyShortcutBinding(for: action)
                 legacyBindings.removeValue(forKey: action.rawValue)
             }
+            onShortcutsChanged()
             if pendingWriteGeneration == generation {
                 pendingBindings = nil
             }

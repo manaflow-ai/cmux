@@ -32,7 +32,8 @@ public struct KeyboardShortcutsSection: View {
             jsonStore: jsonStore,
             userDefaultsStore: userDefaultsStore,
             catalog: catalog,
-            errorLog: errorLog
+            errorLog: errorLog,
+            onShortcutsChanged: { hostActions.notifyShortcutSettingsDidChange() }
         ))
     }
 
