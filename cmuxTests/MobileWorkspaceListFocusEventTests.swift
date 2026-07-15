@@ -48,15 +48,12 @@ struct MobileWorkspaceListFocusEventTests {
     @Test func focusSequencesIncreaseWhenWorkspaceMovesAcrossObservers() async throws {
         let fixture = try makeTransferredWorkspaceFixture()
         let focusEventSequenceService = MobileWorkspaceFocusEventSequenceService()
-        let sourceObserver = MobileWorkspaceListObserver(
-            tabManager: fixture.sourceManager,
+        let registry = MobileWorkspaceObserverRegistry(
             focusEventSequenceService: focusEventSequenceService
         )
-        let destinationObserver = MobileWorkspaceListObserver(
-            tabManager: fixture.destinationManager,
-            focusEventSequenceService: focusEventSequenceService
-        )
-        defer { withExtendedLifetime((sourceObserver, destinationObserver)) {} }
+        registry.ensureObserver(for: fixture.sourceManager, notificationStore: nil)
+        registry.ensureObserver(for: fixture.destinationManager, notificationStore: nil)
+        defer { withExtendedLifetime(registry) {} }
 
         await allowNotificationTasksToStart()
         let sourceSequenceBeforeFocus = try #require(
@@ -90,6 +87,43 @@ struct MobileWorkspaceListFocusEventTests {
             secondSequence > firstSequence,
             "focus ordering for one workspace must increase after it moves between TabManager observers"
         )
+    }
+
+    @Test func removingObserverReleasesItsWorkspaceFocusRoute() async throws {
+        let notificationCenter = NotificationCenter()
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        let workspaceID = try #require(tabManager.selectedWorkspace?.id)
+        var sampleCount = 0
+        let registry = MobileWorkspaceObserverRegistry(
+            notificationCenter: notificationCenter,
+            focusWorkspaceSampler: { tabManager, workspaceID in
+                sampleCount += 1
+                return tabManager.workspacesById[workspaceID]
+            }
+        )
+        registry.ensureObserver(for: tabManager, notificationStore: nil)
+        await allowNotificationTasksToStart()
+
+        notificationCenter.post(
+            name: .ghosttyDidFocusSurface,
+            object: nil,
+            userInfo: [GhosttyNotificationKey.tabId: workspaceID]
+        )
+        for _ in 0..<100 where sampleCount == 0 {
+            await Task.yield()
+        }
+        #expect(sampleCount == 1)
+
+        registry.removeObserver(for: tabManager)
+        await allowNotificationTasksToStart()
+        notificationCenter.post(
+            name: .ghosttyDidFocusSurface,
+            object: nil,
+            userInfo: [GhosttyNotificationKey.tabId: workspaceID]
+        )
+        await allowNotificationTasksToStart()
+
+        #expect(sampleCount == 1, "removed observers must release their workspace routes")
     }
 
     private func makeTransferredWorkspaceFixture() throws -> (

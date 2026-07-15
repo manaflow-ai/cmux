@@ -24,7 +24,6 @@ final class MobileWorkspaceListObserver {
     private weak var notificationStore: TerminalNotificationStore?
     private var tabsCancellable: AnyCancellable?
     private var selectionCancellable: AnyCancellable?
-    private var focusedSurfaceTask: Task<Void, Never>?
     private var groupsCancellable: AnyCancellable?
     private var notificationsCancellable: AnyCancellable?
     private var unreadIndicatorsCancellable: AnyCancellable?
@@ -34,8 +33,7 @@ final class MobileWorkspaceListObserver {
     private var previewSignatures: [UUID: Int] = [:]
     private let focusEventSequenceService: MobileWorkspaceFocusEventSequenceService
     private let workspaceDigestSampler: WorkspaceDigestSampler
-    private let notificationCenter: NotificationCenter
-    private let focusWorkspaceSampler: FocusWorkspaceSampler
+    private let workspaceOwnershipDidChange: @MainActor ([Workspace]) -> Void
     private var lastSummaryHash: Int = 0
     /// Throttle window with `latest: true`. First event in a burst emits
     /// immediately (iPhone gets the change in milliseconds), subsequent
@@ -48,10 +46,7 @@ final class MobileWorkspaceListObserver {
         tabManager: TabManager,
         focusEventSequenceService: MobileWorkspaceFocusEventSequenceService,
         notificationStore: TerminalNotificationStore? = nil,
-        notificationCenter: NotificationCenter = .default,
-        focusWorkspaceSampler: @escaping FocusWorkspaceSampler = { tabManager, workspaceID in
-            tabManager.tabs.first(where: { $0.id == workspaceID })
-        },
+        workspaceOwnershipDidChange: @escaping @MainActor ([Workspace]) -> Void = { _ in },
         workspaceDigestSampler: @escaping WorkspaceDigestSampler = { workspace, previewSignature in
             MobileWorkspaceListProjection.workspaceDigest(
                 workspace: workspace,
@@ -62,16 +57,13 @@ final class MobileWorkspaceListObserver {
         self.tabManager = tabManager
         self.notificationStore = notificationStore
         self.focusEventSequenceService = focusEventSequenceService
-        self.notificationCenter = notificationCenter
-        self.focusWorkspaceSampler = focusWorkspaceSampler
+        self.workspaceOwnershipDidChange = workspaceOwnershipDidChange
         self.workspaceDigestSampler = workspaceDigestSampler
         #if DEBUG
         cmuxDebugLog("mobile.observer init tabs=\(tabManager.tabs.count)")
         #endif
         attach(to: tabManager)
     }
-
-    deinit { focusedSurfaceTask?.cancel() }
 
     private func attach(to tabManager: TabManager) {
         // Initial snapshot. Every observer's first emit is unconditional so
@@ -93,6 +85,7 @@ final class MobileWorkspaceListObserver {
             // queued focus notification look unchanged and dropping that event.
             .handleEvents(receiveOutput: { [weak self] tabs in
                 self?.refreshPerWorkspaceSubscriptions(tabs: tabs)
+                self?.workspaceOwnershipDidChange(tabs)
             })
             .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] tabs in
@@ -114,19 +107,6 @@ final class MobileWorkspaceListObserver {
             .sink { [weak self] _ in
                 self?.emitIfNeeded(force: false, resamplingWorkspaceIDs: [])
             }
-        // Bonsplit focus is not published Workspace state. The shared surface-focus
-        // notification fires after terminal and non-terminal selection converges.
-        focusedSurfaceTask = Task { @MainActor [weak self] in
-            for await notification in notificationCenter.notifications(named: .ghosttyDidFocusSurface) {
-                guard let self,
-                      let workspaceID = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
-                      let tabManager = self.tabManager,
-                      let workspace = self.focusWorkspaceSampler(tabManager, workspaceID) else {
-                    continue
-                }
-                self.emitFocusedHierarchyUpdateIfNeeded(for: workspace)
-            }
-        }
         // Group structure (order, name, collapse/pin, anchor, membership) is
         // iOS-facing: the phone renders collapsible group sections. A pure
         // collapse/expand or group rename need not change the tab set, so without
@@ -184,6 +164,7 @@ final class MobileWorkspaceListObserver {
         }
 
         refreshPerWorkspaceSubscriptions(tabs: tabManager.tabs)
+        workspaceOwnershipDidChange(tabManager.tabs)
     }
 
     private func currentPreviewSignatures(for tabs: [Workspace]) -> [UUID: Int] {
@@ -279,6 +260,21 @@ final class MobileWorkspaceListObserver {
                 )
             }
         }
+    }
+
+    @discardableResult
+    func emitFocusedHierarchyUpdateIfOwned(
+        workspaceID: UUID,
+        sampler: FocusWorkspaceSampler
+    ) -> Bool {
+        guard let tabManager,
+              let workspace = sampler(tabManager, workspaceID),
+              workspace.id == workspaceID,
+              workspace.owningTabManager === tabManager else {
+            return false
+        }
+        emitFocusedHierarchyUpdateIfNeeded(for: workspace)
+        return true
     }
 
     private func emitFocusedHierarchyUpdateIfNeeded(for workspace: Workspace) {
