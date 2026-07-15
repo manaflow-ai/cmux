@@ -483,6 +483,39 @@ struct WorkspaceForkConversationContextMenuTests {
             from: JSONEncoder().encode(overridden)
         )
         #expect(decodedOverride.registration == projectOverride)
+
+        var historicalRegistration = CmuxVaultAgentRegistration.builtInOmp
+        historicalRegistration.iconAssetName = nil
+        historicalRegistration.forkCommand = nil
+        let historical = SessionRestorableAgentSnapshot(
+            kind: .custom("omp"),
+            sessionId: sessionId,
+            workingDirectory: nil,
+            launchCommand: persisted.launchCommand,
+            registration: historicalRegistration
+        )
+        let decodedHistorical = try JSONDecoder().decode(
+            SessionRestorableAgentSnapshot.self,
+            from: JSONEncoder().encode(historical)
+        )
+        #expect(decodedHistorical.registration == .builtInOmp)
+        #expect(decodedHistorical.forkCommand?.contains("'--fork' '\(sessionId)'") == true)
+
+        var customForkRegistration = CmuxVaultAgentRegistration.builtInOmp
+        customForkRegistration.forkCommand = "{{executable}} --branch {{sessionId}}"
+        let customFork = SessionRestorableAgentSnapshot(
+            kind: .custom("omp"),
+            sessionId: sessionId,
+            workingDirectory: nil,
+            launchCommand: persisted.launchCommand,
+            registration: customForkRegistration
+        )
+        let decodedCustomFork = try JSONDecoder().decode(
+            SessionRestorableAgentSnapshot.self,
+            from: JSONEncoder().encode(customFork)
+        )
+        #expect(decodedCustomFork.registration == customForkRegistration)
+        #expect(decodedCustomFork.forkCommand?.contains("'--branch' '\(sessionId)'") == true)
     }
 
     @Test
@@ -532,6 +565,24 @@ struct WorkspaceForkConversationContextMenuTests {
         #expect(decodedLegacy.kind == .custom("pi"))
         #expect(decodedLegacy.registration == .builtInPi)
         #expect(decodedLegacy.forkCommand?.contains("'--fork' '\(sessionId)'") == true)
+
+        var historicalBuiltIn = CmuxVaultAgentRegistration.builtInPi
+        historicalBuiltIn.iconAssetName = nil
+        historicalBuiltIn.forkCommand = nil
+        let historicalSnapshot = SessionRestorableAgentSnapshot(
+            kind: .custom("pi"),
+            sessionId: sessionId,
+            workingDirectory: nil,
+            launchCommand: persisted.launchCommand,
+            registration: historicalBuiltIn
+        )
+        let decodedHistorical = try JSONDecoder().decode(
+            SessionRestorableAgentSnapshot.self,
+            from: JSONEncoder().encode(historicalSnapshot)
+        )
+        #expect(decodedHistorical.kind == .custom("pi"))
+        #expect(decodedHistorical.registration == .builtInPi)
+        #expect(decodedHistorical.forkCommand?.contains("'--fork' '\(sessionId)'") == true)
     }
 
     @Test

@@ -162,15 +162,26 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
         )
     }
 
-    var migratedLegacyBuiltInForkCommand: CmuxVaultAgentRegistration {
-        var legacyPi = Self.builtInPi
-        legacyPi.forkCommand = "{{executable}} --session {{sessionId}} --fork"
-        if self == legacyPi {
+    var migratedPersistedBuiltInRegistration: CmuxVaultAgentRegistration {
+        if matchesPersistedBuiltInHistory(current: Self.builtInPi) {
             return Self.builtInPi
         }
-        var legacyOmp = Self.builtInOmp
-        legacyOmp.forkCommand = "{{executable}} --session {{sessionId}} --fork"
-        return self == legacyOmp ? Self.builtInOmp : self
+        if matchesPersistedBuiltInHistory(current: Self.builtInOmp) {
+            return Self.builtInOmp
+        }
+        return self
+    }
+
+    private func matchesPersistedBuiltInHistory(current: CmuxVaultAgentRegistration) -> Bool {
+        let legacyForkCommand = "{{executable}} --session {{sessionId}} --fork"
+        guard iconAssetName == nil || iconAssetName == current.iconAssetName,
+              forkCommand == nil || forkCommand == legacyForkCommand || forkCommand == current.forkCommand else {
+            return false
+        }
+        var candidate = self
+        candidate.iconAssetName = current.iconAssetName
+        candidate.forkCommand = current.forkCommand
+        return candidate == current
     }
 
     static var builtInAntigravity: CmuxVaultAgentRegistration {
