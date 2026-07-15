@@ -205,4 +205,79 @@ struct BrowserAutomationWatchdogTests {
         #expect(probeCount == 1)
         probeStartsContinuation.finish()
     }
+
+    @Test("A newer browser instance supersedes every caller checking the old instance")
+    func newerInstanceSupersedesOldRecovery() async {
+        var firstProbeCount = 0
+        var firstRecoveryCount = 0
+        var firstProbeCompletion: (@MainActor @Sendable () -> Void)?
+        var secondRecoveryCount = 0
+        var secondProbeCompletion: (@MainActor @Sendable () -> Void)?
+        let (probeStarts, probeStartsContinuation) = AsyncStream.makeStream(
+            of: UUID.self,
+            bufferingPolicy: .bufferingOldest(2)
+        )
+        var probeStartsIterator = probeStarts.makeAsyncIterator()
+        let watchdog = BrowserAutomationWatchdog()
+        let firstInstanceID = UUID()
+        let secondInstanceID = UUID()
+        let firstProbe: BrowserAutomationWatchdog.Probe = { finish in
+            firstProbeCount += 1
+            firstProbeCompletion = finish
+            probeStartsContinuation.yield(firstInstanceID)
+        }
+        let secondProbe: BrowserAutomationWatchdog.Probe = { finish in
+            secondProbeCompletion = finish
+            probeStartsContinuation.yield(secondInstanceID)
+        }
+
+        let firstLeader = Task { @MainActor in
+            await watchdog.recoverIfUnresponsive(
+                observedInstanceID: firstInstanceID,
+                probes: [firstProbe],
+                recover: {
+                    firstRecoveryCount += 1
+                    return true
+                }
+            )
+        }
+        let firstStarted = await probeStartsIterator.next()
+        #expect(firstStarted == firstInstanceID)
+
+        let firstFollower = Task { @MainActor in
+            await watchdog.recoverIfUnresponsive(
+                observedInstanceID: firstInstanceID,
+                probes: [firstProbe],
+                recover: {
+                    firstRecoveryCount += 1
+                    return true
+                }
+            )
+        }
+        await Task.yield()
+        #expect(firstProbeCount == 1)
+
+        let secondLeader = Task { @MainActor in
+            await watchdog.recoverIfUnresponsive(
+                observedInstanceID: secondInstanceID,
+                probes: [secondProbe],
+                recover: {
+                    secondRecoveryCount += 1
+                    return true
+                }
+            )
+        }
+        let secondStarted = await probeStartsIterator.next()
+        #expect(secondStarted == secondInstanceID)
+        #expect(await firstFollower.value == .superseded)
+
+        secondProbeCompletion?()
+        #expect(await secondLeader.value == .responsive)
+
+        firstProbeCompletion?()
+        #expect(await firstLeader.value == .superseded)
+        #expect(firstRecoveryCount == 0)
+        #expect(secondRecoveryCount == 0)
+        probeStartsContinuation.finish()
+    }
 }

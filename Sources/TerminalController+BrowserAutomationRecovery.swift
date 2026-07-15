@@ -43,7 +43,10 @@ extension TerminalController {
             return .failure(message)
         case .timedOut:
             return .failure(v2BrowserAutomationMessageAfterLivenessCheck(
-                originalMessage: "Timed out waiting for JavaScript result",
+                originalMessage: String(
+                    localized: "browser.automation.error.javaScriptTimedOut",
+                    defaultValue: "Timed out waiting for JavaScript result"
+                ),
                 surfaceId: surfaceId,
                 expectedWebViewIdentifier: ObjectIdentifier(webView),
                 channel: .javaScript
