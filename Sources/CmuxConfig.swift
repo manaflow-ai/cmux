@@ -2061,9 +2061,9 @@ final class CmuxConfigStore: ObservableObject {
                 configuredSurfaceTabBarButtonSourcePath = localPath
             }
             for command in localConfig.commands {
-                if !seenNames.contains(command.name) {
+                if !seenNames.contains(command.name.folding(options: .caseInsensitive, locale: nil)) {
                     commands.append(command)
-                    seenNames.insert(command.name)
+                    seenNames.insert(command.name.folding(options: .caseInsensitive, locale: nil))
                     if let localPath {
                         sourcePaths[command.id] = localPath
                     }
@@ -2078,10 +2078,10 @@ final class CmuxConfigStore: ObservableObject {
             let name = savedCommand.name.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !name.isEmpty,
                   !savedCommand.command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                  !seenNames.contains(name) else { continue }
+                  !seenNames.contains(name.folding(options: .caseInsensitive, locale: nil)) else { continue }
             let command = CmuxCommandDefinition(name: name, command: savedCommand.command)
             commands.append(command)
-            seenNames.insert(name)
+            seenNames.insert(name.folding(options: .caseInsensitive, locale: nil))
             sourcePaths[command.id] = globalConfigPath
         }
 
@@ -2114,9 +2114,9 @@ final class CmuxConfigStore: ObservableObject {
                 configuredSurfaceTabBarButtonSourcePath = globalConfigPath
             }
             for command in globalConfig.commands {
-                if !seenNames.contains(command.name) {
+                if !seenNames.contains(command.name.folding(options: .caseInsensitive, locale: nil)) {
                     commands.append(command)
-                    seenNames.insert(command.name)
+                    seenNames.insert(command.name.folding(options: .caseInsensitive, locale: nil))
                     sourcePaths[command.id] = globalConfigPath
                 }
             }
