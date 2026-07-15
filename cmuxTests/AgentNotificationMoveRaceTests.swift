@@ -108,7 +108,7 @@ struct AgentNotificationRegressionTests {
         // Generous for loaded CI runners; only slows the failure path.
         let deadline = ContinuousClock.now + .seconds(15)
         while store.notifications.isEmpty, ContinuousClock.now < deadline {
-            await Task.yield()
+            try? await Task.sleep(for: .milliseconds(10))
         }
         if store.notifications.isEmpty {
             Issue.record("Timed out waiting for policy-delayed notification")

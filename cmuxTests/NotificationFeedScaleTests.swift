@@ -39,18 +39,20 @@ struct NotificationFeedScaleTests {
             eventBus.resetForTesting()
         }
 
-        for index in 0...limit {
-            store.addNotification(
+        let notifications = (0...limit).reversed().map { index in
+            TerminalNotification(
                 id: UUID(),
-                acceptedAt: Date(timeIntervalSince1970: TimeInterval(index)),
                 tabId: tabId,
                 surfaceId: surfaceId,
+                retargetsToLiveSurfaceOwner: false,
                 title: "History \(index)",
                 subtitle: "",
                 body: "",
-                retargetsToLiveSurfaceOwner: false
+                createdAt: Date(timeIntervalSince1970: TimeInterval(index)),
+                isRead: false
             )
         }
+        store.replaceNotificationsForTesting(notifications)
 
         #expect(store.notifications.count == limit)
         #expect(store.unreadNotificationCount == limit)
