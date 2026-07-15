@@ -73,7 +73,6 @@ fi
 
 # Rename post-build, the way reload.sh handles tagged apps: a global PRODUCT_NAME
 # override would rename every target's product and module and break the build.
-# Editing Info.plist breaks the signature seal, so the bundle is re-signed after.
 APP="$BUILT_APP"
 if [[ "$FORK_APP_NAME" != "cmux" ]]; then
   APP="$DERIVED_DATA/Build/Products/Release/$FORK_APP_NAME.app"
@@ -81,19 +80,32 @@ if [[ "$FORK_APP_NAME" != "cmux" ]]; then
   cp -R "$BUILT_APP" "$APP"
   /usr/libexec/PlistBuddy -c "Set :CFBundleName $FORK_APP_NAME" "$APP/Contents/Info.plist"
   /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName $FORK_APP_NAME" "$APP/Contents/Info.plist"
+fi
+
+# The global CODE_SIGN_ENTITLEMENTS override also lands on the CLI helpers under
+# Resources/bin. A standalone binary can't satisfy restricted entitlements
+# (keychain-access-groups, get-task-allow) via the app's provisioning profile,
+# so amfid SIGKILLs it at exec. Ad-hoc re-sign the helpers with no entitlements.
+for helper in "$APP/Contents/Resources/bin"/*; do
+  [[ -f "$helper" && -x "$helper" ]] || continue
+  echo "==> re-signing helper $(basename "$helper") without entitlements"
+  codesign --force --sign - "$helper"
+done
+
+# Re-signing helpers (and any Info.plist rename edits) breaks the app's
+# resource seal, so the bundle is always re-signed last.
+if [[ -n "$FORK_TEAM_ID" ]]; then
   ENTITLEMENTS_TMP="$(mktemp -t fork-entitlements).plist"
-  if [[ -n "$FORK_TEAM_ID" ]]; then
-    codesign -d --entitlements "$ENTITLEMENTS_TMP" --xml "$APP" 2>/dev/null
-    SIGN_IDENTITY="$(security find-identity -v -p codesigning | awk -F'"' '/Apple Development/{print $2; exit}')"
-    if [[ -z "$SIGN_IDENTITY" ]]; then
-      echo "error: no valid Apple Development identity found to re-sign after rename" >&2
-      exit 1
-    fi
-    codesign --force --sign "$SIGN_IDENTITY" --entitlements "$ENTITLEMENTS_TMP" "$APP"
-  else
-    codesign --force --sign - "$APP"
+  codesign -d --entitlements "$ENTITLEMENTS_TMP" --xml "$APP" 2>/dev/null
+  SIGN_IDENTITY="$(security find-identity -v -p codesigning | awk -F'"' '/Apple Development/{print $2; exit}')"
+  if [[ -z "$SIGN_IDENTITY" ]]; then
+    echo "error: no valid Apple Development identity found to re-sign the bundle" >&2
+    exit 1
   fi
+  codesign --force --sign "$SIGN_IDENTITY" --entitlements "$ENTITLEMENTS_TMP" "$APP"
   rm -f "$ENTITLEMENTS_TMP"
+else
+  codesign --force --sign - "$APP"
 fi
 
 echo
