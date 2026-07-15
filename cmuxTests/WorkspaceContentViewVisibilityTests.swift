@@ -243,6 +243,39 @@ final class WorkspaceContentViewVisibilityTests {
     }
 
     @Test
+    func testRenderedVisiblePanelPolicyPrefersSelectedTabOverStaleFocusedPanel() {
+        let paneId = UUID()
+        let selectedPanelId = UUID()
+        let staleFocusedPanelId = UUID()
+
+        #expect(
+            WorkspacePanelVisibilityPolicy.visiblePanelIdForRenderedPane(
+                paneId: paneId,
+                selectedPanelId: selectedPanelId,
+                firstPanelId: selectedPanelId,
+                focusedPanelId: staleFocusedPanelId,
+                focusedPanelPaneId: paneId
+            ) == selectedPanelId
+        )
+    }
+
+    @Test
+    func testRenderedVisiblePanelPolicyFallsBackToFocusedPanelOnlyDuringSelectionGap() {
+        let paneId = UUID()
+        let focusedPanelId = UUID()
+
+        #expect(
+            WorkspacePanelVisibilityPolicy.visiblePanelIdForRenderedPane(
+                paneId: paneId,
+                selectedPanelId: nil,
+                firstPanelId: UUID(),
+                focusedPanelId: focusedPanelId,
+                focusedPanelPaneId: paneId
+            ) == focusedPanelId
+        )
+    }
+
+    @Test
     func testTmuxWorkspacePaneOverlayRectReturnsMatchingPaneFrame() {
         let paneID = PaneID(id: UUID())
         let snapshot = LayoutSnapshot(
