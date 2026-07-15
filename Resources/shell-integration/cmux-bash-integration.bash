@@ -183,11 +183,19 @@ _cmux_restore_scrollback_once() {
     local path="${CMUX_RESTORE_SCROLLBACK_FILE:-}"
     [[ -n "$path" ]] || return 0
     unset CMUX_RESTORE_SCROLLBACK_FILE
+    local token="${path##*/}"
+
+    builtin printf '\033]1337;CurrentDir=kitty-shell-cwd://%s/.cmux/session-scrollback-replay/%s/start\007' "$HOSTNAME" "$token"
 
     if [[ -r "$path" ]]; then
         /bin/cat -- "$path" 2>/dev/null || true
         /bin/rm -f -- "$path" >/dev/null 2>&1 || true
     fi
+
+    # Valid kitty-shell-cwd URIs reach Ghostty's PWD action in PTY order. The
+    # following real cwd report keeps the private boundary out of title state.
+    builtin printf '\033]1337;CurrentDir=kitty-shell-cwd://%s/.cmux/session-scrollback-replay/%s/end\007' "$HOSTNAME" "$token"
+    builtin printf '\033]1337;CurrentDir=kitty-shell-cwd://%s%s\007' "$HOSTNAME" "$PWD"
 }
 _cmux_restore_scrollback_once
 _CMUX_CLAUDE_WRAPPER="${_CMUX_CLAUDE_WRAPPER:-}"

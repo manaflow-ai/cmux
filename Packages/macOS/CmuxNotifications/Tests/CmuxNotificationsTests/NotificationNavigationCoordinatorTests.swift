@@ -54,66 +54,6 @@ private final class FakeUnreadTargeting: UnreadWorkspaceTargeting {
     }
 }
 
-/// Recording open router: scriptable success per window/fallback, plus an
-/// ordered log of which route was taken with what arguments. The log proves the
-/// sidebar-tabs-before-focus ordering is delegated to the app-side seam (the
-/// seam is the single place that write happens) and that the coordinator routes
-/// to the right window.
-@MainActor
-private final class FakeOpenRouting: NotificationOpenRouting {
-    var windowSucceeds = true
-    var fallbackSucceeds = true
-    var routedSucceeds = true
-    var titles: [UUID: String] = [:]
-    private(set) var log: [String] = []
-    private(set) var routedRetargetingValues: [Bool] = []
-
-    func openRouted(
-        tabId: UUID,
-        surfaceId: UUID?,
-        panelId: UUID?,
-        retargetsToLiveSurfaceOwner: Bool,
-        notificationId: UUID?,
-        scrollRow: Int?,
-        scrollTotalRows: Int?
-    ) -> Bool {
-        routedRetargetingValues.append(retargetsToLiveSurfaceOwner)
-        log.append("routed(tab=\(short(tabId)),surf=\(short(surfaceId))\(panel(panelId)),notif=\(short(notificationId)),row=\(row(scrollRow)),total=\(row(scrollTotalRows)))")
-        return routedSucceeds
-    }
-
-    func openInWindow(
-        windowId: UUID,
-        tabId: UUID,
-        surfaceId: UUID?,
-        panelId: UUID?,
-        notificationId: UUID?,
-        scrollRow: Int?,
-        scrollTotalRows: Int?
-    ) -> Bool {
-        log.append("window(\(short(windowId)),tab=\(short(tabId)),surf=\(short(surfaceId))\(panel(panelId)),notif=\(short(notificationId)),row=\(row(scrollRow)),total=\(row(scrollTotalRows)))")
-        return windowSucceeds
-    }
-
-    func openInActiveWindowFallback(
-        tabId: UUID,
-        surfaceId: UUID?,
-        panelId: UUID?,
-        notificationId: UUID?,
-        scrollRow: Int?,
-        scrollTotalRows: Int?
-    ) -> Bool {
-        log.append("fallback(tab=\(short(tabId)),surf=\(short(surfaceId))\(panel(panelId)),notif=\(short(notificationId)),row=\(row(scrollRow)),total=\(row(scrollTotalRows)))")
-        return fallbackSucceeds
-    }
-
-    func tabTitle(forTabId tabId: UUID) -> String? { titles[tabId] }
-
-    private func short(_ id: UUID?) -> String { id.map { String($0.uuidString.prefix(4)) } ?? "nil" }
-    private func panel(_ id: UUID?) -> String { id.map { ",panel=\(short($0))" } ?? "" }
-    private func row(_ row: Int?) -> String { row.map(String.init) ?? "nil" }
-}
-
 /// Recording click router: scriptable success plus a log of performed actions.
 @MainActor
 private final class FakeClickRouting: NotificationClickRouting {
@@ -154,6 +94,7 @@ private func snapshot(
     clickAction: NotificationNavClickAction? = nil,
     scrollRow: Int? = nil,
     scrollTotalRows: Int? = nil,
+    scrollRowSpaceRevision: UInt64? = nil,
     id: UUID = UUID()
 ) -> NotificationNavSnapshot {
     NotificationNavSnapshot(
@@ -165,7 +106,8 @@ private func snapshot(
         isRead: isRead,
         clickAction: clickAction,
         scrollRow: scrollRow,
-        scrollTotalRows: scrollTotalRows
+        scrollTotalRows: scrollTotalRows,
+        scrollRowSpaceRevision: scrollRowSpaceRevision
     )
 }
 
@@ -389,6 +331,22 @@ struct NotificationNavigationCoordinatorTests {
 
         #expect(opened)
         #expect(openRouting.log == ["routed(tab=\(short(notif.tabId)),surf=\(short(notif.surfaceId)),panel=\(short(panelId)),notif=\(short(notif.id)),row=42,total=100)"])
+    }
+
+    @Test("openNotification preserves captured row-space revision")
+    func openNotificationPreservesCapturedRowSpaceRevision() {
+        let openRouting = FakeOpenRouting()
+        let notif = snapshot(
+            tabId: UUID(),
+            surfaceId: UUID(),
+            scrollRow: 42,
+            scrollTotalRows: 100,
+            scrollRowSpaceRevision: 7
+        )
+        let coordinator = makeCoordinator(openRouting: openRouting)
+
+        #expect(coordinator.openNotification(notif))
+        #expect(openRouting.receivedRowSpaceRevisions == [7])
     }
 
     @Test("source-confined notification navigation preserves its workspace boundary")
