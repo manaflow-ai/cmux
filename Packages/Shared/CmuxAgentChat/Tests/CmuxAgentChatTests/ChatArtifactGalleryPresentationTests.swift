@@ -49,6 +49,29 @@ struct ChatArtifactGalleryPresentationTests {
         #expect(sized.items(in: .referenced).map(\.displayName) == ["a.txt", "b.txt"])
     }
 
+    @Test("missing files are omitted from every group by default")
+    func omitsMissingFilesByDefault() {
+        let snapshot = gallerySnapshot(
+            created: [
+                item("/created/present.txt", kind: .text, size: 1),
+                item("/created/missing.txt", kind: .text, size: nil, exists: false),
+            ],
+            attached: [
+                item("/attached/missing.png", kind: .image, size: nil, exists: false),
+            ],
+            referenced: [
+                item("/referenced/present.log", kind: .text, size: 2),
+                item("/referenced/missing.log", kind: .text, size: nil, exists: false),
+            ]
+        )
+
+        let presentation = ChatArtifactGalleryPresentation(snapshot: snapshot)
+
+        #expect(presentation.items(in: .created).map(\.displayName) == ["present.txt"])
+        #expect(presentation.items(in: .attached).isEmpty)
+        #expect(presentation.items(in: .referenced).map(\.displayName) == ["present.log"])
+    }
+
     private func gallerySnapshot(
         created: [ChatArtifactGalleryItem] = [],
         attached: [ChatArtifactGalleryItem] = [],
@@ -67,13 +90,15 @@ struct ChatArtifactGalleryPresentationTests {
     private func item(
         _ path: String,
         kind: ChatArtifactKind,
-        size: Int64?
+        size: Int64?,
+        exists: Bool = true
     ) -> ChatArtifactGalleryItem {
         ChatArtifactGalleryItem(
             path: path,
             kind: kind,
             displayName: URL(fileURLWithPath: path).lastPathComponent,
-            size: size
+            size: size,
+            exists: exists
         )
     }
 }
