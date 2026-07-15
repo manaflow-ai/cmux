@@ -11557,6 +11557,11 @@ extension Workspace: BonsplitDelegate {
         // at the AppKit window level, so removing its SwiftUI host does not synchronously hide
         // the portal layer during a tab-selection transition.
         hideBrowserPortalsForDeselectedTabs(inPane: focusedPane, selectedTabId: selectedTabId)
+        // Terminal portals are window-level too: selecting a non-terminal tab must hide
+        // the deselected terminal (the focus follow-up only reconciles for terminals).
+        if !(panel is TerminalPanel) {
+            reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
+        }
 
         if let focusWindow = activationWindow(for: panel) {
             yieldForeignOwnedFocusIfNeeded(
