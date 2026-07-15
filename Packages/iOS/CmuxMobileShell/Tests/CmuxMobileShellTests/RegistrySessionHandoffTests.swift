@@ -139,4 +139,20 @@ import Testing
             authoritativeSessions: [reboundSession]
         ) == nil)
     }
+
+    @Test func cachesAuthoritativeAgentSessionUnderResolvedRowIdentity() {
+        let store = CMUXMobileShellStore.preview()
+        let resolvedWorkspaceID = MobileWorkspacePreview.ID(rawValue: "mac-a-row")
+        let session = ChatSessionDescriptor(
+            id: "agent-a",
+            agentKind: .codex,
+            workspaceID: "runtime-workspace",
+            terminalID: "terminal-a"
+        )
+
+        store.rememberRegistryHandoffChatSessions([session], workspaceID: resolvedWorkspaceID)
+
+        #expect(store.cachedChatSessions(workspaceID: resolvedWorkspaceID.rawValue) == [session])
+        #expect(store.cachedChatSessions(workspaceID: session.workspaceID ?? "") == [])
+    }
 }

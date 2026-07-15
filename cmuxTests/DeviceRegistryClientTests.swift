@@ -90,6 +90,34 @@ import CMUXMobileCore
         ))
     }
 
+    @Test func scopedProjectionReplacesOnlyInvalidatedWorkspaces() {
+        let previous = [
+            liveSession(id: "workspace-a", title: "Old A"),
+            liveSession(id: "workspace-b", title: "Unchanged B"),
+        ]
+        let replacements = [
+            liveSession(id: "workspace-a", title: "New A"),
+            liveSession(id: "workspace-c", title: "Unrelated C"),
+        ]
+
+        let projected = DeviceRegistryClient.replacingLiveSessions(
+            previous: previous,
+            invalidatedWorkspaceIDs: ["workspace-a"],
+            replacements: replacements
+        )
+        let titlesByWorkspaceID = Dictionary(uniqueKeysWithValues: projected.map { ($0.workspaceID, $0.title) })
+
+        #expect(titlesByWorkspaceID == [
+            "workspace-a": "New A",
+            "workspace-b": "Unchanged B",
+        ])
+        #expect(DeviceRegistryClient.replacingLiveSessions(
+            previous: previous,
+            invalidatedWorkspaceIDs: ["workspace-a"],
+            replacements: []
+        ).map(\.workspaceID) == ["workspace-b"])
+    }
+
     @Test func pairingOffSuppressesSessionDiscovery() {
         #expect(DeviceRegistryClient.advertisedSessions(routes: [], sessions: [liveSession()]).isEmpty)
     }
