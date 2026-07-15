@@ -1172,7 +1172,6 @@ actor TestMobileHostIndependentEventWriter: MobileHostIndependentEventWriting {
 }
 struct ImmediateMobileHostIrohClock: CmxIrohRelayClock {
     private let instant = Date(timeIntervalSince1970: 1_700_000_000)
-
     func now() -> Date { instant }
     func sleep(until _: Date) async throws {}
 }
