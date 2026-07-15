@@ -76,6 +76,36 @@ final class AutomationSocketUITests: XCTestCase {
         app.terminate()
     }
 
+    func testSimulateShortcutPlainCharacterKeepsAppAlive() throws {
+        let app = configuredApp(mode: "cmuxOnly")
+        app.launch()
+        XCTAssertTrue(
+            ensureRunningAfterLaunch(app, timeout: 12.0),
+            "Expected app to launch for plain-char simulation test. state=\(app.state.rawValue)"
+        )
+
+        guard let resolvedPath = resolveSocketPath(timeout: 5.0, allowTmpFallback: false) else {
+            XCTFail("Expected control socket to exist")
+            return
+        }
+        socketPath = resolvedPath
+        XCTAssertTrue(waitForSocketPong(timeout: 5.0), "Expected socket ping at \(socketPath)")
+
+        // A modifier-less key is not consumed as a shortcut, so it runs the full
+        // keyDown -> interpretKeyEvents pipeline. Synthetic events built without
+        // CGEvent backing make NSTextInputContext raise there, which terminated
+        // the app mid-reply (socket closed, no crash report).
+        let reply = socketCommand("simulate_shortcut x")
+        XCTAssertEqual(reply, "OK", "simulate_shortcut x should complete, got \(reply ?? "nil")")
+
+        XCTAssertTrue(
+            waitForSocketPong(timeout: 5.0),
+            "Socket should still answer after plain-char simulation; a dead listener here means the app aborted in the text-input path"
+        )
+        XCTAssertNotEqual(app.state, .notRunning, "App must survive plain-char key simulation")
+        app.terminate()
+    }
+
     func testSocketDisabledWhenSettingOff() {
         let app = configuredApp(mode: "off")
         app.launch()
