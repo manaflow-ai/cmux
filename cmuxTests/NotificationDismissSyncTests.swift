@@ -295,6 +295,8 @@ struct NotificationDismissSyncTests {
         let previousNotifications = store.notifications
         let tombstoneKey = TerminalNotificationStore.dismissedTombstoneDefaultsKey
         let previousTombstones = UserDefaults.standard.stringArray(forKey: tombstoneKey)
+        let supersededKey = TerminalNotificationStore.retainedSupersededBannerDefaultsKey
+        let previousSuperseded = UserDefaults.standard.stringArray(forKey: supersededKey)
         let originalAppFocusOverride = AppFocusState.overrideIsFocused
         let tabId = UUID()
         let surfaceId = UUID()
@@ -312,10 +314,16 @@ struct NotificationDismissSyncTests {
             } else {
                 UserDefaults.standard.removeObject(forKey: tombstoneKey)
             }
+            if let previousSuperseded {
+                UserDefaults.standard.set(previousSuperseded, forKey: supersededKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: supersededKey)
+            }
             store.reloadDismissedTombstonesForTesting()
         }
 
         UserDefaults.standard.removeObject(forKey: tombstoneKey)
+        UserDefaults.standard.removeObject(forKey: supersededKey)
         store.reloadDismissedTombstonesForTesting()
         store.replaceNotificationsForTesting([older])
         store.configureNotificationDeliveryHandlerForTesting { _, _ in }
@@ -340,6 +348,78 @@ struct NotificationDismissSyncTests {
         store.markRead(id: older.id)
         store.markUnread(id: older.id)
         #expect(store.reconcileHandledNotificationIDs(deliveredIDs: [older.id]) == [])
+    }
+
+    /// The short dismissed-ID ring is only a reconnect aid for removed rows.
+    /// Superseded state for retained unread rows must cover the whole retained
+    /// feed, or older retained phone banners resurrect after enough newer
+    /// supersessions overflow the ring.
+    @Test func reconcileHandlesRetainedSupersededRowAfterTombstoneOverflow() throws {
+        let store = TerminalNotificationStore.shared
+        let previousNotifications = store.notifications
+        let tombstoneKey = TerminalNotificationStore.dismissedTombstoneDefaultsKey
+        let previousTombstones = UserDefaults.standard.stringArray(forKey: tombstoneKey)
+        let supersededKey = TerminalNotificationStore.retainedSupersededBannerDefaultsKey
+        let previousSuperseded = UserDefaults.standard.stringArray(forKey: supersededKey)
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+        let rows = (0..<520).map { index in
+            TerminalNotification(
+                id: UUID(),
+                tabId: UUID(),
+                surfaceId: UUID(),
+                title: "Older \(index)",
+                subtitle: "",
+                body: "body",
+                createdAt: Date(timeIntervalSince1970: TimeInterval(index)),
+                isRead: false
+            )
+        }
+        let oldestSuperseded = rows[0]
+        defer {
+            store.replaceNotificationsForTesting(previousNotifications)
+            store.resetNotificationDeliveryHandlerForTesting()
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+            if let previousTombstones {
+                UserDefaults.standard.set(previousTombstones, forKey: tombstoneKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: tombstoneKey)
+            }
+            if let previousSuperseded {
+                UserDefaults.standard.set(previousSuperseded, forKey: supersededKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: supersededKey)
+            }
+            store.reloadDismissedTombstonesForTesting()
+        }
+
+        UserDefaults.standard.removeObject(forKey: tombstoneKey)
+        UserDefaults.standard.removeObject(forKey: supersededKey)
+        store.reloadDismissedTombstonesForTesting()
+        store.replaceNotificationsForTesting(rows)
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        AppFocusState.overrideIsFocused = false
+
+        for (index, row) in rows.enumerated() {
+            store.addNotification(
+                acceptedAt: Date(timeIntervalSince1970: TimeInterval(10_000 + index)),
+                tabId: row.tabId,
+                surfaceId: row.surfaceId,
+                title: "Replacement \(index)",
+                subtitle: "",
+                body: "body",
+                retargetsToLiveSurfaceOwner: false
+            )
+        }
+
+        #expect(store.notifications.contains { $0.id == oldestSuperseded.id && !$0.isRead })
+        #expect(
+            store.reconcileHandledNotificationIDs(deliveredIDs: [oldestSuperseded.id])
+                == [oldestSuperseded.id.uuidString]
+        )
+
+        store.markRead(id: oldestSuperseded.id)
+        store.markUnread(id: oldestSuperseded.id)
+        #expect(store.reconcileHandledNotificationIDs(deliveredIDs: [oldestSuperseded.id]) == [])
     }
 
     /// Dismiss tombstones are write-through persisted: a notification dismissed

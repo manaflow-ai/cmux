@@ -61,29 +61,41 @@ extension TerminalMutationBus {
     nonisolated func pendingNotificationAddressesSnapshot() -> [(
         sequence: UInt64,
         tabId: UUID,
-        surfaceId: UUID?
+        surfaceId: UUID?,
+        allowWorkspaceFallbackForValidatedSurface: Bool
     )] {
         lock.lock()
         defer { lock.unlock() }
         return pending[pendingHead...].compactMap { entry in
             guard case .deliverNotification(let notification) = entry.mutation else { return nil }
-            return (entry.sequence, notification.key.tabId, notification.key.surfaceId)
+            return (
+                entry.sequence,
+                notification.key.tabId,
+                notification.key.surfaceId,
+                notification.allowWorkspaceFallbackForValidatedSurface
+            )
         }
     }
 
     nonisolated func queuedNotificationAddressesSnapshot() -> [(
         id: UUID,
         tabId: UUID,
-        surfaceId: UUID?
+        surfaceId: UUID?,
+        allowWorkspaceFallbackForValidatedSurface: Bool
     )] {
         lock.lock()
         defer { lock.unlock() }
-        var addresses = pending[pendingHead...].compactMap { entry -> (UUID, UUID, UUID?)? in
+        var addresses = pending[pendingHead...].compactMap { entry -> (UUID, UUID, UUID?, Bool)? in
             guard case .deliverNotification(let notification) = entry.mutation else { return nil }
-            return (notification.id, notification.key.tabId, notification.key.surfaceId)
+            return (
+                notification.id,
+                notification.key.tabId,
+                notification.key.surfaceId,
+                notification.allowWorkspaceFallbackForValidatedSurface
+            )
         }
         addresses.append(contentsOf: reliableAdmissionsById.values.map {
-            ($0.id, $0.key.tabId, $0.key.surfaceId)
+            ($0.id, $0.key.tabId, $0.key.surfaceId, $0.allowWorkspaceFallbackForValidatedSurface)
         })
         return addresses
     }

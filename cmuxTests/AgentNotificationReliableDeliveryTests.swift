@@ -108,6 +108,40 @@ final class AgentNotificationReliableDeliveryTests: XCTestCase {
         XCTAssertFalse(bus.notificationQueueStateForTesting().1.contains("Must not resurrect after workspace clear"))
     }
 
+    func testFallbackCapableAdmissionCannotResurrectAfterWorkspaceClear() async {
+        let bus = TerminalMutationBus.shared
+        let tabId = UUID()
+        let disappearedSurfaceId = UUID()
+        bus.discardPendingNotifications()
+        bus.setDrainsSuspendedForTesting(true)
+        defer { reset(bus) }
+        for index in 0..<TerminalMutationBus.maximumPendingMutationCount {
+            XCTAssertTrue(bus.enqueueNotification(
+                tabId: UUID(), surfaceId: nil, title: "Seed \(index)", subtitle: "", body: ""
+            ))
+        }
+        let preClear = Task { @MainActor in
+            await AgentNotificationDelivery().enqueueReliably(
+                workspaceID: tabId,
+                surfaceID: disappearedSurfaceId,
+                title: "Must not fallback after clear",
+                subtitle: "",
+                body: "",
+                category: nil,
+                pending: false,
+                allowWorkspaceFallbackForValidatedSurface: true
+            )
+        }
+        await waitForReliableAdmissionBlock(bus)
+
+        bus.discardPendingNotificationsResolvingLiveOwner(forTabId: tabId)
+        bus.drainForBackpressure()
+
+        let preClearResult = await preClear.value
+        XCTAssertEqual(preClearResult, .cancelled)
+        XCTAssertFalse(bus.notificationQueueStateForTesting().1.contains("Must not fallback after clear"))
+    }
+
     func testMigratesAcrossSessionTransfer() async {
         let bus = TerminalMutationBus.shared
         let oldTabId = UUID()

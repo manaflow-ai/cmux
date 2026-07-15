@@ -330,6 +330,9 @@ final class TerminalNotificationStore: ObservableObject {
     private var dismissedTombstonesLoaded = false
     private static let dismissedTombstoneCapacity = 512
     static let dismissedTombstoneDefaultsKey = "cmux.notifications.dismissedTombstoneIds"
+    private var retainedSupersededBannerIDs = Set<UUID>()
+    private var retainedSupersededBannerIDsLoaded = false
+    static let retainedSupersededBannerDefaultsKey = "cmux.notifications.retainedSupersededBannerIds"
 
     private func loadDismissedTombstonesIfNeeded() {
         guard !dismissedTombstonesLoaded else { return }
@@ -361,6 +364,7 @@ final class TerminalNotificationStore: ObservableObject {
     private func removeDismissTombstones(ids: [UUID]) {
         guard !ids.isEmpty else { return }
         loadDismissedTombstonesIfNeeded()
+        removeRetainedSupersededBannerIDs(ids: ids)
         let removedIds = Set(ids.filter { dismissedTombstoneIDs.remove($0) != nil })
         guard !removedIds.isEmpty else { return }
         dismissedTombstoneOrder.removeAll { removedIds.contains($0) }
@@ -376,6 +380,50 @@ final class TerminalNotificationStore: ObservableObject {
         dismissedTombstoneIDs.removeAll()
         dismissedTombstoneOrder.removeAll()
         dismissedTombstonesLoaded = false
+        retainedSupersededBannerIDs.removeAll()
+        retainedSupersededBannerIDsLoaded = false
+    }
+
+    private func loadRetainedSupersededBannerIDsIfNeeded() {
+        guard !retainedSupersededBannerIDsLoaded else { return }
+        retainedSupersededBannerIDsLoaded = true
+        let stored = UserDefaults.standard.stringArray(forKey: Self.retainedSupersededBannerDefaultsKey) ?? []
+        retainedSupersededBannerIDs = Set(stored.compactMap { UUID(uuidString: $0) })
+    }
+
+    private func persistRetainedSupersededBannerIDs() {
+        UserDefaults.standard.set(
+            retainedSupersededBannerIDs.map(\.uuidString).sorted(),
+            forKey: Self.retainedSupersededBannerDefaultsKey
+        )
+    }
+
+    private func recordRetainedSupersededBannerIDs(ids: [UUID]) {
+        guard !ids.isEmpty else { return }
+        loadRetainedSupersededBannerIDsIfNeeded()
+        let previousCount = retainedSupersededBannerIDs.count
+        retainedSupersededBannerIDs.formUnion(ids)
+        if retainedSupersededBannerIDs.count != previousCount {
+            persistRetainedSupersededBannerIDs()
+        }
+    }
+
+    private func removeRetainedSupersededBannerIDs(ids: [UUID]) {
+        guard !ids.isEmpty else { return }
+        loadRetainedSupersededBannerIDsIfNeeded()
+        let previousCount = retainedSupersededBannerIDs.count
+        retainedSupersededBannerIDs.subtract(ids)
+        if retainedSupersededBannerIDs.count != previousCount {
+            persistRetainedSupersededBannerIDs()
+        }
+    }
+
+    private func reconcileRetainedSupersededBannerIDs(retainedIDs: Set<UUID>) {
+        loadRetainedSupersededBannerIDsIfNeeded()
+        let reconciled = retainedSupersededBannerIDs.intersection(retainedIDs)
+        guard reconciled != retainedSupersededBannerIDs else { return }
+        retainedSupersededBannerIDs = reconciled
+        persistRetainedSupersededBannerIDs()
     }
 
     /// Phone-banner dismissals for superseded notifications, deferred until the
@@ -404,6 +452,7 @@ final class TerminalNotificationStore: ObservableObject {
     func reconcileHandledNotificationIDs(deliveredIDs: [UUID]) -> [String] {
         guard !deliveredIDs.isEmpty else { return [] }
         loadDismissedTombstonesIfNeeded()
+        loadRetainedSupersededBannerIDsIfNeeded()
         var readIDs = Set<UUID>()
         var knownIDs = Set<UUID>()
         for notification in notifications {
@@ -413,7 +462,9 @@ final class TerminalNotificationStore: ObservableObject {
         return deliveredIDs
             .filter { id in
                 if knownIDs.contains(id) {
-                    return readIDs.contains(id) || dismissedTombstoneIDs.contains(id)
+                    return readIDs.contains(id) ||
+                        dismissedTombstoneIDs.contains(id) ||
+                        retainedSupersededBannerIDs.contains(id)
                 }
                 return dismissedTombstoneIDs.contains(id)
             }
@@ -1465,7 +1516,7 @@ final class TerminalNotificationStore: ObservableObject {
         retained.reserveCapacity(min(newestFirst.count, maximumNotificationFeedCount))
         var evicted: [TerminalNotification] = []
         var retainedBytes = 0
-        for notification in newestFirst {
+        for (index, notification) in newestFirst.enumerated() {
             let normalized = normalizedNotificationContent(notification)
             let notificationBytes = notificationContentByteCount(normalized)
             if retained.count < maximumNotificationFeedCount,
@@ -1474,6 +1525,10 @@ final class TerminalNotificationStore: ObservableObject {
                 retainedBytes += notificationBytes
             } else {
                 evicted.append(normalized)
+                evicted.append(
+                    contentsOf: newestFirst.dropFirst(index + 1).map(normalizedNotificationContent)
+                )
+                break
             }
         }
         return (retained, evicted)
@@ -1578,6 +1633,7 @@ final class TerminalNotificationStore: ObservableObject {
         oldValue: [TerminalNotification]?,
         mutation: NotificationMutationHint?
     ) {
+        reconcileRetainedSupersededBannerIDs(retainedIDs: Set(notifications.map(\.id)))
         let appliedIncrementally: Bool
         switch mutation {
         case .insertion(let inserted):
@@ -1647,6 +1703,8 @@ final class TerminalNotificationStore: ObservableObject {
         guard !ids.isEmpty else { return }
         center.removeDeliveredNotificationsOffMain(withIdentifiers: ids)
         center.removePendingNotificationRequestsOffMain(withIdentifiers: ids)
+        let supersededUUIDs = ids.compactMap { UUID(uuidString: $0) }
+        recordRetainedSupersededBannerIDs(ids: supersededUUIDs)
 
         let key = SupersededPhoneDismissBuffer.key(
             tabId: notification.tabId,
@@ -1656,7 +1714,7 @@ final class TerminalNotificationStore: ObservableObject {
             && effects.desktop
             && PhonePushClient.shared.willForwardReplacement()
         if replacementWillForward {
-            recordDismissTombstones(ids: ids.compactMap { UUID(uuidString: $0) })
+            recordDismissTombstones(ids: supersededUUIDs)
             supersededPhoneDismissBuffer.stash(ids: ids, forKey: key)
         } else {
             emitNotificationsDismissed(

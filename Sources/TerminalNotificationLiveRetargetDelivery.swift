@@ -186,7 +186,10 @@ extension TerminalMutationBus {
                 unresolvedSurfaceIds.insert(surfaceId)
                 liveOwner = nil
             }
-            if liveOwner == tabId {
+            if liveOwner == tabId ||
+                (liveOwner == nil &&
+                    entry.allowWorkspaceFallbackForValidatedSurface &&
+                    entry.tabId == tabId) {
                 sequences.insert(entry.sequence)
             }
         }
@@ -217,7 +220,12 @@ extension TerminalMutationBus {
                 unresolvedSurfaceIds.insert(surfaceId)
                 liveOwner = nil
             }
-            if liveOwner == tabId { ids.insert(entry.id) }
+            if liveOwner == tabId ||
+                (liveOwner == nil &&
+                    entry.allowWorkspaceFallbackForValidatedSurface &&
+                    entry.tabId == tabId) {
+                ids.insert(entry.id)
+            }
         }
         return ids
     }

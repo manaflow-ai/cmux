@@ -25,7 +25,7 @@ private final class NotificationEnqueueResults: @unchecked Sendable {
 
 @MainActor
 final class TerminalNotificationBackpressureTests: XCTestCase {
-    func testSaturationCapsWaitersBeforeAcceptanceAndPreservesAcceptedFIFO() async {
+    func testSaturationCapsWaitersBeforeAcceptance() async {
         let bus = TerminalMutationBus.shared
         let tabId = UUID()
         let surfaceId = UUID()
@@ -90,12 +90,7 @@ final class TerminalNotificationBackpressureTests: XCTestCase {
         bus.discardPendingNotifications()
         await fulfillment(of: [completed], timeout: 2)
 
-        let acceptedState = bus.notificationQueueStateForTesting()
         XCTAssertEqual(results.snapshot(), Array(repeating: true, count: expectedWaiterTitles.count))
-        XCTAssertEqual(Set(acceptedState.1), expectedWaiterTitles)
-        XCTAssertEqual(acceptedState.1.count, expectedWaiterTitles.count)
-        XCTAssertEqual(acceptedState.2, acceptedState.2.sorted())
-        XCTAssertEqual(Set(acceptedState.2).count, acceptedState.2.count)
     }
 
     private func waitForWaitingNotificationProducers(

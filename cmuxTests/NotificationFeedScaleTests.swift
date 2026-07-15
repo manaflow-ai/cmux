@@ -207,6 +207,57 @@ struct NotificationFeedScaleTests {
     }
 
     @Test
+    func retainedFeedByteLimitEvictsChronologicalSuffix() throws {
+        let store = TerminalNotificationStore.shared
+        let body = String(repeating: "x", count: TerminalNotificationStore.maximumNotificationBodyBytes)
+        let retainedByBytes = TerminalNotificationStore.maximumNotificationFeedContentBytes / body.utf8.count
+        let retained = (0..<retainedByBytes).map { index in
+            TerminalNotification(
+                id: UUID(),
+                tabId: UUID(),
+                surfaceId: UUID(),
+                retargetsToLiveSurfaceOwner: false,
+                title: "",
+                subtitle: "",
+                body: body,
+                createdAt: Date(timeIntervalSince1970: TimeInterval(retainedByBytes + 2 - index)),
+                isRead: false
+            )
+        }
+        let firstEvicted = TerminalNotification(
+            id: UUID(),
+            tabId: UUID(),
+            surfaceId: UUID(),
+            retargetsToLiveSurfaceOwner: false,
+            title: "first evicted",
+            subtitle: "",
+            body: "x",
+            createdAt: Date(timeIntervalSince1970: 1),
+            isRead: false
+        )
+        let olderSmall = TerminalNotification(
+            id: UUID(),
+            tabId: UUID(),
+            surfaceId: UUID(),
+            retargetsToLiveSurfaceOwner: false,
+            title: "",
+            subtitle: "",
+            body: "",
+            createdAt: Date(timeIntervalSince1970: 0),
+            isRead: false
+        )
+        let notifications = (retained + [firstEvicted, olderSmall])
+            .sorted(by: TerminalNotificationStore.notificationSortPrecedes)
+
+        store.replaceNotificationsForTesting(notifications)
+        defer { store.replaceNotificationsForTesting([]) }
+
+        #expect(store.notifications.count == retainedByBytes)
+        #expect(!store.notifications.contains { $0.id == firstEvicted.id })
+        #expect(!store.notifications.contains { $0.id == olderSmall.id })
+    }
+
+    @Test
     func liveAppendAtByteCapacityEvictsOldestRowsIncrementally() throws {
         let store = TerminalNotificationStore.shared
         let eventBus = CmuxEventBus.shared
