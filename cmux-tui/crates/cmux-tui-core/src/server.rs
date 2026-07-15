@@ -2102,8 +2102,9 @@ fn handle_command(
             Ok(json!({ "surface": surface.id }))
         }
         Command::SetCellPixels { width_px, height_px } => {
-            let resizes = mux
-                .set_cell_pixel_size(width_px, height_px)
+            let update = mux.set_cell_pixel_size(width_px, height_px);
+            let resizes = update
+                .resizes
                 .into_iter()
                 .map(|(surface, (cols, rows), reservation_id)| {
                     json!({
@@ -2114,7 +2115,17 @@ fn handle_command(
                     })
                 })
                 .collect::<Vec<_>>();
-            Ok(json!({"resizes": resizes}))
+            let failures = update
+                .failures
+                .into_iter()
+                .map(|failure| {
+                    json!({
+                        "surface": failure.surface,
+                        "error": failure.error,
+                    })
+                })
+                .collect::<Vec<_>>();
+            Ok(json!({"resizes": resizes, "failures": failures}))
         }
         Command::BrowserMouse { surface, kind, x_px, y_px, button, click_count } => {
             let surface = get_surface(mux, surface)?;

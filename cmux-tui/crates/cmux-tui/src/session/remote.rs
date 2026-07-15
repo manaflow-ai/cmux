@@ -33,6 +33,11 @@ const REMOTE_WRITE_TIMEOUT: Duration = Duration::from_millis(100);
 
 pub(crate) type RemoteResizeReservation = (SurfaceId, (u16, u16), Option<u64>);
 
+pub(crate) struct RemoteCellPixelUpdate {
+    pub resizes: Vec<RemoteResizeReservation>,
+    pub failures: Vec<(SurfaceId, String)>,
+}
+
 #[derive(Debug)]
 pub(crate) enum RemoteRequestError {
     Encode(serde_json::Error),
@@ -831,13 +836,13 @@ impl RemoteSession {
         &self,
         width_px: u16,
         height_px: u16,
-    ) -> anyhow::Result<Vec<RemoteResizeReservation>> {
+    ) -> anyhow::Result<RemoteCellPixelUpdate> {
         let response = self.request(json!({
             "cmd": "set-cell-pixels",
             "width_px": width_px,
             "height_px": height_px,
         }))?;
-        Ok(response
+        let resizes = response
             .get("resizes")
             .and_then(Value::as_array)
             .into_iter()
@@ -852,7 +857,20 @@ impl RemoteSession {
                     resize.get("reservation_id").and_then(Value::as_u64),
                 ))
             })
-            .collect())
+            .collect();
+        let failures = response
+            .get("failures")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|failure| {
+                Some((
+                    failure.get("surface")?.as_u64()?,
+                    failure.get("error")?.as_str()?.to_string(),
+                ))
+            })
+            .collect();
+        Ok(RemoteCellPixelUpdate { resizes, failures })
     }
 
     pub fn set_default_colors(&self, colors: DefaultColors) -> anyhow::Result<()> {

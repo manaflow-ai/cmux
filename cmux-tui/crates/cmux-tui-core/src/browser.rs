@@ -1048,15 +1048,10 @@ impl BrowserSurface {
         height_px: u16,
         report: Box<dyn FnOnce(Option<u64>) + Send>,
     ) -> anyhow::Result<Option<u64>> {
-        {
-            let mut cell = self.cell_pixels.lock().unwrap();
-            let next = (width_px.max(1), height_px.max(1));
-            if *cell == next {
-                report(None);
-                return Ok(None);
-            }
-            *cell = next;
-        }
+        // Store desired metrics before calculating the candidate geometry.
+        // Settled geometry remains in BrowserState, so an enqueue rejection
+        // leaves a visible mismatch that the same request can retry.
+        *self.cell_pixels.lock().unwrap() = (width_px.max(1), height_px.max(1));
         let (cols, rows) = self.size();
         self.resize_reporting_acceptance(cols, rows, report)
     }
@@ -1834,9 +1829,9 @@ fn percent_encode_query(input: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        BrowserCaptureOptions, BrowserCommand, BrowserFrame, BrowserSource, BrowserStatus,
-        capture_scale_for, new_surface, normalize_url, runtime_endpoint, scaled_pixels,
-        take_latest_worker_commands,
+        BROWSER_COMMAND_QUEUE_CAPACITY, BrowserCaptureOptions, BrowserCommand, BrowserFrame,
+        BrowserSource, BrowserStatus, capture_scale_for, new_surface, normalize_url,
+        runtime_endpoint, scaled_pixels, take_latest_worker_commands,
     };
     use crate::{Mux, MuxEvent, Surface, SurfaceOptions};
     use serde_json::{Value, json};
@@ -2586,6 +2581,51 @@ mod tests {
 
         assert!(browser.set_cell_pixel_size(9, 16).unwrap());
         assert!(!browser.set_cell_pixel_size(9, 16).unwrap());
+    }
+
+    #[test]
+    fn rejected_cell_pixel_enqueue_can_retry_the_same_metrics() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        let done = browser.take_worker_done_for_test();
+        let (entered, started) = mpsc::channel();
+        let (release, held) = mpsc::channel();
+        browser
+            .command_sender()
+            .unwrap()
+            .send(BrowserCommand::Hold { entered, release: held })
+            .unwrap();
+        started.recv_timeout(Duration::from_secs(1)).unwrap();
+        let sender = browser.command_sender().unwrap();
+        for _ in 0..BROWSER_COMMAND_QUEUE_CAPACITY {
+            sender.try_send(BrowserCommand::Activate).unwrap();
+        }
+
+        let (reported_tx, reported_rx) = mpsc::channel();
+        assert!(
+            browser
+                .set_cell_pixel_size_reporting(
+                    9,
+                    16,
+                    Box::new(move |accepted| reported_tx.send(accepted).unwrap()),
+                )
+                .is_err()
+        );
+        assert!(reported_rx.recv_timeout(Duration::from_secs(1)).unwrap().is_none());
+
+        drop(sender);
+        release.send(()).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        loop {
+            match browser.set_cell_pixel_size(9, 16) {
+                Ok(true) => break,
+                Err(_) if Instant::now() < deadline => thread::yield_now(),
+                result => panic!("same cell metrics were not retryable: {result:?}"),
+            }
+        }
+
+        browser.kill();
+        done.recv_timeout(Duration::from_secs(1)).expect("browser worker exited after retry");
     }
 
     #[test]

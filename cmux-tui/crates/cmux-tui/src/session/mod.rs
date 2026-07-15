@@ -400,16 +400,42 @@ impl Session {
     ) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                mux.set_cell_pixel_size_reporting(width_px, height_px, report);
-                Ok(())
+                let update = mux.set_cell_pixel_size_reporting(width_px, height_px, report);
+                if update.failures.is_empty() {
+                    Ok(())
+                } else {
+                    anyhow::bail!(
+                        "cell pixel update rejected: {}",
+                        update
+                            .failures
+                            .into_iter()
+                            .map(|failure| format!(
+                                "surface {}: {}",
+                                failure.surface, failure.error
+                            ))
+                            .collect::<Vec<_>>()
+                            .join("; ")
+                    )
+                }
             }
             Session::Remote(remote) => {
-                for (surface, desired, reservation_id) in
-                    remote.set_cell_pixel_size(width_px, height_px)?
-                {
+                let update = remote.set_cell_pixel_size(width_px, height_px)?;
+                for (surface, desired, reservation_id) in update.resizes {
                     report(surface, desired, reservation_id.or(Some(0)));
                 }
-                Ok(())
+                if update.failures.is_empty() {
+                    Ok(())
+                } else {
+                    anyhow::bail!(
+                        "cell pixel update rejected: {}",
+                        update
+                            .failures
+                            .into_iter()
+                            .map(|(surface, error)| format!("surface {surface}: {error}"))
+                            .collect::<Vec<_>>()
+                            .join("; ")
+                    )
+                }
             }
         }
     }

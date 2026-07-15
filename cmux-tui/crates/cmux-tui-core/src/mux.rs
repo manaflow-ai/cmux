@@ -15,6 +15,18 @@ use crate::{PaneId, ScreenId, SplitDir, SurfaceId, WorkspaceId};
 
 pub type SurfaceResizeReporter = Arc<dyn Fn(SurfaceId, (u16, u16), Option<u64>) + Send + Sync>;
 
+#[derive(Debug, Default)]
+pub struct CellPixelUpdate {
+    pub resizes: Vec<(SurfaceId, (u16, u16), u64)>,
+    pub failures: Vec<CellPixelUpdateFailure>,
+}
+
+#[derive(Debug)]
+pub struct CellPixelUpdateFailure {
+    pub surface: SurfaceId,
+    pub error: String,
+}
+
 /// Events pushed to subscribed frontends.
 #[derive(Debug, Clone)]
 pub enum MuxEvent {
@@ -734,11 +746,7 @@ impl Mux {
         }
     }
 
-    pub fn set_cell_pixel_size(
-        &self,
-        width_px: u16,
-        height_px: u16,
-    ) -> Vec<(SurfaceId, (u16, u16), u64)> {
+    pub fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) -> CellPixelUpdate {
         self.set_cell_pixel_size_reporting(width_px, height_px, Arc::new(|_, _, _| {}))
     }
 
@@ -747,33 +755,31 @@ impl Mux {
         width_px: u16,
         height_px: u16,
         report: SurfaceResizeReporter,
-    ) -> Vec<(SurfaceId, (u16, u16), u64)> {
+    ) -> CellPixelUpdate {
         let next = (width_px.max(1), height_px.max(1));
-        {
-            let mut cell = self.cell_pixels.lock().unwrap();
-            if *cell == next {
-                return Vec::new();
-            }
-            *cell = next;
-        }
+        // This is the desired global metric used for new browser surfaces.
+        // Existing surfaces still check their settled geometry on every call,
+        // so a rejected queue submission can be retried with the same value.
+        *self.cell_pixels.lock().unwrap() = next;
         let surfaces = self.state.lock().unwrap().surfaces.values().cloned().collect::<Vec<_>>();
-        let mut accepted = Vec::new();
+        let mut update = CellPixelUpdate::default();
         for surface in surfaces {
             let id = surface.id;
             let size = surface.size();
             let callback = report.clone();
-            if let Some(reservation_id) = surface
-                .set_cell_pixel_size_reporting(
-                    next.0,
-                    next.1,
-                    Box::new(move |accepted| callback(id, size, accepted)),
-                )
-                .unwrap_or(None)
-            {
-                accepted.push((id, size, reservation_id));
+            match surface.set_cell_pixel_size_reporting(
+                next.0,
+                next.1,
+                Box::new(move |accepted| callback(id, size, accepted)),
+            ) {
+                Ok(Some(reservation_id)) => update.resizes.push((id, size, reservation_id)),
+                Ok(None) => {}
+                Err(error) => update
+                    .failures
+                    .push(CellPixelUpdateFailure { surface: id, error: error.to_string() }),
             }
         }
-        accepted
+        update
     }
 
     pub fn default_colors(&self) -> DefaultColors {

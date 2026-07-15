@@ -108,33 +108,46 @@ fn forward_mux_events(
 ) {
     let mut next_recovery_generation = 0_u64;
     loop {
-        let needs_recovery = if session_events.overflowed() {
-            true
-        } else {
-            match session_events.recv() {
-                Ok(event) => match forward_mux_event(event, &tx, &mux_titles) {
-                    ForwardMuxOutcome::Continue => false,
-                    ForwardMuxOutcome::Recover => true,
-                    ForwardMuxOutcome::Stop => return,
-                },
-                Err(_) => {
-                    if session_events.overflowed() {
-                        true
-                    } else {
-                        return;
-                    }
+        let needs_recovery = match session_events.recv() {
+            Ok(event) => {
+                if matches!(forward_mux_event(event, &tx, &mux_titles), ForwardMuxOutcome::Stop) {
+                    return;
+                }
+                false
+            }
+            Err(_) => {
+                if session_events.overflowed() {
+                    true
+                } else {
+                    return;
                 }
             }
         };
-        if !needs_recovery {
+        // The mailbox may close immediately after yielding its final accepted
+        // event. Recover only after that event is forwarded.
+        if !needs_recovery && !session_events.overflowed() {
             continue;
         }
         next_recovery_generation = next_recovery_generation.wrapping_add(1).max(1);
         let recovery_generation = next_recovery_generation;
         mux_recovery_generation.store(recovery_generation, Ordering::Release);
-        // Subscribe before fetching the authoritative tree so events emitted
-        // during recovery are retained by the new mailbox.
-        session_events = event_source.events();
+        // Subscribe before draining the closed mailbox so new events are
+        // retained while every event accepted before overflow is delivered.
+        let overflowed_events = std::mem::replace(&mut session_events, event_source.events());
+        for event in overflowed_events.try_iter() {
+            if matches!(forward_mux_event(event, &tx, &mux_titles), ForwardMuxOutcome::Stop) {
+                return;
+            }
+        }
+        if tx
+            .send(AppEvent::Mux(MuxEvent::Status(
+                "mux event backlog overflowed; transient events beyond the hard limit were rejected"
+                    .to_string(),
+            )))
+            .is_err()
+        {
+            return;
+        }
         let routing_generation = routing_mutation_committed.load(Ordering::Acquire);
         let title_snapshot_epoch = mux_titles.current_epoch();
         let recovered = event_source.refresh_tree().map_err(|error| error.to_string());
@@ -158,18 +171,12 @@ fn forward_mux_events(
             }
             continue;
         }
-        let mut app_channel_full = false;
         for event in session_events.try_iter() {
-            match forward_mux_event(event, &tx, &mux_titles) {
-                ForwardMuxOutcome::Continue => {}
-                ForwardMuxOutcome::Recover => {
-                    app_channel_full = true;
-                    break;
-                }
-                ForwardMuxOutcome::Stop => return,
+            if matches!(forward_mux_event(event, &tx, &mux_titles), ForwardMuxOutcome::Stop) {
+                return;
             }
         }
-        if app_channel_full || session_events.overflowed() {
+        if session_events.overflowed() {
             continue;
         }
         // A prior title wake may precede the authoritative snapshot. Queue a
@@ -184,7 +191,6 @@ fn forward_mux_events(
 
 enum ForwardMuxOutcome {
     Continue,
-    Recover,
     Stop,
 }
 
@@ -198,29 +204,19 @@ fn forward_mux_event(
             if !mux_titles.push(surface, title) {
                 return ForwardMuxOutcome::Continue;
             }
-            return match tx.try_send(AppEvent::MuxTitlesReady) {
+            return match tx.send(AppEvent::MuxTitlesReady) {
                 Ok(()) => ForwardMuxOutcome::Continue,
-                Err(TrySendError::Full(_)) => ForwardMuxOutcome::Recover,
-                Err(TrySendError::Disconnected(_)) => ForwardMuxOutcome::Stop,
+                Err(_) => ForwardMuxOutcome::Stop,
             };
         }
         MuxEvent::SurfaceExited(surface) => mux_titles.remove(surface),
         _ => {}
     }
     let terminal = matches!(event, MuxEvent::Empty);
-    let resize_completion =
-        matches!(event, MuxEvent::SurfaceResized { .. } | MuxEvent::SurfaceResizeFailed { .. });
-    if terminal || resize_completion {
-        return match tx.send(AppEvent::Mux(event)) {
-            Ok(()) if terminal => ForwardMuxOutcome::Stop,
-            Ok(()) => ForwardMuxOutcome::Continue,
-            Err(_) => ForwardMuxOutcome::Stop,
-        };
-    }
-    match tx.try_send(AppEvent::Mux(event)) {
+    match tx.send(AppEvent::Mux(event)) {
+        Ok(()) if terminal => ForwardMuxOutcome::Stop,
         Ok(()) => ForwardMuxOutcome::Continue,
-        Err(TrySendError::Full(_)) => ForwardMuxOutcome::Recover,
-        Err(TrySendError::Disconnected(_)) => ForwardMuxOutcome::Stop,
+        Err(_) => ForwardMuxOutcome::Stop,
     }
 }
 
@@ -7545,6 +7541,9 @@ mod tests {
         let mux = Mux::new("mux-forwarder-overflow-test", SurfaceOptions::default());
         let event_source = Session::Local(mux.clone());
         let session_events = event_source.events();
+        for surface in 0..5_000 {
+            mux.emit(MuxEvent::Bell(surface));
+        }
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
         let titles = Arc::new(MuxTitleIngress::default());
         let routing_generation = Arc::new(AtomicU64::new(0));
@@ -7561,10 +7560,6 @@ mod tests {
             );
         });
 
-        for surface in 0..5_000 {
-            mux.emit(MuxEvent::Bell(surface));
-        }
-
         let first = rx.recv_timeout(Duration::from_secs(1)).unwrap();
         let deadline = Instant::now() + Duration::from_secs(1);
         while recovery_generation.load(Ordering::Acquire) == 0 && Instant::now() < deadline {
@@ -7577,6 +7572,7 @@ mod tests {
 
         let mut next = Some(first);
         let mut recovered_generations = HashSet::new();
+        let mut preserved_bells = 0;
         let final_generation = loop {
             let event =
                 next.take().unwrap_or_else(|| rx.recv_timeout(Duration::from_secs(1)).unwrap());
@@ -7591,9 +7587,11 @@ mod tests {
                 {
                     break recovery_generation;
                 }
+                AppEvent::Mux(MuxEvent::Bell(_)) => preserved_bells += 1,
                 _ => {}
             }
         };
+        assert_eq!(preserved_bells, 4_096);
         assert_eq!(recovery_generation.load(Ordering::Acquire), final_generation);
 
         mux.emit(MuxEvent::Bell(9_999));
@@ -7647,6 +7645,39 @@ mod tests {
             AppEvent::Mux(MuxEvent::SurfaceResized { surface: 41, reservation_id: Some(7), .. })
         ));
         assert!(matches!(forwarder.join().unwrap(), ForwardMuxOutcome::Continue));
+    }
+
+    #[test]
+    fn mux_forwarder_preserves_one_shot_event_while_app_channel_is_full() {
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        tx.send(AppEvent::Mux(MuxEvent::Bell(1))).unwrap();
+        let titles = MuxTitleIngress::default();
+        let forwarder =
+            std::thread::spawn(move || forward_mux_event(MuxEvent::Bell(2), &tx, &titles));
+
+        assert!(matches!(rx.recv().unwrap(), AppEvent::Mux(MuxEvent::Bell(1))));
+        assert!(matches!(rx.recv().unwrap(), AppEvent::Mux(MuxEvent::Bell(2))));
+        assert!(matches!(forwarder.join().unwrap(), ForwardMuxOutcome::Continue));
+    }
+
+    #[test]
+    fn title_wake_waits_for_app_capacity_without_triggering_recovery() {
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        tx.send(AppEvent::Mux(MuxEvent::Bell(1))).unwrap();
+        let titles = Arc::new(MuxTitleIngress::default());
+        let forwarded_titles = titles.clone();
+        let forwarder = std::thread::spawn(move || {
+            forward_mux_event(
+                MuxEvent::TitleChanged { surface: 41, title: "latest".into() },
+                &tx,
+                &forwarded_titles,
+            )
+        });
+
+        assert!(matches!(rx.recv().unwrap(), AppEvent::Mux(MuxEvent::Bell(1))));
+        assert!(matches!(rx.recv().unwrap(), AppEvent::MuxTitlesReady));
+        assert!(matches!(forwarder.join().unwrap(), ForwardMuxOutcome::Continue));
+        assert_eq!(titles.take_dirty().get(&41).map(AsRef::as_ref), Some("latest"));
     }
 
     #[test]

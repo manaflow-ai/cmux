@@ -27,10 +27,10 @@ pub use layout::{
 };
 pub use model::{Node, Pane, Screen, State, Workspace};
 pub use mux::{
-    AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane, Direction, LayoutLeafSpec,
-    LayoutSpec, Mux, MuxEvent, NotificationEvent, NotificationLevel, RunPlacement,
-    SidebarPluginOptions, SidebarPluginStatus, SurfaceNotification, SurfaceResizeReporter,
-    ZoomMode, ZoomState,
+    AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane, CellPixelUpdate,
+    CellPixelUpdateFailure, Direction, LayoutLeafSpec, LayoutSpec, Mux, MuxEvent,
+    NotificationEvent, NotificationLevel, RunPlacement, SidebarPluginOptions, SidebarPluginStatus,
+    SurfaceNotification, SurfaceResizeReporter, ZoomMode, ZoomState,
 };
 pub use short_id::assign_short_ids;
 pub use surface::{
