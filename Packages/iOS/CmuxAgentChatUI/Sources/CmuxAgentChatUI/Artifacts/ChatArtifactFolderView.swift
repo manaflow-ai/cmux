@@ -42,11 +42,13 @@ struct ChatArtifactFolderView: View {
                         Section {
                             ForEach(listing.entries) { entry in
                                 NavigationLink {
+                                    let route = childRoute(for: entry)
                                     ChatArtifactViewerDestination(
-                                        path: childPath(named: entry.name),
-                                        scope: scope,
+                                        path: route.path,
+                                        scope: route.scope,
                                         onDone: onDone
                                     )
+                                    .environment(\.chatArtifactLoader, route.loader)
                                 } label: {
                                     rowLabel(entry)
                                 }
@@ -124,6 +126,15 @@ struct ChatArtifactFolderView: View {
 
     private func childPath(named name: String) -> String {
         (path as NSString).appendingPathComponent(name)
+    }
+
+    private func childRoute(for entry: ChatArtifactDirectoryEntry) -> ChatArtifactFolderRoute {
+        ChatArtifactFolderRoute(
+            parentPath: path,
+            childName: entry.name,
+            scope: scope,
+            loader: loader
+        )
     }
 
     private var parentPath: String {

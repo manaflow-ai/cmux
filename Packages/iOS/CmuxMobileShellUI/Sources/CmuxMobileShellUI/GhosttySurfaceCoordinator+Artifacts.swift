@@ -241,25 +241,27 @@ extension GhosttySurfaceRepresentable.Coordinator {
             }
         }
 
-        func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didTapAtCol col: Int, row: Int) {
+        func ghosttySurfaceView(
+            _ surfaceView: GhosttySurfaceView,
+            didTapAtCol col: Int,
+            row: Int
+        ) async -> GhosttySurfaceTapDisposition {
             // Forward to the Mac's real surface as a left click; libghostty
             // reports it to a TUI with mouse mode, or no-ops on a normal screen.
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                if self.artifactFilesEnabled,
-                   let snapshot = await surfaceView.visibleTextForArtifactHitTesting() {
-                    if let path = TerminalArtifactTapHitTester().path(
-                        in: snapshot.text,
-                        col: col,
-                        row: row,
-                        columns: snapshot.columns
-                    ) {
-                        self.onArtifactPathTapped(path)
-                        return
-                    }
+            if artifactFilesEnabled,
+               let snapshot = await surfaceView.visibleTextForArtifactHitTesting() {
+                if let path = TerminalArtifactTapHitTester().path(
+                    in: snapshot.text,
+                    col: col,
+                    row: row,
+                    columns: snapshot.columns
+                ) {
+                    onArtifactPathTapped(path)
+                    return .openedArtifact
                 }
-                await self.store?.clickTerminal(surfaceID: self.surfaceID, col: col, row: row)
             }
+            await store?.clickTerminal(surfaceID: surfaceID, col: col, row: row)
+            return .focusTerminal
         }
 
         func ghosttySurfaceView(

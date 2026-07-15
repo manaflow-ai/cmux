@@ -260,17 +260,9 @@ struct TerminalArtifactGalleryItemView: View {
     }
 
     private func childCountText(_ childCount: Int) -> String {
-        if artifact.childCountIsCapped {
-            return String(
-                localized: "terminal.artifact.gallery.child_count_capped",
-                defaultValue: "\(childCount)+ items",
-                bundle: .module
-            )
-        }
-        return String(
-            localized: "terminal.artifact.gallery.child_count",
-            defaultValue: "^[\(childCount) item](inflect: true)",
-            bundle: .module
+        TerminalArtifactChildCountFormatter().string(
+            count: childCount,
+            isCapped: artifact.childCountIsCapped
         )
     }
 
