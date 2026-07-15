@@ -43,6 +43,11 @@ public struct UpdatePill: View {
                 showPopover = false
             }
         }
+        .onChange(of: model.effectiveState.isReadyToRestart) { _, isReadyToRestart in
+            if isReadyToRestart {
+                showPopover = false
+            }
+        }
     }
 
     @ViewBuilder
@@ -73,7 +78,13 @@ public struct UpdatePill: View {
         .accessibilityIdentifier("UpdatePill")
     }
 
-    private func handleTap() {
+    func handleTap() {
+        if case .installing(let installing) = model.effectiveState {
+            showPopover = false
+            installing.retryTerminatingApplication()
+            return
+        }
+
         if model.showsDetectedBackgroundUpdate {
             if model.hasCachedDetectedUpdateDetails {
                 showPopover.toggle()

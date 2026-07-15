@@ -8,11 +8,13 @@ struct Harness {
     let controller: UpdateController
     var model: UpdateStateModel { controller.model }
 
-    init() {
+    init(automaticallyChecksForUpdates: Bool = false, automaticallyDownloadsUpdates: Bool = false) {
         let suiteName = "cmux.updater.pipeline-tests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defaults.removePersistentDomain(forName: suiteName)
         let updater = FakeUpdater()
+        updater.automaticallyChecksForUpdates = automaticallyChecksForUpdates
+        updater.automaticallyDownloadsUpdates = automaticallyDownloadsUpdates
         let clock = TestDeadlineClock()
         self.updater = updater
         self.clock = clock

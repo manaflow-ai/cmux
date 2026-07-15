@@ -26,7 +26,6 @@ public final class UpdateController {
     private let defaults: UserDefaults
     private let fileManager: FileManager
     private let hostBundle: Bundle
-    private let backgroundProbeInterval: TimeInterval
     /// Whether the running build is a cmux DEV/staging build that must never be compared against
     /// the public release appcast. See ``isDevLikeBundleIdentifier(_:)``.
     private let isDevLikeBundle: Bool
@@ -43,7 +42,6 @@ public final class UpdateController {
     var attemptCoordinator = AttemptUpdateCoordinator()
     private var stateReactionTask: Task<Void, Never>?
     private var noUpdateDismissTask: Task<Void, Never>?
-    private var backgroundProbeTask: Task<Void, Never>?
     private var recheckTask: Task<Void, Never>?
     /// Armed when the user asks to install; fires a visible "Update Didn't Start" error if the
     /// flow never reaches downloading/installing (or another visible outcome). See
@@ -120,7 +118,6 @@ public final class UpdateController {
         self.defaults = defaults
         self.fileManager = fileManager
         self.hostBundle = hostBundle
-        self.backgroundProbeInterval = settings.scheduledCheckInterval
         let isDevLikeBundle = isDevLikeBundle ?? Self.isDevLikeBundleIdentifier(hostBundle.bundleIdentifier)
         self.isDevLikeBundle = isDevLikeBundle
         settings.apply(to: defaults)
@@ -129,15 +126,26 @@ public final class UpdateController {
             // builds are produced from local source and are not on the public release train, so
             // they must never query the public appcast. Turning off Sparkle's automatic checks
             // stops the passive vectors: Sparkle never schedules its own background checks, and
-            // cmux's launch/background probe is short-circuited by the `automaticallyChecksForUpdates`
-            // guard in `startLaunchUpdateProbeIfNeeded`. Manual "Check for Updates" is gated
+            // cmux's launch check is short-circuited by the `automaticallyChecksForUpdates`
+            // guard in `startLaunchUpdateCheckIfNeeded`. Manual "Check for Updates" is gated
             // separately in `checkForUpdatesWhenReady`.
             defaults.set(false, forKey: UpdateSettings.automaticChecksKey)
         }
 
         self.installWatchdog = InstallWatchdog(clock: clock, timeout: installWatchdogTimeout)
         let model = UpdateStateModel()
-        let driver = UpdateDriver(model: model, log: log, clock: clock, isDevLikeBundle: isDevLikeBundle)
+        let driver = UpdateDriver(
+            model: model,
+            log: log,
+            clock: clock,
+            isDevLikeBundle: isDevLikeBundle,
+            automaticallyDownloadsUpdatesProvider: {
+                defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey)
+            },
+            allowsMeteredDownloadsProvider: {
+                defaults.bool(forKey: UpdateSettings.allowMeteredDownloadsKey)
+            }
+        )
         self.driver = driver
         self.updater = updaterFactory(driver, hostBundle)
         startStateReactions()
@@ -146,7 +154,6 @@ public final class UpdateController {
     deinit {
         stateReactionTask?.cancel()
         noUpdateDismissTask?.cancel()
-        backgroundProbeTask?.cancel()
         readyCheckTask?.cancel()
         recheckTask?.cancel()
         // installWatchdog cancels its own pending timer in its deinit (it is released with self).
@@ -349,9 +356,11 @@ public final class UpdateController {
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_RESET_SPARKLE_PERMISSION"] == "1" {
             defaults.removeObject(forKey: UpdateSettings.automaticChecksKey)
             defaults.removeObject(forKey: UpdateSettings.automaticallyUpdateKey)
+            defaults.removeObject(forKey: UpdateSettings.allowMeteredDownloadsKey)
             defaults.removeObject(forKey: UpdateSettings.scheduledCheckIntervalKey)
             defaults.removeObject(forKey: UpdateSettings.sendProfileInfoKey)
             defaults.removeObject(forKey: UpdateSettings.migrationKey)
+            defaults.removeObject(forKey: UpdateSettings.backgroundDownloadsMigrationKey)
             defaults.synchronize()
             log.append("reset sparkle permission defaults (ui test)")
         }
@@ -370,7 +379,7 @@ public final class UpdateController {
             log.append(
                 "updater started (autoChecks=\(updater.automaticallyChecksForUpdates), interval=\(interval)s, autoDownloads=\(updater.automaticallyDownloadsUpdates))"
             )
-            startLaunchUpdateProbeIfNeeded()
+            startLaunchUpdateCheckIfNeeded()
         } catch {
             model.setState(.error(.init(
                 error: error,
@@ -386,38 +395,26 @@ public final class UpdateController {
         }
     }
 
-    private func startLaunchUpdateProbeIfNeeded() {
+    private func startLaunchUpdateCheckIfNeeded() {
         if isDevLikeBundle {
-            // DEV/staging builds are not on the public release train; never probe the public
-            // appcast (init also disables Sparkle's own scheduled checks). Tear down any probe a
-            // prior path may have started. See `isDevLikeBundleIdentifier(_:)` (#6292).
-            log.append("launch update probe skipped (dev/staging build)")
-            backgroundProbeTask?.cancel()
-            backgroundProbeTask = nil
+            // DEV/staging builds are not on the public release train; never check the public
+            // appcast. See `isDevLikeBundleIdentifier(_:)` (#6292).
+            log.append("launch update check skipped (dev/staging build)")
             return
         }
         guard updater.automaticallyChecksForUpdates else {
-            log.append("launch update probe skipped (automatic checks disabled)")
+            log.append("launch update check skipped (automatic checks disabled)")
             return
         }
 
-        // Probe immediately on launch so the sidebar can surface a passive update indicator
-        // without waiting for Sparkle's scheduled check or opening interactive update UI.
-        log.append("starting launch update probe")
-        updater.checkForUpdateInformation()
-
-        // Re-probe periodically so the banner appears even if the app has been running for a
-        // while when a new version is published. Genuine periodic schedule via the clock.
-        backgroundProbeTask?.cancel()
-        backgroundProbeTask = Task { @MainActor [weak self] in
-            while !Task.isCancelled {
-                guard let interval = self?.backgroundProbeInterval else { return }
-                try? await self?.clock.sleep(for: .seconds(interval))
-                guard !Task.isCancelled, let self else { return }
-                guard self.updater.automaticallyChecksForUpdates else { continue }
-                self.log.append("periodic background update probe")
-                self.updater.checkForUpdateInformation()
-            }
+        // Sparkle owns the periodic schedule. One launch-time check makes a prepared update
+        // available promptly without a second cmux-owned timer competing with that scheduler.
+        if updater.automaticallyDownloadsUpdates {
+            log.append("starting launch background update check")
+            updater.checkForUpdatesInBackground()
+        } else {
+            log.append("starting launch update information check")
+            updater.checkForUpdateInformation()
         }
     }
 

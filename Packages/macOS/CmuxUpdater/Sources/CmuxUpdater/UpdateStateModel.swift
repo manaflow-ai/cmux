@@ -255,8 +255,8 @@ public final class UpdateStateModel {
         case .extracting(let extracting):
             let percent = String(format: "%.0f%%", extracting.progress * 100)
             return String(localized: "update.extracting.progress", defaultValue: "Preparing: \(percent)")
-        case .installing(let install):
-            return install.isAutoUpdate ? String(localized: "update.restartToComplete", defaultValue: "Restart to Complete Update") : String(localized: "update.installing.status", defaultValue: "Installing…")
+        case .installing:
+            return String(localized: "update.restartToComplete", defaultValue: "Restart to Update")
         case .notFound:
             return String(localized: "update.noUpdates.title", defaultValue: "No Updates Available")
         case .error(let err):
@@ -322,8 +322,8 @@ public final class UpdateStateModel {
             return String(localized: "update.downloadingPackage", defaultValue: "Downloading the update package")
         case .extracting:
             return String(localized: "update.preparingUpdate", defaultValue: "Extracting and preparing the update")
-        case let .installing(install):
-            return install.isAutoUpdate ? String(localized: "update.restartToComplete", defaultValue: "Restart to Complete Update") : String(localized: "update.installingAndRestarting", defaultValue: "Installing update and preparing to restart")
+        case .installing:
+            return String(localized: "update.restartReady", defaultValue: "The update is ready and will finish when cmux restarts")
         case .notFound:
             return String(localized: "update.noUpdates.message", defaultValue: "You are running the latest version")
         case .error(let err):

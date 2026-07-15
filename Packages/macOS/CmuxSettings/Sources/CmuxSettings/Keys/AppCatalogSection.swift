@@ -117,6 +117,27 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sendAnonymousTelemetry"
     )
 
+    /// Whether Sparkle checks the release feed on its schedule.
+    public let automaticUpdateChecks = DefaultsKey<Bool>(
+        id: "app.automaticUpdateChecks",
+        defaultValue: true,
+        userDefaultsKey: "SUEnableAutomaticChecks"
+    )
+
+    /// Whether Sparkle downloads and prepares signed updates in the background.
+    public let automaticUpdateDownloads = DefaultsKey<Bool>(
+        id: "app.automaticUpdateDownloads",
+        defaultValue: true,
+        userDefaultsKey: "SUAutomaticallyUpdate"
+    )
+
+    /// Whether automatic update archives may use expensive or constrained network paths.
+    public let allowMeteredUpdateDownloads = DefaultsKey<Bool>(
+        id: "app.allowMeteredUpdateDownloads",
+        defaultValue: false,
+        userDefaultsKey: "cmux.update.allowMeteredDownloads"
+    )
+
     public let confirmQuitMode = DefaultsKey<ConfirmQuitMode>(
         id: "app.confirmQuit",
         defaultValue: .always,
