@@ -2572,6 +2572,10 @@ struct ContentView: View {
             reconcileMountedWorkspaceIds()
         })
 
+        view = AnyView(view.onReceive(tabManager.$mountedBackgroundWorkspaceLoadIds) { _ in
+            reconcileMountedWorkspaceIds()
+        })
+
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidSetTitle)) { notification in
             guard tabManager.shouldScheduleRawTitleRefresh(forWorkspaceId: GhosttyTitleChange(notification: notification)?.tabId) else { return }
             scheduleTitlebarTextRefresh()
@@ -3184,7 +3188,9 @@ struct ContentView: View {
         let orderedTabIds = currentTabs.map { $0.id }
         let effectiveSelectedId = selectedId ?? tabManager.selectedTabId
         let handoffPinnedIds = retiringWorkspaceId.map { Set([ $0 ]) } ?? []
-        let pinnedIds = handoffPinnedIds.union(tabManager.debugPinnedWorkspaceLoadIds)
+        let pinnedIds = handoffPinnedIds
+            .union(tabManager.mountedBackgroundWorkspaceLoadIds)
+            .union(tabManager.debugPinnedWorkspaceLoadIds)
         let isCycleHot = tabManager.isWorkspaceCycleHot
         let shouldKeepHandoffPair = isCycleHot && !handoffPinnedIds.isEmpty
         let baseMaxMounted = shouldKeepHandoffPair
@@ -7758,10 +7764,10 @@ struct ContentView: View {
             tabManager.selectPreviousTab()
         }
         registry.register(commandId: "palette.moveWorkspaceUp") {
-            moveSelectedWorkspace(by: -1)
+            tabManager.moveSelectedWorkspace(by: -1)
         }
         registry.register(commandId: "palette.moveWorkspaceDown") {
-            moveSelectedWorkspace(by: 1)
+            tabManager.moveSelectedWorkspace(by: 1)
         }
         registry.register(commandId: "palette.moveWorkspaceToTop") {
             guard let workspace = tabManager.selectedWorkspace else {
@@ -9067,15 +9073,6 @@ struct ContentView: View {
     private func selectedWorkspaceIndex() -> Int? {
         guard let workspace = tabManager.selectedWorkspace else { return nil }
         return tabManager.tabs.firstIndex { $0.id == workspace.id }
-    }
-
-    private func moveSelectedWorkspace(by delta: Int) {
-        guard let workspace = tabManager.selectedWorkspace,
-              let currentIndex = selectedWorkspaceIndex() else { return }
-        let targetIndex = currentIndex + delta
-        guard targetIndex >= 0, targetIndex < tabManager.tabs.count else { return }
-        _ = tabManager.reorderWorkspace(tabId: workspace.id, toIndex: targetIndex)
-        tabManager.selectWorkspace(workspace)
     }
 
     private func closeWorkspaceIds(_ workspaceIds: [UUID], allowPinned: Bool) {
@@ -13982,9 +13979,7 @@ struct TabItemView: View, Equatable {
     }
 
     func moveBy(_ delta: Int) {
-        let targetIndex = index + delta
-        guard targetIndex >= 0, targetIndex < tabManager.tabs.count else { return }
-        guard tabManager.reorderWorkspace(tabId: tab.id, toIndex: targetIndex) else { return }
+        guard tabManager.reorderWorkspace(tabId: tab.id, by: delta) else { return }
         selectedTabIds = [tab.id]
         lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == tab.id }
         tabManager.selectTab(tab)
