@@ -50,6 +50,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     var onArtifactFilesRequested: @MainActor (_ anchor: UnitPoint) -> Void = { _ in }
     var onArtifactPathTapped: @MainActor (_ path: String) -> Void = { _ in }
     var onVisibleArtifactCountChanged: @MainActor (_ count: Int) -> Void = { _ in }
+    var onArtifactGalleryRefreshSignal: @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -61,7 +62,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             visibleArtifactCount: visibleArtifactCount,
             onArtifactFilesRequested: onArtifactFilesRequested,
             onArtifactPathTapped: onArtifactPathTapped,
-            onVisibleArtifactCountChanged: onVisibleArtifactCountChanged
+            onVisibleArtifactCountChanged: onVisibleArtifactCountChanged,
+            onArtifactGalleryRefreshSignal: onArtifactGalleryRefreshSignal
         )
     }
 
@@ -129,6 +131,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         context.coordinator.onArtifactFilesRequested = onArtifactFilesRequested
         context.coordinator.onArtifactPathTapped = onArtifactPathTapped
         context.coordinator.onVisibleArtifactCountChanged = onVisibleArtifactCountChanged
+        context.coordinator.onArtifactGalleryRefreshSignal = onArtifactGalleryRefreshSignal
         let artifactCountModeChanged = context.coordinator.updateArtifactCountMode(
             artifactFilesEnabled: artifactFilesEnabled,
             sessionArtifactCountEnabled: sessionArtifactCountEnabled
@@ -178,12 +181,14 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         var onArtifactFilesRequested: @MainActor (_ anchor: UnitPoint) -> Void
         var onArtifactPathTapped: @MainActor (_ path: String) -> Void
         var onVisibleArtifactCountChanged: @MainActor (_ count: Int) -> Void
+        var onArtifactGalleryRefreshSignal: @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void
         private var outputTask: Task<Void, Never>?
         private var liveFontTask: Task<Void, Never>?
         var artifactCountTask: Task<Void, Never>?
         var artifactCountTaskRequest: TerminalArtifactChipCountState.Request?
         var artifactCountState = TerminalArtifactChipCountState()
         var artifactCountNeedsRefresh: Bool
+        var freshestLocalArtifactCount = 0
         /// Hosts the SwiftUI ``TerminalComposerView`` so it can be installed into the
         /// surface's composer band. Built lazily on first open and torn down on
         /// dismantle; mounted/unmounted by ``setComposerMounted(_:)``.
@@ -218,7 +223,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             visibleArtifactCount: Int,
             onArtifactFilesRequested: @escaping @MainActor (_ anchor: UnitPoint) -> Void,
             onArtifactPathTapped: @escaping @MainActor (_ path: String) -> Void,
-            onVisibleArtifactCountChanged: @escaping @MainActor (_ count: Int) -> Void
+            onVisibleArtifactCountChanged: @escaping @MainActor (_ count: Int) -> Void,
+            onArtifactGalleryRefreshSignal: @escaping @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void
         ) {
             self.workspaceID = workspaceID
             self.surfaceID = surfaceID
@@ -230,6 +236,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             self.onArtifactFilesRequested = onArtifactFilesRequested
             self.onArtifactPathTapped = onArtifactPathTapped
             self.onVisibleArtifactCountChanged = onVisibleArtifactCountChanged
+            self.onArtifactGalleryRefreshSignal = onArtifactGalleryRefreshSignal
             super.init()
         }
 

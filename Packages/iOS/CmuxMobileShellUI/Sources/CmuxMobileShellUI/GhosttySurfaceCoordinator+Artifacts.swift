@@ -26,6 +26,7 @@ extension GhosttySurfaceRepresentable.Coordinator {
             artifactCountState.reset()
             artifactCountNeedsRefresh = artifactFilesEnabled
             visibleArtifactCount = 0
+            freshestLocalArtifactCount = 0
             return true
         }
 
@@ -37,10 +38,14 @@ extension GhosttySurfaceRepresentable.Coordinator {
             case .none:
                 break
             case .report(let report):
-                surfaceView.reportArtifactCount(
+                guard surfaceView.reportArtifactCount(
                     report.count,
                     generation: report.surfaceGeneration
-                )
+                ) else { return }
+                onArtifactGalleryRefreshSignal(TerminalArtifactGalleryRefreshSignal(
+                    count: report.count,
+                    surfaceGeneration: report.surfaceGeneration
+                ))
             case .request(let request):
                 startArtifactCountRequest(request, surfaceView: surfaceView)
             }
@@ -74,16 +79,22 @@ extension GhosttySurfaceRepresentable.Coordinator {
                 let completion = self.artifactCountState.complete(
                     request,
                     sessionTotal: sessionTotal,
-                    currentSurfaceGeneration: surfaceView.visibleArtifactCountGeneration
+                    currentSurfaceGeneration: surfaceView.visibleArtifactCountGeneration,
+                    freshestLocalCount: self.freshestLocalArtifactCount
                 )
                 guard self.artifactCountTaskRequest == request else { return }
                 self.artifactCountTask = nil
                 self.artifactCountTaskRequest = nil
                 if case .reported(let report) = completion.outcome {
-                    surfaceView.reportArtifactCount(
+                    if surfaceView.reportArtifactCount(
                         report.count,
                         generation: report.surfaceGeneration
-                    )
+                    ) {
+                        self.onArtifactGalleryRefreshSignal(TerminalArtifactGalleryRefreshSignal(
+                            count: report.count,
+                            surfaceGeneration: report.surfaceGeneration
+                        ))
+                    }
                 }
                 if let nextRequest = completion.nextRequest {
                     self.startArtifactCountRequest(nextRequest, surfaceView: surfaceView)
@@ -183,6 +194,7 @@ extension GhosttySurfaceRepresentable.Coordinator {
             generation: UInt64
         ) {
             guard artifactFilesEnabled else { return }
+            freshestLocalArtifactCount = count
             let action = artifactCountState.trigger(
                 localCount: count,
                 surfaceGeneration: generation,
@@ -197,12 +209,17 @@ extension GhosttySurfaceRepresentable.Coordinator {
             artifactCountTaskRequest = nil
             artifactCountState.reset()
             artifactCountNeedsRefresh = artifactFilesEnabled
+            freshestLocalArtifactCount = 0
             let previousCount = visibleArtifactCount
             visibleArtifactCount = 0
             guard self.surfaceView === surfaceView else { return }
             updateArtifactChip(count: 0, enabled: artifactFilesEnabled)
             guard previousCount != 0 else { return }
             onVisibleArtifactCountChanged(0)
+            onArtifactGalleryRefreshSignal(TerminalArtifactGalleryRefreshSignal(
+                count: 0,
+                surfaceGeneration: surfaceView.visibleArtifactCountGeneration
+            ))
         }
 
         func ghosttySurfaceView(

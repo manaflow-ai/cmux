@@ -24,6 +24,7 @@ struct TerminalArtifactFilesSheet: View {
     let workspaceID: String
     let surfaceID: String
     let source: MobileChatEventSource?
+    let refreshSignal: TerminalArtifactGalleryRefreshSignal
     let loader: ChatArtifactLoader
 
     @State var inViewState: InViewLoadState = .loading
@@ -44,7 +45,25 @@ struct TerminalArtifactFilesSheet: View {
     @State var attachedExpanded = true
     @State var referencedExpanded = true
     @State var thumbnailPrefetchTasks: [Task<Void, Never>] = []
+    @State var liveRefreshState = ChatArtifactGalleryLiveRefreshState()
+    @State var sessionViewportIsAtTopOrFits = true
+    @State var lastHandledRefreshSignal: TerminalArtifactGalleryRefreshSignal
     @Environment(\.dismiss) private var dismiss
+
+    init(
+        workspaceID: String,
+        surfaceID: String,
+        source: MobileChatEventSource?,
+        refreshSignal: TerminalArtifactGalleryRefreshSignal,
+        loader: ChatArtifactLoader
+    ) {
+        self.workspaceID = workspaceID
+        self.surfaceID = surfaceID
+        self.source = source
+        self.refreshSignal = refreshSignal
+        self.loader = loader
+        _lastHandledRefreshSignal = State(initialValue: refreshSignal)
+    }
 
     var body: some View {
         NavigationStack {
@@ -79,6 +98,9 @@ struct TerminalArtifactFilesSheet: View {
         .frame(idealWidth: 380, idealHeight: 520)
         .task(id: "\(workspaceID)#\(surfaceID)") {
             await loadInitial()
+        }
+        .task(id: liveRefreshTaskID) {
+            await refreshSessionForLiveSignal()
         }
         .sheet(item: $selection) { selection in
             ChatArtifactViewerSheet(
@@ -183,6 +205,7 @@ struct TerminalArtifactFilesSheet: View {
                 guard query == searchQuery.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
                 searchState = .loaded(snapshot)
             } else {
+                liveRefreshState.reset()
                 sessionState = .loaded(snapshot)
             }
             eagerPagingRevision += 1
@@ -197,6 +220,46 @@ struct TerminalArtifactFilesSheet: View {
                     searchState = .failed
                 }
             }
+        }
+    }
+
+    func refreshSessionForLiveSignal() async {
+        guard refreshSignal != lastHandledRefreshSignal,
+              scope == .session,
+              searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let source,
+              let sessionID,
+              case .loaded(let displayed) = sessionState else { return }
+        do {
+            let page = try await source.chatArtifactGallery(
+                sessionID: sessionID,
+                cursor: nil,
+                pageSize: Self.pageSize,
+                query: nil
+            )
+            guard !Task.isCancelled else { return }
+            let fresh = SessionGallerySnapshot(page: page)
+            lastHandledRefreshSignal = refreshSignal
+            if let reconciled = liveRefreshState.receive(
+                fresh: fresh,
+                displayed: displayed,
+                isAtTopOrFits: sessionViewportIsAtTopOrFits
+            ) {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    sessionState = .loaded(reconciled)
+                }
+            }
+            let displayedPaths = Set((displayed.created + displayed.attached + displayed.referenced).map(\.path))
+            startThumbnailPrefetch(
+                (fresh.created + fresh.attached + fresh.referenced).filter {
+                    !displayedPaths.contains($0.path)
+                }
+            )
+        } catch is CancellationError {
+            return
+        } catch {
+            // Keep the current gallery stable. The next accepted chip signal
+            // retries against a newer terminal/session generation.
         }
     }
 
@@ -340,6 +403,16 @@ struct TerminalArtifactFilesSheet: View {
             cursor,
             String(eagerPagingRevision),
             String(eagerPagingRetryGeneration),
+        ].joined(separator: "#")
+    }
+
+    var liveRefreshTaskID: String {
+        [
+            String(refreshSignal.surfaceGeneration),
+            String(refreshSignal.count),
+            sessionID ?? "unresolved",
+            String(describing: scope),
+            searchQuery.trimmingCharacters(in: .whitespacesAndNewlines),
         ].joined(separator: "#")
     }
 

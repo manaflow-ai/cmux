@@ -171,8 +171,12 @@ extension TerminalArtifactFilesSheet {
                 let attached = presentation.items(in: .attached)
                 let referenced = presentation.items(in: .referenced)
                 let swipeOrder = ChatArtifactGallerySwipeOrder(groups: presentation.groups)
-                ScrollView {
-                    VStack(spacing: 0) {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            Color.clear
+                                .frame(height: 0)
+                                .id(Self.sessionScrollTopID)
                         artifactSection(
                             title: String(
                                 localized: "terminal.artifact.gallery.section.created",
@@ -211,12 +215,59 @@ extension TerminalArtifactFilesSheet {
                             showsEagerFooter: usesCompleteSessionSnapshot
                         )
                     }
+                    }
+                    .onScrollGeometryChange(for: Bool.self) { geometry in
+                        let isAtTop = geometry.contentOffset.y
+                            <= geometry.contentInsets.top + Self.sessionTopTolerance
+                        let fits = geometry.contentSize.height
+                            <= geometry.containerSize.height + Self.sessionTopTolerance
+                        return isAtTop || fits
+                    } action: { _, isAtTopOrFits in
+                        sessionViewportIsAtTopOrFits = isAtTopOrFits
+                    }
+                    .overlay(alignment: .top) {
+                        if liveRefreshState.pendingNewFileCount > 0 {
+                            newFilesPill(snapshot: snapshot, proxy: proxy)
+                                .padding(.top, 8)
+                        }
+                    }
                 }
                 .refreshable {
                     await loadFirstSessionPage(query: nil, preservingContent: true)
                 }
             }
         }
+    }
+
+    private func newFilesPill(
+        snapshot: SessionGallerySnapshot,
+        proxy: ScrollViewProxy
+    ) -> some View {
+        let format = String(
+            localized: "terminal.artifact.gallery.new_files",
+            defaultValue: "%lld new files",
+            bundle: .module
+        )
+        let title = String.localizedStringWithFormat(
+            format,
+            Int64(liveRefreshState.pendingNewFileCount)
+        )
+        return Button {
+            guard let reconciled = liveRefreshState.applyPending(to: snapshot) else { return }
+            withAnimation(.easeInOut(duration: 0.25)) {
+                sessionState = .loaded(reconciled)
+                proxy.scrollTo(Self.sessionScrollTopID, anchor: .top)
+            }
+        } label: {
+            Label(title, systemImage: "arrow.up")
+                .font(.footnote.weight(.semibold))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(.regularMaterial, in: Capsule())
+                .shadow(color: .black.opacity(0.12), radius: 5, y: 2)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
     }
 
     @ViewBuilder
@@ -497,6 +548,9 @@ extension TerminalArtifactFilesSheet {
             count: 3
         )
     }
+
+    private static let sessionScrollTopID = "terminal-artifact-gallery-top"
+    private static let sessionTopTolerance: CGFloat = 1
 
     private var galleryControls: some View {
         HStack(spacing: 12) {

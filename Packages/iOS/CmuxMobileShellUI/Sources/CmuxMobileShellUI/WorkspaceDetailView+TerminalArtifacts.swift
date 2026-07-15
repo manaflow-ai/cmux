@@ -47,6 +47,11 @@ extension WorkspaceDetailView {
             if visibleArtifactCount != count {
                 visibleArtifactCount = count
             }
+        },
+        onArtifactGalleryRefreshSignal: { signal in
+            if artifactGalleryRefreshSignal != signal {
+                artifactGalleryRefreshSignal = signal
+            }
         }
     )
     .popover(
@@ -58,6 +63,7 @@ extension WorkspaceDetailView {
             workspaceID: context.workspaceID,
             surfaceID: context.surfaceID,
             source: store.makeChatEventSource(),
+            refreshSignal: artifactGalleryRefreshSignal,
             loader: terminalArtifactLoader(
                 workspaceID: context.workspaceID,
                 surfaceID: context.surfaceID

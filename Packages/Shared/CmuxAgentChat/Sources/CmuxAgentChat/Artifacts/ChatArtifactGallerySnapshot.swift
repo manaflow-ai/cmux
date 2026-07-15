@@ -51,6 +51,33 @@ public struct ChatArtifactGallerySnapshot: Sendable, Equatable {
         )
     }
 
+    /// Reconciles a newer first page without discarding rows already loaded.
+    ///
+    /// Fresh rows lead their provenance sections, while previously loaded rows
+    /// retain their relative order. A path that moved between provenance
+    /// sections appears only in the fresh section.
+    ///
+    /// - Parameter fresh: First-page snapshot from a newer host generation.
+    /// - Returns: A generation-updated snapshot that preserves loaded history.
+    public func reconciling(withFreshFirstPage fresh: ChatArtifactGallerySnapshot) -> ChatArtifactGallerySnapshot {
+        var seenPaths: Set<String> = []
+        let freshCreated = fresh.created.filter { seenPaths.insert($0.path).inserted }
+        let freshAttached = fresh.attached.filter { seenPaths.insert($0.path).inserted }
+        let freshReferenced = fresh.referenced.filter { seenPaths.insert($0.path).inserted }
+        let retainedCreated = created.filter { seenPaths.insert($0.path).inserted }
+        let retainedAttached = attached.filter { seenPaths.insert($0.path).inserted }
+        let retainedReferenced = referenced.filter { seenPaths.insert($0.path).inserted }
+        let mergedReferenced = freshReferenced + retainedReferenced
+        return ChatArtifactGallerySnapshot(
+            created: freshCreated + retainedCreated,
+            attached: freshAttached + retainedAttached,
+            referenced: mergedReferenced,
+            referencedTotal: max(fresh.referencedTotal, mergedReferenced.count),
+            nextCursor: fresh.nextCursor,
+            generation: fresh.generation
+        )
+    }
+
     func limitingReferenced(to maximumCount: Int) -> ChatArtifactGallerySnapshot {
         ChatArtifactGallerySnapshot(
             created: created,

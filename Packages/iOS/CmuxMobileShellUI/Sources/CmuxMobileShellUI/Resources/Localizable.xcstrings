@@ -306,6 +306,13 @@
         }
       }
     },
+    "terminal.artifact.gallery.new_files" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%lld new files" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "新しいファイル%lld件" } }
+      }
+    },
     "terminal.artifact.gallery.provenance.attached" : {
       "extractionState" : "manual",
       "localizations" : {
