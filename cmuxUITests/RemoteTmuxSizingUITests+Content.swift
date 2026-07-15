@@ -1,0 +1,305 @@
+import XCTest
+import Foundation
+
+/// Content scenarios: the mirror's on-screen TEXT must equal tmux's own
+/// capture of the same pane. The grid oracle compares dimensions; these
+/// compare what the user actually reads. That is the class the grid checks
+/// cannot see: a pane holding the right-size grid but stale content (output
+/// that never rendered), or a stale-size grid on a window the settle oracle
+/// does not judge (single-pane windows have no mirror and no pane_grids
+/// entry). Both shapes were first caught by the live fuzz's text oracle;
+/// these scenarios make them deterministic.
+extension RemoteTmuxSizingUITests {
+
+    // MARK: content probe
+
+    /// Starts a full-screen ruler in a pane: every 2 seconds it clears the
+    /// screen and prints one `<cols>x<rows> 0123456789…` line per row (to the
+    /// exact width) plus an `END <cols>x<rows>` last line. Any divergence
+    /// between the mirror and tmux — stale content, a clipped row, a wrong
+    /// grid — shows up as plain text inequality. Same probe the live fuzz
+    /// runs; the printed size is the PTY's own view (`stty size`), so a pane
+    /// that was resized reprints at the new size within a cycle.
+    func startRuler(pane: String) {
+        let ruler = """
+        unset COLUMNS LINES; while :; do sz=$(stty size 2>/dev/null); \
+        r=${sz%% *}; c=${sz##* }; [ -n "$r" ] || r=24; [ -n "$c" ] || c=80; \
+        base=$(printf '%0.s0123456789' $(seq 1 400)); printf '\\033[2J\\033[H'; \
+        i=1; while [ "$i" -lt "$r" ]; do printf '%s\\n' \
+        "$(printf '%03dx%03d %s' "$c" "$r" "$base" | cut -c1-"$c")"; \
+        i=$((i+1)); done; printf 'END %03dx%03d' "$c" "$r"; sleep 2; done
+        """
+        _ = tmux(["send-keys", "-t", pane, ruler, "Enter"])
+    }
+
+    /// Starts the ruler in every pane of a tmux window.
+    func startRulers(window: Int) throws {
+        let out = try XCTUnwrap(
+            tmux(["list-panes", "-t", "\(sessionName):@\(window)", "-F", "#{pane_id}"]),
+            "cannot list panes of @\(window): \(lastTmuxFailure ?? "?")"
+        )
+        for pane in out.split(separator: "\n") {
+            startRuler(pane: String(pane))
+        }
+    }
+
+    /// Trailing-whitespace/blank-line normalization, matching the fuzz's
+    /// normalize_screen: per-line trailing spaces stripped, trailing empty
+    /// lines dropped. Leading rows are kept — a missing top row is a bug.
+    static func normalizeScreen(_ text: String) -> String {
+        var lines = text
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { line -> String in
+                var s = String(line)
+                while s.hasSuffix(" ") || s.hasSuffix("\t") { s.removeLast() }
+                return s
+            }
+        while let last = lines.last, last.isEmpty { lines.removeLast() }
+        return lines.joined(separator: "\n")
+    }
+
+    /// tmux's own view of a pane's screen (joined wrapped lines), normalized.
+    func captureRemoteScreen(pane: String) -> String? {
+        guard let raw = tmux(["capture-pane", "-p", "-J", "-t", pane]) else { return nil }
+        return Self.normalizeScreen(raw)
+    }
+
+    /// The mirror's view: the focused surface's viewport text via
+    /// `surface.read_text`, normalized. The caller focuses the pane first
+    /// (tmux `select-pane` — the mirror follows the active pane, exactly the
+    /// path the live fuzz reads through).
+    func readMirrorScreen() -> String? {
+        guard let response = socketJSON(method: "surface.read_text", params: [:]),
+              response["ok"] as? Bool == true,
+              let text = response["text"] as? String else { return nil }
+        return Self.normalizeScreen(text)
+    }
+
+    /// One pane's content parity, with the fuzz's tolerance: the ruler
+    /// redraws every 2 seconds, so the mirror must equal the remote capture
+    /// taken immediately BEFORE or AFTER it — a redraw between the two reads
+    /// must not manufacture a mismatch. Polls up to the deadline; on failure
+    /// returns a diagnostic with both screens' head lines.
+    func paneContentFailure(pane: String, timeout: TimeInterval = 8) -> String? {
+        _ = tmux(["select-pane", "-t", pane])
+        let deadline = Date().addingTimeInterval(timeout)
+        var lastRemote: String?
+        var lastMirror: String?
+        var lastNote = "no reads"
+        while Date() < deadline {
+            let before = captureRemoteScreen(pane: pane)
+            let mirror = readMirrorScreen()
+            let after = captureRemoteScreen(pane: pane)
+            lastRemote = after ?? before
+            lastMirror = mirror
+            if let before, let mirror, let after {
+                if mirror == before || mirror == after { return nil }
+                lastNote = "diff"
+            } else {
+                lastNote = "capture=\(before != nil ? "ok" : "nil") "
+                    + "read=\(mirror != nil ? "ok" : "nil") "
+                    + "tmuxErr=\(lastTmuxFailure ?? "-")"
+            }
+            Thread.sleep(forTimeInterval: 0.25)
+        }
+        let remoteHead = (lastRemote ?? "<nil>").split(separator: "\n").prefix(2).joined(separator: " | ")
+        let mirrorHead = (lastMirror ?? "<nil>").split(separator: "\n").prefix(2).joined(separator: " | ")
+        return "pane \(pane) mirror != tmux [\(lastNote)] "
+            + "remote=[\(remoteHead)] mirror=[\(mirrorHead)]"
+    }
+
+    /// Waits until a window's tmux size holds steady across samples, WITHOUT
+    /// the pane_grids render check. Single-pane windows have no mirror and no
+    /// pane_grids entry, so `assertSettles` (which requires one) cannot judge
+    /// them; the content oracle is their render check. Use this to reach a
+    /// stable size first, then assert content.
+    func waitWindowSizeStable(window: Int, within timeout: TimeInterval, context: String) throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        var last = "no samples"
+        while Date() < deadline {
+            var samples: [String] = []
+            for _ in 0..<6 {
+                guard let size = tmux(["display-message", "-p",
+                                       "-t", "\(sessionName):@\(window)",
+                                       "#{window_width}x#{window_height}"]) else { break }
+                samples.append(size)
+                Thread.sleep(forTimeInterval: 0.25)
+            }
+            if samples.count == 6, Set(samples).count == 1 { return }
+            last = samples.joined(separator: " ")
+            Thread.sleep(forTimeInterval: 0.25)
+        }
+        XCTFail("window @\(window) size never stabilized \(context): \(last)")
+    }
+
+    /// Every pane of a tmux window holds content parity with tmux.
+    func assertWindowContentMatchesTmux(window: Int, context: String) throws {
+        let out = try XCTUnwrap(
+            tmux(["list-panes", "-t", "\(sessionName):@\(window)", "-F", "#{pane_id}"]),
+            "cannot list panes of @\(window) \(context): \(lastTmuxFailure ?? "?")"
+        )
+        for pane in out.split(separator: "\n") {
+            if let failure = paneContentFailure(pane: String(pane)) {
+                XCTFail("\(failure) \(context)")
+            }
+        }
+    }
+
+    // MARK: scenarios
+
+    /// A minimal, fast-settling lab for content scenarios: one 3-pane split
+    /// window ("split", @0) and one single-pane window ("solo", @1). Two
+    /// windows claim promptly even on a loaded runner, unlike the eight-tab
+    /// shape zoo whose background claims can outrun a settle budget.
+    func buildContentLab() throws {
+        _ = tmux(["kill-server"])
+        XCTAssertNotNil(
+            tmux(["new-session", "-d", "-s", sessionName, "-x", "180", "-y", "45", "-n", "split"]),
+            "lab server never started: \(lastTmuxFailure ?? "no stderr captured")"
+        )
+        _ = tmux(["split-window", "-h", "-t", "\(sessionName):0"])
+        _ = tmux(["split-window", "-h", "-t", "\(sessionName):0"])
+        _ = tmux(["select-layout", "-t", "\(sessionName):0", "even-horizontal"])
+        _ = tmux(["new-window", "-t", sessionName, "-n", "solo"])
+        _ = tmux(["select-window", "-t", "\(sessionName):0"])
+    }
+
+    /// Content parity for a settled window: a multi-pane split and, crucially,
+    /// the single-pane window — the class the settle oracle never judges (no
+    /// mirror, no pane_grids entry), where a stale surface hides from every
+    /// grid check.
+    func testPaneContentMatchesTmuxAcrossShapes() throws {
+        try requireTmux()
+        let app = launchApp()
+        defer { app.terminate() }
+        try buildContentLab()
+        attachSession()
+        setMirrorWindowSize(CGSize(width: 1000, height: 700))
+
+        let split = try XCTUnwrap(windowId(named: "split"), "no split window")
+        XCTAssertTrue(selectTab(named: "split"), "could not select split tab")
+        try assertSettles(selectedWindow: split, within: 10, context: "split")
+        try startRulers(window: split)
+        try assertWindowContentMatchesTmux(window: split, context: "split")
+
+        let solo = try XCTUnwrap(windowId(named: "solo"), "no solo window")
+        XCTAssertTrue(selectTab(named: "solo"), "could not select solo tab")
+        try waitWindowSizeStable(window: solo, within: 10, context: "solo")
+        try startRulers(window: solo)
+        try assertWindowContentMatchesTmux(window: solo, context: "solo")
+    }
+
+    /// A single-pane window whose pane tmux resizes out from under the app
+    /// (a co-client, a server-side layout command). No mirror pins this
+    /// surface, so content parity after the churn is the only guard — the
+    /// shape of the live fuzz's seed-2 miss (mirror held a 118x40 frame while
+    /// tmux's pane was 99x35).
+    func testSinglePaneWindowContentSurvivesExternalResize() throws {
+        try requireTmux()
+        let app = launchApp()
+        defer { app.terminate() }
+        try buildContentLab()
+        attachSession()
+        setMirrorWindowSize(CGSize(width: 1000, height: 700))
+        let solo = try XCTUnwrap(windowId(named: "solo"), "no solo window")
+        XCTAssertTrue(selectTab(named: "solo"), "could not select solo tab")
+        try waitWindowSizeStable(window: solo, within: 10, context: "solo before churn")
+        try startRulers(window: solo)
+        try assertWindowContentMatchesTmux(window: solo, context: "solo before churn")
+        _ = tmux(["resize-window", "-t", "\(sessionName):@\(solo)", "-x", "99", "-y", "35"])
+        Thread.sleep(forTimeInterval: 1.0)
+        _ = tmux(["resize-window", "-t", "\(sessionName):@\(solo)", "-x", "140", "-y", "40"])
+        try waitWindowSizeStable(window: solo, within: 10, context: "solo after churn")
+        try assertWindowContentMatchesTmux(window: solo, context: "solo after churn")
+    }
+
+    /// Zoom collapses the visible tree to one pane and back. The mirror
+    /// renders the visible tree while claims derive from the base tree, so a
+    /// zoom-state lag renders a pane at the wrong size — content parity
+    /// catches it on the zoomed leaf and after unzoom.
+    func testZoomToggleKeepsContentParity() throws {
+        try requireTmux()
+        let app = launchApp()
+        defer { app.terminate() }
+        try buildContentLab()
+        attachSession()
+        setMirrorWindowSize(CGSize(width: 1000, height: 700))
+        let split = try XCTUnwrap(windowId(named: "split"), "no split window")
+        XCTAssertTrue(selectTab(named: "split"), "could not select split tab")
+        try assertSettles(selectedWindow: split, within: 10, context: "split before zoom")
+        try startRulers(window: split)
+        let firstPane = try XCTUnwrap(
+            tmux(["list-panes", "-t", "\(sessionName):@\(split)", "-F", "#{pane_id}"])?
+                .split(separator: "\n").first.map(String.init),
+            "no panes in split window"
+        )
+        _ = tmux(["resize-pane", "-Z", "-t", firstPane])
+        // Zoomed: only the one leaf is visible, so the base-layout coherence
+        // check assertSettles runs does not apply (the hidden panes' widths
+        // do not sum to the window). Wait for size stability, then let content
+        // parity judge the zoomed leaf.
+        try waitWindowSizeStable(window: split, within: 10, context: "split zoomed")
+        if let failure = paneContentFailure(pane: firstPane) {
+            XCTFail("\(failure) while zoomed")
+        }
+        _ = tmux(["resize-pane", "-Z", "-t", firstPane])
+        try assertSettles(selectedWindow: split, within: 10, context: "split unzoomed")
+        try assertWindowContentMatchesTmux(window: split, context: "after unzoom")
+    }
+
+    /// Killing a split window down to one pane hands the surviving pane's
+    /// panel across the mirror/single-pane ownership boundary. The survivor
+    /// must render tmux's full-window content, not its old split-sized frame.
+    func testCollapseToSinglePaneKeepsContentParity() throws {
+        try requireTmux()
+        let app = launchApp()
+        defer { app.terminate() }
+        try buildContentLab()
+        attachSession()
+        setMirrorWindowSize(CGSize(width: 1000, height: 700))
+        let split = try XCTUnwrap(windowId(named: "split"), "no split window")
+        XCTAssertTrue(selectTab(named: "split"), "could not select split tab")
+        try assertSettles(selectedWindow: split, within: 10, context: "split before collapse")
+        try startRulers(window: split)
+        var panes = try XCTUnwrap(
+            tmux(["list-panes", "-t", "\(sessionName):@\(split)", "-F", "#{pane_id}"])?
+                .split(separator: "\n").map(String.init),
+            "no panes in split"
+        )
+        while panes.count > 1 {
+            _ = tmux(["kill-pane", "-t", panes.removeLast()])
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+        try waitWindowSizeStable(window: split, within: 10, context: "split collapsed")
+        try assertWindowContentMatchesTmux(window: split, context: "after collapse to one pane")
+    }
+
+    /// Churn a HIDDEN window from the tmux side, then reveal it. Hidden tabs
+    /// hold their last geometry and claim by design, so the reveal is where a
+    /// deferred resize lands — output that streamed while hidden must be
+    /// present after the reveal settles.
+    func testHiddenWindowContentCatchesUpOnReveal() throws {
+        try requireTmux()
+        let app = launchApp()
+        defer { app.terminate() }
+        try buildContentLab()
+        attachSession()
+        setMirrorWindowSize(CGSize(width: 1000, height: 700))
+        let split = try XCTUnwrap(windowId(named: "split"), "no split window")
+        let solo = try XCTUnwrap(windowId(named: "solo"), "no solo window")
+        // Settle solo once (so it has claimed + rulers running), then hide it.
+        XCTAssertTrue(selectTab(named: "solo"), "could not select solo tab")
+        try waitWindowSizeStable(window: solo, within: 10, context: "solo before hide")
+        try startRulers(window: solo)
+        // Bring split to the front; churn solo while it is hidden.
+        XCTAssertTrue(selectTab(named: "split"), "could not select split tab")
+        try assertSettles(selectedWindow: split, within: 10, context: "split front")
+        _ = tmux(["resize-window", "-t", "\(sessionName):@\(solo)", "-x", "80", "-y", "24"])
+        Thread.sleep(forTimeInterval: 1.0)
+        _ = tmux(["resize-window", "-t", "\(sessionName):@\(solo)", "-x", "150", "-y", "42"])
+        // Reveal and require parity.
+        XCTAssertTrue(selectTab(named: "solo"), "could not select solo tab")
+        try waitWindowSizeStable(window: solo, within: 10, context: "solo revealed")
+        try assertWindowContentMatchesTmux(window: solo, context: "after hidden churn reveal")
+    }
+}

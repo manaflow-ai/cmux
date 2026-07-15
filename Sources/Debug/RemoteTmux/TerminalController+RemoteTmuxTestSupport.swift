@@ -114,8 +114,30 @@ extension TerminalController {
                 && isAtom(args[3]) && args[4] == "pane-border-status"
                 && ["top", "bottom"].contains(args[5])
         case "resize-pane":
+            // `-Z` toggles zoom; `-x`/`-y` set a dimension.
+            if args.count == 4 && args[1] == "-Z" && args[2] == "-t" && isAtom(args[3]) {
+                return true
+            }
             return args.count == 5 && args[1] == "-t" && isAtom(args[2])
+                && ["-x", "-y"].contains(args[3]) && isDimension(args[4])
+        case "resize-window":
+            return args.count == 7 && args[1] == "-t" && isAtom(args[2])
                 && args[3] == "-x" && isDimension(args[4])
+                && args[5] == "-y" && isDimension(args[6])
+        case "kill-pane":
+            return args.count == 3 && args[1] == "-t" && isAtom(args[2])
+        case "select-pane":
+            return args.count == 3 && args[1] == "-t" && isAtom(args[2])
+        case "capture-pane":
+            return args.count == 5 && args[1] == "-p" && args[2] == "-J"
+                && args[3] == "-t" && isAtom(args[4])
+        case "send-keys":
+            // The content oracle's ruler is an arbitrary shell one-liner sent
+            // as keystrokes. This verb is DEBUG-only and confined to the
+            // UI-test tmux directory, so the payload (args[3]) is unconstrained;
+            // only the target and the trailing Enter key are checked.
+            return args.count == 5 && args[1] == "-t" && isAtom(args[2])
+                && args[4] == "Enter"
         case "list-panes":
             return args.count == 5 && args[1] == "-t" && isAtom(args[2]) && args[3] == "-F"
                 && ["#{pane_width}", "#{pane_id}", "#{pane_width} #{pane_top}"].contains(args[4])
