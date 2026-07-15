@@ -6,7 +6,7 @@ import WebKit
 final class BrowserDesignModeJavaScriptEvaluator {
     private let timeout: TimeInterval
     private var continuations: [UUID: CheckedContinuation<Any?, any Error>] = [:]
-    private var timeoutTimers: [UUID: Timer] = [:]
+    private var timeoutTasks: [UUID: Task<Void, Never>] = [:]
 
     init(timeout: TimeInterval = 5) {
         self.timeout = timeout
@@ -24,19 +24,18 @@ final class BrowserDesignModeJavaScriptEvaluator {
             return try await withCheckedThrowingContinuation { continuation in
                 continuations[operationID] = continuation
 
-                // Genuine one-shot operation deadline. WebKit exposes no cancellation
-                // handle, so its callback and this main-run-loop timer race to resolve
-                // the continuation; the winner invalidates the timer.
-                let timeoutTimer = Timer(timeInterval: timeout, repeats: false) { [weak self] _ in
-                    Task { @MainActor [weak self] in
-                        self?.finish(
-                            operationID,
-                            throwing: BrowserDesignModeError.operationTimedOut
-                        )
+                timeoutTasks[operationID] = Task { @MainActor [weak self, timeout = self.timeout] in
+                    // This is a bounded operation deadline, not a synchronization delay.
+                    do {
+                        try await ContinuousClock().sleep(for: .seconds(timeout))
+                    } catch {
+                        return
                     }
+                    self?.finish(
+                        operationID,
+                        throwing: BrowserDesignModeError.operationTimedOut
+                    )
                 }
-                timeoutTimers[operationID] = timeoutTimer
-                RunLoop.main.add(timeoutTimer, forMode: .common)
 
                 webView.callAsyncJavaScript(
                     body,
@@ -80,7 +79,7 @@ final class BrowserDesignModeJavaScriptEvaluator {
     private func removeOperation(
         _ operationID: UUID
     ) -> CheckedContinuation<Any?, any Error>? {
-        timeoutTimers.removeValue(forKey: operationID)?.invalidate()
+        timeoutTasks.removeValue(forKey: operationID)?.cancel()
         return continuations.removeValue(forKey: operationID)
     }
 }

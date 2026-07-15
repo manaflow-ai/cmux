@@ -307,21 +307,26 @@ final class BrowserDesignModeController {
         beforeViewBounds: NSRect,
         afterViewBounds: NSRect
     ) {
-        var captureFinished = false
-        defer {
-            if !captureFinished {
-                bestEffortRuntimeCleanup("return globalThis.__cmuxDesignMode?.finishCapture();", in: webView)
+        do {
+            let prepared = try await evaluate("return globalThis.__cmuxDesignMode?.prepareCapture();", in: webView)
+            let before = try decodeSnapshot(prepared)
+            let beforeViewBounds = webView.bounds
+            let image = try await screenshotEvaluator.captureVisibleViewport(from: webView)
+            let after = try decodeSnapshot(try await evaluate("return globalThis.__cmuxDesignMode?.snapshot();", in: webView))
+            let afterViewBounds = webView.bounds
+            try await finishCapture(in: webView)
+            return (before, after, image, beforeViewBounds, afterViewBounds)
+        } catch {
+            let cleanup = Task { @MainActor [weak self, weak webView] in
+                guard let self, let webView else { return }
+                _ = try? await self.evaluate(
+                    "return globalThis.__cmuxDesignMode?.finishCapture();",
+                    in: webView
+                )
             }
+            await cleanup.value
+            throw error
         }
-        let prepared = try await evaluate("return globalThis.__cmuxDesignMode?.prepareCapture();", in: webView)
-        let before = try decodeSnapshot(prepared)
-        let beforeViewBounds = webView.bounds
-        let image = try await screenshotEvaluator.captureVisibleViewport(from: webView)
-        let after = try decodeSnapshot(try await evaluate("return globalThis.__cmuxDesignMode?.snapshot();", in: webView))
-        let afterViewBounds = webView.bounds
-        try await finishCapture(in: webView)
-        captureFinished = true
-        return (before, after, image, beforeViewBounds, afterViewBounds)
     }
 
     private static func captureMatches(
@@ -423,8 +428,6 @@ final class BrowserDesignModeController {
         errorMessage = nil
         activePageURL = nil
         copyTask?.cancel()
-        copyTask = nil
-        copyTaskID = nil
     }
 
     private func beginOperation() -> UInt {
@@ -435,8 +438,6 @@ final class BrowserDesignModeController {
     private func invalidateOperation() {
         operationRevision &+= 1
         copyTask?.cancel()
-        copyTask = nil
-        copyTaskID = nil
         javaScriptEvaluator.cancelAll()
         screenshotEvaluator.cancelAll()
     }

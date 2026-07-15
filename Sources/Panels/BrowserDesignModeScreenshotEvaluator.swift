@@ -13,7 +13,7 @@ final class BrowserDesignModeScreenshotEvaluator {
     private let timeout: TimeInterval
     private let capture: Capture
     private var continuations: [UUID: CheckedContinuation<NSImage, any Error>] = [:]
-    private var timeoutTimers: [UUID: Timer] = [:]
+    private var timeoutTasks: [UUID: Task<Void, Never>] = [:]
 
     init(timeout: TimeInterval = 5) {
         self.timeout = timeout
@@ -37,18 +37,18 @@ final class BrowserDesignModeScreenshotEvaluator {
             return try await withCheckedThrowingContinuation { continuation in
                 continuations[operationID] = continuation
 
-                // WebKit has no snapshot cancellation handle, so a one-shot main-run-loop
-                // deadline and its callback race to resolve this continuation exactly once.
-                let timeoutTimer = Timer(timeInterval: timeout, repeats: false) { [weak self] _ in
-                    Task { @MainActor [weak self] in
-                        self?.finish(
-                            operationID,
-                            throwing: BrowserDesignModeError.operationTimedOut
-                        )
+                timeoutTasks[operationID] = Task { @MainActor [weak self, timeout = self.timeout] in
+                    // This is a bounded operation deadline, not a synchronization delay.
+                    do {
+                        try await ContinuousClock().sleep(for: .seconds(timeout))
+                    } catch {
+                        return
                     }
+                    self?.finish(
+                        operationID,
+                        throwing: BrowserDesignModeError.operationTimedOut
+                    )
                 }
-                timeoutTimers[operationID] = timeoutTimer
-                RunLoop.main.add(timeoutTimer, forMode: .common)
 
                 capture(webView) { [weak self] result in
                     guard let self else { return }
@@ -86,7 +86,7 @@ final class BrowserDesignModeScreenshotEvaluator {
     private func removeOperation(
         _ operationID: UUID
     ) -> CheckedContinuation<NSImage, any Error>? {
-        timeoutTimers.removeValue(forKey: operationID)?.invalidate()
+        timeoutTasks.removeValue(forKey: operationID)?.cancel()
         return continuations.removeValue(forKey: operationID)
     }
 }
