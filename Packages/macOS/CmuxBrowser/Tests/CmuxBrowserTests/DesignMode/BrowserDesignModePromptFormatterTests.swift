@@ -62,6 +62,8 @@ import Testing
         #expect(payload.snapshot.edits.map(\.value) == ["16px", "Save changes"])
         #expect(payload.snapshot.cssDiff.contains("+  font-size: 16px;"))
         #expect(payload.screenshotPath == "/tmp/cmux-design/save.png")
+        #expect(payload.elements.map(\.selection.selector) == [#"main > button[data-testid="save"]"#])
+        #expect(payload.elements.first?.screenshotPath == "/tmp/cmux-design/save.png")
         #expect(payload.requestedChange == "Make the primary action easier to scan.")
         #expect(result.hasSuffix("</cmux_design_mode>"))
     }
@@ -137,7 +139,7 @@ import Testing
 
         let payload = try decodePayload(from: result)
 
-        #expect(result.contains("Implement the requested change for the selected element in the actual source code."))
+        #expect(result.contains("Implement the requested change for the selected elements in the actual source code."))
         #expect(payload.snapshot.selection?.selector == "#hero")
         #expect(payload.snapshot.edits.isEmpty)
         #expect(payload.requestedChange == "Make this heading more prominent.")
@@ -212,7 +214,7 @@ import Testing
 
         let payload = try decodePayload(from: result)
 
-        #expect(result.contains("Implement the requested change for the selected element in the actual source code."))
+        #expect(result.contains("Implement the requested change for the selected elements in the actual source code."))
         #expect(payload.snapshot.selection?.selector == "#hero")
         #expect(payload.requestedChange.isEmpty)
     }
@@ -285,6 +287,7 @@ import Testing
 
         #expect(decoded.revision == 7)
         #expect(decoded.selection?.selectors == ["#hero", "main > h1"])
+        #expect(decoded.selections.map(\.selector) == ["#hero"])
         #expect(decoded.selection?.bounds.height == 48)
         #expect(decoded.edits.first?.kind == .style)
         #expect(decoded.cssDiff.contains("+  font-size: 44px"))

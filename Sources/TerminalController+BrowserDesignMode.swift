@@ -48,7 +48,7 @@ extension TerminalController {
                         handled,
                         controller.isActive,
                         controller.phase.commandValue,
-                        controller.snapshot?.selection != nil,
+                        controller.snapshot?.selections.isEmpty == false,
                         controller.snapshot?.edits.count ?? 0,
                         controller.errorMessage
                     ))

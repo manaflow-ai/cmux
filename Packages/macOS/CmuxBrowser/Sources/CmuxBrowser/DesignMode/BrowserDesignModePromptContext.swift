@@ -1,13 +1,15 @@
 import Foundation
 
-/// The complete context copied for a coding agent from a selected page element.
+/// The complete context copied for a coding agent from selected page elements.
 public nonisolated struct BrowserDesignModePromptContext: Equatable, Sendable {
     /// The page URL containing the edited element, reduced to safe structure and field names.
     public let pageURL: String
     /// The authoritative design-mode snapshot.
     public let snapshot: BrowserDesignModeSnapshot
-    /// The local PNG crop path, when capture succeeded.
-    public let screenshotPath: String?
+    /// Local PNG crop paths aligned with ``BrowserDesignModeSnapshot/selections``.
+    public let screenshotPaths: [String?]
+    /// The local PNG crop path for the most recently selected element.
+    public var screenshotPath: String? { screenshotPaths.last ?? nil }
     /// The optional source-level change requested by the user.
     public let requestedChange: String
 
@@ -15,7 +17,7 @@ public nonisolated struct BrowserDesignModePromptContext: Equatable, Sendable {
     /// - Parameters:
     ///   - pageURL: The page URL. User information, route segments, and values are redacted.
     ///   - snapshot: The current design-mode snapshot.
-    ///   - screenshotPath: The local screenshot crop path.
+    ///   - screenshotPath: The local screenshot crop path for a single reference.
     ///   - requestedChange: The source-level change the user described, or an empty string for reference-only context.
     public init(
         pageURL: String,
@@ -25,7 +27,27 @@ public nonisolated struct BrowserDesignModePromptContext: Equatable, Sendable {
     ) {
         self.pageURL = BrowserDesignModePageURL(rawValue: pageURL).sanitizedValue
         self.snapshot = snapshot
-        self.screenshotPath = screenshotPath
+        self.screenshotPaths = snapshot.selections.isEmpty
+            ? []
+            : Array(repeating: nil, count: snapshot.selections.count - 1) + [screenshotPath]
+        self.requestedChange = requestedChange
+    }
+
+    /// Creates context for an ordered stack of element references.
+    /// - Parameters:
+    ///   - pageURL: The page URL. User information, route segments, and values are redacted.
+    ///   - snapshot: The current design-mode snapshot.
+    ///   - screenshotPaths: Local screenshot crop paths aligned with the snapshot's ordered selections.
+    ///   - requestedChange: The source-level change the user described, or an empty string for reference-only context.
+    public init(
+        pageURL: String,
+        snapshot: BrowserDesignModeSnapshot,
+        screenshotPaths: [String?],
+        requestedChange: String
+    ) {
+        self.pageURL = BrowserDesignModePageURL(rawValue: pageURL).sanitizedValue
+        self.snapshot = snapshot
+        self.screenshotPaths = screenshotPaths
         self.requestedChange = requestedChange
     }
 }

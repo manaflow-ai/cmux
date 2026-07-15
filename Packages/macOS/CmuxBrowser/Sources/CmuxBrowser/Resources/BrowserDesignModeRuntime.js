@@ -32,6 +32,7 @@
   const maxSnippetCharacters = 2400;
   const maxSnippetNodes = 512;
   const maxRequestedChangeCharacters = 4000;
+  const maxSelectionReferences = 12;
   const maxSelectionRecoveryAttempts = 8;
   const mutationEmissionInterval = 100;
   const redactedValue = "<redacted>";
@@ -44,6 +45,7 @@
   let selectedElement = null;
   let selectedBaseline = null;
   let selectedIdentity = null;
+  let activeReference = null;
   let hoveredElement = null;
   let overlayHost = null;
   let overlay = null;
@@ -68,6 +70,7 @@
   const edits = new Map();
   const styleOriginals = new Map();
   const textOriginals = new Map();
+  const selectedReferences = [];
 
   const number = (value) => {
     const parsed = Number.parseFloat(String(value || "0"));
@@ -399,6 +402,20 @@
     }
   };
 
+  const setActiveReference = (reference) => {
+    activeReference = reference || null;
+    selectedElement = activeReference?.element || null;
+    selectedBaseline = activeReference?.baseline || null;
+    selectedIdentity = activeReference?.identity || null;
+  };
+
+  const updateActiveReference = () => {
+    if (!activeReference) return;
+    activeReference.element = selectedElement;
+    activeReference.baseline = selectedBaseline;
+    activeReference.identity = selectedIdentity;
+  };
+
   const refreshSelectionForCapture = (element) => {
     const selectors = selectorsFor(element);
     captureSelectionValid = selectors.length > 0;
@@ -408,20 +425,52 @@
       || selectors.some((selector, index) => selector !== selectedBaseline.selectors[index]);
     selectedBaseline = { ...selectedBaseline, selector: selectors[0], selectors };
     selectedIdentity = identityFor(element);
+    updateActiveReference();
     if (identityChanged) revision += 1;
     return true;
   };
 
-  const selectionSnapshot = () => {
-    const element = resolveSelectedElement();
-    if (!element || !selectedBaseline) return null;
-    if (captureHidden && !refreshSelectionForCapture(element)) return null;
+  const referenceElement = (reference, allowRecovery = false) => {
+    if (!reference) return null;
+    if (reference === activeReference) return resolveSelectedElement(allowRecovery);
+    if (reference.element?.isConnected) return reference.element;
+    if (!allowRecovery) return null;
+    for (const selector of reference.baseline?.selectors || []) {
+      try {
+        const candidates = document.querySelectorAll(selector);
+        if (candidates.length !== 1 || identityFor(candidates[0]) !== reference.identity) continue;
+        const recoveredBaseline = baselineFor(candidates[0]);
+        if (!recoveredBaseline) continue;
+        reference.element = candidates[0];
+        reference.baseline = recoveredBaseline;
+        reference.identity = identityFor(candidates[0]);
+        return candidates[0];
+      } catch (_) {}
+    }
+    reference.element = null;
+    return null;
+  };
+
+  const selectionSnapshotFor = (reference) => {
+    const element = referenceElement(reference, captureHidden);
+    if (!element || !reference?.baseline) return null;
+    if (captureHidden && reference === activeReference && !refreshSelectionForCapture(element)) return null;
+    if (captureHidden && reference !== activeReference) {
+      const selectors = selectorsFor(element);
+      if (!selectors.length) return null;
+      reference.baseline = { ...reference.baseline, selector: selectors[0], selectors };
+      reference.identity = identityFor(element);
+    }
     return {
-      ...selectedBaseline,
+      ...reference.baseline,
       bounds: rectFor(element),
       viewport: { width: globalThis.innerWidth || 0, height: globalThis.innerHeight || 0 },
     };
   };
+
+  const selectionSnapshots = () => selectedReferences
+    .map((reference) => selectionSnapshotFor(reference))
+    .filter(Boolean);
 
   const cssDiff = () => {
     if (!selectedBaseline) return "";
@@ -437,22 +486,24 @@
   };
 
   const snapshot = () => {
-    const selection = selectionSnapshot();
+    const selections = selectionSnapshots();
+    const selection = selections[selections.length - 1] || null;
     const value = {
       revision,
       enabled,
       selection,
+      selections,
       edits: Array.from(edits.values()),
       css_diff: cssDiff(),
     };
     try {
       if (JSON.stringify(value).length <= maxSnapshotCharacters) return value;
     } catch (_) {}
-    return { revision, enabled, selection: null, edits: [], css_diff: "" };
+    return { revision, enabled, selection: null, selections: [], edits: [], css_diff: "" };
   };
 
   const presentationSignature = (value) => JSON.stringify([
-    value.enabled, value.selection, value.edits, value.css_diff,
+    value.enabled, value.selections, value.edits, value.css_diff,
   ]);
 
   const postSnapshot = (value) => {
@@ -509,11 +560,13 @@
           selectedBaseline = recoveredBaseline;
           selectedIdentity = identityFor(candidates[0]);
           rebaseEdits(recoveredBaseline);
+          updateActiveReference();
           return candidates[0];
         }
       } catch (_) {}
     }
     selectedElement = null;
+    updateActiveReference();
     return null;
   };
 
@@ -732,6 +785,13 @@
     content.style.outline = "2px solid rgb(64, 137, 245)";
     content.style.outlineOffset = "-1px";
 
+    const selectionLayer = document.createElement("div");
+    Object.assign(selectionLayer.style, {
+      position: "fixed",
+      inset: "0",
+      pointerEvents: "none",
+    });
+
     const badge = document.createElement("div");
     Object.assign(badge.style, {
       display: "none",
@@ -754,11 +814,12 @@
       .cmux-composer {
         display: none;
         position: fixed;
-        align-items: center;
-        gap: 8px;
-        width: min(640px, calc(100vw - 16px));
-        min-height: 48px;
-        padding: 6px 7px;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 2px;
+        width: min(440px, calc(100vw - 16px));
+        min-height: 92px;
+        padding: 7px;
         border: 1px solid rgba(255, 255, 255, 0.13);
         border-radius: 15px;
         box-sizing: border-box;
@@ -772,21 +833,24 @@
       .cmux-composer-header {
         display: flex;
         align-items: center;
+        flex-wrap: wrap;
+        gap: 3px;
         flex: 0 0 auto;
-        min-height: 34px;
+        min-height: 26px;
       }
       .cmux-element-chip {
         display: inline-flex;
         align-items: center;
-        gap: 6px;
-        max-width: 180px;
-        height: 34px;
-        padding: 0 2px 0 5px;
-        border: 0;
+        gap: 5px;
+        max-width: 172px;
+        height: 26px;
+        padding: 0 2px 0 7px;
+        border: 1px solid rgba(103, 157, 245, 0.22);
+        border-radius: 7px;
         box-sizing: border-box;
-        color: rgb(128, 177, 255);
-        background: transparent;
-        font: 500 13px/1 -apple-system, BlinkMacSystemFont, sans-serif;
+        color: rgb(143, 187, 255);
+        background: rgba(75, 126, 214, 0.10);
+        font: 500 12px/1 -apple-system, BlinkMacSystemFont, sans-serif;
       }
       .cmux-element-icon {
         color: rgb(120, 170, 255);
@@ -798,14 +862,14 @@
         white-space: nowrap;
       }
       .cmux-remove {
-        width: 20px;
-        height: 20px;
+        width: 19px;
+        height: 19px;
         padding: 0;
         border: 0;
         border-radius: 5px;
         color: rgb(162, 162, 168);
         background: transparent;
-        font: 16px/20px -apple-system, BlinkMacSystemFont, sans-serif;
+        font: 15px/19px -apple-system, BlinkMacSystemFont, sans-serif;
         cursor: pointer;
       }
       .cmux-remove:hover { color: white; background: rgba(255, 255, 255, 0.10); }
@@ -814,7 +878,7 @@
         flex: 1 1 auto;
         min-width: 0;
         width: auto;
-        min-height: 34px;
+        min-height: 42px;
         max-height: 112px;
         padding: 7px 0 6px;
         border: 0;
@@ -873,19 +937,6 @@
 
     const composerHeader = document.createElement("div");
     composerHeader.className = "cmux-composer-header";
-    const elementChip = document.createElement("div");
-    elementChip.className = "cmux-element-chip";
-    const elementIcon = document.createElement("span");
-    elementIcon.className = "cmux-element-icon";
-    elementIcon.textContent = "<>";
-    const elementName = document.createElement("span");
-    elementName.className = "cmux-element-name";
-    const removeSelection = document.createElement("button");
-    removeSelection.className = "cmux-remove";
-    removeSelection.type = "button";
-    removeSelection.textContent = "×";
-    elementChip.append(elementIcon, elementName, removeSelection);
-    composerHeader.append(elementChip);
 
     const request = document.createElement("textarea");
     request.className = "cmux-request";
@@ -920,14 +971,13 @@
         requestCopy();
       }
     });
-    removeSelection.addEventListener("click", () => clearSelection());
     copyButton.addEventListener("click", () => requestCopy());
 
-    shadow.append(style, shield, margin, border, padding, content, badge, composer);
+    shadow.append(style, shield, selectionLayer, margin, border, padding, content, badge, composer);
     document.documentElement.appendChild(overlayHost);
     overlay = {
-      shield, margin, border, padding, content, badge, composer,
-      elementName, removeSelection, request, copyStatus, copyShortcut, copyButton,
+      shield, selectionLayer, selectionOutlines: [], margin, border, padding, content, badge, composer,
+      composerHeader, selectionChips: [], request, copyStatus, copyShortcut, copyButton,
     };
   };
 
@@ -936,6 +986,7 @@
     for (const name of ["margin", "border", "padding", "content", "badge", "composer"]) {
       overlay[name].style.display = "none";
     }
+    for (const outline of overlay.selectionOutlines) outline.style.display = "none";
     overlay.shield.style.display = enabled && !captureHidden ? "block" : "none";
   };
 
@@ -947,11 +998,100 @@
     element.style.height = `${Math.max(0, rect.height)}px`;
   };
 
+  const selectedOutline = () => {
+    const element = document.createElement("div");
+    Object.assign(element.style, {
+      display: "none",
+      position: "fixed",
+      pointerEvents: "none",
+      boxSizing: "border-box",
+      border: "2px solid rgb(64, 137, 245)",
+      borderRadius: "2px",
+      background: "rgba(64, 137, 245, 0.07)",
+      boxShadow: "0 0 0 1px rgba(255, 255, 255, 0.32)",
+    });
+    return element;
+  };
+
+  const refreshSelectedOutlines = () => {
+    if (!overlay) return;
+    while (overlay.selectionOutlines.length < selectedReferences.length) {
+      const outline = selectedOutline();
+      overlay.selectionOutlines.push(outline);
+      overlay.selectionLayer.append(outline);
+    }
+    for (let index = 0; index < overlay.selectionOutlines.length; index += 1) {
+      const outline = overlay.selectionOutlines[index];
+      const reference = selectedReferences[index];
+      const element = referenceElement(reference, true);
+      if (!element || !reference) {
+        outline.style.display = "none";
+        continue;
+      }
+      outline.style.opacity = reference === activeReference ? "1" : "0.72";
+      place(outline, element.getBoundingClientRect());
+    }
+  };
+
+  const createSelectionChip = () => {
+    const element = document.createElement("div");
+    element.className = "cmux-element-chip";
+    const icon = document.createElement("span");
+    icon.className = "cmux-element-icon";
+    icon.textContent = "<>";
+    const name = document.createElement("span");
+    name.className = "cmux-element-name";
+    const remove = document.createElement("button");
+    remove.className = "cmux-remove";
+    remove.type = "button";
+    remove.textContent = "×";
+    remove.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      removeSelectionAt(Number(remove.dataset.index));
+    });
+    element.append(icon, name, remove);
+    return { element, name, remove };
+  };
+
+  const refreshComposerSelections = () => {
+    if (!overlay) return;
+    while (overlay.selectionChips.length < selectedReferences.length) {
+      const chip = createSelectionChip();
+      overlay.selectionChips.push(chip);
+      overlay.composerHeader.append(chip.element);
+    }
+    while (overlay.selectionChips.length > selectedReferences.length) {
+      overlay.selectionChips.pop()?.element.remove();
+    }
+    selectedReferences.forEach((reference, index) => {
+      const chip = overlay.selectionChips[index];
+      const name = reference.baseline?.tag_name || reference.element?.localName || "";
+      chip.name.textContent = name;
+      chip.element.style.opacity = reference === activeReference ? "1" : "0.78";
+      chip.remove.dataset.index = String(index);
+      chip.remove.setAttribute(
+        "aria-label",
+        `${String(composerStrings.removeSelection || "")} ${name}`.trim(),
+      );
+    });
+  };
+
+  const displaySelectorFor = (element) => {
+    if (!element) return null;
+    const reference = selectedReferences.find((candidate) => candidate.element === element);
+    if (reference?.baseline?.selector) return reference.baseline.selector;
+    return selectorsFor(element)[0] || element.localName || "element";
+  };
+
   const composerState = () => ({
-    visible: Boolean(enabled && !captureHidden && selectedBaseline),
+    visible: Boolean(enabled && !captureHidden && selectedReferences.length && selectedBaseline),
     tag_name: selectedBaseline?.tag_name || null,
+    selection_count: selectedReferences.length,
+    selectors: selectedReferences.map((reference) => reference.baseline?.selector).filter(Boolean),
+    hovered_selector: displaySelectorFor(hoveredElement),
     requested_change: requestedChange,
-    can_copy: Boolean(selectedBaseline && !copyInFlight),
+    can_copy: Boolean(selectedReferences.length && selectedBaseline && !copyInFlight),
     copy_state: copyState,
     focused: overlay?.request?.getRootNode()?.activeElement === overlay?.request,
   });
@@ -963,8 +1103,7 @@
       overlay.composer.style.display = "none";
       return;
     }
-    overlay.elementName.textContent = selectedBaseline.tag_name || selected.localName || "";
-    overlay.removeSelection.setAttribute("aria-label", String(composerStrings.removeSelection || ""));
+    refreshComposerSelections();
     overlay.composer.setAttribute("aria-label", String(composerStrings.describeChange || ""));
     overlay.request.placeholder = String(composerStrings.describeChange || "");
     overlay.request.setAttribute("aria-label", String(composerStrings.describeChange || ""));
@@ -1019,6 +1158,7 @@
     createOverlay();
     if (hoveredElement && !hoveredElement.isConnected) hoveredElement = null;
     const selected = resolveSelectedElement();
+    refreshSelectedOutlines();
     const element = hoveredElement?.isConnected ? hoveredElement : selected;
     if (!element) {
       hideOverlay();
@@ -1058,24 +1198,25 @@
       height: rect.height - border.top - border.bottom - padding.top - padding.bottom,
     });
 
-    const selector = element === selected
-      ? selectedBaseline?.selector || element.localName || "element"
-      : (element.id ? `#${cssEscape(element.id)}` : classSelector(element) || element.localName || "element");
+    const selector = displaySelectorFor(element);
     if (element === selected) {
       overlay.badge.style.display = "none";
+    } else {
+      overlay.badge.textContent = `${selector}  ${Math.round(rect.width)} × ${Math.round(rect.height)}`;
+      overlay.badge.style.display = "block";
+      const badgeHeight = overlay.badge.getBoundingClientRect().height || 24;
+      overlay.badge.style.left = `${Math.max(8, Math.min(rect.x, globalThis.innerWidth - 220))}px`;
+      overlay.badge.style.top = `${rect.y > badgeHeight + 8 ? rect.y - badgeHeight - 5 : rect.bottom + 5}px`;
+    }
+    if (selected && selectedBaseline) {
       overlay.composer.style.display = "flex";
-      placeComposer(rect);
+      placeComposer(selected.getBoundingClientRect());
       if (composerNeedsFocus) {
         overlay.request.focus({ preventScroll: true });
         composerNeedsFocus = false;
       }
     } else {
       overlay.composer.style.display = "none";
-      overlay.badge.textContent = `${selector}  ${Math.round(rect.width)} × ${Math.round(rect.height)}`;
-      overlay.badge.style.display = "block";
-      const badgeHeight = overlay.badge.getBoundingClientRect().height || 24;
-      overlay.badge.style.left = `${Math.max(8, Math.min(rect.x, globalThis.innerWidth - 220))}px`;
-      overlay.badge.style.top = `${rect.y > badgeHeight + 8 ? rect.y - badgeHeight - 5 : rect.bottom + 5}px`;
     }
   };
 
@@ -1093,14 +1234,16 @@
       const selectors = selectorsFor(selectedElement);
       if (!selectors.length) {
         restoreAll();
-        selectedElement = null;
-        selectedBaseline = null;
-        selectedIdentity = null;
+        const index = selectedReferences.indexOf(activeReference);
+        if (index >= 0) selectedReferences.splice(index, 1);
+        setActiveReference(selectedReferences[selectedReferences.length - 1]);
         hoveredElement = null;
         selectionIdentityNeedsRefresh = false;
         selectionRecoveryAttemptsRemaining = 0;
         cancelSelectionRecovery();
-        resetComposer();
+        copyState = "idle";
+        copyResultMessage = "";
+        copyInFlight = false;
         revision += 1;
         scheduleMutationEmission();
         scheduleOverlayRefresh();
@@ -1110,6 +1253,7 @@
         || selectors.length !== selectedBaseline.selectors.length
         || selectors.some((selector, index) => selector !== selectedBaseline.selectors[index]);
       selectedBaseline = { ...selectedBaseline, selector: selectors[0], selectors };
+      updateActiveReference();
     }
     selectionIdentityNeedsRefresh = false;
     const previous = selectedElement;
@@ -1118,6 +1262,7 @@
     if (current) {
       applyEditsTo(current);
       selectedIdentity = identityFor(current);
+      updateActiveReference();
       selectionRecoveryAttemptsRemaining = 0;
     } else if (previous) {
       selectionRecoveryAttemptsRemaining = maxSelectionRecoveryAttempts;
@@ -1231,21 +1376,24 @@
     if (touchesSelection) scheduleMutationRefresh();
   };
 
-  const resetComposer = () => {
-    requestedChange = "";
+  const resetCopyState = () => {
     copyState = "idle";
     copyResultMessage = "";
     copyInFlight = false;
+  };
+
+  const resetComposer = () => {
+    requestedChange = "";
+    resetCopyState();
     composerNeedsFocus = false;
     if (overlay?.request) overlay.request.value = "";
   };
 
   const clearSelection = () => {
-    if (!selectedBaseline) return snapshot();
+    if (!selectedReferences.length) return snapshot();
     restoreAll();
-    selectedElement = null;
-    selectedBaseline = null;
-    selectedIdentity = null;
+    selectedReferences.length = 0;
+    setActiveReference(null);
     hoveredElement = null;
     selectionIdentityNeedsRefresh = false;
     selectionRecoveryAttemptsRemaining = 0;
@@ -1257,9 +1405,29 @@
     return emit();
   };
 
+  const removeSelectionAt = (index) => {
+    if (!Number.isInteger(index) || index < 0 || index >= selectedReferences.length) {
+      return snapshot();
+    }
+    const reference = selectedReferences[index];
+    if (reference === activeReference && edits.size) restoreAll();
+    selectedReferences.splice(index, 1);
+    if (reference === activeReference) {
+      setActiveReference(selectedReferences[selectedReferences.length - 1]);
+      selectionIdentityNeedsRefresh = false;
+      selectionRecoveryAttemptsRemaining = 0;
+      cancelSelectionRecovery();
+    }
+    resetCopyState();
+    composerNeedsFocus = false;
+    revision += 1;
+    scheduleOverlayRefresh();
+    return emit();
+  };
+
   const requestCopy = () => {
     const value = bounded(requestedChange.trim(), maxRequestedChangeCharacters);
-    if (!selectedBaseline || copyInFlight) return composerState();
+    if (!selectedReferences.length || !selectedBaseline || copyInFlight) return composerState();
     requestedChange = value;
     copyState = "copying";
     copyResultMessage = "";
@@ -1289,21 +1457,35 @@
     if (!element || element === overlayHost || overlayHost?.contains(element)) return snapshot();
     cancelSelectionRecovery();
     cancelMutationEmission();
-    if (selectedElement === element && selectedBaseline) {
+    const elementIndex = selectedReferences.findIndex((reference) => reference.element === element);
+    if (elementIndex === selectedReferences.length - 1 && selectedElement === element && selectedBaseline) {
       hoveredElement = null;
       scheduleOverlayRefresh();
       return snapshot();
     }
     const validatedBaseline = baselineFor(element);
     if (!validatedBaseline) return snapshot();
-    if (selectedElement !== element) {
-      if (edits.size) restoreAll();
-      resetComposer();
-      composerNeedsFocus = true;
+    if (edits.size) restoreAll();
+    let referenceIndex = elementIndex;
+    if (referenceIndex < 0) {
+      referenceIndex = selectedReferences.findIndex(
+        (reference) => reference.baseline?.selector === validatedBaseline.selector,
+      );
     }
-    selectedElement = element;
-    selectedBaseline = validatedBaseline;
-    selectedIdentity = identityFor(element);
+    let reference;
+    if (referenceIndex >= 0) {
+      [reference] = selectedReferences.splice(referenceIndex, 1);
+      reference.element = element;
+      reference.baseline = validatedBaseline;
+      reference.identity = identityFor(element);
+    } else {
+      if (selectedReferences.length >= maxSelectionReferences) return snapshot();
+      reference = { element, baseline: validatedBaseline, identity: identityFor(element) };
+    }
+    selectedReferences.push(reference);
+    setActiveReference(reference);
+    resetCopyState();
+    composerNeedsFocus = true;
     selectionIdentityNeedsRefresh = false;
     selectionRecoveryAttemptsRemaining = 0;
     captureSelectionValid = true;
@@ -1322,17 +1504,16 @@
   const onPointerMove = (event) => {
     if (!enabled || captureHidden) return;
     if (event.target === overlayHost) return;
-    if (isComposerEvent(event)) return;
-    event.preventDefault();
-    event.stopPropagation();
-    event.stopImmediatePropagation();
-    if (selectedBaseline) {
+    if (isComposerEvent(event)) {
       if (hoveredElement) {
         hoveredElement = null;
         scheduleOverlayRefresh();
       }
       return;
     }
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
     const candidate = elementUnderPoint(event.clientX, event.clientY);
     if (!candidate || candidate === hoveredElement) return;
     hoveredElement = candidate;
@@ -1461,13 +1642,12 @@
     },
 
     destroy() {
-      if (enabled || selectedBaseline || edits.size || overlayHost) revision += 1;
+      if (enabled || selectedReferences.length || edits.size || overlayHost) revision += 1;
       enabled = false;
       removeListeners();
       restoreAll();
-      selectedElement = null;
-      selectedBaseline = null;
-      selectedIdentity = null;
+      selectedReferences.length = 0;
+      setActiveReference(null);
       selectionIdentityNeedsRefresh = false;
       selectionRecoveryAttemptsRemaining = 0;
       cancelSelectionRecovery();
@@ -1504,6 +1684,10 @@
     },
 
     composerState,
+
+    removeSelection(index) {
+      return removeSelectionAt(Number(index));
+    },
 
     requestCopy,
 

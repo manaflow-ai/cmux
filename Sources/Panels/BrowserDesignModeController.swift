@@ -207,7 +207,7 @@ final class BrowserDesignModeController {
     func copySelection(requestedChange: String) async {
         let requestedChange = requestedChange.trimmingCharacters(in: .whitespacesAndNewlines)
         guard phase == .active,
-              snapshot?.selection != nil,
+              snapshot?.selections.isEmpty == false,
               let webView else { return }
         let operation = beginOperation()
         errorMessage = nil
@@ -216,28 +216,34 @@ final class BrowserDesignModeController {
             guard operation == operationRevision else { return }
             apply(capture.snapshot)
 
-            guard let selection = capture.snapshot.selection else {
+            guard !capture.snapshot.selections.isEmpty else {
                 throw BrowserScreenshotError.invalidSelection
             }
-            let cropRect = Self.captureRect(
-                selection: selection.bounds,
-                viewport: selection.viewport,
-                viewBounds: capture.viewBounds
-            )
-            let crop = try BrowserScreenshotCrop.croppedImage(
-                from: capture.image,
-                selectionInView: cropRect,
-                viewBounds: capture.viewBounds
-            )
-            let pngData = try BrowserScreenshotPasteboardWriter.pngData(for: crop)
-            let screenshotURL = try await screenshotStore.save(pngData, surfaceID: surfaceID)
+            var screenshotPaths: [String?] = []
+            for selection in capture.snapshot.selections {
+                do {
+                    let crop = try BrowserScreenshotCrop.croppedImage(
+                        from: capture.image,
+                        selectionInView: Self.captureRect(
+                            selection: selection.bounds,
+                            viewport: selection.viewport,
+                            viewBounds: capture.viewBounds
+                        ),
+                        viewBounds: capture.viewBounds
+                    )
+                    let pngData = try BrowserScreenshotPasteboardWriter.pngData(for: crop)
+                    screenshotPaths.append(try await screenshotStore.save(pngData, surfaceID: surfaceID).path)
+                } catch BrowserScreenshotError.invalidSelection {
+                    screenshotPaths.append(nil)
+                }
+            }
             guard operation == operationRevision else { return }
             let pageURL = webView.url?.absoluteString ?? "about:blank"
             let prompt = promptFormatter.format(
                 BrowserDesignModePromptContext(
                     pageURL: pageURL,
                     snapshot: capture.snapshot,
-                    screenshotPath: screenshotURL.path,
+                    screenshotPaths: screenshotPaths,
                     requestedChange: requestedChange
                 )
             )
@@ -337,9 +343,7 @@ final class BrowserDesignModeController {
     ) -> Bool {
         before.enabled && after.enabled
             && before.revision == after.revision
-            && before.selection?.selector == after.selection?.selector
-            && before.selection?.bounds == after.selection?.bounds
-            && before.selection?.viewport == after.selection?.viewport
+            && before.selections == after.selections
             && beforeViewBounds == afterViewBounds
     }
 
@@ -387,11 +391,10 @@ final class BrowserDesignModeController {
     private func receiveSnapshotData(_ data: Data) {
         guard phase == .active || phase == .activating else { return }
         guard let next = try? JSONDecoder().decode(BrowserDesignModeSnapshot.self, from: data) else { return }
-        let previousSelector = snapshot?.selection?.selector
+        let previousSelectors = snapshot?.selections.map(\.selector)
         apply(next)
         if next.enabled { phase = .active }
-        guard let nextSelector = next.selection?.selector, nextSelector != previousSelector else { return }
-        errorMessage = nil
+        if next.selections.map(\.selector) != previousSelectors { errorMessage = nil }
     }
 
     private func apply(_ next: BrowserDesignModeSnapshot) {
