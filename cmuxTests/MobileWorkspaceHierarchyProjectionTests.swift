@@ -204,11 +204,17 @@ struct MobileWorkspaceHierarchyProjectionTests {
         #expect(digest(requiresCloseConfirmation: false) == digest(requiresCloseConfirmation: true))
     }
 
-    @Test func observerDigestSkipsUnknownActivityFallbackWhilePayloadSamplesIt() throws {
+    @Test func fullListProjectionSkipsLiveFallbackAndFailsClosedForUnknownActivity() throws {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
-        let terminalID = try #require(workspace.focusedPanelId)
-        workspace.updatePanelShellActivityState(panelId: terminalID, state: .unknown)
+        _ = try #require(workspace.newTerminalSurfaceInFocusedPane(focus: false))
+        let terminalIDs = workspace.orderedPanelIds.filter {
+            workspace.terminalPanel(for: $0) != nil
+        }
+        #expect(terminalIDs.count == 2)
+        for terminalID in terminalIDs {
+            workspace.updatePanelShellActivityState(panelId: terminalID, state: .unknown)
+        }
 
         var digestFallbackEvaluations = 0
         let digestWithoutConfirmation = MobileWorkspaceListProjection.digest(
@@ -217,7 +223,7 @@ struct MobileWorkspaceHierarchyProjectionTests {
             selectedTabID: workspace.id,
             previewSignatures: [:],
             fallbackNeedsConfirmClose: { _, sampledID in
-                #expect(sampledID == terminalID)
+                #expect(terminalIDs.contains(sampledID))
                 digestFallbackEvaluations += 1
                 return false
             }
@@ -228,7 +234,7 @@ struct MobileWorkspaceHierarchyProjectionTests {
             selectedTabID: workspace.id,
             previewSignatures: [:],
             fallbackNeedsConfirmClose: { _, sampledID in
-                #expect(sampledID == terminalID)
+                #expect(terminalIDs.contains(sampledID))
                 digestFallbackEvaluations += 1
                 return true
             }
@@ -243,15 +249,28 @@ struct MobileWorkspaceHierarchyProjectionTests {
             isSelected: true,
             requestedTerminalID: nil,
             fallbackNeedsConfirmClose: { sampledID in
-                #expect(sampledID == terminalID)
+                #expect(terminalIDs.contains(sampledID))
                 payloadFallbackEvaluations += 1
-                return true
+                return false
             }
         )
         let terminals = try #require(payload["terminals"] as? [[String: Any]])
-        let terminal = try #require(terminals.first)
-        #expect(payloadFallbackEvaluations == 1)
-        #expect(terminal["requires_close_confirmation"] as? Bool == true)
+        #expect(payloadFallbackEvaluations == 0)
+        #expect(terminals.count == 2)
+        #expect(terminals.allSatisfy {
+            $0["requires_close_confirmation"] as? Bool == true
+        })
+
+        var exactCloseFallbackEvaluations = 0
+        let exactCloseNeedsConfirmation = workspace.panelNeedsConfirmClose(
+            panelId: try #require(terminalIDs.first),
+            fallbackNeedsConfirmClose: {
+                exactCloseFallbackEvaluations += 1
+                return false
+            }
+        )
+        #expect(exactCloseFallbackEvaluations == 1)
+        #expect(!exactCloseNeedsConfirmation)
     }
 
     @Test func directTerminalFocusSampleMatchesFullProjection() throws {
