@@ -196,6 +196,29 @@ struct AgentNotificationRegressionTests {
         #expect(recorded.first?.surfaceId == fixture.panelId)
     }
 
+    @Test("Desktop OSC suppression follows the live pane owner after hook lookup")
+    func desktopOSCSuppressionUsesLiveOwnerAfterHookLookup() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        try movePanel(fixture)
+        fixture.destination.recordAgentPID(
+            key: "codex.codex-session-live-owner",
+            pid: pid_t(12_345),
+            panelId: fixture.panelId
+        )
+
+        await fixture.store.addDesktopNotificationResolvingHooks(
+            tabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            hookDirectory: nil,
+            globalConfigPath: "/missing/cmux-\(UUID().uuidString).json",
+            title: "OSC live-owner suppression",
+            body: "Must be suppressed by the destination"
+        )
+
+        #expect(!fixture.store.notifications.contains { $0.title == "OSC live-owner suppression" })
+    }
+
     @Test("Policy-delayed delivery resolves the pane owner again after a move")
     func policyDelayedDeliveryRetargetsAtFinalApply() async throws {
         let fixture = try makeFixture(policyHookCommand: "cat")
