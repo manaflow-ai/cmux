@@ -181,7 +181,7 @@ extension KeyboardShortcutSettings.Action {
 
     var hasPriorityShortcutRouting: Bool {
         switch self {
-        case .switchRightSidebarToFiles, .switchRightSidebarToFind,
+        case .switchRightSidebarToFiles, .switchRightSidebarToNotes, .switchRightSidebarToFind,
              .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock,
              .commandPaletteNext, .commandPalettePrevious:
             return true
@@ -201,9 +201,9 @@ extension KeyboardShortcutSettings.Action {
             return .browserPanel
         case .commandPaletteNext, .commandPalettePrevious:
             return .commandPaletteVisible
-        case .switchRightSidebarToFiles, .switchRightSidebarToFind, .switchRightSidebarToSessions,
-             .switchRightSidebarToFeed, .switchRightSidebarToDock, .fileExplorerOpenSelection,
-             .fileExplorerOpenSelectionFinderAlias:
+        case .switchRightSidebarToFiles, .switchRightSidebarToNotes, .switchRightSidebarToFind,
+             .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock,
+             .fileExplorerOpenSelection, .fileExplorerOpenSelectionFinderAlias:
             return .rightSidebarFocus
         case .renameTab, .renameWorkspace, .sendCtrlFToTerminal, .clearScreenKeepScrollback:
             return .nonBrowserPanel

@@ -26,7 +26,7 @@ struct MarkdownPanelView: View {
     let onRequestPanelFocus: () -> Void
 
     @State private var focusFlashOpacity: Double = 0.0
-    @State private var focusFlashAnimationGeneration: Int = 0
+    @State private var focusFlashTask: Task<Void, Never>?
     @State private var copyConfirmation: CopyConfirmation? = nil
     @State private var copyConfirmationGeneration: Int = 0
     @AppStorage(FilePreviewWordWrapSettings.key) private var fileEditorWordWrap = FilePreviewWordWrapSettings.defaultEnabled
@@ -244,16 +244,27 @@ struct MarkdownPanelView: View {
     // MARK: - Focus Flash
 
     private func triggerFocusFlashAnimation() {
-        focusFlashAnimationGeneration &+= 1
-        let generation = focusFlashAnimationGeneration
+        // One cancellable task instead of detached asyncAfter closures: any
+        // interruption between a fade-in segment and its fade-out used to
+        // leave the ring stuck visible — a faint accent line parked on the
+        // pane edges. Every exit path now lands on opacity 0.
+        focusFlashTask?.cancel()
         focusFlashOpacity = FocusFlashPattern.values.first ?? 0
-
-        for segment in FocusFlashPattern.segments {
-            DispatchQueue.main.asyncAfter(deadline: .now() + segment.delay) {
-                guard focusFlashAnimationGeneration == generation else { return }
+        focusFlashTask = Task { @MainActor in
+            let clock = ContinuousClock()
+            for segment in FocusFlashPattern.segments {
+                if Task.isCancelled { break }
                 withAnimation(focusFlashAnimation(for: segment.curve, duration: segment.duration)) {
                     focusFlashOpacity = segment.targetOpacity
                 }
+                try? await clock.sleep(for: .seconds(segment.duration))
+            }
+            if Task.isCancelled {
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) { focusFlashOpacity = 0 }
+            } else {
+                focusFlashOpacity = FocusFlashPattern.values.last ?? 0
             }
         }
     }

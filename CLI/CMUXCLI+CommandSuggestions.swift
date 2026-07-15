@@ -137,6 +137,7 @@ extension CMUXCLI {
         "new-window",
         "new-workspace",
         "next-window",
+        "note",
         "notify",
         "omc",
         "omo",

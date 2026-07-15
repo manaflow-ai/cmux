@@ -982,6 +982,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// instead of spawning the bundled `cmux diff` CLI, so shortcut-dispatch tests can
     /// assert routing without launching a subprocess.
     var debugOpenDiffViewerHandler: (() -> Void)?
+    /// Test seam: when set, the built-in `cmux.newNote` action invokes this
+    /// instead of creating a note file.
+    var debugNewNoteBuiltInActionHandler: (() -> Void)?
     var debugCreateMainWindowSourceIsNativeFullScreenOverride: Bool?
     // Keep debug-only windows alive when tests intentionally inject key mismatches.
     private var debugDetachedContextWindows: [NSWindow] = []
@@ -6096,10 +6099,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         openDiffViewerForFocusedWorkspace(for: tabManager, preferAgentContext: false)
     }
 
+    /// Surface-tab-bar entry into the shared diff opener: same agent-aware
+    /// last-turn selection, but keyed to the button's pane (its selected
+    /// surface + tracked cwd) instead of the focused panel.
+    @discardableResult
+    func openDiffViewerFromSurfaceTabBar(
+        for tabManager: TabManager?,
+        surfaceId: UUID?,
+        paneCwd: String
+    ) -> Bool {
+        openDiffViewerForFocusedWorkspace(
+            for: tabManager,
+            preferAgentContext: true,
+            surfaceOverride: surfaceId,
+            fallbackCwdOverride: paneCwd
+        )
+    }
+
     @discardableResult
     private func openDiffViewerForFocusedWorkspace(
         for tabManager: TabManager?,
-        preferAgentContext: Bool
+        preferAgentContext: Bool,
+        surfaceOverride: UUID? = nil,
+        fallbackCwdOverride: String? = nil
     ) -> Bool {
 #if DEBUG
         if let debugOpenDiffViewerHandler {
@@ -6115,10 +6137,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let socketPath = TerminalController.shared.activeSocketPath(
             preferredPath: SocketControlSettings.socketPath()
         )
-        let fallbackCwd = workspace.resolvedWorkingDirectory()
+        let fallbackCwd = fallbackCwdOverride
+            ?? workspace.resolvedWorkingDirectory()
             ?? FileManager.default.homeDirectoryForCurrentUser.path
         if preferAgentContext,
-           let surfaceId = workspace.focusedPanelId,
+           let surfaceId = surfaceOverride ?? workspace.focusedPanelId,
            let snapshot = SharedLiveAgentIndex.shared.snapshot(workspaceId: workspace.id, panelId: surfaceId),
            let sessionId = Self.normalizedOpenDiffViewerSessionId(snapshot.sessionId) {
             let snapshotWorkingDirectory = Self.normalizedOpenDiffViewerPath(
@@ -6152,20 +6175,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             return true
         }
-        let agentDiffContext = preferAgentContext ? focusedAgentWorkingDirectoryContext(for: workspace) : nil
+        let agentDiffContext = preferAgentContext
+            ? focusedAgentWorkingDirectoryContext(
+                for: workspace, surfaceId: surfaceOverride ?? workspace.focusedPanelId
+            )
+            : nil
+        let launchCwd = agentDiffContext?.cwd ?? fallbackCwd
         return launchDiffViewerProcess(
             cliURL: cliURL,
             socketPath: socketPath,
-            cwd: agentDiffContext?.cwd ?? fallbackCwd,
+            cwd: launchCwd,
             workspaceId: workspace.id,
-            surfaceId: workspace.focusedPanelId,
+            surfaceId: surfaceOverride ?? workspace.focusedPanelId,
             useLastTurnSource: false,
             sessionId: agentDiffContext?.sessionId
         )
     }
 
-    private func focusedAgentWorkingDirectoryContext(for workspace: Workspace) -> (cwd: String, sessionId: String?)? {
-        guard let surfaceId = workspace.focusedPanelId else { return nil }
+    private func focusedAgentWorkingDirectoryContext(
+        for workspace: Workspace, surfaceId: UUID?
+    ) -> (cwd: String, sessionId: String?)? {
+        guard let surfaceId else { return nil }
         guard let snapshot = SharedLiveAgentIndex.shared.snapshot(workspaceId: workspace.id, panelId: surfaceId) else {
             return nil
         }
@@ -13483,6 +13513,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if matchConfiguredShortcut(event: event, action: .newNote) {
+            let didCreate = executeConfiguredCmuxActionShortcut(
+                CmuxResolvedConfigAction.builtIn(.newNote),
+                event: event,
+                context: configuredCmuxShortcutContext
+            )
+            if !didCreate {
+                NSSound.beep()
+            }
+            return true
+        }
+
         if matchConfiguredShortcut(event: event, action: .toggleRightSidebar) {
             // Escape AppKit's performKeyEquivalent animation context. Without
             // deferring the toggle, NSAnimationContext implicitly animates the
@@ -15402,96 +15444,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             tabManager.selectedTabId = previousSelectedId
         }
         return didRun
-    }
-
-    func executeConfiguredCmuxAction(
-        _ action: CmuxResolvedConfigAction,
-        context: MainWindowContext,
-        preferredWindow: NSWindow? = nil,
-        onExecuted: (() -> Void)? = nil,
-        onCloudVMCompletion: ((CloudVMActionLauncher.Completion) -> Void)? = nil
-    ) -> Bool {
-        switch action.action {
-        case .builtIn(let builtIn):
-            switch builtIn {
-            case .newWorkspace:
-                context.tabManager.addWorkspace()
-                onExecuted?()
-                return true
-            case .newAgentChat: return performConfiguredNewAgentChatAction(context: context, preferredWindow: preferredWindow, onExecuted: onExecuted)
-            case .cloudVM:
-                let didStart = performCloudVMAction(
-                    tabManager: context.tabManager,
-                    preferredWindow: resolvedWindow(for: context) ?? preferredWindow,
-                    debugSource: "configured.cmux.cloudvm",
-                    onCompletion: onCloudVMCompletion
-                )
-                if didStart { onExecuted?() }
-                return didStart
-            case .mobileConnect:
-                MobilePairingWindowController.shared.show()
-                onExecuted?()
-                return true
-            case .newTerminal:
-                context.tabManager.newSurface()
-                onExecuted?()
-                return true
-            case .newBrowser:
-                let previousTabManager = tabManager
-                tabManager = context.tabManager
-                defer { tabManager = previousTabManager }
-                guard openBrowserAndFocusAddressBar(insertAtEnd: true) != nil else {
-                    return false
-                }
-                onExecuted?()
-                return true
-            case .splitRight:
-                if shouldSuppressSplitShortcutForTransientTerminalFocusState(
-                    direction: .right,
-                    tabManager: context.tabManager
-                ) {
-                    return true
-                }
-                let didSplit = performSplitShortcut(
-                    direction: .right,
-                    preferredWindow: preferredWindow ?? shortcutRoutingActiveWindow
-                )
-                if didSplit { onExecuted?() }
-                return didSplit
-            case .splitDown:
-                if shouldSuppressSplitShortcutForTransientTerminalFocusState(
-                    direction: .down,
-                    tabManager: context.tabManager
-                ) {
-                    return true
-                }
-                let didSplit = performSplitShortcut(
-                    direction: .down,
-                    preferredWindow: preferredWindow ?? shortcutRoutingActiveWindow
-                )
-                if didSplit { onExecuted?() }
-                return didSplit
-            }
-        case .command, .agent, .workspaceCommand, .workspace:
-            guard let cmuxConfigStore = context.cmuxConfigStore else {
-                return false
-            }
-            let rawCwd = context.tabManager.selectedWorkspace?.currentDirectory
-            let baseCwd = (rawCwd?.isEmpty == false) ? rawCwd!
-                : FileManager.default.homeDirectoryForCurrentUser.path
-            return CmuxConfigExecutor.execute(
-                action: action,
-                commands: cmuxConfigStore.loadedCommands,
-                commandSourcePaths: cmuxConfigStore.commandSourcePaths,
-                tabManager: context.tabManager,
-                baseCwd: baseCwd,
-                globalConfigPath: cmuxConfigStore.globalConfigPath,
-                presentingWindow: preferredWindow,
-                onExecuted: onExecuted
-            )
-        case .actionReference:
-            return false
-        }
     }
 
     /// Match a shortcut stroke against an event, handling normal keys.

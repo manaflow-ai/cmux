@@ -324,16 +324,18 @@ private struct CloudVMLoadingStatusRow: View {
 }
 
 struct PanelFilePathHeader<TrailingContent: View>: View {
-    let iconSystemName: String
+    var iconSystemName: String?
     let filePath: String
     let foregroundColor: NSColor
     @ViewBuilder let trailingContent: () -> TrailingContent
 
     var body: some View {
         HStack(spacing: 8) {
-            CmuxSystemSymbolImage(systemName: iconSystemName, pointSize: 16)
-                .foregroundStyle(.secondary)
-                .frame(width: 16)
+            if let iconSystemName {
+                CmuxSystemSymbolImage(systemName: iconSystemName, pointSize: 16)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 16)
+            }
             Text(filePath)
                 .cmuxFont(size: 11, design: .monospaced)
                 .foregroundStyle(Color(nsColor: foregroundColor).opacity(0.68))
@@ -353,11 +355,12 @@ struct PanelHeaderIconButton: View {
     let systemName: String
     let label: String
     var isDisabled: Bool = false
+    var pointSize: CGFloat = 13
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            PanelHeaderIconGlyph(systemName: systemName)
+            PanelHeaderIconGlyph(systemName: systemName, pointSize: pointSize)
         }
         .buttonStyle(.plain)
         .foregroundColor(.secondary)
@@ -369,10 +372,11 @@ struct PanelHeaderIconButton: View {
 
 struct PanelHeaderIconGlyph: View {
     let systemName: String
+    var pointSize: CGFloat = 13
 
     var body: some View {
-        CmuxSystemSymbolImage(systemName: systemName, pointSize: 13)
-            .frame(width: 20, height: 20, alignment: .center)
+        CmuxSystemSymbolImage(systemName: systemName, pointSize: pointSize)
+            .frame(width: pointSize + 7, height: pointSize + 7, alignment: .center)
             .contentShape(Rectangle())
     }
 }

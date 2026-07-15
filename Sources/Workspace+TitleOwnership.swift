@@ -112,6 +112,9 @@ extension Workspace {
             )
         }
 #endif
+        if didMutatePanelTitle {
+            postNotesTreeTerminalMetadataDidChange(panelId: panelId)
+        }
         return didMutate
     }
 

@@ -90,6 +90,7 @@ enum KeyboardShortcutSettings {
         case markOldestUnreadAndJumpNext
         case focusRightSidebar
         case switchRightSidebarToFiles
+        case switchRightSidebarToNotes
         case switchRightSidebarToFind
         case switchRightSidebarToSessions
         case switchRightSidebarToFeed
@@ -121,6 +122,7 @@ enum KeyboardShortcutSettings {
         case toggleFocusedWorkspaceGroupCollapsed
         case reopenClosedBrowserPanel
         case newSurface
+        case newNote
         case toggleTerminalCopyMode
         case focusTextBoxInput, cycleTextBoxSubmitAction, attachTextBoxFile
         case sendCtrlFToTerminal
@@ -223,6 +225,7 @@ enum KeyboardShortcutSettings {
                 return String(localized: "shortcut.markOldestUnreadAndJumpNext.label", defaultValue: "Mark as Oldest Unread and Jump to Next Latest Unread")
             case .focusRightSidebar: return String(localized: "shortcut.focusRightSidebar.label", defaultValue: "Toggle Right Sidebar Focus")
             case .switchRightSidebarToFiles: return String(localized: "shortcut.switchRightSidebarToFiles.label", defaultValue: "Show Sidebar Files")
+            case .switchRightSidebarToNotes: return String(localized: "shortcut.switchRightSidebarToNotes.label", defaultValue: "Show Sidebar Notes")
             case .switchRightSidebarToFind: return String(localized: "shortcut.switchRightSidebarToFind.label", defaultValue: "Show Sidebar Find")
             case .switchRightSidebarToSessions: return String(localized: "shortcut.switchRightSidebarToSessions.label", defaultValue: "Show Sidebar Vault")
             case .switchRightSidebarToFeed: return String(localized: "shortcut.switchRightSidebarToFeed.label", defaultValue: "Show Sidebar Feed")
@@ -254,6 +257,7 @@ enum KeyboardShortcutSettings {
             case .toggleFocusedWorkspaceGroupCollapsed: return String(localized: "shortcut.toggleFocusedWorkspaceGroupCollapsed.label", defaultValue: "Toggle Focused Workspace's Group Collapse")
             case .reopenClosedBrowserPanel: return String(localized: "menu.history.reopenLastClosed", defaultValue: "Reopen Last Closed")
             case .newSurface: return String(localized: "shortcut.newSurface.label", defaultValue: "New Surface")
+            case .newNote: return String(localized: "shortcut.newNote.label", defaultValue: "New Note")
             case .toggleTerminalCopyMode: return String(localized: "shortcut.toggleTerminalCopyMode.label", defaultValue: "Toggle Terminal Copy Mode")
             case .focusTextBoxInput: return String(localized: "shortcut.focusTextBoxInput.label", defaultValue: "Focus TextBox Input")
             case .cycleTextBoxSubmitAction: return String(localized: "shortcut.cycleTextBoxSubmitAction.label", defaultValue: "Cycle TextBox Submit Action")
@@ -385,6 +389,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "e", command: true, shift: true, option: false, control: false)
             case .switchRightSidebarToFiles:
                 return StoredShortcut(key: "1", command: false, shift: false, option: false, control: true)
+            case .switchRightSidebarToNotes:
+                return StoredShortcut(key: "6", command: false, shift: false, option: false, control: true)
             case .switchRightSidebarToFind:
                 return StoredShortcut(key: "2", command: false, shift: false, option: false, control: true)
             case .switchRightSidebarToSessions:
@@ -491,6 +497,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "1", command: false, shift: false, option: false, control: true)
             case .newSurface:
                 return StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
+            case .newNote:
+                return StoredShortcut(key: "n", command: true, shift: false, option: false, control: true)
             case .toggleTerminalCopyMode:
                 return StoredShortcut(key: "m", command: true, shift: true, option: false, control: false)
             case .focusTextBoxInput: return StoredShortcut(key: "a", command: true, shift: true, option: false, control: false)
@@ -1072,78 +1080,6 @@ enum KeyboardShortcutSettings {
     static func showBrowserJavaScriptConsoleShortcut() -> StoredShortcut { shortcut(for: .showBrowserJavaScriptConsole) }
 }
 
-enum SystemWideHotkeySettings {
-    static let enabledKey = "systemWideHotkey.enabled"
-    static let legacyShortcutKey = "systemWideHotkey.shortcut"
-    static let defaultEnabled = false
-    static let action: KeyboardShortcutSettings.Action = .showHideAllWindows
-
-    static var defaultShortcut: StoredShortcut { action.defaultShortcut }
-
-    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
-        defaults.object(forKey: enabledKey) as? Bool ?? defaultEnabled
-    }
-
-    static func setEnabled(_ enabled: Bool, defaults: UserDefaults = .standard) {
-        defaults.set(enabled, forKey: enabledKey)
-    }
-
-    static func shortcut() -> StoredShortcut {
-        migrateLegacyShortcutIfNeeded()
-        if let managedShortcut = KeyboardShortcutSettings.settingsFileStore.override(for: action) {
-            return managedShortcut
-        }
-        return storedShortcut() ?? defaultShortcut
-    }
-
-    static func setShortcut(_ shortcut: StoredShortcut) {
-        migrateLegacyShortcutIfNeeded()
-        KeyboardShortcutSettings.setShortcut(shortcut, for: action)
-    }
-
-    static func normalizedRecordedShortcutResult(
-        _ shortcut: StoredShortcut
-    ) -> KeyboardShortcutSettings.RecordedShortcutResolution {
-        action.normalizedRecordedShortcutResult(shortcut)
-    }
-
-    static func normalizedRecordedShortcut(_ shortcut: StoredShortcut) -> StoredShortcut? {
-        action.normalizedRecordedShortcut(shortcut)
-    }
-
-    static func isManagedBySettingsFile() -> Bool {
-        KeyboardShortcutSettings.isManagedBySettingsFile(action)
-    }
-
-    static func reset(defaults: UserDefaults = .standard) {
-        defaults.removeObject(forKey: enabledKey)
-        defaults.removeObject(forKey: legacyShortcutKey)
-        defaults.removeObject(forKey: action.defaultsKey)
-    }
-
-    private static func migrateLegacyShortcutIfNeeded(defaults: UserDefaults = .standard) {
-        guard defaults.object(forKey: legacyShortcutKey) != nil else { return }
-        defer { defaults.removeObject(forKey: legacyShortcutKey) }
-
-        guard defaults.object(forKey: action.defaultsKey) == nil,
-              let data = defaults.data(forKey: legacyShortcutKey),
-              let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
-            return
-        }
-
-        let migratedShortcut = normalizedRecordedShortcut(shortcut) ?? shortcut
-        guard let migratedData = try? JSONEncoder().encode(migratedShortcut) else { return }
-        defaults.set(migratedData, forKey: action.defaultsKey)
-    }
-
-    private static func storedShortcut(defaults: UserDefaults = .standard) -> StoredShortcut? {
-        guard let data = defaults.data(forKey: action.defaultsKey),
-              let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
-            return KeyboardShortcutSettings.settingsFileStore.override(for: action)
-        }
-        return shortcut
-    }
-}
 
 struct CarbonHotKeyRegistration: Equatable {
     let keyCode: UInt32

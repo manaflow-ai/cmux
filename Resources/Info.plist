@@ -222,6 +222,36 @@
 				<string>public.data</string>
 			</array>
 		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.cmux.notes-tree-move</string>
+			<key>UTTypeDescription</key>
+			<string>cmux Notes Tree Move</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.cmux.notes-tree-move.session</string>
+			<key>UTTypeDescription</key>
+			<string>cmux Notes Tree Move Session Flag</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.cmux.session-drag</string>
+			<key>UTTypeDescription</key>
+			<string>cmux Session Drag Pointer</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+		</dict>
 	</array>
 	<key>NSAppTransportSecurity</key>
 	<dict>

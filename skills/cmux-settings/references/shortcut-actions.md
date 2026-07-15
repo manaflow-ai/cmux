@@ -51,6 +51,7 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.moveSurfaceRight`
 - `shortcuts.bindings.selectSurfaceByNumber`
 - `shortcuts.bindings.newSurface`
+- `shortcuts.bindings.newNote`
 - `shortcuts.bindings.toggleTerminalCopyMode`
 - `shortcuts.bindings.clearScreenKeepScrollback`
 - `shortcuts.bindings.focusLeft`

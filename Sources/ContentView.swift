@@ -31,7 +31,9 @@ import WebKit
 var fileDropOverlayKey: UInt8 = 0
 private var commandPaletteWindowOverlayKey: UInt8 = 0
 let commandPaletteOverlayContainerIdentifier = NSUserInterfaceItemIdentifier("cmux.commandPalette.overlay.container")
+
 private func sidebarShortTabId(_ id: UUID?) -> String { id.map { String($0.uuidString.prefix(5)) } ?? "nil" }
+
 @MainActor
 private final class CommandPaletteOverlayContainerView: NSView {
     var capturesMouseEvents = false
@@ -839,8 +841,9 @@ struct ContentView: View {
     @State private var observedWindow: NSWindow?
     @State private var sidebarRenderWorkerClient: RenderWorkerClient?
     @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
-    @StateObject private var fileExplorerStore = FileExplorerStore()
-    @StateObject private var sessionIndexStore = SessionIndexStore()
+    @StateObject var fileExplorerStore = FileExplorerStore()
+    @StateObject var sessionIndexStore = SessionIndexStore()
+    @State var notesTreeStore = NotesTreeStore()
     @StateObject private var selectedWorkspaceDirectoryObserver = SelectedWorkspaceDirectoryObserver()
     @State private var commandPaletteOverlayRenderModel = CommandPaletteOverlayRenderModel()
     @State private var backgroundWorkspacePrimeCoordinator = BackgroundWorkspacePrimeCoordinator()
@@ -1101,6 +1104,14 @@ struct ContentView: View {
             flashToken: workspace.tmuxWorkspaceFlashToken,
             flashReason: workspace.tmuxWorkspaceFlashReason
         )
+    }
+
+    /// Note pane actions are independent of the Notes sidebar tab. The sidebar
+    /// tree can be hidden while explicit New Note commands remain available.
+    nonisolated static func commandPaletteNewNoteCommandsVisible(
+        _ context: CommandPaletteContextSnapshot
+    ) -> Bool {
+        context.bool(CommandPaletteContextKeys.hasWorkspace)
     }
 
     private func refreshTmuxWorkspacePaneWindowOverlay(in window: NSWindow?) {
@@ -1825,6 +1836,7 @@ struct ContentView: View {
             fileExplorerStore: fileExplorerStore,
             fileExplorerState: fileExplorerState,
             sessionIndexStore: sessionIndexStore,
+            notesTreeStore: notesTreeStore,
             titlebarHeight: RightSidebarChromeMetrics.titlebarHeight,
             windowAppearance: appearance,
             workspaceId: tabManager.selectedTabId,
@@ -1833,6 +1845,22 @@ struct ContentView: View {
             },
             onOpenFilePreview: { filePath in
                 openFilePreviewFromSidebar(filePath: filePath)
+            },
+            onOpenNote: { node, editImmediately in
+                openNoteFromSidebar(node: node, editImmediately: editImmediately)
+            },
+            onResumeNoteSession: { marker in
+                resumeNoteSession(marker: marker)
+            },
+            onFocusNoteTerminal: { panelId in
+                guard let workspace = tabManager.selectedWorkspace,
+                      workspace.panels[panelId] != nil else { return }
+                workspace.focusPanel(panelId)
+            },
+            onResolveTerminalNoteTarget: { terminal in
+                guard let workspace = tabManager.selectedWorkspace,
+                      let panelId = UUID(uuidString: terminal.panelId) else { return nil }
+                return workspace.noteAttachmentTargetForPanel(panelId: panelId, requireTerminal: true)
             },
             onOpenAsPane: { mode in
                 openRightSidebarToolPane(mode)
@@ -1857,6 +1885,7 @@ struct ContentView: View {
                     fileExplorerState.width = sanitized
                 }
             }
+            installNotesSessionLoaderIfNeeded()
         }
         .onChange(of: fileExplorerState.width) { newValue in
             if fileExplorerDragStartWidth == nil {
@@ -1874,6 +1903,8 @@ struct ContentView: View {
 
     @AppStorage("sidebarBlendMode") private var sidebarBlendMode = SidebarBlendModeOption.withinWindow.rawValue
     @AppStorage("sidebarMatchTerminalBackground") private var sidebarMatchTerminalBackground = false
+    @AppStorage(RightSidebarBetaFeatureSettings.notesEnabledKey)
+    var notesBetaEnabled = RightSidebarBetaFeatureSettings.defaultNotesEnabled
     @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = SidebarTintDefaults().opacity
     @AppStorage("sidebarTintHex") private var sidebarTintHex = SidebarTintDefaults().hex
     @AppStorage("sidebarTintHexLight") private var sidebarTintHexLight: String?
@@ -2219,125 +2250,9 @@ struct ContentView: View {
         SessionEntryResumeCoordinator.resume(entry, tabManager: tabManager)
     }
 
-    func openRightSidebarToolPane(_ mode: RightSidebarMode) {
-        guard mode.canOpenAsPane,
-              let workspace = tabManager.selectedWorkspace,
-              let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
-            NSSound.beep()
-            return
-        }
-
-        sidebarSelectionState.selection = .tabs
-        workspace.clearSplitZoom()
-        _ = workspace.openOrFocusRightSidebarToolSurface(inPane: paneId, mode: mode, focus: true)
-    }
-
-    private func openFilePreviewFromSidebar(filePath: String) {
-        guard let workspace = tabManager.selectedWorkspace else { return }
-        guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
-            return
-        }
-
-        sidebarSelectionState.selection = .tabs
-        if workspace.isRemoteWorkspace {
-            Task { [weak workspace, fileExplorerStore] in
-                guard let workspace else { return }
-                do {
-                    let localURL = try await fileExplorerStore.materializeRemoteFileForPreview(path: filePath)
-                    _ = workspace.openFileSurfaces(
-                        inPane: paneId,
-                        filePaths: [localURL.path],
-                        focus: true,
-                        reuseExisting: true
-                    )
-                } catch {
-                    NSSound.beep()
-                }
-            }
-            return
-        }
-        _ = workspace.openFileSurfaces(
-            inPane: paneId,
-            filePaths: [filePath],
-            focus: true,
-            reuseExisting: true
-        )
-    }
-
-    private func syncFileExplorerDirectory() {
-        guard let selectedId = tabManager.selectedTabId,
-              let tab = tabManager.tabs.first(where: { $0.id == selectedId }) else {
-            // No selection means we have no local cwd to scope by; clear so the
-            // sessions panel doesn't keep filtering by a stale previous tab.
-            sessionIndexStore.setCurrentDirectoryIfChanged(nil)
-            fileExplorerStore.applyWorkspaceRoot(.none)
-            return
-        }
-
-        fileExplorerStore.showHiddenFiles = true
-
-        if tab.usesRemoteDirectoryProvenance {
-            sessionIndexStore.setCurrentDirectoryIfChanged(nil)
-            guard shouldSyncFileExplorerStore else {
-                fileExplorerStore.applyWorkspaceRoot(.none)
-                return
-            }
-            guard let config = tab.remoteConfiguration, config.transport == .ssh else {
-                fileExplorerStore.applyWorkspaceRoot(.none)
-                return
-            }
-            let unavailableDetail = tab.remoteConnectionDetail ?? tab.remoteDaemonStatus.detail
-
-            #if DEBUG
-            let hasUnavailableDetail = unavailableDetail?.isEmpty == false
-            cmuxDebugLog(
-                "fileExplorer.sync remote state=\(tab.remoteConnectionState.rawValue) " +
-                "hasDestination=\(config.destination.isEmpty ? 0 : 1) " +
-                "hasDisplayTarget=\(config.displayTarget.isEmpty ? 0 : 1) " +
-                "hasIdentityFile=\(config.identityFile == nil ? 0 : 1) " +
-                "hasDetail=\(hasUnavailableDetail ? 1 : 0)"
-            )
-            #endif
-
-            fileExplorerStore.applyWorkspaceRoot(
-                .remoteSSH(
-                    workspaceId: tab.id,
-                    connection: SSHFileExplorerConnection(
-                        destination: config.destination,
-                        port: config.port,
-                        identityFile: config.identityFile,
-                        sshOptions: config.sshOptions
-                    ),
-                    displayTarget: config.displayTarget,
-                    rootPath: tab.trustedRemoteCurrentDirectory,
-                    isAvailable: tab.remoteConnectionState == .connected,
-                    unavailableDetail: unavailableDetail
-                )
-            )
-            return
-        }
-
-        let dir = tab.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !dir.isEmpty else {
-            sessionIndexStore.setCurrentDirectoryIfChanged(nil)
-            fileExplorerStore.applyWorkspaceRoot(.none)
-            return
-        }
-
-        sessionIndexStore.setCurrentDirectoryIfChanged(dir)
-        guard shouldSyncFileExplorerStore else {
-            fileExplorerStore.applyWorkspaceRoot(.none)
-            return
-        }
-        fileExplorerStore.applyWorkspaceRoot(.local(workspaceId: tab.id, path: dir))
-    }
-
-    private var shouldSyncFileExplorerStore: Bool {
-        FileExplorerRootSyncPolicy.shouldSyncFileExplorerStore(
-            isRightSidebarVisible: fileExplorerState.isVisible,
-            mode: fileExplorerState.mode
-        )
-    }
+    /// Wire the Notes tree's Claude-session source to the shared session index
+    /// (keyed by cwd), and expose this window's per-workspace notes root to
+    /// spawned terminals via `CMUX_WORKSPACE_NOTES_DIR` (for the cmux-notes skill).
 
     private var focusedDirectory: String? {
         guard let selectedId = tabManager.selectedTabId,
@@ -2543,6 +2458,14 @@ struct ContentView: View {
         view = AnyView(view.onChange(of: selectedWorkspaceDirectoryObserver.directoryChangeGeneration) { _ in
             syncFileExplorerDirectory()
         })
+
+        view = AnyView(
+            view.onReceive(
+                NotificationCenter.default.publisher(for: .workspaceNotesTreeTerminalMetadataDidChange)
+            ) { notification in
+                handleNotesTerminalMetadataDidChange(notification)
+            }
+        )
 
         view = AnyView(view.onChange(of: tabManager.isWorkspaceCycleHot) { _ in
 #if DEBUG
@@ -3043,6 +2966,12 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onChange(of: fileExplorerState.mode) { _, _ in
+            syncFileExplorerDirectory()
+        })
+
+        // Bind/unbind the Notes store when the beta toggle flips so enabling
+        // it populates the tree immediately and disabling stops its watchers.
+        view = AnyView(view.onChange(of: notesBetaEnabled) { _, _ in
             syncFileExplorerDirectory()
         })
 
@@ -6084,6 +6013,7 @@ struct ContentView: View {
         snapshot.setBool(CommandPaletteContextKeys.workspaceMinimalModeEnabled, currentIsMinimalMode)
         snapshot.setBool(CommandPaletteContextKeys.sidebarMatchTerminalBackground, sidebarMatchTerminalBackground)
         snapshot.setBool(CommandPaletteContextKeys.browserDisabled, BrowserAvailabilitySettings.isDisabled())
+        snapshot.setBool(CommandPaletteContextKeys.notesBetaEnabled, RightSidebarBetaFeatureSettings.isNotesEnabled())
         if let auth = AppDelegate.shared?.auth {
             snapshot.setBool(CommandPaletteContextKeys.authSignedIn, auth.coordinator.isAuthenticated)
             snapshot.setBool(CommandPaletteContextKeys.proUpgradeEnabled, CmuxFeatureFlags.shared.isProUpgradeUIEnabled)
@@ -6365,6 +6295,24 @@ struct ContentView: View {
                 shortcutHint: "⌘⇧L",
                 keywords: ["new", "browser", "tab", "web"],
                 when: { !$0.bool(CommandPaletteContextKeys.browserDisabled) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.newNoteForCurrentSurface",
+                title: constant(String(localized: "command.newNoteForCurrentSurface.title", defaultValue: "New Note for Current Surface")),
+                subtitle: constant(String(localized: "command.newNoteForCurrentSurface.subtitle", defaultValue: "Note")),
+                keywords: ["new", "note", "markdown", "attach", "surface"],
+                when: Self.commandPaletteNewNoteCommandsVisible
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.newNoteForWorkspace",
+                title: constant(String(localized: "command.newNoteForWorkspace.title", defaultValue: "New Note for Workspace")),
+                subtitle: constant(String(localized: "command.newNoteForWorkspace.subtitle", defaultValue: "Note")),
+                keywords: ["new", "note", "markdown", "attach", "workspace"],
+                when: Self.commandPaletteNewNoteCommandsVisible
             )
         )
         contributions.append(
@@ -7564,6 +7512,41 @@ struct ContentView: View {
             // is not blocked by the palette visibility guard.
             DispatchQueue.main.async {
                 _ = AppDelegate.shared?.openBrowserAndFocusAddressBar()
+            }
+        }
+        registry.register(commandId: "palette.newNoteForCurrentSurface") {
+            if executeConfiguredAction(id: CmuxSurfaceTabBarBuiltInAction.newNote.configID) {
+                return
+            }
+            guard let workspace = tabManager.selectedWorkspace,
+                  let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+                NSSound.beep()
+                return
+            }
+            let panelId = workspace.focusedPanelId
+                ?? workspace.bonsplitController.selectedTab(inPane: paneId).flatMap { workspace.panelIdFromSurfaceId($0.id) }
+            guard let panelId else {
+                Task { @MainActor in
+                    _ = await workspace.openAttachedNoteForWorkspace(inPane: paneId, focus: true)
+                }
+                return
+            }
+            Task { @MainActor in
+                _ = await workspace.openAttachedNoteForSurface(
+                    inPane: paneId,
+                    panelId: panelId,
+                    focus: true
+                )
+            }
+        }
+        registry.register(commandId: "palette.newNoteForWorkspace") {
+            guard let workspace = tabManager.selectedWorkspace,
+                  let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+                NSSound.beep()
+                return
+            }
+            Task { @MainActor in
+                _ = await workspace.openAttachedNoteForWorkspace(inPane: paneId, focus: true)
             }
         }
         registry.register(commandId: "palette.closeTab") {

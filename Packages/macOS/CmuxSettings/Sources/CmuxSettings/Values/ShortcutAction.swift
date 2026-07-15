@@ -39,6 +39,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case switchRightSidebarToSessions
     case switchRightSidebarToFeed
     case switchRightSidebarToDock
+    /// Switches the right sidebar to the Notes tab.
+    case switchRightSidebarToNotes
     case triggerFlash
 
     // MARK: Navigation
@@ -78,6 +80,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case toggleFocusedWorkspaceGroupCollapsed
     case reopenClosedBrowserPanel
     case newSurface
+    /// Creates a new note in the focused workspace (Notes sidebar beta).
+    case newNote
     case toggleTerminalCopyMode
     case focusTextBoxInput
     /// Cycles the TextBox submit button to the next configured action.
@@ -184,14 +188,14 @@ extension ShortcutAction {
              .showNotifications, .jumpToUnread, .toggleUnread, .markOldestUnreadAndJumpNext,
              .focusRightSidebar, .switchRightSidebarToFiles, .switchRightSidebarToFind,
              .switchRightSidebarToSessions, .switchRightSidebarToFeed,
-             .switchRightSidebarToDock, .triggerFlash:
+             .switchRightSidebarToDock, .switchRightSidebarToNotes, .triggerFlash:
             return .workspace
         case .nextSurface, .prevSurface, .moveSurfaceLeft, .moveSurfaceRight, .selectSurfaceByNumber,
              .nextSidebarTab, .prevSidebarTab, .moveWorkspaceUp, .moveWorkspaceDown, .focusHistoryBack, .focusHistoryForward,
              .selectWorkspaceByNumber, .renameTab, .renameWorkspace,
              .editWorkspaceDescription, .markWorkspaceDone, .cycleWorkspaceStatus, .toggleChecklistItemComplete, .closeTab, .closeOtherTabsInPane, .closeWorkspace,
              .newWorkspaceGroup, .groupSelectedWorkspaces, .toggleFocusedWorkspaceGroupCollapsed,
-             .reopenClosedBrowserPanel, .newSurface, .toggleTerminalCopyMode,
+             .reopenClosedBrowserPanel, .newSurface, .newNote, .toggleTerminalCopyMode,
              .focusTextBoxInput, .cycleTextBoxSubmitAction, .attachTextBoxFile, .sendCtrlFToTerminal,
              .clearScreenKeepScrollback:
             return .navigation
@@ -228,15 +232,6 @@ extension ShortcutAction {
     /// should render it as `⌃1…9` (the range) rather than the literal
     /// single-digit `⌃1`, and recording any digit `1`–`9` rebinds the whole
     /// range. All other actions match a single concrete keystroke.
-    public var usesNumberedDigitMatching: Bool {
-        switch self {
-        case .selectSurfaceByNumber, .selectWorkspaceByNumber:
-            return true
-        default:
-            return false
-        }
-    }
-
     /// Whether the recorder may accept a shortcut whose first stroke has no modifier.
     ///
     /// Most cmux-owned shortcuts require a modifier on the first stroke to avoid
@@ -281,7 +276,8 @@ extension ShortcutAction {
     public var defaultFocusWhenClause: ShortcutWhenClause {
         switch self {
         case .switchRightSidebarToFiles, .switchRightSidebarToFind,
-             .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
+             .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock,
+             .switchRightSidebarToNotes:
             return .atom(.sidebarFocus)
         case .fileExplorerOpenSelection, .fileExplorerOpenSelectionFinderAlias:
             return .atom(.sidebarFocus)
@@ -357,6 +353,8 @@ extension ShortcutAction {
         case .switchRightSidebarToSessions: return "Show Sidebar Vault"
         case .switchRightSidebarToFeed: return "Show Sidebar Feed"
         case .switchRightSidebarToDock: return "Show Sidebar Dock"
+        case .switchRightSidebarToNotes:
+            return String(localized: "shortcut.switchRightSidebarToNotes.label", defaultValue: "Show Sidebar Notes")
         case .triggerFlash: return "Flash Focused Panel"
         case .nextSurface: return "Next Surface"
         case .prevSurface: return "Previous Surface"
@@ -387,6 +385,7 @@ extension ShortcutAction {
             return String(localized: "shortcut.toggleFocusedWorkspaceGroupCollapsed.label", defaultValue: "Toggle Focused Workspace's Group Collapse")
         case .reopenClosedBrowserPanel: return "Reopen Last Closed"
         case .newSurface: return "New Surface"
+        case .newNote: return String(localized: "shortcut.newNote.label", defaultValue: "New Note")
         case .toggleTerminalCopyMode: return "Toggle Terminal Copy Mode"
         case .focusTextBoxInput: return "Focus TextBox Input"
         case .cycleTextBoxSubmitAction:

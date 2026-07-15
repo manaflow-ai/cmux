@@ -1584,9 +1584,6 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
         diffViewerRequestPath = try container.decodeIfPresent(String.self, forKey: .diffViewerRequestPath)
     }
 }
-struct SessionMarkdownPanelSnapshot: Codable, Sendable {
-    var filePath: String
-}
 struct SessionFilePreviewPanelSnapshot: Codable, Sendable {
     var filePath: String
 }
@@ -1635,6 +1632,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var gitBranch: SessionGitBranchSnapshot?
     var listeningPorts: [Int]
     var ttyName: String?
+    var noteAnchorId: String? = nil
     var terminal: SessionTerminalPanelSnapshot?
     var browser: SessionBrowserPanelSnapshot?
     var markdown: SessionMarkdownPanelSnapshot?
@@ -1756,6 +1754,7 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var terminalScrollBarHidden: Bool?
     var currentDirectory: String
     var focusedPanelId: UUID?
+    var noteAnchorId: String? = nil
     var layout: SessionWorkspaceLayoutSnapshot
     /// `WorkspaceLayoutMode` raw value; absent in pre-canvas snapshots
     /// (treated as splits).

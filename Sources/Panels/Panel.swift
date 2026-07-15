@@ -303,6 +303,10 @@ public protocol Panel: AnyObject, Identifiable, ObservableObject where ID == UUI
     /// Whether the panel has unsaved changes
     var isDirty: Bool { get }
 
+    /// A close prompt that must be shown even when ordinary close warnings are
+    /// disabled. Used when closing would irreversibly discard user data.
+    var mandatoryCloseConfirmationPrompt: (title: String, message: String)? { get }
+
     /// Close the panel and clean up resources
     func close()
 
@@ -340,6 +344,7 @@ public protocol Panel: AnyObject, Identifiable, ObservableObject where ID == UUI
 extension Panel {
     public var displayIcon: String? { nil }
     public var isDirty: Bool { false }
+    public var mandatoryCloseConfirmationPrompt: (title: String, message: String)? { nil }
 
     func captureFocusIntent(in window: NSWindow?) -> PanelFocusIntent {
         _ = window

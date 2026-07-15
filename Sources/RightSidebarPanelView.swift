@@ -11,59 +11,7 @@ private func rightSidebarDebugResponder(_ responder: NSResponder?) -> String {
     guard let responder else { return "nil" }
     return String(describing: type(of: responder))
 }
-
-/// Mode shown in the right sidebar (the panel toggled by ⌘⌥B).
-enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
-    case files
-    case find
-    case sessions
-    case feed
-    case dock
-    case customSidebar = "custom-sidebar"
-
-    var label: String {
-        switch self {
-        case .files: return String(localized: "rightSidebar.mode.files", defaultValue: "Files")
-        case .find: return String(localized: "rightSidebar.mode.find", defaultValue: "Find")
-        case .sessions: return String(localized: "rightSidebar.mode.sessions", defaultValue: "Vault")
-        case .feed: return String(localized: "rightSidebar.mode.feed", defaultValue: "Feed")
-        case .dock: return String(localized: "rightSidebar.mode.dock", defaultValue: "Dock")
-        case .customSidebar: return String(localized: "rightSidebar.mode.customSidebar", defaultValue: "Custom")
-        }
-    }
-
-    var symbolName: String {
-        switch self {
-        case .files: return "folder"
-        case .find: return "magnifyingglass"
-        case .sessions: return "books.vertical"
-        case .feed: return "dot.radiowaves.left.and.right"
-        case .dock: return "dock.rectangle"
-        case .customSidebar: return "wand.and.stars"
-        }
-    }
-
-    var shortcutAction: KeyboardShortcutSettings.Action? {
-        switch self {
-        case .files: return .switchRightSidebarToFiles
-        case .find: return .switchRightSidebarToFind
-        case .sessions: return .switchRightSidebarToSessions
-        case .feed: return .switchRightSidebarToFeed
-        case .dock: return .switchRightSidebarToDock
-        case .customSidebar: return nil
-        }
-    }
-}
-
-extension RightSidebarMode {
-    static let paneModes: [RightSidebarMode] = [.files, .find, .sessions]
-
-    var canOpenAsPane: Bool {
-        Self.paneModes.contains(self)
-    }
-}
-
-enum RightSidebarContentMountPolicy {
+nonisolated enum RightSidebarContentMountPolicy {
     static func shouldMountContent(isRightSidebarVisible: Bool, hasMountedContent: Bool) -> Bool {
         isRightSidebarVisible || hasMountedContent
     }
@@ -75,7 +23,7 @@ enum FileExplorerRootSyncPolicy {
         switch mode {
         case .files, .find:
             return true
-        case .sessions, .feed, .dock, .customSidebar:
+        case .notes, .sessions, .feed, .dock, .customSidebar:
             return false
         }
     }
@@ -110,11 +58,16 @@ struct RightSidebarPanelView: View {
     @ObservedObject var fileExplorerStore: FileExplorerStore
     @ObservedObject var fileExplorerState: FileExplorerState
     @ObservedObject var sessionIndexStore: SessionIndexStore
+    let notesTreeStore: NotesTreeStore
     let titlebarHeight: CGFloat
     let windowAppearance: WindowAppearanceSnapshot
     let workspaceId: UUID?
     let onResumeSession: ((SessionEntry) -> Void)?
     let onOpenFilePreview: (String) -> Void
+    let onOpenNote: (NotesTreeNode, _ editImmediately: Bool) -> Void
+    let onResumeNoteSession: (NotesSessionMarker) -> Void
+    let onFocusNoteTerminal: (UUID) -> Void
+    let onResolveTerminalNoteTarget: (NotesTreeObservedTerminal) -> CmuxNoteAttachmentTarget?
     let onOpenAsPane: (RightSidebarMode) -> Void
     let onClose: () -> Void
 
@@ -132,6 +85,8 @@ struct RightSidebarPanelView: View {
     private let focusShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarFocusHintX
     private let focusShortcutHintYOffset = ShortcutHintDebugSettings.defaultRightSidebarFocusHintY
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
+    @AppStorage(RightSidebarBetaFeatureSettings.notesEnabledKey)
+    private var notesEnabled = RightSidebarBetaFeatureSettings.defaultNotesEnabled
     @AppStorage(RightSidebarBetaFeatureSettings.feedEnabledKey)
     private var feedEnabled = RightSidebarBetaFeatureSettings.defaultFeedEnabled
     @AppStorage(RightSidebarBetaFeatureSettings.dockEnabledKey)
@@ -145,7 +100,9 @@ struct RightSidebarPanelView: View {
     }
 
     private var availableModes: [RightSidebarMode] {
-        RightSidebarMode.availableModes(feedEnabled: feedEnabled, dockEnabled: dockEnabled)
+        RightSidebarMode.availableModes(
+            notesEnabled: notesEnabled, feedEnabled: feedEnabled, dockEnabled: dockEnabled
+        )
     }
 
     private var modeBarItems: [RightSidebarModeBarItem] {
@@ -209,6 +166,7 @@ struct RightSidebarPanelView: View {
         .onChange(of: fileExplorerState.isVisible) { _, visible in
             if visible { hasMountedRightSidebarContent = true }
         }
+        .onChange(of: notesEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onChange(of: feedEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onChange(of: dockEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
     }
@@ -385,6 +343,19 @@ struct RightSidebarPanelView: View {
                     onOpenFilePreview: onOpenFilePreview,
                     presentation: .files
                 )
+            case .notes:
+                NotesTreePanelView(
+                    store: notesTreeStore, contentRevision: notesTreeStore.contentRevision,
+                    onOpenNote: onOpenNote,
+                    onResumeMarker: onResumeNoteSession,
+                    onFocusTerminalPanel: onFocusNoteTerminal,
+                    onResolveTerminalNoteTarget: onResolveTerminalNoteTarget
+                )
+                .onAppear {
+                    notesTreeStore.setVisible(true)
+                    notesTreeStore.reloadIfNeeded()
+                }
+                .onDisappear { notesTreeStore.setVisible(false) }
             case .find:
                 FileExplorerPanelView(
                     store: fileExplorerStore,
@@ -439,6 +410,9 @@ struct RightSidebarPanelView: View {
             if sessionIndexStore.entries.isEmpty {
                 sessionIndexStore.reload()
             }
+        }
+        if fileExplorerState.mode == .notes {
+            notesTreeStore.reloadIfNeeded()
         }
     }
 

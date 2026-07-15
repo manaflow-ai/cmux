@@ -7,9 +7,18 @@ extension ShortcutAction {
     /// `⌃1…9` surface selection alongside the sidebar's `⌃1…5` shortcuts.
     public var hasPriorityShortcutRouting: Bool {
         switch self {
-        case .switchRightSidebarToFiles, .switchRightSidebarToFind,
+        case .switchRightSidebarToFiles, .switchRightSidebarToNotes, .switchRightSidebarToFind,
              .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock,
              .commandPaletteNext, .commandPalettePrevious:
+            return true
+        default:
+            return false
+        }
+    }
+
+    public var usesNumberedDigitMatching: Bool {
+        switch self {
+        case .selectSurfaceByNumber, .selectWorkspaceByNumber:
             return true
         default:
             return false

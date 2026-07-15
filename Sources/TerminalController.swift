@@ -406,41 +406,6 @@ class TerminalController {
     nonisolated func activeSocketPath(preferredPath: String) -> String {
         socketServer.activeSocketPath(preferredPath: preferredPath)
     }
-
-    nonisolated static func shouldSuppressSocketCommandActivation() -> Bool {
-        !currentSocketCommandFocusAllowanceStack().isEmpty
-    }
-
-    nonisolated static func socketCommandAllowsInAppFocusMutations() -> Bool {
-        allowsInAppFocusMutationsForActiveSocketCommand()
-    }
-
-    private nonisolated static func allowsInAppFocusMutationsForActiveSocketCommand() -> Bool {
-        currentSocketCommandFocusAllowanceStack().last ?? false
-    }
-
-    private func socketCommandAllowsInAppFocusMutations() -> Bool {
-        Self.allowsInAppFocusMutationsForActiveSocketCommand()
-    }
-
-    func v2FocusAllowed(requested: Bool = true) -> Bool {
-        requested && socketCommandAllowsInAppFocusMutations()
-    }
-
-    func v2MaybeFocusWindow(for tabManager: TabManager) {
-        guard socketCommandAllowsInAppFocusMutations(),
-              let windowId = v2ResolveWindowId(tabManager: tabManager) else { return }
-        _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-        setActiveTabManager(tabManager)
-    }
-
-    func v2MaybeSelectWorkspace(_ tabManager: TabManager, workspace: Workspace) {
-        guard socketCommandAllowsInAppFocusMutations() else { return }
-        if tabManager.selectedTabId != workspace.id {
-            tabManager.selectWorkspace(workspace)
-        }
-    }
-
     private nonisolated static func socketCommandAllowsInAppFocusMutations(commandKey: String, isV2: Bool, params: [String: Any] = [:]) -> Bool {
         if isV2 {
             return focusIntentV2Methods.contains(commandKey)
@@ -498,7 +463,7 @@ class TerminalController {
         return body()
     }
 
-    private nonisolated static func currentSocketCommandFocusAllowanceStack() -> [Bool] {
+    nonisolated static func currentSocketCommandFocusAllowanceStack() -> [Bool] {
         Thread.current.threadDictionary[socketCommandFocusAllowanceStackKey] as? [Bool] ?? []
     }
 
@@ -1342,6 +1307,22 @@ class TerminalController {
                 let outcome = try await BrowserImportAutomation.importCookies(params: request.params)
                 return outcome.socketPayload
             }
+        case "note.create":
+            return v2Result(id: request.id, v2NoteCreate(params: request.params))
+        case "note.open":
+            return v2Result(id: request.id, v2NoteOpen(params: request.params))
+        case "note.list":
+            return v2Result(id: request.id, v2NoteList(params: request.params))
+        case "note.path":
+            return v2Result(id: request.id, v2NotePath(params: request.params))
+        case "note.read":
+            return v2Result(id: request.id, v2NoteRead(params: request.params))
+        case "note.write":
+            return v2Result(id: request.id, v2NoteWrite(params: request.params))
+        case "note.append":
+            return v2Result(id: request.id, v2NoteAppend(params: request.params))
+        case "note.delete":
+            return v2Result(id: request.id, v2NoteDelete(params: request.params))
         case "mobile.attach_ticket.create":
             return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
                 await self.v2MobileAttachTicketCreate(params: request.params)
@@ -2475,6 +2456,14 @@ class TerminalController {
             "app.simulate_active",
             "file.open",
             "markdown.open",
+            "note.create",
+            "note.open",
+            "note.list",
+            "note.path",
+            "note.read",
+            "note.write",
+            "note.append",
+            "note.delete",
             "browser.open_split",
             "browser.navigate",
             "browser.back",

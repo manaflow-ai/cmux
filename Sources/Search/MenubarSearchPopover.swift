@@ -360,7 +360,7 @@ private struct GlobalSearchResultRow: Identifiable, Equatable {
         case .browser:
             return "globe"
         case .markdown:
-            return "doc.richtext"
+            return "doc.text"
         case .title:
             return "rectangle.stack"
         }

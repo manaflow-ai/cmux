@@ -4,6 +4,44 @@ import Foundation
 import WebKit
 
 extension FileDropOverlayView {
+    /// The registered sidebar tree under the drag location, if any.
+    /// `NSDraggingInfo.draggingLocation` is already in window coordinates.
+    func sidebarTreeDropView(at windowPoint: NSPoint) -> NSView? {
+        guard let window else { return nil }
+        return SidebarFileDropDeferralRegistry.view(atWindowPoint: windowPoint, in: window)
+    }
+
+    /// Route the drag to a sidebar tree (Notes outline) when the cursor is
+    /// over its region — the same forwarding shape as the WKWebView route.
+    /// Returns nil when the drag is not over a registered sidebar tree.
+    private func updateSidebarTreeDragTarget(_ sender: any NSDraggingInfo) -> NSDragOperation? {
+        guard let sidebarView = sidebarTreeDropView(at: sender.draggingLocation) else {
+            if let prev = activeSidebarDropView {
+                prev.draggingExited(sender)
+                activeSidebarDropView = nil
+            }
+            return nil
+        }
+        hintBadgeView.hide()
+        if let prev = activeDragWebView {
+            prev.draggingExited(sender)
+            activeDragWebView = nil
+        }
+        if let prev = activePaneDropTarget {
+            prev.fileDropDraggingExited(sender)
+            activePaneDropTarget = nil
+        }
+        if activeSidebarDropView !== sidebarView {
+            activeSidebarDropView?.draggingExited(sender)
+            activeSidebarDropView = sidebarView
+            #if DEBUG
+            cmuxDebugLog("overlay.fileDrop.sidebarRoute entered view=\(type(of: sidebarView))")
+            #endif
+            return sidebarView.draggingEntered(sender)
+        }
+        return sidebarView.draggingUpdated(sender)
+    }
+
     func updateDragTarget(_ sender: any NSDraggingInfo, phase: String) -> NSDragOperation {
         let loc = sender.draggingLocation
         let hasLocalDraggingSource = sender.draggingSource != nil
@@ -12,6 +50,9 @@ extension FileDropOverlayView {
             pasteboardTypes: types,
             hasLocalDraggingSource: hasLocalDraggingSource
         )
+        if let sidebarOperation = updateSidebarTreeDragTarget(sender) {
+            return sidebarOperation
+        }
         updateHintBadge(sender: sender, pasteboardTypes: types)
 
         if shouldRouteFileDropToTextDestination(sender) {

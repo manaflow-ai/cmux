@@ -5,6 +5,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     case app
     case terminal
     case textBox
+    case paneTabBar
     case sleepyMode
     case mobile
     case networking
@@ -32,6 +33,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return String(localized: "settings.section.terminal", defaultValue: "Terminal")
         case .textBox:
             return String(localized: "settings.section.textBox", defaultValue: "TextBox (Beta)")
+        case .paneTabBar:
+            return String(localized: "settings.section.paneTabBar", defaultValue: "Pane Tab Bar")
         case .sleepyMode:
             return String(localized: "settings.section.sleepyMode", defaultValue: "Sleepy Mode")
         case .mobile:
@@ -73,6 +76,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "terminal"
         case .textBox:
             return "textformat"
+        case .paneTabBar:
+            return "slider.horizontal.3"
         case .sleepyMode:
             return "moon.zzz"
         case .mobile:
@@ -114,6 +119,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "\(title) scrollbar auto resume restore reopen relaunch quit sessions agents claude codex opencode rovodev hibernation idle suspend commands approvals prefixes toggle"
         case .textBox:
             return "\(title) textbox text box rich input prompt beta new terminal workspace split tab focus height"
+        case .paneTabBar:
+            return "\(title) surface tab bar pane buttons more menu customize cmux json project local directory"
         case .sleepyMode:
             return "\(title) sleepy mode screensaver caffeinate keep awake lock touch id battery wifi clock mascot theme glow pixel"
         case .mobile:
@@ -390,6 +397,9 @@ enum SettingsSearchIndex {
         setting(.textBox, "focus-textbox-new-terminals", String(localized: "settings.textBox.focusOnNewTerminals", defaultValue: "Focus TextBox on New Terminals"), "terminal.focusTextBoxOnNewTerminals textbox text box rich input prompt default new workspace split tab beta"),
         setting(.textBox, "default-submit-action", String(localized: "settings.textBox.defaultSubmitAction", defaultValue: "Default Submit Action"), "terminal.textBoxDefaultSubmitAction textbox submit action shift tab codex yolo claude opencode pi agent route"),
         setting(.textBox, "textbox-max-lines", String(localized: "settings.textBox.maxLines", defaultValue: "TextBox Max Lines"), "terminal.textBoxMaxLines terminal textbox text box rich input prompt max height lines grow scroll beta"),
+        setting(.paneTabBar, "documentation", String(localized: "settings.paneTabBar.documentation", defaultValue: "Documentation"), "surface tab bar pane buttons more menu customize docs"),
+        setting(.paneTabBar, "global-config", String(localized: "settings.paneTabBar.globalConfig", defaultValue: "Global cmux.json"), "global config file cmux json user settings"),
+        setting(.paneTabBar, "project-config", String(localized: "settings.paneTabBar.projectConfig", defaultValue: "Project .cmux/cmux.json"), "project local directory scoped config cmux json"),
         setting(.sidebarAppearance, "match-terminal", String(localized: "settings.sidebarAppearance.matchTerminalBackground", defaultValue: "Match Terminal Background"), "sidebar material transparency"),
         setting(.sidebarAppearance, "font-size", String(localized: "settings.sidebarAppearance.fontSize", defaultValue: "Sidebar Font Size"), "font size text scale workspace title badge metadata shortcut hint sidebar-font-size"),
         setting(.sidebarAppearance, "hide-sidebar-details", String(localized: "settings.app.hideAllSidebarDetails", defaultValue: "Hide All Sidebar Details"), "workspace sidebar compact"),
@@ -413,6 +423,7 @@ enum SettingsSearchIndex {
         setting(.sidebarAppearance, "loading-spinner-position", String(localized: "settings.app.loadingSpinnerPosition", defaultValue: "Loading Spinner Position"), "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side"),
         setting(.sidebarAppearance, "notification-badge-position", String(localized: "settings.app.notificationBadgePosition", defaultValue: "Notification Badge Position"), "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side"),
         setting(.sidebarAppearance, "show-metadata", String(localized: "settings.app.showMetadata", defaultValue: "Show Custom Metadata in Sidebar"), "report meta status block"),
+        setting(.betaFeatures, "notes", String(localized: "settings.betaFeatures.notes", defaultValue: "Notes"), "notes right sidebar workspace agent sessions vault"),
         setting(.sidebarAppearance, "right-max-width", String(localized: "settings.sidebar.rightMaxWidth", defaultValue: "Dock Max Width"), "dock right sidebar max width terminal reservation cap logs lazygit"),
         setting(.customSidebars, "enabled", String(localized: "settings.customSidebars.enabled", defaultValue: "Show Custom Sidebars"), "custom sidebars enable show vibe swift json interpreted picker"),
         setting(.customSidebars, "renderer", String(localized: "settings.customSidebars.renderer", defaultValue: "Renderer"), "renderer in-process in app remote worker isolated process hover focus typing input"),
@@ -480,6 +491,7 @@ enum SettingsSearchIndex {
     )
 
     private static let settingsPathAnchorIDs: [String: String] = [
+        "rightSidebar.beta.notes.enabled": settingID(for: .betaFeatures, idSuffix: "notes"),
         "rightSidebar.beta.feed.enabled": settingID(for: .betaFeatures, idSuffix: "feed"),
         "rightSidebar.beta.dock.enabled": settingID(for: .betaFeatures, idSuffix: "dock"),
         "app.language": settingID(for: .app, idSuffix: "language"),

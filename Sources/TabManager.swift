@@ -2142,12 +2142,24 @@ class TabManager: ObservableObject {
     func closeOtherTabsInFocusedPaneWithConfirmation() {
         guard !closeConfirmationInFlight else { return }
         guard let plan = closeOtherTabsInFocusedPanePlan() else { return }
+        let requiresUnconditionalConfirmation = plan.panelIds.contains {
+            plan.workspace.panelMandatoryCloseConfirmationPrompt(panelId: $0) != nil
+        }
 
-        if CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmClose(requiresConfirmation: true, source: .shortcut) {
+        if requiresUnconditionalConfirmation
+            || CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmClose(
+                requiresConfirmation: true, source: .shortcut
+            ) {
             let prompt = CloseOtherTabsConfirmationPrompt(titles: plan.titles)
+            let message = requiresUnconditionalConfirmation
+                ? prompt.message + "\n\n" + String(
+                    localized: "dialog.closeUnsavedNotes.message",
+                    defaultValue: "One or more notes couldn’t be saved. Closing will discard their unsaved changes."
+                )
+                : prompt.message
             guard confirmClose(
                 title: prompt.title,
-                message: prompt.message,
+                message: message,
                 acceptCmdD: false
             ) else { return }
         }
@@ -2180,7 +2192,7 @@ class TabManager: ObservableObject {
     @discardableResult
     func closeWorkspaceWithConfirmation(_ workspace: Workspace) -> Bool {
         if workspace.isPinned {
-            guard confirmPinnedWorkspaceClose(source: .workspace) else { return false }
+            guard confirmPinnedWorkspaceClose(workspace, source: .workspace) else { return false }
             return closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false)
         }
         return closeWorkspaceIfRunningProcess(workspace)
@@ -2189,7 +2201,7 @@ class TabManager: ObservableObject {
     @discardableResult
     func closeWorkspaceFromCloseTabGesture(_ workspace: Workspace) -> Bool {
         if workspace.isPinned {
-            guard confirmPinnedWorkspaceClose(source: .tabClose) else { return false }
+            guard confirmPinnedWorkspaceClose(workspace, source: .tabClose) else { return false }
             return closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false)
         }
         return closeWorkspaceIfRunningProcess(workspace, source: .tabClose)
@@ -2198,7 +2210,7 @@ class TabManager: ObservableObject {
     @discardableResult
     func closeWorkspaceFromTabCloseButton(_ workspace: Workspace) -> Bool {
         if workspace.isPinned {
-            guard confirmPinnedWorkspaceClose(source: .tabCloseButton) else { return false }
+            guard confirmPinnedWorkspaceClose(workspace, source: .tabCloseButton) else { return false }
             return closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false)
         }
         return closeWorkspaceIfRunningProcess(workspace, source: .tabCloseButton)
@@ -2235,10 +2247,20 @@ class TabManager: ObservableObject {
         }
 
         let plan = closeWorkspacesPlan(for: workspaces)
-        if shouldConfirmClose(requiresConfirmation: true, source: .tabClose) {
+        let requiresUnconditionalConfirmation = workspaces.contains {
+            $0.requiresUnconditionalCloseConfirmation()
+        }
+        if requiresUnconditionalConfirmation
+            || shouldConfirmClose(requiresConfirmation: true, source: .tabClose) {
+            let message = requiresUnconditionalConfirmation
+                ? plan.message + "\n\n" + String(
+                    localized: "dialog.closeUnsavedNotes.message",
+                    defaultValue: "One or more notes couldn’t be saved. Closing will discard their unsaved changes."
+                )
+                : plan.message
             guard confirmClose(
                 title: plan.title,
-                message: plan.message,
+                message: message,
                 acceptCmdD: plan.acceptCmdD
             ) else { return }
         }
@@ -2389,106 +2411,16 @@ class TabManager: ObservableObject {
         cmuxMainWindowForModalPresentation(preferring: window)
     }
 
-    private struct CloseOtherTabsInFocusedPanePlan {
-        let workspace: Workspace
-        let panelIds: [UUID]
-        let titles: [String]
-    }
-
-    private struct CloseWorkspacesPlan {
-        let workspaces: [Workspace]
-        let title: String
-        let message: String
-        let acceptCmdD: Bool
-    }
-
     private enum CloseConfirmationSource {
         case workspace
         case tabClose
         case tabCloseButton
     }
 
-    private func closeOtherTabsInFocusedPanePlan() -> CloseOtherTabsInFocusedPanePlan? {
-        guard let workspace = selectedWorkspace else { return nil }
-        guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
-            return nil
-        }
-
-        let tabsInPane = workspace.bonsplitController.tabs(inPane: paneId)
-        guard !tabsInPane.isEmpty else { return nil }
-        guard let selectedTabId = workspace.bonsplitController.selectedTab(inPane: paneId)?.id ?? tabsInPane.first?.id else {
-            return nil
-        }
-
-        var targetPanelIds: [UUID] = []
-        var targetTitles: [String] = []
-        for tab in tabsInPane where tab.id != selectedTabId {
-            guard let panelId = workspace.panelIdFromSurfaceId(tab.id) else { continue }
-            if workspace.isPanelPinned(panelId) {
-                continue
-            }
-            targetPanelIds.append(panelId)
-            targetTitles.append(CloseOtherTabsConfirmationPrompt.displayTitle(workspace.panelTitle(panelId: panelId)))
-        }
-
-        guard !targetPanelIds.isEmpty else { return nil }
-        return CloseOtherTabsInFocusedPanePlan(
-            workspace: workspace,
-            panelIds: targetPanelIds,
-            titles: targetTitles
-        )
-    }
-
-    private func orderedClosableWorkspaces(_ workspaceIds: [UUID], allowPinned: Bool) -> [Workspace] {
-        let targetIds = Set(workspaceIds)
-        return tabs.compactMap { workspace in
-            guard targetIds.contains(workspace.id) else { return nil }
-            guard allowPinned || !workspace.isPinned else { return nil }
-            return workspace
-        }
-    }
-
     private func orderedSidebarSelectedWorkspaceIds() -> [UUID] {
         tabs.compactMap { workspace in
             sidebarSelectedWorkspaceIds.contains(workspace.id) ? workspace.id : nil
         }
-    }
-
-    private func closeWorkspacesPlan(for workspaces: [Workspace]) -> CloseWorkspacesPlan {
-        let willCloseWindow = workspaces.count == tabs.count
-        let title = willCloseWindow
-            ? String(localized: "dialog.closeWindow.title", defaultValue: "Close window?")
-            : String(localized: "dialog.closeWorkspaces.title", defaultValue: "Close workspaces?")
-        let titleLines = workspaces
-            .map { "• \(closeWorkspaceDisplayTitle($0.title))" }
-            .joined(separator: "\n")
-        let format = willCloseWindow
-            ? String(
-                localized: "dialog.closeWorkspacesWindow.message",
-                defaultValue: "This will close the current window, its %1$lld workspaces, and all of their panels:\n%2$@"
-            )
-            : String(
-                localized: "dialog.closeWorkspaces.message",
-                defaultValue: "This will close %1$lld workspaces and all of their panels:\n%2$@"
-            )
-        let message = String(format: format, locale: .current, Int64(workspaces.count), titleLines)
-        return CloseWorkspacesPlan(
-            workspaces: workspaces,
-            title: title,
-            message: message,
-            acceptCmdD: willCloseWindow
-        )
-    }
-
-    private func closeWorkspaceDisplayTitle(_ title: String?) -> String {
-        let collapsed = title?
-            .replacingOccurrences(of: "\n", with: " ")
-            .replacingOccurrences(of: "\r", with: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if let collapsed, !collapsed.isEmpty {
-            return collapsed
-        }
-        return String(localized: "workspace.displayName.fallback", defaultValue: "Workspace")
     }
 
     private func closeWorkspaceIfRunningProcess(
@@ -2513,11 +2445,21 @@ class TabManager: ObservableObject {
         }
         let willCloseWindow = tabs.count <= 1
         let needsCloseConfirmation = workspaceNeedsConfirmClose(workspace)
+        let requiresUnconditionalConfirmation = workspace.requiresUnconditionalCloseConfirmation()
         if requiresConfirmation,
-           shouldConfirmClose(requiresConfirmation: needsCloseConfirmation, source: source),
+           requiresUnconditionalConfirmation
+            || shouldConfirmClose(requiresConfirmation: needsCloseConfirmation, source: source),
            !confirmClose(
                title: String(localized: "dialog.closeWorkspace.title", defaultValue: "Close workspace?"),
-               message: String(localized: "dialog.closeWorkspace.message", defaultValue: "This will close the workspace and all of its panels."),
+               message: String(
+                   localized: "dialog.closeWorkspace.message",
+                   defaultValue: "This will close the workspace and all of its panels."
+               ) + (requiresUnconditionalConfirmation
+                   ? "\n\n" + String(
+                       localized: "dialog.closeUnsavedNotes.message",
+                       defaultValue: "One or more notes couldn’t be saved. Closing will discard their unsaved changes."
+                   )
+                   : ""),
                acceptCmdD: willCloseWindow
            ) {
             return false
@@ -2634,14 +2576,25 @@ class TabManager: ObservableObject {
         return true
     }
 
-    private func confirmPinnedWorkspaceClose(source: CloseConfirmationSource) -> Bool {
-        guard shouldConfirmClose(requiresConfirmation: true, source: source) else { return true }
+    private func confirmPinnedWorkspaceClose(
+        _ workspace: Workspace,
+        source: CloseConfirmationSource
+    ) -> Bool {
+        let requiresUnconditionalConfirmation = workspace.requiresUnconditionalCloseConfirmation()
+        guard requiresUnconditionalConfirmation
+            || shouldConfirmClose(requiresConfirmation: true, source: source) else { return true }
+        let message = String(
+            localized: "dialog.closePinnedWorkspace.message",
+            defaultValue: "This workspace is pinned. Closing it will close the workspace and all of its panels."
+        ) + (requiresUnconditionalConfirmation
+            ? "\n\n" + String(
+                localized: "dialog.closeUnsavedNotes.message",
+                defaultValue: "One or more notes couldn’t be saved. Closing will discard their unsaved changes."
+            )
+            : "")
         return confirmClose(
             title: String(localized: "dialog.closePinnedWorkspace.title", defaultValue: "Close pinned workspace?"),
-            message: String(
-                localized: "dialog.closePinnedWorkspace.message",
-                defaultValue: "This workspace is pinned. Closing it will close the workspace and all of its panels."
-            ),
+            message: message,
             acceptCmdD: tabs.count <= 1
         )
     }

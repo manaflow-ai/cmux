@@ -9,7 +9,7 @@ extension Workspace {
     func applyCustomLayout(_ layout: CmuxLayoutNode, baseCwd: String, setupCommand: String? = nil) {
         guard let rootPaneId = bonsplitController.allPaneIds.first else { return }
 
-        var leaves: [(paneId: PaneID, surfaces: [CmuxSurfaceDefinition])] = []
+        var leaves: [(paneId: PaneID, surfaces: [CmuxSurfaceDefinition], layoutPath: String)] = []
         buildCustomLayoutTree(layout, inPane: rootPaneId, leaves: &leaves)
 
         // First leaf reuses the initial terminal created by addWorkspace;
@@ -21,6 +21,7 @@ extension Workspace {
             populateCustomPane(
                 leaf.paneId,
                 surfaces: leaf.surfaces,
+                layoutPath: leaf.layoutPath,
                 baseCwd: baseCwd,
                 focusPanelId: &focusPanelId,
                 pendingSetup: &pendingSetup
@@ -56,18 +57,19 @@ extension Workspace {
     private func buildCustomLayoutTree(
         _ node: CmuxLayoutNode,
         inPane paneId: PaneID,
-        leaves: inout [(paneId: PaneID, surfaces: [CmuxSurfaceDefinition])]
+        layoutPath: String = "root",
+        leaves: inout [(paneId: PaneID, surfaces: [CmuxSurfaceDefinition], layoutPath: String)]
     ) {
         switch node {
         case .pane(let pane):
-            leaves.append((paneId: paneId, surfaces: pane.surfaces))
+            leaves.append((paneId: paneId, surfaces: pane.surfaces, layoutPath: layoutPath))
 
         case .split(let split):
             guard split.children.count == 2 else {
                 #if DEBUG
                 NSLog("[CmuxConfig] split node requires exactly 2 children, got %d", split.children.count)
                 #endif
-                leaves.append((paneId: paneId, surfaces: []))
+                leaves.append((paneId: paneId, surfaces: [], layoutPath: layoutPath))
                 return
             }
 
@@ -88,18 +90,29 @@ extension Workspace {
                       focus: false
                   ),
                   let secondPaneId = self.paneId(forPanelId: newSplitPanel.id) else {
-                leaves.append((paneId: paneId, surfaces: []))
+                leaves.append((paneId: paneId, surfaces: [], layoutPath: layoutPath))
                 return
             }
 
-            buildCustomLayoutTree(split.children[0], inPane: paneId, leaves: &leaves)
-            buildCustomLayoutTree(split.children[1], inPane: secondPaneId, leaves: &leaves)
+            buildCustomLayoutTree(
+                split.children[0],
+                inPane: paneId,
+                layoutPath: "\(layoutPath).0",
+                leaves: &leaves
+            )
+            buildCustomLayoutTree(
+                split.children[1],
+                inPane: secondPaneId,
+                layoutPath: "\(layoutPath).1",
+                leaves: &leaves
+            )
         }
     }
 
     private func populateCustomPane(
         _ paneId: PaneID,
         surfaces: [CmuxSurfaceDefinition],
+        layoutPath: String,
         baseCwd: String,
         focusPanelId: inout UUID?,
         pendingSetup: inout String?
@@ -116,6 +129,7 @@ extension Workspace {
                 panelId: placeholderPanelId,
                 inPane: paneId,
                 surface: firstSurface,
+                surfaceSeed: "\(layoutPath).surface.0",
                 baseCwd: baseCwd,
                 focusPanelId: &focusPanelId,
                 pendingSetup: &pendingSetup
@@ -126,6 +140,7 @@ extension Workspace {
             createNewSurface(
                 inPane: paneId,
                 surface: surfaces[surfaceIndex],
+                surfaceSeed: "\(layoutPath).surface.\(surfaceIndex)",
                 baseCwd: baseCwd,
                 focusPanelId: &focusPanelId,
                 pendingSetup: &pendingSetup
@@ -155,6 +170,7 @@ extension Workspace {
         panelId: UUID,
         inPane paneId: PaneID,
         surface: CmuxSurfaceDefinition,
+        surfaceSeed: String,
         baseCwd: String,
         focusPanelId: inout UUID?,
         pendingSetup: inout String?
@@ -198,6 +214,16 @@ extension Workspace {
                 if surface.focus == true { focusPanelId = panel.id }
             }
 
+        case .note:
+            let slug = noteSlugForConfigSurface(surface, fallbackSeed: surfaceSeed)
+            scheduleConfigNoteSurface(
+                replacingPanelId: panelId,
+                inPane: paneId,
+                slug: slug,
+                customTitle: surface.name,
+                shouldFocus: surface.focus == true
+            )
+
         case .project:
             if let panel = newProjectSurface(
                 inPane: paneId,
@@ -214,6 +240,7 @@ extension Workspace {
     private func createNewSurface(
         inPane paneId: PaneID,
         surface: CmuxSurfaceDefinition,
+        surfaceSeed: String,
         baseCwd: String,
         focusPanelId: inout UUID?,
         pendingSetup: inout String?
@@ -246,6 +273,16 @@ extension Workspace {
                 if surface.focus == true { focusPanelId = panel.id }
             }
 
+        case .note:
+            let slug = noteSlugForConfigSurface(surface, fallbackSeed: surfaceSeed)
+            scheduleConfigNoteSurface(
+                replacingPanelId: nil,
+                inPane: paneId,
+                slug: slug,
+                customTitle: surface.name,
+                shouldFocus: surface.focus == true
+            )
+
         case .project:
             if let panel = newProjectSurface(
                 inPane: paneId,
@@ -256,6 +293,54 @@ extension Workspace {
                 if surface.focus == true { focusPanelId = panel.id }
             }
         }
+    }
+
+    private func scheduleConfigNoteSurface(
+        replacingPanelId placeholderPanelId: UUID?,
+        inPane paneId: PaneID,
+        slug: String,
+        customTitle: String?,
+        shouldFocus: Bool
+    ) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            if let placeholderPanelId, panels[placeholderPanelId] == nil {
+                return
+            }
+            guard let panel = await newNoteSurface(
+                inPane: paneId,
+                slug: slug,
+                createIfMissing: true,
+                focus: false,
+                reuseExisting: false
+            ) else {
+                return
+            }
+            if let placeholderPanelId {
+                _ = closePanel(placeholderPanelId, force: true)
+            }
+            if let customTitle {
+                setPanelCustomTitle(panelId: panel.id, title: customTitle)
+            }
+            if shouldFocus {
+                focusPanel(panel.id)
+            }
+        }
+    }
+
+    /// Resolve a note slug from a config-declared `note` surface. The slug
+    /// source-of-truth is `surface.name`; when missing or invalid we derive a
+    /// stable slug from the surface's config position so repeated reloads open
+    /// the same note file.
+    private func noteSlugForConfigSurface(
+        _ surface: CmuxSurfaceDefinition,
+        fallbackSeed: String
+    ) -> String {
+        if let raw = surface.name,
+           let validated = try? NoteSupport.validateSlug(raw) {
+            return validated
+        }
+        return NoteSupport.configFallbackSlug(seed: fallbackSeed)
     }
 
     private func applyCustomDividerPositions(

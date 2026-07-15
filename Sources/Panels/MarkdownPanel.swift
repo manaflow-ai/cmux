@@ -3,7 +3,7 @@ import CmuxFoundation
 import Combine
 import Foundation
 
-enum MarkdownPanelDisplayMode: String, CaseIterable, Identifiable {
+enum MarkdownPanelDisplayMode: String, CaseIterable, Codable, Identifiable, Sendable {
     case preview
     case text
 
@@ -18,35 +18,48 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .markdown
 
-    /// Absolute path to the markdown file being displayed.
-    let filePath: String
+    /// Absolute path to the markdown file being displayed. Re-pointed in
+    /// place when a Notes-tree move/rename relocates the file (or a folder
+    /// above it) so open viewers follow instead of going "File unavailable".
+    var filePath: String
+
+    /// Project-scoped note slug when this Markdown panel was opened through
+    /// the note surface path. Plain Markdown panels never infer this from path.
+    var noteSlug: String?
+    var noteID: String?
+    var noteBodyPath: String?
+    var noteTitle: String?
 
     /// The workspace this panel belongs to.
     private(set) var workspaceId: UUID
 
     /// Current markdown content read from the file.
-    @Published private(set) var content: String = ""
+    @Published var content: String = ""
 
     /// Current raw text shown by the TextEdit mode.
-    @Published private(set) var textContent: String = ""
+    @Published var textContent: String = ""
 
     /// Whether TextEdit mode has unsaved changes.
-    @Published private(set) var isDirty: Bool = false
+    @Published var isDirty: Bool = false
 
     /// Whether TextEdit mode is saving to disk.
-    @Published private(set) var isSaving: Bool = false
+    @Published var isSaving: Bool = false
+
+    /// Child observation state for note autosave failures. Keeping this out of
+    /// the legacy ObservableObject avoids adding another broad @Published
+    /// invalidation to every Markdown panel update.
+    let noteSaveState = MarkdownNoteSaveState()
 
     /// The current view mode for this markdown panel. New panels default to preview.
-    @Published private(set) var displayMode: MarkdownPanelDisplayMode = .preview
+    @Published var displayMode: MarkdownPanelDisplayMode = .preview
 
     /// Title shown in the tab bar (filename).
-    @Published private(set) var displayTitle: String = ""
+    @Published var displayTitle: String = ""
 
-    /// SF Symbol icon for the tab bar.
     var displayIcon: String? { "doc.richtext" }
 
     /// Whether the file has been deleted or is unreadable.
-    @Published private(set) var isFileUnavailable: Bool = false
+    @Published var isFileUnavailable: Bool = false
 
     /// Token incremented to trigger focus flash animation.
     @Published private(set) var focusFlashToken: Int = 0
@@ -78,15 +91,32 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     // Watches `filePath` (file + ancestor-directory recovery) via CmuxFileWatch.
     private var fileWatcher: FileWatcher?
     private var fileWatchTask: Task<Void, Never>?
-    private var originalTextContent: String = ""
-    private var textEncoding: String.Encoding = .utf8
-    private var saveGeneration: Int = 0
-    private var activeSaveGeneration: Int?
-    private var pendingSearchNeedle: String?
-    private weak var textView: NSTextView?
-    private var isClosed: Bool = false
-    // NotificationCenter token; removal is thread-safe so deinit can drop it.
+    var originalTextContent: String = ""
+    var textEncoding: String.Encoding = .utf8
+    var saveGeneration: Int = 0
+    var activeSaveGeneration: Int?
+    var autoSaveTask: Task<Void, Never>?
+    /// The in-flight write started by `saveTextContent`, kept so the close
+    /// path can order a final flush after it without depending on this
+    /// panel staying alive.
+    var activeSaveTask: Task<Void, Never>?
+    /// True when the file lives in a `.cmux/notes` tree — the per-workspace
+    /// Notes filesystem. Classified by path so every entrypoint (Notes tab,
+    /// session restore, file explorer) gives the same note behavior. Lazy:
+    /// `filePath` is immutable and this is consulted on every keystroke via
+    /// the autosave scheduler.
+    private(set) lazy var isWorkspaceNotesFile: Bool = Self.isWorkspaceNotesPath(filePath)
+    /// Debounce clock for note autosave; sleeping on it cancels with the task.
+    let autoSaveClock = ContinuousClock()
+    var pendingSearchNeedle: String?
+    var pendingShowFindInterface = false
+    var pendingTextViewFocus = false
+    weak var textView: NSTextView?
+    var isClosed: Bool = false
+    // NotificationCenter tokens; removal is thread-safe so deinit can drop them.
     private nonisolated(unsafe) var typographyDefaultsObserver: NSObjectProtocol?
+    nonisolated(unsafe) var relocationObserver: NSObjectProtocol?
+    nonisolated(unsafe) var retitleObserver: NSObjectProtocol?
     // The typography default this viewer is currently tracking. While the panel
     // still matches it, a default change (Set as Default / cmux.json reload) is
     // adopted; once the user customizes the panel it diverges and is left alone.
@@ -114,13 +144,24 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         self.followedMaxContentWidth = defaultMaxWidth
         self.displayTitle = (filePath as NSString).lastPathComponent
 
+        // An empty workspace note opens straight in the text editor: a new
+        // note is opened to be written, and an empty render is useless. This
+        // is the default for every entry point (Notes tree, pane drop,
+        // restore); non-empty notes open in the rendered viewer like any md.
+        // `loadFileContent()` reads the file just below, so `content.isEmpty`
+        // already captures the empty-file case without a redundant `stat`.
         loadFileContent()
+        if Self.isWorkspaceNotesPath(filePath), content.isEmpty {
+            self.displayMode = .text
+        }
         startWatching()
         observeTypographyDefaults()
+        observeNoteRelocations()
+        observeNoteRetitles()
     }
 
-    /// Adopt a changed typography default (from another viewer's "Set as Default"
-    /// or a `cmux.json` reload), but only while this viewer still matches the
+    /// Follow Notes-tree moves/renames so a panel open on the relocated file
+    /// (or on a file inside a relocated folder) keeps working at the new path.
     /// default it was tracking — i.e. the user has not customized it.
     private func observeTypographyDefaults() {
         typographyDefaultsObserver = NotificationCenter.default.addObserver(
@@ -234,16 +275,55 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     func focus() {
         guard displayMode == .text else { return }
-        _ = textView?.window?.makeFirstResponder(textView)
-        applyPendingSearchNeedleIfPossible()
+        guard let textView, let window = textView.window else {
+            pendingTextViewFocus = true
+            return
+        }
+        let didFocus = window.makeFirstResponder(textView)
+        pendingTextViewFocus = !didFocus
+        if didFocus {
+            applyPendingSearchNeedleIfPossible()
+        }
     }
 
     func unfocus() {
-        // No-op for read-only panel.
+        pendingTextViewFocus = false
     }
 
     func close() {
         isClosed = true
+        autoSaveTask?.cancel()
+        autoSaveTask = nil
+        // Notes have no manual Save and the debounced autosave may not have fired
+        // yet; flush pending edits before teardown. saveTextContent reads the live
+        // textView, so flush before clearing it; the write Task captures content by
+        // value and completes even as this panel is released.
+        if behavesAsNote, isDirty {
+            if saveTextContent() == nil, isSaving {
+                // An older snapshot is mid-write and saveTextContent no-ops
+                // while saving. Once this panel is released its completion
+                // can't re-flush (weak self), so order a final write of the
+                // newest text after the in-flight one, independent of this
+                // panel's lifetime.
+                let fileURL = URL(fileURLWithPath: filePath)
+                let encoding = textEncoding
+                let finalContent = textView?.string ?? textContent
+                let inFlight = activeSaveTask
+                let requiresTrustedNoteWrite = behavesAsNote
+                Task.detached(priority: .utility) {
+                    _ = await inFlight?.value
+                    if requiresTrustedNoteWrite {
+                        _ = await FilePreviewTextSaver.saveTrustedWorkspaceNote(
+                            content: finalContent, to: fileURL, encoding: encoding
+                        )
+                    } else {
+                        _ = await FilePreviewTextSaver.save(
+                            content: finalContent, to: fileURL, encoding: encoding
+                        )
+                    }
+                }
+            }
+        }
         rendererSession.close()
         GlobalSearchCoordinator.shared.purgePanel(id: id)
         textView = nil
@@ -251,6 +331,14 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         if let typographyDefaultsObserver {
             NotificationCenter.default.removeObserver(typographyDefaultsObserver)
             self.typographyDefaultsObserver = nil
+        }
+        if let relocationObserver {
+            NotificationCenter.default.removeObserver(relocationObserver)
+            self.relocationObserver = nil
+        }
+        if let retitleObserver {
+            NotificationCenter.default.removeObserver(retitleObserver)
+            self.retitleObserver = nil
         }
     }
 
@@ -260,88 +348,10 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         focusFlashToken += 1
     }
 
-    func setDisplayMode(_ mode: MarkdownPanelDisplayMode) {
-        guard displayMode != mode else { return }
-        displayMode = mode
-        if mode == .text {
-            focus()
-        }
-    }
-
-    func attachTextView(_ textView: NSTextView) {
-        self.textView = textView
-    }
-
-    func retryPendingFocus() {
-        focus()
-    }
-
-    func applySearchNeedle(_ needle: String) {
-        let trimmed = needle.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        pendingSearchNeedle = trimmed
-        setDisplayMode(.text)
-        applyPendingSearchNeedleIfPossible()
-    }
-
-    func updateTextContent(_ nextContent: String) {
-        guard textContent != nextContent else { return }
-        textContent = nextContent
-        content = nextContent
-        isDirty = nextContent != originalTextContent
-        GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
-    }
-
-    @discardableResult
-    func loadTextContent(replacingDirtyContent: Bool = true) -> Task<Void, Never>? {
-        loadFileContent(replacingDirtyContent: replacingDirtyContent)
-        return nil
-    }
-
-    @discardableResult
-    func saveTextContent() -> Task<Void, Never>? {
-        guard !isSaving else { return nil }
-        let currentContent = textView?.string ?? textContent
-        guard currentContent != originalTextContent else {
-            textContent = currentContent
-            content = currentContent
-            isDirty = false
-            GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
-            return nil
-        }
-
-        saveGeneration += 1
-        let generation = saveGeneration
-        textContent = currentContent
-        content = currentContent
-        isDirty = true
-        isSaving = true
-        activeSaveGeneration = generation
-        GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
-        let fileURL = URL(fileURLWithPath: filePath)
-        let encoding = textEncoding
-
-        return Task { [weak self, currentContent, fileURL, encoding, generation] in
-            let result = await FilePreviewTextSaver.save(content: currentContent, to: fileURL, encoding: encoding)
-            guard let self, self.activeSaveGeneration == generation else { return }
-            self.activeSaveGeneration = nil
-            self.isSaving = false
-            switch result {
-            case .saved:
-                self.originalTextContent = currentContent
-                self.isDirty = self.textContent != currentContent
-                self.isFileUnavailable = false
-                GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
-            case .failed(let fileExists):
-                self.isFileUnavailable = !fileExists
-                GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
-            }
-        }
-    }
 
     // MARK: - File I/O
 
-    private func loadFileContent(replacingDirtyContent: Bool = true) {
+    func loadFileContent(replacingDirtyContent: Bool = true) {
         switch Self.loadMarkdownFile(at: filePath) {
         case .loaded(let newContent, let encoding):
             applyLoadedContent(newContent, encoding: encoding, replacingDirtyContent: replacingDirtyContent)
@@ -355,6 +365,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
             textContent = ""
             originalTextContent = ""
             isDirty = false
+            noteSaveState.clearFailure()
             isFileUnavailable = true
             GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
         }
@@ -369,6 +380,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
             originalTextContent = newContent
             textEncoding = encoding
             isDirty = textContent != newContent
+            if !isDirty { noteSaveState.clearFailure() }
             isFileUnavailable = false
             GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
             return
@@ -379,6 +391,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         originalTextContent = newContent
         textEncoding = encoding
         isDirty = false
+        noteSaveState.clearFailure()
         isFileUnavailable = false
         GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
     }
@@ -398,7 +411,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         return .unavailable
     }
 
-    private func applyPendingSearchNeedleIfPossible() {
+    func applyPendingSearchNeedleIfPossible() {
         guard let needle = pendingSearchNeedle,
               let textView else {
             return
@@ -424,7 +437,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// Watches ``filePath`` for changes via ``CmuxFileWatch/FileWatcher``, which
     /// handles inode reattachment and nearest-existing-ancestor recovery
     /// internally; each change reloads the content.
-    private func startWatching() {
+    func startWatching() {
         stopWatching()
         let watcher = FileWatcher(path: filePath)
         fileWatcher = watcher
@@ -449,5 +462,22 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         if let typographyDefaultsObserver {
             NotificationCenter.default.removeObserver(typographyDefaultsObserver)
         }
+        if let relocationObserver {
+            NotificationCenter.default.removeObserver(relocationObserver)
+        }
+        if let retitleObserver {
+            NotificationCenter.default.removeObserver(retitleObserver)
+        }
     }
+}
+
+extension Notification.Name {
+    /// Posted by ``NotesTreeStore`` after a move/rename relocates a note file
+    /// or folder on disk. `userInfo`: `oldPath` / `newPath` as standardized
+    /// absolute paths; a folder relocation implies every path beneath it.
+    static let cmuxNoteFileRelocated = Notification.Name("cmuxNoteFileRelocated")
+    /// Posted by ``NotesTreeStore`` after an index-owned flat note is renamed
+    /// (its record retitled; the body file stays put). `userInfo`: `bodyPath`
+    /// (standardized absolute body path) and `title` (the new display title).
+    static let cmuxNoteRetitled = Notification.Name("cmuxNoteRetitled")
 }

@@ -3,6 +3,7 @@ extension KeyboardShortcutSettings.Action {
     var isPublicShortcutAction: Bool {
         switch self {
         case .switchRightSidebarToFiles,
+             .switchRightSidebarToNotes,
              .switchRightSidebarToFind,
              .switchRightSidebarToSessions,
              .switchRightSidebarToFeed,

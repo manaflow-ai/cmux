@@ -67,11 +67,16 @@ struct HiddenRightSidebarContentMountingTests {
             fileExplorerStore: FileExplorerStore(),
             fileExplorerState: fileExplorerState,
             sessionIndexStore: SessionIndexStore(),
+            notesTreeStore: NotesTreeStore(),
             titlebarHeight: 36,
             windowAppearance: .rightSidebarPanelViewTestDefault,
             workspaceId: nil,
             onResumeSession: nil,
             onOpenFilePreview: { _ in },
+            onOpenNote: { _, _ in },
+            onResumeNoteSession: { _ in },
+            onFocusNoteTerminal: { _ in },
+            onResolveTerminalNoteTarget: { _ in nil },
             onOpenAsPane: { _ in },
             onClose: {}
         )

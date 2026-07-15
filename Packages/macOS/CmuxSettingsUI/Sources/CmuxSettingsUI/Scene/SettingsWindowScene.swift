@@ -414,9 +414,10 @@ public struct SettingsWindowRoot: View {
     @ViewBuilder
     private var sectionStack: some View {
         // Order matches the legacy in-app SettingsView scroll order:
-        // Account, App, Terminal, TextBox, Mobile, Sidebar, Beta Features,
-        // Automation, Browser (with embedded Import), Global Hotkey,
-        // Keyboard Shortcuts, Workspace Colors, cmux.json, Reset.
+        // Account, App, Terminal, TextBox, Pane Tab Bar, Sleepy Mode, Mobile,
+        // Sidebar, Custom Sidebars, Beta Features, Automation, Browser (with
+        // embedded Import), Global Hotkey, Keyboard Shortcuts, Workspace
+        // Colors, cmux.json, Reset.
         AccountSection(
             defaultsStore: defaultsStore,
             catalog: catalog,
@@ -441,6 +442,9 @@ public struct SettingsWindowRoot: View {
 
         TextBoxSection(defaultsStore: defaultsStore, catalog: catalog)
             .id(anchorID(for: .textBox))
+
+        PaneTabBarSection(jsonStore: jsonStore, hostActions: hostActions)
+            .id(anchorID(for: .paneTabBar))
 
         SleepyModeSection(hostActions: hostActions, store: hostActions.sleepyModeStore())
             .id(anchorID(for: .sleepyMode))

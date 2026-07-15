@@ -39,6 +39,17 @@ struct CloseOtherTabsConfirmationPrompt: Sendable {
 }
 
 extension Workspace {
+    func panelMandatoryCloseConfirmationPrompt(
+        panelId: UUID
+    ) -> (title: String, message: String)? {
+        panels[panelId]?.mandatoryCloseConfirmationPrompt
+    }
+
+    func requiresUnconditionalCloseConfirmation() -> Bool {
+        panels.values.contains { $0.mandatoryCloseConfirmationPrompt != nil }
+            || _dockSplit?.requiresUnconditionalCloseConfirmation() == true
+    }
+
     func closeTabsFromContextMenu(_ tabIds: [TabID], skipPinned: Bool = true) {
         let confirmationManager = owningTabManager
             ?? AppDelegate.shared?.tabManagerFor(tabId: id)
@@ -59,8 +70,14 @@ extension Workspace {
             guard let panelId = candidate.panelId else { return false }
             return panelNeedsConfirmClose(panelId: panelId)
         }
+        let requiresUnconditionalConfirmation = candidates.contains { candidate in
+            guard let panelId = candidate.panelId else { return false }
+            return panelMandatoryCloseConfirmationPrompt(panelId: panelId) != nil
+        }
 
-        if CloseTabWarningStore(defaults: confirmationManager?.closeTabWarningDefaults ?? closeTabWarningDefaults).shouldConfirmClose(
+        if requiresUnconditionalConfirmation || CloseTabWarningStore(
+            defaults: confirmationManager?.closeTabWarningDefaults ?? closeTabWarningDefaults
+        ).shouldConfirmClose(
             requiresConfirmation: needsConfirmation,
             source: .shortcut
         ) {
@@ -72,9 +89,15 @@ extension Workspace {
                     )
                 }
             )
+            let message = requiresUnconditionalConfirmation
+                ? prompt.message + "\n\n" + String(
+                    localized: "dialog.closeUnsavedNotes.message",
+                    defaultValue: "One or more notes couldn’t be saved. Closing will discard their unsaved changes."
+                )
+                : prompt.message
             guard confirmationManager.confirmClose(
                 title: prompt.title,
-                message: prompt.message,
+                message: message,
                 acceptCmdD: false
             ) else { return }
         }

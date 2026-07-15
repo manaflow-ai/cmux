@@ -10,6 +10,8 @@ extension ContentView {
             return CmuxSurfaceTabBarBuiltInAction.newBrowser.configID
         case "palette.newAgentChat":
             return CmuxSurfaceTabBarBuiltInAction.newAgentChat.configID
+        case "palette.newNoteForCurrentSurface":
+            return CmuxSurfaceTabBarBuiltInAction.newNote.configID
         case "palette.terminalSplitRight":
             return CmuxSurfaceTabBarBuiltInAction.splitRight.configID
         case "palette.terminalSplitDown":

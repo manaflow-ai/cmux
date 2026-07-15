@@ -3,8 +3,8 @@ import Foundation
 import CoreGraphics
 
 final class BonsplitTabDragUITests: XCTestCase {
-    private let launchTimeout: TimeInterval = 20.0
-    private let setupTimeout: TimeInterval = 25.0
+    let launchTimeout: TimeInterval = 20.0
+    let setupTimeout: TimeInterval = 25.0
 
     override func setUp() {
         super.setUp()
@@ -864,12 +864,12 @@ final class BonsplitTabDragUITests: XCTestCase {
         )
     }
 
-    private enum WorkspacePresentationMode: String {
+    enum WorkspacePresentationMode: String {
         case standard
         case minimal
     }
 
-    private func launchConfiguredApp(
+    func launchConfiguredApp(
         startWithHiddenSidebar: Bool = false,
         presentationMode: WorkspacePresentationMode = .minimal,
         rightSidebarMode: String? = nil,
@@ -959,7 +959,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         }
     }
 
-    private func waitForAnyJSON(atPath path: String, timeout: TimeInterval) -> Bool {
+    func waitForAnyJSON(atPath path: String, timeout: TimeInterval) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if loadJSON(atPath: path) != nil { return true }
@@ -968,7 +968,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         return loadJSON(atPath: path) != nil
     }
 
-    private func waitForJSONKey(_ key: String, equals expected: String, atPath path: String, timeout: TimeInterval) -> [String: String]? {
+    func waitForJSONKey(_ key: String, equals expected: String, atPath path: String, timeout: TimeInterval) -> [String: String]? {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if let data = loadJSON(atPath: path), data[key] == expected {
@@ -1039,7 +1039,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         return nil
     }
 
-    private func loadJSON(atPath path: String) -> [String: String]? {
+    func loadJSON(atPath path: String) -> [String: String]? {
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
             return nil
@@ -1047,7 +1047,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         return object
     }
 
-    private func waitForCondition(timeout: TimeInterval, _ condition: () -> Bool) -> Bool {
+    func waitForCondition(timeout: TimeInterval, _ condition: () -> Bool) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if condition() { return true }
@@ -1056,7 +1056,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         return condition()
     }
 
-    private func hover(in window: XCUIElement, at point: CGPoint) {
+    func hover(in window: XCUIElement, at point: CGPoint) {
         let origin = window.coordinate(withNormalizedOffset: .zero)
         origin.withOffset(
             CGVector(
@@ -1065,7 +1065,6 @@ final class BonsplitTabDragUITests: XCTestCase {
             )
         ).hover()
     }
-
     private func distanceToTopEdge(of element: XCUIElement, in window: XCUIElement) -> CGFloat {
         let gapIfOriginIsBottomLeft = abs(window.frame.maxY - element.frame.maxY)
         let gapIfOriginIsTopLeft = abs(element.frame.minY - window.frame.minY)

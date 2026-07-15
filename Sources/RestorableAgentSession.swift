@@ -953,7 +953,9 @@ struct RestorableAgentSessionIndex: Sendable {
         let isAmbiguous: Bool
     }
 
-    private let entriesByPanel: [PanelKey: Entry]
+    // Internal (not private): RestorableAgentSessionIndex+AllEntries.swift
+    // reads this across files for the Notes tree's session enumeration.
+    let entriesByPanel: [PanelKey: Entry]
     private let entriesByPanelId: [UUID: Entry]
 
     func entry(workspaceId: UUID, panelId: UUID) -> Entry? {
