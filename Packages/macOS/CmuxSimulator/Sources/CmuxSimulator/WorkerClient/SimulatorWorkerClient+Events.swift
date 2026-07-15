@@ -35,7 +35,9 @@ extension SimulatorWorkerClient {
         }
         let source = SimulatorWorkerEventStreamSource(
             maximumBufferedBytes: Self.maximumSubscriberBufferedBytes,
-            maximumBufferedEvents: 1
+            // Camera configuration has a bounded two-message handshake:
+            // target resolution followed by the final configuration result.
+            maximumBufferedEvents: 2
         ) { [weak self] in
             Task { await self?.removeRequestSubscriber(requestIdentifier) }
         }

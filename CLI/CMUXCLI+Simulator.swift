@@ -182,9 +182,19 @@ extension CMUXCLI {
             guard let handle = (surface["id"] as? String) ?? (surface["ref"] as? String) else {
                 throw CLIError(message: iosSubcommandUsage())
             }
-            var target = try iosContextPayload(
-                surface: handle, client: client, windowOverride: windowOverride
-            )
+            var target: [String: Any]
+            do {
+                target = try iosContextPayload(
+                    surface: handle, client: client, windowOverride: windowOverride
+                )
+            } catch {
+                target = [
+                    "surface_id": surface["id"] ?? NSNull(),
+                    "surface_ref": surface["ref"] ?? handle,
+                    "simulator_id": NSNull(),
+                    "error": (error as? CLIError)?.message ?? error.localizedDescription,
+                ]
+            }
             target["workspace_id"] = listed["workspace_id"] ?? workspaceID
             target["workspace_ref"] = listed["workspace_ref"] ?? NSNull()
             return target
@@ -261,6 +271,12 @@ extension CMUXCLI {
         let captures = try targets.map { target -> [String: Any] in
             guard let simulatorID = target["simulator_id"] as? String,
                   let surfaceRef = target["surface_ref"] as? String else {
+                if all {
+                    return [
+                        "surface_ref": target["surface_ref"] ?? NSNull(),
+                        "error": target["error"] ?? missingIOSSimulatorIdentifier().message,
+                    ]
+                }
                 throw missingIOSSimulatorIdentifier()
             }
             let destination: URL
@@ -277,6 +293,13 @@ extension CMUXCLI {
                 timeout: 30
             )
             guard result.status == 0 else {
+                if all {
+                    return [
+                        "simulator_id": simulatorID,
+                        "surface_ref": surfaceRef,
+                        "error": result.stderr.trimmingCharacters(in: .whitespacesAndNewlines),
+                    ]
+                }
                 throw CLIError(message: result.stderr.trimmingCharacters(in: .whitespacesAndNewlines))
             }
             return [
@@ -288,7 +311,14 @@ extension CMUXCLI {
         if jsonOutput {
             print(jsonString(formatIDs(["captures": captures], mode: idFormat)))
         } else {
-            captures.forEach { print($0["path"] as? String ?? "") }
+            captures.forEach { capture in
+                if let path = capture["path"] as? String {
+                    print(path)
+                } else if let error = capture["error"] as? String {
+                    let surface = capture["surface_ref"] as? String ?? "?"
+                    cliWriteStderr("\(surface): \(error)\n")
+                }
+            }
         }
     }
 
@@ -302,7 +332,13 @@ extension CMUXCLI {
         var params: [String: Any] = [:]
         if let window { params["window_id"] = window }
         if let normalizedSurface { params["surface_id"] = normalizedSurface }
-        return try client.sendV2(method: "simulator.context", params: params)
+        return try client.sendV2(
+            method: "simulator.context",
+            params: params,
+            responseTimeout: simulatorOperationDeadlines.clientTimeout(
+                for: simulatorOperationDeadlines.inspectionRead
+            )
+        )
     }
 
     private func removeIOSSurfaceOption(from arguments: inout [String]) throws -> String? {

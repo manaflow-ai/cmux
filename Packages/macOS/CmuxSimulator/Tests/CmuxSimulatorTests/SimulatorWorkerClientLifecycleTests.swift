@@ -30,6 +30,32 @@ extension SimulatorWorkerClientTests {
         await client.stop()
     }
 
+    @Test("A correlated camera handshake buffers target resolution and completion")
+    func correlatedCameraHandshakeBuffersBothMessages() async throws {
+        let client = makeClient(launcher: TestWorkerLauncher())
+        let requestID = UUID()
+        let request = try await client.registerRequestSubscriber(requestID)
+        var iterator = request.makeAsyncIterator()
+        let resolved = SimulatorWorkerEvent.message(.cameraTargetResolved(
+            requestID: requestID,
+            bundleIdentifier: "com.example.camera"
+        ))
+        let configured = SimulatorWorkerEvent.message(.cameraConfiguration(
+            requestID: requestID,
+            succeeded: true,
+            targetBundleIdentifier: "com.example.camera"
+        ))
+
+        await client.broadcast(resolved)
+        await client.broadcast(configured)
+
+        #expect(await iterator.next() == resolved)
+        #expect(await iterator.next() == configured)
+        #expect(await client.requestSubscribers[requestID] != nil)
+        await client.removeRequestSubscriber(requestID)
+        await client.stop()
+    }
+
     @Test("Text replies resolve both the request and pane completion streams")
     func textRepliesPreservePaneCompletion() async throws {
         let client = makeClient(launcher: TestWorkerLauncher())
