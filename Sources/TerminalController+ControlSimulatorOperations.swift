@@ -19,8 +19,7 @@ extension TerminalController {
             return .failed(failure)
         case let .panel(panel):
             let coordinator = panel.coordinator
-            guard operation == .recover || operation.isDeviceSelection || operation.isToolsVisibility
-                    || coordinator.status == .streaming else {
+            guard operation.isAvailableWithoutStreaming || coordinator.status == .streaming else {
                 return .unavailable(String(
                     localized: "cli.simulator.error.notStreaming",
                     defaultValue: "The selected Simulator is not streaming"
@@ -428,13 +427,12 @@ extension TerminalController {
 }
 
 private extension ControlSimulatorOperation {
-    var isDeviceSelection: Bool {
-        if case .selectDevice = self { return true }
-        return false
-    }
-
-    var isToolsVisibility: Bool {
-        if case .tools = self { return true }
-        return false
+    var isAvailableWithoutStreaming: Bool {
+        switch self {
+        case .context, .selectDevice, .recover, .eventLog, .tools:
+            true
+        default:
+            false
+        }
     }
 }

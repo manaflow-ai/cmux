@@ -46,6 +46,7 @@ struct SimulatorPanelView: View {
 }
 
 struct SimulatorFeatureDisabledView: View {
+    let panel: SimulatorPanel
     let appearance: PanelAppearance
 
     var body: some View {
@@ -70,5 +71,10 @@ struct SimulatorFeatureDisabledView: View {
             \.colorScheme,
             cmuxReadableColorScheme(for: appearance.backgroundColor)
         )
+        .onAppear {
+            // A remote kill switch must release the isolated worker and every
+            // long-running Simulator resource, not merely hide its framebuffer.
+            panel.close()
+        }
     }
 }

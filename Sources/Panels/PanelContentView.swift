@@ -133,7 +133,10 @@ struct PanelContentView: View {
                         onRequestPanelFocus: onRequestPanelFocus
                     )
                 } else {
-                    SimulatorFeatureDisabledView(appearance: appearance)
+                    SimulatorFeatureDisabledView(
+                        panel: simulatorPanel,
+                        appearance: appearance
+                    )
                 }
             }
         case .agentSession:
