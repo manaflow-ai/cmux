@@ -97,6 +97,20 @@ struct CmuxRunURLRequestTests {
         )
     }
 
+    @Test func shellWrapperRevalidatesApprovedDirectoryIdentityAfterEntering() {
+        let launchCommand = CmuxRunShellCommandBuilder.launchCommand(
+            for: "printf reviewed",
+            workingDirectory: "/tmp/reviewed-directory"
+        )
+
+        #expect(launchCommand.contains("builtin cd -- "))
+        #expect(launchCommand.contains("/usr/bin/stat -f"))
+        #expect(
+            launchCommand.range(of: "/usr/bin/stat -f")!.lowerBound
+                < launchCommand.range(of: "printf reviewed")!.lowerBound
+        )
+    }
+
     @Test(arguments: ["\u{0000}", "\r", "\u{202E}", "\u{2066}", "\u{2028}"])
     func rejectsHiddenCommandCharacters(_ hidden: String) throws {
         let result = parse([

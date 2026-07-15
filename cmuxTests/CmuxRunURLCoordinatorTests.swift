@@ -157,7 +157,9 @@ struct CmuxRunURLCoordinatorTests {
         let panelId = try #require(workspace.focusedPanelId)
         let panel = try #require(workspace.panels[panelId])
         let paneId = try #require(workspace.paneId(forPanelId: panelId)).id
-        workspace.setCustomTitle("Trusted workspace\nFake pane \u{202E}1234")
+        workspace.setCustomTitle(
+            "Trusted workspace\nFake pane \u{202E}1234 \u{061C}spoof \u{2060}hidden"
+        )
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
             styleMask: [.titled],
@@ -187,6 +189,8 @@ struct CmuxRunURLCoordinatorTests {
 
         #expect(!plan.targetDescription.contains("\n"))
         #expect(!plan.targetDescription.contains("\u{202E}"))
+        #expect(!plan.targetDescription.contains("\u{061C}"))
+        #expect(!plan.targetDescription.contains("\u{2060}"))
         #expect(plan.targetDescription.contains(String(windowId.uuidString.prefix(8))))
         #expect(plan.targetDescription.contains(String(workspace.id.uuidString.prefix(8))))
         let paneToken = String(paneId.uuidString.prefix(8))
