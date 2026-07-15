@@ -1,10 +1,10 @@
 import Foundation
 
 extension TerminalNotificationStore {
-    static func insertionIndex(
+    static func insertionIndex<Notifications: RandomAccessCollection>(
         for notification: TerminalNotification,
-        in notifications: [TerminalNotification]
-    ) -> Int {
+        in notifications: Notifications
+    ) -> Int where Notifications.Element == TerminalNotification, Notifications.Index == Int {
         var lowerBound = 0
         var upperBound = notifications.count
         while lowerBound < upperBound {
@@ -18,11 +18,11 @@ extension TerminalNotificationStore {
         return lowerBound
     }
 
-    static func insertNotification(
+    static func insertNotification<Notifications: Collection>(
         _ notification: TerminalNotification,
         into indexes: inout NotificationIndexes,
-        notifications: [TerminalNotification]
-    ) {
+        notifications: Notifications
+    ) where Notifications.Element == TerminalNotification {
         let expectedPreviousCount = notifications.count - 1
         guard indexes.ids.count == expectedPreviousCount,
               indexes.ids.insert(notification.id).inserted else {

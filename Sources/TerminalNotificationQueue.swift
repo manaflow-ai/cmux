@@ -6,6 +6,12 @@ enum ReliableTerminalNotificationEnqueueResult: Sendable, Equatable {
     case cancelled
 }
 
+private enum TerminalNotificationClearTarget {
+    case all
+    case workspace(UUID)
+    case surface(tabId: UUID, surfaceId: UUID)
+}
+
 final class TerminalMutationBus: @unchecked Sendable {
     static let shared = TerminalMutationBus()
     static let maximumPendingMutationCount = 256
@@ -28,6 +34,7 @@ final class TerminalMutationBus: @unchecked Sendable {
     static let maximumNotificationReplacementRouteCount = 256
     var notificationReplacementRoutesByTabId: [UUID: TerminalNotificationReplacementRoute] = [:]
     var notificationReplacementRouteOrder: [UUID] = []
+    var notificationLiveOwnerTabIdBySurfaceId: [UUID: UUID] = [:]
     private var reliablyWaitingNotificationProducerCount = 0
     private let maxMutationsPerDrain = 16
 #if DEBUG
@@ -209,42 +216,61 @@ final class TerminalMutationBus: @unchecked Sendable {
     }
 
     nonisolated func enqueueClearAllNotifications() {
-        enqueueClear(
-            { .clearAllNotifications(through: $0) },
-            droppingPending: { _ in true },
-            droppingReliableAdmissions: { _ in true }
-        )
+        enqueueClear(.all)
     }
     nonisolated func enqueueClearNotifications(forTabId tabId: UUID) {
-        // Surface-addressed entries may have moved since enqueue. Keep them
-        // ahead of the barrier so delivery can resolve their live owner first.
-        enqueueClear(
-            { .clearNotificationsForTab(tabId, through: $0) },
-            droppingPending: { key in key.tabId == tabId && key.surfaceId == nil },
-            droppingReliableAdmissions: { key in key.tabId == tabId }
-        )
+        enqueueClear(.workspace(tabId))
     }
 
     nonisolated func enqueueClearNotifications(forTabId tabId: UUID, surfaceId: UUID) {
-        // Canonical surface identity: a stale-keyed entry would retarget here at drain.
-        enqueueClear(
-            { .clearNotificationsForSurface(tabId, surfaceId, through: $0) },
-            droppingPending: { key in key.surfaceId == surfaceId },
-            droppingReliableAdmissions: { key in key.surfaceId == surfaceId }
-        )
+        enqueueClear(.surface(tabId: tabId, surfaceId: surfaceId))
     }
 
     nonisolated func enqueueMainActorMutation(_ mutation: @escaping @MainActor () -> Void) {
         enqueueBarrierMutation(.perform(mutation))
     }
 
-    private func enqueueClear(
-        _ mutation: (UInt64) -> TerminalSocketMutation,
-        droppingPending shouldDropPending: (QueuedTerminalNotificationKey) -> Bool,
-        droppingReliableAdmissions shouldDropReliableAdmission: (QueuedTerminalNotificationKey) -> Bool
-    ) {
+    private func enqueueClear(_ target: TerminalNotificationClearTarget) {
         let shouldScheduleDrain: Bool
         lock.lock()
+        let routedTarget: TerminalNotificationClearTarget
+        switch target {
+        case .all:
+            routedTarget = .all
+        case .workspace(let tabId):
+            let key = notificationKeyFollowingReplacementRoutes(
+                QueuedTerminalNotificationKey(tabId: tabId, surfaceId: nil)
+            )
+            routedTarget = .workspace(key.tabId)
+        case .surface(let tabId, let surfaceId):
+            let key = notificationKeyFollowingReplacementRoutes(
+                QueuedTerminalNotificationKey(tabId: tabId, surfaceId: surfaceId)
+            )
+            routedTarget = .surface(tabId: key.tabId, surfaceId: key.surfaceId ?? surfaceId)
+        }
+        func shouldDropPending(_ key: QueuedTerminalNotificationKey) -> Bool {
+            switch routedTarget {
+            case .all:
+                return true
+            case .workspace(let tabId):
+                // Surface-addressed entries may have moved since enqueue. The
+                // live-owner route is authoritative when present; unresolved
+                // entries remain before the barrier for main-actor resolution.
+                return key.tabId == tabId && key.surfaceId == nil
+            case .surface(_, let surfaceId):
+                return key.surfaceId == surfaceId
+            }
+        }
+        func shouldDropReliableAdmission(_ key: QueuedTerminalNotificationKey) -> Bool {
+            switch routedTarget {
+            case .all:
+                return true
+            case .workspace(let tabId):
+                return key.tabId == tabId
+            case .surface(_, let surfaceId):
+                return key.surfaceId == surfaceId
+            }
+        }
         let boundary = currentNotificationGeneration
         currentNotificationGeneration &+= 1
         reliableAdmissionsById = reliableAdmissionsById.filter { !shouldDropReliableAdmission($0.value.key) }
@@ -256,9 +282,18 @@ final class TerminalMutationBus: @unchecked Sendable {
             return false
         }
         nextSequence &+= 1
+        let mutation: TerminalSocketMutation
+        switch routedTarget {
+        case .all:
+            mutation = .clearAllNotifications(through: boundary)
+        case .workspace(let tabId):
+            mutation = .clearNotificationsForTab(tabId, through: boundary)
+        case .surface(let tabId, let surfaceId):
+            mutation = .clearNotificationsForSurface(tabId, surfaceId, through: boundary)
+        }
         pending.append(TerminalSocketMutationEntry(
             sequence: nextSequence,
-            mutation: mutation(boundary),
+            mutation: mutation,
             notificationGeneration: nil,
             performReplaceKey: nil
         ))

@@ -154,7 +154,41 @@ extension TerminalMutationBus {
             surfaceId = surfaceId.map { route.panelIdMap[$0] ?? $0 }
             tabId = route.toTabId
         }
+        if let surfaceId,
+           let liveOwnerTabId = notificationLiveOwnerTabIdBySurfaceId[surfaceId] {
+            tabId = liveOwnerTabId
+        }
         return QueuedTerminalNotificationKey(tabId: tabId, surfaceId: surfaceId)
+    }
+
+    nonisolated func routedNotificationKey(
+        tabId: UUID,
+        surfaceId: UUID?
+    ) -> QueuedTerminalNotificationKey {
+        lock.lock()
+        defer { lock.unlock() }
+        return notificationKeyFollowingReplacementRoutes(
+            QueuedTerminalNotificationKey(tabId: tabId, surfaceId: surfaceId)
+        )
+    }
+
+    nonisolated func rebindPendingNotifications(
+        fromTabId: UUID,
+        toTabId: UUID,
+        surfaceId: UUID
+    ) {
+        guard fromTabId != toTabId else { return }
+        lock.lock()
+        notificationLiveOwnerTabIdBySurfaceId[surfaceId] = toTabId
+        compactPendingForMutation()
+        pending = pending.map(notificationEntryFollowingReplacementRoutes)
+        for id in reliableAdmissionsById.keys {
+            guard var admission = reliableAdmissionsById[id] else { continue }
+            admission.key = notificationKeyFollowingReplacementRoutes(admission.key)
+            reliableAdmissionsById[id] = admission
+        }
+        lock.broadcast()
+        lock.unlock()
     }
 
     private func installNotificationReplacementRoute(

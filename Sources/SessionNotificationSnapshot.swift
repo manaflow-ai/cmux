@@ -94,7 +94,7 @@ extension TerminalNotificationStore {
     ) {
         clearFocusedReadIndicator(forTabId: tabId)
         let merged = Self.mergeRestoredSessionNotifications(
-            existing: notifications,
+            existing: Array(notifications),
             restored: restoredNotifications,
             tabId: tabId,
             replacingTabId: replacingTabId,
@@ -122,7 +122,7 @@ extension TerminalNotificationStore {
             panelIdMap: panelIdMap
         )
         let merged = Self.mergeRestoredSessionNotifications(
-            existing: notifications,
+            existing: Array(notifications),
             restored: [],
             tabId: toTabId,
             replacingTabId: fromTabId,

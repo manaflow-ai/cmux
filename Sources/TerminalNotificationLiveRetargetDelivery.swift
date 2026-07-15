@@ -76,7 +76,7 @@ extension TerminalNotificationStore {
         acceptedAt: Date,
         notificationGeneration: UInt64
     ) {
-        guard let target = AppDelegate.shared?.agentNotificationDeliveryTarget(
+        guard let target = AppDelegate.shared?.agentNotificationRecordTarget(
             claimedTabId: claimedTabId,
             surfaceId: surfaceId
         ) else {
@@ -111,7 +111,7 @@ extension TerminalNotificationStore {
         _ request: TerminalNotificationPolicyRequest
     ) -> TerminalNotificationPolicyRequest? {
         guard request.retargetsToLiveSurfaceOwner else { return request }
-        guard let target = AppDelegate.shared?.agentNotificationDeliveryTarget(
+        guard let target = AppDelegate.shared?.agentNotificationRecordTarget(
             claimedTabId: request.tabId,
             surfaceId: request.surfaceId
         ) else { return nil }

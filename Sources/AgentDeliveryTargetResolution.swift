@@ -169,6 +169,23 @@ extension AppDelegate {
         return (owner.workspace.id, surfaceId)
     }
 
+    /// Once an event has been accepted, a pane disappearing must not erase its
+    /// feed row. Prefer the pane's live owner, then preserve the event as a
+    /// workspace-level row when the claimed workspace still exists.
+    func agentNotificationRecordTarget(
+        claimedTabId: UUID,
+        surfaceId: UUID?
+    ) -> (tabId: UUID, surfaceId: UUID?)? {
+        if let target = agentNotificationDeliveryTarget(
+            claimedTabId: claimedTabId,
+            surfaceId: surfaceId
+        ) {
+            return target
+        }
+        guard surfaceId != nil else { return nil }
+        return agentNotificationDeliveryTarget(claimedTabId: claimedTabId, surfaceId: nil)
+    }
+
     private func agentDeliveryTabManagers() -> [TabManager] {
         var managers: [TabManager] = []
         func append(_ manager: TabManager?) {

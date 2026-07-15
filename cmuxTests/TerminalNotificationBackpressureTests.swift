@@ -269,7 +269,7 @@ final class TerminalNotificationSessionReplacementTests: XCTestCase {
             createdAt: Date(timeIntervalSince1970: 40),
             isRead: false
         )
-        store.replaceNotificationsForTesting(store.notifications + [duringRelease])
+        store.replaceNotificationsForTesting(Array(store.notifications) + [duringRelease])
         store.markUnread(forTabId: oldTabId)
         store.setPanelDerivedUnread(true, forTabId: oldTabId)
         store.restoreUnreadIndicator(forTabId: oldTabId)

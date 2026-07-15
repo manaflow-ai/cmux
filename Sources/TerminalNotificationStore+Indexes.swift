@@ -11,11 +11,15 @@ extension TerminalNotificationStore {
     static var fullIndexRebuildCountForTesting: Int { fullIndexRebuildCount }
 #endif
 
-    static func indexByIdPreservingFirst(_ notifications: [TerminalNotification]) -> [UUID: TerminalNotification] {
+    static func indexByIdPreservingFirst<Notifications: Sequence>(
+        _ notifications: Notifications
+    ) -> [UUID: TerminalNotification] where Notifications.Element == TerminalNotification {
         Dictionary(notifications.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
     }
 
-    static func buildIndexes(for notifications: [TerminalNotification]) -> NotificationIndexes {
+    static func buildIndexes<Notifications: Sequence>(
+        for notifications: Notifications
+    ) -> NotificationIndexes where Notifications.Element == TerminalNotification {
 #if DEBUG
         fullIndexRebuildCount += 1
 #endif

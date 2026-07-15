@@ -195,7 +195,7 @@ extension TerminalController: ControlNotificationContext {
 
     func controlNotificationMarkRead(id: UUID) -> ControlNotificationMarkReadResolution {
         let store = TerminalNotificationStore.shared
-        let before = store.notifications
+        let before = Array(store.notifications)
         guard before.contains(where: { $0.id == id }) else {
             return .notFound
         }
@@ -211,7 +211,7 @@ extension TerminalController: ControlNotificationContext {
         hasSurfaceSelector: Bool
     ) -> Int {
         let store = TerminalNotificationStore.shared
-        let before = store.notifications
+        let before = Array(store.notifications)
         if hasSurfaceSelector {
             store.markRead(forTabId: workspaceID, surfaceId: surfaceID)
         } else {
@@ -222,7 +222,7 @@ extension TerminalController: ControlNotificationContext {
 
     func controlNotificationMarkReadAll() -> Int {
         let store = TerminalNotificationStore.shared
-        let before = store.notifications
+        let before = Array(store.notifications)
         store.markAllRead()
         return Self.markedCount(before: before, store: store)
     }

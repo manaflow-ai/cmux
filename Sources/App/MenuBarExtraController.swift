@@ -340,12 +340,12 @@ struct NotificationMenuSnapshot: Equatable {
 enum NotificationMenuSnapshotBuilder {
     static let defaultInlineNotificationLimit = 6
 
-    static func make(
-        notifications: [TerminalNotification],
+    static func make<Notifications: Collection>(
+        notifications: Notifications,
         workspaceUnreadIndicatorCount: Int = 0,
         cachedUnreadNotificationCount: Int? = nil,
         maxInlineNotificationItems: Int = defaultInlineNotificationLimit
-    ) -> NotificationMenuSnapshot {
+    ) -> NotificationMenuSnapshot where Notifications.Element == TerminalNotification {
         let unreadNotificationCount = cachedUnreadNotificationCount ?? notifications.reduce(into: 0) { count, notification in
             if !notification.isRead {
                 count += 1
