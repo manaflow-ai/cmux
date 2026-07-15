@@ -34,6 +34,8 @@ public struct CMUXMobileRootScene: View {
     private let auth: MobileAuthComposition
     private let reachability: any ReachabilityProviding
     private let analytics: any AnalyticsEmitting
+    private let signOutHook: MobileSignOutHook
+    private let personalIrohRouteCatalog: MobileIrohRouteCatalog?
     #if os(iOS)
     private let pushCoordinator: MobilePushCoordinator
     private let displaySettings: MobileDisplaySettings
@@ -77,6 +79,9 @@ public struct CMUXMobileRootScene: View {
     ///     injected into the root view to gate the one-time onboarding screen.
     ///   - tailscaleStatusMonitor: The app-root tailnet detector, injected into
     ///     the environment for the pairing and disconnected surfaces.
+    ///   - personalIrohRouteCatalog: Authenticated personal-account Iroh routes
+    ///     to merge only when refreshing an already-paired Mac.
+    ///   - signOutHook: Ordered local and remote service teardown for sign-out.
     ///   - diagnosticLog: The structured diagnostic log (DEBUG builds only),
     ///     injected into the shell store for the DEV feedback round-trip.
     public init(
@@ -88,6 +93,8 @@ public struct CMUXMobileRootScene: View {
         displaySettings: MobileDisplaySettings,
         onboardingStore: MobileOnboardingStore,
         tailscaleStatusMonitor: any TailscaleStatusObserving,
+        personalIrohRouteCatalog: MobileIrohRouteCatalog? = nil,
+        signOutHook: MobileSignOutHook,
         diagnosticLog: DiagnosticLog? = nil
     ) {
         self.runtime = runtime
@@ -98,6 +105,8 @@ public struct CMUXMobileRootScene: View {
         self.displaySettings = displaySettings
         self.onboardingStore = onboardingStore
         self.tailscaleStatusMonitor = tailscaleStatusMonitor
+        self.personalIrohRouteCatalog = personalIrohRouteCatalog
+        self.signOutHook = signOutHook
         self.pairedMacStore = Self.openPairedMacStore()
         self.draftStore = InMemoryTerminalDraftStore()
         #if DEBUG
@@ -110,12 +119,15 @@ public struct CMUXMobileRootScene: View {
         runtime: CMUXMobileRuntime,
         auth: MobileAuthComposition,
         reachability: any ReachabilityProviding,
-        analytics: any AnalyticsEmitting
+        analytics: any AnalyticsEmitting,
+        signOutHook: MobileSignOutHook = MobileSignOutHook()
     ) {
         self.runtime = runtime
         self.auth = auth
         self.reachability = reachability
         self.analytics = analytics
+        self.signOutHook = signOutHook
+        self.personalIrohRouteCatalog = nil
         self.tailscaleStatusMonitor = nil
         self.pairedMacStore = Self.openPairedMacStore()
         self.draftStore = InMemoryTerminalDraftStore()
@@ -143,11 +155,13 @@ public struct CMUXMobileRootScene: View {
     /// service is failure-tolerant, so a missing API base URL or a registry
     /// outage simply means reconnect falls back to local paired-Mac routes.
     @MainActor
-    private func makeDeviceRegistry() -> DeviceRegistryService? {
+    private func makeDeviceRegistry(
+        pairedMacStore: (any MobilePairedMacStoring)?
+    ) -> (any DeviceRegistryRefreshing)? {
         let baseURL = auth.config.apiBaseURL
         guard !baseURL.isEmpty else { return nil }
         let coordinator = auth.coordinator
-        return DeviceRegistryService(
+        let teamRegistry = DeviceRegistryService(
             apiBaseURL: baseURL,
             deviceID: DeviceRegistryService.deviceID(),
             tokenSource: DeviceRegistryService.TokenSource(
@@ -155,6 +169,25 @@ public struct CMUXMobileRootScene: View {
                 refreshToken: { await coordinator.refreshToken() }
             ),
             teamIDProvider: { await coordinator.resolvedTeamID }
+        )
+        guard let personalIrohRouteCatalog else { return teamRegistry }
+        return PersonalIrohDeviceRegistryDecorator(
+            base: teamRegistry,
+            catalog: personalIrohRouteCatalog,
+            knownRoutes: { macDeviceID, instanceTag in
+                guard let pairedMacStore else { return nil }
+                let userID = await coordinator.currentUser?.id
+                let teamID = await coordinator.resolvedTeamID
+                let pairedMacs = try? await pairedMacStore.loadAll(
+                    stackUserID: userID,
+                    teamID: teamID
+                )
+                let target = macDeviceID.lowercased()
+                return pairedMacs?.first(where: {
+                    $0.macDeviceID.lowercased() == target
+                        && $0.instanceTag == instanceTag
+                })?.routes
+            }
         )
     }
 
@@ -187,11 +220,11 @@ public struct CMUXMobileRootScene: View {
     /// boundaries must hold even when backup is off.
     @MainActor
     private func makeBackedUpPairedMacStore(
-        restoreBoundary: PairedMacRestoreBoundary
+        restoreBoundary: PairedMacRestoreBoundary,
+        buildScope: MobileIOSBuildScope?
     ) -> (any MobilePairedMacStoring)? {
         guard let store = pairedMacStore else { return nil }
         let coordinator = auth.coordinator
-        let buildScope = MobileIOSBuildScope.current()
         let buildScopedStore: any MobilePairedMacStoring
         if let buildScope {
             buildScopedStore = IOSBuildScopedPairedMacStore(inner: store, scope: buildScope)
@@ -250,26 +283,38 @@ public struct CMUXMobileRootScene: View {
         } else if ProcessInfo.processInfo.environment["CMUX_BOTTOM_SCROLL_STRESS"] == "1" {
             MobileBottomScrollStressView()
         } else {
-            CMUXMobileAppView(store: makeStore(), onboardingStore: onboardingStore)
+            CMUXMobileAppView(
+                store: makeStore(),
+                onboardingStore: onboardingStore,
+                signOutHook: signOutHook
+            )
         }
         #else
-        CMUXMobileAppView(store: makeStore(), onboardingStore: onboardingStore)
+        CMUXMobileAppView(
+            store: makeStore(),
+            onboardingStore: onboardingStore,
+            signOutHook: signOutHook
+        )
         #endif
         #else
-        CMUXMobileAppView(store: makeStore())
+        CMUXMobileAppView(store: makeStore(), signOutHook: signOutHook)
         #endif
     }
 
     @MainActor
     private func makeStore() -> CMUXMobileShellStore {
         let coordinator = auth.coordinator
+        let buildScope = MobileIOSBuildScope.current()
         let identityProvider = AuthCoordinatorIdentityProvider(
             coordinator: auth.coordinator,
             isDevelopmentAuthEnvironment: auth.authEnvironment == .development
         )
-        let deviceRegistry = makeDeviceRegistry()
         let restoreBoundary = PairedMacRestoreBoundary()
-        let backedUpPairedMacStore = makeBackedUpPairedMacStore(restoreBoundary: restoreBoundary)
+        let backedUpPairedMacStore = makeBackedUpPairedMacStore(
+            restoreBoundary: restoreBoundary,
+            buildScope: buildScope
+        )
+        let deviceRegistry = makeDeviceRegistry(pairedMacStore: backedUpPairedMacStore)
         let forgottenMacStore = UserDefaultsPairedMacForgottenStore()
         let feedbackEmailSubmitter = MobileFeedbackEmailClient(apiBaseURL: auth.config.apiBaseURL)
         let feedbackStampProvider: @MainActor () -> MobileFeedbackStamp = {

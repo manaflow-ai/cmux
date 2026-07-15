@@ -1,5 +1,5 @@
 import { getTranslations } from "next-intl/server";
-import { buildAlternates } from "@/i18n/seo";
+import { buildAlternates, openGraphDefaults } from "@/i18n/seo";
 import { DocsNav } from "./docs-nav";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
 import { docsChannel } from "@/app/lib/docs-channel";
@@ -18,8 +18,7 @@ export async function generateMetadata({
       default: t("layoutTitle"),
     },
     openGraph: {
-      siteName: "cmux",
-      type: "article" as const,
+      ...openGraphDefaults(locale, "article"),
     },
     alternates: buildAlternates(locale, "/docs"),
     robots: channel === "nightly" ? { index: false, follow: true } : undefined,

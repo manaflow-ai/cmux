@@ -19,6 +19,14 @@ import Testing
         #expect(response.streamID.isEmpty)
     }
 
+    @Test func subscribeResponseDecodesIndependentIrohDelivery() throws {
+        let data = Data(
+            #"{"stream_id":"ios-terminal-events-abc","event_transport":"iroh_server_events_v1"}"#.utf8
+        )
+        let response = try MobileEventSubscribeResponse.decode(data)
+        #expect(response.eventTransport == "iroh_server_events_v1")
+    }
+
     @Test func hostStatusDecodesRenderGridCapability() throws {
         let data = Data(#"{"capabilities":["terminal.render_grid.v1"],"terminal_fidelity":"render_grid"}"#.utf8)
         let response = try MobileHostStatusResponse.decode(data)
@@ -30,7 +38,14 @@ import Testing
         let response = try MobileHostStatusResponse.decode(Data("{}".utf8))
         #expect(response.capabilities.isEmpty)
         #expect(response.terminalFidelity == nil)
+        #expect(response.macInstanceTag == nil)
         #expect(response.theme == nil)
+    }
+
+    @Test func hostStatusDecodesMacInstanceTag() throws {
+        let data = Data(#"{"mac_instance_tag":"future-one"}"#.utf8)
+        let response = try MobileHostStatusResponse.decode(data)
+        #expect(response.macInstanceTag == "future-one")
     }
 
     /// A theme nested in the host-status payload, serialized with the Mac

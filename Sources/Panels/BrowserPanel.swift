@@ -22,15 +22,6 @@ import CommonCrypto
 import Security
 #endif
 
-enum BrowserAddressBarFocusSelectionIntent: Equatable {
-    case preserveFieldEditorSelection
-    case selectAll
-
-    var shouldSelectAll: Bool {
-        self == .selectAll
-    }
-}
-
 fileprivate func dedupedCanonicalURLs(_ urls: [URL]) -> [URL] {
     var seen = Set<String>()
     var result: [URL] = []
@@ -976,10 +967,13 @@ func browserReadAccessURL(forLocalFileURL fileURL: URL, fileManager: FileManager
 @discardableResult
 func browserLoadRequest(_ request: URLRequest, in webView: WKWebView) -> WKNavigation? {
     guard let url = request.url else { return nil }
+    let nudgeReason = "navigationStart:\(url.scheme?.lowercased() ?? "none")"
     if url.isFileURL {
         guard let readAccessURL = browserReadAccessURL(forLocalFileURL: url) else { return nil }
+        webView.browserPortalMarkFirstSizedRevealNudgeIfNavigationStartsWithoutPresentation(reason: nudgeReason)
         return webView.loadFileURL(url, allowingReadAccessTo: readAccessURL)
     }
+    webView.browserPortalMarkFirstSizedRevealNudgeIfNavigationStartsWithoutPresentation(reason: nudgeReason)
     return webView.load(browserPreparedNavigationRequest(request))
 }
 
@@ -1847,7 +1841,7 @@ enum BrowserInsecureHTTPNavigationResolution {
     }
 }
 
-nonisolated enum BrowserWebViewLifecycleState: String {
+enum BrowserWebViewLifecycleState: String {
     case newTab = "new_tab"
     case deferredURL = "deferred_url"
     case liveVisible = "live_visible"
@@ -2586,7 +2580,6 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
             now.timeIntervalSince(session.createdAt) <= maxSessionAge
         }
     }
-
     private func responseHeaders(for file: RegisteredFile) -> [String: String] {
         var headers = [
             "Content-Type": "\(file.mimeType); charset=utf-8",
@@ -2594,6 +2587,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
             "X-Content-Type-Options": "nosniff",
             "Cross-Origin-Resource-Policy": "same-origin"
         ]
+        if file.fileURL.lastPathComponent.hasSuffix(".deflate") { headers["Content-Encoding"] = "deflate" }
         if file.mimeType == "text/html" {
             headers["Content-Security-Policy"] = [
                 "default-src 'none'",
@@ -2766,7 +2760,12 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Prevent forcing web-view focus when another UI path requested omnibar focus.
     /// Used to keep omnibar text-field focus from being immediately stolen by panel focus.
     private var suppressWebViewFocusUntil: Date?
-    private var suppressWebViewFocusForAddressBar: Bool = false
+    /// Model-owned suppression requested before an address-bar view has accepted
+    /// focus. Mounted views hold separate owner-scoped leases so a disappearing
+    /// stale view cannot clear a replacement view's suppression, and an
+    /// acknowledged request cannot leave suppression latched without an owner.
+    var suppressWebViewFocusForAddressBarIntent: Bool = false
+    var addressBarViewFocusLeaseOwners: Set<UUID> = []
     private let blankURLString = "about:blank"
 
     /// Owns the address-bar page-focus capture/restore subsystem.
@@ -2915,8 +2914,15 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// Sticky omnibar-focus intent. This survives view mount timing races and is
     /// cleared only after BrowserPanelView acknowledges handling it.
-    @Published private(set) var pendingAddressBarFocusRequestId: UUID?
-    private(set) var pendingAddressBarFocusSelectionIntent: BrowserAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
+    @Published var pendingAddressBarFocusRequestId: UUID?
+    var pendingAddressBarFocusSelectionIntent: BrowserAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
+
+    /// The newest mounted SwiftUI presentation for this model. Ordinary workspace
+    /// recreation can overlap outgoing and replacement views for the same panel
+    /// and pane, so pane identity alone cannot decide which view may consume a
+    /// durable focus request.
+    @Published var currentAddressBarViewPresentationOwner: UUID?
+    var addressBarViewPresentationOwners: [UUID] = []
 
     /// Per-surface browser chrome visibility. Diff and artifact viewers can hide
     /// the omnibar without changing the global browser default.
@@ -3730,27 +3736,26 @@ final class BrowserPanel: Panel, ObservableObject {
         navigationDelegate.didClearPDFDocument = { [weak self] in
             MainActor.assumeIsolated { self?.clearRenderedPDFDocument() }
         }
-
-        navigationDelegate.didStartProvisionalNavigation = { [weak self] webView in
+        navigationDelegate.didStartProvisionalNavigation = { [weak self] webView, navigation in
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
+                (webView as? CmuxWebView)?.diffViewerNavigationDidStart(navigation)
                 self.isMainFrameProvisionalNavigationActive = true
                 self.refreshBackgroundAppearance()
                 self.applyMuteState(to: webView, reason: "navigationStart")
             }
         }
-        navigationDelegate.didCommit = { [weak self] webView in
+        navigationDelegate.didCommit = { [weak self] webView, navigation in
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
+                (webView as? CmuxWebView)?.diffViewerNavigationDidCommit(navigation)
                 self.isMainFrameProvisionalNavigationActive = false
-                // An about:blank commit is WebKit's placeholder document, not
-                // content; leaving the flag false keeps the restore-stall
-                // detector armed so a restore that dead-ends there retries.
+                // An about:blank placeholder leaves the restore-stall detector armed.
                 if !Self.isAboutBlankURL(webView.url) {
                     self.hasCommittedDocumentSinceWebViewReplacement = true
                 }
-                // Reset playback tracking only once the new top-level document has
-                // actually replaced the old one. Resetting earlier (on provisional
+                // Reset playback tracking only once the new top-level document has replaced
+                // the old one. Resetting earlier (on provisional
                 // start) would drop a still-playing page's frames if the
                 // navigation then fails or is canceled, letting a playing pane be
                 // discarded. didCommit does not fire for same-document (pushState)
@@ -3809,6 +3814,7 @@ final class BrowserPanel: Panel, ObservableObject {
         navigationDelegate.didCancelProvisionalNavigation = { [weak self] webView, cancelledNavigation in
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
+                (webView as? CmuxWebView)?.diffViewerNavigationDidCancel(cancelledNavigation)
                 let isRestoreBookkeepingNavigation = self.isDiscardRestoreBookkeepingNavigation(cancelledNavigation)
                 self.isMainFrameProvisionalNavigationActive = false
                 if isRestoreBookkeepingNavigation {
@@ -4229,6 +4235,7 @@ final class BrowserPanel: Panel, ObservableObject {
             webView.frame = contentView.bounds
             webView.autoresizingMask = [.width, .height]
             contentView.addSubview(webView)
+            webView.browserPortalNotifyHidden(reason: "backgroundPreload:\(reason)")
             return true
         }
 
@@ -4257,6 +4264,7 @@ final class BrowserPanel: Panel, ObservableObject {
         window.contentView = contentView
         backgroundPreloadWindow = window
         window.orderFrontRegardless()
+        webView.browserPortalNotifyHidden(reason: "backgroundPreload:\(reason)")
 
 #if DEBUG
         cmuxDebugLog(
@@ -7164,6 +7172,7 @@ extension BrowserPanel {
         let shouldSelectAll = created && !recoveredNeedle.isEmpty
         pendingAddressBarFocusRequestId = nil
         pendingAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
+        endSuppressWebViewFocusForAddressBar()
         NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: id)
         let generation = beginSearchFocusRequest(reason: "startFind")
         postBrowserSearchFocusNotification(reason: "immediate", generation: generation, selectAll: shouldSelectAll)
@@ -7463,7 +7472,7 @@ extension BrowserPanel {
     }
 
     func shouldSuppressWebViewFocus() -> Bool {
-        if suppressWebViewFocusForAddressBar {
+        if hasAddressBarFocusSuppression {
             return true
         }
         if searchState != nil {
@@ -7475,28 +7484,6 @@ extension BrowserPanel {
         return false
     }
 
-    func beginSuppressWebViewFocusForAddressBar() {
-        let enteringAddressBar = !suppressWebViewFocusForAddressBar
-        if enteringAddressBar {
-#if DEBUG
-            cmuxDebugLog("browser.focus.addressBarSuppress.begin panel=\(id.uuidString.prefix(5))")
-#endif
-            invalidateAddressBarPageFocusRestoreAttempts()
-        }
-        suppressWebViewFocusForAddressBar = true
-        if enteringAddressBar {
-            captureAddressBarPageFocusIfNeeded()
-        }
-    }
-
-    func endSuppressWebViewFocusForAddressBar() {
-        if suppressWebViewFocusForAddressBar {
-#if DEBUG
-            cmuxDebugLog("browser.focus.addressBarSuppress.end panel=\(id.uuidString.prefix(5))")
-#endif
-        }
-        suppressWebViewFocusForAddressBar = false
-    }
 
     @discardableResult
     func requestAddressBarFocus(
@@ -7760,6 +7747,7 @@ extension BrowserPanel {
         }
         pendingAddressBarFocusRequestId = nil
         pendingAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
+        endAddressBarFocusIntentSuppression()
 #if DEBUG
         cmuxDebugLog(
             "browser.focus.addressBar.requestAck panel=\(id.uuidString.prefix(5)) " +
@@ -7768,7 +7756,7 @@ extension BrowserPanel {
 #endif
     }
 
-    private func captureAddressBarPageFocusIfNeeded() {
+    func captureAddressBarPageFocusIfNeeded() {
         omnibarPageFocusRepository.captureIfNeeded(panelDebugID: String(id.uuidString.prefix(5)))
     }
 
