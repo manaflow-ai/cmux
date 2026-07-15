@@ -123,7 +123,7 @@ extension AgentNotificationRegressionTests {
     }
 
     @Test
-    func testSyncDeliverySupersedesPendingNotificationUnderStaleClaimedKey() throws {
+    func testSyncDeliveryPreservesAcceptedQueuedNotificationUnderStaleClaimedKey() throws {
         let fixture = try makeLiveRetargetFixture()
         defer { fixture.restore() }
 
@@ -136,9 +136,10 @@ extension AgentNotificationRegressionTests {
             subtitle: "Working",
             body: "Old queued"
         )
-        // ...must be superseded by a newer synchronous notification for the
-        // same surface, even though sync delivery retargets to the owning
-        // workspace — a different queue key than the stale claim.
+        // ...must still appear when a newer synchronous notification for the
+        // same surface is accepted before the queue drains. The feed is
+        // chronological by stable notification id; banner ownership may
+        // supersede, but accepted rows are not coalesced away.
         TerminalController.shared.deliverNotificationSynchronously(
             tabId: fixture.claimedWorkspace.id,
             surfaceId: fixture.panelId,
@@ -150,10 +151,10 @@ extension AgentNotificationRegressionTests {
 
         let recorded = fixture.store.notifications.filter { $0.title == "Claude Code" }
         #expect(
-            recorded.map(\.body) == ["New sync"],
-            "A stale-keyed pending notification must not survive (or replace) the newer synchronous one for the same surface"
+            recorded.map(\.body) == ["New sync", "Old queued"],
+            "Synchronous delivery must not delete an already accepted queued notification for the same surface"
         )
-        #expect(recorded.map(\.tabId) == [fixture.owningWorkspace.id])
+        #expect(recorded.map(\.tabId) == [fixture.owningWorkspace.id, fixture.owningWorkspace.id])
     }
 
     @Test

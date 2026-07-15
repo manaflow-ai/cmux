@@ -14,15 +14,18 @@ nonisolated let terminalNotificationLogger = Logger(
 private final class TerminalNotificationFeedStorage {
     var oldestFirst: [TerminalNotification]
     private(set) var startOffset: Int
+    private var discardedContentBytes: Int
 
     init(newestFirst: [TerminalNotification] = []) {
         oldestFirst = Array(newestFirst.reversed())
         startOffset = 0
+        discardedContentBytes = 0
     }
 
     private init(activeOldestFirst: [TerminalNotification]) {
         oldestFirst = activeOldestFirst
         startOffset = 0
+        discardedContentBytes = 0
     }
 
     var count: Int {
@@ -36,7 +39,8 @@ private final class TerminalNotificationFeedStorage {
     func appendNewestEvictingOldest(
         _ notification: TerminalNotification,
         count evictionCount: Int,
-        compactingAfter maxOffset: Int
+        compactingAfter maxOffset: Int,
+        compactingAfterDiscardedBytes maxDiscardedBytes: Int
     ) -> (evicted: [TerminalNotification], replacementStorage: TerminalNotificationFeedStorage?)? {
         guard evictionCount > 0 else {
             appendNewest(notification)
@@ -45,12 +49,17 @@ private final class TerminalNotificationFeedStorage {
         guard count >= evictionCount else { return nil }
         let nextStartOffset = startOffset + evictionCount
         let evicted = Array(oldestFirst[startOffset..<nextStartOffset])
-        if nextStartOffset >= maxOffset {
+        let evictedBytes = evicted.reduce(0) {
+            $0 + TerminalNotificationStore.notificationContentByteCount($1)
+        }
+        if nextStartOffset >= maxOffset ||
+            discardedContentBytes + evictedBytes >= maxDiscardedBytes {
             var active = Array(oldestFirst[nextStartOffset...])
             active.append(notification)
             return (evicted, TerminalNotificationFeedStorage(activeOldestFirst: active))
         }
         startOffset = nextStartOffset
+        discardedContentBytes += evictedBytes
         oldestFirst.append(notification)
         return (evicted, nil)
     }
@@ -307,6 +316,7 @@ final class TerminalNotificationStore: ObservableObject {
         maximumNotificationFeedCount
 #endif
     }
+    private static let notificationFeedCompactionDiscardedBytes = maximumNotificationFeedContentBytes / 4
 
     /// The number of unread notification *entries* — the count the iOS app icon
     /// badge mirrors. The phone's banners mirror notification entries, so its
@@ -1465,7 +1475,8 @@ final class TerminalNotificationStore: ObservableObject {
                 } else if let eviction = notificationFeedStorage.appendNewestEvictingOldest(
                     notification,
                     count: evictionCount,
-                    compactingAfter: Self.notificationFeedCompactionOffset
+                    compactingAfter: Self.notificationFeedCompactionOffset,
+                    compactingAfterDiscardedBytes: Self.notificationFeedCompactionDiscardedBytes
                 ) {
                     evicted = eviction.evicted
                     if let replacementStorage = eviction.replacementStorage {
@@ -1491,9 +1502,11 @@ final class TerminalNotificationStore: ObservableObject {
             mutation: .insertion(notification),
             dismissEvictedExternalBannerOwners: false
         )
-        return indexes.ids.contains(notification.id)
-            ? NotificationInsertionCommit(evicted: evicted)
-            : nil
+        guard indexes.ids.contains(notification.id) else {
+            dismissEvictedExternalBannerOwners(evicted)
+            return nil
+        }
+        return NotificationInsertionCommit(evicted: evicted)
     }
 
     private func dismissEvictedExternalBannerOwners(
@@ -1588,7 +1601,7 @@ final class TerminalNotificationStore: ObservableObject {
         )
     }
 
-    private nonisolated static func notificationContentByteCount(
+    fileprivate nonisolated static func notificationContentByteCount(
         _ notification: TerminalNotification
     ) -> Int {
         notification.title.utf8.count

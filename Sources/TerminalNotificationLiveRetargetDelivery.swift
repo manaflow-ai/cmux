@@ -32,18 +32,10 @@ extension TerminalController {
             // rehome that source-confined claim from an untrusted surface UUID.
             target = (tabId, surfaceId)
         }
-        if retargetsToLiveSurfaceOwner, let liveSurfaceId = target.surfaceId {
-            // Supersede by canonical surface identity: stale-keyed local
-            // entries would retarget to this same pane at drain.
-            TerminalMutationBus.shared.discardPendingNotifications(forSurfaceId: liveSurfaceId)
-        } else {
-            // Source-confined relay delivery may supersede only its authorized
-            // enqueue key, not another workspace's entry for the same UUID.
-            TerminalMutationBus.shared.discardPendingNotifications(
-                forTabId: target.tabId,
-                surfaceId: target.surfaceId
-            )
-        }
+        // Chronological feed delivery is append-only by accepted notification
+        // id. A synchronous notification may supersede the phone/banner owner
+        // for a pane, but it must not delete already accepted queued rows that
+        // have not drained yet.
 #if DEBUG
         cmuxDebugLog(
             "notification.sync.deliver workspace=\(target.tabId.uuidString.prefix(8)) surface=\(target.surfaceId?.uuidString.prefix(8) ?? "nil") claimedWorkspace=\(tabId.uuidString.prefix(8)) titleLen=\(title.count) subtitleLen=\(subtitle.count) bodyLen=\(body.count)"
