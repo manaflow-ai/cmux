@@ -23,6 +23,7 @@ struct SharedLiveAgentIndexHookStoreInvalidationTests {
             processScopeFingerprint: [],
             forkValidatedPanels: []
         )
+        #expect(cachedResult.index.entryCount == 270)
         let sharedIndex = SharedLiveAgentIndex(
             indexLoader: {
                 loadStarted.signal()

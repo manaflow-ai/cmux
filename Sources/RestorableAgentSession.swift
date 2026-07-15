@@ -986,6 +986,8 @@ struct RestorableAgentSessionIndex: Sendable {
 
     func forkValidationEntries() -> [(PanelKey, Entry)] { Array(entriesByPanel) }
 
+    var entryCount: Int { entriesByPanel.count }
+
     func hasLiveProcess(workspaceId: UUID, panelId: UUID) -> Bool {
         !processIDs(workspaceId: workspaceId, panelId: panelId).isEmpty
     }

@@ -1,11 +1,14 @@
 import Foundation
 
 extension SharedLiveAgentIndex {
-    static func hookEventReloadInterval(liveAgentCount: Int) -> TimeInterval {
-        let clampedAgentCount = max(0, liveAgentCount)
+    static func hookEventReloadInterval(
+        liveAgentCount: Int,
+        indexedSessionCount: Int
+    ) -> TimeInterval {
+        let workloadCount = max(0, max(liveAgentCount, indexedSessionCount))
         let intervalSteps = max(
             1,
-            (clampedAgentCount + liveAgentsPerReloadIntervalStep - 1) / liveAgentsPerReloadIntervalStep
+            (workloadCount + workloadUnitsPerReloadIntervalStep - 1) / workloadUnitsPerReloadIntervalStep
         )
         return min(
             maxEventReloadInterval,
