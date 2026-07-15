@@ -155,6 +155,57 @@ struct MobileWorkspaceListFidelityTests {
         #expect(before != after, "a terminal rename must change the mobile summary hash")
     }
 
+    @Test func workspacePayloadPreservesPaneMembershipAndSplitGeometry() throws {
+        let (workspace, ordered) = try makeWorkspaceWithSplitTerminals(count: 2)
+        let leftPaneID = try #require(workspace.paneId(forPanelId: ordered[0]))
+        let leftExtra = try #require(
+            workspace.newTerminalSurface(
+                inPane: leftPaneID,
+                focus: false,
+                autoRefreshMetadata: false,
+                preserveFocusWhenUnfocused: true,
+                inheritWorkingDirectoryFallback: true,
+                allowTextBoxFocusDefault: false
+            )
+        )
+
+        let payload = TerminalController.shared.mobileWorkspacePayload(
+            workspace: workspace,
+            isSelected: true,
+            requestedTerminalID: nil
+        )
+        let paneTree = try #require(payload["pane_tree"] as? [String: Any])
+        #expect(paneTree["type"] as? String == "split")
+        let split = try #require(paneTree["split"] as? [String: Any])
+        #expect(split["axis"] as? String == "horizontal")
+        let fraction = try #require(split["fraction"] as? Double)
+        #expect(fraction > 0 && fraction < 1)
+
+        let panes = panePayloads(in: paneTree)
+        #expect(panes.count == 2)
+        let terminalIDsByPane = panes.map { Set($0["terminal_ids"] as? [String] ?? []) }
+        #expect(terminalIDsByPane[0] == Set([ordered[0].uuidString, leftExtra.id.uuidString]))
+        #expect(terminalIDsByPane[1] == Set([ordered[1].uuidString]))
+        #expect(panes.filter { ($0["is_focused"] as? Bool) == true }.count == 1)
+    }
+
+    @Test func selectingAnotherTabChangesPaneAwareObserverHash() throws {
+        let (workspace, ordered) = try makeWorkspaceWithTabTerminals(count: 2)
+        let secondTabID = try #require(workspace.surfaceIdFromPanelId(ordered[1]))
+        let before = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: [workspace],
+            selectedTabID: workspace.id
+        )
+
+        workspace.bonsplitController.selectTab(secondTabID)
+
+        let after = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: [workspace],
+            selectedTabID: workspace.id
+        )
+        #expect(before != after, "per-pane tab selection must invalidate the mobile topology")
+    }
+
     @Test func renamingWorkspaceChangesObserverHashAndDisplayedTitle() throws {
         let (workspace, _) = try makeWorkspaceWithTabTerminals(count: 1)
 
@@ -172,6 +223,22 @@ struct MobileWorkspaceListFidelityTests {
             selectedTabID: workspace.id
         )
         #expect(before != after, "a workspace rename must change the mobile summary hash")
+    }
+
+    private func panePayloads(in node: [String: Any]) -> [[String: Any]] {
+        switch node["type"] as? String {
+        case "pane":
+            return (node["pane"] as? [String: Any]).map { [$0] } ?? []
+        case "split":
+            guard let split = node["split"] as? [String: Any],
+                  let first = split["first"] as? [String: Any],
+                  let second = split["second"] as? [String: Any] else {
+                return []
+            }
+            return panePayloads(in: first) + panePayloads(in: second)
+        default:
+            return []
+        }
     }
 
     /// A pure group-membership move (a workspace's `groupId` changes while the tab

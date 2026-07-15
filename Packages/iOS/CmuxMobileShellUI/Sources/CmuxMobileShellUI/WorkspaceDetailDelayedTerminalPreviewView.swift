@@ -11,6 +11,7 @@ import SwiftUI
 struct WorkspaceDetailDelayedTerminalPreviewView: View {
     private static let workspaceID = MobileWorkspacePreview.ID(rawValue: "workspace-delayed-terminal")
     private static let terminalID = MobileTerminalPreview.ID(rawValue: "terminal-delayed")
+    private static let deckBuildID = MobileTerminalPreview.ID(rawValue: "deck-build")
     private static let longWorkspaceTitle = "Extremely Long Workspace Title That Should Truncate Before Toolbar Buttons Overflow"
     private static let longTerminalTitle = "Long Agent Session Subtitle That Should Also Truncate First"
 
@@ -43,6 +44,10 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
             guard !didStartFixture else { return }
             didStartFixture = true
             store.selectedWorkspaceID = Self.workspaceID
+            if Self.usesSurfaceDeckPreview {
+                store.selectedTerminalID = Self.deckBuildID
+                return
+            }
             if Self.usesRefreshingTerminalMenu {
                 store.selectedTerminalID = Self.refreshingTerminalID(0)
                 for generation in 1...80 {
@@ -156,6 +161,10 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
         UITestConfig.workspaceDetailRefreshingTerminalMenuPreviewEnabled
     }
 
+    private static var usesSurfaceDeckPreview: Bool {
+        UITestConfig.workspaceSurfaceDeckPreviewEnabled
+    }
+
     private static var workspaceTitle: String {
         usesLongTitle ? longWorkspaceTitle : "New Workspace"
     }
@@ -165,6 +174,9 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
     }
 
     private static var initialWorkspaces: [MobileWorkspacePreview] {
+        if usesSurfaceDeckPreview {
+            return [surfaceDeckWorkspace]
+        }
         if usesRefreshingTerminalMenu {
             return [refreshingWorkspace(generation: 0)]
         }
@@ -175,6 +187,57 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
                 terminals: []
             ),
         ]
+    }
+
+    private static var surfaceDeckWorkspace: MobileWorkspacePreview {
+        let build = MobileTerminalPreview(id: deckBuildID, name: "Build & Typecheck")
+        let model = MobileTerminalPreview(id: "deck-model", name: "Codex: Pane model")
+        let simulator = MobileTerminalPreview(id: "deck-simulator", name: "iOS Simulator")
+        let logs = MobileTerminalPreview(id: "deck-logs", name: "Live Logs")
+        let api = MobileTerminalPreview(id: "deck-api", name: "Web API")
+        return MobileWorkspacePreview(
+            id: workspaceID,
+            name: "Pane Deck Lab",
+            terminals: [build, model, simulator, logs, api],
+            paneLayout: MobileWorkspacePaneLayout(
+                root: .split(
+                    MobileWorkspaceSplitPreview(
+                        id: "deck-root",
+                        axis: .horizontal,
+                        fraction: 0.58,
+                        first: .pane(
+                            MobileWorkspacePanePreview(
+                                id: "deck-left",
+                                terminalIDs: [build.id, model.id],
+                                selectedTerminalID: build.id,
+                                isFocused: true
+                            )
+                        ),
+                        second: .split(
+                            MobileWorkspaceSplitPreview(
+                                id: "deck-right",
+                                axis: .vertical,
+                                fraction: 0.46,
+                                first: .pane(
+                                    MobileWorkspacePanePreview(
+                                        id: "deck-top-right",
+                                        terminalIDs: [simulator.id],
+                                        selectedTerminalID: simulator.id
+                                    )
+                                ),
+                                second: .pane(
+                                    MobileWorkspacePanePreview(
+                                        id: "deck-bottom-right",
+                                        terminalIDs: [logs.id, api.id],
+                                        selectedTerminalID: logs.id
+                                    )
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+        )
     }
 
     private static func refreshingWorkspace(generation: Int) -> MobileWorkspacePreview {

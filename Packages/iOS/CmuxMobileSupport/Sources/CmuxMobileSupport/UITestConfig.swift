@@ -88,10 +88,21 @@ public struct UITestConfig {
     public static var workspaceListLayoutPreviewEnabled: Bool {
         #if DEBUG
         return ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW"] == "1"
+            || workspaceSurfaceDeckPreviewEnabled
             || workspaceDetailDelayedTerminalPreviewEnabled
             || workspaceDetailCreateDelayedTerminalPreviewEnabled
             || Self.workspaceDetailRefreshingTerminalMenuPreviewEnabled
             || ProcessInfo.processInfo.arguments.contains("CMUX_UITEST_WORKSPACE_LIST_PREVIEW=1")
+        #else
+        return false
+        #endif
+    }
+
+    /// Whether the production workspace detail renders a deterministic
+    /// three-pane surface deck for simulator screenshots. DEBUG-only.
+    public static var workspaceSurfaceDeckPreviewEnabled: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_SURFACE_DECK_PREVIEW"] == "1"
         #else
         return false
         #endif

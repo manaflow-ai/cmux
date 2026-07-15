@@ -1,3 +1,4 @@
+import Bonsplit
 import Combine
 import CmuxWorkspaces
 import Foundation
@@ -7,7 +8,7 @@ private let mobileWorkspaceObserverLog = Logger(subsystem: "dev.cmux", category:
 
 /// Watches `TabManager.tabs` (and each workspace's panels publisher) and emits
 /// `workspace.updated` to subscribed mobile clients whenever the iOS-facing
-/// shape of the workspace list materially changes. Replaces per-RPC emit hooks
+/// shape of the workspace list materially changes. Replaces per-RPC emit hooks.
 /// Any mutation surface (UI new-tab, keyboard shortcut, drag-reorder,
 /// debug-cli, session restore, etc.) automatically syncs because we observe
 /// the `@Published` source of truth instead of trying to catch every caller.
@@ -262,6 +263,7 @@ final class MobileWorkspaceListObserver {
                 // set; bonsplit selection state is not `@Published`, so this counter
                 // is the only signal the observer gets for a reorder.
                 workspace.paneLayoutVersionPublisher.map { _ in () }.eraseToAnyPublisher(),
+                workspace.mobileSurfaceTopologyPublisher.eraseToAnyPublisher(),
             ]
             let merged = Publishers.MergeMany(publishers)
                 .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
@@ -296,9 +298,8 @@ final class MobileWorkspaceListObserver {
 
     /// Stable hash of the iOS-facing shape: workspace ids + titles + their
     /// panels in spatial order + each panel's displayed (custom-aware) title and
-    /// directory. Mutations that don't show up on the mobile list (pane geometry,
-    /// scrollback content, focus only) don't trip the event, so we don't fan out
-    /// on every keystroke.
+    /// directory + the exact pane hierarchy. Scrollback mutations don't trip the
+    /// event, so terminal output still does not fan out workspace-list updates.
     ///
     /// The panel ids are hashed in `orderedPanelIds` order (not the sorted set),
     /// so a pure drag-reorder, which changes the spatial order but not the id set,
@@ -351,6 +352,7 @@ final class MobileWorkspaceListObserver {
                 hasher.combine(workspace.panelTitle(panelId: id))
                 hasher.combine(workspace.reportedPanelDirectory(panelId: id))
             }
+            combineMobilePaneTopology(for: workspace, into: &hasher)
             hasher.combine(workspace.presentedCurrentDirectory)
             // Todo mutations change the list-facing shape; without these the
             // hash-diff would suppress the re-emit the publishers above fire.
@@ -367,6 +369,52 @@ final class MobileWorkspaceListObserver {
             }
         }
         return hasher.finalize()
+    }
+
+    private static func combineMobilePaneTopology(for workspace: Workspace, into hasher: inout Hasher) {
+        combineMobilePaneTopology(
+            workspace.bonsplitController.treeSnapshot(),
+            workspace: workspace,
+            into: &hasher
+        )
+    }
+
+    private static func combineMobilePaneTopology(
+        _ node: ExternalTreeNode,
+        workspace: Workspace,
+        into hasher: inout Hasher
+    ) {
+        switch node {
+        case .pane(let pane):
+            hasher.combine("pane")
+            hasher.combine(pane.id)
+            let terminalIDs = pane.tabs.compactMap { tab -> UUID? in
+                guard let surfaceUUID = UUID(uuidString: tab.id),
+                      let panelID = workspace.panelIdFromSurfaceId(TabID(uuid: surfaceUUID)),
+                      workspace.panels[panelID] is TerminalPanel else {
+                    return nil
+                }
+                return panelID
+            }
+            hasher.combine(terminalIDs)
+            let selectedTerminalID = pane.selectedTabId.flatMap { rawID -> UUID? in
+                guard let surfaceUUID = UUID(uuidString: rawID),
+                      let panelID = workspace.panelIdFromSurfaceId(TabID(uuid: surfaceUUID)),
+                      workspace.panels[panelID] is TerminalPanel else {
+                    return nil
+                }
+                return panelID
+            }
+            hasher.combine(selectedTerminalID)
+            hasher.combine(workspace.bonsplitController.focusedPaneId?.id.uuidString == pane.id)
+        case .split(let split):
+            hasher.combine("split")
+            hasher.combine(split.id)
+            hasher.combine(split.orientation)
+            hasher.combine(split.dividerPosition)
+            combineMobilePaneTopology(split.first, workspace: workspace, into: &hasher)
+            combineMobilePaneTopology(split.second, workspace: workspace, into: &hasher)
+        }
     }
 
     #if DEBUG

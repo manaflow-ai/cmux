@@ -32,6 +32,7 @@ extension MobileHostService {
             "workspace.group_actions.v1",
             "workspace.group_create.v1",
             "workspace.create_in_group.v1",
+            "workspace.surface_topology.v1",
             "chat.artifact.v1",
             "chat.artifact.gallery.v1",
             "dogfood.v1",

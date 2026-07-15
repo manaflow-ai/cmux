@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import CmuxWorkspaces
 import Foundation
 
@@ -192,10 +193,10 @@ extension TerminalController {
         requestedTerminalID: UUID?,
         notificationStore: TerminalNotificationStore? = nil
     ) -> [String: Any] {
-        let terminals = mobileTerminalPanels(in: workspace).compactMap { terminal -> [String: Any]? in
-            if let requestedTerminalID, terminal.id != requestedTerminalID {
-                return nil
-            }
+        let terminalPanels = mobileTerminalPanels(in: workspace).filter { terminal in
+            requestedTerminalID == nil || terminal.id == requestedTerminalID
+        }
+        let terminals = terminalPanels.map { terminal -> [String: Any] in
             let terminalDirectory = workspace.effectivePanelDirectory(
                 panelId: terminal.id,
                 localFallback: mobileNonEmpty(terminal.directory) ?? mobileNonEmpty(terminal.requestedWorkingDirectory)
@@ -237,8 +238,80 @@ extension TerminalController {
             // unread + manual/panel-derived/restored indicators) so the phone can
             // show an iMessage-style unread dot.
             "has_unread": store?.workspaceIsUnread(forTabId: workspace.id) ?? false,
-            "terminals": terminals
+            "terminals": terminals,
+            // Preserve the Mac's pane grouping and split geometry while keeping
+            // terminal metadata in the legacy `terminals` array. Pane leaves
+            // reference cmux panel ids, never Bonsplit's internal tab ids.
+            "pane_tree": mobilePaneTreePayload(
+                workspace: workspace,
+                allowedTerminalIDs: Set(terminalPanels.map(\.id))
+            )
         ]
+    }
+
+    private func mobilePaneTreePayload(
+        workspace: Workspace,
+        allowedTerminalIDs: Set<UUID>
+    ) -> [String: Any] {
+        mobilePaneTreePayload(
+            workspace.bonsplitController.treeSnapshot(),
+            workspace: workspace,
+            allowedTerminalIDs: allowedTerminalIDs
+        )
+    }
+
+    private func mobilePaneTreePayload(
+        _ node: ExternalTreeNode,
+        workspace: Workspace,
+        allowedTerminalIDs: Set<UUID>
+    ) -> [String: Any] {
+        switch node {
+        case .pane(let pane):
+            let terminalIDs = pane.tabs.compactMap { tab -> UUID? in
+                guard let surfaceUUID = UUID(uuidString: tab.id),
+                      let panelID = workspace.panelIdFromSurfaceId(TabID(uuid: surfaceUUID)),
+                      allowedTerminalIDs.contains(panelID) else {
+                    return nil
+                }
+                return panelID
+            }
+            let selectedTerminalID: UUID? = pane.selectedTabId.flatMap { selectedTabID in
+                guard let surfaceUUID = UUID(uuidString: selectedTabID),
+                      let panelID = workspace.panelIdFromSurfaceId(TabID(uuid: surfaceUUID)),
+                      allowedTerminalIDs.contains(panelID) else {
+                    return nil
+                }
+                return panelID
+            }
+            return [
+                "type": "pane",
+                "pane": [
+                    "id": pane.id,
+                    "terminal_ids": terminalIDs.map(\.uuidString),
+                    "selected_terminal_id": v2OrNull(selectedTerminalID?.uuidString),
+                    "is_focused": workspace.bonsplitController.focusedPaneId?.id.uuidString == pane.id,
+                ],
+            ]
+        case .split(let split):
+            return [
+                "type": "split",
+                "split": [
+                    "id": split.id,
+                    "axis": split.orientation,
+                    "fraction": split.dividerPosition,
+                    "first": mobilePaneTreePayload(
+                        split.first,
+                        workspace: workspace,
+                        allowedTerminalIDs: allowedTerminalIDs
+                    ),
+                    "second": mobilePaneTreePayload(
+                        split.second,
+                        workspace: workspace,
+                        allowedTerminalIDs: allowedTerminalIDs
+                    ),
+                ],
+            ]
+        }
     }
 
     /// Mobile-gated close of one explicit workspace. The Mac remains

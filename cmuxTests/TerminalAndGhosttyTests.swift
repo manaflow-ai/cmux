@@ -1656,6 +1656,47 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         )
     }
 
+    func testMobileTerminalCreateTargetsExplicitPane() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let originalPanelID = try XCTUnwrap(workspace.focusedPanelId)
+        let originalPaneID = try XCTUnwrap(workspace.paneId(forPanelId: originalPanelID))
+        let splitPanel = try XCTUnwrap(
+            workspace.newTerminalSplit(from: originalPanelID, orientation: .horizontal, focus: false)
+        )
+        let splitPaneID = try XCTUnwrap(workspace.paneId(forPanelId: splitPanel.id))
+        XCTAssertNotEqual(originalPaneID, splitPaneID)
+        workspace.bonsplitController.focusPane(splitPaneID)
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "terminal-create-target-pane",
+                method: "terminal.create",
+                params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "pane_id": originalPaneID.id.uuidString,
+                ],
+                auth: nil
+            )
+        )
+
+        guard case let .ok(rawPayload) = response,
+              let payload = rawPayload as? [String: Any],
+              let terminalID = payload["created_terminal_id"] as? String,
+              let terminalUUID = UUID(uuidString: terminalID) else {
+            XCTFail("Expected pane-targeted terminal creation to return a terminal")
+            return
+        }
+        XCTAssertEqual(workspace.paneId(forPanelId: terminalUUID), originalPaneID)
+        XCTAssertEqual(workspace.bonsplitController.focusedPaneId, splitPaneID)
+    }
+
 #if DEBUG
     func testMobileWorkspaceCreateSkipsHiddenMacSideWorkAndReturnsCreatedScopeOnly() async throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
