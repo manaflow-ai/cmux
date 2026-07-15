@@ -5997,10 +5997,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     timeoutNanoseconds: Self.terminalOutputCapabilityTimeoutNanoseconds
                 )
                 guard let decoded = try? MobileHostStatusResponse.decode(data) else {
-                    terminalOutputTransport = fallback
-                    // Preserve learned capabilities during transient status decode failures.
+                    // Capability negotiation is authoritative only when a
+                    // status payload decodes. A transient malformed response
+                    // must not revoke a render-grid transport already proven
+                    // by this live client, because doing so exposes the hidden
+                    // raw Ghostty renderer and blanks last-good direct pixels.
                     scheduleHostIdentityAdoptionIfNeeded(client: client)
-                    return fallback
+                    MobileDebugLog.anchormux(
+                        "sync.transport_preserved=\(terminalOutputTransport.debugName) "
+                            + "reason=status_decode_failed"
+                    )
+                    return terminalOutputTransport
                 }
                 payload = decoded
             }
@@ -6052,15 +6059,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return transport
         } catch {
             guard remoteClient === client else { return fallback }
-            terminalOutputTransport = fallback
-            reconcileTerminalLanesForOutputTransport()
-            // Preserve learned capabilities during transient reconnect probe failures.
-            // The probe is best-effort for the terminal transport, but a
-            // freshly QR-paired Mac still needs its identity recovered, with
-            // a real timeout instead of the probe's 750ms.
+            // Keep the last successfully negotiated transport for this client.
+            // Only a decoded status that explicitly lacks render-grid support
+            // may downgrade to raw bytes. On a new connection the reset value
+            // is already raw, so first-contact failures still fail safely.
             scheduleHostIdentityAdoptionIfNeeded(client: client)
-            MobileDebugLog.anchormux("sync.transport=raw_bytes reason=status_failed")
-            return fallback
+            MobileDebugLog.anchormux(
+                "sync.transport_preserved=\(terminalOutputTransport.debugName) reason=status_failed"
+            )
+            return terminalOutputTransport
         }
     }
 

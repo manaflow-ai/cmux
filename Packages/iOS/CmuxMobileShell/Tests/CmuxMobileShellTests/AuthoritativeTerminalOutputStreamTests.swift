@@ -113,11 +113,10 @@ func transientStatusFailureDoesNotDowngradeAuthoritativeOutput() async throws {
     let box = TransportBox()
     let store = try await makeConnectedStore(router: router, box: box, clock: clock)
     let surfaceID = "live-terminal"
-    await router.enqueueReplayRenderGrid(try renderGridFrame(
-        surfaceID: surfaceID,
-        seq: 1,
-        text: "last-good"
-    ))
+    await router.enqueueReplayRenderGridFrames([
+        try renderGridFrame(surfaceID: surfaceID, seq: 1, text: "last-good"),
+        try renderGridFrame(surfaceID: surfaceID, seq: 6, text: "status-recovery"),
+    ])
     let collector = AuthoritativeOutputCollector()
     collector.mount(store: store, surfaceID: surfaceID)
     defer { collector.unmount() }
