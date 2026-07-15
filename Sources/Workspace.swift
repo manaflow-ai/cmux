@@ -8076,7 +8076,7 @@ final class Workspace: Identifiable, ObservableObject {
             applyTabSelection(tabId: newTabId, inPane: paneId)
         } else {
             if selectWhenNotFocused {
-                hideBrowserPortalsForDeselectedTabs(inPane: paneId, selectedTabId: newTabId)
+                reconcilePortalVisibilityForCurrentRenderedLayout(reason: "workspace.browserTabSelection")
             }
             preserveFocusAfterNonFocusSplit(
                 preferredPanelId: previousFocusedPanelId,
@@ -9722,8 +9722,7 @@ final class Workspace: Identifiable, ObservableObject {
         guard let paneId = paneId(forPanelId: panelId) else { return false }
         guard bonsplitController.togglePaneZoom(inPane: paneId) else { return false }
         focusPanel(panelId)
-        reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
-        reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: "workspace.toggleSplitZoom")
+        reconcilePortalVisibilityForCurrentRenderedLayout(reason: "workspace.toggleSplitZoom")
         if let browserPanel = browserPanel(for: panelId) {
             browserPanel.preparePortalHostReplacementForNextDistinctClaim(
                 inPane: paneId,
@@ -10324,13 +10323,12 @@ final class Workspace: Identifiable, ObservableObject {
             }
         }
 
-        reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
+        let reason = layoutFollowUpReason ?? "workspace.layout"
+        reconcilePortalVisibilityForCurrentRenderedLayout(reason: reason)
         let terminalPortalPending = terminalPortalVisibilityNeedsFollowUp()
         clearReadyPendingReparentFocusSuppressions(reason: "workspace.layoutAttempt")
         let reparentFocusPending = !pendingReparentFocusSuppressionViews.isEmpty
 
-        let reason = layoutFollowUpReason ?? "workspace.layout"
-        reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: reason)
         let browserVisibilityPending = browserPortalVisibilityNeedsFollowUp()
 
         if let browserPanelId = layoutFollowUpBrowserPanelId {
@@ -10507,13 +10505,6 @@ final class Workspace: Identifiable, ObservableObject {
             visiblePanelIds.insert(panelId)
         }
 
-        if let focusedPanelId,
-           panels[focusedPanelId] != nil,
-           let focusedPaneId = paneId(forPanelId: focusedPanelId),
-           renderedPaneIds.contains(where: { $0.id == focusedPaneId.id }) {
-            visiblePanelIds.insert(focusedPanelId)
-        }
-
         return visiblePanelIds
     }
 
@@ -10650,6 +10641,16 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         return didChange
+    }
+
+    /// Reconciles every window-level portal from the selected tabs in the
+    /// currently rendered bonsplit panes. Selection owns visibility; focus
+    /// only controls which visible portal is active for keyboard input.
+    @discardableResult
+    private func reconcilePortalVisibilityForCurrentRenderedLayout(reason: String) -> Bool {
+        let terminalChanged = reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
+        let browserChanged = reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: reason)
+        return terminalChanged || browserChanged
     }
 
     private func browserPortalVisibilityNeedsFollowUp() -> Bool {
@@ -11453,16 +11454,6 @@ extension Workspace: BonsplitDelegate {
         }
     }
 
-    /// Hide browser portals for tabs that are no longer selected in the given pane.
-    private func hideBrowserPortalsForDeselectedTabs(inPane pane: PaneID, selectedTabId: TabID) {
-        for tab in bonsplitController.tabs(inPane: pane) {
-            guard tab.id != selectedTabId else { continue }
-            guard let panelId = panelIdFromSurfaceId(tab.id),
-                  let browserPanel = panels[panelId] as? BrowserPanel else { continue }
-            browserPanel.hideBrowserPortalView(source: "tabDeselected")
-        }
-    }
-
     private func applyTabSelectionNow(
         tabId: TabID,
         inPane pane: PaneID,
@@ -11559,11 +11550,6 @@ extension Workspace: BonsplitDelegate {
             p.unfocus()
         }
 
-        // Explicitly hide browser portals for deselected tabs in this pane. The WKWebView lives
-        // at the AppKit window level, so removing its SwiftUI host does not synchronously hide
-        // the portal layer during a tab-selection transition.
-        hideBrowserPortalsForDeselectedTabs(inPane: focusedPane, selectedTabId: selectedTabId)
-
         if let focusWindow = activationWindow(for: panel) {
             yieldForeignOwnedFocusIfNeeded(
                 in: focusWindow,
@@ -11577,6 +11563,7 @@ extension Workspace: BonsplitDelegate {
             focusIntent: activationIntent,
             reassertAppKitFocus: reassertAppKitFocus
         )
+        reconcilePortalVisibilityForCurrentRenderedLayout(reason: "workspace.tabSelection")
         let focusIntentAllowsBrowserOmnibarAutofocus =
             explicitFocusIntent ||
             TerminalController.socketCommandAllowsInAppFocusMutations()

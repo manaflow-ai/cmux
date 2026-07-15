@@ -59,6 +59,7 @@ public struct SettingsWindowRoot: View {
     // legacy stores it on the transient `SettingsDraftState`, not in
     // SceneStorage.
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var isPaneSidebarVisible = true
     // Mirrors legacy SettingsView.settingsNavigationGeneration. When
     // multiple navigation requests fire in quick succession (e.g. the
     // sidebar selection changes plus an external app.cmux.settings
@@ -113,12 +114,7 @@ public struct SettingsWindowRoot: View {
     }
 
     public var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            sidebar
-        } detail: {
-            detailScroll
-        }
-        .navigationSplitViewStyle(.balanced)
+        settingsLayout
         // Inject the built search index so each SettingsCardRow can map
         // its declared cmux.json paths to scroll/highlight anchor ids,
         // and publish the active highlight so the matching row pulses.
@@ -135,10 +131,15 @@ public struct SettingsWindowRoot: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: Self.sidebarToggleRequestName)) { notification in
             guard navigationRouter.accepts(notification) else { return }
-            // AppKit hosts this window, so SwiftUI's SidebarCommands cannot
-            // reach the split view; the host app routes its sidebar-toggle
-            // menu command here when the Settings window is key.
-            columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
+            switch presentationStyle {
+            case .window:
+                // AppKit hosts this window, so SwiftUI's SidebarCommands cannot
+                // reach the split view; the host app routes its sidebar-toggle
+                // menu command here when the Settings window is key.
+                columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
+            case .pane:
+                isPaneSidebarVisible.toggle()
+            }
         }
         .onChange(of: searchText) { _, newValue in
             // Legacy SettingsRootView resyncs the sidebar entry to the
@@ -153,6 +154,27 @@ public struct SettingsWindowRoot: View {
 
     public static let navigationRequestName = Notification.Name("cmux.settings.navigate")
     public static let sidebarToggleRequestName = Notification.Name("cmux.settings.toggleSidebar")
+
+    @ViewBuilder
+    private var settingsLayout: some View {
+        switch presentationStyle {
+        case .window:
+            NavigationSplitView(columnVisibility: $columnVisibility) {
+                nativeSidebar
+            } detail: {
+                detailScroll
+            }
+            .navigationSplitViewStyle(.balanced)
+        case .pane:
+            HStack(spacing: 0) {
+                if isPaneSidebarVisible {
+                    paneSidebar
+                    Divider()
+                }
+                detailScroll
+            }
+        }
+    }
 
     /// Legacy `SettingsRootView.onReceive` only updates the selection
     /// state (sidebar entry + section pane) in response to an external
@@ -181,7 +203,7 @@ public struct SettingsWindowRoot: View {
     }
 
     @ViewBuilder
-    private var sidebar: some View {
+    private var nativeSidebar: some View {
         List(selection: sidebarSelectionBinding) {
             let matches = sidebarEntries(matching: searchText)
             if matches.isEmpty {
@@ -202,6 +224,59 @@ public struct SettingsWindowRoot: View {
         .navigationTitle(String(localized: "settings.title", defaultValue: "Settings"))
         .searchable(text: $searchText, placement: .sidebar, prompt: Text(String(localized: "settings.search.prompt", defaultValue: "Search")))
         .navigationSplitViewColumnWidth(210)
+    }
+
+    private var paneSidebar: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField(
+                    String(localized: "settings.search.prompt", defaultValue: "Search"),
+                    text: $searchText
+                )
+                .textFieldStyle(.plain)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    let matches = sidebarEntries(matching: searchText)
+                    if matches.isEmpty {
+                        Text(String(localized: "settings.search.noResults", defaultValue: "No Results"))
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(12)
+                    } else {
+                        ForEach(matches) { entry in
+                            Button {
+                                selectSidebarEntry(entry.id)
+                            } label: {
+                                SettingsSidebarEntryRow(
+                                    title: entry.title,
+                                    symbolName: entry.symbolName,
+                                    subtitle: subtitle(for: entry),
+                                    isSelected: selectedSidebarEntryID == entry.id
+                                )
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 7)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .overlay(alignment: .leading) {
+                                if selectedSidebarEntryID == entry.id {
+                                    Rectangle()
+                                        .fill(Color.accentColor)
+                                        .frame(width: 2)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .frame(width: 210)
     }
 
     func sidebarEntries(matching query: String) -> [SettingsSearchIndex.Entry] { searchIndex.match(query) }
