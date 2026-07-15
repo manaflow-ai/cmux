@@ -4812,7 +4812,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         XCTAssertEqual(TerminalWindowPortalRegistry.debugPortalCount(), baseline)
     }
 
-    func testPruneDeadEntriesDetachesAnchorlessHostedView() {
+    func testPruneDeadEntriesDetachesInvisibleAnchorlessHostedView() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
             styleMask: [.titled, .closable],
@@ -4833,6 +4833,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         contentView.addSubview(anchor1!)
         portal.bind(hostedView: hosted1, to: anchor1!, visibleInUI: true)
 
+        portal.updateEntryVisibility(forHostedId: ObjectIdentifier(hosted1), visibleInUI: false)
         anchor1?.removeFromSuperview()
         anchor1 = nil
 
@@ -4843,8 +4844,11 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         contentView.addSubview(anchor2)
         portal.bind(hostedView: hosted2, to: anchor2, visibleInUI: true)
 
-        XCTAssertEqual(portal.debugEntryCount(), 1, "Only the live anchored hosted view should remain tracked")
-        XCTAssertEqual(portal.debugHostedSubviewCount(), 1, "Stale anchorless hosted views should be detached from hostView")
+        let stats = portal.debugStats()
+        XCTAssertEqual(stats.entryCount, 1, "Only the live anchored hosted view should remain tracked")
+        XCTAssertEqual(stats.terminalSubviewCount, 1, "Only the live terminal should remain in the portal host")
+        XCTAssertEqual(stats.mappedTerminalSubviewCount, 1, "The remaining terminal should have a live portal entry")
+        XCTAssertEqual(stats.orphanTerminalSubviewCount, 0, "Pruning should detach the stale anchorless terminal")
     }
 
     func testDeferredSyncHidesVisibleHostedViewAfterAnchorDisappears() {
@@ -5172,7 +5176,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         )
     }
 
-    func testScheduledExternalGeometrySyncWaitsForQueuedLayoutShift() {
+    func testDeferredExternalGeometrySyncWaitsForQueuedLayoutShift() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 700, height: 420),
             styleMask: [.titled, .closable],
@@ -5212,26 +5216,21 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         let anchorCenter = NSPoint(x: anchor.bounds.midX, y: anchor.bounds.midY)
         let originalWindowPoint = anchor.convert(anchorCenter, to: nil)
         let originalAnchorFrameInWindow = anchor.convert(anchor.bounds, to: nil)
-        XCTAssertNotNil(
-            TerminalWindowPortalRegistry.terminalViewAtWindowPoint(originalWindowPoint, in: window),
-            "Initial hit-testing should resolve the portal-hosted terminal at its original window position"
-        )
+        XCTAssertNotNil(TerminalWindowPortalRegistry.terminalViewAtWindowPoint(originalWindowPoint, in: window))
 
-        TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
+        drainMainQueue()
+        TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window, forceImmediate: false)
         DispatchQueue.main.async {
             shiftedContainer.frame.origin.x += 72
             contentView.layoutSubtreeIfNeeded()
             window.displayIfNeeded()
         }
 
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        drainMainQueue()
+        drainMainQueue()
 
         let shiftedAnchorFrameInWindow = anchor.convert(anchor.bounds, to: nil)
-        XCTAssertGreaterThan(
-            shiftedAnchorFrameInWindow.minX,
-            originalAnchorFrameInWindow.minX + 1,
-            "The queued layout shift should move the anchor to the right"
-        )
+        XCTAssertGreaterThan(shiftedAnchorFrameInWindow.minX, originalAnchorFrameInWindow.minX + 1)
         XCTAssertGreaterThan(
             shiftedAnchorFrameInWindow.maxX,
             originalAnchorFrameInWindow.maxX + 1,

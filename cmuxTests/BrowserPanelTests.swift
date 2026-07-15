@@ -3822,7 +3822,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         XCTAssertFalse(overlay.isHidden, "Restoring visibility should restore the active drop-zone overlay")
     }
 
-    func testPortalRevealRefreshesHostedWebViewWithoutFrameDelta() {
+    func testPortalVisibilityRevealRefreshesWithoutUnnecessaryRenderingStateReattach() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
             styleMask: [.titled, .closable],
@@ -3863,19 +3863,15 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             initialReattachCount,
             "Hiding a portal-hosted browser should not itself trigger the WebKit reattach path"
         )
-        XCTAssertGreaterThan(
-            webView.displayIfNeededCount,
-            hiddenDisplayCount,
-            "Revealing an existing portal-hosted browser should refresh WebKit presentation immediately"
-        )
-        XCTAssertGreaterThan(
+        XCTAssertGreaterThan(webView.displayIfNeededCount, hiddenDisplayCount)
+        XCTAssertEqual(
             webView.reattachRenderingStateCount,
             hiddenReattachCount,
-            "Revealing an existing portal-hosted browser should trigger the WebKit reattach path"
+            "Visibility-only reveals should not trigger WebKit's expensive rendering-state reattach path"
         )
     }
 
-    func testVisiblePortalEntryHidesWithoutDetachingDuringTransientAnchorRemovalUntilRebind() {
+    func testVisiblePortalEntryPreservesLastFrameDuringTransientAnchorRemovalUntilRebind() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
             styleMask: [.titled, .closable],
@@ -3904,20 +3900,21 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             XCTFail("Expected browser slot")
             return
         }
-
         anchor1.removeFromSuperview()
         portal.synchronizeWebViewForAnchor(anchor1)
         advanceAnimations()
 
         XCTAssertTrue(webView.superview === slot, "Visible browser entries should not detach during transient anchor removal")
-        XCTAssertTrue(
+        XCTAssertFalse(
             slot.isHidden,
-            "Transient anchor churn should hide the stale browser slot instead of rendering in the wrong pane"
+            "Transient anchor churn should preserve the last visible browser presentation until rebind"
         )
+        XCTAssertEqual(slot.frame, anchorFrame)
         XCTAssertEqual(portal.debugEntryCount(), 1)
 
         let displayCountBeforeRebind = webView.displayIfNeededCount
-        let anchor2 = NSView(frame: anchorFrame)
+        let reboundFrame = NSRect(x: 88, y: 36, width: 190, height: 130)
+        let anchor2 = NSView(frame: reboundFrame)
         contentView.addSubview(anchor2)
         portal.bind(webView: webView, to: anchor2, visibleInUI: true)
         portal.synchronizeWebViewForAnchor(anchor2)
@@ -3925,12 +3922,9 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
 
         XCTAssertTrue(webView.superview === slot, "Rebinding after transient anchor removal should reuse the existing portal slot")
         XCTAssertFalse(slot.isHidden)
+        XCTAssertEqual(slot.frame, reboundFrame)
         XCTAssertEqual(portal.debugEntryCount(), 1)
-        XCTAssertGreaterThan(
-            webView.displayIfNeededCount,
-            displayCountBeforeRebind,
-            "Anchor rebinds should refresh hosted browser presentation even when geometry is unchanged"
-        )
+        XCTAssertGreaterThan(webView.displayIfNeededCount, displayCountBeforeRebind)
     }
 
     func testVisiblePortalEntryStaysVisibleDuringOffWindowAnchorReparentUntilRebind() {
