@@ -39,7 +39,15 @@ actor ChromiumProcessController {
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
         process.standardError = stderrPipe
-        try process.run()
+        process.terminationHandler = { _ in
+            try? BrowserChromiumProfileDirectory().removeSessionDirectoryIfOwned(userDataDirectory)
+        }
+        do {
+            try process.run()
+        } catch {
+            try? BrowserChromiumProfileDirectory().removeSessionDirectoryIfOwned(userDataDirectory)
+            throw error
+        }
         self.process = process
 
         return try await withCheckedThrowingContinuation { continuation in

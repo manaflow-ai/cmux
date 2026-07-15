@@ -1,21 +1,79 @@
 import Foundation
 
-/// Owns one browser-level Chrome DevTools Protocol WebSocket connection.
-actor CDPConnection {
-    private let webSocketTask: URLSessionWebSocketTask
-    private let urlSession: URLSession
-    private let eventContinuation: AsyncStream<CDPEvent>.Continuation
-    private let eventStream: AsyncStream<CDPEvent>
-    private var receiveTask: Task<Void, Never>?
-    private var nextRequestID = 1
-    private var pendingRequests: [Int: CheckedContinuation<CDPJSONValue, any Error>] = [:]
-    private var isClosed = false
+/// Sendable transport boundary for the browser-level DevTools WebSocket.
+protocol CDPWebSocketTransport: Sendable {
+    func resume()
+    func send(_ data: Data) async throws
+    func receive() async throws -> Data
+    func cancel()
+}
+
+private final class URLSessionCDPWebSocketTransport: CDPWebSocketTransport, @unchecked Sendable {
+    private let session: URLSession
+    private let task: URLSessionWebSocketTask
 
     init(url: URL) {
         let configuration = URLSessionConfiguration.ephemeral
         let session = URLSession(configuration: configuration)
-        self.urlSession = session
-        self.webSocketTask = session.webSocketTask(with: url)
+        self.session = session
+        self.task = session.webSocketTask(with: url)
+    }
+
+    func resume() {
+        task.resume()
+    }
+
+    func send(_ data: Data) async throws {
+        try await task.send(.data(data))
+    }
+
+    func receive() async throws -> Data {
+        switch try await task.receive() {
+        case .data(let data):
+            return data
+        case .string(let value):
+            return Data(value.utf8)
+        @unknown default:
+            return Data()
+        }
+    }
+
+    func cancel() {
+        task.cancel(with: .goingAway, reason: nil)
+        session.invalidateAndCancel()
+    }
+}
+
+/// Owns one browser-level Chrome DevTools Protocol WebSocket connection.
+actor CDPConnection {
+    private struct PendingRequest {
+        let continuation: CheckedContinuation<CDPJSONValue, any Error>
+        let timeoutTask: Task<Void, Never>
+    }
+
+    private let transport: any CDPWebSocketTransport
+    private let requestTimeout: Duration
+    private let eventContinuation: AsyncStream<CDPEvent>.Continuation
+    private let eventStream: AsyncStream<CDPEvent>
+    private var receiveTask: Task<Void, Never>?
+    private var nextRequestID = 1
+    private var pendingRequests: [Int: PendingRequest] = [:]
+    private var isClosed = false
+
+    init(url: URL, requestTimeout: Duration = .seconds(10)) {
+        self.transport = URLSessionCDPWebSocketTransport(url: url)
+        self.requestTimeout = requestTimeout
+        (eventStream, eventContinuation) = AsyncStream.makeStream(
+            bufferingPolicy: .bufferingNewest(256)
+        )
+    }
+
+    init(
+        transport: any CDPWebSocketTransport,
+        requestTimeout: Duration = .seconds(10)
+    ) {
+        self.transport = transport
+        self.requestTimeout = requestTimeout
         (eventStream, eventContinuation) = AsyncStream.makeStream(
             bufferingPolicy: .bufferingNewest(256)
         )
@@ -23,7 +81,7 @@ actor CDPConnection {
 
     func connect() {
         guard receiveTask == nil else { return }
-        webSocketTask.resume()
+        transport.resume()
         receiveTask = Task { [weak self] in
             await self?.receiveMessages()
         }
@@ -46,14 +104,40 @@ actor CDPConnection {
         ]
         if let sessionID { message["sessionId"] = .string(sessionID) }
         let data = try JSONEncoder().encode(message)
-        return try await withCheckedThrowingContinuation { continuation in
-            pendingRequests[requestID] = continuation
-            Task { [weak self, webSocketTask] in
-                do {
-                    try await webSocketTask.send(.data(data))
-                } catch {
-                    await self?.failPendingRequest(requestID, error: error)
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                guard !Task.isCancelled else {
+                    continuation.resume(throwing: CancellationError())
+                    return
                 }
+                let timeoutTask = Task { [weak self, requestTimeout] in
+                    do {
+                        try await ContinuousClock().sleep(for: requestTimeout)
+                    } catch {
+                        return
+                    }
+                    await self?.failPendingRequest(
+                        requestID,
+                        error: BrowserEngineSessionError.chromiumProtocol(
+                            "DevTools request \(method) timed out."
+                        )
+                    )
+                }
+                pendingRequests[requestID] = PendingRequest(
+                    continuation: continuation,
+                    timeoutTask: timeoutTask
+                )
+                Task { [weak self, transport] in
+                    do {
+                        try await transport.send(data)
+                    } catch {
+                        await self?.failPendingRequest(requestID, error: error)
+                    }
+                }
+            }
+        } onCancel: { [weak self] in
+            Task {
+                await self?.failPendingRequest(requestID, error: CancellationError())
             }
         }
     }
@@ -63,38 +147,40 @@ actor CDPConnection {
         isClosed = true
         receiveTask?.cancel()
         receiveTask = nil
-        webSocketTask.cancel(with: .goingAway, reason: nil)
-        urlSession.invalidateAndCancel()
+        transport.cancel()
         let error = BrowserEngineSessionError.chromiumProtocol("DevTools connection closed.")
-        pendingRequests.values.forEach { $0.resume(throwing: error) }
-        pendingRequests.removeAll()
+        failAllPendingRequests(error: error)
         eventContinuation.finish()
     }
 
     private func failPendingRequest(_ requestID: Int, error: any Error) {
-        pendingRequests.removeValue(forKey: requestID)?.resume(throwing: error)
+        guard let request = pendingRequests.removeValue(forKey: requestID) else { return }
+        request.timeoutTask.cancel()
+        request.continuation.resume(throwing: error)
+    }
+
+    private func failAllPendingRequests(error: any Error) {
+        let requests = Array(pendingRequests.values)
+        pendingRequests.removeAll()
+        for request in requests {
+            request.timeoutTask.cancel()
+            request.continuation.resume(throwing: error)
+        }
     }
 
     private func receiveMessages() async {
         do {
             while !Task.isCancelled {
-                let message = try await webSocketTask.receive()
-                let data: Data
-                switch message {
-                case .data(let value):
-                    data = value
-                case .string(let value):
-                    data = Data(value.utf8)
-                @unknown default:
-                    continue
-                }
+                let data = try await transport.receive()
+                guard !data.isEmpty else { continue }
                 try handleMessage(data)
             }
         } catch {
             guard !isClosed else { return }
             isClosed = true
-            pendingRequests.values.forEach { $0.resume(throwing: error) }
-            pendingRequests.removeAll()
+            transport.cancel()
+            receiveTask = nil
+            failAllPendingRequests(error: error)
             eventContinuation.finish()
         }
     }
@@ -102,12 +188,13 @@ actor CDPConnection {
     private func handleMessage(_ data: Data) throws {
         let payload = try JSONDecoder().decode([String: CDPJSONValue].self, from: data)
         if let requestID = payload["id"]?.intValue,
-           let continuation = pendingRequests.removeValue(forKey: requestID) {
+           let request = pendingRequests.removeValue(forKey: requestID) {
+            request.timeoutTask.cancel()
             if let remoteError = payload["error"]?.objectValue {
                 let message = remoteError["message"]?.stringValue ?? "Unknown DevTools error"
-                continuation.resume(throwing: BrowserEngineSessionError.chromiumProtocol(message))
+                request.continuation.resume(throwing: BrowserEngineSessionError.chromiumProtocol(message))
             } else {
-                continuation.resume(returning: payload["result"] ?? .null)
+                request.continuation.resume(returning: payload["result"] ?? .null)
             }
             return
         }

@@ -31,6 +31,10 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
     private var pendingRequest: URLRequest?
     private var initializationScripts: [String]
     private var initializationScriptInstallations: [Int: Task<Void, any Error>] = [:]
+    var viewportInputQueue = ChromiumViewportInputQueue()
+    var viewportInputTask: Task<Void, Never>?
+    var deviceMetricsPending = false
+    var deviceMetricsTask: Task<Void, Never>?
     var viewportWidth = 1280
     var viewportHeight = 720
     var deviceScaleFactor = 1.0
@@ -229,6 +233,12 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
         eventTask?.cancel()
         initializationScriptInstallations.values.forEach { $0.cancel() }
         initializationScriptInstallations.removeAll()
+        viewportInputTask?.cancel()
+        viewportInputTask = nil
+        viewportInputQueue.removeAll()
+        deviceMetricsTask?.cancel()
+        deviceMetricsTask = nil
+        deviceMetricsPending = false
         startupTask = nil
         eventTask = nil
         viewportWebView.configuration.userContentController.removeScriptMessageHandler(

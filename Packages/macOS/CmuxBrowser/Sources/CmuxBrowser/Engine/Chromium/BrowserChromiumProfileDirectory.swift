@@ -25,4 +25,25 @@ public struct BrowserChromiumProfileDirectory {
             .appendingPathComponent(surfaceID.uuidString, isDirectory: true)
             .appendingPathComponent(sessionID.uuidString, isDirectory: true)
     }
+
+    /// Removes a session directory only when it has the exact cmux-owned UUID path shape.
+    func removeSessionDirectoryIfOwned(_ sessionDirectory: URL) throws {
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-chromium", isDirectory: true)
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        let candidate = sessionDirectory
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        let rootComponents = root.pathComponents
+        let candidateComponents = candidate.pathComponents
+        guard candidateComponents.count == rootComponents.count + 3,
+              candidateComponents.starts(with: rootComponents),
+              candidateComponents.suffix(3).allSatisfy({ UUID(uuidString: $0) != nil }) else {
+            return
+        }
+        guard fileManager.fileExists(atPath: candidate.path) else { return }
+
+        try fileManager.removeItem(at: candidate)
+    }
 }
