@@ -5945,61 +5945,62 @@ class TerminalController {
     /// first evaluateJavaScript/callAsyncJavaScript call can hang for its full timeout. A
     /// URL-less browser surface never mounts its webview either (no render, no host window),
     /// so a raw webView.load() would not progress. Kick such surfaces through the panel's
-    /// normal navigate path (which hosts the webview) to about:blank, and wait for the URL
-    /// to commit (KVO, bounded by `timeout`) before any automation JS runs against them.
+    /// normal navigation path, then wait for that exact WebView instance's navigation-delegate
+    /// commit before any automation JavaScript runs against it.
     private nonisolated func v2EnsureBrowserDocumentLoaded(
         _ webView: WKWebView,
         surfaceId: UUID,
         timeout: TimeInterval = 3.0
-    ) {
-        let needsKick: Bool = v2MainSync {
-            guard webView.url == nil,
-                  !webView.isLoading,
-                  webView.backForwardList.currentItem == nil else { return false }
-            guard let located = AppDelegate.shared?.locateSurface(surfaceId: surfaceId),
-                  let workspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }),
-                  let browserPanel = workspace.browserPanel(for: surfaceId),
-                  let blankURL = URL(string: "about:blank") else {
-#if DEBUG
-                cmuxDebugLog("browser.jsKick.locateFailed surface=\(surfaceId.uuidString.prefix(5))")
-#endif
-                return false
-            }
-            // Discarded/restored tabs also have a fresh nil-url webview but preserve
-            // the user's page; bring that back instead of clobbering it with blank.
-            if browserPanel.restoreDiscardedWebViewIfNeeded(reason: "automation-js") {
-                return true
-            }
-            if let preserved = browserPanel.currentURL {
-                browserPanel.navigate(to: preserved)
-            } else {
-                browserPanel.navigate(to: blankURL)
-            }
-            return true
-        }
-        guard needsKick else { return }
-
-        // Register synchronously and invalidate after the await (both on main) so
-        // the observation cannot leak when the commit never arrives before timeout.
-        nonisolated(unsafe) var observation: NSKeyValueObservation?
-        let committed = v2AwaitCallback(timeout: timeout) { (finish: @escaping (Bool) -> Void) in
-            v2MainSync {
-                observation = webView.observe(\.url, options: [.initial, .new]) { observed, _ in
-                    guard observed.url != nil else { return }
-                    finish(true)
+    ) -> Bool {
+        let expectedWebViewIdentifier = ObjectIdentifier(webView)
+        var readinessTask: Task<Void, Never>?
+        let outcome: BrowserAutomationDocumentReadinessOutcome? = v2AwaitCallback(timeout: timeout) { finish in
+            readinessTask = Task { @MainActor in
+                guard let app = AppDelegate.shared else {
+                    finish(.superseded)
+                    return
                 }
+                let browserPanel = app.windowDockContainingPanel(surfaceId)?.browserPanel(for: surfaceId)
+                    ?? app.workspaceContainingPanel(panelId: surfaceId)?.workspace.browserPanel(for: surfaceId)
+                guard let browserPanel,
+                      ObjectIdentifier(browserPanel.webView) == expectedWebViewIdentifier,
+                      let blankURL = URL(string: "about:blank") else {
+#if DEBUG
+                    cmuxDebugLog("browser.jsCommit.locateFailed surface=\(surfaceId.uuidString.prefix(5))")
+#endif
+                    finish(.superseded)
+                    return
+                }
+                let currentWebView = browserPanel.webView
+
+                if currentWebView.url == nil,
+                   !currentWebView.isLoading,
+                   currentWebView.backForwardList.currentItem == nil {
+                    // Discarded tabs preserve the user's page intent. Restore it before
+                    // falling back to a real about:blank document for an empty new tab.
+                    let restored = browserPanel.restoreDiscardedWebViewIfNeeded(reason: "automation-js")
+                    if !restored, let preserved = browserPanel.currentURL {
+                        browserPanel.navigate(to: preserved)
+                    } else if !restored || BrowserPanel.isAboutBlankURL(browserPanel.currentURL) {
+                        browserPanel.navigate(to: blankURL)
+                    }
+                }
+
+                finish(await browserPanel.waitForAutomationDocumentCommit(
+                    expectedWebViewIdentifier: expectedWebViewIdentifier
+                ))
             }
         }
-        v2MainSync {
-            observation?.invalidate()
-            observation = nil
+        if outcome == nil {
+            readinessTask?.cancel()
         }
 #if DEBUG
         cmuxDebugLog(
-            "browser.jsKick surface=\(surfaceId.uuidString.prefix(5)) " +
-            "committed=\(committed == true) url=\(v2MainSync { webView.url?.absoluteString ?? "nil" })"
+            "browser.jsCommit surface=\(surfaceId.uuidString.prefix(5)) " +
+            "outcome=\(String(describing: outcome)) url=\(v2MainSync { webView.url?.absoluteString ?? "nil" })"
         )
 #endif
+        return outcome == .committed
     }
 
     private nonisolated func v2RunBrowserJavaScript(
@@ -6011,7 +6012,17 @@ class TerminalController {
         requiresPageWorld: Bool = false,
         onIsolatedWorldFallback: (() -> Void)? = nil
     ) -> V2JavaScriptResult {
-        v2EnsureBrowserDocumentLoaded(webView, surfaceId: surfaceId)
+        guard v2EnsureBrowserDocumentLoaded(webView, surfaceId: surfaceId) else {
+            return .failure(v2BrowserAutomationMessageAfterLivenessCheck(
+                originalMessage: String(
+                    localized: "browser.automation.error.documentReadinessTimedOut",
+                    defaultValue: "Timed out waiting for the browser document to become ready"
+                ),
+                surfaceId: surfaceId,
+                expectedWebViewIdentifier: ObjectIdentifier(webView),
+                channel: .javaScript
+            ))
+        }
         let scriptLiteral = v2JSONLiteral(script)
         let framePrelude: String
         if let frameSelector = v2BrowserCurrentFrameSelector(surfaceId: surfaceId) {

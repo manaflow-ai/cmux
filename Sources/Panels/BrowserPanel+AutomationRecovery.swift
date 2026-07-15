@@ -3,6 +3,13 @@ import CmuxBrowser
 import WebKit
 
 extension BrowserPanel {
+    func waitForAutomationDocumentCommit(
+        expectedWebViewIdentifier: ObjectIdentifier
+    ) async -> BrowserAutomationDocumentReadinessOutcome {
+        guard ObjectIdentifier(webView) == expectedWebViewIdentifier else { return .superseded }
+        return await automationDocumentReadiness.waitForCommit(instanceID: webViewInstanceID)
+    }
+
     func recoverIfAutomationUnresponsive(
         expectedWebViewIdentifier: ObjectIdentifier,
         channel: BrowserAutomationProbeChannel
