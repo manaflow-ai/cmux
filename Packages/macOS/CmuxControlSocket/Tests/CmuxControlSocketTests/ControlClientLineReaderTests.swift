@@ -1,4 +1,4 @@
-import CmuxControlSocket
+@testable import CmuxControlSocket
 import Darwin
 import Dispatch
 import Foundation

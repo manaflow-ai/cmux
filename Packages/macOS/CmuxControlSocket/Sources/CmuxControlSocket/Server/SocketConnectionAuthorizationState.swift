@@ -10,34 +10,23 @@ internal import os
 /// compare immutable fingerprints and rotate the generation's pollable
 /// revocation signal, so client threads never hold a lock across file I/O.
 final class SocketConnectionAuthorizationState: Sendable {
-    struct Generation: Sendable {
-        let number: UInt64
-        let revocationSignal: SocketAuthorizationRevocationSignal
-    }
-
-    private struct State: Sendable {
-        var accessMode: SocketControlMode = .cmuxOnly
-        var isRunning = false
-        var passwordFingerprint: Data?
-        var generation = Generation(
-            number: 0,
-            revocationSignal: SocketAuthorizationRevocationSignal()
-        )
-    }
-
-    private let state = OSAllocatedUnfairLock(initialState: State())
+    // Dedicated blocking socket threads require synchronous fail-closed reads;
+    // every critical section is bounded and performs no file or Keychain I/O.
+    private let state = OSAllocatedUnfairLock(
+        initialState: SocketConnectionAuthorizationSnapshot()
+    )
 
     var accessMode: SocketControlMode {
         state.withLock { $0.accessMode }
     }
 
-    var currentGeneration: Generation {
+    var currentGeneration: SocketConnectionAuthorizationGeneration {
         state.withLock { $0.generation }
     }
 
     func configure(accessMode: SocketControlMode, effectivePassword: String?) {
         let fingerprint = accessMode.requiresPasswordAuth
-            ? Self.fingerprint(effectivePassword)
+            ? fingerprint(effectivePassword)
             : nil
         state.withLock { state in
             let policyChanged = state.accessMode != accessMode
@@ -46,7 +35,7 @@ final class SocketConnectionAuthorizationState: Sendable {
             state.accessMode = accessMode
             state.passwordFingerprint = fingerprint
             if policyChanged || passwordChanged {
-                Self.rotate(&state)
+                rotate(&state)
             }
         }
     }
@@ -56,7 +45,7 @@ final class SocketConnectionAuthorizationState: Sendable {
             guard state.isRunning != isRunning else { return }
             state.isRunning = isRunning
             if !isRunning {
-                Self.rotate(&state)
+                rotate(&state)
             }
         }
     }
@@ -64,15 +53,17 @@ final class SocketConnectionAuthorizationState: Sendable {
     /// Refreshes the effective password and rotates only when password mode's
     /// authoritative credential actually changed.
     @discardableResult
-    func refreshEffectivePassword(_ effectivePassword: String?) -> Generation? {
-        let fingerprint = Self.fingerprint(effectivePassword)
+    func refreshEffectivePassword(
+        _ effectivePassword: String?
+    ) -> SocketConnectionAuthorizationGeneration? {
+        let fingerprint = fingerprint(effectivePassword)
         return state.withLock { state in
             guard state.accessMode.requiresPasswordAuth,
                   state.passwordFingerprint != fingerprint else {
                 return nil
             }
             state.passwordFingerprint = fingerprint
-            Self.rotate(&state)
+            rotate(&state)
             return state.generation
         }
     }
@@ -100,16 +91,16 @@ final class SocketConnectionAuthorizationState: Sendable {
         }
     }
 
-    private static func rotate(_ state: inout State) {
+    private func rotate(_ state: inout SocketConnectionAuthorizationSnapshot) {
         let previousSignal = state.generation.revocationSignal
-        state.generation = Generation(
+        state.generation = SocketConnectionAuthorizationGeneration(
             number: state.generation.number &+ 1,
             revocationSignal: SocketAuthorizationRevocationSignal()
         )
         previousSignal.revoke()
     }
 
-    private static func fingerprint(_ password: String?) -> Data? {
+    private func fingerprint(_ password: String?) -> Data? {
         password.map { Data(SHA256.hash(data: Data($0.utf8))) }
     }
 }
