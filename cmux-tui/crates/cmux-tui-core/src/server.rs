@@ -681,6 +681,7 @@ impl BoundedOutbound {
         Self::pop_locked(&mut state)
     }
 
+    #[cfg(test)]
     fn recv(&self) -> Option<String> {
         let mut state = self.state.lock().unwrap();
         loop {
@@ -870,40 +871,47 @@ fn sanitize_window_title(title: &str) -> String {
 }
 
 fn handle_connection(mux: Arc<Mux>, stream: Box<dyn transport::Stream>) {
-    let Ok(mut write_half) = stream.try_clone_box() else { return };
-    if write_half.set_write_timeout(Some(STREAM_WRITE_TIMEOUT)).is_err() {
+    if stream.set_read_timeout(Some(STREAM_DISCONNECT_POLL)).is_err()
+        || stream.set_write_timeout(Some(STREAM_WRITE_TIMEOUT)).is_err()
+    {
         return;
     }
     let outbound = Arc::new(BoundedOutbound::default());
     let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone() });
-    let writer_outbound = outbound;
-    let Ok(writer_thread) =
-        std::thread::Builder::new().name("mux-line-out".into()).spawn(move || {
-            while let Some(text) = writer_outbound.recv() {
-                if write_half.write_all(text.as_bytes()).is_err()
-                    || write_half.write_all(b"\n").is_err()
-                {
-                    writer_outbound.close();
+    let mut reader = BufReader::new(stream);
+    let mut pending = Vec::new();
+    'connection: loop {
+        while let Some(text) = outbound.try_pop() {
+            let stream = reader.get_mut();
+            if stream.write_all(text.as_bytes()).is_err() || stream.write_all(b"\n").is_err() {
+                break 'connection;
+            }
+        }
+        if !writer.is_open() {
+            break;
+        }
+
+        match reader.read_until(b'\n', &mut pending) {
+            Ok(0) => break,
+            Ok(_) => {
+                if !pending.ends_with(b"\n") {
+                    continue;
+                }
+                let Ok(line) = std::str::from_utf8(&pending) else { break };
+                if !line.trim().is_empty() && !handle_message(&mux, line, &writer) {
                     break;
                 }
+                pending.clear();
             }
-        })
-    else {
-        writer.close();
-        return;
-    };
-    let reader = BufReader::new(stream);
-    for line in reader.lines() {
-        let Ok(line) = line else { break };
-        if line.trim().is_empty() {
-            continue;
-        }
-        if !handle_message(&mux, &line, &writer) {
-            break;
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) => {}
+            Err(_) => break,
         }
     }
     writer.close();
-    let _ = writer_thread.join();
 }
 
 fn handle_websocket_connection(mux: Arc<Mux>, stream: TcpStream, token: Option<&str>) {

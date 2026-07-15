@@ -555,7 +555,7 @@ fn enqueue_bounded_with_evictions(
 
 fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) + Send + Sync>) {
     loop {
-        let event = {
+        let mut event = {
             let mut state = queue.state.lock().unwrap();
             while state.events.is_empty() && !state.closed {
                 state = queue.changed.wait(state).unwrap();
@@ -573,7 +573,7 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
         let surface_id = kind.map(|_| event.surface_id);
         let remote = event.remote;
         let reservation_id = event.reservation_id;
-        let result = if let Some(operation) = event.mutation {
+        let result = if let Some(operation) = event.mutation.take() {
             operation()
         } else {
             event.surface.write_bytes(&event.bytes)
@@ -588,8 +588,9 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
         let known_not_delivered =
             remote_transport_failed || (!remote && event.surface.kind() == SurfaceKind::Browser);
         let suppress_mutation_timeout = remote_timed_out && event.kind == PtyInputKind::Mutation;
+        let retry_ambiguous_release = remote_timed_out && event.kind == PtyInputKind::Release;
         let failure = result.err().and_then(|error| {
-            (!suppress_mutation_timeout).then(|| PtyOperationFailure {
+            (!suppress_mutation_timeout && !retry_ambiguous_release).then(|| PtyOperationFailure {
                 surface_id,
                 kind,
                 reservation_id,
@@ -634,6 +635,9 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
             // work so one stalled request cannot multiply into minutes of
             // latency, but retain releases that may balance a press already
             // executed by the remote server.
+            if retry_ambiguous_release && (!state.closed || state.shutdown_release_drain) {
+                requeue_ambiguous_release(&mut state, event);
+            }
             canceled.extend(prune_to_recovery_releases(
                 &mut state,
                 "canceled after a remote request timed out",
@@ -649,6 +653,12 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
             on_failure(failure);
         }
     }
+}
+
+fn requeue_ambiguous_release(state: &mut QueueState, event: PtyInputEvent) {
+    debug_assert_eq!(event.kind, PtyInputKind::Release);
+    state.queued_bytes += event.bytes.len();
+    state.events.push_front(event);
 }
 
 fn prune_to_recovery_releases(
@@ -1331,6 +1341,20 @@ mod tests {
             PtyInputEnqueueResult::Accepted
         );
         assert_eq!(dispatcher.sender.queue.state.lock().unwrap().release_reservations.len(), 0);
+    }
+
+    #[test]
+    fn ambiguous_release_is_retained_for_retry() {
+        let mut state = QueueState::default();
+        let mut release = event(7, 3, PtyInputKind::Release);
+        release.reservation_id = Some(11);
+
+        requeue_ambiguous_release(&mut state, release);
+
+        assert_eq!(state.queued_bytes, 1);
+        assert_eq!(state.events.len(), 1);
+        assert_eq!(state.events[0].kind, PtyInputKind::Release);
+        assert_eq!(state.events[0].reservation_id, Some(11));
     }
 
     #[test]
