@@ -830,7 +830,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C0DE64020000000000001002 /* FilePreviewQuickLookContainerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE64020000000000001001 /* FilePreviewQuickLookContainerView.swift */; };
 		DD62AFF1D95A1D5D1850AC10 /* FilePreviewQuickLookSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A02623202562490B3E88372 /* FilePreviewQuickLookSession.swift */; };
 		C0DE31390000000000000103 /* FilePreviewReviewFeedbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE31390000000000000104 /* FilePreviewReviewFeedbackTests.swift */; };
-		D61B968176F63BFCF29F7D85 /* FilePreviewTextEditor+Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63C7157005359FDECD68392E /* FilePreviewTextEditor+Theme.swift */; };
 		D0B10016A1B2C3D4E5F60001 /* FilePreviewTextEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10017A1B2C3D4E5F60001 /* FilePreviewTextEditor.swift */; };
 		F17EED170000000000000001 /* FilePreviewTextEditorSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = F17EED170000000000000002 /* FilePreviewTextEditorSession.swift */; };
 		C0DEFC100000000000000001 /* FilePreviewTextEditorTextKitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFC100000000000000002 /* FilePreviewTextEditorTextKitTests.swift */; };
@@ -1669,6 +1668,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C9A5720BC9A5720BC9A5720B /* TabItemView+WorkspaceGroups.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9A5720CC9A5720CC9A5720C /* TabItemView+WorkspaceGroups.swift */; };
 		A5F100000000000000000005 /* TabItemView+WorkspaceNotificationsMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F100000000000000000006 /* TabItemView+WorkspaceNotificationsMenu.swift */; };
 		186A0F2EE1C92446E0A2D1E3 /* TabItemView+WorkspaceTodo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56EA28B32C38ED8C753C82D3 /* TabItemView+WorkspaceTodo.swift */; };
+		7136B0017136B0017136B001 /* TabManager+BackgroundWorkspaceMountPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7136F0017136F0017136F001 /* TabManager+BackgroundWorkspaceMountPolicy.swift */; };
 		DCDC1000000000000000B015 /* TabManager+BrowserFocus.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B016 /* TabManager+BrowserFocus.swift */; };
 		C105E0000000000000000001 /* TabManager+ClosePlans.swift in Sources */ = {isa = PBXBuildFile; fileRef = C105E0000000000000000002 /* TabManager+ClosePlans.swift */; };
 		D7AB00000000000000000013 /* TabManager+DetachedWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000014 /* TabManager+DetachedWorkspace.swift */; };
@@ -1682,6 +1682,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		604500100000000000000007 /* TabManager+WindowTitle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 604500100000000000000008 /* TabManager+WindowTitle.swift */; };
 		736200000000000000000004 /* TabManager+WorkspaceCustomTitle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 736200000000000000000003 /* TabManager+WorkspaceCustomTitle.swift */; };
 		A5001003 /* TabManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001013 /* TabManager.swift */; };
+		F8120F5386FBE726864D340B /* TabManagerBackgroundWorkspaceMountBoundTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 481E6848F8513F27E496F7BE /* TabManagerBackgroundWorkspaceMountBoundTests.swift */; };
 		C0DE64160000000000000001 /* TabManagerNotificationFocusRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE64160000000000000002 /* TabManagerNotificationFocusRegressionTests.swift */; };
 		2BB56A710BB1FC50367E5BCF /* TabManagerSessionSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10D684CFFB8CDEF89CE2D9E1 /* TabManagerSessionSnapshotTests.swift */; };
 		C06552030000000000000001 /* TabManagerTitleUpdateStalenessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C06552030000000000000002 /* TabManagerTitleUpdateStalenessTests.swift */; };
@@ -2867,7 +2868,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C0DE64020000000000001001 /* FilePreviewQuickLookContainerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewQuickLookContainerView.swift; sourceTree = "<group>"; };
 		0A02623202562490B3E88372 /* FilePreviewQuickLookSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewQuickLookSession.swift; sourceTree = "<group>"; };
 		C0DE31390000000000000104 /* FilePreviewReviewFeedbackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilePreviewReviewFeedbackTests.swift; sourceTree = "<group>"; };
-		63C7157005359FDECD68392E /* FilePreviewTextEditor+Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewTextEditor+Theme.swift; sourceTree = "<group>"; };
 		D0B10017A1B2C3D4E5F60001 /* FilePreviewTextEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewTextEditor.swift; sourceTree = "<group>"; };
 		F17EED170000000000000002 /* FilePreviewTextEditorSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewTextEditorSession.swift; sourceTree = "<group>"; };
 		C0DEFC100000000000000002 /* FilePreviewTextEditorTextKitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilePreviewTextEditorTextKitTests.swift; sourceTree = "<group>"; };
@@ -3689,6 +3689,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C9A5720CC9A5720CC9A5720C /* TabItemView+WorkspaceGroups.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabItemView+WorkspaceGroups.swift"; sourceTree = "<group>"; };
 		A5F100000000000000000006 /* TabItemView+WorkspaceNotificationsMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabItemView+WorkspaceNotificationsMenu.swift"; sourceTree = "<group>"; };
 		56EA28B32C38ED8C753C82D3 /* TabItemView+WorkspaceTodo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabItemView+WorkspaceTodo.swift"; sourceTree = "<group>"; };
+		7136F0017136F0017136F001 /* TabManager+BackgroundWorkspaceMountPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+BackgroundWorkspaceMountPolicy.swift"; sourceTree = "<group>"; };
 		DCDC1000000000000000B016 /* TabManager+BrowserFocus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+BrowserFocus.swift"; sourceTree = "<group>"; };
 		C105E0000000000000000002 /* TabManager+ClosePlans.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+ClosePlans.swift"; sourceTree = "<group>"; };
 		D7AB00000000000000000014 /* TabManager+DetachedWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+DetachedWorkspace.swift"; sourceTree = "<group>"; };
@@ -3702,6 +3703,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		604500100000000000000008 /* TabManager+WindowTitle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+WindowTitle.swift"; sourceTree = "<group>"; };
 		736200000000000000000003 /* TabManager+WorkspaceCustomTitle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+WorkspaceCustomTitle.swift"; sourceTree = "<group>"; };
 		A5001013 /* TabManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManager.swift; sourceTree = "<group>"; };
+		481E6848F8513F27E496F7BE /* TabManagerBackgroundWorkspaceMountBoundTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManagerBackgroundWorkspaceMountBoundTests.swift; sourceTree = "<group>"; };
 		C0DE64160000000000000002 /* TabManagerNotificationFocusRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManagerNotificationFocusRegressionTests.swift; sourceTree = "<group>"; };
 		10D684CFFB8CDEF89CE2D9E1 /* TabManagerSessionSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManagerSessionSnapshotTests.swift; sourceTree = "<group>"; };
 		C06552030000000000000002 /* TabManagerTitleUpdateStalenessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManagerTitleUpdateStalenessTests.swift; sourceTree = "<group>"; };
@@ -3764,7 +3766,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		7738D0077738D0077738D007 /* TerminalController+RemoteTmuxControlMutations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+RemoteTmuxControlMutations.swift"; sourceTree = "<group>"; };
 		7738D0087738D0087738D008 /* TerminalController+RemoteTmuxControlRefs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+RemoteTmuxControlRefs.swift"; sourceTree = "<group>"; };
 		7738D0047738D0047738D004 /* TerminalController+RemoteTmuxControlTopology.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+RemoteTmuxControlTopology.swift"; sourceTree = "<group>"; };
-		1CCFC650BD590101D445C4A0 /* TerminalController+RemoteTmuxTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+RemoteTmuxTestSupport.swift"; sourceTree = "<group>"; };
 		1CCFC650BD590101D445C4A0 /* TerminalController+RemoteTmuxTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Debug/RemoteTmux/TerminalController+RemoteTmuxTestSupport.swift"; sourceTree = "<group>"; };
 		C79470010000000000000004 /* TerminalController+SocketClientCapability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+SocketClientCapability.swift"; sourceTree = "<group>"; };
 		D43310000000000000000047 /* TerminalController+SocketFocusPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+SocketFocusPolicy.swift"; sourceTree = "<group>"; };
@@ -3887,10 +3888,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C0DE64020000000000001003 /* TrackedQLPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TrackedQLPreviewView.swift; sourceTree = "<group>"; };
 		D3284002A1B2C3D4E5F60718 /* TraditionalChineseIMENumpadRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TraditionalChineseIMENumpadRegressionTests.swift; sourceTree = "<group>"; };
 		A5001511 /* UITestRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UITestRecorder.swift; sourceTree = "<group>"; };
-		A5001216 /* UpdateBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateBadge.swift; sourceTree = "<group>"; };
-		A5001211 /* UpdateController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateController.swift; sourceTree = "<group>"; };
-		A5001212 /* UpdateDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateDelegate.swift; sourceTree = "<group>"; };
-		A5001213 /* UpdateDriver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateDriver.swift; sourceTree = "<group>"; };
 		A5001223 /* UpdateLogStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateLogStore.swift; sourceTree = "<group>"; };
 		F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatePillReleaseVisibilityTests.swift; sourceTree = "<group>"; };
 		C0B4D9B1A1B2C3D4E5F60718 /* UpdatePillUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatePillUITests.swift; sourceTree = "<group>"; };
@@ -4653,6 +4650,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C06552010000000000000004 /* NotificationBurstCoalescer.swift */,
 				C06552010000000000000002 /* PanelTitleUpdateCoalescingSettings.swift */,
 				A5001013 /* TabManager.swift */,
+				7136F0017136F0017136F001 /* TabManager+BackgroundWorkspaceMountPolicy.swift */,
 				C0DE1A030000000000000002 /* TabManager+SavedLayouts.swift */,
 				C548600B0000000000000002 /* TabManager+SessionRestoreIdentity.swift */,
 				DCDC1000000000000000B016 /* TabManager+BrowserFocus.swift */,
@@ -5206,7 +5204,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F11E52270000000000005228 /* FilePreviewWordWrapSettings.swift */,
 				F5168A060000000000000002 /* MarkdownTypographyDefaults.swift */,
 				06DCBDE601BF981D6C21BB89 /* MarkdownFormattingToolbar.swift */,
-				63C7157005359FDECD68392E /* FilePreviewTextEditor+Theme.swift */,
 				F5168A020000000000000002 /* MarkdownTypographyControl.swift */,
 				A5001419 /* MarkdownPanelView.swift */,
 				A50014F4 /* MarkdownWebRenderer.swift */,
@@ -5375,80 +5372,80 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5001641 /* RemoteRelayZshBootstrap.swift */,
 				C0DE43000000000000000002 /* CmuxAgentChatConfig.swift */,
 				A5001651 /* CmuxConfig.swift */,
-				C45A641F7791F88ADA3EFC43 /* CmuxNoteIndexDataReader.swift */,
-				2DD5CCB7C0564B569D8C2AA9 /* CmuxNoteStore.swift */,
-				C0DE43310000000000000002 /* CmuxNoteStore+BodyPath.swift */,
 				86D8BE9B5C29429F8AF0D2D4 /* NoteSupport.swift */,
+				C0DE43310000000000000002 /* CmuxNoteStore+BodyPath.swift */,
+				2DD5CCB7C0564B569D8C2AA9 /* CmuxNoteStore.swift */,
+				C45A641F7791F88ADA3EFC43 /* CmuxNoteIndexDataReader.swift */,
 				C0DE43000000000000000004 /* CmuxSurfaceTabBarBuiltInAction+Codable.swift */,
 				C10D00040000000000000004 /* CmuxSurfaceTabBarBuiltInAction.swift */,
 				A5FB120E /* Workspace+CustomLayout.swift */,
 				C57B00030000000000000002 /* Workspace+CustomSidebarPane.swift */,
 				C0DEF0A10000000000000002 /* CmuxConfigUI.swift */,
 				E30750000000000000000003 /* CmuxWorkspaceDefinition.swift */,
-				A5001653 /* CmuxConfigExecutor.swift */,
-				A5001655 /* CmuxActionTrust.swift */,
-				CAFE000000000000000000A1 /* NotesTreeNode.swift */,
-				490C6FC667BF135FE4DC46DC /* NotesTreePanelCoordinator.swift */,
-				3F109A8AC878B1D21BEF20B8 /* NotesTreeNoteDragWriter.swift */,
-				A3322093640FF936951E00EB /* NotesTreeOutlineView.swift */,
-				D048347EF9298EEEC1748784 /* NotesTreeHeaderView.swift */,
-				6CEF44A76ED54CC927445F43 /* NotesTreeRowView.swift */,
-				6231B50F4919415F6E3A68FA /* NotesTreeKind.swift */,
-				4D44B0BA3B9E820679D5FF58 /* NoteReuseCandidate.swift */,
-				0441942BF1F58D637F9696F5 /* NoteRPCAttachMode.swift */,
-				753AAB43A6D347D8A93D9462 /* NoteRPCParam.swift */,
-				E8B6FAA586FD43BAD0E0AD2C /* NoteRPCMessage.swift */,
-				B7831FD7A2B295D07BD819EE /* SidebarFileDropDeferralRegistry.swift */,
-				12A9DCA1C5C75D7C339DC4B9 /* WorkspaceNotesDirectoryResolverEntry.swift */,
-				2418919366598C72D03ADAB1 /* SurfaceTabBarMenuTarget.swift */,
-				44BD9EAB5828CC324CA73DCD /* SurfaceTabBarMenuItemPayload.swift */,
-				CCBF9FCA1429229AFAD4C755 /* CmuxSurfaceTabBarMenuItem.swift */,
-				752764EE2BDD3B005D05D501 /* CmuxSurfaceTabBarButton.swift */,
-				291023B1ED5E2E60BDFB69A8 /* CmuxSurfaceTabBarMenuCodingKey.swift */,
-				30A1FBC547DC567B4C1AA1CC /* CmuxNoteIndexFile.swift */,
-				2A615C8950F516709051B084 /* NoteSupportError.swift */,
-				3050C8DF1E59EE611D15629F /* NoteSupportListEntry.swift */,
-				66CDBF2C1C8D0E8FE36A1B25 /* NotesTreeStorageError.swift */,
-				1F6F7B17B7C478E8356E94F1 /* NotesSessionFolderRef.swift */,
-				88A4D7B8B9C8200382951864 /* NotesTreeEntry.swift */,
-				391C5DEA77AC189CDBFA7915 /* NotesSessionDescriptor.swift */,
-				3DAB174DD0F7DF3BA7F1127A /* NotesSessionMarker.swift */,
-				81090CA4F97C547ACC255DD1 /* NotesFlatNoteRef.swift */,
-				77A8AFD770144E256EE007D8 /* NotesTreePaneProcess.swift */,
-				5239711914D1CE862AF452AB /* NotesTreePaneProcessLookup.swift */,
-				B074C565539BB96838032304 /* NotesTreeObservation.swift */,
-				E48EE8C55F242A25453C5E45 /* NotesTreeObservedTerminal.swift */,
-				8D047923CF214409588D5FC3 /* NotesTreeObservedSession.swift */,
-				BB1BD9625B36475E9F0DCBD3 /* NotesWorkspaceSessionRecord.swift */,
-				CAEFBE2D522F2C7C27E1BA6A /* NotesWorkspaceMarker.swift */,
-				9A78E72254D7023C88E5130C /* CmuxNoteStoreError.swift */,
-				4F92119C8ED18B83F675B27D /* CmuxNoteWriteResult.swift */,
-				23811EB03B260BAF84624396 /* CmuxNoteReadResult.swift */,
-				40A9023901B738333EF0964D /* CmuxNoteContextResolver.swift */,
-				72DA2090D1CFB5E27CA1185B /* CmuxNoteContextResolution.swift */,
-				6B96C32566E753F86992E59D /* CmuxNoteContextLink.swift */,
-				DB3D37E1CC22324E6332039D /* CmuxNoteStoreResult.swift */,
-				6ABCAD31B622333DA8D83153 /* CmuxNoteRecord.swift */,
-				E8399D2BF55F5A58ACF4E1C3 /* CmuxNoteAttachmentTarget.swift */,
-				96AA2FAC29F36C6B5CD8EB4E /* CmuxNoteAttachmentKind.swift */,
-				2AD1B4D144CE685AB94E2381 /* CmuxNoteAttachment.swift */,
-				C34A35E375498AA159E2044D /* NotesTreeReloadResult.swift */,
-				3C3920A4CB533A88C05BFFF0 /* NotesTreeReloadRequest.swift */,
-				CAFE000000000000000000A2 /* NotesTreeStorage.swift */,
-				C0DE43310000000000000004 /* NotesTreeStorage+Slug.swift */,
-				CAFE000000000000000000A3 /* NotesTreeStore.swift */,
-				C0DE43310000000000000006 /* NotesTreeStore+Relocation.swift */,
-				CAFE000000000000000000A4 /* NotesTreeCellView.swift */,
-				CAFE000000000000000000A5 /* NotesTreePanelView.swift */,
 				CAFE000000000000000000A6 /* NotesTreeContainerView.swift */,
-				FE5996010000000000000001 /* FileExplorerCellView.swift */,
-				FE5996080000000000000001 /* FileExplorerExternalOpenMenuItems.swift */,
-				FE5996090000000000000001 /* FileExplorerExternalOpenRequest.swift */,
-				FE5996020000000000000001 /* FileExplorerHeaderView.swift */,
+				CAFE000000000000000000A5 /* NotesTreePanelView.swift */,
+				CAFE000000000000000000A4 /* NotesTreeCellView.swift */,
+				C0DE43310000000000000006 /* NotesTreeStore+Relocation.swift */,
+				CAFE000000000000000000A3 /* NotesTreeStore.swift */,
+				C0DE43310000000000000004 /* NotesTreeStorage+Slug.swift */,
+				CAFE000000000000000000A2 /* NotesTreeStorage.swift */,
+				3C3920A4CB533A88C05BFFF0 /* NotesTreeReloadRequest.swift */,
+				C34A35E375498AA159E2044D /* NotesTreeReloadResult.swift */,
+				2AD1B4D144CE685AB94E2381 /* CmuxNoteAttachment.swift */,
+				96AA2FAC29F36C6B5CD8EB4E /* CmuxNoteAttachmentKind.swift */,
+				E8399D2BF55F5A58ACF4E1C3 /* CmuxNoteAttachmentTarget.swift */,
+				6ABCAD31B622333DA8D83153 /* CmuxNoteRecord.swift */,
+				DB3D37E1CC22324E6332039D /* CmuxNoteStoreResult.swift */,
+				6B96C32566E753F86992E59D /* CmuxNoteContextLink.swift */,
+				72DA2090D1CFB5E27CA1185B /* CmuxNoteContextResolution.swift */,
+				40A9023901B738333EF0964D /* CmuxNoteContextResolver.swift */,
+				23811EB03B260BAF84624396 /* CmuxNoteReadResult.swift */,
+				4F92119C8ED18B83F675B27D /* CmuxNoteWriteResult.swift */,
+				9A78E72254D7023C88E5130C /* CmuxNoteStoreError.swift */,
+				CAEFBE2D522F2C7C27E1BA6A /* NotesWorkspaceMarker.swift */,
+				BB1BD9625B36475E9F0DCBD3 /* NotesWorkspaceSessionRecord.swift */,
+				8D047923CF214409588D5FC3 /* NotesTreeObservedSession.swift */,
+				E48EE8C55F242A25453C5E45 /* NotesTreeObservedTerminal.swift */,
+				B074C565539BB96838032304 /* NotesTreeObservation.swift */,
+				5239711914D1CE862AF452AB /* NotesTreePaneProcessLookup.swift */,
+				77A8AFD770144E256EE007D8 /* NotesTreePaneProcess.swift */,
+				81090CA4F97C547ACC255DD1 /* NotesFlatNoteRef.swift */,
+				3DAB174DD0F7DF3BA7F1127A /* NotesSessionMarker.swift */,
+				391C5DEA77AC189CDBFA7915 /* NotesSessionDescriptor.swift */,
+				88A4D7B8B9C8200382951864 /* NotesTreeEntry.swift */,
+				1F6F7B17B7C478E8356E94F1 /* NotesSessionFolderRef.swift */,
+				66CDBF2C1C8D0E8FE36A1B25 /* NotesTreeStorageError.swift */,
+				3050C8DF1E59EE611D15629F /* NoteSupportListEntry.swift */,
+				2A615C8950F516709051B084 /* NoteSupportError.swift */,
+				30A1FBC547DC567B4C1AA1CC /* CmuxNoteIndexFile.swift */,
+				291023B1ED5E2E60BDFB69A8 /* CmuxSurfaceTabBarMenuCodingKey.swift */,
+				752764EE2BDD3B005D05D501 /* CmuxSurfaceTabBarButton.swift */,
+				CCBF9FCA1429229AFAD4C755 /* CmuxSurfaceTabBarMenuItem.swift */,
+				44BD9EAB5828CC324CA73DCD /* SurfaceTabBarMenuItemPayload.swift */,
+				2418919366598C72D03ADAB1 /* SurfaceTabBarMenuTarget.swift */,
+				12A9DCA1C5C75D7C339DC4B9 /* WorkspaceNotesDirectoryResolverEntry.swift */,
+				B7831FD7A2B295D07BD819EE /* SidebarFileDropDeferralRegistry.swift */,
+				E8B6FAA586FD43BAD0E0AD2C /* NoteRPCMessage.swift */,
+				753AAB43A6D347D8A93D9462 /* NoteRPCParam.swift */,
+				0441942BF1F58D637F9696F5 /* NoteRPCAttachMode.swift */,
+				4D44B0BA3B9E820679D5FF58 /* NoteReuseCandidate.swift */,
+				6231B50F4919415F6E3A68FA /* NotesTreeKind.swift */,
+				6CEF44A76ED54CC927445F43 /* NotesTreeRowView.swift */,
+				D048347EF9298EEEC1748784 /* NotesTreeHeaderView.swift */,
+				A3322093640FF936951E00EB /* NotesTreeOutlineView.swift */,
+				3F109A8AC878B1D21BEF20B8 /* NotesTreeNoteDragWriter.swift */,
+				490C6FC667BF135FE4DC46DC /* NotesTreePanelCoordinator.swift */,
+				CAFE000000000000000000A1 /* NotesTreeNode.swift */,
+					A5001653 /* CmuxConfigExecutor.swift */,
 					A5FB120C /* CmuxConfigExecutor+WorkspaceLaunch.swift */,
 					A5FB120A /* CmuxConfigActionDefinition.swift */,
 					A5FB1202 /* CmuxConfigActionSaver.swift */,
 					A5FB1204 /* WorkspaceConfigActionCapture.swift */,
+					A5001655 /* CmuxActionTrust.swift */,
+					FE5996010000000000000001 /* FileExplorerCellView.swift */,
+					FE5996080000000000000001 /* FileExplorerExternalOpenMenuItems.swift */,
+					FE5996090000000000000001 /* FileExplorerExternalOpenRequest.swift */,
+					FE5996020000000000000001 /* FileExplorerHeaderView.swift */,
 				FE001005 /* FileExplorerKeyboardShortcuts.swift */,
 				FE5996030000000000000001 /* FileExplorerNSOutlineView.swift */,
 				FE5996040000000000000001 /* FileExplorerRowView.swift */,
@@ -5522,44 +5519,44 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C57B00050000000000000002 /* CmuxExtensionSidebarSelection+CustomSidebarName.swift */,
 				59065015952E1B5BE5E23519 /* Mobile */,
 				31B04B98376C9BA8B9E44DCB /* TerminalViewportUITestRecorder.swift */,
-				D43310000000000000000009 /* AppDelegate+ConfiguredCmuxAction.swift */,
-				D4331000000000000000000B /* CmuxNoteStore+Implementation.swift */,
-				D4331000000000000000000D /* MenuBarOnlySettings+CommandPaletteMigration.swift */,
-				D4331000000000000000000F /* ContentView+Notes.swift */,
-				D43310000000000000000011 /* ContentView+SidebarFileNotes.swift */,
-				D43310000000000000000013 /* FileExplorerContainerView+PlacementStyle.swift */,
-				D43310000000000000000015 /* FileExplorerPanelView.swift */,
-				D43310000000000000000017 /* NotesSessionMarker+SessionEntry.swift */,
-				D43310000000000000000019 /* NotesTreeStorage+Helpers.swift */,
-				D4331000000000000000001B /* NotesTreeStorage+ListingMutations.swift */,
-				D4331000000000000000001D /* NotesTreeStorage+SessionRefresh.swift */,
-				D4331000000000000000001F /* NotesTreeStorage+WorkspaceSessions.swift */,
-				D43310000000000000000021 /* NotesTreeStore+BindingAndWatching.swift */,
-				D43310000000000000000023 /* NotesTreeStore+Loading.swift */,
-				D43310000000000000000025 /* NotesTreeStore+Mutations.swift */,
-				D43310000000000000000027 /* NotesTreeStore+Sessions.swift */,
-				D43310000000000000000029 /* NotificationName+NotesTree.swift */,
-				D4331000000000000000002B /* FilePreviewDragPasteboardWriter+RegisteredTransferData.swift */,
-				D4331000000000000000002D /* FilePreviewTextSaver+TrustedWorkspaceNote.swift */,
-				D4331000000000000000002F /* MarkdownPanel+Notes.swift */,
-				D43310000000000000000031 /* MarkdownWebRenderer+FragmentRouting.swift */,
-				D43310000000000000000033 /* SavingTextView+CurrentLineHighlight.swift */,
-				D43310000000000000000035 /* SavingTextView+Factory.swift */,
-				D43310000000000000000037 /* RestorableAgentSessionIndex+AllEntries.swift */,
-				D43310000000000000000039 /* RightSidebarMode.swift */,
-				D4331000000000000000003B /* SessionIndexStore+LiveSessionEntries.swift */,
-				D4331000000000000000003D /* SessionMarkdownPanelSnapshot.swift */,
-				D4331000000000000000003F /* SessionTabTransferData.swift */,
-				D43310000000000000000041 /* SystemWideHotkeySettings.swift */,
-				D43310000000000000000043 /* TerminalController+NoteOpen.swift */,
-				D43310000000000000000045 /* TerminalController+NotePayloads.swift */,
-				D43310000000000000000047 /* TerminalController+SocketFocusPolicy.swift */,
-				D43310000000000000000049 /* Workspace+AgentRuntimeState.swift */,
-				D4331000000000000000004B /* Workspace+NoteSurfaces.swift */,
-				D4331000000000000000004D /* Workspace+NotesObservation.swift */,
-				D4331000000000000000004F /* Workspace+SurfaceTabBarButtons.swift */,
-				D43310000000000000000051 /* Workspace+SurfaceTabBarMenu.swift */,
 				D43310000000000000000100 /* FileExplorerPanelView+CoordinatorSelectionAndMenus.swift */,
+				D43310000000000000000051 /* Workspace+SurfaceTabBarMenu.swift */,
+				D4331000000000000000004F /* Workspace+SurfaceTabBarButtons.swift */,
+				D4331000000000000000004D /* Workspace+NotesObservation.swift */,
+				D4331000000000000000004B /* Workspace+NoteSurfaces.swift */,
+				D43310000000000000000049 /* Workspace+AgentRuntimeState.swift */,
+				D43310000000000000000047 /* TerminalController+SocketFocusPolicy.swift */,
+				D43310000000000000000045 /* TerminalController+NotePayloads.swift */,
+				D43310000000000000000043 /* TerminalController+NoteOpen.swift */,
+				D43310000000000000000041 /* SystemWideHotkeySettings.swift */,
+				D4331000000000000000003F /* SessionTabTransferData.swift */,
+				D4331000000000000000003D /* SessionMarkdownPanelSnapshot.swift */,
+				D4331000000000000000003B /* SessionIndexStore+LiveSessionEntries.swift */,
+				D43310000000000000000039 /* RightSidebarMode.swift */,
+				D43310000000000000000037 /* RestorableAgentSessionIndex+AllEntries.swift */,
+				D43310000000000000000035 /* SavingTextView+Factory.swift */,
+				D43310000000000000000033 /* SavingTextView+CurrentLineHighlight.swift */,
+				D43310000000000000000031 /* MarkdownWebRenderer+FragmentRouting.swift */,
+				D4331000000000000000002F /* MarkdownPanel+Notes.swift */,
+				D4331000000000000000002D /* FilePreviewTextSaver+TrustedWorkspaceNote.swift */,
+				D4331000000000000000002B /* FilePreviewDragPasteboardWriter+RegisteredTransferData.swift */,
+				D43310000000000000000029 /* NotificationName+NotesTree.swift */,
+				D43310000000000000000027 /* NotesTreeStore+Sessions.swift */,
+				D43310000000000000000025 /* NotesTreeStore+Mutations.swift */,
+				D43310000000000000000023 /* NotesTreeStore+Loading.swift */,
+				D43310000000000000000021 /* NotesTreeStore+BindingAndWatching.swift */,
+				D4331000000000000000001F /* NotesTreeStorage+WorkspaceSessions.swift */,
+				D4331000000000000000001D /* NotesTreeStorage+SessionRefresh.swift */,
+				D4331000000000000000001B /* NotesTreeStorage+ListingMutations.swift */,
+				D43310000000000000000019 /* NotesTreeStorage+Helpers.swift */,
+				D43310000000000000000017 /* NotesSessionMarker+SessionEntry.swift */,
+				D43310000000000000000015 /* FileExplorerPanelView.swift */,
+				D43310000000000000000013 /* FileExplorerContainerView+PlacementStyle.swift */,
+				D43310000000000000000011 /* ContentView+SidebarFileNotes.swift */,
+				D4331000000000000000000F /* ContentView+Notes.swift */,
+				D4331000000000000000000D /* MenuBarOnlySettings+CommandPaletteMigration.swift */,
+				D4331000000000000000000B /* CmuxNoteStore+Implementation.swift */,
+				D43310000000000000000009 /* AppDelegate+ConfiguredCmuxAction.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -5654,8 +5651,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C05555010000000000000008 /* CMUXCLI+PiExtensionSourcePart2.swift */,
 				B9000070A1B2C3D4E5F60719 /* CMUXCLI+Memory.swift */,
 				B9000031A1B2C3D4E5F60719 /* CMUXCLI+DocsSettings.swift */,
-				CAFEC0DE0000000000000001 /* HermesAgentCodexEnvironment.swift */,
 				CAFE5E550000000000000001 /* HermesAgentSessionResolver.swift */,
+				CAFEC0DE0000000000000001 /* HermesAgentCodexEnvironment.swift */,
 				B900002DA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift */,
 				B90000D1A1B2C3D4E5F60719 /* CMUXCLI+CommandSuggestions.swift */,
 				C73660010000000000000002 /* CMUXCLI+RemotePTYErrors.swift */,
@@ -5671,10 +5668,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					C0DE64960000000000000004 /* CMUXCLI+SessionsListForkStartupInput.swift */,
 					C12984000000000000000001 /* CMUXCLI+SIGPIPEProbes.swift */,
 				C12985000000000000000001 /* CLISocketSentryTelemetry.swift */,
-				D43310000000000000000001 /* cmux+MarkdownCommand.swift */,
-				D43310000000000000000003 /* cmux+RightSidebarAvailability.swift */,
-				D43310000000000000000005 /* cmux+WorkspaceCreateEnvCommands.swift */,
 				D43310000000000000000007 /* cmux+WorkspaceMutationCommands.swift */,
+				D43310000000000000000005 /* cmux+WorkspaceCreateEnvCommands.swift */,
+				D43310000000000000000003 /* cmux+RightSidebarAvailability.swift */,
+				D43310000000000000000001 /* cmux+MarkdownCommand.swift */,
 				C79470010000000000000002 /* CMUXCLI+SocketClientCapability.swift */,
 			);
 			path = CLI;
@@ -6059,15 +6056,15 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B79482F1ECA54E98BE5C8953 /* WindowKeyDownReplayGuardTests.swift */,
 				604500100000000000000004 /* WindowTitleTemplateTests.swift */,
 				D1FFC0DE000000000000C001 /* DiffCommentStoreTests.swift */,
-				15B2F4F5A80D9D0BB4E2E93B /* MarkdownFormatterTests.swift */,
-				CAFE000000000000000000A7 /* NotesTreeStorageTests.swift */,
-				C3ED949BFCC47A4889339A39 /* WorkspaceNewNoteSwiftTests.swift */,
-				FAD9EDA7A045F0587BB319A7 /* NotesShortcutContextSwiftTests.swift */,
-				272F260A07F733C5FC913415 /* RightSidebarNotesCliArgumentSwiftTests.swift */,
-				F276FE96182A8AB096136FB0 /* NoteSupportTests.swift */,
-				E934D9F79E08B7C84F54203E /* NotesSessionPersistenceSwiftTests.swift */,
-				293FDAD7563E00BC293C9C57 /* NotesShortcutRoutingSwiftTests.swift */,
 				CAFE000000000000000000A8 /* NotesMarkdownRenderingTests.swift */,
+				293FDAD7563E00BC293C9C57 /* NotesShortcutRoutingSwiftTests.swift */,
+				E934D9F79E08B7C84F54203E /* NotesSessionPersistenceSwiftTests.swift */,
+				F276FE96182A8AB096136FB0 /* NoteSupportTests.swift */,
+				272F260A07F733C5FC913415 /* RightSidebarNotesCliArgumentSwiftTests.swift */,
+				FAD9EDA7A045F0587BB319A7 /* NotesShortcutContextSwiftTests.swift */,
+				C3ED949BFCC47A4889339A39 /* WorkspaceNewNoteSwiftTests.swift */,
+				CAFE000000000000000000A7 /* NotesTreeStorageTests.swift */,
+				15B2F4F5A80D9D0BB4E2E93B /* MarkdownFormatterTests.swift */,
 				C9A57002C9A57002C9A57002 /* WorkspaceGroupTests.swift */,
 				C9A57402C9A57402C9A57402 /* WorkspaceGroupMoveToMenuStateTests.swift */,
 				FEED49850000000000000002 /* FeedEventClassificationTests.swift */,
@@ -6166,6 +6163,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				0A0F00580000000000000004 /* CampfireSupportTestSupport.swift */,
 				A5E01204A1B2C3D4E5F60718 /* OpenCodeHookRegressionTests.swift */,
 				10D684CFFB8CDEF89CE2D9E1 /* TabManagerSessionSnapshotTests.swift */,
+				481E6848F8513F27E496F7BE /* TabManagerBackgroundWorkspaceMountBoundTests.swift */,
 				C0DE4300000000000000000A /* CmuxAgentChatConfigTests.swift */,
 				C1A2B3C4D5E6F70800000002 /* CmuxConfigTests.swift */,
 				C0DEF0A40000000000000002 /* CmuxConfigContextMenuTests.swift */,
@@ -6189,20 +6187,20 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B8B056D80000000000000002 /* MobileHostIdentityTests.swift */,
 				A7C0F0010000000000000001 /* MacPairedMacBackupPublisherScopeTests.swift */,
 				5E2701030000000000000002 /* SentryEventScrubberTests.swift */,
-				D43310000000000000000053 /* AppDelegateWindowContextRoutingTests.swift */,
-				D43310000000000000000055 /* CMUXCLINoteCommandRegressionTests.swift */,
-				D43310000000000000000057 /* CMUXCLIRightSidebarHelpRegressionTests.swift */,
-				D43310000000000000000059 /* CmuxConfigSurfaceTabBarActionReferenceTests.swift */,
-				D4331000000000000000005B /* CmuxConfigSurfaceTabBarDuplicateTests.swift */,
-				D4331000000000000000005D /* CmuxConfigSurfaceTabBarMenuTests.swift */,
-				D4331000000000000000005F /* CmuxConfigSurfaceTabBarWorkspaceCommandTests.swift */,
-				D43310000000000000000061 /* ExtensionWorktreePrototypeTests.swift */,
-				D43310000000000000000063 /* FilePreviewFocusCoordinatorTests.swift */,
-				D43310000000000000000065 /* FilePreviewPDFChromeTests.swift */,
-				D43310000000000000000067 /* NotesTreeStorageSecurityAndSyncTests.swift */,
-				D43310000000000000000069 /* NotesTreeStorageStoreMutationTests.swift */,
-				D4331000000000000000006B /* NotesTreeStorageTerminalObservationTests.swift */,
 				D4331000000000000000006F /* WindowMoveSuppressionHitPathTests.swift */,
+				D4331000000000000000006B /* NotesTreeStorageTerminalObservationTests.swift */,
+				D43310000000000000000069 /* NotesTreeStorageStoreMutationTests.swift */,
+				D43310000000000000000067 /* NotesTreeStorageSecurityAndSyncTests.swift */,
+				D43310000000000000000065 /* FilePreviewPDFChromeTests.swift */,
+				D43310000000000000000063 /* FilePreviewFocusCoordinatorTests.swift */,
+				D43310000000000000000061 /* ExtensionWorktreePrototypeTests.swift */,
+				D4331000000000000000005F /* CmuxConfigSurfaceTabBarWorkspaceCommandTests.swift */,
+				D4331000000000000000005D /* CmuxConfigSurfaceTabBarMenuTests.swift */,
+				D4331000000000000000005B /* CmuxConfigSurfaceTabBarDuplicateTests.swift */,
+				D43310000000000000000059 /* CmuxConfigSurfaceTabBarActionReferenceTests.swift */,
+				D43310000000000000000057 /* CMUXCLIRightSidebarHelpRegressionTests.swift */,
+				D43310000000000000000055 /* CMUXCLINoteCommandRegressionTests.swift */,
+				D43310000000000000000053 /* AppDelegateWindowContextRoutingTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -7091,7 +7089,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5001429 /* FilePreviewPDFViewport.swift in Sources */,
 				C0DE64020000000000001002 /* FilePreviewQuickLookContainerView.swift in Sources */,
 				DD62AFF1D95A1D5D1850AC10 /* FilePreviewQuickLookSession.swift in Sources */,
-				D61B968176F63BFCF29F7D85 /* FilePreviewTextEditor+Theme.swift in Sources */,
 				D0B10016A1B2C3D4E5F60001 /* FilePreviewTextEditor.swift in Sources */,
 				F17EED170000000000000001 /* FilePreviewTextEditorSession.swift in Sources */,
 				D4331000000000000000002E /* FilePreviewTextSaver+TrustedWorkspaceNote.swift in Sources */,
@@ -7255,7 +7252,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D75280030000000000000001 /* MobileWorkspaceObserverSignposts.swift in Sources */,
 					C75740020000000000000001 /* MouseDownMenuItemView.swift in Sources */,
 				596100000000000000000003 /* NativeNotificationDeliveryHooks.swift in Sources */,
-				A6AC72030000000000000001 /* NativeSpinner.swift in Sources */,
+					A6AC72030000000000000001 /* NativeSpinner.swift in Sources */,
 				C0DE77060000000000000003 /* NewWorkspaceMenuModel.swift in Sources */,
 				DC13895CA47BEAD2860C3609 /* NoteReuseCandidate.swift in Sources */,
 				D3B6167DD14289C344DD26E0 /* NoteRPCAttachMode.swift in Sources */,
@@ -7507,9 +7504,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				FE003101 /* SessionIndexStore.swift in Sources */,
 				FE003102 /* SessionIndexView.swift in Sources */,
 				D4331000000000000000003E /* SessionMarkdownPanelSnapshot.swift in Sources */,
-				A5F10000000000000000000F /* SessionNotificationSnapshot.swift in Sources */,
 		A5F10000000000000000000F /* SessionNotificationSnapshot.swift in Sources */,
-				39523925 /* SessionPersistence+RightSidebarTool.swift in Sources */,
 				481D7BF878AB38DA5642D1C9 /* SessionPersistence+Todos.swift in Sources */,
 				A5001610 /* SessionPersistence.swift in Sources */,
 				A74770010000000000000009 /* SessionPersistencePolicy+ConfigFrames.swift in Sources */,
@@ -7638,7 +7633,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A7206A010000000000000001 /* SystemAppearanceObserver.swift in Sources */,
 				A7206F010000000000000001 /* SystemAppearanceObserverEnvironment.swift in Sources */,
 				C7B0FACE000000000000000C /* SystemCommandRunner.swift in Sources */,
-				C7B0FACE000000000000000C /* SystemCommandRunner.swift in Sources */,
 				A71100000000000000000003 /* SystemTailscaleStatusProvider.swift in Sources */,
 				A71100000000000000000005 /* SystemTailscaleStatusProviderError.swift in Sources */,
 				D43310000000000000000042 /* SystemWideHotkeySettings.swift in Sources */,
@@ -7646,6 +7640,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C9A5720BC9A5720BC9A5720B /* TabItemView+WorkspaceGroups.swift in Sources */,
 				A5F100000000000000000005 /* TabItemView+WorkspaceNotificationsMenu.swift in Sources */,
 				186A0F2EE1C92446E0A2D1E3 /* TabItemView+WorkspaceTodo.swift in Sources */,
+				7136B0017136B0017136B001 /* TabManager+BackgroundWorkspaceMountPolicy.swift in Sources */,
 				DCDC1000000000000000B015 /* TabManager+BrowserFocus.swift in Sources */,
 				C105E0000000000000000001 /* TabManager+ClosePlans.swift in Sources */,
 				D7AB00000000000000000013 /* TabManager+DetachedWorkspace.swift in Sources */,
@@ -7996,7 +7991,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B9000033A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift in Sources */,
 				06CC2F6C1340C7424D1C7E0A /* CMUXCLI+WorkspaceTodo.swift in Sources */,
 				C0DECAFE0000000000000001 /* CodexTeamsApprovalBridge.swift in Sources */,
-					FEEDC1A50000000000000001 /* FeedEventClassifier.swift in Sources */,
+				FEEDC1A50000000000000001 /* FeedEventClassifier.swift in Sources */,
 					CAFEC0DE0000000000000000 /* HermesAgentCodexEnvironment.swift in Sources */,
 					CAFE5E550000000000000000 /* HermesAgentSessionResolver.swift in Sources */,
 				A5FB1308 /* JSONCObjectEditor+Remove.swift in Sources */,
@@ -8531,6 +8526,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F6572012A1B2C3D4E5F60718 /* SurfaceResumeBindingCodexUpdateCheckTests.swift in Sources */,
 				A7206B010000000000000001 /* SystemAppearanceObserverTests.swift in Sources */,
 				FBE660ABA1854983B84368C6 /* SystemWideHotkeyShortcutPolicyTests.swift in Sources */,
+				F8120F5386FBE726864D340B /* TabManagerBackgroundWorkspaceMountBoundTests.swift in Sources */,
 				C0DE64160000000000000001 /* TabManagerNotificationFocusRegressionTests.swift in Sources */,
 				2BB56A710BB1FC50367E5BCF /* TabManagerSessionSnapshotTests.swift in Sources */,
 				C06552030000000000000001 /* TabManagerTitleUpdateStalenessTests.swift in Sources */,
