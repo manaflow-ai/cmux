@@ -342,14 +342,16 @@ final class TerminalNotificationStore: ObservableObject {
     static let dismissedTombstoneDefaultsKey = "cmux.notifications.dismissedTombstoneIds"
     private var retainedSupersededBannerIDs = Set<UUID>()
     private var retainedSupersededBannerIDsLoaded = false
-    private var retainedSupersededBannerPersistenceScheduled = false
-    private var retainedSupersededBannerPersistenceInFlight = false
-    private var retainedSupersededBannerPersistenceDirty = false
+    private var retainedSupersededBannerPersistenceDeltas: [String] = []
+    private var retainedSupersededBannerSnapshotPersistenceInFlight = false
+    private var retainedSupersededBannerSnapshotPersistenceDirty = false
     private static let retainedSupersededBannerPersistenceQueue = DispatchQueue(
         label: "com.cmux.notification.retained-superseded-banner-persistence",
         qos: .utility
     )
     static let retainedSupersededBannerDefaultsKey = "cmux.notifications.retainedSupersededBannerIds"
+    static let retainedSupersededBannerDeltaDefaultsKey = "cmux.notifications.retainedSupersededBannerIdDeltas"
+    private static let retainedSupersededBannerDeltaCompactionThreshold = 512
 
     private func loadDismissedTombstonesIfNeeded() {
         guard !dismissedTombstonesLoaded else { return }
@@ -398,67 +400,120 @@ final class TerminalNotificationStore: ObservableObject {
         dismissedTombstoneOrder.removeAll()
         dismissedTombstonesLoaded = false
         retainedSupersededBannerIDs.removeAll()
+        retainedSupersededBannerPersistenceDeltas.removeAll()
         retainedSupersededBannerIDsLoaded = false
+        retainedSupersededBannerSnapshotPersistenceInFlight = false
+        retainedSupersededBannerSnapshotPersistenceDirty = false
     }
 
     private func loadRetainedSupersededBannerIDsIfNeeded() {
         guard !retainedSupersededBannerIDsLoaded else { return }
         retainedSupersededBannerIDsLoaded = true
         let stored = UserDefaults.standard.stringArray(forKey: Self.retainedSupersededBannerDefaultsKey) ?? []
-        retainedSupersededBannerIDs = Set(stored.compactMap { UUID(uuidString: $0) })
+        var ids = Set(stored.compactMap { UUID(uuidString: $0) })
+        let deltas = UserDefaults.standard.stringArray(forKey: Self.retainedSupersededBannerDeltaDefaultsKey) ?? []
+        for delta in deltas {
+            Self.applyRetainedSupersededBannerDelta(delta, to: &ids)
+        }
+        retainedSupersededBannerIDs = ids
+        retainedSupersededBannerPersistenceDeltas = deltas
+        if deltas.count >= Self.retainedSupersededBannerDeltaCompactionThreshold {
+            scheduleRetainedSupersededBannerSnapshotPersistence()
+        }
     }
 
-    private func scheduleRetainedSupersededBannerIDPersistence() {
-        retainedSupersededBannerPersistenceDirty = true
-        guard !retainedSupersededBannerPersistenceScheduled,
-              !retainedSupersededBannerPersistenceInFlight else { return }
-        retainedSupersededBannerPersistenceScheduled = true
-        Task { @MainActor [weak self] in
-            await Task.yield()
-            guard let self else { return }
-            retainedSupersededBannerPersistenceScheduled = false
-            retainedSupersededBannerPersistenceInFlight = true
-            retainedSupersededBannerPersistenceDirty = false
-            let ids = retainedSupersededBannerIDs.map(\.uuidString)
-            Self.retainedSupersededBannerPersistenceQueue.async {
-                UserDefaults.standard.set(ids, forKey: Self.retainedSupersededBannerDefaultsKey)
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    retainedSupersededBannerPersistenceInFlight = false
-                    if retainedSupersededBannerPersistenceDirty {
-                        scheduleRetainedSupersededBannerIDPersistence()
-                    }
+    private nonisolated static func retainedSupersededBannerDelta(id: UUID, isInsertion: Bool) -> String {
+        "\(isInsertion ? "+" : "-")\(id.uuidString)"
+    }
+
+    private nonisolated static func applyRetainedSupersededBannerDelta(_ delta: String, to ids: inout Set<UUID>) {
+        guard let operation = delta.first,
+              let id = UUID(uuidString: String(delta.dropFirst())) else { return }
+        switch operation {
+        case "+":
+            ids.insert(id)
+        case "-":
+            ids.remove(id)
+        default:
+            break
+        }
+    }
+
+    private func persistRetainedSupersededBannerDeltas() {
+        let deltas = retainedSupersededBannerPersistenceDeltas
+        Self.retainedSupersededBannerPersistenceQueue.async {
+            UserDefaults.standard.set(deltas, forKey: Self.retainedSupersededBannerDeltaDefaultsKey)
+        }
+    }
+
+    private func scheduleRetainedSupersededBannerSnapshotPersistence() {
+        guard !retainedSupersededBannerSnapshotPersistenceInFlight else {
+            retainedSupersededBannerSnapshotPersistenceDirty = true
+            persistRetainedSupersededBannerDeltas()
+            return
+        }
+        retainedSupersededBannerSnapshotPersistenceInFlight = true
+        retainedSupersededBannerSnapshotPersistenceDirty = false
+        let ids = retainedSupersededBannerIDs
+        retainedSupersededBannerPersistenceDeltas.removeAll()
+        Self.retainedSupersededBannerPersistenceQueue.async {
+            let snapshot = ids.map(\.uuidString).sorted()
+            let defaults = UserDefaults.standard
+            defaults.set(snapshot, forKey: Self.retainedSupersededBannerDefaultsKey)
+            defaults.removeObject(forKey: Self.retainedSupersededBannerDeltaDefaultsKey)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                retainedSupersededBannerSnapshotPersistenceInFlight = false
+                if retainedSupersededBannerSnapshotPersistenceDirty ||
+                    retainedSupersededBannerPersistenceDeltas.count >= Self.retainedSupersededBannerDeltaCompactionThreshold {
+                    scheduleRetainedSupersededBannerSnapshotPersistence()
+                } else if !retainedSupersededBannerPersistenceDeltas.isEmpty {
+                    persistRetainedSupersededBannerDeltas()
                 }
             }
+        }
+    }
+
+    private func persistRetainedSupersededBannerIDChanges(inserted: [UUID] = [], removed: [UUID] = []) {
+        guard !inserted.isEmpty || !removed.isEmpty else { return }
+        let deltas = inserted.map { Self.retainedSupersededBannerDelta(id: $0, isInsertion: true) } +
+            removed.map { Self.retainedSupersededBannerDelta(id: $0, isInsertion: false) }
+        retainedSupersededBannerPersistenceDeltas.append(contentsOf: deltas)
+        if retainedSupersededBannerPersistenceDeltas.count >= Self.retainedSupersededBannerDeltaCompactionThreshold ||
+            deltas.count >= Self.retainedSupersededBannerDeltaCompactionThreshold {
+            scheduleRetainedSupersededBannerSnapshotPersistence()
+        } else {
+            persistRetainedSupersededBannerDeltas()
         }
     }
 
     private func recordRetainedSupersededBannerIDs(ids: [UUID]) {
         guard !ids.isEmpty else { return }
         loadRetainedSupersededBannerIDsIfNeeded()
-        let previousCount = retainedSupersededBannerIDs.count
-        retainedSupersededBannerIDs.formUnion(ids)
-        if retainedSupersededBannerIDs.count != previousCount {
-            scheduleRetainedSupersededBannerIDPersistence()
+        var inserted: [UUID] = []
+        for id in ids where retainedSupersededBannerIDs.insert(id).inserted {
+            inserted.append(id)
         }
+        persistRetainedSupersededBannerIDChanges(inserted: inserted)
     }
 
     private func removeRetainedSupersededBannerIDs(ids: [UUID]) {
         guard !ids.isEmpty else { return }
         loadRetainedSupersededBannerIDsIfNeeded()
-        let previousCount = retainedSupersededBannerIDs.count
-        retainedSupersededBannerIDs.subtract(ids)
-        if retainedSupersededBannerIDs.count != previousCount {
-            scheduleRetainedSupersededBannerIDPersistence()
+        var removed: [UUID] = []
+        for id in ids where retainedSupersededBannerIDs.remove(id) != nil {
+            removed.append(id)
         }
+        persistRetainedSupersededBannerIDChanges(removed: removed)
     }
 
     private func reconcileRetainedSupersededBannerIDs(retainedIDs: Set<UUID>) {
         loadRetainedSupersededBannerIDsIfNeeded()
         let reconciled = retainedSupersededBannerIDs.intersection(retainedIDs)
         guard reconciled != retainedSupersededBannerIDs else { return }
+        let removed = Array(retainedSupersededBannerIDs.subtracting(reconciled))
         retainedSupersededBannerIDs = reconciled
-        scheduleRetainedSupersededBannerIDPersistence()
+        persistRetainedSupersededBannerIDChanges(removed: removed)
     }
 
     /// Phone-banner dismissals for superseded notifications, deferred until the
@@ -802,6 +857,21 @@ final class TerminalNotificationStore: ObservableObject {
         )
         refreshDockBadge()
         emitUnreadBadgeEventIfChanged()
+    }
+
+    private static func sidebarUnreadSurfaceKeys(for notification: TerminalNotification) -> Set<SidebarSurfaceUnreadKey> {
+        Set(unreadIndexKeys(for: notification).map {
+            SidebarSurfaceUnreadKey(workspaceId: $0.tabId, surfaceId: $0.surfaceId)
+        })
+    }
+
+    private static func recordChangedUnreadPresentationScope(
+        for notification: TerminalNotification,
+        workspaceIds: inout Set<UUID>,
+        surfaceKeys: inout Set<SidebarSurfaceUnreadKey>
+    ) {
+        workspaceIds.insert(notification.tabId)
+        surfaceKeys.formUnion(sidebarUnreadSurfaceKeys(for: notification))
     }
 
     /// Builds the per-workspace unread summaries the sidebar renders. Mirrors
@@ -1740,11 +1810,11 @@ final class TerminalNotificationStore: ObservableObject {
         switch mutation {
         case .insertion(let inserted):
             Self.insertNotification(inserted, into: &indexes, notifications: notifications)
-            changedWorkspaceIds.insert(inserted.tabId)
-            changedSurfaceKeys.insert(SidebarSurfaceUnreadKey(
-                workspaceId: inserted.tabId,
-                surfaceId: inserted.surfaceId
-            ))
+            Self.recordChangedUnreadPresentationScope(
+                for: inserted,
+                workspaceIds: &changedWorkspaceIds,
+                surfaceKeys: &changedSurfaceKeys
+            )
             appliedIncrementally = true
         case .insertionEvicting(let inserted, let evicted):
             Self.insertNotification(
@@ -1756,17 +1826,17 @@ final class TerminalNotificationStore: ObservableObject {
             let evictedIds = Set(evicted.map(\.id))
             deferredUnreadNavigationIds.removeAll { evictedIds.contains($0) }
             removeRetainedSupersededBannerIDs(ids: Array(evictedIds))
-            changedWorkspaceIds.insert(inserted.tabId)
-            changedSurfaceKeys.insert(SidebarSurfaceUnreadKey(
-                workspaceId: inserted.tabId,
-                surfaceId: inserted.surfaceId
-            ))
+            Self.recordChangedUnreadPresentationScope(
+                for: inserted,
+                workspaceIds: &changedWorkspaceIds,
+                surfaceKeys: &changedSurfaceKeys
+            )
             for notification in evicted {
-                changedWorkspaceIds.insert(notification.tabId)
-                changedSurfaceKeys.insert(SidebarSurfaceUnreadKey(
-                    workspaceId: notification.tabId,
-                    surfaceId: notification.surfaceId
-                ))
+                Self.recordChangedUnreadPresentationScope(
+                    for: notification,
+                    workspaceIds: &changedWorkspaceIds,
+                    surfaceKeys: &changedSurfaceKeys
+                )
             }
             appliedIncrementally = true
         case .readState(let before, let after):
@@ -1776,16 +1846,16 @@ final class TerminalNotificationStore: ObservableObject {
                 in: &indexes,
                 notifications: Array(notifications)
             )
-            changedWorkspaceIds.insert(before.tabId)
-            changedWorkspaceIds.insert(after.tabId)
-            changedSurfaceKeys.insert(SidebarSurfaceUnreadKey(
-                workspaceId: before.tabId,
-                surfaceId: before.surfaceId
-            ))
-            changedSurfaceKeys.insert(SidebarSurfaceUnreadKey(
-                workspaceId: after.tabId,
-                surfaceId: after.surfaceId
-            ))
+            Self.recordChangedUnreadPresentationScope(
+                for: before,
+                workspaceIds: &changedWorkspaceIds,
+                surfaceKeys: &changedSurfaceKeys
+            )
+            Self.recordChangedUnreadPresentationScope(
+                for: after,
+                workspaceIds: &changedWorkspaceIds,
+                surfaceKeys: &changedSurfaceKeys
+            )
         case nil:
             indexes = Self.buildIndexes(for: notifications)
             deferredUnreadNavigationIds.removeAll { !indexes.ids.contains($0) }
@@ -1805,9 +1875,7 @@ final class TerminalNotificationStore: ObservableObject {
         case .insertion(let inserted):
             CmuxEventBus.shared.publishNotificationCreated(inserted, delivery: "store", replacedNotificationIds: [])
         case .insertionEvicting(let inserted, let evicted):
-            for notification in evicted {
-                CmuxEventBus.shared.publishNotificationRemoved(notification)
-            }
+            CmuxEventBus.shared.publishNotificationsRemoved(evicted)
             CmuxEventBus.shared.publishNotificationCreated(inserted, delivery: "store", replacedNotificationIds: [])
         case .readState(let before, let after) where appliedIncrementally:
             if !before.isRead, after.isRead {
@@ -2877,27 +2945,25 @@ final class SidebarUnreadModel: ObservableObject {
         if self.totalUnreadCount != totalUnreadCount {
             self.totalUnreadCount = totalUnreadCount
         }
-        var summariesChanged = false
-        for id in removedSummaryIds where summaryByWorkspaceId[id] != nil {
-            summaryByWorkspaceId.removeValue(forKey: id)
-            summariesChanged = true
+        var nextSummaries = summaryByWorkspaceId
+        for id in removedSummaryIds where nextSummaries[id] != nil {
+            nextSummaries.removeValue(forKey: id)
         }
-        for (id, summary) in changedSummaries where summaryByWorkspaceId[id] != summary {
-            summaryByWorkspaceId[id] = summary
-            summariesChanged = true
+        for (id, summary) in changedSummaries where nextSummaries[id] != summary {
+            nextSummaries[id] = summary
         }
-        if summariesChanged {
-            summaryByWorkspaceId = summaryByWorkspaceId
+        if summaryByWorkspaceId != nextSummaries {
+            summaryByWorkspaceId = nextSummaries
         }
-        var surfaceKeysChanged = false
-        for key in removedUnreadSurfaceKeys where unreadSurfaceKeys.remove(key) != nil {
-            surfaceKeysChanged = true
+        var nextSurfaceKeys = unreadSurfaceKeys
+        for key in removedUnreadSurfaceKeys {
+            nextSurfaceKeys.remove(key)
         }
-        for key in insertedUnreadSurfaceKeys where unreadSurfaceKeys.insert(key).inserted {
-            surfaceKeysChanged = true
+        for key in insertedUnreadSurfaceKeys {
+            nextSurfaceKeys.insert(key)
         }
-        if surfaceKeysChanged {
-            unreadSurfaceKeys = unreadSurfaceKeys
+        if unreadSurfaceKeys != nextSurfaceKeys {
+            unreadSurfaceKeys = nextSurfaceKeys
         }
         if self.focusedReadIndicatorByWorkspaceId != focusedReadIndicatorByWorkspaceId {
             self.focusedReadIndicatorByWorkspaceId = focusedReadIndicatorByWorkspaceId

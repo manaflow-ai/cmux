@@ -321,6 +321,92 @@ struct NotificationFeedScaleTests {
     }
 
     @Test
+    func largeByteCapacityEvictionPublishesOneBatchRemovalEvent() throws {
+        let store = TerminalNotificationStore.shared
+        let eventBus = CmuxEventBus.shared
+        let oldBody = String(repeating: "x", count: 512)
+        let oldRowBytes = oldBody.utf8.count
+        let retainedByBytes = TerminalNotificationStore.maximumNotificationFeedContentBytes / oldRowBytes
+        let liveBody = String(repeating: "y", count: TerminalNotificationStore.maximumNotificationBodyBytes)
+        let expectedEvictionCount = liveBody.utf8.count / oldRowBytes
+        let existing = (0..<retainedByBytes).map { index in
+            TerminalNotification(
+                id: UUID(),
+                tabId: UUID(),
+                surfaceId: UUID(),
+                retargetsToLiveSurfaceOwner: false,
+                title: "",
+                subtitle: "",
+                body: oldBody,
+                createdAt: Date(timeIntervalSince1970: TimeInterval(index)),
+                isRead: false
+            )
+        }.sorted(by: TerminalNotificationStore.notificationSortPrecedes)
+
+        store.replaceNotificationsForTesting(existing)
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        store.configureSuppressedNotificationFeedbackHandlerForTesting { _, _ in }
+        eventBus.resetForTesting()
+        TerminalNotificationStore.resetFullIndexRebuildCountForTesting()
+        defer {
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            store.resetSuppressedNotificationFeedbackHandlerForTesting()
+            eventBus.resetForTesting()
+        }
+
+        store.addNotification(
+            id: UUID(),
+            acceptedAt: Date(timeIntervalSince1970: TimeInterval(retainedByBytes + 1)),
+            tabId: UUID(),
+            surfaceId: UUID(),
+            title: "",
+            subtitle: "",
+            body: liveBody,
+            retargetsToLiveSurfaceOwner: false
+        )
+
+        let events = eventBus.retainedSnapshot()
+        #expect(TerminalNotificationStore.fullIndexRebuildCountForTesting == 0)
+        #expect(events.compactMap { $0["name"] as? String } == ["notification.removed_batch", "notification.created"])
+        let payload = try #require(events.first?["payload"] as? [String: Any])
+        #expect(payload["count"] as? Int == expectedEvictionCount)
+        #expect(payload["notification_ids_truncated"] as? Bool == false)
+        #expect((payload["notification_ids"] as? [String])?.count == expectedEvictionCount)
+    }
+
+    @Test
+    func incrementalReadStateUpdatesPanelAliasUnreadProjection() throws {
+        let store = TerminalNotificationStore.shared
+        let workspaceId = UUID()
+        let surfaceId = UUID()
+        let panelId = UUID()
+        let notification = TerminalNotification(
+            id: UUID(),
+            tabId: workspaceId,
+            surfaceId: surfaceId,
+            panelId: panelId,
+            retargetsToLiveSurfaceOwner: false,
+            title: "Panel alias",
+            subtitle: "",
+            body: "",
+            createdAt: Date(timeIntervalSince1970: 1),
+            isRead: false
+        )
+
+        store.replaceNotificationsForTesting([notification])
+        defer { store.replaceNotificationsForTesting([]) }
+
+        #expect(store.sidebarUnread.hasUnreadNotification(forWorkspaceId: workspaceId, surfaceId: surfaceId))
+        #expect(store.sidebarUnread.hasUnreadNotification(forWorkspaceId: workspaceId, surfaceId: panelId))
+
+        store.markRead(id: notification.id)
+
+        #expect(!store.sidebarUnread.hasUnreadNotification(forWorkspaceId: workspaceId, surfaceId: surfaceId))
+        #expect(!store.sidebarUnread.hasUnreadNotification(forWorkspaceId: workspaceId, surfaceId: panelId))
+    }
+
+    @Test
     func notificationAdmissionTruncatesOversizedTextFields() throws {
         let store = TerminalNotificationStore.shared
         let eventBus = CmuxEventBus.shared

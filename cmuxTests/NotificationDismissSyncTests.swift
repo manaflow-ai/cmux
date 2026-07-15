@@ -297,6 +297,8 @@ struct NotificationDismissSyncTests {
         let previousTombstones = UserDefaults.standard.stringArray(forKey: tombstoneKey)
         let supersededKey = TerminalNotificationStore.retainedSupersededBannerDefaultsKey
         let previousSuperseded = UserDefaults.standard.stringArray(forKey: supersededKey)
+        let supersededDeltaKey = TerminalNotificationStore.retainedSupersededBannerDeltaDefaultsKey
+        let previousSupersededDeltas = UserDefaults.standard.stringArray(forKey: supersededDeltaKey)
         let originalAppFocusOverride = AppFocusState.overrideIsFocused
         let tabId = UUID()
         let surfaceId = UUID()
@@ -319,11 +321,17 @@ struct NotificationDismissSyncTests {
             } else {
                 UserDefaults.standard.removeObject(forKey: supersededKey)
             }
+            if let previousSupersededDeltas {
+                UserDefaults.standard.set(previousSupersededDeltas, forKey: supersededDeltaKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: supersededDeltaKey)
+            }
             store.reloadDismissedTombstonesForTesting()
         }
 
         UserDefaults.standard.removeObject(forKey: tombstoneKey)
         UserDefaults.standard.removeObject(forKey: supersededKey)
+        UserDefaults.standard.removeObject(forKey: supersededDeltaKey)
         store.reloadDismissedTombstonesForTesting()
         store.replaceNotificationsForTesting([older])
         store.configureNotificationDeliveryHandlerForTesting { _, _ in }
@@ -361,6 +369,8 @@ struct NotificationDismissSyncTests {
         let previousTombstones = UserDefaults.standard.stringArray(forKey: tombstoneKey)
         let supersededKey = TerminalNotificationStore.retainedSupersededBannerDefaultsKey
         let previousSuperseded = UserDefaults.standard.stringArray(forKey: supersededKey)
+        let supersededDeltaKey = TerminalNotificationStore.retainedSupersededBannerDeltaDefaultsKey
+        let previousSupersededDeltas = UserDefaults.standard.stringArray(forKey: supersededDeltaKey)
         let originalAppFocusOverride = AppFocusState.overrideIsFocused
         let rows = (0..<520).map { index in
             TerminalNotification(
@@ -389,11 +399,17 @@ struct NotificationDismissSyncTests {
             } else {
                 UserDefaults.standard.removeObject(forKey: supersededKey)
             }
+            if let previousSupersededDeltas {
+                UserDefaults.standard.set(previousSupersededDeltas, forKey: supersededDeltaKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: supersededDeltaKey)
+            }
             store.reloadDismissedTombstonesForTesting()
         }
 
         UserDefaults.standard.removeObject(forKey: tombstoneKey)
         UserDefaults.standard.removeObject(forKey: supersededKey)
+        UserDefaults.standard.removeObject(forKey: supersededDeltaKey)
         store.reloadDismissedTombstonesForTesting()
         store.replaceNotificationsForTesting(rows)
         store.configureNotificationDeliveryHandlerForTesting { _, _ in }
@@ -420,6 +436,68 @@ struct NotificationDismissSyncTests {
         store.markRead(id: oldestSuperseded.id)
         store.markUnread(id: oldestSuperseded.id)
         #expect(store.reconcileHandledNotificationIDs(deliveredIDs: [oldestSuperseded.id]) == [])
+    }
+
+    /// The retained superseded-banner restart state is stored as a compact base
+    /// snapshot plus bounded add/remove deltas. Loading must apply both, and must
+    /// still understand the old snapshot-only key from earlier builds.
+    @Test func retainedSupersededBannerDeltaPersistenceSurvivesStoreReload() throws {
+        let store = TerminalNotificationStore.shared
+        let previousNotifications = store.notifications
+        let supersededKey = TerminalNotificationStore.retainedSupersededBannerDefaultsKey
+        let previousSuperseded = UserDefaults.standard.stringArray(forKey: supersededKey)
+        let supersededDeltaKey = TerminalNotificationStore.retainedSupersededBannerDeltaDefaultsKey
+        let previousSupersededDeltas = UserDefaults.standard.stringArray(forKey: supersededDeltaKey)
+        let deltaAdded = TerminalNotification(
+            id: UUID(), tabId: UUID(), surfaceId: UUID(),
+            title: "Delta added", subtitle: "", body: "body",
+            createdAt: Date(timeIntervalSince1970: 1_778_000_000), isRead: false
+        )
+        let snapshotOnly = TerminalNotification(
+            id: UUID(), tabId: UUID(), surfaceId: UUID(),
+            title: "Snapshot only", subtitle: "", body: "body",
+            createdAt: Date(timeIntervalSince1970: 1_778_000_001), isRead: false
+        )
+        let deltaRemoved = TerminalNotification(
+            id: UUID(), tabId: UUID(), surfaceId: UUID(),
+            title: "Delta removed", subtitle: "", body: "body",
+            createdAt: Date(timeIntervalSince1970: 1_778_000_002), isRead: false
+        )
+        defer {
+            store.replaceNotificationsForTesting(previousNotifications)
+            if let previousSuperseded {
+                UserDefaults.standard.set(previousSuperseded, forKey: supersededKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: supersededKey)
+            }
+            if let previousSupersededDeltas {
+                UserDefaults.standard.set(previousSupersededDeltas, forKey: supersededDeltaKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: supersededDeltaKey)
+            }
+            store.reloadDismissedTombstonesForTesting()
+        }
+
+        UserDefaults.standard.set(
+            [snapshotOnly.id.uuidString, deltaRemoved.id.uuidString],
+            forKey: supersededKey
+        )
+        UserDefaults.standard.set(
+            ["+\(deltaAdded.id.uuidString)", "-\(deltaRemoved.id.uuidString)"],
+            forKey: supersededDeltaKey
+        )
+        store.reloadDismissedTombstonesForTesting()
+        store.replaceNotificationsForTesting([deltaAdded, snapshotOnly, deltaRemoved])
+
+        #expect(
+            store.reconcileHandledNotificationIDs(deliveredIDs: [deltaAdded.id])
+                == [deltaAdded.id.uuidString]
+        )
+        #expect(
+            store.reconcileHandledNotificationIDs(deliveredIDs: [snapshotOnly.id])
+                == [snapshotOnly.id.uuidString]
+        )
+        #expect(store.reconcileHandledNotificationIDs(deliveredIDs: [deltaRemoved.id]) == [])
     }
 
     /// Dismiss tombstones are write-through persisted: a notification dismissed
