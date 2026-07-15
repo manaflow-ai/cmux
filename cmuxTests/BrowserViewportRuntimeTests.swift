@@ -41,6 +41,37 @@ struct BrowserViewportRuntimeTests {
     }
 
     @Test
+    func emulatedPortalLayoutTracksSlotBoundsChanges() throws {
+        let slot = WindowBrowserSlotView(
+            frame: NSRect(x: 0, y: 0, width: 380, height: 610)
+        )
+        let webView = CmuxWebView(frame: slot.bounds, configuration: WKWebViewConfiguration())
+        let viewportHost = BrowserViewportHostView(frame: slot.bounds)
+        let viewportModel = BrowserViewportModel()
+        defer {
+            webView.removeFromSuperview()
+            viewportHost.removeFromSuperview()
+        }
+
+        webView.browserViewportModel = viewportModel
+        viewportModel.setViewport(try #require(BrowserViewport(width: 1_280, height: 720)))
+        viewportHost.installWebView(webView)
+        slot.addSubview(viewportHost)
+        slot.pinHostedWebView(webView)
+
+        #expect(webView.cmuxBrowserViewportUsesHost)
+        #expect(webView.cmuxBrowserViewportPresentationView === viewportHost)
+
+        slot.setFrameSize(NSSize(width: 720, height: 420))
+        slot.needsLayout = true
+        slot.layoutSubtreeIfNeeded()
+
+        let expectedLayout = try #require(webView.cmuxBrowserViewportLayout(in: slot.bounds))
+        #expect(expectedLayout.mode == .emulated)
+        #expect(viewportHost.matches(expectedLayout))
+    }
+
+    @Test
     func nativeViewportActivatesPresentationHostOnlyWhileEmulationIsRequested() throws {
         let panel = BrowserPanel(workspaceId: UUID(), initialURL: URL(string: "about:blank")!)
         let webView = panel.webView

@@ -1219,6 +1219,7 @@ final class WindowBrowserSlotView: NSView {
         paneDropTargetView.frame = bounds
         applyResolvedDropZoneOverlay()
         if let hostedWebView,
+           hostedWebView.cmuxBrowserViewportUsesHost,
            hostedWebView.cmuxBrowserViewportPresentationView.superview === self,
            !browserPortalHasVisibleWebKitCompanionSubview(for: hostedWebView) {
             hostedWebView.cmuxApplyBrowserViewportLayout(in: bounds)
