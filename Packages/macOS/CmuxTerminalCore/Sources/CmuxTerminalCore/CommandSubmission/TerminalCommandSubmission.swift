@@ -12,8 +12,11 @@ public struct TerminalCommandSubmission: Equatable, Sendable {
     /// DEC 2004 sequence that ends a bracketed paste.
     public static let bracketedPasteEnd = "\u{001B}[201~"
 
-    /// Exact UTF-8 bytes to write to the terminal PTY.
+    /// Exact UTF-8 bytes to write to the terminal PTY, or empty data when rejected.
     public let data: Data
+
+    /// Why validation rejected the command, or `nil` when ``data`` is safe to deliver.
+    public let rejection: TerminalCommandSubmissionRejection?
 
     /// UTF-8 representation of ``data``, primarily useful for string-based startup seams.
     public var text: String {
@@ -25,12 +28,20 @@ public struct TerminalCommandSubmission: Equatable, Sendable {
     /// A caller-provided trailing CR, LF, or CRLF is preserved on the single-line
     /// fast path. For multiline input, one trailing terminator is removed before
     /// wrapping the body in bracketed-paste markers and appending `submit` once.
+    /// C0 and C1 control characters other than tab, CR, and LF are rejected so
+    /// command content cannot inject terminal input-protocol delimiters.
     ///
     /// - Parameters:
     ///   - command: Shell input to insert and submit.
     ///   - submit: Character that submits the completed line. Defaults to CR.
     ///   - bracketedPasteSafe: Whether the target line editor supports bracketed paste.
     public init(command: String, submit: Character = "\r", bracketedPasteSafe: Bool = true) {
+        if command.unicodeScalars.contains(where: Self.isUnsafeTerminalControlCharacter) {
+            self.data = Data()
+            self.rejection = .unsafeControlCharacter
+            return
+        }
+
         let terminatorLength: Int
         if command.hasSuffix("\r\n") {
             terminatorLength = 2
@@ -54,5 +65,17 @@ public struct TerminalCommandSubmission: Equatable, Sendable {
             submission = command + String(submit)
         }
         self.data = Data(submission.utf8)
+        self.rejection = nil
+    }
+
+    private static func isUnsafeTerminalControlCharacter(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar.value {
+        case 0x09, 0x0A, 0x0D:
+            false
+        case 0x00 ... 0x1F, 0x7F ... 0x9F:
+            true
+        default:
+            false
+        }
     }
 }

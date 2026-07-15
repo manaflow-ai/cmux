@@ -740,9 +740,13 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     @discardableResult
-    func submitCommand(_ command: String) -> TerminalSurface.InputSendResult {
+    func submitCommand(_ command: String) -> TerminalCommandSubmitResult {
+        let submission = TerminalCommandSubmission(command: command)
+        if let rejection = submission.rejection {
+            return .rejected(rejection)
+        }
         resumeForExplicitInputIfNeeded()
-        return surface.submitCommand(command)
+        return surface.submitCommand(submission)
     }
 
     @discardableResult

@@ -183,11 +183,26 @@ extension TerminalSurface {
     /// cannot be interpreted as individual Return key presses.
     ///
     /// - Parameter command: Shell input to insert and submit.
-    /// - Returns: Whether the bytes were sent, queued, or rejected by the surface.
+    /// - Returns: Whether validation rejected the command or terminal delivery was attempted.
     @MainActor
     @discardableResult
-    public func submitCommand(_ command: String) -> InputSendResult {
-        sendRawInput(TerminalCommandSubmission(command: command).data)
+    public func submitCommand(_ command: String) -> TerminalCommandSubmitResult {
+        submitCommand(TerminalCommandSubmission(command: command))
+    }
+
+    /// Submits a previously validated command representation.
+    ///
+    /// - Parameter submission: Command bytes and any validation rejection.
+    /// - Returns: Whether validation rejected the command or terminal delivery was attempted.
+    @MainActor
+    @discardableResult
+    public func submitCommand(
+        _ submission: TerminalCommandSubmission
+    ) -> TerminalCommandSubmitResult {
+        if let rejection = submission.rejection {
+            return .rejected(rejection)
+        }
+        return .submitted(sendRawInput(submission.data))
     }
 
     @MainActor

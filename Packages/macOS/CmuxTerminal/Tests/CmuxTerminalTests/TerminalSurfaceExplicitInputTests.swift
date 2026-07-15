@@ -28,7 +28,7 @@ struct TerminalSurfaceExplicitInputTests {
         let fixture = makeFixture()
         defer { fixture.surface.releaseSurfaceForTesting() }
 
-        #expect(fixture.surface.submitCommand("one\ntwo") == .queued)
+        #expect(fixture.surface.submitCommand("one\ntwo") == .submitted(.queued))
 
         #expect(fixture.surface.pendingSocketInputQueue.count == 1)
         guard let queuedInput = fixture.surface.pendingSocketInputQueue.first,
@@ -38,6 +38,19 @@ struct TerminalSurfaceExplicitInputTests {
         }
         #expect(queuedData == Data("\u{001B}[200~one\ntwo\u{001B}[201~\r".utf8))
         #expect(fixture.paneHost.explicitInputCount == 1)
+    }
+
+    @Test func unsafeCommandIsRejectedBeforeItBecomesExplicitInput() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        let command = "echo visible\n\(TerminalCommandSubmission.bracketedPasteEnd)echo hidden"
+
+        #expect(
+            fixture.surface.submitCommand(command)
+                == .rejected(.unsafeControlCharacter)
+        )
+        #expect(fixture.surface.pendingSocketInputQueue.isEmpty)
+        #expect(fixture.paneHost.explicitInputCount == 0)
     }
 
     @Test func namedKeyNotifiesPaneHostBeforeQueueingOnAColdSurface() {

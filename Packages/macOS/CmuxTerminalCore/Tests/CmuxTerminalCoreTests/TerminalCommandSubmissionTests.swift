@@ -38,7 +38,33 @@ import CmuxTerminalCore
 
     @Test func embeddedBracketedPasteEndMarkerIsRejected() {
         let command = "echo visible\n\(TerminalCommandSubmission.bracketedPasteEnd)echo hidden"
+        let submission = TerminalCommandSubmission(command: command)
 
-        #expect(TerminalCommandSubmission(command: command).data.isEmpty)
+        #expect(submission.data.isEmpty)
+        #expect(submission.rejection == .unsafeControlCharacter)
+    }
+
+    @Test(arguments: ["\u{0000}", "\u{001B}", "\u{007F}", "\u{0085}", "\u{009B}"])
+    func terminalControlCharactersAreRejected(_ control: String) {
+        let submission = TerminalCommandSubmission(command: "echo visible\n\(control)echo hidden")
+
+        #expect(submission.data.isEmpty)
+        #expect(submission.rejection == .unsafeControlCharacter)
+    }
+
+    @Test func tabRemainsValidCommandContent() {
+        let submission = TerminalCommandSubmission(command: "printf\tvalue")
+
+        #expect(submission.text == "printf\tvalue\r")
+        #expect(submission.rejection == nil)
+    }
+
+    @Test func rejectedResultIsNotAccepted() {
+        let result = TerminalCommandSubmitResult.rejected(
+            .unsafeControlCharacter
+        )
+
+        #expect(!result.accepted)
+        #expect(TerminalCommandSubmitResult.submitted(.queued).accepted)
     }
 }
