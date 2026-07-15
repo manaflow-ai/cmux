@@ -26,6 +26,7 @@ extension BrowserPanel: OmnibarHostingPanel {
     }
 
     func performAddressBarExitFocusHandoff(
+        isCurrentOwner: @escaping @MainActor () -> Bool,
         onComplete: @escaping @MainActor (Bool) -> Void
     ) {
         endSuppressWebViewFocusForAddressBar()
@@ -35,7 +36,10 @@ extension BrowserPanel: OmnibarHostingPanel {
                 onComplete(false)
                 return
             }
-            guard self.shouldApplyAddressBarExitFocusHandoff(in: window) else {
+            guard self.shouldApplyAddressBarExitFocusHandoff(
+                in: window,
+                isCurrentOwner: isCurrentOwner
+            ) else {
 #if DEBUG
                 cmuxDebugLog(
                     "browser.focus.addressBar.exit.handoff panel=\(self.id.uuidString.prefix(5)) " +
@@ -58,7 +62,10 @@ extension BrowserPanel: OmnibarHostingPanel {
             )
 #endif
             self.restoreAddressBarPageFocusIfNeeded { restored in
-                guard self.shouldApplyAddressBarExitFocusHandoff(in: window) else {
+                guard self.shouldApplyAddressBarExitFocusHandoff(
+                    in: window,
+                    isCurrentOwner: isCurrentOwner
+                ) else {
 #if DEBUG
                     cmuxDebugLog(
                         "browser.focus.addressBar.exit.handoff panel=\(self.id.uuidString.prefix(5)) " +
@@ -91,15 +98,11 @@ extension BrowserPanel: OmnibarHostingPanel {
         }
     }
 
-    private func shouldApplyAddressBarExitFocusHandoff(in window: NSWindow) -> Bool {
-        guard webView.window === window, searchState == nil else { return false }
-        guard let app = AppDelegate.shared,
-              let manager = app.tabManagerFor(tabId: workspaceId),
-              manager.selectedTabId == workspaceId,
-              let workspace = manager.tabs.first(where: { $0.id == workspaceId }) else {
-            return true
-        }
-        return workspace.focusedPanelId == id
+    private func shouldApplyAddressBarExitFocusHandoff(
+        in window: NSWindow,
+        isCurrentOwner: @MainActor () -> Bool
+    ) -> Bool {
+        webView.window === window && searchState == nil && isCurrentOwner()
     }
 
     private static func responderChainContains(

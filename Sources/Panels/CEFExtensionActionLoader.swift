@@ -20,7 +20,10 @@ struct CEFExtensionActionLoader {
         guard let manifest = jsonObject(at: directory.appendingPathComponent("manifest.json")),
               let popupPath = popupPath(in: manifest) else { return nil }
 
-        let extensionID = unpackedExtensionID(for: directory)
+        let extensionID = unpackedExtensionID(
+            manifestKey: manifest["key"] as? String,
+            directory: directory
+        )
         guard let popupURL = URL(
             string: "chrome-extension://\(extensionID)/\(popupPath)"
         ) else { return nil }
@@ -90,9 +93,17 @@ struct CEFExtensionActionLoader {
         return message
     }
 
-    private func unpackedExtensionID(for directory: URL) -> String {
-        let path = directory.absoluteURL.standardizedFileURL.path
-        let digest = SHA256.hash(data: Data(path.utf8))
+    private func unpackedExtensionID(manifestKey: String?, directory: URL) -> String {
+        let source: Data
+        if let manifestKey,
+           let publicKey = Data(base64Encoded: manifestKey, options: .ignoreUnknownCharacters),
+           !publicKey.isEmpty {
+            source = publicKey
+        } else {
+            let path = directory.absoluteURL.standardizedFileURL.path
+            source = Data(path.utf8)
+        }
+        let digest = SHA256.hash(data: source)
         let alphabet = Array("abcdefghijklmnop")
         var result = ""
         result.reserveCapacity(32)

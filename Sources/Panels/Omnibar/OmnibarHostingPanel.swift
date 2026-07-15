@@ -33,6 +33,9 @@ protocol OmnibarHostingPanel: AnyObject, ObservableObject {
     func noteAddressBarFocused()
     var isContentBlankForOmnibar: Bool { get }
     var isContentNavigationInFlight: Bool { get }
-    func performAddressBarExitFocusHandoff(onComplete: @escaping @MainActor (Bool) -> Void)
+    func performAddressBarExitFocusHandoff(
+        isCurrentOwner: @escaping @MainActor () -> Bool,
+        onComplete: @escaping @MainActor (Bool) -> Void
+    )
     var omnibarHostWindow: NSWindow? { get }
 }

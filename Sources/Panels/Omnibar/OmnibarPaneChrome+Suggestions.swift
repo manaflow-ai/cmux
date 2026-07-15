@@ -350,10 +350,9 @@ extension OmnibarPaneChrome {
             panel.endSuppressContentFocusForAddressBar()
             onAddressBarFocusStateChange(false)
             setAddressBarFocused(false, reason: "effects.blurToWebView")
-            panel.performAddressBarExitFocusHandoff { _ in
+            panel.performAddressBarExitFocusHandoff(isCurrentOwner: { isFocused }) { _ in
                 NotificationCenter.default.post(name: .browserDidExitAddressBar, object: panel.id)
             }
         }
     }
 }
-

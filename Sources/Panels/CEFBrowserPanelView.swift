@@ -82,6 +82,9 @@ struct CEFBrowserPanelView: View {
             panel.setVisibleInUI(isVisibleInUI)
             refreshChromeStyle()
         }
+        .onDisappear {
+            panel.setVisibleInUI(false)
+        }
         .onChange(of: isVisibleInUI) { _, visible in
             panel.setVisibleInUI(visible)
         }

@@ -313,10 +313,11 @@ final class CEFBrowserPanel: Panel, OmnibarHostingPanel, @preconcurrency CEFBrow
     }
 
     func performAddressBarExitFocusHandoff(
+        isCurrentOwner: @escaping @MainActor () -> Bool,
         onComplete: @escaping @MainActor (Bool) -> Void
     ) {
         setAddressFieldFocused(false)
-        guard let browser else {
+        guard isCurrentOwner(), let browser else {
             onComplete(false)
             return
         }
