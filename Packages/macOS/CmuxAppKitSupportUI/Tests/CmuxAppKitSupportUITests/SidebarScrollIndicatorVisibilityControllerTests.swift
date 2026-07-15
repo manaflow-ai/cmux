@@ -151,6 +151,39 @@ import Testing
   }
 
   @MainActor
+  @Test func pointerHoverDefersFadeUntilExit() async throws {
+    let center = NotificationCenter()
+    var fadeCompletions: [@MainActor () -> Void] = []
+    let scrollView = makeScrollableScrollView()
+    let controller = SidebarScrollIndicatorVisibilityController(
+      scrollView: scrollView,
+      notificationCenter: center,
+      sleep: { _ in },
+      fadeDuration: 0,
+      fadeAnimator: { scroller, _, completion in
+        scroller.alphaValue = 0
+        fadeCompletions.append(completion)
+      }
+    )
+    let indicator = try #require(controller.indicatorScroller)
+
+    scroll(to: 100, in: scrollView, notificationCenter: center)
+    await waitUntil { fadeCompletions.count == 1 }
+    controller.handleIndicatorPointerEntered()
+    fadeCompletions[0]()
+
+    #expect(!indicator.isHidden)
+    #expect(indicator.alphaValue == 1)
+
+    controller.handleIndicatorPointerExited()
+    await waitUntil { fadeCompletions.count == 2 }
+    fadeCompletions[1]()
+
+    #expect(indicator.isHidden)
+    #expect(indicator.alphaValue == 0)
+  }
+
+  @MainActor
   private func makeScrollableScrollView() -> NSScrollView {
     let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 400))
     scrollView.documentView = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 800))
