@@ -14,19 +14,22 @@ final class RepositoryScriptLifecycleCoordinator {
     private let promptStore: RepositorySetupPromptStore
     private let resolver: RepositoryScriptResolver
     private let archiveRunner: RepositoryArchiveScriptRunner
+    private let authorizer: any RepositoryScriptAuthorizing
 
     init(
         configStore: JSONConfigStore,
         catalog: SettingCatalog,
         promptStore: RepositorySetupPromptStore,
         commandRunner: any CommandRunning,
-        resolver: RepositoryScriptResolver = RepositoryScriptResolver()
+        resolver: RepositoryScriptResolver = RepositoryScriptResolver(),
+        authorizer: any RepositoryScriptAuthorizing = RepositoryScriptAuthorizationService()
     ) {
         self.configStore = configStore
         self.catalog = catalog
         self.promptStore = promptStore
         self.resolver = resolver
         self.archiveRunner = RepositoryArchiveScriptRunner(commands: commandRunner)
+        self.authorizer = authorizer
     }
 
     func workspaceCreated(_ workspace: Workspace, directory: String) {
@@ -118,9 +121,8 @@ final class RepositoryScriptLifecycleCoordinator {
         } else {
             projectConfigPath = nil
         }
-        CmuxConfigExecutor.authorizeProjectAutomationIfNeeded(
+        authorizer.authorize(
             descriptor: descriptor,
-            confirm: false,
             configSourcePath: projectConfigPath,
             globalConfigPath: configStore.fileURL.path,
             displayCommand: resolver.trustDisplayCommand(for: resolution),
