@@ -66,6 +66,16 @@ struct CEFHandlerRefCountTests {
 
 @Suite("CEFClientImpl ownership")
 struct CEFClientImplOwnershipTests {
+    @Test func lifeSpanHandlerRejectsUnownedPopupBrowsers() {
+        let impl = CEFClientImpl()
+        let clientPtr = impl.makeClientStruct()
+        let lifeSpan = clientPtr.pointee.get_life_span_handler?(clientPtr)
+        #expect(lifeSpan?.pointee.on_before_popup != nil)
+        cefRelease(UnsafeMutableRawPointer(lifeSpan!))
+        impl.releaseCachedSubHandlers()
+        cefRelease(UnsafeMutableRawPointer(clientPtr))
+    }
+
     /// The get_*_handler callbacks must return one cached struct per handler
     /// kind with a fresh reference per call (CEF releases what getters hand
     /// out), leaving exactly the allocation reference cached on the impl.

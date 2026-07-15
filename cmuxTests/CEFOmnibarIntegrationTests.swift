@@ -118,6 +118,25 @@ struct CEFOmnibarIntegrationTests {
     }
 
     @Test
+    func focusedOmnibarLookupPrefersWindowDockStorage() throws {
+        let dockPanel = CEFBrowserPanel(workspaceId: UUID())
+        let workspacePanel = CEFBrowserPanel(workspaceId: UUID())
+
+        let resolved = try #require(resolveFocusedOmnibarPanel(
+            windowDockPanel: dockPanel,
+            workspacePanel: workspacePanel
+        ))
+
+        #expect(resolved.id == dockPanel.id)
+    }
+
+    @Test
+    func hiddenCEFPaneDismissesExtensionPopover() {
+        #expect(shouldDismissCEFExtensionPopover(isVisibleInUI: false))
+        #expect(!shouldDismissCEFExtensionPopover(isVisibleInUI: true))
+    }
+
+    @Test
     func omnibarPaletteCapabilityIsDistinctFromWebKitCapability() {
         #expect(CommandPaletteContextKeys.panelHasOmnibar != CommandPaletteContextKeys.panelIsBrowser)
     }
