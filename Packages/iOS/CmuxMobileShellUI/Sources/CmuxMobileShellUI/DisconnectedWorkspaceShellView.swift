@@ -13,28 +13,18 @@ struct DisconnectedWorkspaceShellView: View {
     let hasKnownPairedMac: Bool
     let discoveryScopeID: String
     let showAddDevice: () -> Void
+    var updateAutomaticAddDevicePresentation: (Bool) -> Void = { _ in }
     let signOut: () -> Void
-    /// Setup gate highlighted by the iOS recovery sheet.
     var setupHelpHighlight: MobileSetupGuidanceState = .signedInNeverPaired
-    /// The shell store, forwarded to the reused Settings sheet so the user can
-    /// still switch to another paired Mac from the no-devices/offline state
-    /// (this screen is the terminal not-connected state, reached after a stored
-    /// Mac reconnect fails). `nil` in previews.
+    /// Forwarded to Settings for switching saved Macs. `nil` in previews.
     var store: CMUXMobileShellStore?
 
     @State private var showingSettings = false
 
     #if os(iOS)
     @State private var isShowingSetupHelp = false
-    /// The computer whose destructive remove action is awaiting confirmation.
-    /// Stored at list scope so reusable rows do not own transient presentation
-    /// state while `List` is recycling swipe-action rows.
     @State private var computerPendingRemovalID: String?
-    /// The computer a reconnect attempt is in flight for. Also the re-entry
-    /// guard: while non-nil, row taps are ignored.
     @State private var connectingMacID: String?
-    /// The display name of the computer whose reconnect just failed, driving
-    /// the failure alert. `nil` = no alert.
     @State private var connectFailedComputerName: String?
     /// The account-discovered session currently attaching.
     @State private var pendingHandoffID: String?
@@ -71,7 +61,9 @@ struct DisconnectedWorkspaceShellView: View {
                 .accessibilityIdentifier("MobileDisconnectedWorkspaceShell")
                 .task(id: discoveryScopeID) {
                     let scopeID = discoveryScopeID
+                    #if os(iOS)
                     resetFirstConnectionState(for: scopeID)
+                    #endif
                     await store?.loadPairedMacs()
                     #if os(iOS)
                     guard !Task.isCancelled, activeDiscoveryScopeID == scopeID else { return }
@@ -269,6 +261,9 @@ struct DisconnectedWorkspaceShellView: View {
     }
 
     private func resetFirstConnectionState(for scopeID: String) {
+        if didPresentManualPairing {
+            updateAutomaticAddDevicePresentation(false)
+        }
         activeDiscoveryScopeID = scopeID
         registryState = .loading
         registryRefreshScopeID = nil
@@ -295,6 +290,10 @@ struct DisconnectedWorkspaceShellView: View {
             .unavailable
         }
         registryState = nextState
+        if didPresentManualPairing, !handoffSessions.isEmpty {
+            didPresentManualPairing = false
+            updateAutomaticAddDevicePresentation(false)
+        }
         let presentation = MobileFirstConnectionState(
             hasSavedComputer: !savedComputers.isEmpty,
             registryState: nextState
@@ -302,7 +301,7 @@ struct DisconnectedWorkspaceShellView: View {
         guard !didPresentManualPairing,
               presentation.shouldPresentManualPairing else { return }
         didPresentManualPairing = true
-        showAddDevice()
+        updateAutomaticAddDevicePresentation(true)
     }
 
     private var registryUnavailableState: some View {

@@ -32,7 +32,7 @@ struct CMUXMobileRootView: View {
     @State private var pendingAttachURL: String?
     @State private var didConsumeUITestAttachURL = false
     @State private var didAuthenticateWithAttachTicket = false
-    @State private var isShowingAddDeviceSheet = false
+    @State private var addDevicePresentation = MobileAddDevicePresentationState()
     #if os(iOS)
     @State private var addDeviceSheetDetent: PresentationDetent = .large
     #endif
@@ -154,12 +154,11 @@ struct CMUXMobileRootView: View {
             pushCoordinator.workspacesDidChange()
         }
         #endif
-        .onChange(of: authManager.selectedTeamID) { _, _ in
-            // The user switched Stack teams (from the nav drawer). Lazily re-scope
+        .onChange(of: authManager.resolvedTeamID) { _, _ in
+            // The authenticated Stack team changed, either after bootstrap or from
+            // the nav drawer. Lazily re-scope
             // the team-bound state (presence, registry, paired-Mac backup,
-            // aggregation) to the new team without dropping the live terminal. The
-            // drawer only writes `selectedTeamID`; this is the single observation
-            // point, so every entrypoint that changes the team flows through here.
+            // aggregation) to the new team without dropping the live terminal.
             store.currentTeamDidChange()
         }
         .onChange(of: scenePhase) { _, phase in
@@ -204,7 +203,7 @@ struct CMUXMobileRootView: View {
         }
         .onChange(of: store.connectionState) { _, connectionState in
             if connectionState == .connected {
-                isShowingAddDeviceSheet = false
+                addDevicePresentation.dismiss()
             } else {
                 clearAttachTicketAuthenticationIfNeeded()
             }
@@ -249,6 +248,7 @@ struct CMUXMobileRootView: View {
                 hasKnownPairedMac: store.hasKnownPairedMac,
                 discoveryScopeID: firstConnectionDiscoveryScopeID,
                 showAddDevice: showAddDevice,
+                updateAutomaticAddDevicePresentation: updateAutomaticAddDevicePresentation,
                 signOut: signOut,
                 setupHelpHighlight: disconnectedSetupHelpHighlight,
                 store: store
@@ -266,7 +266,7 @@ struct CMUXMobileRootView: View {
 
     private var addDeviceSheetBinding: Binding<Bool> {
         Binding(
-            get: { isShowingAddDeviceSheet },
+            get: { addDevicePresentation.isPresented },
             set: { isPresented in
                 if isPresented {
                     showAddDevice()
@@ -278,7 +278,7 @@ struct CMUXMobileRootView: View {
     }
 
     private var firstConnectionDiscoveryScopeID: String {
-        "\(authManager.currentUser?.id ?? "")\t\(authManager.selectedTeamID ?? "")"
+        "\(authManager.currentUser?.id ?? "")\t\(authManager.resolvedTeamID ?? "")"
     }
 
     @ViewBuilder
@@ -414,7 +414,15 @@ struct CMUXMobileRootView: View {
         #if os(iOS)
         addDeviceSheetDetent = .large
         #endif
-        isShowingAddDeviceSheet = true
+        addDevicePresentation.present(origin: .userInitiated)
+    }
+
+    private func updateAutomaticAddDevicePresentation(_ isPresented: Bool) {
+        if isPresented {
+            addDevicePresentation.present(origin: .automaticFirstConnection)
+        } else {
+            addDevicePresentation.dismissAutomaticForAvailableSession()
+        }
     }
 
     private func connectAttachURL(_ rawURL: String) {
@@ -427,7 +435,7 @@ struct CMUXMobileRootView: View {
         Task {
             let result = await store.connectPairingURLResult(rawURL)
             if result == .needsUserApproval {
-                isShowingAddDeviceSheet = true
+                addDevicePresentation.present(origin: .attachTicketApproval)
             }
             clearAttachTicketAuthentication(after: result)
         }
@@ -461,7 +469,7 @@ struct CMUXMobileRootView: View {
     }
 
     private func dismissAddDeviceSheet() {
-        isShowingAddDeviceSheet = false
+        addDevicePresentation.dismiss()
         if store.pairingVersionWarning != nil {
             cancelPairing()
         } else {

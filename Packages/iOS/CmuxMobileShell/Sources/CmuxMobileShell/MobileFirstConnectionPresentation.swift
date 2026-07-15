@@ -31,6 +31,37 @@ public struct MobileFirstConnectionRegistryRefreshPolicy: Equatable, Sendable {
     }
 }
 
+/// Owns why the shared Add Computer sheet is visible so discovery can dismiss
+/// only the sheet it presented automatically.
+public enum MobileAddDevicePresentationOrigin: Equatable, Sendable {
+    case userInitiated
+    case automaticFirstConnection
+    case attachTicketApproval
+}
+
+public struct MobileAddDevicePresentationState: Equatable, Sendable {
+    public private(set) var origin: MobileAddDevicePresentationOrigin?
+
+    public init(origin: MobileAddDevicePresentationOrigin? = nil) {
+        self.origin = origin
+    }
+
+    public var isPresented: Bool { origin != nil }
+
+    public mutating func present(origin: MobileAddDevicePresentationOrigin) {
+        self.origin = origin
+    }
+
+    public mutating func dismiss() {
+        origin = nil
+    }
+
+    public mutating func dismissAutomaticForAvailableSession() {
+        guard origin == .automaticFirstConnection else { return }
+        origin = nil
+    }
+}
+
 /// Mutually exclusive connection activity on the first-connection screen.
 public struct MobileFirstConnectionAttemptState: Equatable, Sendable {
     public let connectingSavedComputerID: String?
