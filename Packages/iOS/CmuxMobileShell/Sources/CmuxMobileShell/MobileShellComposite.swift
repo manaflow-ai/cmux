@@ -1986,8 +1986,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         instance: RegistryAppInstance
     ) async {
         let supportedKinds = runtime?.supportedRouteKinds ?? []
-        let candidateRoutes = Self.reconnectHostPortRoutes(
-            instance.routes,
+        let candidateRoutes = instance.routes.reconnectHostPortRoutes(
             supportedKinds: supportedKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes
         ).filter { MobileShellRouteAuthPolicy.normalizedManualHost($0.host) != nil }
@@ -2203,8 +2202,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             macSwitchRestoreBaseline = nil
         }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
-        let candidateRoutes = Self.reconnectHostPortRoutes(
-            refreshedTarget.routes,
+        let candidateRoutes = refreshedTarget.routes.reconnectHostPortRoutes(
             supportedKinds: supportedKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes
         ).filter { MobileShellRouteAuthPolicy.normalizedManualHost($0.host) != nil }
@@ -2305,8 +2303,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             && foregroundMacDeviceID.map { previousIDs.contains($0) } == true
         guard !previousStillForeground else { return true }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
-        let candidateRoutes = Self.reconnectHostPortRoutes(
-            previousActive.routes,
+        let candidateRoutes = previousActive.routes.reconnectHostPortRoutes(
             supportedKinds: supportedKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes
         ).filter { MobileShellRouteAuthPolicy.normalizedManualHost($0.host) != nil }
@@ -2377,18 +2374,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         #else
         true
         #endif
-    }
-
-    /// Whether `host` is a numeric IP literal (IPv4 or IPv6) rather than a name
-    /// that needs DNS resolution. Used to prefer directly-dialable IP routes over
-    /// MagicDNS hostnames, which fail to resolve on some clients.
-    static func isIPLiteralHost(_ host: String) -> Bool {
-        if host.contains(":") { return true } // IPv6 literal
-        let octets = host.split(separator: ".", omittingEmptySubsequences: false)
-        return octets.count == 4 && octets.allSatisfy { part in
-            guard let value = Int(part), (0...255).contains(value), !part.isEmpty else { return false }
-            return String(value) == part // reject leading zeros / non-canonical
-        }
     }
 
     /// Enqueues one paired-Mac store mutation on the serialized write chain.
@@ -2906,8 +2891,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func makeSecondaryClient(for mac: MobilePairedMac) async -> SecondaryClientHandle? {
         guard let runtime else { return nil }
         let supportedKinds = runtime.supportedRouteKinds
-        guard let (host, port) = Self.firstReconnectHostPortRoute(
-            mac.routes,
+        guard let (host, port) = mac.routes.firstReconnectHostPortRoute(
             supportedKinds: supportedKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes
         ) else {

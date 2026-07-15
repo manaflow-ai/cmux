@@ -8,15 +8,13 @@ import Testing
 @MainActor
 @Suite struct IrohStoredReconnectRegressionTests {
     @Test func storedReconnectPinsIrohAndExcludesRawFallbacks() throws {
-        let routes = MobileShellComposite.storedReconnectRoutes(
-            [try loopback(), try tailscale(), try iroh()],
+        let routes = [try loopback(), try tailscale(), try iroh()].storedReconnectRoutes(
             supportedKinds: [.iroh, .tailscale, .debugLoopback],
             preferNonLoopback: true
         )
 
         #expect(routes.map(\.kind) == [.iroh])
-        #expect(MobileShellComposite.reconnectHostPortRoutes(
-            [try tailscale(), try iroh()],
+        #expect([try tailscale(), try iroh()].reconnectHostPortRoutes(
             supportedKinds: [.iroh, .tailscale],
             preferNonLoopback: true
         ).isEmpty)
@@ -170,77 +168,5 @@ import Testing
         )
         await store.loadPairedMacs()
         return store
-    }
-}
-
-private enum IrohReconnectRouteError: Error {
-    case routeFailed
-}
-
-private final class KindRecordingTransportFactory: CmxByteTransportFactory, @unchecked Sendable {
-    private let router: LivenessHostRouter
-    private let box: TransportBox
-    private let failingKinds: Set<CmxAttachTransportKind>
-    private let lock = NSLock()
-    private var attempts: [CmxAttachTransportKind] = []
-
-    init(
-        router: LivenessHostRouter,
-        box: TransportBox,
-        failingKinds: Set<CmxAttachTransportKind> = []
-    ) {
-        self.router = router
-        self.box = box
-        self.failingKinds = failingKinds
-    }
-
-    func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
-        lock.withLock { attempts.append(route.kind) }
-        if failingKinds.contains(route.kind) {
-            throw IrohReconnectRouteError.routeFailed
-        }
-        let transport = LivenessTransport(router: router)
-        box.set(transport)
-        return transport
-    }
-
-    func attemptedKinds() -> [CmxAttachTransportKind] {
-        lock.withLock { attempts }
-    }
-}
-
-private final class CloseRecordingTransportFactory: CmxByteTransportFactory, @unchecked Sendable {
-    private let lock = NSLock()
-    private var closes = 0
-
-    func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
-        CloseRecordingTransport(factory: self)
-    }
-
-    func recordClose() {
-        lock.withLock { closes += 1 }
-    }
-
-    func closeCount() -> Int {
-        lock.withLock { closes }
-    }
-}
-
-private actor CloseRecordingTransport: CmxByteTransport {
-    private let factory: CloseRecordingTransportFactory
-
-    init(factory: CloseRecordingTransportFactory) {
-        self.factory = factory
-    }
-
-    func connect() async throws {}
-    func receive() async throws -> Data? { nil }
-
-    func send(_ data: Data) async throws {
-        throw IrohReconnectRouteError.routeFailed
-    }
-
-    func close() async {
-        factory.recordClose()
     }
 }

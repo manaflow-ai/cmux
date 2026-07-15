@@ -149,8 +149,7 @@ struct StoredMacReconnectOperation {
     private func routes(
         for mac: MobilePairedMac
     ) -> [RouteCandidate] {
-        MobileShellComposite.storedReconnectRoutes(
-            mac.routes,
+        mac.routes.storedReconnectRoutes(
             supportedKinds: supportedKinds,
             preferNonLoopback: prefersNonLoopbackRoutes
         ).map { route in
@@ -421,8 +420,7 @@ struct StoredMacReconnectOperation {
               ) else {
             return nil
         }
-        let storedRoutes = MobileShellComposite.storedReconnectRoutes(
-            updatedRoutes,
+        let storedRoutes = updatedRoutes.storedReconnectRoutes(
             supportedKinds: supportedKinds,
             preferNonLoopback: prefersNonLoopbackRoutes
         )
@@ -433,8 +431,7 @@ struct StoredMacReconnectOperation {
             return sameCandidates(refreshed, triedRoutes) ? nil : refreshed
         }
         guard !requiresIroh else { return nil }
-        let refreshed = MobileShellComposite.reconnectHostPortRoutes(
-            updatedRoutes,
+        let refreshed = updatedRoutes.reconnectHostPortRoutes(
             supportedKinds: supportedKinds,
             preferNonLoopback: prefersNonLoopbackRoutes
         ).compactMap { candidate -> RouteCandidate? in

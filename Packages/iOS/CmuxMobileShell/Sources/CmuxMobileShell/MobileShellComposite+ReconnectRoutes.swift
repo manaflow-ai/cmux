@@ -15,54 +15,6 @@ extension MobileShellComposite {
         supersedeAutomaticReconnectOwnership(clearPairingState: true)
     }
 
-    /// Supported routes for reconnecting an already-paired Mac.
-    ///
-    /// Unlike the legacy host/port helper, this preserves Iroh peer routes. Once
-    /// a supported Iroh route exists, it also pins the pairing to Iroh and drops
-    /// every raw host/port fallback. Otherwise an admission or revocation failure
-    /// could silently downgrade to a Stack-bearer Tailscale request and bypass the
-    /// Iroh device grant. Legacy Macs that never advertised Iroh keep their raw
-    /// private-network routes.
-    static func storedReconnectRoutes(
-        _ routes: [CmxAttachRoute],
-        supportedKinds: [CmxAttachTransportKind],
-        preferNonLoopback: Bool = false
-    ) -> [CmxAttachRoute] {
-        let supportedKinds = Set(supportedKinds)
-        var ordered = routes
-            .filter { supportedKinds.isEmpty || supportedKinds.contains($0.kind) }
-            .sorted(by: Self.routeSortsBefore)
-        if preferNonLoopback, ordered.contains(where: { $0.kind != .debugLoopback }) {
-            ordered.removeAll { $0.kind == .debugLoopback }
-        }
-        let irohRoutes = ordered.filter { $0.kind == .iroh }
-        if !irohRoutes.isEmpty {
-            return irohRoutes
-        }
-        return ordered
-    }
-
-    /// The first reachable host/port route to a Mac, in priority order.
-    ///
-    /// When `preferNonLoopback` is set (physical devices), a real route
-    /// (`.tailscale` etc.) is always chosen over a `.debugLoopback` route even
-    /// if the loopback route has a lower (more-preferred) priority, because a
-    /// loopback route can never reach a remote Mac from a physical phone. A
-    /// loopback route is used only when it is the sole supported route — the
-    /// on-device XCUITest mock host, which serves a real listener on `127.0.0.1`
-    /// inside the test runner.
-    static func firstReconnectHostPortRoute(
-        _ routes: [CmxAttachRoute],
-        supportedKinds: [CmxAttachTransportKind],
-        preferNonLoopback: Bool = false
-    ) -> (String, Int)? {
-        reconnectHostPortRoutes(
-            routes,
-            supportedKinds: supportedKinds,
-            preferNonLoopback: preferNonLoopback
-        ).first.map { ($0.host, $0.port) }
-    }
-
     /// Resume foreground-only refresh loops after the app becomes active.
     public func resumeForegroundRefresh() {
         startObservingNetworkPathChanges()
@@ -137,8 +89,7 @@ extension MobileShellComposite {
             return nil
         }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
-        let refreshed = Self.reconnectHostPortRoutes(
-            updatedRoutes,
+        let refreshed = updatedRoutes.reconnectHostPortRoutes(
             supportedKinds: supportedKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes
         )
@@ -155,31 +106,50 @@ extension MobileShellComposite {
         hasKnownPairedMac = value
     }
 
+}
+
+extension Array where Element == CmxAttachRoute {
+    /// The first reachable host/port route to a Mac, in priority order.
+    ///
+    /// When `preferNonLoopback` is set (physical devices), a real route
+    /// (`.tailscale` etc.) is always chosen over a `.debugLoopback` route even
+    /// if the loopback route has a lower (more-preferred) priority, because a
+    /// loopback route can never reach a remote Mac from a physical phone. A
+    /// loopback route is used only when it is the sole supported route (the
+    /// on-device XCUITest mock host, which serves a real listener on `127.0.0.1`
+    /// inside the test runner).
+    func firstReconnectHostPortRoute(
+        supportedKinds: [CmxAttachTransportKind],
+        preferNonLoopback: Bool = false
+    ) -> (String, Int)? {
+        reconnectHostPortRoutes(
+            supportedKinds: supportedKinds,
+            preferNonLoopback: preferNonLoopback
+        ).first.map { ($0.host, $0.port) }
+    }
+
     /// Ordered host/port reconnect candidates for a Mac, preserving the single-route
     /// preference policy but keeping fallbacks available for the same Mac.
     ///
     /// With `preferNonLoopback` (physical devices) the list NEVER contains a
-    /// `.debugLoopback` route while any real candidate exists — not even as a
+    /// `.debugLoopback` route while any real candidate exists, not even as a
     /// trailing fallback. Callers iterate every candidate, so a loopback tail
     /// entry would get dialed once the real routes fail; on a phone that
     /// reaches whatever local process is listening on 127.0.0.1, and the
     /// manual attach-ticket path treats loopback as trusted. Loopback stays
     /// reachable only as the sole supported route (the on-device XCUITest
     /// mock host).
-    static func reconnectHostPortRoutes(
-        _ routes: [CmxAttachRoute],
+    func reconnectHostPortRoutes(
         supportedKinds: [CmxAttachTransportKind],
         preferNonLoopback: Bool = false
     ) -> [(host: String, port: Int, routeID: String)] {
         let supportedKinds = Set(supportedKinds)
-        let hasSupportedIrohRoute = routes.contains { route in
+        let hasSupportedIrohRoute = contains { route in
             route.kind == .iroh
                 && (supportedKinds.isEmpty || supportedKinds.contains(.iroh))
         }
-        guard !hasSupportedIrohRoute else {
-            return []
-        }
-        let ordered = routes.sorted(by: Self.routeSortsBefore)
+        guard !hasSupportedIrohRoute else { return [] }
+        let ordered = sortedByReconnectPriority()
         var seenEndpoints = Set<String>()
 
         func appendCandidates(
@@ -187,13 +157,9 @@ extension MobileShellComposite {
             to candidates: inout [(host: String, port: Int, routeID: String)]
         ) {
             for route in ordered {
-                if !supportedKinds.isEmpty, !supportedKinds.contains(route.kind) {
-                    continue
-                }
+                if !supportedKinds.isEmpty, !supportedKinds.contains(route.kind) { continue }
                 guard predicate(route),
-                      case let .hostPort(host, port) = route.endpoint else {
-                    continue
-                }
+                      case let .hostPort(host, port) = route.endpoint else { continue }
                 let endpointKey = "\(host)\u{1F}\(port)"
                 guard seenEndpoints.insert(endpointKey).inserted else { continue }
                 candidates.append((host: host, port: port, routeID: route.id))
@@ -205,11 +171,9 @@ extension MobileShellComposite {
             appendCandidates(where: { route in
                 guard route.kind != .debugLoopback,
                       case let .hostPort(host, _) = route.endpoint else { return false }
-                return Self.isIPLiteralHost(host)
+                return host.cmuxIsIPLiteralHost
             }, to: &candidates)
             appendCandidates(where: { $0.kind != .debugLoopback }, to: &candidates)
-            // Any real candidate found: stop here so loopback is unreachable
-            // even as a dial-everything fallback (see the doc comment).
             guard candidates.isEmpty else { return candidates }
         }
         appendCandidates(where: { _ in true }, to: &candidates)
@@ -221,27 +185,13 @@ extension MobileShellComposite {
     /// Constrained tickets prove only the dialed endpoint, not that other stored
     /// endpoints disappeared. Prefer the freshly connected route when an id or
     /// endpoint collides, then keep the remaining stored fallbacks.
-    static func mergedReconnectRoutes(
-        ticketRoutes: [CmxAttachRoute],
-        storedRoutes: [CmxAttachRoute]
-    ) -> [CmxAttachRoute] {
+    func mergedWithStoredReconnectRoutes(_ storedRoutes: [CmxAttachRoute]) -> [CmxAttachRoute] {
         var merged: [CmxAttachRoute] = []
         var seenIDs = Set<String>()
         var seenEndpoints = Set<String>()
 
-        func endpointKey(_ route: CmxAttachRoute) -> String {
-            switch route.endpoint {
-            case let .hostPort(host, port):
-                return "host:\(host)\u{1F}\(port)"
-            case let .peer(id, _, directAddrs, relayURL):
-                return "peer:\(id)\u{1F}\(directAddrs.joined(separator: ","))\u{1F}\(relayURL ?? "")"
-            case let .url(url):
-                return "url:\(url)"
-            }
-        }
-
         func append(_ route: CmxAttachRoute) {
-            let key = endpointKey(route)
+            let key = route.reconnectEndpointKey
             guard seenIDs.insert(route.id).inserted,
                   seenEndpoints.insert(key).inserted else {
                 return
@@ -249,8 +199,65 @@ extension MobileShellComposite {
             merged.append(route)
         }
 
-        ticketRoutes.forEach(append)
+        forEach(append)
         storedRoutes.forEach(append)
-        return merged.sorted(by: Self.routeSortsBefore)
+        return merged.sortedByReconnectPriority()
+    }
+
+    /// Supported routes for reconnecting an already-paired Mac.
+    ///
+    /// Unlike the legacy host/port helper, this preserves Iroh peer routes. Once
+    /// a supported Iroh route exists, it also pins the pairing to Iroh and drops
+    /// every raw host/port fallback. Otherwise an admission or revocation failure
+    /// could silently downgrade to a Stack-bearer Tailscale request and bypass the
+    /// Iroh device grant. Legacy Macs that never advertised Iroh keep their raw
+    /// private-network routes.
+    func storedReconnectRoutes(
+        supportedKinds: [CmxAttachTransportKind],
+        preferNonLoopback: Bool = false
+    ) -> [CmxAttachRoute] {
+        let supportedKinds = Set(supportedKinds)
+        var ordered = filter { supportedKinds.isEmpty || supportedKinds.contains($0.kind) }
+            .sortedByReconnectPriority()
+        if preferNonLoopback, ordered.contains(where: { $0.kind != .debugLoopback }) {
+            ordered.removeAll { $0.kind == .debugLoopback }
+        }
+        let irohRoutes = ordered.filter { $0.kind == .iroh }
+        return irohRoutes.isEmpty ? ordered : irohRoutes
+    }
+
+    private func sortedByReconnectPriority() -> [CmxAttachRoute] {
+        sorted {
+            if $0.priority == $1.priority {
+                return $0.id < $1.id
+            }
+            return $0.priority < $1.priority
+        }
+    }
+}
+
+private extension CmxAttachRoute {
+    var reconnectEndpointKey: String {
+        switch endpoint {
+        case let .hostPort(host, port):
+            return "host:\(host)\u{1F}\(port)"
+        case let .peer(id, _, directAddrs, relayURL):
+            return "peer:\(id)\u{1F}\(directAddrs.joined(separator: ","))\u{1F}\(relayURL ?? "")"
+        case let .url(url):
+            return "url:\(url)"
+        }
+    }
+}
+
+private extension String {
+    var cmuxIsIPLiteralHost: Bool {
+        if contains(":") { return true }
+        let octets = split(separator: ".", omittingEmptySubsequences: false)
+        return octets.count == 4 && octets.allSatisfy { part in
+            guard let value = Int(part), (0...255).contains(value), !part.isEmpty else {
+                return false
+            }
+            return String(value) == part
+        }
     }
 }

@@ -463,8 +463,7 @@ import Testing
             port: CmxMobileDefaults.defaultHostPort
         )
 
-        let route = MobileShellComposite.firstReconnectHostPortRoute(
-            [loopback, tailscale],
+        let route = [loopback, tailscale].firstReconnectHostPortRoute(
             supportedKinds: [.tailscale]
         )
 

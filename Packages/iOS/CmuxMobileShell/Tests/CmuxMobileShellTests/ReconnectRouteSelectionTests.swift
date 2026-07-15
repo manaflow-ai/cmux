@@ -31,8 +31,7 @@ import Testing
     }
 
     @Test func physicalDevicePrefersRealRouteOverLowerPriorityLoopback() throws {
-        let pick = MobileShellComposite.firstReconnectHostPortRoute(
-            [try loopback(), try tailscale()],
+        let pick = [try loopback(), try tailscale()].firstReconnectHostPortRoute(
             supportedKinds: [.debugLoopback, .tailscale],
             preferNonLoopback: true
         )
@@ -41,8 +40,7 @@ import Testing
 
     @Test func physicalDeviceFallsBackToLoopbackWhenItIsTheOnlyRoute() throws {
         // The on-device XCUITest mock host serves a real listener on 127.0.0.1.
-        let pick = MobileShellComposite.firstReconnectHostPortRoute(
-            [try loopback()],
+        let pick = [try loopback()].firstReconnectHostPortRoute(
             supportedKinds: [.debugLoopback, .tailscale],
             preferNonLoopback: true
         )
@@ -51,8 +49,7 @@ import Testing
 
     @Test func simulatorKeepsLoopbackPriorityOrder() throws {
         // On the simulator 127.0.0.1 IS the host Mac, so priority order stands.
-        let pick = MobileShellComposite.firstReconnectHostPortRoute(
-            [try loopback(), try tailscale()],
+        let pick = [try loopback(), try tailscale()].firstReconnectHostPortRoute(
             supportedKinds: [.debugLoopback, .tailscale],
             preferNonLoopback: false
         )
@@ -60,8 +57,7 @@ import Testing
     }
 
     @Test func reconnectCandidatesKeepFallbackRoutesAfterPreferredRoute() throws {
-        let candidates = MobileShellComposite.reconnectHostPortRoutes(
-            [try loopback(), try tailscale()],
+        let candidates = [try loopback(), try tailscale()].reconnectHostPortRoutes(
             supportedKinds: [.debugLoopback, .tailscale],
             preferNonLoopback: false
         )
@@ -75,8 +71,7 @@ import Testing
         // all: dialing 127.0.0.1 on a physical phone reaches whatever local
         // process is listening, and the manual attach path treats loopback as
         // trusted.
-        let candidates = MobileShellComposite.reconnectHostPortRoutes(
-            [try loopback(), try tailscale()],
+        let candidates = [try loopback(), try tailscale()].reconnectHostPortRoutes(
             supportedKinds: [.debugLoopback, .tailscale],
             preferNonLoopback: true
         )
@@ -87,8 +82,7 @@ import Testing
     @Test func physicalDeviceCandidatesUseLoopbackOnlyAsSoleSupportedRoute() throws {
         // The on-device XCUITest mock host serves a real listener on 127.0.0.1
         // and advertises no other route.
-        let candidates = MobileShellComposite.reconnectHostPortRoutes(
-            [try loopback()],
+        let candidates = [try loopback()].reconnectHostPortRoutes(
             supportedKinds: [.debugLoopback, .tailscale],
             preferNonLoopback: true
         )
@@ -104,8 +98,7 @@ import Testing
             priority: 0
         )
 
-        let candidates = MobileShellComposite.reconnectHostPortRoutes(
-            [duplicate, try tailscale()],
+        let candidates = [duplicate, try tailscale()].reconnectHostPortRoutes(
             supportedKinds: [.tailscale],
             preferNonLoopback: true
         )
@@ -135,8 +128,7 @@ import Testing
             endpoint: .hostPort(host: "100.82.214.112", port: 50922),
             priority: 10
         )
-        let pick = MobileShellComposite.firstReconnectHostPortRoute(
-            [try loopback(50922), try magicDNS(50922), ip],
+        let pick = [try loopback(50922), try magicDNS(50922), ip].firstReconnectHostPortRoute(
             supportedKinds: [.debugLoopback, .tailscale],
             preferNonLoopback: true
         )
@@ -146,32 +138,59 @@ import Testing
     @Test func magicDNSHostnameStillUsedWhenNoIPRouteExists() throws {
         // If the only non-loopback route is a hostname, still prefer it over
         // loopback on device (better than dialing the phone's own 127.0.0.1).
-        let pick = MobileShellComposite.firstReconnectHostPortRoute(
-            [try loopback(50922), try magicDNS(50922)],
+        let pick = [try loopback(50922), try magicDNS(50922)].firstReconnectHostPortRoute(
             supportedKinds: [.debugLoopback, .tailscale],
             preferNonLoopback: true
         )
         #expect(pick?.0 == "lawrences-macbook-pro-2.tail137216.ts.net")
     }
 
-    @Test func ipLiteralHostClassification() {
-        #expect(MobileShellComposite.isIPLiteralHost("100.82.214.112"))
-        #expect(MobileShellComposite.isIPLiteralHost("127.0.0.1"))
-        #expect(MobileShellComposite.isIPLiteralHost("fd7a:115c:a1e0::4b36:d670"))
-        #expect(!MobileShellComposite.isIPLiteralHost("lawrences-macbook-pro-2.tail137216.ts.net"))
-        #expect(!MobileShellComposite.isIPLiteralHost("example.com"))
-        #expect(!MobileShellComposite.isIPLiteralHost("100.82.214")) // too few octets
-        #expect(!MobileShellComposite.isIPLiteralHost("256.1.1.1")) // out of range
+    @Test func physicalDeviceIpLiteralPassPrioritizesValidLiteralsOverMalformedHostnames() throws {
+        let malformedShort = try CmxAttachRoute(
+            id: "short",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.82.214", port: 50922),
+            priority: 1
+        )
+        let malformedRange = try CmxAttachRoute(
+            id: "range",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "256.1.1.1", port: 50922),
+            priority: 2
+        )
+        let ipv4 = try CmxAttachRoute(
+            id: "ipv4",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.82.214.112", port: 50922),
+            priority: 3
+        )
+        let ipv6 = try CmxAttachRoute(
+            id: "ipv6",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "fd7a:115c:a1e0::4b36:d670", port: 50922),
+            priority: 4
+        )
+
+        let candidates = [malformedShort, malformedRange, ipv4, ipv6].reconnectHostPortRoutes(
+            supportedKinds: [.tailscale],
+            preferNonLoopback: true
+        )
+
+        #expect(Array(candidates.map(\.host).prefix(2)) == [
+            "100.82.214.112",
+            "fd7a:115c:a1e0::4b36:d670",
+        ])
+        #expect(Array(candidates.map(\.host).suffix(2)) == [
+            "100.82.214",
+            "256.1.1.1",
+        ])
     }
 
     @Test func constrainedReconnectTicketMergesWithStoredRoutes() throws {
         let stale = try loopback(50906)
         let connected = try tailscale(50922)
 
-        let merged = MobileShellComposite.mergedReconnectRoutes(
-            ticketRoutes: [connected],
-            storedRoutes: [stale, connected]
-        )
+        let merged = [connected].mergedWithStoredReconnectRoutes([stale, connected])
 
         #expect(merged.map { $0.id }.contains(stale.id))
         #expect(merged.map { $0.id }.contains(connected.id))

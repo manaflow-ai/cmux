@@ -66,10 +66,7 @@ struct DeferredStoredMacReconnectPersistence {
         let storedRoutes = displayFallbackMac?.routes ?? []
         let routes = authorityIsUnchanged
             && request.ticket.routes.count == 1 && !storedRoutes.isEmpty
-            ? MobileShellComposite.mergedReconnectRoutes(
-                ticketRoutes: request.ticket.routes,
-                storedRoutes: storedRoutes
-            )
+            ? request.ticket.routes.mergedWithStoredReconnectRoutes(storedRoutes)
             : request.ticket.routes
         let persistedAt = Date()
 

@@ -103,9 +103,7 @@ extension MobileShellComposite {
             if let scope, await !self.isScopeCurrent(scope) { return }
             let routes = authorityIsUnchanged
                 && ticket.routes.count == 1 && !storedRoutes.isEmpty
-                ? Self.mergedReconnectRoutes(
-                    ticketRoutes: ticket.routes, storedRoutes: storedRoutes
-                )
+                ? ticket.routes.mergedWithStoredReconnectRoutes(storedRoutes)
                 : ticket.routes
             let persistedAt = Date()
             do {

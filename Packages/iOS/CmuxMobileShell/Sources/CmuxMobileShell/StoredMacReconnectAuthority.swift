@@ -82,10 +82,7 @@ struct StoredMacReconnectAuthority {
         mac.routes = authorityUnchanged
             && ticket.routes.count == 1
             && !mac.routes.isEmpty
-            ? MobileShellComposite.mergedReconnectRoutes(
-                ticketRoutes: ticket.routes,
-                storedRoutes: mac.routes
-            )
+            ? ticket.routes.mergedWithStoredReconnectRoutes(mac.routes)
             : ticket.routes
         mac.instanceTag = resolvedInstanceTag
         mac.isActive = true

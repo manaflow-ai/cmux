@@ -106,8 +106,7 @@ private extension MobilePairedMac {
               !displayName.isEmpty else {
             return nil
         }
-        guard let (host, port) = MobileShellComposite.firstReconnectHostPortRoute(
-            routes,
+        guard let (host, port) = routes.firstReconnectHostPortRoute(
             supportedKinds: supportedKinds,
             preferNonLoopback: preferNonLoopback
         ), let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) else {
