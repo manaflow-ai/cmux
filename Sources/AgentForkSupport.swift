@@ -308,7 +308,12 @@ enum AgentForkSupport {
                 return false
             }
             let fallbackExecutable = snapshot.registration?.defaultExecutable ?? snapshot.kind.rawValue
-            let agentID = snapshot.registration?.id ?? snapshot.kind.rawValue
+            let capturedLauncher = snapshot.launchCommand?.launcher?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            let agentID = capturedLauncher == "omp"
+                ? "omp"
+                : (snapshot.registration?.id ?? snapshot.kind.rawValue)
             let probe = AgentResumeCommandBuilder.piFamilyVersionProbe(
                 launchCommand: snapshot.launchCommand,
                 fallbackExecutable: fallbackExecutable

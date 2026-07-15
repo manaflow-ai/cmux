@@ -510,6 +510,16 @@ struct WorkspaceForkConversationContextMenuTests {
 
         #expect(await AgentForkSupport.supportsFork(snapshot: snapshot))
         #expect(!(await AgentForkSupport.supportsFork(snapshot: snapshot, isRemoteContext: true)))
+
+        let oldOmp = root.appendingPathComponent("omp", isDirectory: false)
+        try "#!/bin/sh\nprintf '%s\\n' 'omp/13.14.2'\n"
+            .write(to: oldOmp, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: oldOmp.path)
+        var ompWrappedSnapshot = snapshot
+        ompWrappedSnapshot.launchCommand?.launcher = "omp"
+        ompWrappedSnapshot.launchCommand?.executablePath = oldOmp.path
+        ompWrappedSnapshot.launchCommand?.arguments = [oldOmp.path, "--session", "pi-session"]
+        #expect(!(await AgentForkSupport.supportsFork(snapshot: ompWrappedSnapshot)))
     }
 
     @Test
