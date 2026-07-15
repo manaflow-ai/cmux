@@ -126,14 +126,13 @@ struct SignalSpecimenScreen: View {
                 VStack(alignment: .leading, spacing: 12) {
                     SignalSectionLabel(text: "Core Components", color: theme.secondaryText)
 
-                    SignalWorkspaceRow(
-                        workspace: DesignGalleryFixtures.workspaces[1],
-                        theme: theme
-                    )
-                    .overlay(alignment: .bottom) {
-                        Rectangle()
-                            .fill(theme.hairline)
-                            .frame(height: 1)
+                    if let workspace = DesignGalleryFixtures.workspaces.first(where: { $0.state == .running }) {
+                        SignalWorkspaceRow(workspace: workspace, theme: theme)
+                            .overlay(alignment: .bottom) {
+                                Rectangle()
+                                    .fill(theme.hairline)
+                                    .frame(height: 1)
+                            }
                     }
 
                     SignalActionButtons(theme: theme)

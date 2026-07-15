@@ -31,7 +31,7 @@ struct AtelierGallery: View {
         .transition(.opacity)
         .animation(.easeInOut(duration: 0.25), value: page)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(theme.background)
+        .background(theme.background.ignoresSafeArea())
         .tint(theme.accent)
     }
 }

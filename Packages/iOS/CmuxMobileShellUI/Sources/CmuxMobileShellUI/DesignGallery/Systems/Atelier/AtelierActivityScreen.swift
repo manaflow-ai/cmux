@@ -37,7 +37,7 @@ struct AtelierActivityScreen: View {
             .padding(.bottom, 28)
         }
         .scrollIndicators(.hidden)
-        .background(theme.background)
+        .background(theme.background.ignoresSafeArea())
     }
 }
 #endif

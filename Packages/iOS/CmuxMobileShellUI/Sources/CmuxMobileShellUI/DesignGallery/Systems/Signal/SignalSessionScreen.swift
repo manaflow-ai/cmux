@@ -42,7 +42,7 @@ struct SignalSessionScreen: View {
                     HStack {
                         SignalSectionLabel(text: "Terminal", color: theme.secondaryText)
                         Spacer()
-                        Text("14 LINES")
+                        Text("\(DesignGalleryFixtures.terminalLines.count) LINES")
                             .font(.system(.footnote, design: .monospaced, weight: .regular))
                             .foregroundStyle(theme.secondaryText)
                     }

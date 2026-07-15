@@ -29,8 +29,7 @@ struct MeridianStatusSymbol: View {
     }
 
     private var isRunning: Bool {
-        if case .running = state { return true }
-        return false
+        state == .running
     }
 }
 #endif

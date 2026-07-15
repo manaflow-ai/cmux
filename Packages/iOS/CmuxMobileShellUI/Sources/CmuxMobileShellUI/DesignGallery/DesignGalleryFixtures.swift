@@ -290,8 +290,8 @@ struct DesignGalleryFixtures {
     ]
 
     static let settings = GallerySettingsFixture(
-        accountEmail: "aziz@manaflow.ai",
-        pairedMacName: "Aziz's MacBook Pro",
+        accountEmail: "dev@example.com",
+        pairedMacName: "Dev MacBook Pro",
         pairedMacStatus: "Connected · Tailscale",
         appVersion: "1.4.2 (890)",
         notificationsEnabled: true,

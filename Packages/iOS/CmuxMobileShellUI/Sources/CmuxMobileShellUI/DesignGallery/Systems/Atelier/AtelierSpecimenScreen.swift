@@ -99,7 +99,7 @@ struct AtelierSpecimenScreen: View {
             .padding(.bottom, 32)
         }
         .scrollIndicators(.hidden)
-        .background(theme.background)
+        .background(theme.background.ignoresSafeArea())
     }
 
     @ViewBuilder

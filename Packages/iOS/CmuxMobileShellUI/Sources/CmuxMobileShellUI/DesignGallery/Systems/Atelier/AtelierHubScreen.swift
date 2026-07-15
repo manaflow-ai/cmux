@@ -29,7 +29,7 @@ struct AtelierHubScreen: View {
             .padding(.bottom, 24)
         }
         .scrollIndicators(.hidden)
-        .background(theme.background)
+        .background(theme.background.ignoresSafeArea())
     }
 }
 #endif

@@ -137,12 +137,14 @@ struct PhosphorSpecimenScreen: View {
                     Text("TOOL CARD")
                         .font(typography.monoCaption)
                         .foregroundStyle(theme.textTertiary)
-                    PhosphorToolCard(
-                        title: DesignGalleryFixtures.chatEntries[2].text,
-                        command: DesignGalleryFixtures.chatEntries[2].toolCommand ?? "",
-                        output: DesignGalleryFixtures.chatEntries[2].toolOutput ?? "",
-                        timeText: DesignGalleryFixtures.chatEntries[2].timeText
-                    )
+                    if let entry = DesignGalleryFixtures.chatEntries.first(where: { $0.role == .tool }) {
+                        PhosphorToolCard(
+                            title: entry.text,
+                            command: entry.toolCommand ?? "",
+                            output: entry.toolOutput ?? "",
+                            timeText: entry.timeText
+                        )
+                    }
                 }
                 .padding(12)
                 .frame(width: 320, alignment: .leading)

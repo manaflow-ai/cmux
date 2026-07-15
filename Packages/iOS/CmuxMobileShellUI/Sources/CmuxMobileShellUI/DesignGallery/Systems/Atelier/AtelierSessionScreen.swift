@@ -54,7 +54,7 @@ struct AtelierSessionScreen: View {
             .padding(.bottom, 16)
         }
         .scrollIndicators(.hidden)
-        .background(theme.background)
+        .background(theme.background.ignoresSafeArea())
         .safeAreaInset(edge: .bottom, spacing: 0) {
             AtelierComposer(placeholder: "Send a message…")
                 .background(theme.background.opacity(0.92))
