@@ -1639,6 +1639,12 @@ jobs:
           set -euo pipefail
           ./scripts/select-ci-xcode.sh
 
+      - name: Compute Xcode compilation cache key
+        id: compilation-cache-key
+        run: |
+          set -euo pipefail
+          echo "toolchain=$(xcodebuild -version | shasum -a 256 | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
       - name: Capture Ghostty revision
         id: ghostty-revision
         run: |
@@ -1675,6 +1681,14 @@ jobs:
           path: build-universal
           key: deriveddata-release-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}-${{ steps.ghostty-revision.outputs.sha }}
 
+      - name: Cache Xcode compilation results
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: build-universal/CompilationCache.noindex
+          key: xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-${{ github.event.pull_request.base.sha || github.sha }}
+          restore-keys: |
+            xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-
+
       - name: Cache Swift packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -1695,6 +1709,8 @@ jobs:
             -clonedSourcePackagesDirPath .spm-cache \
             ARCHS="arm64 x86_64" \
             ONLY_ACTIVE_ARCH=NO \
+            COMPILATION_CACHE_ENABLE_CACHING=YES \
+            COMPILER_INDEX_STORE_ENABLE=NO \
             CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
 
       - name: Download universal Ghostty CLI helper
