@@ -18,13 +18,59 @@ struct CmuxConfigExecutor {
         presentingWindow: NSWindow? = nil,
         onExecuted: (() -> Void)? = nil
     ) -> Bool {
-        if command.workspace != nil {
-            guard let resolvedCommand = resolvedWorkspaceCommandForLaunch(
-                command,
-                presentingWindow: presentingWindow
-            ), let resolvedWorkspace = resolvedCommand.workspace else {
+        if let workspace = command.workspace {
+            let processEnvironment = ProcessInfo.processInfo.environment
+            let parameterInputs = workspace.templateParameterInputs(
+                processEnvironment: processEnvironment
+            )
+            if !parameterInputs.isEmpty {
+                return WorkspaceTemplateParameterPrompt.requestParameters(
+                    for: workspace,
+                    displayName: displayTitle ?? command.name,
+                    presentingWindow: presentingWindow,
+                    processEnvironment: processEnvironment
+                ) { parameters in
+                    guard let parameters else { return }
+                    do {
+                        let resolvedCommand = try resolvedWorkspaceCommandForLaunch(
+                            command,
+                            templateParameters: parameters,
+                            processEnvironment: processEnvironment
+                        )
+                        _ = execute(
+                            command: resolvedCommand,
+                            tabManager: tabManager,
+                            baseCwd: baseCwd,
+                            configSourcePath: configSourcePath,
+                            globalConfigPath: globalConfigPath,
+                            displayTitle: displayTitle,
+                            actionID: actionID,
+                            icon: icon,
+                            iconSourcePath: iconSourcePath,
+                            presentingWindow: presentingWindow,
+                            onExecuted: onExecuted
+                        )
+                    } catch {
+                        WorkspaceTemplateErrorPresenter(
+                            presentingWindow: presentingWindow
+                        ).present(error)
+                    }
+                }
+            }
+
+            let resolvedCommand: CmuxCommandDefinition
+            do {
+                resolvedCommand = try resolvedWorkspaceCommandForLaunch(
+                    command,
+                    processEnvironment: processEnvironment
+                )
+            } catch {
+                WorkspaceTemplateErrorPresenter(
+                    presentingWindow: presentingWindow
+                ).present(error)
                 return false
             }
+            guard let resolvedWorkspace = resolvedCommand.workspace else { return false }
             return authorizeProjectActionIfNeeded(
                 descriptor: workspaceTrustDescriptor(
                     command: resolvedCommand,

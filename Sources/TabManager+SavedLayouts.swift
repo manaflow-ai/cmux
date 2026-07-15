@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 extension TabManager {
@@ -14,7 +15,7 @@ extension TabManager {
         if let cwdOverride {
             template.cwd = cwdOverride
         }
-        let definition = try template.resolvingTemplateParameters(
+        let definition = try template.resolvingTemplateParametersForLaunch(
             templateParameters,
             processEnvironment: processEnvironment
         )
@@ -39,5 +40,41 @@ extension TabManager {
             workspace.sendConfigSetupCommand(setup)
         }
         return workspace
+    }
+}
+
+/// Shared interactive launch path for saved layouts from menus and commands.
+@MainActor
+enum SavedLayoutLauncher {
+    @discardableResult
+    static func open(
+        _ layout: CmuxSavedLayout,
+        tabManager: TabManager,
+        cwdOverride: String?,
+        focus: Bool,
+        presentingWindow: NSWindow?
+    ) -> Bool {
+        let processEnvironment = ProcessInfo.processInfo.environment
+        return WorkspaceTemplateParameterPrompt.requestParameters(
+            for: layout.workspace,
+            displayName: layout.name,
+            presentingWindow: presentingWindow,
+            processEnvironment: processEnvironment
+        ) { parameters in
+            guard let parameters else { return }
+            do {
+                _ = try tabManager.openWorkspace(
+                    fromSavedLayout: layout,
+                    cwdOverride: cwdOverride,
+                    templateParameters: parameters,
+                    processEnvironment: processEnvironment,
+                    focus: focus
+                )
+            } catch {
+                WorkspaceTemplateErrorPresenter(
+                    presentingWindow: presentingWindow
+                ).present(error)
+            }
+        }
     }
 }

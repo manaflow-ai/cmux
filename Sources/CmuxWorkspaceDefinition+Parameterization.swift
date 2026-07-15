@@ -2,6 +2,38 @@ import CmuxFoundation
 import Foundation
 
 extension CmuxWorkspaceDefinition {
+    /// Whether this definition explicitly opted into `{{parameter}}` handling.
+    var isTemplateParameterizationEnabled: Bool {
+        params != nil
+    }
+
+    /// Editable launch inputs in deterministic first-occurrence order.
+    func templateParameterInputs(
+        processEnvironment: [String: String]
+    ) -> [CmuxTemplateParameterInput] {
+        guard isTemplateParameterizationEnabled else { return [] }
+        return templateResolver(
+            explicitParameters: [:],
+            processEnvironment: processEnvironment
+        ).parameterInputs(for: templateStrings)
+    }
+
+    /// Resolves an opted-in definition while preserving literal braces in
+    /// legacy definitions that have neither a `params` block nor invocation
+    /// parameters.
+    func resolvingTemplateParametersForLaunch(
+        _ explicitParameters: [String: String],
+        processEnvironment: [String: String]
+    ) throws -> CmuxWorkspaceDefinition {
+        guard isTemplateParameterizationEnabled || !explicitParameters.isEmpty else {
+            return self
+        }
+        return try resolvingTemplateParameters(
+            explicitParameters,
+            processEnvironment: processEnvironment
+        )
+    }
+
     /// Resolves every launch-time string leaf before workspace state is mutated.
     func resolvingTemplateParameters(
         _ explicitParameters: [String: String],

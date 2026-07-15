@@ -64,13 +64,13 @@ extension AppDelegate {
                 NSSound.beep()
                 return
             }
-            _ = try context.tabManager.openWorkspace(
-                fromSavedLayout: layout,
+            _ = SavedLayoutLauncher.open(
+                layout,
+                tabManager: context.tabManager,
                 cwdOverride: nil,
-                focus: true
+                focus: true,
+                presentingWindow: window
             )
-        } catch let error as CmuxTemplateResolutionError {
-            WorkspaceTemplateErrorPresenter(presentingWindow: window).present(error)
         } catch {
             NSSound.beep()
         }

@@ -58,13 +58,13 @@ extension ContentView {
                         NSSound.beep()
                         return
                     }
-                    _ = try tabManager.openWorkspace(
-                        fromSavedLayout: resolvedLayout,
+                    _ = SavedLayoutLauncher.open(
+                        resolvedLayout,
+                        tabManager: tabManager,
                         cwdOverride: nil,
-                        focus: true
+                        focus: true,
+                        presentingWindow: NSApp.keyWindow ?? NSApp.mainWindow
                     )
-                } catch let error as CmuxTemplateResolutionError {
-                    WorkspaceTemplateErrorPresenter(presentingWindow: nil).present(error)
                 } catch {
                     NSSound.beep()
                 }
