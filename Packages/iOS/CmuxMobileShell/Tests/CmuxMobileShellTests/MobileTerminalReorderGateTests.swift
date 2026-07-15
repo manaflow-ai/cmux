@@ -260,3 +260,96 @@ import Testing
     #expect(await router.recordedTerminalCloseCount() == 0)
     #expect(store.terminalReorderGate.canMutate(workspaceID: workspaceID))
 }
+
+@MainActor
+@Test func hierarchyGatePreservesOwnerAcrossOneToMultiRowRescope() throws {
+    let store = MobileShellComposite.preview()
+    let ownedWorkspace = hierarchyGateWorkspace(macID: "mac-a")
+    store.setWorkspaceStatesForTesting(
+        ["mac-a": MacWorkspaceState(macDeviceID: "mac-a", workspaces: [ownedWorkspace])],
+        foregroundMacDeviceID: "mac-a"
+    )
+    let rawWorkspaceID = try #require(store.workspaces.first?.id)
+    let reservation = try #require(store.terminalReorderGate.reserve(
+        workspaceID: rawWorkspaceID,
+        paneID: "pane-a"
+    ))
+    store.terminalReorderGate.requireRefresh(workspaceID: rawWorkspaceID)
+
+    let collidingWorkspace = hierarchyGateWorkspace(macID: "mac-b")
+    store.setWorkspaceStatesForTesting(
+        [
+            "mac-a": MacWorkspaceState(macDeviceID: "mac-a", workspaces: [ownedWorkspace]),
+            "mac-b": MacWorkspaceState(macDeviceID: "mac-b", workspaces: [collidingWorkspace]),
+        ],
+        foregroundMacDeviceID: "mac-a"
+    )
+    let scopedWorkspaceID = try #require(
+        store.workspaces.first(where: { $0.macDeviceID == "mac-a" })?.id
+    )
+
+    #expect(scopedWorkspaceID != rawWorkspaceID)
+    #expect(reservation.workspaceID == rawWorkspaceID, "reservation payload keeps its presented row")
+    #expect(store.terminalReorderGate.isActive(workspaceID: scopedWorkspaceID))
+    #expect(store.terminalReorderGate.requiresRefresh(workspaceID: scopedWorkspaceID))
+    #expect(store.terminalReorderGate.reserve(
+        workspaceID: scopedWorkspaceID,
+        paneID: "pane-a"
+    ) == nil)
+
+    store.terminalReorderGate.finish(reservation)
+    #expect(store.terminalReorderGate.requiresRefresh(workspaceID: scopedWorkspaceID))
+    store.terminalReorderGate.reconcileAfterAuthoritativeRefresh(workspaceIDs: [scopedWorkspaceID])
+    #expect(store.terminalReorderGate.canMutate(workspaceID: scopedWorkspaceID))
+}
+
+@MainActor
+@Test func hierarchyGatePreservesOwnerAcrossMultiToOneRowDescope() throws {
+    let store = MobileShellComposite.preview()
+    let ownedWorkspace = hierarchyGateWorkspace(macID: "mac-a")
+    let collidingWorkspace = hierarchyGateWorkspace(macID: "mac-b")
+    store.setWorkspaceStatesForTesting(
+        [
+            "mac-a": MacWorkspaceState(macDeviceID: "mac-a", workspaces: [ownedWorkspace]),
+            "mac-b": MacWorkspaceState(macDeviceID: "mac-b", workspaces: [collidingWorkspace]),
+        ],
+        foregroundMacDeviceID: "mac-a"
+    )
+    let scopedWorkspaceID = try #require(
+        store.workspaces.first(where: { $0.macDeviceID == "mac-a" })?.id
+    )
+    let reservation = try #require(store.terminalReorderGate.reserve(
+        workspaceID: scopedWorkspaceID,
+        paneID: "pane-a"
+    ))
+    store.terminalReorderGate.requireRefresh(workspaceID: scopedWorkspaceID)
+
+    store.setWorkspaceStatesForTesting(
+        ["mac-a": MacWorkspaceState(macDeviceID: "mac-a", workspaces: [ownedWorkspace])],
+        foregroundMacDeviceID: "mac-a"
+    )
+    let rawWorkspaceID = try #require(store.workspaces.first?.id)
+
+    #expect(rawWorkspaceID != scopedWorkspaceID)
+    #expect(reservation.workspaceID == scopedWorkspaceID, "reservation payload keeps its presented row")
+    #expect(store.terminalReorderGate.isActive(workspaceID: rawWorkspaceID))
+    #expect(store.terminalReorderGate.requiresRefresh(workspaceID: rawWorkspaceID))
+    #expect(store.terminalReorderGate.reserve(
+        workspaceID: rawWorkspaceID,
+        paneID: "pane-a"
+    ) == nil)
+
+    store.terminalReorderGate.finish(reservation)
+    #expect(store.terminalReorderGate.requiresRefresh(workspaceID: rawWorkspaceID))
+    store.terminalReorderGate.reconcileAfterAuthoritativeRefresh(workspaceIDs: [rawWorkspaceID])
+    #expect(store.terminalReorderGate.canMutate(workspaceID: rawWorkspaceID))
+}
+
+private func hierarchyGateWorkspace(macID: String) -> MobileWorkspacePreview {
+    MobileWorkspacePreview(
+        id: "workspace-stable",
+        macDeviceID: macID,
+        name: "Stable Workspace",
+        terminals: []
+    )
+}
