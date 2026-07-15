@@ -32,6 +32,47 @@ import Testing
         )
     }
 
+    @Test func restartReattachesToTheResolvedScrollViewWithoutAnotherResolverPass() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 320),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.acceptsMouseMovedEvents = false
+        let scrollView = NSScrollView(frame: window.contentView?.bounds ?? .zero)
+        window.contentView = scrollView
+        let monitor = SidebarPointerInteractionMonitor()
+        let workspaceId = UUID()
+        let rowId = SidebarWorkspaceRenderItemID.workspace(workspaceId)
+        monitor.updateFrame(
+            CGRect(x: 0, y: 0, width: 200, height: 30),
+            for: rowId,
+            workspaceId: workspaceId
+        )
+
+        monitor.attach(to: scrollView)
+        monitor.start(onMiddleClickWorkspace: { _ in })
+        #expect(window.acceptsMouseMovedEvents)
+
+        // SwiftUI can stop and restart the sidebar without remounting the
+        // resolver representable. The pointer owner must retain the last
+        // resolved host and restore tracking during start().
+        monitor.stop()
+        #expect(!window.acceptsMouseMovedEvents)
+        #expect(
+            monitor.rowId(at: CGPoint(x: 100, y: 15)) == rowId,
+            "A transient sidebar restart must not discard row geometry that SwiftUI has not remounted."
+        )
+        monitor.start(onMiddleClickWorkspace: { _ in })
+        #expect(
+            window.acceptsMouseMovedEvents,
+            "Restarting the visible sidebar must restore hover without waiting for another resolver callback."
+        )
+
+        monitor.stop()
+    }
+
     @Test func frameChangesReconcileStationaryPointerAcrossRemountReorderAndScroll() {
         let monitor = SidebarPointerInteractionMonitor()
         let firstWorkspaceId = UUID()
