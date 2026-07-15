@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
-import { FeedApp } from "../src/feed/App";
+import { FeedApp, feedActivityPageSize } from "../src/feed/App";
 
 let root: Root | null = null;
 let dom: JSDOM | null = null;
@@ -60,7 +60,10 @@ test("Feed React surface invokes the typed permission primitive", async () => {
         }, {
           created_at: "2026-07-13T12:02:00Z", id: "item-3", kind: "toolUse",
           source: "opencode", status: "telemetry", title: "Run tests", workstream_id: "opencode-session",
-        }],
+        }, ...Array.from({ length: 45 }, (_, index) => ({
+          created_at: "2026-07-13T12:03:00Z", id: `history-${index}`, kind: "toolUse",
+          source: "codex", status: "telemetry" as const, title: `History ${index}`, workstream_id: "codex-history",
+        }))],
       } };
     }
     return { ok: true, value: { accepted: true } };
@@ -75,6 +78,10 @@ test("Feed React surface invokes the typed permission primitive", async () => {
   flushSync(() => [...container.querySelectorAll("button")].find((button) => button.textContent === "All Activity")?.click());
   expect(container.querySelector('[data-feed-source="codex"]')?.textContent).toContain("Codex");
   expect(container.querySelector('[data-feed-source="opencode"]')?.textContent).toContain("OpenCode");
+  expect(feedActivityPageSize).toBe(40);
+  expect(container.querySelectorAll(".feed-card")).toHaveLength(feedActivityPageSize);
+  flushSync(() => [...container.querySelectorAll("button")].find((button) => button.textContent === "Load older activity")?.click());
+  expect(container.querySelectorAll(".feed-card")).toHaveLength(48);
   const allowOnce = [...container.querySelectorAll("button")].find((button) => button.textContent === "Allow Once")!;
   allowOnce.click();
   await waitFor(() => calls.some((call: any) => call.method === "feed.permission.reply"));

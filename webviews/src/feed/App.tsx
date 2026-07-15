@@ -5,6 +5,7 @@ import type { FeedItem, FeedQuestion } from "./types";
 import "./styles.css";
 
 type Filter = "actionable" | "activity";
+export const feedActivityPageSize = 40;
 
 export function FeedApp() {
   const snapshot = useSyncExternalStore(
@@ -13,12 +14,15 @@ export function FeedApp() {
     feedSnapshotStore.getSnapshot,
   );
   const [filter, setFilter] = useState<Filter>("actionable");
+  const [activityLimit, setActivityLimit] = useState(feedActivityPageSize);
   const [error, setError] = useState<string | null>(null);
 
   if (!snapshot) return <main className="feed-shell feed-loading" aria-busy="true" />;
   const items = filter === "actionable"
     ? snapshot.items.filter((item) => item.status === "pending")
     : snapshot.items;
+  const visibleItems = filter === "activity" ? items.slice(0, activityLimit) : items;
+  const hasBufferedActivity = filter === "activity" && visibleItems.length < items.length;
 
   const perform = async (method: string, params: Record<string, unknown>) => {
     setError(null);
@@ -44,11 +48,11 @@ export function FeedApp() {
       </header>
       {error && <div className="feed-error" role="alert">{error}</div>}
       <section className="feed-list">
-        {items.length === 0 ? (
+        {visibleItems.length === 0 ? (
           <div className="feed-empty">
             {filter === "actionable" ? snapshot.copy.emptyActionable : snapshot.copy.emptyActivity}
           </div>
-        ) : items.map((item) => (
+        ) : visibleItems.map((item) => (
           <FeedCard
             key={item.id}
             item={item}
@@ -57,13 +61,19 @@ export function FeedApp() {
             sourceIcon={snapshot.sourceIcons[item.source]}
           />
         ))}
-        {snapshot.hasMore && (
+        {(hasBufferedActivity || snapshot.hasMore) && (
           <button
             className="feed-load-more"
-            disabled={snapshot.isLoadingOlder}
-            onClick={() => perform("feed.loadOlder", {})}
+            disabled={!hasBufferedActivity && snapshot.isLoadingOlder}
+            onClick={() => {
+              if (hasBufferedActivity) {
+                setActivityLimit((current) => current + feedActivityPageSize);
+              } else {
+                void perform("feed.loadOlder", {});
+              }
+            }}
           >
-            {snapshot.isLoadingOlder ? snapshot.copy.loadingOlder : snapshot.copy.loadOlder}
+            {!hasBufferedActivity && snapshot.isLoadingOlder ? snapshot.copy.loadingOlder : snapshot.copy.loadOlder}
           </button>
         )}
       </section>
