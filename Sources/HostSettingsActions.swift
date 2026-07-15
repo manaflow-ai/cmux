@@ -93,8 +93,9 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func notifyShortcutSettingsDidChange() {
-        KeyboardShortcutSettings.settingsFileStore.reload()
-        KeyboardShortcutSettings.notifySettingsFileDidChange()
+        KeyboardShortcutSettings.settingsFileStore.reload(
+            notifyShortcutSettingsEvenIfUnchanged: true
+        )
     }
 
     func applyLanguageOverride(_ language: AppLanguage) {

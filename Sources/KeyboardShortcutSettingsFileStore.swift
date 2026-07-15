@@ -133,10 +133,11 @@ final class CmuxSettingsFileStore {
         }
     }
 
-    func reload() {
+    func reload(notifyShortcutSettingsEvenIfUnchanged: Bool = false) {
         reload(
             applyLiveDefaultSideEffects: true,
-            synchronizeManagedAppearanceTerminalTheme: true
+            synchronizeManagedAppearanceTerminalTheme: true,
+            notifyShortcutSettingsEvenIfUnchanged: notifyShortcutSettingsEvenIfUnchanged
         )
     }
 
@@ -144,7 +145,11 @@ final class CmuxSettingsFileStore {
         applyManagedDefaultBatchSideEffects(drainDeferredManagedDefaultSideEffects())
     }
 
-    private func reload(applyLiveDefaultSideEffects: Bool, synchronizeManagedAppearanceTerminalTheme: Bool) {
+    private func reload(
+        applyLiveDefaultSideEffects: Bool,
+        synchronizeManagedAppearanceTerminalTheme: Bool,
+        notifyShortcutSettingsEvenIfUnchanged: Bool = false
+    ) {
         let previousState = synchronized {
             (
                 shortcuts: shortcutsByAction,
@@ -175,7 +180,8 @@ final class CmuxSettingsFileStore {
         }
         saveImportedManagedDefaults(resolved.managedUserDefaults)
 
-        if previousState.shortcuts != resolved.shortcuts
+        if notifyShortcutSettingsEvenIfUnchanged
+            || previousState.shortcuts != resolved.shortcuts
             || previousState.whenClauses != resolved.whenClauses
             || previousState.sourcePath != resolved.path {
             KeyboardShortcutSettings.notifySettingsFileDidChange(center: notificationCenter)
