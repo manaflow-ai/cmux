@@ -6,22 +6,6 @@ import OSLog
 
 private let mobileWorkspaceObserverLog = Logger(subsystem: "dev.cmux", category: "mobile-workspace-observer")
 
-private enum MobileWorkspaceInvalidation: Hashable {
-    case workspaceGraph
-    case workspace(UUID)
-    case preview
-    case summary
-
-    var metricKind: MobileWorkspaceObserverInvalidationMetricKind {
-        switch self {
-        case .workspaceGraph: .workspaceGraph
-        case .workspace: .workspace
-        case .preview: .preview
-        case .summary: .summary
-        }
-    }
-}
-
 /// Watches `TabManager.tabs` (and each workspace's panels publisher) and emits
 /// `workspace.updated` to subscribed mobile clients whenever the iOS-facing
 /// shape of the workspace list materially changes. Replaces per-RPC emit hooks

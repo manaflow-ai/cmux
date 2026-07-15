@@ -1,5 +1,6 @@
 import Bonsplit
 import CmuxSettings
+import CmuxWorkspaces
 import Foundation
 
 struct CloseOtherTabsConfirmationPrompt: Sendable {
@@ -39,6 +40,34 @@ struct CloseOtherTabsConfirmationPrompt: Sendable {
 }
 
 extension Workspace {
+    nonisolated static func resolveCloseConfirmation(
+        remoteMirrorHasActiveCommand: Bool? = nil,
+        shellActivityState: PanelShellActivityState?,
+        fallbackNeedsConfirmClose: () -> Bool
+    ) -> Bool {
+        if let remoteMirrorHasActiveCommand {
+            return remoteMirrorHasActiveCommand
+        }
+        switch shellActivityState ?? .unknown {
+        case .promptIdle:
+            return false
+        case .commandRunning:
+            return true
+        case .unknown:
+            return fallbackNeedsConfirmClose()
+        }
+    }
+
+    nonisolated static func resolveCloseConfirmation(
+        shellActivityState: PanelShellActivityState?,
+        fallbackNeedsConfirmClose: Bool
+    ) -> Bool {
+        resolveCloseConfirmation(
+            shellActivityState: shellActivityState,
+            fallbackNeedsConfirmClose: { fallbackNeedsConfirmClose }
+        )
+    }
+
     /// Mobile remote-tmux closes require the live close-time answer. The cache
     /// is diagnostic context only: a missing live answer must keep the terminal
     /// until the user explicitly confirms the destructive close.
@@ -68,6 +97,24 @@ extension Workspace {
             shellActivityState: panelShellActivityStates[panelId],
             fallbackNeedsConfirmClose: fallbackNeedsConfirmClose
         )
+    }
+
+    func panelNeedsConfirmClose(panelId: UUID, fallbackNeedsConfirmClose: Bool) -> Bool {
+        panelNeedsConfirmClose(
+            panelId: panelId,
+            fallbackNeedsConfirmClose: { fallbackNeedsConfirmClose }
+        )
+    }
+
+    func panelNeedsConfirmClose(panelId: UUID) -> Bool {
+        guard let panel = panels[panelId] else { return false }
+        if let terminalPanel = panel as? TerminalPanel {
+            return panelNeedsConfirmClose(
+                panelId: panelId,
+                fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()
+            )
+        }
+        return panel.isDirty
     }
 
     func closeTabsFromContextMenu(_ tabIds: [TabID], skipPinned: Bool = true) {

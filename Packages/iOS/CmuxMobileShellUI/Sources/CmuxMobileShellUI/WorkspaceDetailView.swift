@@ -131,7 +131,17 @@ struct WorkspaceDetailView: View {
                 confirm: confirmCloseWorkspaceFromMenu
             )
             .sheet(isPresented: $isFeedbackComposerPresented) {
-                feedbackComposer
+                WorkspaceFeedbackComposer(
+                    isPresented: $isFeedbackComposerPresented,
+                    text: $feedbackText,
+                    email: $feedbackEmail,
+                    isSubmitting: $isSubmittingFeedback,
+                    routesToAgent: feedbackRoutesToAgent,
+                    explanation: feedbackComposerExplanation,
+                    errorMessage: feedbackErrorMessage,
+                    canSubmit: isFeedbackSubmittable,
+                    submit: submitFeedbackFromComposer
+                )
             }
             .sheet(isPresented: $isTextSheetPresented) {
                 TerminalTextSheetView(surfaceID: textSheetSurfaceID)
@@ -497,62 +507,6 @@ struct WorkspaceDetailView: View {
     /// `@manaflow.ai` user on an active connection) vs the email inbox.
     private var feedbackRoutesToAgent: Bool {
         store.currentFeedbackRoute == .privilegedAgent
-    }
-
-    // Release-safe Send Feedback composer. Privileged @manaflow.ai users on an
-    // active connection ship a diagnostic bundle straight to the paired Mac's
-    // agent sink; everyone else emails the feedback inbox. Either way the
-    // submission is stamped with build type + version + device.
-    private var feedbackComposer: some View {
-        NavigationStack {
-            VStack(alignment: .leading, spacing: 12) {
-                Text(feedbackComposerExplanation)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                TextField(
-                    L10n.string("mobile.feedback.placeholder", defaultValue: "What happened?"),
-                    text: $feedbackText,
-                    axis: .vertical
-                )
-                .lineLimit(3...8)
-                .textFieldStyle(.roundedBorder)
-                .accessibilityIdentifier("MobileFeedbackComposerField")
-                if !feedbackRoutesToAgent {
-                    TextField(
-                        L10n.string("mobile.feedback.emailPlaceholder", defaultValue: "Your email"),
-                        text: $feedbackEmail
-                    )
-                    .keyboardType(.emailAddress)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .textFieldStyle(.roundedBorder)
-                    .accessibilityIdentifier("MobileFeedbackComposerEmailField")
-                }
-                if let feedbackErrorMessage {
-                    Text(feedbackErrorMessage)
-                        .font(.footnote)
-                        .foregroundStyle(.red)
-                        .accessibilityIdentifier("MobileFeedbackComposerError")
-                }
-                Spacer()
-            }
-            .padding(16)
-            .navigationTitle(L10n.string("mobile.feedback.send", defaultValue: "Send Feedback"))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(L10n.string("mobile.feedback.cancel", defaultValue: "Cancel")) {
-                        isFeedbackComposerPresented = false
-                    }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(L10n.string("mobile.feedback.sendAction", defaultValue: "Send"), action: submitFeedbackFromComposer)
-                        .disabled(isSubmittingFeedback || !isFeedbackSubmittable)
-                        .accessibilityIdentifier("MobileFeedbackComposerSend")
-                }
-            }
-        }
-        .presentationDetents([.medium])
     }
 
     private var feedbackComposerExplanation: String {

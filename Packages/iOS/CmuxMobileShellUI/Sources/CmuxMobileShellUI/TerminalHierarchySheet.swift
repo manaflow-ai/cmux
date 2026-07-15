@@ -181,59 +181,21 @@ struct TerminalHierarchySheet: View {
         .accessibilityIdentifier("MobileTerminalHierarchyEmpty")
     }
 
-    @ViewBuilder
     private func terminalSection(_ pane: TerminalHierarchyPaneSnapshot) -> some View {
-        Section {
-            if pane.rows.isEmpty {
-                Text(L10n.string("mobile.terminal.hierarchy.emptyPane", defaultValue: "No terminals in this pane"))
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(Array(pane.rows.enumerated()), id: \.element.id) { rowIndex, row in
-                    TerminalHierarchyRow(
-                        snapshot: row,
-                        select: { select(row) },
-                        requestClose: { requestClose(row) },
-                        closeEnabled: reorderGate.canMutate(workspaceID: snapshot.workspaceID),
-                        moveEarlier: reorderAction(
-                            rowIndex: rowIndex,
-                            destination: rowIndex - 1,
-                            in: pane
-                        ),
-                        moveLater: reorderAction(
-                            rowIndex: rowIndex,
-                            destination: rowIndex + 2,
-                            in: pane
-                        )
-                    )
-                }
-                .onMove(perform: snapshot.canReorder
-                    && reorderGate.canMutate(workspaceID: snapshot.workspaceID) ? { source, destination in
-                    move(source: source, destination: destination, in: pane)
-                } : nil)
+        let canMutate = reorderGate.canMutate(workspaceID: snapshot.workspaceID)
+        return TerminalHierarchyPaneSection(
+            pane: pane,
+            closeEnabled: canMutate,
+            canReorder: snapshot.canReorder && canMutate,
+            select: select,
+            requestClose: requestClose,
+            reorderAction: { rowIndex, destination in
+                reorderAction(rowIndex: rowIndex, destination: destination, in: pane)
+            },
+            move: { source, destination in
+                move(source: source, destination: destination, in: pane)
             }
-        } header: {
-            HStack(spacing: 6) {
-                Text(
-                    String(
-                        format: L10n.string(
-                            "mobile.terminal.hierarchy.paneTitle",
-                            defaultValue: "Pane %d"
-                        ),
-                        locale: Locale.current,
-                        pane.spatialIndex + 1
-                    )
-                )
-                if pane.isFocused {
-                    Label(
-                        L10n.string("mobile.terminal.hierarchy.focusedPane", defaultValue: "Focused"),
-                        systemImage: "scope"
-                    )
-                    .labelStyle(.titleAndIcon)
-                }
-            }
-            .accessibilityElement(children: .combine)
-            .accessibilityIdentifier("MobileTerminalHierarchyPane-\(pane.id.rawValue)")
-        }
+        )
     }
 
     @ToolbarContentBuilder

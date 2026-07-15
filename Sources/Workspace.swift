@@ -2510,34 +2510,6 @@ final class Workspace: Identifiable, ObservableObject {
 
     var processTitle: String
 
-    nonisolated static func resolveCloseConfirmation(
-        remoteMirrorHasActiveCommand: Bool? = nil,
-        shellActivityState: PanelShellActivityState?,
-        fallbackNeedsConfirmClose: () -> Bool
-    ) -> Bool {
-        if let remoteMirrorHasActiveCommand {
-            return remoteMirrorHasActiveCommand
-        }
-        switch shellActivityState ?? .unknown {
-        case .promptIdle:
-            return false
-        case .commandRunning:
-            return true
-        case .unknown:
-            return fallbackNeedsConfirmClose()
-        }
-    }
-
-    nonisolated static func resolveCloseConfirmation(
-        shellActivityState: PanelShellActivityState?,
-        fallbackNeedsConfirmClose: Bool
-    ) -> Bool {
-        resolveCloseConfirmation(
-            shellActivityState: shellActivityState,
-            fallbackNeedsConfirmClose: { fallbackNeedsConfirmClose }
-        )
-    }
-
     nonisolated private static func makeSessionRestorePolicyService(
         temporaryDirectory: URL = FileManager.default.temporaryDirectory
     ) -> WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot> {
@@ -4660,24 +4632,6 @@ final class Workspace: Identifiable, ObservableObject {
 
     func surfaceResumeBinding(panelId: UUID) -> SurfaceResumeBindingSnapshot? {
         surfaceResumeBindingsByPanelId[panelId]
-    }
-
-    func panelNeedsConfirmClose(panelId: UUID, fallbackNeedsConfirmClose: Bool) -> Bool {
-        panelNeedsConfirmClose(
-            panelId: panelId,
-            fallbackNeedsConfirmClose: { fallbackNeedsConfirmClose }
-        )
-    }
-
-    func panelNeedsConfirmClose(panelId: UUID) -> Bool {
-        guard let panel = panels[panelId] else { return false }
-        if let terminalPanel = panel as? TerminalPanel {
-            return panelNeedsConfirmClose(
-                panelId: panelId,
-                fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()
-            )
-        }
-        return panel.isDirty
     }
 
     func updatePanelGitBranch(panelId: UUID, branch: String, isDirty: Bool) {
