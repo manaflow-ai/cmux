@@ -233,6 +233,47 @@ import Testing
         #expect(store.selectedTerminalID?.rawValue == "terminal-created")
     }
 
+    @Test func delayedCreateCannotSelectWorkspaceMissingFromTrailingAuthoritativeList() async throws {
+        let router = RoutingHostRouter()
+        await router.setHoldFirstWorkspaceCreate(true)
+        let store = try await makeRoutingConnectedStore(
+            router: router,
+            connectionState: .connected
+        )
+        let liveWorkspaceID = try #require(store.workspaces.first?.id)
+        let absentCreatedWorkspaceID = MobileWorkspacePreview.ID(rawValue: "workspace-created")
+
+        let create = Task { @MainActor in
+            await store.createWorkspaceRequest()
+        }
+        await router.awaitFirstWorkspaceCreateReached()
+
+        #expect(await store.reloadWorkspaceListFromMac())
+        #expect(store.workspaces.contains(where: {
+            $0.rpcWorkspaceID == absentCreatedWorkspaceID
+        }))
+        #expect(store.selectedWorkspaceID == liveWorkspaceID)
+        await router.setWorkspaceListIncludesCreatedWorkspace(false)
+
+        await router.releaseFirstWorkspaceCreate()
+        guard case .success = await create.value else {
+            return #expect(Bool(false), "workspace create should remain acknowledged")
+        }
+
+        #expect(await router.workspaceListGate.requestCount() == 2)
+        #expect(!store.workspaces.contains(where: {
+            $0.rpcWorkspaceID == absentCreatedWorkspaceID
+        }))
+        #expect(store.selectedWorkspaceID == liveWorkspaceID)
+        #expect(store.selectedWorkspaceID != absentCreatedWorkspaceID)
+        #expect(store.workspaces.contains(where: { $0.id == store.selectedWorkspaceID }))
+        let liveTerminalID = try #require(store.selectedTerminalID)
+        #expect(
+            store.shouldAutoFocusTerminalSurface(liveTerminalID.rawValue),
+            "an absent created row must not suppress autofocus on the surviving live terminal"
+        )
+    }
+
     @Test func olderWorkspaceCreateResponseCannotOverwriteNewerTerminalCreate() async throws {
         let router = RoutingHostRouter()
         await router.setHoldFirstWorkspaceCreate(true)

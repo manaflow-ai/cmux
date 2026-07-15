@@ -89,6 +89,7 @@ actor RoutingHostRouter {
     private var firstPasteImageReachedWaiters: [CheckedContinuation<Void, Never>] = []
     private var workspaceCreateCount = 0
     private var workspaceHasBeenCreated = false
+    private var workspaceListIncludesCreatedWorkspace = true
     private var terminalHasBeenCreated = false
     private var selectedHostWorkspaceID = "ws-route"
     private var rejectWorkspaceCreate = false
@@ -158,6 +159,10 @@ actor RoutingHostRouter {
 
     func setRejectWorkspaceCreate(_ reject: Bool) {
         rejectWorkspaceCreate = reject
+    }
+
+    func setWorkspaceListIncludesCreatedWorkspace(_ includesCreatedWorkspace: Bool) {
+        workspaceListIncludesCreatedWorkspace = includesCreatedWorkspace
     }
 
     func setRejectWorkspaceList(_ reject: Bool) {
@@ -276,7 +281,7 @@ actor RoutingHostRouter {
                     includesCreatedTerminal: terminalHasBeenCreated
                 )
             var workspaces: [[String: Any]] = [routingWorkspace]
-            if workspaceHasBeenCreated {
+            if workspaceHasBeenCreated, workspaceListIncludesCreatedWorkspace {
                 workspaces.append(Self.createdWorkspacePayload(
                     isSelected: selectedHostWorkspaceID == "workspace-created"
                 ))
