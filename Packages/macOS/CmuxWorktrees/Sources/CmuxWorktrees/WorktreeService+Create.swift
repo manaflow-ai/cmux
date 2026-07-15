@@ -46,12 +46,15 @@ extension WorktreeService {
             on: host
         )
 
+        // `--` keeps option-shaped base refs from being parsed as worktree
+        // options; a literal `-` is normalized because Git's documented
+        // `@{-1}` shorthand expansion happens during option parsing.
         _ = try await runGit(
             on: host,
             directory: invokingRepoRoot,
             arguments: [
-                "worktree", "add", "--no-track", "-b", branch,
-                worktreePath, baseRef,
+                "worktree", "add", "--no-track", "-b", branch, "--",
+                worktreePath, baseRef == "-" ? "@{-1}" : baseRef,
             ],
             timeout: WorktreeService.addTimeout
         )
