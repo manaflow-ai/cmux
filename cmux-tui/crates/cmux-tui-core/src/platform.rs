@@ -4,12 +4,15 @@ use std::path::{Path, PathBuf};
 
 pub mod transport {
     use std::io::{self, Read, Write};
+    use std::net::Shutdown;
     use std::path::Path;
     use std::time::Duration;
 
-    pub trait Stream: Read + Write + Send {
+    pub trait Stream: Read + Write + Send + Sync {
         fn try_clone_box(&self) -> io::Result<Box<dyn Stream>>;
         fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()>;
+        fn set_write_timeout(&self, timeout: Option<Duration>) -> io::Result<()>;
+        fn shutdown(&self, how: Shutdown) -> io::Result<()>;
     }
 
     pub struct Listener {
@@ -66,6 +69,14 @@ pub mod transport {
             fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
                 UnixStream::set_read_timeout(self, timeout)
             }
+
+            fn set_write_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
+                UnixStream::set_write_timeout(self, timeout)
+            }
+
+            fn shutdown(&self, how: std::net::Shutdown) -> io::Result<()> {
+                UnixStream::shutdown(self, how)
+            }
         }
     }
 
@@ -104,6 +115,14 @@ pub mod transport {
 
             fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
                 UnixStream::set_read_timeout(self, timeout)
+            }
+
+            fn set_write_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
+                UnixStream::set_write_timeout(self, timeout)
+            }
+
+            fn shutdown(&self, how: std::net::Shutdown) -> io::Result<()> {
+                UnixStream::shutdown(self, how)
             }
         }
     }

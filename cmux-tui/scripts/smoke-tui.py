@@ -359,7 +359,7 @@ assert probe_answers[10] > 0 and probe_answers[11] > 0, probe_answers
 
 ident = rpc({"id": 1, "cmd": "identify"})
 assert ident["ok"] and ident["data"]["app"] == "cmux-tui", ident
-assert ident["data"]["protocol"] == 6, ident
+assert ident["data"]["protocol"] == 7, ident
 print("identify ok:", ident["data"])
 
 ws0 = tree()[0]

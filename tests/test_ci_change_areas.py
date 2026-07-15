@@ -140,6 +140,10 @@ def test_remote_daemon_asset_builder_runs_go_validation() -> None:
     assert_areas(["scripts/build_remote_daemon_release_assets.sh"], macos=True, web=False, go=True)
 
 
+def test_remote_daemon_manifest_generator_runs_go_validation() -> None:
+    assert_areas(["scripts/generate_remote_daemon_release_manifest.py"], macos=True, web=False, go=True)
+
+
 def test_app_source_runs_macos() -> None:
     assert_areas(["Sources/AppDelegate.swift"], macos=True, web=False, go=False)
 
