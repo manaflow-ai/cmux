@@ -1,10 +1,11 @@
 import CMUXAgentLaunch
 import CmuxCore
 import CmuxFoundation
+import CmuxRemoteDaemon
+import CmuxTerminal
 import CmuxWorkspaces
 import Darwin
 import XCTest
-import CmuxTerminal
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -92,6 +93,28 @@ final class SessionPersistenceTests: XCTestCase {
         let panelSnapshot = try XCTUnwrap(snapshot.panels.first { $0.id == panelId })
 
         XCTAssertTrue(panelSnapshot.listeningPorts.isEmpty)
+    }
+
+    @MainActor
+    func testPortableRemoteRuntimeStateOmitsTransientHistoryBeforeSizeLimit() throws {
+        let workspace = Workspace()
+        var source = workspace.sessionSnapshot(includeScrollback: false)
+        source.logEntries = [
+            SessionLogEntrySnapshot(
+                message: String(repeating: "x", count: RemoteRuntimeStateDocument.maximumStateBytes),
+                level: "info",
+                source: "test",
+                timestamp: 1_750_000_000
+            ),
+        ]
+        let unprunedState = try JSONEncoder().encode(source)
+        XCTAssertGreaterThan(unprunedState.count, RemoteRuntimeStateDocument.maximumStateBytes)
+
+        let portable = source.portableRemoteRuntimeStateSnapshot()
+        let state = try JSONEncoder().encode(portable)
+
+        XCTAssertTrue(portable.logEntries.isEmpty)
+        XCTAssertLessThanOrEqual(state.count, RemoteRuntimeStateDocument.maximumStateBytes)
     }
 
     @MainActor

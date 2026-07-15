@@ -113,29 +113,6 @@ struct RemoteRuntimeStateRestoreTests {
     }
 
     @MainActor
-    @Test("omits transient history before enforcing the runtime state size limit")
-    func omitsTransientHistoryFromPortableRuntimeState() throws {
-        let workspace = Workspace()
-        var source = workspace.sessionSnapshot(includeScrollback: false)
-        source.logEntries = [
-            SessionLogEntrySnapshot(
-                message: String(repeating: "x", count: RemoteRuntimeStateDocument.maximumStateBytes),
-                level: "info",
-                source: "test",
-                timestamp: 1_750_000_000
-            ),
-        ]
-        let unprunedState = try JSONEncoder().encode(source)
-        #expect(unprunedState.count > RemoteRuntimeStateDocument.maximumStateBytes)
-
-        let portable = source.portableRemoteRuntimeStateSnapshot()
-        let state = try JSONEncoder().encode(portable)
-
-        #expect(portable.logEntries.isEmpty)
-        #expect(state.count <= RemoteRuntimeStateDocument.maximumStateBytes)
-    }
-
-    @MainActor
     @Test("keeps the attaching connection while restoring server-owned presentation state")
     func preservesAttachingConnection() throws {
         let workspace = Workspace()
