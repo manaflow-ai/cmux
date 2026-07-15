@@ -6183,6 +6183,10 @@ struct ContentView: View {
             snapshot.setString(CommandPaletteContextKeys.panelName, panelDisplayName(workspace: workspace, panelId: panelId, fallback: panelContext.panel.displayTitle))
             snapshot.setBool(
                 CommandPaletteContextKeys.panelIsBrowser,
+                panelContext.panel.panelType == .browser
+            )
+            snapshot.setBool(
+                CommandPaletteContextKeys.panelHasOmnibar,
                 panelContext.panel is any OmnibarHostingPanel
             )
             if let browserPanel = panelContext.panel as? BrowserPanel {
@@ -6955,7 +6959,7 @@ struct ContentView: View {
                 subtitle: browserPanelSubtitle,
                 shortcutHint: "⌘[",
                 keywords: ["browser", "back", "history"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
+                when: { $0.bool(CommandPaletteContextKeys.panelHasOmnibar) }
             )
         )
         contributions.append(
@@ -6965,7 +6969,7 @@ struct ContentView: View {
                 subtitle: browserPanelSubtitle,
                 shortcutHint: "⌘]",
                 keywords: ["browser", "forward", "history"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
+                when: { $0.bool(CommandPaletteContextKeys.panelHasOmnibar) }
             )
         )
         contributions.append(
@@ -6975,7 +6979,7 @@ struct ContentView: View {
                 subtitle: browserPanelSubtitle,
                 shortcutHint: "⌘R",
                 keywords: ["browser", "reload", "refresh"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
+                when: { $0.bool(CommandPaletteContextKeys.panelHasOmnibar) }
             )
         )
         contributions.append(
@@ -6994,7 +6998,7 @@ struct ContentView: View {
                 subtitle: browserPanelSubtitle,
                 shortcutHint: "⌘L",
                 keywords: ["browser", "address", "omnibar", "url"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
+                when: { $0.bool(CommandPaletteContextKeys.panelHasOmnibar) }
             )
         )
         contributions.append(

@@ -49,6 +49,8 @@ public struct CommandPaletteContextKeys: Hashable, Sendable {
     public static let panelName = CommandPaletteContextKeys(rawValue: "panel.name")
     /// Whether the focused panel is a browser.
     public static let panelIsBrowser = CommandPaletteContextKeys(rawValue: "panel.isBrowser")
+    /// Whether the focused panel participates in shared omnibar navigation.
+    public static let panelHasOmnibar = CommandPaletteContextKeys(rawValue: "panel.hasOmnibar")
     /// Whether browser focus mode is active.
     public static let panelBrowserFocusModeActive = CommandPaletteContextKeys(rawValue: "panel.browserFocusModeActive")
     /// Whether the browser omnibar is visible.

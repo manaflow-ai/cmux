@@ -588,7 +588,9 @@ final class DockSplitStore: BonsplitDelegate {
             panelCancellables[panel.id] = cancellable
         } else if let cefBrowser = panel as? CEFBrowserPanel {
             let cancellable = Publishers.CombineLatest(
-                cefBrowser.$title.removeDuplicates(),
+                cefBrowser.$title
+                    .removeDuplicates()
+                    .coalesceLatest(for: .milliseconds(100), scheduler: RunLoop.main),
                 cefBrowser.$isLoading.removeDuplicates()
             )
             .sink { [weak self, weak cefBrowser] _, isLoading in

@@ -74,8 +74,15 @@ extension AppDelegate {
         }
 
         let shortcutWindow = shortcutResolvedEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
-        let browserPanel = shortcutEventFocusedBrowserPanel(event) ?? shortcutWebInspectorFocusedBrowserPanel(in: shortcutWindow)
-        let omnibarPanel = browserPanel ?? shortcutFocusedOmnibarPanel(in: shortcutWindow)
+        let activeDockPanel = shortcutActiveDockOmnibarPanel(in: shortcutWindow)
+        let browserPanel = activeDockPanel as? BrowserPanel
+            ?? (activeDockPanel == nil
+                ? shortcutEventFocusedBrowserPanel(event) ?? shortcutWebInspectorFocusedBrowserPanel(in: shortcutWindow)
+                : nil)
+        let omnibarPanel = preferredOmnibarPanel(
+            activeDockPanel: activeDockPanel,
+            mainPanel: browserPanel ?? shortcutFocusedOmnibarPanel(in: shortcutWindow)
+        )
         // Only treat a markdown panel as focused when no browser panel owns the
         // event, so a focused browser never routes markdown shortcuts.
         let markdownPanel = omnibarPanel == nil ? shortcutFocusedMarkdownPanel(in: shortcutWindow) : nil
@@ -320,6 +327,7 @@ extension AppDelegate {
 
     private func shortcutFocusedOmnibarPanel(in window: NSWindow?) -> (any OmnibarHostingPanel)? {
         if cmuxOwningGhosttyView(for: window?.firstResponder) != nil { return nil }
+        if let panel = shortcutActiveDockOmnibarPanel(in: window) { return panel }
         if let panelId = focusedBrowserAddressBarPanelId(),
            let panel = shortcutOmnibarPanel(panelId: panelId, in: window) {
             return panel
@@ -334,6 +342,15 @@ extension AppDelegate {
             return context.tabManager.focusedOmnibarHostingPanel
         }
         return tabManager?.focusedOmnibarHostingPanel
+    }
+
+    private func shortcutActiveDockOmnibarPanel(in window: NSWindow?) -> (any OmnibarHostingPanel)? {
+        guard let window,
+              let context = shortcutMainWindowContext(in: window),
+              context.keyboardFocusCoordinator.activeRightSidebarMode == .dock,
+              let dock = existingWindowDock(forWindowId: context.windowId),
+              let panelId = dock.focusedPanelId else { return nil }
+        return dock.panels[panelId] as? any OmnibarHostingPanel
     }
 
     private func shortcutOmnibarPanel(panelId: UUID, in window: NSWindow?) -> (any OmnibarHostingPanel)? {

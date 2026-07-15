@@ -25,7 +25,7 @@ extension OmnibarPaneChrome {
             panel.navigateSmart(text)
             hideSuggestions()
             suppressNextFocusLostRevert = true
-            setAddressBarFocused(false, reason: "omnibar.submit.navigate")
+            blurAddressBarToContent(reason: "omnibar.submit.navigate")
         }
     }
 
@@ -48,7 +48,7 @@ extension OmnibarPaneChrome {
         hideSuggestions()
         inlineCompletion = nil
         suppressNextFocusLostRevert = true
-        setAddressBarFocused(false, reason: "suggestion.commit")
+        blurAddressBarToContent(reason: "suggestion.commit")
     }
 
     func handleOmnibarEscape() {
@@ -347,12 +347,14 @@ extension OmnibarPaneChrome {
         }
         if effects.shouldBlurToWebView {
             hideSuggestions()
-            panel.endSuppressContentFocusForAddressBar()
-            onAddressBarFocusStateChange(false)
-            setAddressBarFocused(false, reason: "effects.blurToWebView")
-            panel.performAddressBarExitFocusHandoff(isCurrentOwner: { isFocused }) { _ in
-                NotificationCenter.default.post(name: .browserDidExitAddressBar, object: panel.id)
-            }
+            blurAddressBarToContent(reason: "effects.blurToWebView")
+        }
+    }
+
+    func blurAddressBarToContent(reason: String) {
+        setAddressBarFocused(false, reason: reason)
+        panel.performAddressBarExitFocusHandoff(isCurrentOwner: { isFocused }) { _ in
+            NotificationCenter.default.post(name: .browserDidExitAddressBar, object: panel.id)
         }
     }
 }
