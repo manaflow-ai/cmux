@@ -13,8 +13,7 @@ extension TabManager {
     }
 
     func runRepositoryScriptsForSelectedWorkspaceIfNeeded() {
-        guard let workspace = selectedWorkspace,
-              let directory = workspace.currentDirectory else { return }
-        runRepositoryScripts(for: workspace, directory: directory)
+        guard let workspace = selectedWorkspace else { return }
+        runRepositoryScripts(for: workspace, directory: workspace.currentDirectory)
     }
 }

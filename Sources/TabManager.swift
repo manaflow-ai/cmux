@@ -456,7 +456,7 @@ class TabManager: ObservableObject {
     // entry points.
     let sidebarGitMetadataService: any SidebarGitMetadataServing
     let pullRequestProbing: any PullRequestProbing
-    private(set) var repositorySetupPromptStore: RepositorySetupPromptStore?
+    var repositorySetupPromptStore: RepositorySetupPromptStore?
     var repositoryScriptLifecycleCoordinator: RepositoryScriptLifecycleCoordinator?
 
     init(
@@ -1159,8 +1159,8 @@ class TabManager: ObservableObject {
                 )
             }
             if runRepositoryScripts,
-               initialSurface == .terminal,
-               let repositoryDirectory = workingDirectory ?? newWorkspace.currentDirectory {
+               initialSurface == .terminal {
+                let repositoryDirectory = workingDirectory ?? newWorkspace.currentDirectory
                 repositoryScriptLifecycleCoordinator?.workspaceCreated(
                     newWorkspace,
                     directory: repositoryDirectory
