@@ -142,6 +142,60 @@ struct BrowserWebExtensionsManagerTests {
     }
 
     @available(macOS 15.4, *)
+    @Test func waitUntilLoadedKeepsEachWaiterTimeoutIndependent() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let manager = BrowserWebExtensionsManager(directory: root, controllerConfiguration: .nonPersistent())
+        let hungLoad = Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+            }
+        }
+        defer { hungLoad.cancel() }
+        manager.loadTask = hungLoad
+
+        let clock = ContinuousClock()
+        let longWaiter = Task { @MainActor in
+            let start = clock.now
+            await manager.waitUntilLoaded(timeout: .milliseconds(250))
+            return start.duration(to: clock.now)
+        }
+        try await Task.sleep(for: .milliseconds(20))
+        await manager.waitUntilLoaded(timeout: .milliseconds(20))
+
+        let longWait = await longWaiter.value
+        #expect(longWait >= .milliseconds(200))
+    }
+
+    @available(macOS 15.4, *)
+    @Test func waitUntilLoadedReturnsPromptlyWhenCallerIsCancelled() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let manager = BrowserWebExtensionsManager(directory: root, controllerConfiguration: .nonPersistent())
+        let hungLoad = Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+            }
+        }
+        defer { hungLoad.cancel() }
+        manager.loadTask = hungLoad
+
+        let clock = ContinuousClock()
+        let waiter = Task { @MainActor in
+            let start = clock.now
+            await manager.waitUntilLoaded(timeout: .milliseconds(300))
+            return start.duration(to: clock.now)
+        }
+        try await Task.sleep(for: .milliseconds(20))
+        waiter.cancel()
+
+        let cancelledWait = await waiter.value
+        #expect(cancelledWait < .milliseconds(100))
+    }
+
+    @available(macOS 15.4, *)
     @Test func runtimePermissionPromptsGrantOnlyManifestDeclaredSet() async throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
