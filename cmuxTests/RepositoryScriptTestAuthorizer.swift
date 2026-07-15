@@ -20,7 +20,7 @@ final class RepositoryScriptTestAuthorizer: RepositoryScriptAuthorizing {
 
     func isTrusted(_: CmuxActionTrustDescriptor) -> Bool {
         didCheckTrust = true
-        trusted
+        return trusted
     }
 
     func authorize(
