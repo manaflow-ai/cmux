@@ -233,33 +233,55 @@ extension RemoteTmuxWindowMirror {
     /// measured container, so nothing here can feed back.
     func applyAssignedGrids() {
         let leaves = renderedLayout.leavesByPaneID
+        let baseLeaves = layout.leavesByPaneID
+        // A stale re-pin during a WINDOW live-resize (or an interactive
+        // geometry drag) would hold the surface at the pre-resize assignment
+        // and paint past the shrinking pane — the same suppression the view
+        // path applies at GhosttyTerminalView. The divider-drag early return
+        // at the top of performSizingPassNow does NOT cover a window resize,
+        // so gate the stale re-pin here. The fresh setAssignedGrid below is
+        // left alone: it applies tmux's own assignment, never a stale one.
+        let suppressPin = visibleHostingContext()?.window?.inLiveResize == true
+            || TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive
         var pinGrew = false
         for (paneId, panel) in panelsByPaneId {
-            if let node = leaves[paneId], node.width > 0, node.height > 0 {
-                if panel.surface.setAssignedGrid(columns: node.width, rows: node.height) {
-                    pinGrew = true
-                } else if let rendered = lastRenderedGrids[paneId],
-                          rendered.cols < node.width || rendered.rows < node.height {
-                    // The pin value already equals the assignment, but the
-                    // surface is still rendering fewer cells: tmux grew the
-                    // pane after the pin last applied (against stale cell
-                    // metrics between our claim and settle), and an unchanged
-                    // setAssignedGrid is a no-op. Re-apply against the current
-                    // metrics and kick a redraw to refill the late cells —
-                    // otherwise the pane renders short and wraps forever.
-                    panel.surface.reapplyAssignedGrid()
+            // Under zoom the visible tree is the single zoomed leaf, but the
+            // hidden BASE panes are still live and still receiving output —
+            // pin each to its base grid so it never renders on a stale one.
+            // The zoomed pane pins its full visible grid (visible wins). Only
+            // a pane in NEITHER tree is genuinely removed; clear that pin.
+            guard let node = leaves[paneId] ?? baseLeaves[paneId],
+                  node.width > 0, node.height > 0 else {
+                panel.surface.clearAssignedGrid()
+                continue
+            }
+            if panel.surface.setAssignedGrid(columns: node.width, rows: node.height) {
+                pinGrew = true
+            } else if !suppressPin,
+                      let rendered = lastRenderedGrids[paneId],
+                      rendered.cols != node.width || rendered.rows != node.height {
+                // The pin value already equals the assignment, but the
+                // surface rendered a DIFFERENT grid: tmux grew the pane after
+                // the pin last applied (against stale cell metrics between our
+                // claim and settle) and an unchanged setAssignedGrid is a
+                // no-op, or the surface over-rendered past the assignment.
+                // Re-apply against the current metrics — reapplyAssignedGrid
+                // clamps both directions — and owe a redraw kick only when it
+                // grew (a shrink has nothing new to paint), or the short pane
+                // renders under its span and wraps forever.
+                panel.surface.reapplyAssignedGrid()
+                if rendered.cols < node.width || rendered.rows < node.height {
                     pinGrew = true
                 }
-            } else {
-                panel.surface.clearAssignedGrid()
             }
         }
         // A pin that grows the grid after tmux already streamed those rows
         // leaves the late-granted cells blank: tmux repaints only on
         // change, and the content that belonged there was clipped while
-        // the grid was short. One coalesced redraw kick refills them.
+        // the grid was short. Force a redraw kick (independent of the
+        // attach one-shot) to refill them mid-session.
         if pinGrew {
-            connection?.scheduleAttachRedrawKickIfNeeded()
+            connection?.forceRedrawKick(windowIds: [windowId])
         }
     }
 
@@ -274,9 +296,19 @@ extension RemoteTmuxWindowMirror {
     /// never count as a lag.
     func gridParityMismatch() -> String? {
         for (paneId, node) in renderedLayout.leavesByPaneID {
-            guard node.width > 1, node.height > 1,
-                  let rendered = lastRenderedGrids[paneId] else { continue }
-            if rendered.cols < node.width || rendered.rows < node.height {
+            guard node.width > 1, node.height > 1 else { continue }
+            // Read the surface's LIVE grid first: the ledger goes stale
+            // because a same-size re-apply returns early before reporting
+            // (TerminalSurface+Sizing), so a pane that quietly drifted off
+            // its assignment would read parity-clean from the cache alone.
+            // rawSizingSample() is @MainActor and this runs on main.
+            let liveGrid = panelsByPaneId[paneId]?.surface.rawSizingSample()
+                .map { (cols: $0.columns, rows: $0.rows) }
+            guard let rendered = liveGrid ?? lastRenderedGrids[paneId] else { continue }
+            // Either direction is a mismatch: a short pane wraps, and an
+            // over-rendered pane holds rows tmux never repaints. The recovery
+            // pass re-applies the pin, which clamps both ways.
+            if rendered.cols != node.width || rendered.rows != node.height {
                 return "pane=%\(paneId) assigned=\(node.width)x\(node.height)"
                     + " rendered=\(rendered.cols)x\(rendered.rows)"
             }
@@ -334,13 +366,23 @@ extension RemoteTmuxWindowMirror {
         // any pane is visibly hosted. This pass is also the recovery path
         // when attachment itself does not emit another geometry callback.
         if let bound = visibleHostingBound {
-            if var size = pendingContainerSizePt {
-                size.width = min(size.width, bound.width)
-                size.height = min(size.height, bound.height)
-                containerSizePt = size
-                containerScale = pendingContainerScale
-                pendingContainerSizePt = nil
-                pendingContainerScale = nil
+            if let size = pendingContainerSizePt {
+                // Mirror the oversized-reading reject rule (see the parked
+                // consumer above): a parked reading BEYOND the settled bound
+                // is a content ideal, not the slot. Clamping and banking it
+                // would overwrite a correct container with the bound itself
+                // (inflated by the chrome between window and mirror). Drop it
+                // and keep the last good reading. A reading that fits banks
+                // verbatim — the old min() clamp was a no-op there anyway.
+                if size.width > bound.width + 0.5 || size.height > bound.height + 0.5 {
+                    pendingContainerSizePt = nil
+                    pendingContainerScale = nil
+                } else {
+                    containerSizePt = size
+                    containerScale = pendingContainerScale
+                    pendingContainerSizePt = nil
+                    pendingContainerScale = nil
+                }
             } else if var size = containerSizePt,
                       size.width > bound.width + 0.5 || size.height > bound.height + 0.5 {
                 size.width = min(size.width, bound.width)
@@ -438,7 +480,7 @@ extension RemoteTmuxWindowMirror {
     /// capped per fixed point so an extent bonsplit genuinely cannot apply
     /// (a hard minimum) stops after a bounded correction instead of looping.
     func rearmIfOutputMissedPlan() {
-        guard !isTornDown, !sizingPassScheduled, isVisibleForSizing,
+        guard !isTornDown, !sizingPassScheduled, isEffectivelyVisibleForSizing,
               !bonsplitController.isDividerDragActive,
               // A sent divider resize makes the plan KNOWN stale until the
               // reply assigns the sent span: the views hold the user's

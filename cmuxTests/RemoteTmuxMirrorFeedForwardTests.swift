@@ -176,6 +176,38 @@ import Testing
         #expect(mirror.containerSizePt == CGSize(width: 1549, height: 639))
     }
 
+    /// A HIDDEN-tab reading is parked into `pendingContainerSizePt` and
+    /// consumed on the next visible pass — but it must be REJECTED, not
+    /// clamped, when it exceeds the settled bound. An inflated portal-limbo
+    /// reading taken while the tab was unselected carries no truth about the
+    /// slot; clamping it to the bound (which overstates the slot by the
+    /// window-to-mirror chrome) would overwrite a correct container with a
+    /// too-wide one, exactly the reject rule the sibling oversized consumer
+    /// already applies.
+    @Test func parkedHiddenReadingOverTheBoundIsRejectedNotClamped() {
+        let bound = CGSize(width: 1200, height: 800)
+        let (mirror, _) = makeMirror(
+            layout: reflow123,
+            geometry: calibratedGeometry,
+            hostingContentSizeSource: { bound }
+        )
+        // A correct container banked while visible.
+        mirror.isVisibleForSizing = true
+        mirror.noteContainerSize(pointSize: CGSize(width: 800, height: 620), scale: 2)
+        #expect(mirror.containerSizePt == CGSize(width: 800, height: 620))
+        // Tab hidden: an inflated portal-limbo reading is PARKED, never banked.
+        mirror.isVisibleForSizing = false
+        mirror.noteContainerSize(pointSize: CGSize(width: 3000, height: 620), scale: 2)
+        #expect(mirror.pendingContainerSizePt == CGSize(width: 3000, height: 620))
+        // Revealed: the parked reading exceeds the settled bound, so it is
+        // dropped and the last good container survives — NOT clamped to the
+        // bound (which would bank 1200 and overstate the slot).
+        mirror.isVisibleForSizing = true
+        mirror.performSizingPassNow()
+        #expect(mirror.containerSizePt == CGSize(width: 800, height: 620))
+        #expect(mirror.pendingContainerSizePt == nil)
+    }
+
     /// An oversized FIRST reading clamps to the bound so the initial claim
     /// can still be made — only later readings have a good value to keep.
     @Test func oversizedFirstReadingClampsToTheWindowBound() {
@@ -200,6 +232,26 @@ import Testing
         )
         mirror.noteContainerSize(pointSize: CGSize(width: 1, height: 1), scale: 2)
         #expect(mirror.containerSizePt == nil)
+    }
+
+    // MARK: grid parity
+
+    /// A pane rendering MORE cells than tmux assigned it is a mismatch just
+    /// as a short pane is: the surplus rows/columns hold content tmux never
+    /// repaints. The parity check must flag either direction (`!=`, not a
+    /// one-sided `<`) so the recovery pass re-applies the pin and clamps the
+    /// over-render back down.
+    @Test func gridParityFlagsAnOverRenderedPane() {
+        let (mirror, _) = makeMirror(layout: reflow123, geometry: calibratedGeometry)
+        // Pane 1's tmux assignment is 41×35; the surface rendered 43 columns.
+        mirror.lastRenderedGrids[1] = (cols: 43, rows: 35)
+        #expect(mirror.gridParityMismatch() != nil)
+        // At exactly the assignment there is no mismatch.
+        mirror.lastRenderedGrids[1] = (cols: 41, rows: 35)
+        #expect(mirror.gridParityMismatch() == nil)
+        // A short pane is still a mismatch.
+        mirror.lastRenderedGrids[1] = (cols: 39, rows: 35)
+        #expect(mirror.gridParityMismatch() != nil)
     }
 
     // MARK: structure signature
@@ -720,9 +772,12 @@ import Testing
     /// tmux grows a pane's assignment between our claim and settle and the pin
     /// applied against stale cell metrics, the surface renders one row short
     /// and wraps while the sizing inputs read unchanged. The output-parity
-    /// re-arm must treat a rendered grid behind its assignment as a miss and
-    /// schedule a recovery pass (which re-applies the pin).
-    @Test func settleRearmsWhenRenderedGridLagsTheAssignment() {
+    /// re-arm treats a rendered grid behind its assignment as a miss — but
+    /// ONLY for a mirror whose panes are actually on screen. A grid lag on an
+    /// offscreen mirror (a hidden tab whose views were dismantled, leaving
+    /// isVisibleForSizing stale-true) must NOT spin recovery passes against
+    /// grids nothing renders: the re-arm is gated on effective visibility.
+    @Test func gridLagFlagsAShortRenderButAnOffscreenMirrorDoesNotRearm() {
         let (mirror, _) = readyMirror(layout: reflow123)
         mirror.isVisibleForSizing = true
         mirror.performSizingPassNow()
@@ -732,10 +787,14 @@ import Testing
         // tmux assigned pane 1 41×35; the surface still renders one row short.
         mirror.lastRenderedGrids = [1: (41, 34), 2: (40, 35), 3: (40, 35)]
         #expect(mirror.gridParityMismatch() != nil, "a short render is a grid lag")
+
+        // This headless mirror has no on-screen panes, so it is not
+        // effectively visible; the lag must not re-arm the pass.
+        #expect(!mirror.isEffectivelyVisibleForSizing)
         mirror.rearmIfOutputMissedPlan()
         #expect(
-            mirror.sizingPassScheduled,
-            "a rendered grid behind its assignment must re-arm the pass"
+            !mirror.sizingPassScheduled,
+            "a lag on a mirror with no on-screen views must not re-arm"
         )
     }
 

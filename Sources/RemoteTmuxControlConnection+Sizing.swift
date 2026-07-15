@@ -316,31 +316,7 @@ extension RemoteTmuxControlConnection {
                     return
                 } else {
                     pendingAttachRedrawKick = false
-                    #if DEBUG
-                    cmuxDebugLog("remote.size.kick shrink to \(size.columns)x\(size.rows - 1)")
-                    #endif
-                    attachRedrawKickTask?.cancel()
-                    attachRedrawKickTask = Task { @MainActor [weak self] in
-                        guard let self, self.connectionState == .connected else { return }
-                        // Bail if the user resized since the kick was scheduled: that resize is a
-                        // real size change, so it already delivered the SIGWINCH this kick exists
-                        // to force — and a shrink at the captured (now stale) size would flash
-                        // wrong dimensions at the remote apps.
-                        guard let current = self.lastClientSize, current == size else { return }
-                        self.send("refresh-client -C \(size.columns)x\(size.rows - 1)")
-                        do {
-                            try await ContinuousClock().sleep(for: .milliseconds(Self.attachRedrawKickGapMs))
-                        } catch {
-                            return
-                        }
-                        guard self.connectionState == .connected else { return }
-                        // Restore the CURRENT size (the user may have resized during the gap).
-                        let restore = self.lastClientSize ?? size
-                        #if DEBUG
-                        cmuxDebugLog("remote.size.kick restore to \(restore.columns)x\(restore.rows)")
-                        #endif
-                        self.send("refresh-client -C \(restore.columns)x\(restore.rows)")
-                    }
+                    sendSessionRedrawKick(size: size)
                     return
                 }
             }
@@ -355,6 +331,68 @@ extension RemoteTmuxControlConnection {
             return
         }
         pendingAttachRedrawKick = false
+        sendPerWindowRedrawKick(kicks: kicks)
+    }
+
+    /// Forces a SIGWINCH-style repaint (shrink a row, then restore) for the
+    /// given windows, INDEPENDENT of the attach one-shot. The attach kick is
+    /// armed only at `.enter` (``pendingAttachRedrawKick``), so a pin that
+    /// grows a surface's grid MID-session — tmux's window size unchanged, no
+    /// SIGWINCH — cannot use it: its late-granted cells would stay blank.
+    /// This path re-derives the kick from the live claims (rows > 2 guard,
+    /// per-window no-op detection preserved) so the mirror can call it
+    /// directly on a pin grow.
+    func forceRedrawKick(windowIds: Set<Int>) {
+        guard connectionState == .connected else { return }
+        guard supportsPerWindowSize else {
+            guard let size = lastClientSize, size.rows > 2 else { return }
+            sendSessionRedrawKick(size: size)
+            return
+        }
+        let kicks: [(windowId: Int, columns: Int, rows: Int)] = windowIds
+            .compactMap { id in
+                guard let size = lastWindowSizes[id], size.1 > 2 else { return nil }
+                return (windowId: id, columns: size.0, rows: size.1)
+            }
+            .sorted { $0.windowId < $1.windowId }
+        guard !kicks.isEmpty else { return }
+        sendPerWindowRedrawKick(kicks: kicks)
+    }
+
+    /// Session-wide shrink→restore SIGWINCH kick. Shared by the attach kick
+    /// and ``forceRedrawKick(windowIds:)``.
+    private func sendSessionRedrawKick(size: (columns: Int, rows: Int)) {
+        #if DEBUG
+        cmuxDebugLog("remote.size.kick shrink to \(size.columns)x\(size.rows - 1)")
+        #endif
+        attachRedrawKickTask?.cancel()
+        attachRedrawKickTask = Task { @MainActor [weak self] in
+            guard let self, self.connectionState == .connected else { return }
+            // Bail if the user resized since the kick was scheduled: that resize is a
+            // real size change, so it already delivered the SIGWINCH this kick exists
+            // to force — and a shrink at the captured (now stale) size would flash
+            // wrong dimensions at the remote apps.
+            guard let current = self.lastClientSize, current == size else { return }
+            self.send("refresh-client -C \(size.columns)x\(size.rows - 1)")
+            do {
+                try await ContinuousClock().sleep(for: .milliseconds(Self.attachRedrawKickGapMs))
+            } catch {
+                return
+            }
+            guard self.connectionState == .connected else { return }
+            // Restore the CURRENT size (the user may have resized during the gap).
+            let restore = self.lastClientSize ?? size
+            #if DEBUG
+            cmuxDebugLog("remote.size.kick restore to \(restore.columns)x\(restore.rows)")
+            #endif
+            self.send("refresh-client -C \(restore.columns)x\(restore.rows)")
+        }
+    }
+
+    /// Per-window shrink→restore SIGWINCH kick. Shared by the attach kick and
+    /// ``forceRedrawKick(windowIds:)``. Re-checks each window's live claim so
+    /// a window that got a real size change since scheduling is skipped.
+    private func sendPerWindowRedrawKick(kicks: [(windowId: Int, columns: Int, rows: Int)]) {
         #if DEBUG
         let kickList = kicks.map { "@\($0.windowId)" }.joined(separator: ",")
         cmuxDebugLog("remote.size.kick windows=\(kickList)")
