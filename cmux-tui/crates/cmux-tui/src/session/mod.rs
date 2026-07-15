@@ -723,6 +723,26 @@ impl SurfaceHandle {
         }
     }
 
+    pub fn resize_reporting_acceptance(
+        &self,
+        cols: u16,
+        rows: u16,
+        reassert: bool,
+        report: Box<dyn FnOnce(bool) + Send>,
+    ) -> anyhow::Result<bool> {
+        match self {
+            SurfaceHandle::Local(surface) => {
+                surface.resize_reporting_acceptance(cols, rows, report)
+            }
+            _ => {
+                let result =
+                    if reassert { self.reassert_size(cols, rows) } else { self.resize(cols, rows) };
+                report(result.as_ref().copied().unwrap_or(false));
+                result
+            }
+        }
+    }
+
     pub fn resize_needed(&self, cols: u16, rows: u16, user_interaction: bool) -> bool {
         let desired = (cols.max(1), rows.max(1));
         match self {

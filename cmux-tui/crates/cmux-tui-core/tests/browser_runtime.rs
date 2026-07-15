@@ -443,9 +443,7 @@ fn socket_browser_attach_streams_frames_input_and_cell_pixels() {
     );
     assert_eq!(metrics["ok"], true);
     assert!(metrics["data"]["resizes"].as_array().is_some_and(|resizes| {
-        resizes.iter().any(|resize| {
-            resize == &json!({"surface": surface, "cols": 10, "rows": 5})
-        })
+        resizes.iter().any(|resize| resize == &json!({"surface": surface, "cols": 10, "rows": 5}))
     }));
     let metrics_request =
         recv_method_where(&seen_rx, "Emulation.setDeviceMetricsOverride", |value| {

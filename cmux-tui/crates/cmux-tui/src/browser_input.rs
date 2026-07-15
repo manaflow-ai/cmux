@@ -340,12 +340,13 @@ fn worker(
             }) {
                 continue;
             }
-            let result = dispatch(&event.event);
-            if let BrowserInputKind::Resize { on_result, .. } = &mut event.event.kind
-                && let Some(report_result) = on_result.take()
-            {
-                report_result(result.as_ref().copied().unwrap_or(false));
-            }
+            let result = match &mut event.event.kind {
+                BrowserInputKind::Resize { cols, rows, reassert, on_result, .. } => {
+                    let report = on_result.take().unwrap_or_else(|| Box::new(|_| {}));
+                    event.event.surface.resize_reporting_acceptance(*cols, *rows, *reassert, report)
+                }
+                _ => dispatch(&event.event),
+            };
             let Some((cols, rows)) = desired else {
                 if event.event.kind.is_control()
                     && let Err(error) = result

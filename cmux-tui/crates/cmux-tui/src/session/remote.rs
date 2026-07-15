@@ -48,7 +48,6 @@ impl RemoteRequestError {
     pub(crate) fn is_timeout(&self) -> bool {
         matches!(self, Self::Timeout)
     }
-
 }
 
 impl std::fmt::Display for RemoteRequestError {

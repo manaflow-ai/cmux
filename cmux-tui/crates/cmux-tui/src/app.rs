@@ -208,8 +208,11 @@ fn forward_mux_event(
         _ => {}
     }
     let terminal = matches!(event, MuxEvent::Empty);
+    if terminal {
+        let _ = tx.send(AppEvent::Mux(event));
+        return ForwardMuxOutcome::Stop;
+    }
     match tx.try_send(AppEvent::Mux(event)) {
-        Ok(()) if terminal => ForwardMuxOutcome::Stop,
         Ok(()) => ForwardMuxOutcome::Continue,
         Err(TrySendError::Full(_)) => ForwardMuxOutcome::Recover,
         Err(TrySendError::Disconnected(_)) => ForwardMuxOutcome::Stop,
@@ -6575,13 +6578,13 @@ fn browser_key_mapping(
 #[cfg(test)]
 mod tests {
     use super::{
-        App, AppEvent, BACKGROUND_REFRESH_RETRIES, DeferredInput, Drag, MuxTitleIngress,
-        OrderedSession, PaneArea, PendingSessionMutation, PendingSessionMutationState,
-        PtyFailureIngress, RenderAction, Selection, SessionCompletion, SessionCompletionAction,
-        SidebarPluginSyncClaim, SidebarPluginSyncState, SurfaceResizeDecision,
-        browser_content_size_for_rect, browser_hover_forward_allowed, forward_mux_events,
-        pane_parts_for_rect, record_surface_resize_dispatch_result,
-        sidebar_plugin_status_settles_passive_claim,
+        App, AppEvent, BACKGROUND_REFRESH_RETRIES, DeferredInput, Drag, ForwardMuxOutcome,
+        MuxTitleIngress, OrderedSession, PaneArea, PendingSessionMutation,
+        PendingSessionMutationState, PtyFailureIngress, RenderAction, Selection, SessionCompletion,
+        SessionCompletionAction, SidebarPluginSyncClaim, SidebarPluginSyncState,
+        SurfaceResizeDecision, browser_content_size_for_rect, browser_hover_forward_allowed,
+        forward_mux_event, forward_mux_events, pane_parts_for_rect,
+        record_surface_resize_dispatch_result, sidebar_plugin_status_settles_passive_claim,
     };
     use std::collections::{HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
@@ -7481,6 +7484,19 @@ mod tests {
         ));
         drop(rx);
         forwarder.join().unwrap();
+    }
+
+    #[test]
+    fn mux_forwarder_preserves_empty_while_app_channel_is_full() {
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        tx.send(AppEvent::Mux(MuxEvent::Bell(1))).unwrap();
+        let titles = MuxTitleIngress::default();
+        let forwarder =
+            std::thread::spawn(move || forward_mux_event(MuxEvent::Empty, &tx, &titles));
+
+        assert!(matches!(rx.recv().unwrap(), AppEvent::Mux(MuxEvent::Bell(1))));
+        assert!(matches!(rx.recv().unwrap(), AppEvent::Mux(MuxEvent::Empty)));
+        assert!(matches!(forwarder.join().unwrap(), ForwardMuxOutcome::Stop));
     }
 
     #[test]

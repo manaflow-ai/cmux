@@ -995,11 +995,24 @@ impl BrowserSurface {
     }
 
     pub fn resize(&self, cols: u16, rows: u16) -> anyhow::Result<bool> {
+        self.resize_reporting_acceptance(cols, rows, Box::new(|_| {}))
+    }
+
+    pub fn resize_reporting_acceptance(
+        &self,
+        cols: u16,
+        rows: u16,
+        report: Box<dyn FnOnce(bool) + Send>,
+    ) -> anyhow::Result<bool> {
         let (cols, rows) = (cols.max(1), rows.max(1));
         if !self.resize_needed(cols, rows) {
+            report(false);
             return Ok(false);
         }
-        self.enqueue_latest_reconfigure(BrowserCommand::Reconfigure { cols, rows })?;
+        self.enqueue_latest_reconfigure_reporting(
+            BrowserCommand::Reconfigure { cols, rows },
+            report,
+        )?;
         Ok(true)
     }
 
@@ -1365,12 +1378,37 @@ impl BrowserSurface {
         }
     }
 
-    fn enqueue_latest_reconfigure(&self, command: BrowserCommand) -> anyhow::Result<()> {
+    fn enqueue_latest_reconfigure_reporting(
+        &self,
+        command: BrowserCommand,
+        report: Box<dyn FnOnce(bool) + Send>,
+    ) -> anyhow::Result<()> {
         if self.is_dead() {
+            report(false);
             anyhow::bail!("browser surface is closed");
         }
-        *self.latest_reconfigure.lock().unwrap() = Some(command);
-        self.wake_worker()
+        let tx = match self.command_sender() {
+            Ok(tx) => tx,
+            Err(error) => {
+                report(false);
+                return Err(error);
+            }
+        };
+        let mut latest = self.latest_reconfigure.lock().unwrap();
+        *latest = Some(command);
+        match tx.try_send(BrowserCommand::WakeLatest) {
+            Ok(()) | Err(TrySendError::Full(_)) => {
+                // The worker must acquire `latest_reconfigure` before it can
+                // publish completion or failure, so ownership is visible first.
+                report(true);
+                Ok(())
+            }
+            Err(TrySendError::Disconnected(_)) => {
+                *latest = None;
+                report(false);
+                anyhow::bail!("browser command worker is closed")
+            }
+        }
     }
 
     fn enqueue_latest_nav(&self, command: BrowserCommand) -> anyhow::Result<()> {
@@ -2497,6 +2535,26 @@ mod tests {
 
         assert!(browser.set_cell_pixel_size(9, 16).unwrap());
         assert!(!browser.set_cell_pixel_size(9, 16).unwrap());
+    }
+
+    #[test]
+    fn resize_acceptance_is_reported_before_worker_can_take_command() {
+        let surface = test_surface();
+        let browser = surface.as_browser().expect("browser surface");
+        let latest = browser.latest_reconfigure.clone();
+
+        assert!(
+            browser
+                .resize_reporting_acceptance(
+                    11,
+                    5,
+                    Box::new(move |accepted| {
+                        assert!(accepted);
+                        assert!(latest.try_lock().is_err());
+                    }),
+                )
+                .unwrap()
+        );
     }
 
     #[test]

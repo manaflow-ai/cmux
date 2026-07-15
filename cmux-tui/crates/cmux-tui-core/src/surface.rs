@@ -711,6 +711,22 @@ impl Surface {
         }
     }
 
+    pub fn resize_reporting_acceptance(
+        &self,
+        cols: u16,
+        rows: u16,
+        report: Box<dyn FnOnce(bool) + Send>,
+    ) -> anyhow::Result<bool> {
+        match self {
+            Surface::Pty(pty) => {
+                let accepted = pty.resize(cols, rows);
+                report(accepted);
+                Ok(accepted)
+            }
+            Surface::Browser(browser) => browser.resize_reporting_acceptance(cols, rows, report),
+        }
+    }
+
     pub fn resize_needed(&self, cols: u16, rows: u16) -> bool {
         let desired = (cols.max(1), rows.max(1));
         match self {
