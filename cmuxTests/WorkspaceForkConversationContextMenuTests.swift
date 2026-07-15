@@ -413,6 +413,34 @@ struct WorkspaceForkConversationContextMenuTests {
     }
 
     @Test
+    func nativePiSnapshotIsAvailableFromPanelContextMenu() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let sessionId = "pi-session-123"
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .pi,
+            sessionId: sessionId,
+            workingDirectory: "/tmp/pi repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "pi",
+                executablePath: "/opt/homebrew/bin/pi",
+                arguments: ["/opt/homebrew/bin/pi", "--session", sessionId],
+                workingDirectory: "/tmp/pi repo",
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+        workspace.setRestoredAgentSnapshotForTesting(snapshot, panelId: panelId)
+
+        #expect(snapshot.forkCommand != nil)
+        #expect(
+            workspace.forkAgentConversationContextMenuAvailability(forPanelId: panelId) == .available
+        )
+        #expect(workspace.canForkAgentConversationFromPanel(panelId))
+    }
+
+    @Test
     func directOpenCodePresentationStaysVisibleWhileValidationRefreshes() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
