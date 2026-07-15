@@ -105,11 +105,11 @@ struct ChatArtifactTextView: UIViewRepresentable {
         containerView.updateLineNumbers(index: lineIndex, isVisible: showsLineNumbers)
 
         if isNewDocument {
-            Self.scrollToTop(textView)
+            Self.scrollToTop(textView, animated: false)
         } else {
             if context.coordinator.handledTopRequestID != topRequestID {
                 context.coordinator.handledTopRequestID = topRequestID
-                Self.scrollToTop(textView)
+                Self.scrollToTop(textView, animated: true)
             }
             if context.coordinator.handledBottomRequestID != bottomRequestID {
                 context.coordinator.handledBottomRequestID = bottomRequestID
@@ -127,13 +127,13 @@ struct ChatArtifactTextView: UIViewRepresentable {
         }
     }
 
-    private static func scrollToTop(_ textView: UITextView) {
+    private static func scrollToTop(_ textView: UITextView, animated: Bool) {
         textView.setContentOffset(
             CGPoint(
                 x: -textView.adjustedContentInset.left,
                 y: -textView.adjustedContentInset.top
             ),
-            animated: false
+            animated: animated
         )
     }
 }
