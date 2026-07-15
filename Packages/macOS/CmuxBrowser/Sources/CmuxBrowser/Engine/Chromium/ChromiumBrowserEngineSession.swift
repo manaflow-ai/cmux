@@ -246,17 +246,21 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
         }
         let isolatedWorld = try await connection.send(
             method: "Page.createIsolatedWorld",
-            parameters: [
-                "frameId": .string(frameID),
-                "worldName": .string("cmux.browser.automation"),
-                "grantUniveralAccess": .bool(true),
-            ],
+            parameters: Self.isolatedWorldParameters(frameID: frameID),
             sessionID: sessionID
         )
         guard let contextID = isolatedWorld.objectValue?["executionContextId"]?.intValue else {
             throw BrowserEngineSessionError.chromiumProtocol("Chromium did not create an isolated JavaScript world.")
         }
         return contextID
+    }
+
+    static func isolatedWorldParameters(frameID: String) -> [String: CDPJSONValue] {
+        [
+            "frameId": .string(frameID),
+            "worldName": .string("cmux.browser.automation"),
+            "grantUniveralAccess": .bool(true),
+        ]
     }
 
     /// Captures the current Chromium viewport through CDP.
@@ -365,13 +369,10 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
         try await sendDeviceMetrics(connection: connection, sessionID: sessionID)
         _ = try await connection.send(
             method: "Page.startScreencast",
-            parameters: [
-                "format": .string("jpeg"),
-                "quality": .number(75),
-                "maxWidth": .number(Double(max(viewportWidth, 1) * 2)),
-                "maxHeight": .number(Double(max(viewportHeight, 1) * 2)),
-                "everyNthFrame": .number(1),
-            ],
+            parameters: Self.screencastParameters(
+                viewportWidth: viewportWidth,
+                viewportHeight: viewportHeight
+            ),
             sessionID: sessionID
         )
         try await installAllInitializationScripts(connection: connection, sessionID: sessionID)
@@ -380,6 +381,19 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
         } else {
             updateState { $0.isLoading = false }
         }
+    }
+
+    static func screencastParameters(
+        viewportWidth: Int,
+        viewportHeight: Int
+    ) -> [String: CDPJSONValue] {
+        [
+            "format": .string("jpeg"),
+            "quality": .number(75),
+            "maxWidth": .number(Double(max(viewportWidth, 1) * 2)),
+            "maxHeight": .number(Double(max(viewportHeight, 1) * 2)),
+            "everyNthFrame": .number(1),
+        ]
     }
 
     private func beginEvents(connection: CDPConnection, sessionID: String) {

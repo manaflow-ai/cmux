@@ -7,6 +7,29 @@ import WebKit
 @MainActor
 struct ChromiumBrowserEngineSessionTests {
     @Test
+    func createsIsolatedWorldWithUniversalAccess() {
+        #expect(ChromiumBrowserEngineSession.isolatedWorldParameters(frameID: "main-frame") == [
+            "frameId": .string("main-frame"),
+            "worldName": .string("cmux.browser.automation"),
+            "grantUniversalAccess": .bool(true),
+        ])
+    }
+
+    @Test
+    func boundsScreencastFrameCadence() {
+        #expect(ChromiumBrowserEngineSession.screencastParameters(
+            viewportWidth: 640,
+            viewportHeight: 480
+        ) == [
+            "format": .string("jpeg"),
+            "quality": .number(75),
+            "maxWidth": .number(1_280),
+            "maxHeight": .number(960),
+            "everyNthFrame": .number(2),
+        ])
+    }
+
+    @Test
     func forwardsCompositionAndCommittedTextToCDPInputCommands() {
         let session = ChromiumBrowserEngineSession(
             viewportWebView: WKWebView(),

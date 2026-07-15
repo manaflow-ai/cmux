@@ -20,6 +20,7 @@ import Testing
         let profileDirectory = firstSession
             .deletingLastPathComponent()
             .deletingLastPathComponent()
+        let surfaceDirectory = firstSession.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: firstSession, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: secondSession, withIntermediateDirectories: true)
         defer {
@@ -36,6 +37,8 @@ import Testing
         try builder.removeSessionDirectoryIfOwned(secondSession)
 
         #expect(!FileManager.default.fileExists(atPath: secondSession.path))
+        #expect(!FileManager.default.fileExists(atPath: surfaceDirectory.path))
+        #expect(!FileManager.default.fileExists(atPath: profileDirectory.path))
     }
 
     @Test func refusesToRemoveDirectoryOutsideOwnedUUIDHierarchy() throws {
