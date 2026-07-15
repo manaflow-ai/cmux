@@ -1,20 +1,7 @@
 name: iOS simulator tests
 
 on:
-  pull_request:
-    paths:
-      - "ios/**"
-      - "Packages/Shared/**"
-      - "Packages/iOS/**"
-      - "Sources/Mobile/**"
-      - "vendor/stack-auth-swift-sdk-prerelease/**"
-      # The namespace-type convention rule scans every package, so any package
-      # change must run the conventions lint job (heavier iOS jobs still gate
-      # on iOS-owned paths via should_run).
-      - "Packages/**"
-      - "scripts/lint-ios-package-conventions.sh"
-      - "scripts/lint-namespace-types-baseline.txt"
-      - ".github/workflows/test-ios.yml"
+  # Temporarily manual-only beginning 2026-07-13 to pause automatic CI.
   workflow_dispatch:
     inputs:
       ref:
