@@ -354,11 +354,10 @@ struct BrowserDiscardRestorePolicyCancelTests {
         #expect(panel.restoreDiscardedWebViewIfNeeded(reason: "test.reveal"))
     }
 
-    @Test func automationRecoveryPreservesPendingInsecureHTTPConsent() throws {
+    @Test func automationRecoveryPreservesPendingInteractivePrompt() throws {
         let panel = BrowserPanel(workspaceId: UUID(), initialURL: try #require(URL(string: "about:blank")), preloadInitialNavigationInBackground: true)
-        defer { panel.resetInsecureHTTPAlertHooksForTesting(); panel.close() }
-        panel.configureInsecureHTTPAlertHooksForTesting(alertFactory: { NSAlert() }, windowProvider: { nil })
-        panel.presentInsecureHTTPAlertForTesting(url: try #require(URL(string: "http://example.com/pending-consent")))
+        defer { panel.close() }
+        panel.navigationDelegate?.presentAlert(NSAlert(), panel.webView, { _ in }, {})
         let webViewIdentifier = ObjectIdentifier(panel.webView)
 
         #expect(!panel.replaceWebViewAfterAutomationTimeout(expectedWebViewIdentifier: webViewIdentifier, reason: "test"))

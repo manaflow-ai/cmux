@@ -7528,20 +7528,21 @@ class TerminalController {
             return .err(code: "internal_error", message: "Browser operation failed", data: nil)
         }
 
-        let expectedWebViewIdentifier = v2MainSync { ObjectIdentifier(browserPanel.webView) }
-        let snapshotResult = v2CaptureBrowserAutomationSnapshot(browserPanel, timeout: 17.0)
+        guard let snapshotAttempt = v2CaptureBrowserAutomationSnapshot(browserPanel, timeout: 17.0) else {
+            return .err(code: "timeout", message: BrowserScreenshotError.automationTimedOut.localizedDescription, data: nil)
+        }
         let imageData: Data
-        switch snapshotResult {
+        switch snapshotAttempt.result {
         case .success(let data):
             imageData = data
         case .failure(let message):
             return .err(code: "internal_error", message: message, data: nil)
-        case .timedOut, nil:
+        case .timedOut:
             let message = v2BrowserAutomationMessageAfterLivenessCheck(
                 originalMessage: BrowserScreenshotError.automationTimedOut.localizedDescription,
                 browserPanel: browserPanel,
                 surfaceId: surfaceId,
-                expectedWebViewIdentifier: expectedWebViewIdentifier,
+                expectedWebViewIdentifier: snapshotAttempt.webViewIdentifier,
                 channel: .screenshot
             )
             return .err(code: "timeout", message: message, data: nil)

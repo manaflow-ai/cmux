@@ -3,6 +3,44 @@ import CmuxBrowser
 import WebKit
 
 extension BrowserPanel {
+    func registerBrowserAutomationInitScript(_ userScript: WKUserScript) -> Int {
+        browserAutomationUserScripts.append(userScript)
+        browserAutomationInitScriptCount += 1
+        webView.configuration.userContentController.addUserScript(userScript)
+        return browserAutomationInitScriptCount
+    }
+
+    func registerBrowserAutomationStyleScript(_ userScript: WKUserScript) -> Int {
+        browserAutomationUserScripts.append(userScript)
+        browserAutomationStyleScriptCount += 1
+        webView.configuration.userContentController.addUserScript(userScript)
+        return browserAutomationStyleScriptCount
+    }
+
+    func clearBrowserAutomationUserScripts() {
+        browserAutomationUserScripts.removeAll()
+        browserAutomationInitScriptCount = 0
+        browserAutomationStyleScriptCount = 0
+    }
+
+    func makeReplacementWebView(
+        profileID: UUID,
+        websiteDataStore: WKWebsiteDataStore
+    ) -> CmuxWebView {
+        let replacement = Self.makeWebView(
+            profileID: profileID,
+            websiteDataStore: websiteDataStore
+        )
+        for userScript in browserAutomationUserScripts {
+            replacement.configuration.userContentController.addUserScript(userScript)
+        }
+        return replacement
+    }
+
+    var canRecoverFromAutomationTimeout: Bool {
+        activeInteractiveBrowserPromptIDs.isEmpty
+    }
+
     func waitForAutomationDocumentCommit(
         expectedWebViewIdentifier: ObjectIdentifier
     ) async -> BrowserAutomationDocumentReadinessOutcome {
@@ -15,7 +53,7 @@ extension BrowserPanel {
         channel: BrowserAutomationProbeChannel
     ) async -> BrowserAutomationRecoveryOutcome {
         guard ObjectIdentifier(webView) == expectedWebViewIdentifier else { return .superseded }
-        guard pendingInsecureHTTPConsentRequestIDs.isEmpty else { return .responsive }
+        guard canRecoverFromAutomationTimeout else { return .responsive }
         let observedWebViewInstanceID = webViewInstanceID
 
         let asyncJavaScriptProbe: BrowserAutomationWatchdog.Probe = { [weak self] finish in
@@ -71,5 +109,19 @@ extension BrowserPanel {
             return .superseded
         }
         return outcome
+    }
+
+    @discardableResult
+    func replaceWebViewAfterAutomationTimeout(
+        expectedWebViewIdentifier: ObjectIdentifier,
+        reason: String
+    ) -> Bool {
+        guard ObjectIdentifier(webView) == expectedWebViewIdentifier, canRecoverFromAutomationTimeout else { return false }
+        replaceWebViewPreservingState(
+            from: webView,
+            websiteDataStore: websiteDataStore,
+            reason: reason
+        )
+        return true
     }
 }

@@ -1841,15 +1841,6 @@ enum BrowserInsecureHTTPNavigationResolution {
     }
 }
 
-nonisolated enum BrowserWebViewLifecycleState: String {
-    case newTab = "new_tab"
-    case deferredURL = "deferred_url"
-    case liveVisible = "live_visible"
-    case liveHidden = "live_hidden"
-    case discarded
-    case closing
-}
-
 final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
     static let scheme = "cmux-diff-viewer"
     static let shared = CmuxDiffViewerURLSchemeHandler()
@@ -2738,10 +2729,10 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// The underlying web view
     private(set) var webView: WKWebView
-    private var websiteDataStore: WKWebsiteDataStore
-    private var browserAutomationUserScripts: [WKUserScript] = []
-    private var browserAutomationInitScriptCount = 0
-    private var browserAutomationStyleScriptCount = 0
+    var websiteDataStore: WKWebsiteDataStore
+    var browserAutomationUserScripts: [WKUserScript] = []
+    var browserAutomationInitScriptCount = 0
+    var browserAutomationStyleScriptCount = 0
     var webViewDidRequestClose: (() -> Void)?
 
     /// Monotonic identity for the current WKWebView instance.
@@ -3026,7 +3017,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private let maxPageZoom: CGFloat = 5.0
     private let pageZoomStep: CGFloat = 0.1
     private var insecureHTTPBypassHostOnce: String?
-    var pendingInsecureHTTPConsentRequestIDs: Set<UUID> = []
+    var activeInteractiveBrowserPromptIDs: Set<UUID> = []
     var insecureHTTPAlertFactory: () -> NSAlert
     var insecureHTTPAlertWindowProvider: () -> NSWindow? = { NSApp.keyWindow ?? NSApp.mainWindow }
     // Persist user intent across WebKit detach/reattach churn (split/layout updates).
@@ -3567,40 +3558,6 @@ final class BrowserPanel: Panel, ObservableObject {
         // Always present as Safari.
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
         return webView
-    }
-
-    func registerBrowserAutomationInitScript(_ userScript: WKUserScript) -> Int {
-        browserAutomationUserScripts.append(userScript)
-        browserAutomationInitScriptCount += 1
-        webView.configuration.userContentController.addUserScript(userScript)
-        return browserAutomationInitScriptCount
-    }
-
-    func registerBrowserAutomationStyleScript(_ userScript: WKUserScript) -> Int {
-        browserAutomationUserScripts.append(userScript)
-        browserAutomationStyleScriptCount += 1
-        webView.configuration.userContentController.addUserScript(userScript)
-        return browserAutomationStyleScriptCount
-    }
-
-    private func clearBrowserAutomationUserScripts() {
-        browserAutomationUserScripts.removeAll()
-        browserAutomationInitScriptCount = 0
-        browserAutomationStyleScriptCount = 0
-    }
-
-    private func makeReplacementWebView(
-        profileID: UUID,
-        websiteDataStore: WKWebsiteDataStore
-    ) -> CmuxWebView {
-        let replacement = Self.makeWebView(
-            profileID: profileID,
-            websiteDataStore: websiteDataStore
-        )
-        for userScript in browserAutomationUserScripts {
-            replacement.configuration.userContentController.addUserScript(userScript)
-        }
-        return replacement
     }
 
     static func configureWebViewConfiguration(
@@ -4325,37 +4282,48 @@ final class BrowserPanel: Panel, ObservableObject {
     private func presentBrowserAlert(
         _ alert: NSAlert,
         in webView: WKWebView,
+        windowProvider: (() -> NSWindow?)? = nil,
         completion: @escaping (NSApplication.ModalResponse) -> Void,
         cancel: @escaping () -> Void
     ) {
-        if let window = browserInteractiveModalHostWindow(for: webView) {
-            alert.beginSheetModal(for: window, completionHandler: completion)
+        let promptID = UUID()
+        activeInteractiveBrowserPromptIDs.insert(promptID)
+        let trackedCompletion: (NSApplication.ModalResponse) -> Void = { [weak self] response in self?.activeInteractiveBrowserPromptIDs.remove(promptID); completion(response) }
+        let trackedCancel = { [weak self] in self?.activeInteractiveBrowserPromptIDs.remove(promptID); cancel() }
+        let shouldDeferPrompt = shouldDeferPromptUntilInteractiveHost(for: webView)
+        if windowProvider == nil, let window = browserInteractiveModalHostWindow(for: webView) {
+            alert.beginSheetModal(for: window, completionHandler: trackedCompletion)
             return
         }
-
-        guard shouldDeferPromptUntilInteractiveHost(for: webView) else {
-            browserPresentAlert(alert, in: webView, completion: completion, cancel: cancel)
+        if !shouldDeferPrompt, let windowProvider {
+            if let window = windowProvider() {
+                alert.beginSheetModal(for: window, completionHandler: trackedCompletion)
+            } else {
+                trackedCompletion(alert.runModal())
+            }
             return
         }
-
-        pendingInteractiveBrowserPrompts.append(
-            PendingInteractiveBrowserPrompt(
-                present: { sheetWindow, didFinish in
-                    alert.beginSheetModal(for: sheetWindow) { response in
-                        completion(response)
-                        didFinish()
-                    }
-                },
-                cancel: cancel
+        if shouldDeferPrompt {
+            pendingInteractiveBrowserPrompts.append(
+                PendingInteractiveBrowserPrompt(
+                    present: { sheetWindow, didFinish in
+                        alert.beginSheetModal(for: sheetWindow) { response in
+                            trackedCompletion(response)
+                            didFinish()
+                        }
+                    },
+                    cancel: trackedCancel
+                )
             )
-        )
-
 #if DEBUG
-        cmuxDebugLog(
-            "browser.prompt.queue panel=\(id.uuidString.prefix(5)) " +
-            "pending=\(pendingInteractiveBrowserPrompts.count)"
-        )
+            cmuxDebugLog(
+                "browser.prompt.queue panel=\(id.uuidString.prefix(5)) " +
+                "pending=\(pendingInteractiveBrowserPrompts.count)"
+            )
 #endif
+            return
+        }
+        browserPresentAlert(alert, in: webView, completion: trackedCompletion, cancel: trackedCancel)
     }
 
     private func drainPendingInteractiveBrowserPromptsIfPossible(reason: String) {
@@ -5118,21 +5086,7 @@ final class BrowserPanel: Panel, ObservableObject {
             waitForManualRecovery: true
         )
     }
-    @discardableResult
-    func replaceWebViewAfterAutomationTimeout(
-        expectedWebViewIdentifier: ObjectIdentifier,
-        reason: String
-    ) -> Bool {
-        guard ObjectIdentifier(webView) == expectedWebViewIdentifier, pendingInsecureHTTPConsentRequestIDs.isEmpty else { return false }
-        replaceWebViewPreservingState(
-            from: webView,
-            websiteDataStore: websiteDataStore,
-            reason: reason
-        )
-        return true
-    }
-
-    private func replaceWebViewPreservingState(
+    func replaceWebViewPreservingState(
         from oldWebView: WKWebView,
         websiteDataStore: WKWebsiteDataStore,
         reason: String,
@@ -5951,7 +5905,6 @@ final class BrowserPanel: Panel, ObservableObject {
     ) {
         guard let url = request.url else { return }
         guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return }
-        let consentRequestID = pendingInsecureHTTPConsentRequestIDs.insert(UUID()).memberAfterInsert
         let alert = insecureHTTPAlertFactory()
         alert.alertStyle = .warning
         alert.messageText = String(localized: "browser.error.insecure.title", defaultValue: "Connection isn\u{2019}t secure")
@@ -5963,7 +5916,6 @@ final class BrowserPanel: Panel, ObservableObject {
         alert.suppressionButton?.title = String(localized: "browser.alwaysAllowHost", defaultValue: "Always allow this host in cmux")
 
         let handleResponse: (NSApplication.ModalResponse) -> Void = { [weak self, weak alert] response in
-            self?.pendingInsecureHTTPConsentRequestIDs.remove(consentRequestID)
             self?.handleInsecureHTTPAlertResponse(
                 response,
                 alert: alert,
@@ -5976,17 +5928,7 @@ final class BrowserPanel: Panel, ObservableObject {
             )
         }
 
-        if shouldDeferPromptUntilInteractiveHost(for: webView) {
-            presentBrowserAlert(alert, in: webView, completion: handleResponse, cancel: { [weak self] in self?.pendingInsecureHTTPConsentRequestIDs.remove(consentRequestID); onResolution(.cancelled) })
-            return
-        }
-
-        if let alertWindow = insecureHTTPAlertWindowProvider() {
-            alert.beginSheetModal(for: alertWindow, completionHandler: handleResponse)
-            return
-        }
-
-        handleResponse(alert.runModal())
+        presentBrowserAlert(alert, in: webView, windowProvider: insecureHTTPAlertWindowProvider, completion: handleResponse, cancel: { onResolution(.cancelled) })
     }
 
     func handleInsecureHTTPAlertResponse(

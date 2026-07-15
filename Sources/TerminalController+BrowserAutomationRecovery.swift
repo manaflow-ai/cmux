@@ -6,25 +6,26 @@ extension TerminalController {
     nonisolated func v2CaptureBrowserAutomationSnapshot(
         _ browserPanel: BrowserPanel,
         timeout: TimeInterval
-    ) -> BrowserAutomationSnapshotResult? {
+    ) -> (webViewIdentifier: ObjectIdentifier, result: BrowserAutomationSnapshotResult)? {
         socketAwaitCallback(timeout: timeout) { finish in
             v2MainSync {
+                let webViewIdentifier = ObjectIdentifier(browserPanel.webView)
                 browserPanel.captureAutomationVisibleViewportSnapshot { result in
                     switch result {
                     case .success(let image):
                         guard let data = self.v2PNGData(from: image) else {
-                            finish(.failure(BrowserScreenshotError.invalidImageRepresentation.localizedDescription))
+                            finish((webViewIdentifier, .failure(BrowserScreenshotError.invalidImageRepresentation.localizedDescription)))
                             return
                         }
-                        finish(.success(data))
+                        finish((webViewIdentifier, .success(data)))
                     case .failure(let error as BrowserScreenshotError):
                         if case .automationTimedOut = error {
-                            finish(.timedOut)
+                            finish((webViewIdentifier, .timedOut))
                         } else {
-                            finish(.failure(error.localizedDescription))
+                            finish((webViewIdentifier, .failure(error.localizedDescription)))
                         }
                     case .failure(let error):
-                        finish(.failure(error.localizedDescription))
+                        finish((webViewIdentifier, .failure(error.localizedDescription)))
                     }
                 }
             }
