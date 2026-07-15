@@ -30,6 +30,27 @@ extension SimulatorWorkerClientTests {
         await client.stop()
     }
 
+    @Test("Text replies resolve both the request and pane completion streams")
+    func textRepliesPreservePaneCompletion() async throws {
+        let client = makeClient(launcher: TestWorkerLauncher())
+        let lifecycle = await client.subscribe()
+        var lifecycleIterator = lifecycle.makeAsyncIterator()
+        let requestID = UUID()
+        let request = try await client.registerRequestSubscriber(requestID)
+        var requestIterator = request.makeAsyncIterator()
+        let reply = SimulatorWorkerEvent.message(.textInput(
+            requestID: requestID,
+            succeeded: true
+        ))
+
+        await client.broadcast(reply)
+
+        #expect(await requestIterator.next() == reply)
+        #expect(await lifecycleIterator.next() == reply)
+        await client.removeRequestSubscriber(requestID)
+        await client.stop()
+    }
+
     @Test("Correlated request routing has a hard waiter limit")
     func correlatedRequestCapacityIsBounded() async throws {
         let client = makeClient(launcher: TestWorkerLauncher())

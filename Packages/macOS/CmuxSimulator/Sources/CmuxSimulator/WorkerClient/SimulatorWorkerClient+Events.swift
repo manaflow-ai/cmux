@@ -51,14 +51,24 @@ extension SimulatorWorkerClient {
         let chargedBytes = byteCount ?? estimatedByteCount(of: event)
         if case let .message(message) = event,
            let requestIdentifier = message.requestIdentifier {
-            guard let continuation = requestSubscribers[requestIdentifier] else { return }
-            switch await continuation.yield(event, byteCount: chargedBytes) {
-            case .enqueued:
-                return
-            case .overflow, .terminated:
-                await removeRequestSubscriber(requestIdentifier)
-                return
-            @unknown default:
+            if let continuation = requestSubscribers[requestIdentifier] {
+                switch await continuation.yield(event, byteCount: chargedBytes) {
+                case .enqueued:
+                    if case .textInput = message {
+                        break
+                    }
+                    return
+                case .overflow, .terminated:
+                    await removeRequestSubscriber(requestIdentifier)
+                @unknown default:
+                    break
+                }
+            }
+            if case .textInput = message {
+                // Pane callbacks and the control-socket receipt share this
+                // completion, so text replies intentionally have two bounded
+                // consumers. Other correlated replies stay request-private.
+            } else {
                 return
             }
         }

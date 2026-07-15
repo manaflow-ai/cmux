@@ -47,10 +47,16 @@ struct SimulatorFrameTransportCrashTests {
         for expectedSequence in UInt64(1)...4 {
             let pixel = UInt32(0xFF_00_00_00) | UInt32(expectedSequence)
             try producer.publish(makeInputSurface(pixel: pixel))
-            let snapshot = try #require(await source.copyLatestFrame(after: previousSequence))
-            #expect(snapshot.sequence == expectedSequence)
-            #expect(readFirstPixel(snapshot) == pixel)
-            previousSequence = snapshot.sequence
+            var snapshot: SimulatorFrameSnapshot? = await source.copyLatestFrame(
+                after: previousSequence
+            )
+            do {
+                let frame = try #require(snapshot)
+                #expect(frame.sequence == expectedSequence)
+                #expect(readFirstPixel(frame) == pixel)
+                previousSequence = frame.sequence
+            }
+            snapshot = nil
         }
 
         #expect(await source.copyLatestFrame(after: previousSequence) == nil)
