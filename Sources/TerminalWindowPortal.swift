@@ -9,28 +9,6 @@ import Bonsplit
 private var cmuxWindowTerminalPortalKey: UInt8 = 0
 private var cmuxWindowTerminalPortalCloseObserverKey: UInt8 = 0
 
-#if DEBUG
-/// Process-wide counters proving geometry-only window activity (a titlebar
-/// drag, an origin-only setFrame) does no sizing work. The sizing UI suite
-/// snapshots them via `remote.tmux.sizing_settled`, moves the window without
-/// resizing it, and asserts every delta is zero — the regression guard for
-/// the window-move echo storm: the full-pass signature once fingerprinted
-/// the window's frame WITH origin, so during a titlebar drag every echoed
-/// sync escalated to a full layout pass whose notifications scheduled the
-/// next.
-@MainActor
-enum RemoteTmuxSizingDiagnostics {
-    static var sizingPassCount = 0
-    static var parityRearmCount = 0
-    static var fullHierarchySyncCount = 0
-    /// Executed external-geometry sync passes (not merely scheduled ones):
-    /// the liveness counter for the deferred-hop chain — with static
-    /// geometry this must stay bounded no matter which interactive flags
-    /// are held, or the chain is a per-runloop-turn busy loop.
-    static var externalGeometrySyncPassCount = 0
-}
-#endif
-
 final class WindowTerminalHostView: NSView {
     private typealias DividerRegion = PortalSplitDividerRegion
     private typealias DividerCursorKind = PortalDividerCursorKind
@@ -641,7 +619,10 @@ private final class SplitDividerOverlayView: NSView {
 final class WindowTerminalPortal: NSObject {
 #if DEBUG
     static var isPointerDragActiveForTesting = false
-    static var isWindowLiveResizeActiveForTesting = false
+    /// Instance-scoped so a test drives only its own portal's live-resize
+    /// path; a process-wide static latched interactive state across the shared
+    /// app-host and made one test's setting leak into every later portal.
+    var isWindowLiveResizeActiveOverrideForTesting = false
 #endif
     static let tinyHideThreshold: CGFloat = 1
     private static let minimumRevealWidth: CGFloat = 24
@@ -890,7 +871,7 @@ final class WindowTerminalPortal: NSObject {
     /// window live resizes — they keep the immediate per-callback sync path.
     private var isWindowLiveResizeActive: Bool {
 #if DEBUG
-        if Self.isWindowLiveResizeActiveForTesting { return true }
+        if isWindowLiveResizeActiveOverrideForTesting { return true }
 #endif
         return hostView.inLiveResize || window?.inLiveResize == true
     }

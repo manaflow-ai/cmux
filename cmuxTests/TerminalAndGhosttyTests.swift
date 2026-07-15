@@ -4680,7 +4680,8 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
     override func tearDown() {
         // Global flags first: a failed assertion can skip a test's own reset,
         // and latched interactive state changes every later test's sync path.
-        WindowTerminalPortal.isWindowLiveResizeActiveForTesting = false
+        // (Window-live-resize is now instance-scoped on each portal, so it
+        // dies with the portal and needs no global reset.)
         TerminalWindowPortalRegistry.resetInteractiveGeometryStateForTesting()
 
         // Free native runtimes synchronously. The deinit path frees them on a

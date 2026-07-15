@@ -66,7 +66,6 @@ extension TerminalWindowPortalLifecycleTests {
             styleMask: [.titled, .closable, .resizable]
         )
         defer {
-            WindowTerminalPortal.isWindowLiveResizeActiveForTesting = false
             NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
             window.orderOut(nil)
         }
@@ -91,7 +90,7 @@ extension TerminalWindowPortalLifecycleTests {
         drainMainQueue()
         realizeWindowLayout(window)
 
-        WindowTerminalPortal.isWindowLiveResizeActiveForTesting = true
+        portal.isWindowLiveResizeActiveOverrideForTesting = true
         leftSurface.resetDebugForceRefreshCount()
         rightSurface.resetDebugForceRefreshCount()
 
@@ -139,7 +138,7 @@ extension TerminalWindowPortalLifecycleTests {
 
         // End of live resize: the unconditional end-of-resize sync reconciles
         // every pane at final geometry.
-        WindowTerminalPortal.isWindowLiveResizeActiveForTesting = false
+        portal.isWindowLiveResizeActiveOverrideForTesting = false
         leftAnchor.setFrameSize(NSSize(width: 210, height: 150))
         rightAnchor.setFrameSize(NSSize(width: 210, height: 150))
         NotificationCenter.default.post(name: NSWindow.didEndLiveResizeNotification, object: window)
