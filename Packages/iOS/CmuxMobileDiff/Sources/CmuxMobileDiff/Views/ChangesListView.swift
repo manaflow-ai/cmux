@@ -54,6 +54,10 @@ struct ChangesListView: View {
             }
         }
         .listStyle(.plain)
+#if os(iOS)
+        .listRowSpacing(0)
+#endif
+        .environment(\.defaultMinListRowHeight, 1)
         .scrollPosition(id: $scrollAnchorID, anchor: .top)
         .onChange(of: scrollAnchorID, initial: true) { _, anchor in
             if let path = anchorResolver.filePath(containing: anchor, files: snapshot.files) {
