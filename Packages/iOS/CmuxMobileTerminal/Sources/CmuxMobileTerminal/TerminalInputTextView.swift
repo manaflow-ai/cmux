@@ -48,12 +48,23 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// Fired by the trailing "customize" button so the SwiftUI host can present
     /// the toolbar shortcuts editor.
     var onOpenToolbarSettings: (() -> Void)?
+    /// Fired by the Files accessory button when terminal artifacts are supported.
+    /// The source view lets the host anchor an inline popover to the tapped control.
+    var onOpenArtifactFiles: ((UIView) -> Void)?
     /// Invoked when the composer accessory button is tapped. The host toggles
     /// the iMessage-style composer above the terminal.
     var onToggleComposer: (() -> Void)?
     /// Fired by the pinned HIDE button: temporarily hides the toolbar + composer
     /// until the next terminal tap.
     var onHideChrome: (() -> Void)?
+    var artifactFilesEnabled = false {
+        didSet {
+            guard oldValue != artifactFilesEnabled, accessoryStackView != nil else { return }
+            populateAccessoryActions()
+            terminalAccessoryToolbar.setNeedsLayout()
+            terminalAccessoryToolbar.layoutIfNeeded()
+        }
+    }
     var accessoryLayoutInsetsProvider: (() -> UIEdgeInsets)?
     /// The leftmost toolbar button. Toggles its glyph between dismiss-keyboard
     /// (when the keyboard is up) and show-keyboard (when down) via
@@ -223,7 +234,19 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         inputDelegate?.textDidChange(self)
     }
 
-    private static let monokaiBarColor = UIColor(red: 0x27/255.0, green: 0x28/255.0, blue: 0x22/255.0, alpha: 1)
+    /// The input accessory bar fill, taken from the active terminal theme's
+    /// background so the bar blends with the live terminal under any theme.
+    private static var themeBarColor: UIColor {
+        guard let rgb = TerminalTheme.rgbComponents(TerminalThemeStore.current.background) else {
+            return UIColor(red: 0x27 / 255.0, green: 0x28 / 255.0, blue: 0x22 / 255.0, alpha: 1)
+        }
+        return UIColor(
+            red: CGFloat(rgb.red) / 255.0,
+            green: CGFloat(rgb.green) / 255.0,
+            blue: CGFloat(rgb.blue) / 255.0,
+            alpha: 1
+        )
+    }
     private static let accessoryHorizontalInset: CGFloat = 16
     private static let accessoryButtonFont = UIFont.systemFont(ofSize: 14, weight: .medium)
     /// One shared SF Symbol config for every icon on the bar (paste, zoom,
@@ -288,6 +311,16 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     private var accessoryBackgroundTrailingConstraint: NSLayoutConstraint?
     private var accessoryDismissLeadingConstraint: NSLayoutConstraint?
     private var accessoryScrollTrailingConstraint: NSLayoutConstraint?
+    /// The fill behind the input accessory bar, kept so a live theme change can
+    /// recolor it from the new theme's background.
+    private weak var accessoryBarBackgroundView: UIView?
+
+    /// Re-applies the active theme's background to the input accessory bar fill.
+    /// Called on a live theme change so the bar blends with the recolored
+    /// terminal instead of keeping the old theme's color.
+    func refreshThemeColors() {
+        accessoryBarBackgroundView?.backgroundColor = Self.themeBarColor
+    }
 
     private lazy var terminalAccessoryToolbar: UIView = {
         let container = UIView()
@@ -298,8 +331,9 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         container.frame = CGRect(x: 0, y: 0, width: 0, height: Self.dockedButtonRowHeight)
 
         let backgroundView = UIView()
-        backgroundView.backgroundColor = Self.monokaiBarColor
+        backgroundView.backgroundColor = Self.themeBarColor
         backgroundView.translatesAutoresizingMaskIntoConstraints = false
+        self.accessoryBarBackgroundView = backgroundView
 
         // Pinned keyboard dismiss button on the left
         let dismissButton = UIButton(type: .system)
@@ -540,6 +574,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
                 // (it stays in the saved order, just unrendered, so flipping the
                 // remote re-shows it in place).
                 if action == .command && !isMacRemote { continue }
+                if action == .files && !artifactFilesEnabled { continue }
                 stack.addArrangedSubview(makeAccessoryButton(for: action))
             case let .custom(custom):
                 stack.addArrangedSubview(makeCustomAccessoryButton(for: custom))
@@ -821,7 +856,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         guard let button = sender as? AccessoryActionButton else { return }
         switch button.item {
         case let .builtin(action):
-            handleAccessoryAction(action)
+            handleAccessoryAction(action, sourceView: button)
         case let .custom(custom):
             handleCustomAction(custom)
         }
@@ -1037,7 +1072,10 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         return config
     }
 
-    private func handleAccessoryAction(_ action: TerminalInputAccessoryAction) {
+    private func handleAccessoryAction(
+        _ action: TerminalInputAccessoryAction,
+        sourceView: UIView? = nil
+    ) {
         if action == .composer {
             // Opening the composer moves first responder off this proxy, so clear
             // any armed modifier first (like Paste/Zoom do); otherwise a
@@ -1055,6 +1093,13 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             disarmAllModifiers()
             refreshAccessoryButtonStyles()
             handlePasteAction()
+            return
+        }
+
+        if action == .files {
+            disarmAllModifiers()
+            refreshAccessoryButtonStyles()
+            onOpenArtifactFiles?(sourceView ?? self)
             return
         }
 
@@ -1232,35 +1277,6 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         } else {
             onText?(committedText)
         }
-    }
-
-    /// Translate Cmd+<letter> typed through the soft keyboard into Mac-terminal
-    /// readline shortcuts (cmd+a = start of line, cmd+e = end, cmd+k = kill line, etc).
-    private func commandTextSequence(for text: String) -> Data? {
-        guard text.count == 1, let char = text.lowercased().first else { return nil }
-        switch char {
-        case "a": return Data([0x01]) // Ctrl+A - beginning of line
-        case "e": return Data([0x05]) // Ctrl+E - end of line
-        case "k": return Data([0x0B]) // Ctrl+K - kill to end of line
-        case "u": return Data([0x15]) // Ctrl+U - kill to start of line
-        case "w": return Data([0x17]) // Ctrl+W - delete previous word
-        case "l": return Data([0x0C]) // Ctrl+L - clear screen
-        case "c": return Data([0x03]) // Ctrl+C - SIGINT
-        case "d": return Data([0x04]) // Ctrl+D - EOF
-        default: return nil
-        }
-    }
-
-    private func controlSequence(for text: String) -> Data? {
-        guard text.count == 1 else { return nil }
-        return TerminalHardwareKeyResolver.data(input: text, modifierFlags: [.control])
-    }
-
-    private func alternateSequence(for text: String) -> Data? {
-        guard let encoded = text.data(using: .utf8), !encoded.isEmpty else { return nil }
-        var sequence = Data([0x1B])
-        sequence.append(encoded)
-        return sequence
     }
 
     private func alternateAccessoryOutput(for action: TerminalInputAccessoryAction) -> Data? {

@@ -1,5 +1,6 @@
 import Combine
 import CmuxCore
+import CmuxWorkspaces
 import Foundation
 import CmuxSidebar
 import SwiftUI
@@ -25,16 +26,62 @@ extension View {
             }
         }
     }
+
+    func sidebarProcessTitleObservation(
+        id: UUID,
+        model: WorkspaceSidebarProcessTitleObservationModel,
+        onChange: @MainActor @escaping () -> Void
+    ) -> some View {
+        task(id: id) { @MainActor in
+            for await _ in model.changes() {
+                if Task.isCancelled { break }
+                onChange()
+            }
+        }
+    }
+
+    func sidebarProcessTitleObservations(
+        ids: [UUID],
+        models: [WorkspaceSidebarProcessTitleObservationModel],
+        onChange: @MainActor @escaping () -> Void
+    ) -> some View {
+        task(id: ids) { @MainActor in
+            let aggregateObservation = WorkspaceSidebarProcessTitleObservationModel(
+                settleInterval: WorkspaceSidebarProcessTitleObservationModel.extensionSidebarAggregateInterval
+            )
+            let aggregateChanges = aggregateObservation.changes()
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask { @MainActor in
+                    for await _ in aggregateChanges {
+                        if Task.isCancelled { break }
+                        onChange()
+                    }
+                }
+                for model in models {
+                    let changes = model.changes()
+                    group.addTask { @MainActor in
+                        for await _ in changes {
+                            if Task.isCancelled { break }
+                            aggregateObservation.processTitleDidChange()
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 private struct SidebarImmediateObservationState: Equatable {
-    let title: String
+    let customTitle: String?
     let customDescription: String?
     let isPinned: Bool
     let customColor: String?
     let latestConversationMessage: String?
     let latestSubmittedMessage: String?
     let latestSubmittedAt: Date?
+    let taskStatusOverride: WorkspaceTaskStatusOverride?
+    let statusHidden: Bool
+    let checklist: [WorkspaceChecklistItem]
 }
 
 private struct SidebarObservationState: Equatable {
@@ -43,6 +90,7 @@ private struct SidebarObservationState: Equatable {
     let panels: SidebarPanelObservationState
     let panelDirectories: [UUID: String]
     let panelDirectoryDisplayLabels: [UUID: String]
+    let directoryChangeRevision: UInt64
     let statusEntries: [String: SidebarStatusEntry]
     let metadataBlocks: [String: SidebarMetadataBlock]
     let logEntries: [SidebarLogEntry]
@@ -60,22 +108,18 @@ private struct SidebarObservationState: Equatable {
 }
 
 extension Workspace {
-    // Leading-edge coalescing for the immediate sidebar observation stream.
-    // Every subscription (a sidebar row, the MergeMany extension-sidebar
-    // aggregate) fires a full makeWorkspaceSnapshot() rebuild per emission.
-    // Agents (e.g. Codex) rewrite a workspace title every turn, and
-    // removeDuplicates() cannot collapse distinct titles, so without coalescing
-    // each rewrite drives a snapshot rebuild per consumer per workspace.
-    // coalesceLatest (below) keeps the first change in a burst synchronous
-    // (a user pin/color/title edit stays immediate, which Combine's throttle
-    // cannot guarantee because it schedules every emission onto the scheduler)
-    // and collapses the tail of the burst into one trailing emission per window.
-    // See https://github.com/manaflow-ai/cmux/issues/4127.
+    // User-owned sidebar fields keep a synchronous leading edge. Automatic
+    // process titles settle separately: agent TUIs can animate their terminal
+    // title at 10 Hz, and per-workspace burst coalescing cannot reduce changes
+    // spaced farther apart than its window. Waiting for the title to settle
+    // prevents those frames from continuously invalidating LazyVStack rows,
+    // and the settle model's deferral deadline still republishes during
+    // sustained churn so a row's title cannot stay stale until the agent
+    // goes quiet. See https://github.com/manaflow-ai/cmux/issues/5570.
     static let sidebarImmediateObservationCoalesceInterval: RunLoop.SchedulerTimeType.Stride = .milliseconds(50)
-
     func makeSidebarImmediateObservationPublisher() -> AnyPublisher<Void, Never> {
         let workspaceFields = Publishers.CombineLatest4(
-            $title,
+            $customTitle,
             $customDescription,
             $isPinned,
             $customColor
@@ -85,18 +129,29 @@ extension Workspace {
             $latestSubmittedMessage,
             $latestSubmittedAt
         )
+        // Todo state is row-affecting (status pill, checklist progress) but
+        // lives in its own sub-model, so fold its publishers in here the same
+        // way the workspace's own @Published fields are.
+        let todoFields = Publishers.CombineLatest3(
+            todoState.$statusOverride,
+            todoState.$statusHidden,
+            todoState.$checklist
+        )
 
-        return workspaceFields
-            .combineLatest(conversationFields)
-            .map { workspaceFields, conversationFields in
+        let immediateFields = workspaceFields
+            .combineLatest(conversationFields, todoFields)
+            .map { workspaceFields, conversationFields, todoFields in
                 SidebarImmediateObservationState(
-                    title: workspaceFields.0,
+                    customTitle: workspaceFields.0,
                     customDescription: workspaceFields.1,
                     isPinned: workspaceFields.2,
                     customColor: workspaceFields.3,
                     latestConversationMessage: conversationFields.0,
                     latestSubmittedMessage: conversationFields.1,
-                    latestSubmittedAt: conversationFields.2
+                    latestSubmittedAt: conversationFields.2,
+                    taskStatusOverride: todoFields.0,
+                    statusHidden: todoFields.1,
+                    checklist: todoFields.2
                 )
             }
             .removeDuplicates()
@@ -105,7 +160,8 @@ extension Workspace {
                 scheduler: RunLoop.main
             )
             .map { _ in () }
-            .eraseToAnyPublisher()
+
+        return immediateFields.eraseToAnyPublisher()
     }
 
     /// Merged immediate observation across workspaces for the extension
@@ -149,6 +205,7 @@ extension Workspace {
             $remoteConnectionDetail,
             $activeRemoteTerminalSessionCount
         )
+        let directoryChangeRevision = currentDirectoryChangeRevisionPublisher()
         return Publishers.CombineLatest4(
             workspaceFields,
             metadataFields,
@@ -156,8 +213,10 @@ extension Workspace {
             remoteFields
         )
             .combineLatest($listeningPorts, sidebarMetadata.panelDirectoryDisplayLabelsPublisher)
-            .compactMap { [weak self] groupedFields, listeningPorts, panelDirectoryDisplayLabels -> SidebarObservationState? in
+            .combineLatest(directoryChangeRevision)
+            .compactMap { [weak self] values, directoryChangeRevision -> SidebarObservationState? in
                 guard let self else { return nil }
+                let (groupedFields, listeningPorts, panelDirectoryDisplayLabels) = values
                 let workspaceFields = groupedFields.0
                 let metadataFields = groupedFields.1
                 let gitFields = groupedFields.2
@@ -168,6 +227,7 @@ extension Workspace {
                     panels: workspaceFields.2,
                     panelDirectories: workspaceFields.3,
                     panelDirectoryDisplayLabels: panelDirectoryDisplayLabels,
+                    directoryChangeRevision: directoryChangeRevision,
                     statusEntries: metadataFields.0,
                     metadataBlocks: metadataFields.1,
                     logEntries: metadataFields.2,

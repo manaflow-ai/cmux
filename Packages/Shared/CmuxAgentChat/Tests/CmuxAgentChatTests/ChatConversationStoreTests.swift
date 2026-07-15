@@ -968,8 +968,8 @@ struct ChatConversationStoreTests {
         let source = TruncatedHeadEventSource(newest: newest)
         let store = Self.makeStore(source: source)
         let runTask = Task { await store.run() }
-        defer { runTask.cancel() }
         #expect(await TestPoller.waitUntil { store.hasLoadedInitialHistory })
+        runTask.cancel(); await runTask.value
         #expect(store.hasMoreHistory)
         #expect(store.historyTruncatedAtHead == false)
 

@@ -32,6 +32,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "appearance", title: "Appearance", synonyms: "app.appearance theme color scheme light mode dark mode system mode"),
             .init(section: .app, id: "app-icon", title: "App Icon", synonyms: "app.appIcon dock icon application icon app switcher alternate icon"),
             .init(section: .app, id: "new-workspace-placement", title: "New Workspace Placement", synonyms: "app.newWorkspacePlacement new tab insert position order top bottom end"),
+            .init(section: .app, id: "workspace-layouts", title: String(localized: "settings.app.workspaceLayouts", defaultValue: "Workspace Layouts"), synonyms: "workspace layouts customize layout default new workspace menu save delete cmux.json actions"),
             .init(section: .app, id: "workspace-inherit-working-directory", title: "Inherit Workspace Working Directory", synonyms: "app.workspaceInheritWorkingDirectory workspace cwd directory inherit current focused working-directory"),
             .init(section: .app, id: "minimal-mode", title: "Minimal Mode", synonyms: "app.minimalMode presentation compact chrome layout simple titlebar controls"),
             .init(section: .app, id: "keep-workspace-open", title: "Keep Workspace Open When Closing Last Surface", synonyms: "app.keepWorkspaceOpenWhenClosingLastSurface close last pane surface keep tab workspace"),
@@ -119,23 +120,6 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .terminal, id: "renderer-realization", title: "Reclaim Offscreen Terminal Memory", synonyms: "terminal.rendererRealization.enabled renderer reclaim offscreen memory iosurface gpu idle warm release background terminals"),
             .init(section: .terminal, id: "renderer-realization-idle", title: "Reclaim After Idle Seconds", synonyms: "terminal.rendererRealization.idleSeconds renderer reclaim idle seconds timeout delay offscreen memory"),
             .init(section: .terminal, id: "renderer-realization-max", title: "Max Warm Renderers", synonyms: "terminal.rendererRealization.maxWarmRenderers max warm renderers limit count reclaim offscreen gpu"),
-            .init(
-                section: .terminal,
-                id: "memory-guardrail",
-                title: String(localized: "settings.terminal.memoryGuardrail", defaultValue: "Runaway Memory Guardrail"),
-                detailText: [
-                    String(localized: "settings.terminal.memoryGuardrail.subtitleOn", defaultValue: "cmux warns you with a badge and a banner when one pane's process tree uses too much memory, so a single leak can't crash the whole app."),
-                    String(localized: "settings.terminal.memoryGuardrail.subtitleOff", defaultValue: "No warning is shown when a pane's process tree grows large. A leaking process can OOM-suspend the entire app."),
-                ].joined(separator: " "),
-                synonyms: "terminal.runawayMemoryGuardrail.enabled runaway memory guardrail high memory warning badge banner oom leak process tree pane"
-            ),
-            .init(
-                section: .terminal,
-                id: "memory-guardrail-threshold",
-                title: String(localized: "settings.terminal.memoryGuardrail.threshold", defaultValue: "Memory Warning Threshold (GB)"),
-                detailText: String(localized: "settings.terminal.memoryGuardrail.threshold.subtitle", defaultValue: "A pane is flagged once its combined process-tree memory crosses this many gigabytes."),
-                synonyms: "terminal.runawayMemoryGuardrail.thresholdGB memory warning threshold gb gigabytes limit process tree pane"
-            ),
             .init(section: .terminal, id: "resume-commands", title: "Resume Commands", synonyms: "terminal.resumeCommands surface resume command approvals prefixes auto restore prompt manual tmux hibernation"),
 
             // TextBox
@@ -153,6 +137,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .sidebarAppearance, id: "stack-branch-directory", title: "Stack Branch and Directory", synonyms: "sidebar.stackBranchDirectory git branch directory cwd path stack stacked separate lines two rows"),
             .init(section: .sidebarAppearance, id: "path-last-segment-only", title: "Truncate Path From Start", synonyms: "sidebar.pathLastSegmentOnly cwd path directory last segment basename short truncate folder repo"),
             .init(section: .sidebarAppearance, id: "show-notification-message", title: "Show Notification Message in Sidebar", synonyms: "sidebar.showNotificationMessage latest message unread notification text sidebar"),
+            .init(section: .sidebarAppearance, id: "notification-message-line-limit", title: String(localized: "settings.app.notificationMessageLineLimit", defaultValue: "Notification Preview Lines"), synonyms: "sidebar.notificationMessageLineLimit notification message preview lines limit sidebar"),
             .init(section: .sidebarAppearance, id: "show-branch-directory", title: "Show Branch + Directory in Sidebar", synonyms: "sidebar.showBranchDirectory git branch cwd path directory folder repo sidebar"),
             .init(section: .sidebarAppearance, id: "show-pull-requests", title: "Show Pull Requests in Sidebar", synonyms: "sidebar.showPullRequests pr mr review github gitlab bitbucket pull request merge request"),
             .init(section: .sidebarAppearance, id: "watch-git-status", title: "Watch Git Status in Sidebar", synonyms: "sidebar.watchGitStatus git status branch watcher index lock"),
@@ -163,6 +148,30 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .sidebarAppearance, id: "show-ports", title: "Show Listening Ports in Sidebar", synonyms: "sidebar.showPorts localhost port listener dev server url"),
             .init(section: .sidebarAppearance, id: "show-log", title: "Show Latest Log in Sidebar", synonyms: "sidebar.showLog log status latest message imperative"),
             .init(section: .sidebarAppearance, id: "show-progress", title: "Show Progress in Sidebar", synonyms: "sidebar.showProgress progress bar percent status set_progress"),
+            .init(
+                section: .sidebarAppearance,
+                id: "show-agent-activity",
+                title: String(localized: "settings.app.showAgentActivity", defaultValue: "Show Loading Spinner"),
+                detailText: String(localized: "settings.app.showAgentActivity.subtitle", defaultValue: "Show a loading spinner on workspaces with running coding agents or active loaders. Stays visible even when sidebar details are hidden."),
+                paths: ["sidebar.showAgentActivity"],
+                synonyms: "sidebar.showAgentActivity loading spinner active coding agent agents running activity"
+            ),
+            .init(
+                section: .sidebarAppearance,
+                id: "loading-spinner-position",
+                title: String(localized: "settings.app.loadingSpinnerPosition", defaultValue: "Loading Spinner Position"),
+                detailText: String(localized: "settings.app.loadingSpinnerPosition.subtitle", defaultValue: "Show the spinner on the left (sharing the unread badge slot) or the right of the workspace row."),
+                paths: ["sidebar.loadingSpinnerPosition"],
+                synonyms: "sidebar.loadingSpinnerPosition loading spinner position left right leading trailing side"
+            ),
+            .init(
+                section: .sidebarAppearance,
+                id: "notification-badge-position",
+                title: String(localized: "settings.app.notificationBadgePosition", defaultValue: "Notification Badge Position"),
+                detailText: String(localized: "settings.app.notificationBadgePosition.subtitle", defaultValue: "Show the unread notification badge on the left or the right of the workspace row."),
+                paths: ["sidebar.notificationBadgePosition"],
+                synonyms: "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side"
+            ),
             .init(section: .sidebarAppearance, id: "show-metadata", title: "Show Custom Metadata in Sidebar", synonyms: "sidebar.showCustomMetadata metadata meta report_meta status custom block"),
             .init(section: .sidebarAppearance, id: "right-max-width", title: "Dock Max Width", synonyms: "sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit"),
 
@@ -181,6 +190,19 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .betaFeatures, id: "dock", title: "Dock", synonyms: "dock right sidebar terminal controls tui beta unstable"),
             .init(section: .betaFeatures, id: "customSidebars", title: "Custom Sidebars", synonyms: "custom sidebars swift json interpreted vibe beta unstable"),
             .init(section: .betaFeatures, id: "remoteTmux", title: "Remote tmux", synonyms: "remote tmux ssh control mode -CC mirror session window pane sidebar workspace beta unstable"),
+            .init(
+                section: .betaFeatures,
+                id: "workspace-todos-checklist-style",
+                title: String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle", defaultValue: "Checklist Style"),
+                detailText: [
+                    String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle.subtitlePopover", defaultValue: "Clicking a row's checklist summary opens an anchored popover."),
+                    String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle.subtitleInline", defaultValue: "Clicking a row's checklist summary expands the items inline under the row."),
+                    String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle.popover", defaultValue: "Popover"),
+                    String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle.inline", defaultValue: "Inline"),
+                ].joined(separator: " "),
+                paths: ["sidebar.beta.workspaceTodos.checklistStyle"],
+                synonyms: String(localized: "settings.search.alias.setting.betaFeatures.workspace-todos-checklist-style", defaultValue: "sidebar.beta.workspaceTodos.checklistStyle workspace todo todos task status checklist popover inline presentation style beta")
+            ),
 
             // Automation
             .init(section: .automation, id: "socket-mode", title: "Socket Control Mode", synonyms: "automation.socketControlMode api socket unix domain control server auth allow password disabled"),

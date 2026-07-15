@@ -164,7 +164,7 @@ struct CodexForkSanitizerTests {
                 sessionId: "CHILD",
                 executablePath: "/opt/bin/codex",
                 arguments: capturedArguments
-            ) == ["/opt/bin/codex", "resume", "CHILD", "--sandbox", "danger-full-access"]
+            ) == ["/opt/bin/codex", "resume", "CHILD", "-c", "check_for_update_on_startup=false", "--sandbox", "danger-full-access"]
         )
     }
 

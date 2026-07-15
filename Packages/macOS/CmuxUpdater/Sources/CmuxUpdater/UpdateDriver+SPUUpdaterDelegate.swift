@@ -18,8 +18,7 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
         // The feed URL is baked into Info.plist at build time:
         // - Stable releases use the stable appcast URL
         // - cmux NIGHTLY has the nightly appcast URL injected by CI
-        let infoFeedURL = Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String
-        let resolved = UpdateFeedResolver().resolve(infoFeedURL: infoFeedURL)
+        let resolved = UpdateFeedResolver().resolve(infoFeedURL: infoFeedURLProvider())
         log.append("update channel: \(resolved.isNightly ? "nightly" : "stable")")
         recordFeedURLString(resolved.url, usedFallback: resolved.usedFallback)
         return resolved.url
@@ -124,9 +123,10 @@ private func describeNoUpdateFoundReason(_ reason: SPUNoUpdateFoundReason) -> St
         return "systemIsTooOld"
     case .systemIsTooNew:
         return "systemIsTooNew"
+    case .hardwareDoesNotSupportARM64:
+        return "hardwareDoesNotSupportARM64"
     @unknown default:
-        // Newer Sparkle adds cases like `.hardwareDoesNotSupportARM64`; handled here so the
-        // code compiles against the app's pinned (older) Sparkle and newer SwiftPM resolutions.
+        // Preserve forward compatibility when a future Sparkle release adds another reason.
         return "unknown"
     }
 }

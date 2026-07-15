@@ -13,7 +13,11 @@ import SwiftUI
 public struct WorkspaceListLayoutPreviewView: View {
     @State private var selectedWorkspaceID: MobileWorkspacePreview.ID?
     @State private var macSelection: WorkspaceMacSelection = .all
+    // Safety: DEBUG screenshot-only presenter is owned by this preview view and
+    // only mutates its fired flag from the SwiftUI task that requests the banner.
+    private let notificationPresenter = ScreenshotNotificationPresenter()
 
+    /// Creates a static workspace-list preview for App Store screenshot capture.
     public init() {}
 
     private let workspaces: [MobileWorkspacePreview] = [
@@ -48,28 +52,43 @@ public struct WorkspaceListLayoutPreviewView: View {
         ),
     ]
 
+    private var showNotificationBanner: Bool {
+        ProcessInfo.processInfo.environment["CMUX_UITEST_NOTIFICATION_BANNER"] == "1"
+    }
+
     public var body: some View {
-        if UITestConfig.workspaceDetailCreateDelayedTerminalPreviewEnabled {
-            WorkspaceDetailCreateDelayedTerminalPreviewView()
-        } else if UITestConfig.workspaceDetailDelayedTerminalPreviewEnabled {
-            WorkspaceDetailDelayedTerminalPreviewView()
-        } else {
-            NavigationStack {
-                WorkspaceListView(
-                    workspaces: workspaces,
-                    selectedWorkspaceID: selectedWorkspaceID,
-                    host: "Visual Mock Mac",
-                    connectionStatus: .connected,
-                    navigationStyle: .push,
-                    wrapWorkspaceTitles: false,
-                    previewLineLimit: MobileDisplaySettings.defaultWorkspacePreviewLineCount,
-                    unreadIndicatorLeftShift: MobileDisplaySettings.defaultUnreadIndicatorLeftShift,
-                    profilePictureLeftShift: MobileDisplaySettings.defaultProfilePictureLeftShift,
-                    profilePictureSize: MobileDisplaySettings.defaultProfilePictureSize,
-                    selectWorkspace: { selectedWorkspaceID = $0 },
-                    createWorkspace: {},
-                    macSelection: $macSelection
-                )
+        Group {
+            if UITestConfig.workspaceDetailCreateDelayedTerminalPreviewEnabled {
+                WorkspaceDetailCreateDelayedTerminalPreviewView()
+            } else if UITestConfig.workspaceDetailRefreshingTerminalMenuPreviewEnabled {
+                WorkspaceDetailDelayedTerminalPreviewView()
+            } else if UITestConfig.workspaceDetailDelayedTerminalPreviewEnabled {
+                WorkspaceDetailDelayedTerminalPreviewView()
+            } else {
+                NavigationStack {
+                    WorkspaceListView(
+                        workspaces: workspaces,
+                        selectedWorkspaceID: selectedWorkspaceID,
+                        host: "Visual Mock Mac",
+                        connectionStatus: .connected,
+                        navigationStyle: .push,
+                        wrapWorkspaceTitles: false,
+                        previewLineLimit: MobileDisplaySettings.defaultWorkspacePreviewLineCount,
+                        unreadIndicatorLeftShift: MobileDisplaySettings.defaultUnreadIndicatorLeftShift,
+                        profilePictureLeftShift: MobileDisplaySettings.defaultProfilePictureLeftShift,
+                        profilePictureSize: MobileDisplaySettings.defaultProfilePictureSize,
+                        selectWorkspace: { selectedWorkspaceID = $0 },
+                        createWorkspace: {},
+                        macSelection: $macSelection
+                    )
+                }
+            }
+        }
+        .task {
+            // Fire a REAL local notification (not a drawn banner) so the system
+            // renders the genuine banner over this workspace list.
+            if showNotificationBanner {
+                notificationPresenter.fire()
             }
         }
     }

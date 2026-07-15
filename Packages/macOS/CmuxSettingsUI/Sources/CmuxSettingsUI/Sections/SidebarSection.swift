@@ -1,29 +1,23 @@
 import CmuxFoundation
 import CmuxSettings
 import SwiftUI
-
-/// **Sidebar** section — mirrors the legacy in-app section
-/// row-for-row. Single card containing match-terminal-background
-/// followed by every workspace-row detail toggle. Rows that depend
-/// on a parent toggle (`hideAllDetails`, PR visibility, PR
-/// clickability) are disabled accordingly.
 @MainActor
 public struct SidebarSection: View {
     private let catalog: SettingCatalog
     private let hostActions: SettingsHostActions
     private let rightSidebarWidthSettings = RightSidebarWidthSettings()
-
     @State private var sidebarFont: SettingsFontSize
     @State private var fontSaveFailed = false
     @State private var fontSaveTask: Task<Void, Never>?
     @State private var matchTerminal: DefaultsValueModel<Bool>
-    @State private var hideAll: DefaultsValueModel<Bool>
+    @State var hideAll: DefaultsValueModel<Bool>
     @State private var wrapTitles: DefaultsValueModel<Bool>
     @State private var showDesc: DefaultsValueModel<Bool>
     @State private var branchVerticalLayout: DefaultsValueModel<Bool>
     @State private var stackBranchDir: DefaultsValueModel<Bool>
     @State private var pathLastOnly: DefaultsValueModel<Bool>
-    @State private var showNotification: DefaultsValueModel<Bool>
+    @State var showNotification: DefaultsValueModel<Bool>
+    @State var notificationMessageLineLimit: DefaultsValueModel<Int>
     @State private var showBranchDir: DefaultsValueModel<Bool>
     @State private var showPR: DefaultsValueModel<Bool>
     @State private var watchGit: DefaultsValueModel<Bool>
@@ -34,10 +28,12 @@ public struct SidebarSection: View {
     @State private var showPorts: DefaultsValueModel<Bool>
     @State private var showLog: DefaultsValueModel<Bool>
     @State private var showProgress: DefaultsValueModel<Bool>
+    @State var showAgentActivity: DefaultsValueModel<Bool>
+    @State var loadingSpinnerPosition: DefaultsValueModel<SidebarIndicatorPosition>
+    @State var notificationBadgePosition: DefaultsValueModel<SidebarIndicatorPosition>
     @State private var showMetadata: DefaultsValueModel<Bool>
     @State private var rightMaxWidth: DefaultsValueModel<Double>
     @State private var rememberedRightMaxWidth: DefaultsValueModel<Double>
-
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog, hostActions: SettingsHostActions) {
         self.catalog = catalog
         self.hostActions = hostActions
@@ -50,6 +46,7 @@ public struct SidebarSection: View {
         _stackBranchDir = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.stackBranchDirectory))
         _pathLastOnly = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.pathLastSegmentOnly))
         _showNotification = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showNotificationMessage))
+        _notificationMessageLineLimit = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.notificationMessageLineLimit))
         _showBranchDir = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showBranchDirectory))
         _showPR = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showPullRequests))
         _watchGit = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.watchGitStatus))
@@ -60,11 +57,14 @@ public struct SidebarSection: View {
         _showPorts = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showPorts))
         _showLog = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showLog))
         _showProgress = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showProgress))
+        _showAgentActivity = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showAgentActivity))
+        _loadingSpinnerPosition = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.loadingSpinnerPosition))
+        _notificationBadgePosition = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.notificationBadgePosition))
         _showMetadata = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showCustomMetadata))
         _rightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rightMaxWidth))
         _rememberedRightMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.rememberedRightMaxWidth))
     }
-
+    /// The rendered sidebar settings section.
     public var body: some View {
         Group {
             SettingsSectionHeader(String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar"), section: .sidebarAppearance)
@@ -81,9 +81,7 @@ public struct SidebarSection: View {
             showDesc,
             branchVerticalLayout,
             stackBranchDir,
-            pathLastOnly,
-            showNotification,
-            showBranchDir,
+            pathLastOnly, showNotification, notificationMessageLineLimit, showBranchDir,
             showPR,
             watchGit,
             prClickable,
@@ -93,13 +91,15 @@ public struct SidebarSection: View {
             showPorts,
             showLog,
             showProgress,
+            showAgentActivity,
+            loadingSpinnerPosition,
+            notificationBadgePosition,
             showMetadata,
             rightMaxWidth,
             rememberedRightMaxWidth,
         ]
         models.forEach { $0.startObserving() }
     }
-
     /// Persists a new sidebar font size, cancelling any in-flight save so a
     /// rapid sequence of slider releases only reflects the latest value (the
     /// host serializes the underlying writes; this keeps the UI state in step).
@@ -110,11 +110,9 @@ public struct SidebarSection: View {
             if !Task.isCancelled { fontSaveFailed = !saved }
         }
     }
-
     private var rightMaxWidthOverrideEnabled: Bool {
         rightMaxWidth.current.isFinite && rightMaxWidth.current > 0
     }
-
     private var rightMaxWidthOverrideBinding: Binding<Bool> {
         Binding(
             get: { rightMaxWidthOverrideEnabled },
@@ -346,6 +344,9 @@ public struct SidebarSection: View {
             .disabled(hideAll.current)
             SettingsCardDivider()
 
+            notificationMessageLineLimitRow
+            SettingsCardDivider()
+
             SettingsCardRow(
                 configurationReview: .json("sidebar.showBranchDirectory"),
                 String(localized: "settings.app.showBranchDirectory", defaultValue: "Show Branch + Directory in Sidebar"),
@@ -468,6 +469,8 @@ public struct SidebarSection: View {
             }
             .disabled(hideAll.current)
             SettingsCardDivider()
+
+            agentActivityRows
 
             SettingsCardRow(
                 configurationReview: .json("sidebar.showCustomMetadata"),

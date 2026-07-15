@@ -106,6 +106,7 @@ extension RemoteDaemonRPCClient {
         rows: Int,
         command: String?,
         requireExisting: Bool,
+        inputSeqAck: Bool = false,
         queue: DispatchQueue,
         onEvent: @escaping (RemoteDaemonPTYEvent) -> Void
     ) throws -> RemotePTYBridgeAttachment {
@@ -146,6 +147,9 @@ extension RemoteDaemonRPCClient {
         if requireExisting {
             params["require_existing"] = true
         }
+        if inputSeqAck {
+            params["input_seq_ack"] = true
+        }
 
         do {
             let result = try call(method: "pty.attach", params: params, timeout: 12.0)
@@ -176,17 +180,22 @@ extension RemoteDaemonRPCClient {
         attachmentID: String,
         attachmentToken: String,
         data: Data,
+        seq: UInt64? = nil,
         completion: @escaping ((any Error)?) -> Void
     ) {
+        var params: [String: Any] = [
+            "session_id": sessionID,
+            "attachment_id": attachmentID,
+            "client_attachment_token": attachmentToken,
+            "data_base64": data.base64EncodedString(),
+        ]
+        if let seq {
+            params["seq"] = seq
+        }
         do {
             try notify(
                 method: "pty.write",
-                params: [
-                    "session_id": sessionID,
-                    "attachment_id": attachmentID,
-                    "client_attachment_token": attachmentToken,
-                    "data_base64": data.base64EncodedString(),
-                ]
+                params: params
             )
             completion(nil)
         } catch {
@@ -234,11 +243,16 @@ extension RemoteDaemonRPCClient {
     }
 
     /// Terminates a PTY session (`pty.close`).
-    public func closePTY(sessionID: String) throws {
+    ///
+    /// - Parameters:
+    ///   - sessionID: Persistent PTY session to terminate.
+    ///   - timeout: Maximum time to await the daemon response. The default
+    ///     preserves the established standalone close behavior.
+    public func closePTY(sessionID: String, timeout: TimeInterval = 8.0) throws {
         _ = try call(
             method: "pty.close",
             params: ["session_id": sessionID],
-            timeout: 8.0
+            timeout: max(0, timeout)
         )
     }
 

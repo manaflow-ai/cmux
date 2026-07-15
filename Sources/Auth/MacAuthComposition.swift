@@ -125,7 +125,17 @@ struct MacAuthComposition {
             sessionFactory: ASWebBrowserAuthSessionFactory(anchor: anchor),
             callbackRouter: callbackRouter,
             makeSignInURL: { AuthEnvironment.signInURL(callbackState: $0) },
-            callbackScheme: { AuthEnvironment.callbackScheme }
+            callbackScheme: { AuthEnvironment.callbackScheme },
+            openExternalURL: { NSWorkspace.shared.open($0) },
+            beginSignOut: {
+                MobileHostIrohRuntime.shared.beginSignOutPreparation()
+            },
+            onSignedOut: { accessToken, refreshToken in
+                await MobileHostIrohRuntime.shared.revokeAfterSignOut(
+                    accessToken: accessToken,
+                    refreshToken: refreshToken
+                )
+            }
         )
     }
 

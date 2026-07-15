@@ -12,10 +12,6 @@ struct SetupHelpGateContent {
     let identifierSuffix: String
     let linkAccessibilityIdentifier: String
 
-    /// Founders Edition page: cmux for Mac download plus TestFlight enrollment,
-    /// used by the "Run cmux on your Mac" gate.
-    private static let setupHelpMacDownloadURL = URL(string: "https://github.com/manaflow-ai/cmux#founders-edition")!
-
     /// Maps a setup gate to its title, icon, copy, and optional link. Pure and
     /// scoped to the content type so the gate guidance is data, separate from
     /// the view that lays it out.
@@ -41,10 +37,7 @@ struct SetupHelpGateContent {
                     "mobile.setupHelp.macAppBody",
                     defaultValue: "Install cmux on your computer and leave it running, signed in to the same account. The phone pairs to a running cmux build, so a quit or never-installed app is the most common reason pairing does nothing."
                 ),
-                link: SetupHelpGateLink(
-                    title: L10n.string("mobile.setupHelp.macAppLink", defaultValue: "Download cmux"),
-                    url: setupHelpMacDownloadURL
-                ),
+                link: nil,
                 identifierSuffix: "signedInNeverPaired",
                 linkAccessibilityIdentifier: "MobileSetupHelpMacAppLink"
             )
@@ -54,7 +47,7 @@ struct SetupHelpGateContent {
                 title: L10n.string("mobile.setupHelp.unreachableTitle", defaultValue: "Wake the computer"),
                 body: L10n.string(
                     "mobile.setupHelp.unreachableBody",
-                    defaultValue: "You have paired this computer before but it is not reachable now. Wake it, make sure cmux is running, and confirm both devices are on the same tailnet or Wi-Fi. Then reconnect."
+                    defaultValue: "You paired this computer before, but it is not reachable now. Wake it and make sure cmux is running. Iroh will retry direct and relay paths; if you rely on a private network, connect both devices to it, then reconnect."
                 ),
                 link: nil,
                 identifierSuffix: "macUnreachable",

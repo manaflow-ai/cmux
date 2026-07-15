@@ -1,5 +1,8 @@
 import { sql } from "drizzle-orm";
 import {
+  bigint,
+  boolean,
+  check,
   index,
   integer,
   jsonb,
@@ -11,7 +14,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
-export const vmProvider = pgEnum("vm_provider", ["e2b", "freestyle"]);
+export const vmProvider = pgEnum("vm_provider", ["e2b", "freestyle", "daytona"]);
 
 export const vmStatus = pgEnum("vm_status", [
   "provisioning",
@@ -22,6 +25,28 @@ export const vmStatus = pgEnum("vm_status", [
 ]);
 
 export const vmLeaseKind = pgEnum("vm_lease_kind", ["pty", "rpc", "ssh"]);
+
+export const cloudVmSessionStatus = pgEnum("cloud_vm_session_status", [
+  "running",
+  "detached",
+  "exited",
+  "closed",
+]);
+
+export const cloudVmNotificationSeverity = pgEnum("cloud_vm_notification_severity", [
+  "info",
+  "success",
+  "warning",
+  "error",
+]);
+
+export const cloudVmNotificationDeliveryStatus = pgEnum("cloud_vm_notification_delivery_status", [
+  "pending",
+  "sent",
+  "failed",
+  "read",
+  "dismissed",
+]);
 
 export const cloudVms = pgTable(
   "cloud_vms",
@@ -41,16 +66,109 @@ export const cloudVms = pgTable(
     destroyedAt: timestamp("destroyed_at", { withTimezone: true }),
     failureCode: text("failure_code"),
     failureMessage: text("failure_message"),
+    providerMetadata: jsonb("provider_metadata").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
   },
   (table) => [
     index("cloud_vms_user_status_idx").on(table.userId, table.status),
     index("cloud_vms_billing_team_status_idx").on(table.billingTeamId, table.status),
-    uniqueIndex("cloud_vms_user_idempotency_key_unique")
-      .on(table.userId, table.idempotencyKey)
-      .where(sql`${table.idempotencyKey} is not null`),
+    uniqueIndex("cloud_vms_billing_team_idempotency_key_unique")
+      .on(table.billingTeamId, table.idempotencyKey)
+      .where(sql`${table.billingTeamId} is not null and ${table.idempotencyKey} is not null`),
     uniqueIndex("cloud_vms_provider_vm_id_unique")
       .on(table.provider, table.providerVmId)
       .where(sql`${table.providerVmId} is not null`),
+  ],
+);
+
+export const accountDeletionTombstones = pgTable(
+  "account_deletion_tombstones",
+  {
+    userIdHash: text("user_id_hash").primaryKey(),
+    userId: text("user_id"),
+    status: text("status").$type<"pending" | "in_progress" | "stack_delete_pending" | "stack_delete_in_progress" | "completed" | "cleanup_incomplete" | "failed">().notNull().default("pending"),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    analyticsDeletedAt: timestamp("analytics_deleted_at", { withTimezone: true }),
+    errorMessage: text("error_message"),
+  },
+  (table) => [
+    index("account_deletion_tombstones_status_updated_idx").on(table.status, table.updatedAt),
+    index("account_deletion_tombstones_user_idx").on(table.userId),
+  ],
+);
+
+/**
+ * The last server-configured relay catalog accepted by this database.
+ * Persisting its sequence and digest prevents an older or conflicting deploy
+ * from signing a rollback after a newer catalog has already been served.
+ */
+export const irohRelayCatalogState = pgTable(
+  "iroh_relay_catalog_state",
+  {
+    id: text("id").primaryKey(),
+    catalogSequence: bigint("catalog_sequence", { mode: "number" }).notNull(),
+    catalogDigest: text("catalog_digest").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check("iroh_relay_catalog_state_singleton", sql`${table.id} = 'managed'`),
+    check("iroh_relay_catalog_sequence_positive", sql`${table.catalogSequence} > 0`),
+  ],
+);
+
+/**
+ * Account-scoped relay choice and non-secret custom relay metadata.
+ * Custom relay credentials deliberately have no column and are rejected by
+ * the API before this JSON reaches Postgres.
+ */
+export const irohRelayPreferences = pgTable(
+  "iroh_relay_preferences",
+  {
+    accountId: text("account_id").primaryKey(),
+    mode: text("mode").$type<"automatic" | "managed" | "custom">().notNull().default("automatic"),
+    selectedManagedRelayIds: jsonb("selected_managed_relay_ids")
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    customRelays: jsonb("custom_relays")
+      .$type<Array<{
+        id: string;
+        url: string;
+        provider: string;
+        region: string;
+        displayName?: string;
+        authMode: "none" | "device_secret";
+      }>>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    revision: bigint("revision", { mode: "number" }).notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check("iroh_relay_preferences_mode", sql`${table.mode} in ('automatic', 'managed', 'custom')`),
+    check("iroh_relay_preferences_selected_array", sql`jsonb_typeof(${table.selectedManagedRelayIds}) = 'array'`),
+    check("iroh_relay_preferences_custom_array", sql`jsonb_typeof(${table.customRelays}) = 'array'`),
+    check("iroh_relay_preferences_revision_nonnegative", sql`${table.revision} >= 0`),
+  ],
+);
+
+export const accountAnalyticsForwardLeases = pgTable(
+  "account_analytics_forward_leases",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    operationId: uuid("operation_id").notNull(),
+    userIdHash: text("user_id_hash").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    index("account_analytics_forward_leases_expiry_idx").on(table.expiresAt),
+    index("account_analytics_forward_leases_user_expiry_idx").on(table.userIdHash, table.expiresAt),
+    index("account_analytics_forward_leases_operation_idx").on(table.operationId),
   ],
 );
 
@@ -76,8 +194,45 @@ export const cloudVmLeases = pgTable(
   (table) => [
     index("cloud_vm_leases_vm_kind_idx").on(table.vmId, table.kind),
     index("cloud_vm_leases_identity_idx").on(table.providerIdentityHandle),
+    index("cloud_vm_leases_identity_cleanup_idx")
+      .on(table.expiresAt, table.createdAt, table.id)
+      .where(sql`${table.providerIdentityHandle} is not null and ${table.revokedAt} is null`),
     index("cloud_vm_leases_user_expires_idx").on(table.userId, table.expiresAt),
     uniqueIndex("cloud_vm_leases_token_hash_unique").on(table.tokenHash),
+  ],
+);
+
+export const cloudVmSessions = pgTable(
+  "cloud_vm_sessions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    vmId: uuid("vm_id")
+      .notNull()
+      .references(() => cloudVms.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    providerSessionId: text("provider_session_id").notNull(),
+    title: text("title"),
+    kind: text("kind").notNull().default("terminal"),
+    status: cloudVmSessionStatus("status").notNull().default("running"),
+    attachmentCount: integer("attachment_count").notNull().default(0),
+    effectiveCols: integer("effective_cols"),
+    effectiveRows: integer("effective_rows"),
+    lastKnownCols: integer("last_known_cols"),
+    lastKnownRows: integer("last_known_rows"),
+    scrollbackBytes: integer("scrollback_bytes").notNull().default(0),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    lastAttachedAt: timestamp("last_attached_at", { withTimezone: true }),
+    exitedAt: timestamp("exited_at", { withTimezone: true }),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("cloud_vm_sessions_vm_provider_session_unique")
+      .on(table.vmId, table.providerSessionId),
+    index("cloud_vm_sessions_user_status_updated_idx")
+      .on(table.userId, table.status, table.updatedAt),
+    index("cloud_vm_sessions_vm_updated_idx").on(table.vmId, table.updatedAt),
   ],
 );
 
@@ -103,6 +258,80 @@ export const cloudVmUsageEvents = pgTable(
   ],
 );
 
+export const cloudVmBases = pgTable(
+  "cloud_vm_bases",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    scopeType: text("scope_type").notNull(),
+    scopeId: text("scope_id").notNull(),
+    name: text("name").notNull().default("base"),
+    activeGeneration: integer("active_generation").notNull().default(0),
+    activeVmId: uuid("active_vm_id").references(() => cloudVms.id, { onDelete: "set null" }),
+    activeProvider: vmProvider("active_provider"),
+    activeProviderVmId: text("active_provider_vm_id"),
+    state: text("state").notNull().default("creating"),
+    createdByUserId: text("created_by_user_id").notNull(),
+    lastOpenedByUserId: text("last_opened_by_user_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("cloud_vm_bases_scope_name_unique").on(table.scopeType, table.scopeId, table.name),
+    index("cloud_vm_bases_active_vm_idx").on(table.activeVmId),
+    index("cloud_vm_bases_provider_vm_idx").on(table.activeProvider, table.activeProviderVmId),
+  ],
+);
+
+export const cloudVmBaseGenerations = pgTable(
+  "cloud_vm_base_generations",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    baseId: uuid("base_id")
+      .notNull()
+      .references(() => cloudVmBases.id, { onDelete: "cascade" }),
+    generation: integer("generation").notNull(),
+    vmId: uuid("vm_id").references(() => cloudVms.id, { onDelete: "set null" }),
+    provider: vmProvider("provider"),
+    providerVmId: text("provider_vm_id"),
+    state: text("state").notNull().default("creating"),
+    createdByUserId: text("created_by_user_id").notNull(),
+    retainedAt: timestamp("retained_at", { withTimezone: true }),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("cloud_vm_base_generations_base_generation_unique").on(table.baseId, table.generation),
+    index("cloud_vm_base_generations_vm_idx").on(table.vmId),
+    index("cloud_vm_base_generations_provider_vm_idx").on(table.provider, table.providerVmId),
+  ],
+);
+
+export const cloudVmBaseEvents = pgTable(
+  "cloud_vm_base_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    baseId: uuid("base_id")
+      .notNull()
+      .references(() => cloudVmBases.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    eventType: text("event_type").notNull(),
+    oldGeneration: integer("old_generation"),
+    newGeneration: integer("new_generation"),
+    oldVmId: uuid("old_vm_id").references(() => cloudVms.id, { onDelete: "set null" }),
+    newVmId: uuid("new_vm_id").references(() => cloudVms.id, { onDelete: "set null" }),
+    oldProviderVmId: text("old_provider_vm_id"),
+    newProviderVmId: text("new_provider_vm_id"),
+    reason: text("reason"),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("cloud_vm_base_events_base_created_idx").on(table.baseId, table.createdAt),
+    index("cloud_vm_base_events_user_created_idx").on(table.userId, table.createdAt),
+  ],
+);
+
 /**
  * APNs device tokens for iOS push notifications. A row exists only after the
  * user explicitly opts in on their device (the feature is off by default), so
@@ -118,7 +347,7 @@ export const deviceTokens = pgTable(
     deviceToken: text("device_token").notNull(),
     platform: text("platform").notNull().default("ios"),
     // The APNs topic the token belongs to (the iOS bundle id, which varies by
-    // build: dev.cmux.ios.<tag>, dev.cmux.app.beta, com.cmuxterm.app).
+    // build: dev.cmux.ios.<tag>, dev.cmux.app.beta, com.cmux.app).
     bundleId: text("bundle_id").notNull(),
     // "sandbox" for development builds, "production" for TestFlight/App Store —
     // selects which APNs host the sender uses.
@@ -142,6 +371,200 @@ export const notificationSendEvents = pgTable(
   },
   (table) => [
     index("notification_send_events_user_created_idx").on(table.userId, table.createdAt),
+  ],
+);
+
+export const stripeCustomers = pgTable(
+  "stripe_customers",
+  {
+    id: text("id").primaryKey(),
+    stackUserId: text("stack_user_id").notNull(),
+    stackTeamId: text("stack_team_id"),
+    email: text("email"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("stripe_customers_stack_user_id_unique")
+      .on(table.stackUserId)
+      .where(sql`${table.stackTeamId} is null`),
+    uniqueIndex("stripe_customers_stack_team_id_unique")
+      .on(table.stackTeamId)
+      .where(sql`${table.stackTeamId} is not null`),
+  ],
+);
+
+export const stripeSubscriptions = pgTable(
+  "stripe_subscriptions",
+  {
+    id: text("id").primaryKey(),
+    customerId: text("customer_id").notNull(),
+    stackUserId: text("stack_user_id").notNull(),
+    stackTeamId: text("stack_team_id"),
+    status: text("status").notNull(),
+    priceId: text("price_id"),
+    plan: text("plan").notNull(),
+    seats: integer("seats"),
+    scope: text("scope").notNull().default("user"),
+    currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
+    cancelAtPeriodEnd: boolean("cancel_at_period_end")
+      .notNull()
+      .default(false),
+    raw: jsonb("raw").$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("stripe_subscriptions_customer_id_idx").on(table.customerId),
+    index("stripe_subscriptions_stack_user_id_idx").on(table.stackUserId),
+    index("stripe_subscriptions_stack_team_id_idx").on(table.stackTeamId),
+  ],
+);
+
+export const stripeWebhookEvents = pgTable("stripe_webhook_events", {
+  id: text("id").primaryKey(),
+  type: text("type").notNull(),
+  payloadHash: text("payload_hash"),
+  processedAt: timestamp("processed_at", { withTimezone: true }),
+  error: text("error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const billingEmailClaims = pgTable(
+  "billing_email_claims",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    email: text("email").notNull(),
+    stripeCustomerId: text("stripe_customer_id").notNull(),
+    stackUserId: text("stack_user_id").notNull(),
+    plan: text("plan").notNull(),
+    claimedByUserId: text("claimed_by_user_id"),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("billing_email_claims_email_idx").on(table.email),
+  ],
+);
+
+export const subrouterTenants = pgTable(
+  "subrouter_tenants",
+  {
+    teamId: text("team_id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    tenantName: text("tenant_name").notNull(),
+    encryptedTenantKey: text("encrypted_tenant_key").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("subrouter_tenants_tenant_id_unique").on(table.tenantId),
+  ],
+);
+
+export const vaultSessions = pgTable(
+  "vault_sessions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id").notNull(),
+    agent: text("agent").notNull(),
+    agentSessionId: text("agent_session_id").notNull(),
+    relPath: text("rel_path").notNull(),
+    cwd: text("cwd"),
+    latestSha256: text("latest_sha256").notNull(),
+    latestObjectKey: text("latest_object_key").notNull(),
+    sizeBytes: bigint("size_bytes", { mode: "number" }).notNull(),
+    compressedSizeBytes: bigint("compressed_size_bytes", { mode: "number" }),
+    firstUploadedAt: timestamp("first_uploaded_at", { withTimezone: true }).notNull(),
+    lastUploadedAt: timestamp("last_uploaded_at", { withTimezone: true }).notNull(),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+  },
+  (table) => [
+    uniqueIndex("vault_sessions_user_agent_session_unique").on(
+      table.userId,
+      table.agent,
+      table.agentSessionId,
+    ),
+    index("vault_sessions_user_last_uploaded_idx").on(table.userId, table.lastUploadedAt),
+    index("vault_sessions_cwd_trgm_idx").using("gin", table.cwd.op("gin_trgm_ops")),
+    index("vault_sessions_rel_path_trgm_idx").using("gin", table.relPath.op("gin_trgm_ops")),
+  ],
+);
+
+export const vaultSnapshots = pgTable(
+  "vault_snapshots",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => vaultSessions.id, { onDelete: "cascade" }),
+    sha256: text("sha256").notNull(),
+    objectKey: text("object_key").notNull(),
+    sizeBytes: bigint("size_bytes", { mode: "number" }).notNull(),
+    compressedSizeBytes: bigint("compressed_size_bytes", { mode: "number" }).notNull(),
+    uploadedAt: timestamp("uploaded_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("vault_snapshots_session_sha_unique").on(table.sessionId, table.sha256),
+  ],
+);
+
+// Ledger of presigned PUT URLs that were minted but not yet committed.
+// Pending grants count against the per-user storage quota so a client cannot
+// bypass CMUX_VAULT_MAX_USER_BYTES by uploading objects and never committing;
+// expired uncommitted grants and their storage objects are opportunistically
+// GC'd by the uploads route.
+export const vaultUploadGrants = pgTable(
+  "vault_upload_grants",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id").notNull(),
+    objectKey: text("object_key").notNull(),
+    uploadObjectKey: text("upload_object_key").notNull(),
+    compressedSizeBytes: bigint("compressed_size_bytes", { mode: "number" }).notNull(),
+    reservationToken: uuid("reservation_token").defaultRandom().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("vault_upload_grants_object_key_unique").on(table.objectKey),
+    index("vault_upload_grants_user_idx").on(table.userId),
+    index("vault_upload_grants_expires_idx").on(table.expiresAt),
+  ],
+);
+
+export const vaultUploadTombstones = pgTable(
+  "vault_upload_tombstones",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id").notNull(),
+    objectKey: text("object_key").notNull(),
+    uploadObjectKey: text("upload_object_key").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    index("vault_upload_tombstones_user_idx").on(table.userId),
+    index("vault_upload_tombstones_expires_idx").on(table.expiresAt),
+    uniqueIndex("vault_upload_tombstones_upload_object_key_unique").on(table.uploadObjectKey),
+  ],
+);
+
+export const vaultCliAuthRequests = pgTable(
+  "vault_cli_auth_requests",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    deviceCodeHash: text("device_code_hash").notNull(),
+    userCode: text("user_code").notNull(),
+    status: text("status").notNull(),
+    userId: text("user_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("vault_cli_auth_requests_device_hash_unique").on(table.deviceCodeHash),
+    index("vault_cli_auth_requests_expires_idx").on(table.expiresAt),
+    index("vault_cli_auth_requests_user_code_idx").on(table.userCode),
   ],
 );
 
@@ -254,5 +677,255 @@ export const deviceAppInstances = pgTable(
   (table) => [
     uniqueIndex("device_app_instances_device_tag_unique").on(table.deviceId, table.tag),
     index("device_app_instances_team_last_seen_idx").on(table.teamId, table.lastSeenAt),
+  ],
+);
+
+/**
+ * Personal-account Iroh trust state. The rendezvous key is derived at the
+ * application boundary from a server-only HMAC secret and this generation, so
+ * Aurora never stores the LAN discovery secret itself. Revoking an endpoint
+ * increments the generation and invalidates previously advertised rendezvous
+ * values for the account.
+ */
+export const irohAccountSecurityStates = pgTable(
+  "iroh_account_security_states",
+  {
+    userId: text("user_id").primaryKey(),
+    lanDiscoveryGeneration: integer("lan_discovery_generation").notNull().default(1),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check("iroh_account_security_states_generation_check", sql`${table.lanDiscoveryGeneration} >= 1`),
+  ],
+);
+
+/**
+ * Authenticated Iroh endpoint bindings. These rows are intentionally separate
+ * from the legacy team-scoped device registry: Iroh discovery and grants are
+ * always scoped to the exact Stack user id that registered the endpoint.
+ */
+export const irohEndpointBindings = pgTable(
+  "iroh_endpoint_bindings",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id").notNull(),
+    deviceUuid: uuid("device_uuid").notNull(),
+    appInstanceId: uuid("app_instance_id").notNull(),
+    tag: text("tag").notNull(),
+    platform: text("platform").notNull(),
+    displayName: text("display_name"),
+    endpointId: text("endpoint_id").notNull(),
+    identityGeneration: integer("identity_generation").notNull(),
+    pairingEnabled: boolean("pairing_enabled").notNull().default(false),
+    capabilities: jsonb("capabilities").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    pathHints: jsonb("path_hints").$type<unknown[]>().notNull().default(sql`'[]'::jsonb`),
+    pathHintsNextExpiry: timestamp("path_hints_next_expiry", { withTimezone: true }),
+    deviceLimitOverrideUsed: boolean("device_limit_override_used").notNull().default(false),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    registeredAt: timestamp("registered_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    revokedReason: text("revoked_reason"),
+  },
+  (table) => [
+    check("iroh_endpoint_bindings_endpoint_id_check", sql`${table.endpointId} ~ '^[0-9a-f]{64}$'`),
+    check("iroh_endpoint_bindings_identity_generation_check", sql`${table.identityGeneration} between 1 and 2147483647`),
+    check("iroh_endpoint_bindings_tag_check", sql`${table.tag} ~ '^[A-Za-z0-9._-]{1,64}$'`),
+    check("iroh_endpoint_bindings_platform_check", sql`${table.platform} in ('mac', 'ios')`),
+    check("iroh_endpoint_bindings_display_name_check", sql`${table.displayName} is null or ${table.displayName} !~ '[[:cntrl:]]'`),
+    check("iroh_endpoint_bindings_capabilities_check", sql`jsonb_typeof(${table.capabilities}) = 'array' and jsonb_array_length(${table.capabilities}) <= 32`),
+    check("iroh_endpoint_bindings_path_hints_check", sql`jsonb_typeof(${table.pathHints}) = 'array' and jsonb_array_length(${table.pathHints}) <= 16`),
+    uniqueIndex("iroh_endpoint_bindings_active_endpoint_unique")
+      .on(table.endpointId)
+      .where(sql`${table.revokedAt} is null`),
+    uniqueIndex("iroh_endpoint_bindings_active_app_instance_unique")
+      .on(table.appInstanceId)
+      .where(sql`${table.revokedAt} is null`),
+    index("iroh_endpoint_bindings_user_active_idx")
+      .on(table.userId, table.updatedAt)
+      .where(sql`${table.revokedAt} is null`),
+    index("iroh_endpoint_bindings_user_device_active_idx")
+      .on(table.userId, table.deviceUuid)
+      .where(sql`${table.revokedAt} is null`),
+    index("iroh_endpoint_bindings_user_idx")
+      .on(table.userId),
+    index("iroh_endpoint_bindings_user_revoked_idx")
+      .on(table.userId, table.revokedAt, table.id)
+      .where(sql`${table.revokedAt} is not null`),
+    index("iroh_endpoint_bindings_revoked_idx")
+      .on(table.revokedAt)
+      .where(sql`${table.revokedAt} is not null`),
+    index("iroh_endpoint_bindings_path_hints_expiry_idx")
+      .on(table.pathHintsNextExpiry, table.id)
+      .where(sql`${table.revokedAt} is null and ${table.pathHintsNextExpiry} is not null`),
+    index("iroh_endpoint_bindings_revoked_hints_idx")
+      .on(table.revokedAt, table.id)
+      .where(sql`${table.revokedAt} is not null and ${table.pathHintsNextExpiry} is not null`),
+  ],
+);
+
+/**
+ * One-use registration challenges. Only a SHA-256 hash of the random nonce is
+ * persisted. The payload hash binds all endpoint metadata before signature
+ * verification and the consumed timestamp provides replay protection.
+ */
+export const irohRegistrationChallenges = pgTable(
+  "iroh_registration_challenges",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id").notNull(),
+    deviceUuid: uuid("device_uuid").notNull(),
+    appInstanceId: uuid("app_instance_id").notNull(),
+    tag: text("tag").notNull(),
+    endpointId: text("endpoint_id").notNull(),
+    identityGeneration: integer("identity_generation").notNull(),
+    payloadSha256: text("payload_sha256").notNull(),
+    nonceHash: text("nonce_hash").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+  },
+  (table) => [
+    check("iroh_registration_challenges_endpoint_id_check", sql`${table.endpointId} ~ '^[0-9a-f]{64}$'`),
+    check("iroh_registration_challenges_identity_generation_check", sql`${table.identityGeneration} between 1 and 2147483647`),
+    check("iroh_registration_challenges_tag_check", sql`${table.tag} ~ '^[A-Za-z0-9._-]{1,64}$'`),
+    check("iroh_registration_challenges_payload_hash_check", sql`${table.payloadSha256} ~ '^[0-9a-f]{64}$'`),
+    check("iroh_registration_challenges_nonce_hash_check", sql`${table.nonceHash} ~ '^[0-9a-f]{64}$'`),
+    uniqueIndex("iroh_registration_challenges_nonce_hash_unique").on(table.nonceHash),
+    index("iroh_registration_challenges_user_created_idx").on(table.userId, table.createdAt),
+    index("iroh_registration_challenges_user_device_created_idx")
+      .on(table.userId, table.deviceUuid, table.createdAt),
+    index("iroh_registration_challenges_expires_idx")
+      .on(table.expiresAt, table.id),
+    index("iroh_registration_challenges_consumed_idx")
+      .on(table.consumedAt, table.id)
+      .where(sql`${table.consumedAt} is not null`),
+    index("iroh_registration_challenges_user_expires_idx")
+      .on(table.userId, table.expiresAt, table.id),
+    index("iroh_registration_challenges_user_consumed_idx")
+      .on(table.userId, table.consumedAt, table.id)
+      .where(sql`${table.consumedAt} is not null`),
+  ],
+);
+
+/** Audit-only record of an issued compact pair-grant JWS. The JWS is returned
+ * once and is never persisted. */
+export const irohPairGrantIssuances = pgTable(
+  "iroh_pair_grant_issuances",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id").notNull(),
+    jti: uuid("jti").notNull(),
+    initiatorBindingId: uuid("initiator_binding_id")
+      .notNull()
+      .references(() => irohEndpointBindings.id, { onDelete: "cascade" }),
+    acceptorBindingId: uuid("acceptor_binding_id")
+      .notNull()
+      .references(() => irohEndpointBindings.id, { onDelete: "cascade" }),
+    signingKeyId: text("signing_key_id").notNull(),
+    alpn: text("alpn").notNull().default("cmux/mobile/1"),
+    scope: text("scope").notNull().default("cmux.mobile.attach"),
+    issuedAt: timestamp("issued_at", { withTimezone: true }).notNull(),
+    notBefore: timestamp("not_before", { withTimezone: true }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("iroh_pair_grant_issuances_jti_unique").on(table.jti),
+    index("iroh_pair_grant_issuances_user_issued_idx").on(table.userId, table.issuedAt),
+    index("iroh_pair_grant_issuances_initiator_idx").on(table.initiatorBindingId, table.expiresAt),
+    index("iroh_pair_grant_issuances_acceptor_expires_idx").on(table.acceptorBindingId, table.expiresAt),
+    index("iroh_pair_grant_issuances_expires_idx").on(table.expiresAt, table.id),
+    index("iroh_pair_grant_issuances_user_expires_idx").on(table.userId, table.expiresAt, table.id),
+  ],
+);
+
+/**
+ * DB-authoritative relay-mint quota ledger. At most a hash of a successfully
+ * minted token is recorded; plaintext relay credentials never enter Aurora.
+ */
+export const irohRelayTokenIssuances = pgTable(
+  "iroh_relay_token_issuances",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id").notNull(),
+    bindingId: uuid("binding_id")
+      .notNull()
+      .references(() => irohEndpointBindings.id, { onDelete: "cascade" }),
+    endpointIdHash: text("endpoint_id_hash").notNull(),
+    status: text("status")
+      .$type<"pending" | "succeeded" | "failed" | "expired">()
+      .notNull()
+      .default("pending"),
+    tokenHash: text("token_hash"),
+    failureCode: text("failure_code"),
+    requestedAt: timestamp("requested_at", { withTimezone: true }).notNull(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+  },
+  (table) => [
+    check("iroh_relay_token_issuances_endpoint_hash_check", sql`${table.endpointIdHash} ~ '^[0-9a-f]{64}$'`),
+    check("iroh_relay_token_issuances_status_check", sql`${table.status} in ('pending', 'succeeded', 'failed', 'expired')`),
+    index("iroh_relay_token_issuances_binding_requested_idx").on(table.bindingId, table.requestedAt),
+    index("iroh_relay_token_issuances_user_requested_idx").on(table.userId, table.requestedAt, table.id),
+    index("iroh_relay_token_issuances_requested_idx").on(table.requestedAt, table.id),
+  ],
+);
+
+export const cloudVmNotificationEvents = pgTable(
+  "cloud_vm_notification_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    vmId: uuid("vm_id")
+      .notNull()
+      .references(() => cloudVms.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    billingTeamId: text("billing_team_id"),
+    providerSessionId: text("provider_session_id"),
+    severity: cloudVmNotificationSeverity("severity").notNull().default("info"),
+    source: text("source").notNull().default("vm"),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    action: jsonb("action").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("cloud_vm_notification_events_user_created_idx").on(table.userId, table.createdAt),
+    index("cloud_vm_notification_events_vm_session_created_idx")
+      .on(table.vmId, table.providerSessionId, table.createdAt),
+  ],
+);
+
+export const cloudVmNotificationDeliveries = pgTable(
+  "cloud_vm_notification_deliveries",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    eventId: uuid("event_id")
+      .notNull()
+      .references(() => cloudVmNotificationEvents.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    targetKey: text("target_key").notNull(),
+    deviceId: uuid("device_id").references(() => devices.id, { onDelete: "set null" }),
+    appInstanceId: uuid("app_instance_id").references(() => deviceAppInstances.id, { onDelete: "set null" }),
+    channel: text("channel").notNull(),
+    status: cloudVmNotificationDeliveryStatus("status").notNull().default("pending"),
+    errorCode: text("error_code"),
+    errorMessage: text("error_message"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    readAt: timestamp("read_at", { withTimezone: true }),
+    dismissedAt: timestamp("dismissed_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("cloud_vm_notification_deliveries_event_channel_target_unique")
+      .on(table.eventId, table.channel, table.targetKey),
+    index("cloud_vm_notification_deliveries_user_status_created_idx")
+      .on(table.userId, table.status, table.createdAt),
+    index("cloud_vm_notification_deliveries_event_status_idx")
+      .on(table.eventId, table.status),
   ],
 );

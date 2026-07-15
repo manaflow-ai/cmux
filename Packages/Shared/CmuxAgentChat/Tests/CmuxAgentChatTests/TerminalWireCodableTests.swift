@@ -40,6 +40,21 @@ struct TerminalWireCodableTests {
         #expect(try decoder.decode(ChatSessionEvent.self, from: data) == event)
     }
 
+    @Test("ChatSessionEvent.sessionRemoved round-trips")
+    func sessionRemovedEventRoundTrip() throws {
+        let event = ChatSessionEvent.sessionRemoved(version: 9)
+        let data = try encoder.encode(event)
+        #expect(String(decoding: data, as: UTF8.self).contains("\"session_removed\""))
+        #expect(String(decoding: data, as: UTF8.self).contains("\"version\":9"))
+        #expect(try decoder.decode(ChatSessionEvent.self, from: data) == event)
+    }
+
+    @Test("ChatSessionEvent.sessionRemoved decodes missing version compatibly")
+    func sessionRemovedMissingVersionDecodesAsUnversioned() throws {
+        let data = #"{"event":"session_removed"}"#.data(using: .utf8)!
+        #expect(try decoder.decode(ChatSessionEvent.self, from: data) == .sessionRemoved(version: Int.max))
+    }
+
     @Test("ChatHistoryPage carries terminal blocks and stays backward-compatible")
     func historyPageTerminal() throws {
         let page = ChatHistoryPage(
@@ -71,5 +86,55 @@ struct TerminalWireCodableTests {
         object.removeValue(forKey: "kind")
         let legacy = try JSONSerialization.data(withJSONObject: object)
         #expect(try decoder.decode(ChatSessionDescriptor.self, from: legacy).kind == .agent)
+    }
+
+    @Test("Terminal artifact scan metadata round-trips with unix modified time")
+    func terminalArtifactScanMetadataRoundTrip() throws {
+        let modifiedAt = Date(timeIntervalSince1970: 1_649_116_800.25)
+        let response = TerminalArtifactScanResponse(artifacts: [
+            TerminalArtifactReference(
+                path: "/tmp/report.txt",
+                kind: .text,
+                displayName: "report.txt",
+                size: 3_072,
+                modifiedAt: modifiedAt
+            ),
+        ], sessionID: "session-1", sessionArtifactTotal: 12)
+        let coding = ChatWireCoding()
+        let data = try coding.encode(response)
+        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let artifacts = try #require(object["artifacts"] as? [[String: Any]])
+        let artifact = try #require(artifacts.first)
+
+        #expect((artifact["size"] as? NSNumber)?.int64Value == 3_072)
+        #expect((artifact["modified_at"] as? NSNumber)?.doubleValue == modifiedAt.timeIntervalSince1970)
+        #expect(object["session_id"] as? String == "session-1")
+        #expect(object["session_artifact_total"] as? Int == 12)
+        #expect(try coding.decode(TerminalArtifactScanResponse.self, from: data) == response)
+    }
+
+    @Test("Terminal artifact scan decodes legacy references without metadata")
+    func terminalArtifactScanLegacyMetadata() throws {
+        let data = #"{"artifacts":[{"path":"/tmp/report.txt","kind":"text","display_name":"report.txt"}]}"#
+            .data(using: .utf8)!
+        let reference = try #require(
+            ChatWireCoding().decode(TerminalArtifactScanResponse.self, from: data).artifacts.first
+        )
+
+        #expect(reference.size == nil)
+        #expect(reference.modifiedAt == nil)
+    }
+
+    @Test("Terminal artifact scan ignores unknown fields and defaults new totals absent")
+    func terminalArtifactScanVersionSkew() throws {
+        let legacy = Data(#"{"artifacts":[],"session_id":"session-1"}"#.utf8)
+        let legacyResponse = try ChatWireCoding().decode(TerminalArtifactScanResponse.self, from: legacy)
+        #expect(legacyResponse.sessionArtifactTotal == nil)
+
+        let newer = Data(
+            #"{"artifacts":[],"session_id":"session-1","session_artifact_total":9,"future_field":true}"#.utf8
+        )
+        let newerResponse = try ChatWireCoding().decode(TerminalArtifactScanResponse.self, from: newer)
+        #expect(newerResponse.sessionArtifactTotal == 9)
     }
 }

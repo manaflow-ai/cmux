@@ -29,6 +29,7 @@ extension AgentLaunchSanitizer {
             "--output-format",
             "--permission-mode",
             "--plugin-dir",
+            "--plugin-url",
             "--remote-control-session-name-prefix",
             "--resume",
             "-r",
@@ -44,13 +45,45 @@ extension AgentLaunchSanitizer {
             "-w"
         ],
         optionalValueOptions: [
-            "--debug"
+            "--debug",
+            "-d"
+        ],
+        // Claude booleans (from `claude --help`) pinned to width 1 so a following
+        // one-word prompt is never inferred as the flag's value and replayed on
+        // resume. Permission booleans are deliberately preserved for user-owned
+        // restore: resuming your own session continues the original explicit
+        // opt-in (https://github.com/manaflow-ai/cmux/issues/8066). Session-identity
+        // and lifecycle booleans (--continue/-c, --fork-session, --bg) stay listed
+        // in droppedOptions; being width-pinned here only keeps their drop exact.
+        booleanOptions: [
+            "--allow-dangerously-skip-permissions",
+            "--ax-screen-reader",
+            "--background",
+            "--bare",
+            "--bg",
+            "--brief",
+            "--chrome",
+            "--continue",
+            "-c",
+            "--dangerously-skip-permissions",
+            "--disable-slash-commands",
+            "--exclude-dynamic-system-prompt-sections",
+            "--fork-session",
+            "--ide",
+            "--include-hook-events",
+            "--include-partial-messages",
+            "--no-chrome",
+            "--replay-user-messages",
+            "--safe-mode",
+            "--strict-mcp-config",
+            "--verbose"
         ],
         variadicOptions: [
             "--add-dir",
             "--allowedTools",
             "--allowed-tools",
             "--betas",
+            "--dangerously-load-development-channels",
             "--disallowedTools",
             "--disallowed-tools",
             "--file",
@@ -75,6 +108,10 @@ extension AgentLaunchSanitizer {
             "upgrade"
         ],
         droppedOptions: [
+            // Replaying --bg/--background would turn an interactive pane restore
+            // into a detached background-agent launch.
+            "--background",
+            "--bg",
             "--continue",
             "-c",
             "--file",
@@ -101,6 +138,7 @@ extension AgentLaunchSanitizer {
             "-p",
             "--no-session-persistence"
         ],
+        scansOptionsPastPositionals: true,
         skipClaudeHookSettings: true
     )
 
@@ -167,80 +205,6 @@ extension AgentLaunchSanitizer {
         resumeSubcommand: "resume"
     )
 
-    static let grokPolicy = Policy(
-        valueOptions: [
-            "--agent",
-            "--agents",
-            "--allow",
-            "--cwd",
-            "--deny",
-            "--disallowed-tools",
-            "--effort",
-            "--max-turns",
-            "--model",
-            "-m",
-            "--permission-mode",
-            "--reasoning-effort",
-            "--resume",
-            "-r",
-            "--rules",
-            "--sandbox",
-            "--system-prompt-override",
-            "--tools",
-            "--worktree",
-            "-w"
-        ],
-        optionalValueOptions: [
-            "--resume",
-            "-r",
-            "--worktree",
-            "-w"
-        ],
-        nonRestorableCommands: [
-            "agent",
-            "help",
-            "import",
-            "inspect",
-            "leader",
-            "login",
-            "mcp",
-            "memory",
-            "models",
-            "sessions",
-            "setup",
-            "share",
-            "ssh",
-            "trace",
-            "update",
-            "version",
-            "v",
-            "worktree"
-        ],
-        droppedOptions: [
-            "--continue",
-            "-c",
-            "--restore-code",
-            "--resume",
-            "-r",
-            "--worktree",
-            "-w"
-        ],
-        droppedOptionPrefixes: [
-            "--resume=",
-            "-r=",
-            "--worktree=",
-            "-w="
-        ],
-        rejectOptions: [
-            "--best-of-n",
-            "--output-format",
-            "--prompt-file",
-            "--prompt-json",
-            "--single",
-            "-p"
-        ]
-    )
-
     static let piPolicy = Policy(
         valueOptions: [
             "--append-system-prompt",
@@ -302,6 +266,22 @@ extension AgentLaunchSanitizer {
             "-v"
         ]
     )
+
+    /// Campfire embeds vanilla pi and forwards unrecognized flags to it, so its
+    /// policy is pi's plus the campfire-only surface. `--relay` is safe to
+    /// replay (a relay URL, not a credential); `--join-as`/`--name` are
+    /// joiner-only display names that make no sense on a host resume. An invite
+    /// URL is a positional argument and is dropped by the default positional
+    /// handling — it carries the lobby capability token and must never be
+    /// persisted or replayed.
+    static let campfirePolicy: Policy = {
+        var policy = piPolicy
+        policy.valueOptions.formUnion(["--relay", "--join", "--join-as", "--name"])
+        policy.nonRestorableCommands.insert("init")
+        policy.droppedOptions.formUnion(["--join", "--join-as", "--name", "--auto-exit"])
+        policy.droppedOptionPrefixes.append(contentsOf: ["--join=", "--join-as=", "--name="])
+        return policy
+    }()
 
     static let ampPolicy = Policy(
         valueOptions: [

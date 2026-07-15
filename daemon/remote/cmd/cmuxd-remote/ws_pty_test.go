@@ -3,10 +3,13 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -62,7 +65,7 @@ func TestAttachRPCSurfacesPTYAllocationFailure(t *testing.T) {
 		return nil, nil, denied
 	}
 
-	_, _, _, err := hub.attachRPC(context.Background(), "sess-1", "att-1", 80, 24, "", "", false)
+	_, _, _, err := hub.attachRPC(context.Background(), "sess-1", "att-1", 80, 24, "", "", false, false)
 	if err == nil {
 		t.Fatalf("expected attachRPC to fail when PTY allocation is denied")
 	}
@@ -124,6 +127,134 @@ func TestWebSocketPTYHealthIsAvailableWhenLocked(t *testing.T) {
 	}
 	if body["ok"] != true || body["locked"] != true {
 		t.Fatalf("unexpected health body: %v", body)
+	}
+}
+
+func TestWebSocketPTYAdminLeaseInstallRequiresToken(t *testing.T) {
+	leasePath := filepath.Join(t.TempDir(), "lease.json")
+	adminToken := "admin-token"
+	sum := sha256.Sum256([]byte(adminToken))
+	server := httptest.NewServer(newWebSocketPTYHandler(wsPTYServerConfig{
+		PTYAuthLeaseFile: leasePath,
+		AdminTokenSHA256: hex.EncodeToString(sum[:]),
+		Shell:            "/bin/sh",
+	}, nil))
+	defer server.Close()
+
+	req, err := http.NewRequest(http.MethodPost, server.URL+"/admin/leases", strings.NewReader(`{"pty_lease":{}}`))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST /admin/leases: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("unauthenticated install status = %d, want %d", resp.StatusCode, http.StatusForbidden)
+	}
+}
+
+func TestWebSocketPTYAdminLeaseInstallUnlocksAttach(t *testing.T) {
+	leasePath := filepath.Join(t.TempDir(), "lease.json")
+	adminToken := "admin-token"
+	adminSum := sha256.Sum256([]byte(adminToken))
+	ptyToken := "pty-token"
+	ptySum := sha256.Sum256([]byte(ptyToken))
+	server := httptest.NewServer(newWebSocketPTYHandler(wsPTYServerConfig{
+		PTYAuthLeaseFile: leasePath,
+		AdminTokenSHA256: hex.EncodeToString(adminSum[:]),
+		Shell:            "/bin/sh",
+	}, nil))
+	defer server.Close()
+
+	lease := wsPTYLease{
+		Version:       1,
+		TokenSHA256:   hex.EncodeToString(ptySum[:]),
+		ExpiresAtUnix: time.Now().Add(time.Minute).Unix(),
+		SessionID:     "sess-admin",
+		SingleUse:     true,
+	}
+	body, err := json.Marshal(map[string]any{"pty_lease": lease})
+	if err != nil {
+		t.Fatalf("marshal body: %v", err)
+	}
+	req, err := http.NewRequest(http.MethodPost, server.URL+"/admin/leases", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST /admin/leases: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("install status = %d, want 200", resp.StatusCode)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	conn := dialPTY(t, ctx, server.URL)
+	defer conn.Close(websocket.StatusNormalClosure, "done")
+	sendAuth(t, ctx, conn, ptyToken, "sess-admin", 80, 24)
+	readReady(t, ctx, conn)
+}
+
+func TestWebSocketPTYAdminLeaseInstallAcceptsEd25519Signature(t *testing.T) {
+	leasePath := filepath.Join(t.TempDir(), "lease.json")
+	publicKey, privateKey, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	ptyToken := "pty-token"
+	ptySum := sha256.Sum256([]byte(ptyToken))
+	server := httptest.NewServer(newWebSocketPTYHandler(wsPTYServerConfig{
+		PTYAuthLeaseFile:   leasePath,
+		AdminEd25519PubKey: base64.StdEncoding.EncodeToString(publicKey),
+		Shell:              "/bin/sh",
+	}, nil))
+	defer server.Close()
+
+	lease := wsPTYLease{
+		Version:       1,
+		TokenSHA256:   hex.EncodeToString(ptySum[:]),
+		ExpiresAtUnix: time.Now().Add(time.Minute).Unix(),
+		SessionID:     "sess-signed",
+		SingleUse:     true,
+	}
+	body, err := json.Marshal(map[string]any{"pty_lease": lease})
+	if err != nil {
+		t.Fatalf("marshal body: %v", err)
+	}
+	req, err := http.NewRequest(http.MethodPost, server.URL+"/admin/leases", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("new unsigned request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST /admin/leases unsigned: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("unsigned install status = %d, want %d", resp.StatusCode, http.StatusForbidden)
+	}
+
+	req, err = http.NewRequest(http.MethodPost, server.URL+"/admin/leases", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("new signed request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Cmux-Admin-Signature-Ed25519", base64.StdEncoding.EncodeToString(ed25519.Sign(privateKey, body)))
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST /admin/leases signed: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("signed install status = %d, want %d", resp.StatusCode, http.StatusOK)
 	}
 }
 
@@ -298,6 +429,256 @@ func TestWebSocketPTYReplacedAttachmentCannotWriteInput(t *testing.T) {
 	}
 	waitForNormalCloseWithOutput(t, ctx, newConn, 5*time.Second, output)
 	waitForHubSessionCount(t, hub, 0, 5*time.Second)
+}
+
+func TestWebSocketPTYReattachWritesAcceptedOldInputBeforeNew(t *testing.T) {
+	hub, session, attachment, readFile, writeFile, done := newTestPTYInputSession(t, "sess-reattach-seam", "same", false)
+	defer close(done)
+	defer readFile.Close()
+	defer writeFile.Close()
+
+	go hub.writeInputLoop(session)
+	session.ptyWriteMu.Lock()
+	if status := hub.writeInputByID(session.id, attachment.id, attachment.clientToken, []byte("OLD")); status != wsPTYInputWriteOK {
+		session.ptyWriteMu.Unlock()
+		t.Fatalf("old write status = %v, want ok", status)
+	}
+
+	attachDone := make(chan *wsPTYAttachment, 1)
+	go func() {
+		newAttachment, _, _, err := hub.prepareAttachment(
+			context.Background(),
+			nil,
+			session.id,
+			attachment.id,
+			80,
+			24,
+			true,
+			"",
+			"new-token",
+			true,
+			false,
+		)
+		if err != nil {
+			t.Errorf("prepare replacement attachment: %v", err)
+			attachDone <- nil
+			return
+		}
+		attachDone <- newAttachment
+	}()
+
+	// Reattach must complete while the PTY writer is still stalled — a
+	// wedged reader must never turn reattach into an indefinite hang.
+	var newAttachment *wsPTYAttachment
+	select {
+	case newAttachment = <-attachDone:
+	case <-time.After(5 * time.Second):
+		session.ptyWriteMu.Unlock()
+		t.Fatal("reattach blocked behind a stalled PTY writer")
+	}
+	if newAttachment == nil {
+		session.ptyWriteMu.Unlock()
+		t.Fatal("replacement attachment was not created")
+	}
+	if status := hub.writeInputByID(session.id, newAttachment.id, newAttachment.clientToken, []byte("NEW")); status != wsPTYInputWriteOK {
+		session.ptyWriteMu.Unlock()
+		t.Fatalf("new write status = %v, want ok", status)
+	}
+	session.ptyWriteMu.Unlock()
+	if got := readExactlyFromFile(t, readFile, 6, 5*time.Second); string(got) != "OLDNEW" {
+		t.Fatalf("PTY input = %q, want OLDNEW", string(got))
+	}
+}
+
+func TestWebSocketPTYInputSeqEnforcement(t *testing.T) {
+	hub, session, attachment, readFile, writeFile, done := newTestPTYInputSession(t, "sess-seq", "seq-att", true)
+	defer close(done)
+	defer readFile.Close()
+	defer writeFile.Close()
+	attachment.inputSeqAck = true
+
+	go hub.writeInputLoop(session)
+	if result := hub.writeInputByIDWithSeq(session.id, attachment.id, attachment.clientToken, []byte("A"), 1, true); result.status != wsPTYInputWriteOK {
+		t.Fatalf("seq 1 status = %v, want ok", result.status)
+	}
+	if result := hub.writeInputByIDWithSeq(session.id, attachment.id, attachment.clientToken, []byte("B"), 2, true); result.status != wsPTYInputWriteOK {
+		t.Fatalf("seq 2 status = %v, want ok", result.status)
+	}
+	if result := hub.writeInputByIDWithSeq(session.id, attachment.id, attachment.clientToken, []byte("D"), 4, true); result.status != wsPTYInputWriteSeqGap || result.got != 4 || result.want != 3 {
+		t.Fatalf("seq 4 result = %+v, want gap got=4 want=3", result)
+	}
+	if got := readExactlyFromFile(t, readFile, 2, 5*time.Second); string(got) != "AB" {
+		t.Fatalf("PTY input = %q, want AB", string(got))
+	}
+
+	replacement, _, _, err := hub.prepareAttachment(context.Background(), nil, session.id, attachment.id, 80, 24, true, "", "seq-token-2", true, true)
+	if err != nil {
+		t.Fatalf("prepare replacement attachment: %v", err)
+	}
+	if result := hub.writeInputByIDWithSeq(session.id, replacement.id, replacement.clientToken, []byte("C"), 1, true); result.status != wsPTYInputWriteOK {
+		t.Fatalf("fresh attachment seq 1 status = %v, want ok", result.status)
+	}
+	if got := readExactlyFromFile(t, readFile, 1, 5*time.Second); string(got) != "C" {
+		t.Fatalf("fresh PTY input = %q, want C", string(got))
+	}
+}
+
+func TestWebSocketPTYSaturatedAckQueueDropsAttachment(t *testing.T) {
+	hub, session, attachment, readFile, writeFile, done := newTestPTYInputSession(t, "sess-ack-full", "ack-att", true)
+	defer close(done)
+	defer readFile.Close()
+	defer writeFile.Close()
+	attachment.inputSeqAck = true
+
+	// Saturate the send queue so the coalesced ack frame cannot be queued.
+	for i := 0; i < cap(attachment.send); i++ {
+		attachment.send <- wsPTYOutgoingFrame{}
+	}
+	chunk := wsPTYInputChunk{
+		attachmentID:  attachment.id,
+		attachment:    attachment,
+		payload:       []byte("x"),
+		seq:           1,
+		finalSeqChunk: true,
+	}
+	if !hub.writeInputChunk(session, chunk) {
+		t.Fatal("payload write should still succeed")
+	}
+	if got := readExactlyFromFile(t, readFile, 1, 5*time.Second); string(got) != "x" {
+		t.Fatalf("PTY input = %q, want x", string(got))
+	}
+	hub.mu.Lock()
+	_, stillAttached := session.attachments[attachment.id]
+	hub.mu.Unlock()
+	if stillAttached {
+		t.Fatal("attachment with a saturated ack queue should be dropped, not leaked")
+	}
+}
+
+func TestWebSocketPTYWriteRejectsMalformedSeq(t *testing.T) {
+	hub, _, attachment, readFile, writeFile, done := newTestPTYInputSession(t, "sess-seq-invalid", "seq-att", true)
+	defer close(done)
+	defer readFile.Close()
+	defer writeFile.Close()
+	attachment.inputSeqAck = true
+
+	server := &rpcServer{ptyHub: hub, frameWriter: &captureRPCFrameWriter{}}
+	for _, badSeq := range []any{"not-a-number", -1, 1.5} {
+		req := rpcRequest{
+			Method: "pty.write",
+			Params: map[string]any{
+				"session_id":              "sess-seq-invalid",
+				"attachment_id":           "seq-att",
+				"client_attachment_token": "token-1",
+				"data_base64":             base64.StdEncoding.EncodeToString([]byte("x")),
+				"seq":                     badSeq,
+			},
+		}
+		resp := server.handlePTYWrite(req)
+		if resp.OK || resp.Error == nil || resp.Error.Code != "invalid_params" {
+			t.Fatalf("seq=%v response = %+v, want invalid_params", badSeq, resp)
+		}
+	}
+}
+
+func TestWebSocketPTYInputSeqGapNotificationEmitsPTYError(t *testing.T) {
+	hub, _, attachment, readFile, writeFile, done := newTestPTYInputSession(t, "sess-seq-event", "seq-att", true)
+	defer close(done)
+	defer readFile.Close()
+	defer writeFile.Close()
+	attachment.inputSeqAck = true
+
+	writer := &captureRPCFrameWriter{}
+	server := &rpcServer{ptyHub: hub, frameWriter: writer}
+	req := rpcRequest{
+		Method: "pty.write",
+		Params: map[string]any{
+			"session_id":              "sess-seq-event",
+			"attachment_id":           "seq-att",
+			"client_attachment_token": "token-1",
+			"data_base64":             base64.StdEncoding.EncodeToString([]byte("gap")),
+			"seq":                     2,
+		},
+	}
+	resp := server.handlePTYWrite(req)
+	if resp.OK || resp.Error == nil || resp.Error.Code != "pty_input_seq_gap" {
+		t.Fatalf("gapped write response = %+v, want pty_input_seq_gap", resp)
+	}
+	if err := server.handleNotificationResponse(req, resp); err != nil {
+		t.Fatalf("handle notification response: %v", err)
+	}
+	if len(writer.events) != 1 {
+		t.Fatalf("events = %d, want 1", len(writer.events))
+	}
+	event := writer.events[0]
+	if event.Event != "pty.error" || !strings.Contains(event.Message, "got 2, want 1") {
+		t.Fatalf("event = %+v, want visible seq gap pty.error", event)
+	}
+	hub.mu.Lock()
+	_, stillAttached := hub.sessions[persistentPTYSessionKey("sess-seq-event")].attachments["seq-att"]
+	hub.mu.Unlock()
+	if stillAttached {
+		t.Fatal("seq-gap error should detach the attachment, not leave it registered")
+	}
+}
+
+func TestWebSocketPTYInputAckEmission(t *testing.T) {
+	hub, session, attachment, readFile, writeFile, done := newTestPTYInputSession(t, "sess-ack", "ack-att", true)
+	defer close(done)
+	defer readFile.Close()
+	defer writeFile.Close()
+	attachment.inputSeqAck = true
+
+	for seq := uint64(1); seq <= 10; seq++ {
+		chunk := wsPTYInputChunk{
+			attachmentID:  attachment.id,
+			attachment:    attachment,
+			payload:       []byte("x"),
+			seq:           seq,
+			finalSeqChunk: true,
+		}
+		if !hub.writeInputChunk(session, chunk) {
+			t.Fatalf("write seq %d failed", seq)
+		}
+	}
+	frame := <-attachment.send
+	event := rpcPTYEventForFrame(attachment, frame)
+	if event.Event != "pty.input_ack" || event.Seq != 10 {
+		t.Fatalf("ack event = %+v, want cumulative seq 10", event)
+	}
+	select {
+	case extra := <-attachment.send:
+		t.Fatalf("ack was not coalesced; extra frame=%+v", extra)
+	default:
+	}
+
+	legacyAttachment := &wsPTYAttachment{
+		sessionKey:  session.key,
+		id:          "legacy-att",
+		clientToken: "legacy-token",
+		send:        make(chan wsPTYOutgoingFrame, defaultWebSocketWriteQueueCap),
+		cancel:      func() {},
+		persistent:  true,
+		inputSeqAck: false,
+	}
+	hub.mu.Lock()
+	session.attachments[legacyAttachment.id] = legacyAttachment
+	hub.mu.Unlock()
+	chunk := wsPTYInputChunk{
+		attachmentID:  legacyAttachment.id,
+		attachment:    legacyAttachment,
+		payload:       []byte("y"),
+		seq:           1,
+		finalSeqChunk: true,
+	}
+	if !hub.writeInputChunk(session, chunk) {
+		t.Fatal("legacy write failed")
+	}
+	select {
+	case frame := <-legacyAttachment.send:
+		t.Fatalf("legacy attachment received unexpected ack frame=%+v", frame)
+	default:
+	}
 }
 
 func TestWebSocketPTYMultiAttachUsesSmallestResize(t *testing.T) {
@@ -769,6 +1150,84 @@ func TestWebSocketPTYInputBackpressureRejectsWholePayload(t *testing.T) {
 	if !strings.Contains(stderr.String(), "ws pty input queue full") {
 		t.Fatalf("stderr should report input queue backpressure, got %q", stderr.String())
 	}
+}
+
+func newTestPTYInputSession(t *testing.T, sessionID string, attachmentID string, inputSeqAck bool) (*wsPTYHub, *wsPTYSession, *wsPTYAttachment, *os.File, *os.File, chan struct{}) {
+	t.Helper()
+	readFile, writeFile, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("create pipe: %v", err)
+	}
+	hub := newWebSocketPTYHub(wsPTYServerConfig{
+		Shell:           "/bin/sh",
+		ScrollbackLimit: 4096,
+	}, &bytes.Buffer{})
+	sessionKey := persistentPTYSessionKey(sessionID)
+	done := make(chan struct{})
+	attachment := &wsPTYAttachment{
+		sessionKey:  sessionKey,
+		id:          attachmentID,
+		clientToken: "token-1",
+		cols:        80,
+		rows:        24,
+		send:        make(chan wsPTYOutgoingFrame, defaultWebSocketWriteQueueCap),
+		cancel:      func() {},
+		persistent:  true,
+		inputSeqAck: inputSeqAck,
+	}
+	session := &wsPTYSession{
+		id:            sessionID,
+		key:           sessionKey,
+		ptyFile:       writeFile,
+		attachments:   map[string]*wsPTYAttachment{attachment.id: attachment},
+		effectiveCols: 80,
+		effectiveRows: 24,
+		lastKnownCols: 80,
+		lastKnownRows: 24,
+		input:         make(chan wsPTYInputChunk, defaultPTYInputQueueCap),
+		done:          done,
+	}
+	hub.mu.Lock()
+	hub.sessions[session.key] = session
+	hub.mu.Unlock()
+	return hub, session, attachment, readFile, writeFile, done
+}
+
+func readExactlyFromFile(t *testing.T, file *os.File, count int, timeout time.Duration) []byte {
+	t.Helper()
+	type readResult struct {
+		data []byte
+		err  error
+	}
+	resultCh := make(chan readResult, 1)
+	go func() {
+		buf := make([]byte, count)
+		_, err := io.ReadFull(file, buf)
+		resultCh <- readResult{data: buf, err: err}
+	}()
+	select {
+	case result := <-resultCh:
+		if result.err != nil {
+			t.Fatalf("read PTY input: %v", result.err)
+		}
+		return result.data
+	case <-time.After(timeout):
+		t.Fatalf("timed out reading %d PTY bytes", count)
+		return nil
+	}
+}
+
+type captureRPCFrameWriter struct {
+	events []rpcEvent
+}
+
+func (w *captureRPCFrameWriter) writeResponse(rpcResponse) error {
+	return nil
+}
+
+func (w *captureRPCFrameWriter) writeEvent(event rpcEvent) error {
+	w.events = append(w.events, event)
+	return nil
 }
 
 func TestWebSocketPTYReapsDetachedIdleSession(t *testing.T) {

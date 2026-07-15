@@ -7,9 +7,8 @@
 // Test-only stand-ins for the libghostty symbols referenced by CmuxTerminal
 // and CmuxTerminalCore object files. SwiftPM cannot link the GhosttyKit macOS
 // archive (its binary is not lib-prefixed), so the test runner provides these
-// stubs to satisfy the link. No test ever calls them (tests construct no
-// runtime surface), so only the symbol names matter; C symbols carry no type
-// information for the linker.
+// stubs to satisfy the link. Most tests construct no runtime surface, but close
+// confirmation tests configure the process/tty stubs below.
 typedef struct {
   const char* ptr;
   uintptr_t len;
@@ -20,7 +19,7 @@ bool ghostty_surface_clear_selection(void *surface);
 
 void ghostty_config_diagnostics_count(void);
 void ghostty_config_get_diagnostic(void);
-void ghostty_string_free(void);
+void ghostty_string_free(ghostty_string_s string);
 void ghostty_surface_binding_action(void);
 void ghostty_surface_config_new(void);
 void ghostty_surface_free(void);
@@ -31,23 +30,31 @@ void ghostty_surface_key(void);
 void ghostty_surface_mouse_button(void);
 void ghostty_surface_mouse_pos(void);
 void ghostty_surface_mouse_scroll(void);
-void ghostty_surface_needs_confirm_quit(void);
+bool ghostty_surface_needs_confirm_quit(void *surface);
 void ghostty_surface_new(void);
-void ghostty_surface_process_exited(void);
+void* ghostty_surface_new_with_scrollback_limit(void* app, const void* config, uintptr_t scrollback_limit_bytes);
+bool ghostty_surface_process_exited(void *surface);
 void ghostty_surface_process_output(void);
 void ghostty_surface_quicklook_font(void);
+void ghostty_surface_read_screen_tail_vt(void);
 void ghostty_surface_read_text(void);
 void ghostty_surface_refresh(void);
 void ghostty_surface_render_grid_json(void);
 void ghostty_surface_set_content_scale(void);
 void ghostty_surface_set_display_id(void);
 void ghostty_surface_set_focus(void);
-void ghostty_surface_set_occlusion(void);
+void ghostty_surface_set_occlusion(void *surface, bool visible);
 void ghostty_surface_set_renderer_realized(void);
 void ghostty_surface_set_size(void);
 void ghostty_surface_size(void);
 void ghostty_surface_text(void);
 void ghostty_surface_text_input(void);
 ghostty_string_s ghostty_surface_tty_name(void *surface);
+
+void cmux_test_ghostty_runtime_stubs_reset(void);
+void cmux_test_ghostty_runtime_stubs_set_close_state(bool needs_confirm, uint64_t foreground_pid, const char* tty_name);
+uint64_t cmux_test_ghostty_surface_set_occlusion_call_count(void);
+bool cmux_test_ghostty_surface_last_occlusion_visible(void);
+uintptr_t cmux_test_ghostty_surface_last_scrollback_limit_bytes(void);
 
 #endif

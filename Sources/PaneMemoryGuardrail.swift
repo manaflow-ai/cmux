@@ -1,43 +1,28 @@
-import CmuxSettings
 import Foundation
 import Observation
 
 // MARK: - Monitor
 
-/// One instance owns the background poll timer, scans every live pane each tick,
-/// and attributes process-tree memory by controlling tty. The user-facing
-/// warning badge and dismissible banner were removed in issue #6614, so the scan
-/// now only maintains the engine's monitoring state (surfaced in DEBUG logs) and
-/// the still-wired system memory-pressure response. The heavy libproc scan runs
-/// off the main thread; only the small state updates touch `@MainActor`.
+/// DEBUG-only, one-shot pane process-tree memory attribution. The former
+/// production timer and its user-facing warning UI were retired; callers must
+/// explicitly request each diagnostic sample.
 @MainActor
 @Observable
 final class PaneMemoryGuardrail {
     static let shared = PaneMemoryGuardrail()
 
-    private static let enabledSetting = SettingCatalog().terminal.runawayMemoryGuardrailEnabled
-    private static let thresholdGBSetting = SettingCatalog().terminal.runawayMemoryGuardrailThresholdGB
-    private static let pollInterval: TimeInterval = 4
     private static let scopedScanInterval: TimeInterval = 15
     private static let defaultThresholdGB: Double = 8
     private static let thresholdRangeGB: ClosedRange<Double> = 1...256
     private static let bytesPerGB = 1024.0 * 1024.0 * 1024.0
 
-    /// Supplies the live pane set each tick (main-actor; reads ghostty/tty).
+    /// Supplies the live pane set for an explicit sample (main-actor; reads
+    /// ghostty/tty).
     @ObservationIgnored
     var paneProvider: (@MainActor () -> [PaneMemoryDescriptor])?
-    /// Invoked when the OS reports warning/critical system memory pressure.
-    @ObservationIgnored
-    var onSystemMemoryPressure: (@MainActor () -> Void)?
 
     @ObservationIgnored
     private var engine = PaneMemoryGuardrailEngine()
-    @ObservationIgnored
-    private let timerQueue = DispatchQueue(label: "com.cmux.pane-memory-guardrail", qos: .utility)
-    @ObservationIgnored
-    private var timer: DispatchSourceTimer?
-    @ObservationIgnored
-    private var memoryPressureSource: DispatchSourceMemoryPressure?
     @ObservationIgnored
     private var isScanning = false
     @ObservationIgnored
@@ -47,84 +32,34 @@ final class PaneMemoryGuardrail {
     @ObservationIgnored
     private var lastScopedScanAt = Date.distantPast
 
-    func start() {
-        startSystemMemoryPressureSourceIfNeeded()
-        guard timer == nil else { return }
-        let timer = DispatchSource.makeTimerSource(queue: timerQueue)
-        timer.schedule(
-            deadline: .now() + Self.pollInterval,
-            repeating: Self.pollInterval,
-            leeway: .seconds(1)
-        )
-        timer.setEventHandler { [weak self] in
-            Task { @MainActor in self?.tick() }
-        }
-        self.timer = timer
-        timer.resume()
-    }
-
-    private func startSystemMemoryPressureSourceIfNeeded() {
-        guard memoryPressureSource == nil else { return }
-        // DispatchSource memory-pressure notifications are the system signal for
-        // freeing nonessential WebKit process memory; no async-native equivalent
-        // exists.
-        let source = DispatchSource.makeMemoryPressureSource(
-            eventMask: [.warning, .critical],
-            queue: timerQueue
-        )
-        source.setEventHandler { [weak self] in
-            Task { @MainActor in
-                self?.handleSystemMemoryPressure()
-            }
-        }
-        memoryPressureSource = source
-        source.resume()
-    }
-
-    private func handleSystemMemoryPressure() {
+    /// Runs one sample on demand. This method is absent from release builds so
+    /// pane enumeration cannot become passive production work.
 #if DEBUG
-        cmuxDebugLog("paneMemGuard.systemMemoryPressure")
+    func runDiagnosticOnce(thresholdGB raw: Double = 8) {
+        let gb = raw.isFinite
+            ? min(max(raw, Self.thresholdRangeGB.lowerBound), Self.thresholdRangeGB.upperBound)
+            : Self.defaultThresholdGB
+        sampleOnce(thresholdBytes: Int64(gb * Self.bytesPerGB))
+    }
 #endif
-        onSystemMemoryPressure?()
-    }
 
-    // MARK: Settings
+    // MARK: One-shot sampling
 
-    private var isEnabled: Bool {
-        Self.enabledSetting.value(in: .standard)
-    }
-
-    private func thresholdBytes() -> Int64 {
-        let raw = Self.thresholdGBSetting.value(in: .standard)
-        let gb = raw.isFinite ? min(max(raw, Self.thresholdRangeGB.lowerBound), Self.thresholdRangeGB.upperBound) : Self.defaultThresholdGB
-        return Int64(gb * Self.bytesPerGB)
-    }
-
-    // MARK: Tick
-
-    private func tick() {
-        guard isEnabled else {
-            clearAll()
-            return
-        }
+    private func sampleOnce(thresholdBytes: Int64) {
         guard !isScanning, let paneProvider else { return }
         let descriptors = paneProvider()
         guard !descriptors.isEmpty else {
             clearAll()
             return
         }
-        let thresholdBytes = thresholdBytes()
         let includeCMUXScope = consumeScopedScanIfDue(now: Date())
         isScanning = true
-        let sampleTask = Task.detached(priority: .utility) {
-            Self.computeCachedSamples(
+        scanApplyTask = Task { @MainActor [weak self] in
+            let batch = await Self.computeCachedSamples(
                 descriptors: descriptors,
                 thresholdBytes: thresholdBytes,
                 includeCMUXScope: includeCMUXScope
             )
-        }
-        scanApplyTask = Task { @MainActor [weak self] in
-            let batch = await sampleTask.value
             guard !Task.isCancelled else { return }
             self?.applySamples(
                 batch,
@@ -137,10 +72,15 @@ final class PaneMemoryGuardrail {
         descriptors: [PaneMemoryDescriptor],
         thresholdBytes: Int64,
         includeCMUXScope: Bool = false
-    ) -> PaneMemoryGuardrailSampleBatch {
-        let snapshot = includeCMUXScope
-            ? CmuxTopProcessSnapshot.capture(includeCMUXScope: true)
-            : CmuxTopProcessSnapshot.captureCached(includeCMUXScope: false, maximumAge: 2)
+    ) async -> PaneMemoryGuardrailSampleBatch {
+        // Reuse a process snapshot another subsystem captured moments earlier;
+        // an explicit diagnostic otherwise performs one fresh cheap scan.
+        let requirements: CmuxTopProcessSnapshotRequirements = includeCMUXScope ? .cmuxScope : .basic
+        let snapshot = await CmuxTopProcessSnapshotStore.shared.snapshot(
+            requirements: requirements,
+            maximumAge: includeCMUXScope ? 5 : 3,
+            consumer: .memoryGuardrail
+        )
         let samples = computeSamples(
             descriptors: descriptors,
             thresholdBytes: thresholdBytes,

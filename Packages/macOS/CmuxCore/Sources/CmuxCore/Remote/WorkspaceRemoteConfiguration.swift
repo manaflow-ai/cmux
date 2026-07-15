@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Everything needed to establish and operate one remote-workspace connection:
 /// transport selection, SSH identity/options, relay and proxy wiring, and the
@@ -27,6 +27,10 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
     public let relayToken: String?
     /// Local control-socket path forwarded over the relay.
     public let localSocketPath: String?
+    /// Local workspace that owns VM-originated CLI bridge requests.
+    public let ownerWorkspaceID: UUID?
+    /// Provider-issued Cloud VM id for cmux-managed Cloud VM workspaces.
+    public let managedCloudVMID: String?
     /// Startup command run in new terminal surfaces for this workspace.
     public let terminalStartupCommand: String?
     /// One-shot token gating auto-connect on foreground SSH authentication.
@@ -59,6 +63,8 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         relayID: String?,
         relayToken: String?,
         localSocketPath: String?,
+        ownerWorkspaceID: UUID? = nil,
+        managedCloudVMID: String? = nil,
         terminalStartupCommand: String?,
         foregroundAuthToken: String? = nil,
         agentSocketPath: String? = nil,
@@ -77,6 +83,8 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         self.relayID = relayID
         self.relayToken = relayToken
         self.localSocketPath = localSocketPath
+        self.ownerWorkspaceID = ownerWorkspaceID
+        self.managedCloudVMID = Self.normalizedOptionalValue(managedCloudVMID)
         self.terminalStartupCommand = terminalStartupCommand
         self.foregroundAuthToken = foregroundAuthToken
         self.agentSocketPath = Self.normalizedAgentSocketPath(agentSocketPath)
@@ -86,6 +94,49 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             ? Self.normalizedPersistentDaemonSlot(persistentDaemonSlot)
             : nil
         self.skipDaemonBootstrap = skipDaemonBootstrap
+    }
+
+    public init(
+        transport: WorkspaceRemoteTransport = .ssh,
+        destination: String,
+        port: Int?,
+        identityFile: String?,
+        sshOptions: [String],
+        localProxyPort: Int?,
+        relayPort: Int?,
+        relayID: String?,
+        relayToken: String?,
+        localSocketPath: String?,
+        ownerWorkspaceID: UUID? = nil,
+        terminalStartupCommand: String?,
+        foregroundAuthToken: String? = nil,
+        agentSocketPath: String? = nil,
+        daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint? = nil,
+        preserveAfterTerminalExit: Bool = false,
+        persistentDaemonSlot: String? = nil,
+        skipDaemonBootstrap: Bool = false
+    ) {
+        self.init(
+            transport: transport,
+            destination: destination,
+            port: port,
+            identityFile: identityFile,
+            sshOptions: sshOptions,
+            localProxyPort: localProxyPort,
+            relayPort: relayPort,
+            relayID: relayID,
+            relayToken: relayToken,
+            localSocketPath: localSocketPath,
+            ownerWorkspaceID: ownerWorkspaceID,
+            managedCloudVMID: nil,
+            terminalStartupCommand: terminalStartupCommand,
+            foregroundAuthToken: foregroundAuthToken,
+            agentSocketPath: agentSocketPath,
+            daemonWebSocketEndpoint: daemonWebSocketEndpoint,
+            preserveAfterTerminalExit: preserveAfterTerminalExit,
+            persistentDaemonSlot: persistentDaemonSlot,
+            skipDaemonBootstrap: skipDaemonBootstrap
+        )
     }
 
     /// Resolves the SSH agent socket to use for a remote configuration from an explicit socket or durable options.
@@ -103,8 +154,36 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
 
     /// `destination` or `destination:port` for user-facing status text.
     public var displayTarget: String {
+        if isManagedCloudVMSSHD {
+            return "cloud VM"
+        }
         guard let port else { return destination }
         return "\(destination):\(port)"
+    }
+
+    private var isManagedCloudVMSSHD: Bool {
+        skipDaemonBootstrap &&
+            persistentDaemonSlot == "cmux-default-freestyle-sshd-v1" &&
+            managedCloudVMID != nil
+    }
+
+    private var usesManagedCloudPersistentPTYIdentity: Bool {
+        preserveAfterTerminalExit &&
+            managedCloudVMID != nil &&
+            (isManagedCloudVMSSHD || transport == .websocket)
+    }
+
+    private var proxyBrokerOwnerWorkspaceKeyComponent: String {
+        usesManagedCloudPersistentPTYIdentity
+            ? ""
+            : ownerWorkspaceID?.uuidString.lowercased() ?? ""
+    }
+
+    private func ownerWorkspaceMatchesForPersistentPTY(_ other: WorkspaceRemoteConfiguration) -> Bool {
+        if usesManagedCloudPersistentPTYIdentity && other.usesManagedCloudPersistentPTYIdentity {
+            return true
+        }
+        return ownerWorkspaceID == other.ownerWorkspaceID
     }
 
     /// The stable key the proxy broker uses to share one daemon tunnel across
@@ -120,6 +199,8 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         let normalizedWebSocketDaemon = daemonWebSocketEndpoint?.proxyBrokerKeyComponent ?? ""
         let normalizedRequiredCapabilities = preserveAfterTerminalExit ? "pty.session" : ""
         let normalizedPersistentDaemonSlot = persistentDaemonSlot ?? ""
+        let normalizedOwnerWorkspaceID = proxyBrokerOwnerWorkspaceKeyComponent
+        let normalizedManagedCloudVMID = managedCloudVMID ?? ""
         return [
             normalizedTransport,
             normalizedBootstrapMode,
@@ -131,6 +212,8 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             normalizedWebSocketDaemon,
             normalizedRequiredCapabilities,
             normalizedPersistentDaemonSlot,
+            normalizedOwnerWorkspaceID,
+            normalizedManagedCloudVMID,
         ]
             .joined(separator: "\u{1e}")
     }
@@ -155,10 +238,39 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
                 == other.destination.trimmingCharacters(in: .whitespacesAndNewlines)
             && port == other.port
             && relayPort == other.relayPort
+            && ownerWorkspaceMatchesForPersistentPTY(other)
+            && managedCloudVMID == other.managedCloudVMID
             && Self.normalizedIdentityPath(identityFile)
                 == Self.normalizedIdentityPath(other.identityFile)
             && Self.proxyBrokerSSHOptions(sshOptions) == Self.proxyBrokerSSHOptions(other.sshOptions)
             && daemonWebSocketEndpoint?.proxyBrokerKeyComponent == other.daemonWebSocketEndpoint?.proxyBrokerKeyComponent
+    }
+
+    /// Returns a copy scoped to the local workspace that owns this remote
+    /// configuration. Remote CLI bridges use this to reject cross-workspace
+    /// requests before they reach the app control socket.
+    public func scopedToOwnerWorkspace(_ workspaceID: UUID) -> WorkspaceRemoteConfiguration {
+        WorkspaceRemoteConfiguration(
+            transport: transport,
+            destination: destination,
+            port: port,
+            identityFile: identityFile,
+            sshOptions: sshOptions,
+            localProxyPort: localProxyPort,
+            relayPort: relayPort,
+            relayID: relayID,
+            relayToken: relayToken,
+            localSocketPath: localSocketPath,
+            ownerWorkspaceID: workspaceID,
+            managedCloudVMID: managedCloudVMID,
+            terminalStartupCommand: terminalStartupCommand,
+            foregroundAuthToken: foregroundAuthToken,
+            agentSocketPath: agentSocketPath,
+            daemonWebSocketEndpoint: daemonWebSocketEndpoint,
+            preserveAfterTerminalExit: preserveAfterTerminalExit,
+            persistentDaemonSlot: persistentDaemonSlot,
+            skipDaemonBootstrap: skipDaemonBootstrap
+        )
     }
 }
 
@@ -189,11 +301,28 @@ extension WorkspaceRemoteConfiguration {
     }
 
     /// The durable snapshot persisted into session state, or `nil` for
-    /// non-SSH transports or an empty destination.
+    /// non-restorable remotes.
     public func sessionSnapshot(sshOptionsOverride: [String]? = nil) -> SessionRemoteWorkspaceSnapshot? {
-        guard transport == .ssh else { return nil }
         let normalizedDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedDestination.isEmpty else { return nil }
+
+        if transport == .websocket {
+            guard let managedCloudVMID else { return nil }
+            return SessionRemoteWorkspaceSnapshot(
+                transport: transport,
+                destination: normalizedDestination,
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                preserveAfterTerminalExit: true,
+                skipDaemonBootstrap: true,
+                relayPort: nil,
+                persistentDaemonSlot: "cmux-default-freestyle-sshd-v1",
+                managedCloudVMID: managedCloudVMID
+            )
+        }
+
+        guard transport == .ssh else { return nil }
 
         return SessionRemoteWorkspaceSnapshot(
             transport: transport,
@@ -204,7 +333,8 @@ extension WorkspaceRemoteConfiguration {
             preserveAfterTerminalExit: preserveAfterTerminalExit ? true : nil,
             skipDaemonBootstrap: skipDaemonBootstrap,
             relayPort: preserveAfterTerminalExit ? relayPort : nil,
-            persistentDaemonSlot: preserveAfterTerminalExit ? persistentDaemonSlot : nil
+            persistentDaemonSlot: preserveAfterTerminalExit ? persistentDaemonSlot : nil,
+            managedCloudVMID: managedCloudVMID
         )
     }
 }

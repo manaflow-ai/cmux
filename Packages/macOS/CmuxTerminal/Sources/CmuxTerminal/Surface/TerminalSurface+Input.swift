@@ -9,6 +9,19 @@ internal import CMUXDebugLog
 // MARK: - Socket/API input: send paths, pending queues, parsing
 
 extension TerminalSurface {
+    /// Notifies the pane host that user-initiated terminal input is about to be sent.
+    @MainActor
+    public func didReceiveExplicitInput() {
+        paneHost.terminalSurfaceDidReceiveExplicitInput()
+    }
+
+    /// Closes Find as an explicit user action, cancelling any deferred viewport restoration first.
+    @MainActor
+    public func closeSearchFromExplicitInput() {
+        didReceiveExplicitInput()
+        searchState = nil
+    }
+
     /// Whether closing this surface should ask for confirmation.
     public func needsConfirmClose() -> Bool {
 #if DEBUG
@@ -16,7 +29,7 @@ extension TerminalSurface {
             return needsConfirmCloseOverrideForTesting
         }
 #endif
-        guard let surface = surface else { return false }
+        guard let surface, hasCloseConfirmationProcessRisk(surface) else { return false }
         return ghostty_surface_needs_confirm_quit(surface)
     }
 
@@ -36,6 +49,7 @@ extension TerminalSurface {
     @discardableResult
     public func sendText(_ text: String) -> Bool {
         guard let data = text.data(using: .utf8), !data.isEmpty else { return true }
+        didReceiveExplicitInput()
         guard surface != nil else {
             guard allowsRuntimeSurfaceCreation() else { return false }
             let queued = enqueuePendingSocketInput(.pasteText(data))
@@ -61,6 +75,7 @@ extension TerminalSurface {
     @discardableResult
     public func sendKeyText(_ text: String) -> Bool {
         guard !text.isEmpty else { return true }
+        didReceiveExplicitInput()
         guard let liveSurface = liveSurfaceForSocketWrite(reason: "socket.sendKeyText") else {
             return false
         }
@@ -85,6 +100,7 @@ extension TerminalSurface {
     @discardableResult
     public func sendNamedKey(_ keyName: String) -> NamedKeySendResult {
         guard let event = pendingKeyEvent(for: keyName) else { return .unknownKey }
+        didReceiveExplicitInput()
         guard surface != nil else {
             guard allowsRuntimeSurfaceCreation() else { return .surfaceUnavailable }
             guard enqueuePendingSocketInput(.key(event)) else { return .inputQueueFull }
@@ -143,6 +159,7 @@ extension TerminalSurface {
     @discardableResult
     public func sendInputResult(_ text: String) -> InputSendResult {
         guard !text.isEmpty else { return .sent }
+        didReceiveExplicitInput()
         guard surface != nil else {
             guard allowsRuntimeSurfaceCreation() else { return .surfaceUnavailable }
             let queued = enqueuePendingSocketInput(text)

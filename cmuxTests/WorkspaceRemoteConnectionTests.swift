@@ -4,6 +4,7 @@ import XCTest
 import CmuxCore
 import CmuxRemoteDaemon
 import CmuxRemoteSession
+import CmuxSidebar
 import CmuxRemoteWorkspace
 import CmuxTerminal
 
@@ -28,6 +29,20 @@ private struct ScriptedRemoteProcessRunner: RemoteSessionProcessRunning, @unchec
         let result = try script(request.executable, request.arguments, request.stdin, request.timeout)
         return RemoteCommandResult(status: result.status, stdout: result.stdout, stderr: result.stderr)
     }
+}
+
+private func remoteDaemonServeCommand(_ command: String) -> Bool {
+    command.contains("serve") && command.contains("--stdio")
+}
+
+private func remoteReverseRelayControlOperation(from arguments: [String]) -> (command: String, spec: String)? {
+    guard let operationIndex = arguments.firstIndex(of: "-O"),
+          operationIndex + 1 < arguments.count,
+          let reverseIndex = arguments.firstIndex(of: "-R"),
+          reverseIndex + 1 < arguments.count else {
+        return nil
+    }
+    return (arguments[operationIndex + 1], arguments[reverseIndex + 1])
 }
 
 final class WorkspaceRemoteConnectionTests: XCTestCase {
@@ -1282,16 +1297,17 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: "ssh cmux-macmini",
             foregroundAuthToken: "token-a"
         )
-
         workspace.notifyRemoteForegroundAuthenticationReady(token: "token-a")
+        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
+        XCTAssertNil(workspace.activeRemoteSessionControllerID)
         workspace.configureRemoteConnection(config, autoConnect: false)
-
         XCTAssertEqual(workspace.remoteConnectionState, .connecting)
+        XCTAssertNotNil(workspace.activeRemoteSessionControllerID)
         workspace.disconnectRemoteConnection(clearConfiguration: true)
     }
 
     @MainActor
-    func testForegroundSSHAuthReadyReconnectsConfiguredDisconnectedRemoteWorkspace() {
+    func testForegroundSSHAuthReadyReconnectsConfiguredConnectingRemoteWorkspace() {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
@@ -1306,13 +1322,12 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: "ssh cmux-macmini",
             foregroundAuthToken: "token-a"
         )
-
         workspace.configureRemoteConnection(config, autoConnect: false)
-        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
-
-        workspace.notifyRemoteForegroundAuthenticationReady(token: "token-a")
-
         XCTAssertEqual(workspace.remoteConnectionState, .connecting)
+        XCTAssertNil(workspace.activeRemoteSessionControllerID)
+        workspace.notifyRemoteForegroundAuthenticationReady(token: "token-a")
+        XCTAssertEqual(workspace.remoteConnectionState, .connecting)
+        XCTAssertNotNil(workspace.activeRemoteSessionControllerID)
         workspace.disconnectRemoteConnection(clearConfiguration: true)
     }
 
@@ -1332,11 +1347,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: "ssh cmux-macmini",
             foregroundAuthToken: "token-b"
         )
-
         workspace.notifyRemoteForegroundAuthenticationReady(token: "token-a")
         workspace.configureRemoteConnection(config, autoConnect: false)
-
-        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
+        XCTAssertEqual(workspace.remoteConnectionState, .connecting)
+        XCTAssertNil(workspace.activeRemoteSessionControllerID)
     }
 
     @MainActor
@@ -1382,11 +1396,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: "ssh cmux-macmini",
             foregroundAuthToken: "token-a"
         )
-
         workspace.configureRemoteConnection(config, autoConnect: false)
         workspace.notifyRemoteForegroundAuthenticationReady(token: "token-b")
-
-        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
+        XCTAssertEqual(workspace.remoteConnectionState, .connecting)
+        XCTAssertNil(workspace.activeRemoteSessionControllerID)
     }
 
     @MainActor
@@ -2151,7 +2164,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                         stderr: ""
                     )
                 }
-                if command.contains("serve --stdio") {
+                if remoteDaemonServeCommand(command) {
                     return (
                         status: 0,
                         stdout: #"{"id":1,"ok":true,"result":{"name":"cmuxd-remote","version":"old","capabilities":["proxy.stream.push"]}}"# + "\n",
@@ -2230,11 +2243,9 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 return (status: 1, stdout: "", stderr: "unexpected executable")
             }
 
-            if let operationIndex = arguments.firstIndex(of: "-O"),
-               operationIndex + 3 < arguments.count,
-               arguments[operationIndex + 2] == "-R" {
-                let operation = arguments[operationIndex + 1]
-                let spec = arguments[operationIndex + 3]
+            if let controlOperation = remoteReverseRelayControlOperation(from: arguments) {
+                let operation = controlOperation.command
+                let spec = controlOperation.spec
                 lock.lock()
                 controlOperations.append((command: operation, spec: spec))
                 lock.unlock()
@@ -2257,10 +2268,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                     stderr: ""
                 )
             }
-            if command.contains("serve --stdio") {
+            if remoteDaemonServeCommand(command) {
                 return (
                     status: 0,
-                    stdout: #"{"id":1,"ok":true,"result":{"name":"cmuxd-remote","version":"dev","capabilities":["proxy.stream.push","pty.session","pty.session.token","pty.session.persistent_daemon"]}}"# + "\n",
+                    stdout: #"{"id":1,"ok":true,"result":{"name":"cmuxd-remote","version":"dev","capabilities":["proxy.stream.push","pty.session","pty.session.token","pty.write.notification","pty.resize.notification","pty.session.persistent_daemon"]}}"# + "\n",
                     stderr: ""
                 )
             }
@@ -2323,11 +2334,9 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 return (status: 1, stdout: "", stderr: "unexpected executable")
             }
 
-            if let operationIndex = arguments.firstIndex(of: "-O"),
-               operationIndex + 3 < arguments.count,
-               arguments[operationIndex + 2] == "-R" {
-                let operation = arguments[operationIndex + 1]
-                let spec = arguments[operationIndex + 3]
+            if let controlOperation = remoteReverseRelayControlOperation(from: arguments) {
+                let operation = controlOperation.command
+                let spec = controlOperation.spec
                 lock.lock()
                 controlOperations.append((command: operation, spec: spec))
                 if operation == "forward" {
@@ -2372,10 +2381,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                     stderr: ""
                 )
             }
-            if command.contains("serve --stdio") {
+            if remoteDaemonServeCommand(command) {
                 return (
                     status: 0,
-                    stdout: #"{"id":1,"ok":true,"result":{"name":"cmuxd-remote","version":"dev","capabilities":["proxy.stream.push","pty.session","pty.session.token","pty.session.persistent_daemon"]}}"# + "\n",
+                    stdout: #"{"id":1,"ok":true,"result":{"name":"cmuxd-remote","version":"dev","capabilities":["proxy.stream.push","pty.session","pty.session.token","pty.write.notification","pty.resize.notification","pty.session.persistent_daemon"]}}"# + "\n",
                     stderr: ""
                 )
             }
@@ -3488,6 +3497,89 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    func testDefaultCloudProxyOnlyErrorsDoNotPolluteConnectedSidebar() {
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cloud VM",
+            port: 22,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64015,
+            relayID: String(repeating: "e", count: 16),
+            relayToken: String(repeating: "f", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            managedCloudVMID: "71smiccrg35sw9pydt8k",
+            terminalStartupCommand: "cmux vm ssh-attach --id 71smiccrg35sw9pydt8k --default-freestyle-sshd",
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "cmux-default-freestyle-sshd-v1",
+            skipDaemonBootstrap: true
+        )
+
+        workspace.configureRemoteConnection(config, autoConnect: false)
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 1)
+
+        let proxyError = "Remote proxy to cloud VM unavailable: Failed to start local daemon proxy: timed out"
+        workspace.applyRemoteConnectionStateUpdate(.error, detail: proxyError, target: "cloud VM")
+
+        XCTAssertEqual(workspace.remoteConnectionState, .connected)
+        XCTAssertNil(workspace.statusEntries["remote.error"])
+        XCTAssertNil(workspace.logEntries.last(where: { $0.source == "remote-proxy" }))
+        XCTAssertEqual(workspace.remoteStatusPayload()["connected"] as? Bool, true)
+
+        workspace.statusEntries["remote.error"] = SidebarStatusEntry(
+            key: "remote.error",
+            value: "Remote proxy unavailable (cloud VM): \(proxyError)",
+            icon: "exclamationmark.triangle.fill",
+            color: nil,
+            timestamp: Date()
+        )
+        workspace.logEntries.append(
+            SidebarLogEntry(
+                message: "Remote proxy unavailable (cloud VM): \(proxyError)",
+                level: .error,
+                source: "remote-proxy",
+                timestamp: Date()
+            )
+        )
+        workspace.applyRemoteConnectionStateUpdate(.reconnecting, detail: "Reconnecting to cloud VM", target: "cloud VM")
+
+        XCTAssertEqual(workspace.remoteConnectionState, .connected)
+        XCTAssertNil(workspace.statusEntries["remote.error"])
+        XCTAssertNil(workspace.logEntries.last(where: { $0.source == "remote-proxy" }))
+
+        workspace.logEntries.append(
+            SidebarLogEntry(
+                message: "Remote proxy unavailable (cloud VM): \(proxyError)",
+                level: .error,
+                source: "remote-proxy",
+                timestamp: Date()
+            )
+        )
+
+        XCTAssertNil(
+            workspace.sessionSnapshot(includeScrollback: false)
+                .logEntries
+                .last(where: { $0.source == "remote-proxy" })
+        )
+
+        var legacySnapshot = workspace.sessionSnapshot(includeScrollback: false)
+        legacySnapshot.logEntries = [
+            SessionLogEntrySnapshot(
+                message: "Remote proxy unavailable (cloud VM): \(proxyError)",
+                level: SidebarLogLevel.error.rawValue,
+                source: "remote-proxy",
+                timestamp: Date().timeIntervalSince1970
+            )
+        ]
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(legacySnapshot)
+
+        XCTAssertNil(restored.logEntries.last(where: { $0.source == "remote-proxy" }))
+    }
+
+    @MainActor
     func testWebSocketDaemonTransportErrorClearsConnectedSidebarState() {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
@@ -3563,7 +3655,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             cols: Int,
             rows: Int,
             command: String?,
-            requireExisting: Bool,
+            requireExisting: Bool, inputSeqAck: Bool,
             queue: DispatchQueue,
             onEvent: @escaping (RemotePTYBridgeEvent) -> Void
         ) throws -> RemotePTYBridgeAttachment {
@@ -3585,7 +3677,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             sessionID: String,
             attachmentID: String,
             attachmentToken: String,
-            data: Data,
+            data: Data, seq: UInt64?,
             completion: @escaping (Error?) -> Void
         ) {
             completion(nil)
@@ -3600,7 +3692,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             cols: Int,
             rows: Int,
             command: String?,
-            requireExisting: Bool,
+            requireExisting: Bool, inputSeqAck: Bool,
             queue: DispatchQueue,
             onEvent: @escaping (RemotePTYBridgeEvent) -> Void
         ) throws -> RemotePTYBridgeAttachment {
@@ -3615,7 +3707,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             sessionID: String,
             attachmentID: String,
             attachmentToken: String,
-            data: Data,
+            data: Data, seq: UInt64?,
             completion: @escaping (Error?) -> Void
         ) {
             completion(nil)
@@ -3632,7 +3724,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             cols: Int,
             rows: Int,
             command: String?,
-            requireExisting: Bool,
+            requireExisting: Bool, inputSeqAck: Bool,
             queue: DispatchQueue,
             onEvent: @escaping (RemotePTYBridgeEvent) -> Void
         ) throws -> RemotePTYBridgeAttachment {
@@ -3649,7 +3741,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             sessionID: String,
             attachmentID: String,
             attachmentToken: String,
-            data: Data,
+            data: Data, seq: UInt64?,
             completion: @escaping (Error?) -> Void
         ) {
             completion(nil)
@@ -3681,7 +3773,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             cols: Int,
             rows: Int,
             command: String?,
-            requireExisting: Bool,
+            requireExisting: Bool, inputSeqAck: Bool,
             queue: DispatchQueue,
             onEvent: @escaping (RemotePTYBridgeEvent) -> Void
         ) throws -> RemotePTYBridgeAttachment {
@@ -3700,7 +3792,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             sessionID: String,
             attachmentID: String,
             attachmentToken: String,
-            data: Data,
+            data: Data, seq: UInt64?,
             completion: @escaping (Error?) -> Void
         ) {
             guard String(data: data, encoding: .utf8)?.contains("after-half-close-input") == true else {
@@ -3746,7 +3838,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             cols: Int,
             rows: Int,
             command: String?,
-            requireExisting: Bool,
+            requireExisting: Bool, inputSeqAck: Bool,
             queue: DispatchQueue,
             onEvent: @escaping (RemotePTYBridgeEvent) -> Void
         ) throws -> RemotePTYBridgeAttachment {
@@ -3757,7 +3849,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             sessionID: String,
             attachmentID: String,
             attachmentToken: String,
-            data: Data,
+            data: Data, seq: UInt64?,
             completion: @escaping (Error?) -> Void
         ) {
             let writeCount: Int
@@ -5561,11 +5653,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let server = RemotePTYBridgeServer(
             rpcClient: rpcClient,
             sessionID: "session-short-lived",
-            attachmentID: "attachment-short-lived",
+            lifecycleID: "attachment-short-lived", attachmentID: "attachment-short-lived",
             command: "printf done",
             requireExisting: true,
             strings: AppRemotePTYBridgeStrings()
-        ) {
+        ) { _ in
             stopped.signal()
         }
         let endpoint = try server.start()
@@ -5608,11 +5700,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let server = RemotePTYBridgeServer(
             rpcClient: rpcClient,
             sessionID: "session-early-output",
-            attachmentID: "attachment-early-output",
+            lifecycleID: "attachment-early-output", attachmentID: "attachment-early-output",
             command: nil,
             requireExisting: true,
             strings: AppRemotePTYBridgeStrings()
-        ) {
+        ) { _ in
             stopped.signal()
         }
         let endpoint = try server.start()
@@ -5649,11 +5741,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let server = RemotePTYBridgeServer(
             rpcClient: rpcClient,
             sessionID: "session-input-completion",
-            attachmentID: "attachment-input-completion",
+            lifecycleID: "attachment-input-completion", attachmentID: "attachment-input-completion",
             command: nil,
             requireExisting: false,
             strings: AppRemotePTYBridgeStrings()
-        ) {}
+        ) { _ in }
         let endpoint = try server.start()
         let fd = try connectLoopbackTCP(port: endpoint.port)
         defer {
@@ -5692,11 +5784,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         var server: RemotePTYBridgeServer? = RemotePTYBridgeServer(
             rpcClient: rpcClient,
             sessionID: "session-stop-retain",
-            attachmentID: "attachment-stop-retain",
+            lifecycleID: "attachment-stop-retain", attachmentID: "attachment-stop-retain",
             command: nil,
             requireExisting: false,
             strings: AppRemotePTYBridgeStrings()
-        ) {
+        ) { _ in
             stopped.signal()
         }
         guard let endpoint = try server?.start() else {
@@ -5716,11 +5808,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let server = RemotePTYBridgeServer(
             rpcClient: rpcClient,
             sessionID: "session-half-close",
-            attachmentID: "attachment-half-close",
+            lifecycleID: "attachment-half-close", attachmentID: "attachment-half-close",
             command: nil,
             requireExisting: false,
             strings: AppRemotePTYBridgeStrings()
-        ) {
+        ) { _ in
             stopped.signal()
         }
         let endpoint = try server.start()
@@ -5755,11 +5847,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let server = RemotePTYBridgeServer(
             rpcClient: rpcClient,
             sessionID: "session-half-close-no-pid",
-            attachmentID: "attachment-half-close-no-pid",
+            lifecycleID: "attachment-half-close-no-pid", attachmentID: "attachment-half-close-no-pid",
             command: nil,
             requireExisting: false,
             strings: AppRemotePTYBridgeStrings()
-        ) {
+        ) { _ in
             stopped.signal()
         }
         let endpoint = try server.start()
@@ -5796,11 +5888,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let server = RemotePTYBridgeServer(
             rpcClient: rpcClient,
             sessionID: "session-half-close-before-attach",
-            attachmentID: "attachment-half-close-before-attach",
+            lifecycleID: "attachment-half-close-before-attach", attachmentID: "attachment-half-close-before-attach",
             command: nil,
             requireExisting: false,
             strings: AppRemotePTYBridgeStrings()
-        ) {
+        ) { _ in
             stopped.signal()
         }
         let endpoint = try server.start()
@@ -5839,11 +5931,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let server = RemotePTYBridgeServer(
             rpcClient: rpcClient,
             sessionID: "session-client-close",
-            attachmentID: "attachment-client-close",
+            lifecycleID: "attachment-client-close", attachmentID: "attachment-client-close",
             command: nil,
             requireExisting: false,
             strings: AppRemotePTYBridgeStrings()
-        ) {
+        ) { _ in
             stopped.signal()
         }
         let endpoint = try server.start()
@@ -5877,11 +5969,11 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let server = RemotePTYBridgeServer(
             rpcClient: rpcClient,
             sessionID: "session-output-flood",
-            attachmentID: "attachment-output-flood",
+            lifecycleID: "attachment-output-flood", attachmentID: "attachment-output-flood",
             command: nil,
             requireExisting: false,
             strings: AppRemotePTYBridgeStrings()
-        ) {
+        ) { _ in
             stopped.signal()
         }
         let endpoint = try server.start()
@@ -6578,7 +6670,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                         "workspace_ref": workspaceRef,
                         "remote": [
                             "enabled": true,
-                            "state": autoConnect ? "connecting" : "disconnected",
+                            "state": autoConnect || params["foreground_auth_token"] != nil ? "connecting" : "disconnected",
                         ],
                     ]
                 )
@@ -6618,7 +6710,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
 
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(result.stdout, "OK workspace=\(workspaceRef) target=cmux-macmini state=disconnected\n")
+        XCTAssertEqual(result.stdout, "OK workspace=\(workspaceRef) target=cmux-macmini state=connecting\n")
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
 
         let requests = try state.commands.map { line -> [String: Any] in

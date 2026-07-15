@@ -15,6 +15,8 @@ struct CMUXMobileRootView: View {
     @Bindable var store: CMUXMobileShellStore
     @Environment(\.scenePhase) private var scenePhase
     @Environment(AuthCoordinator.self) private var authManager
+    @Environment(\.dogfoodAttachPreparation) private var dogfoodAttachPreparation
+    private let signOutHook: MobileSignOutHook
     #if os(iOS)
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
     /// The persisted first-run onboarding "seen" flag store. The one-time
@@ -43,14 +45,20 @@ struct CMUXMobileRootView: View {
     @Environment(\.tailscaleStatusMonitor) private var tailscaleStatusMonitor
 
     #if os(iOS)
-    init(store: CMUXMobileShellStore, onboardingStore: MobileOnboardingStore) {
+    init(
+        store: CMUXMobileShellStore,
+        onboardingStore: MobileOnboardingStore,
+        signOutHook: MobileSignOutHook
+    ) {
         self.store = store
         self.onboardingStore = onboardingStore
+        self.signOutHook = signOutHook
         _hasSeenOnboarding = State(initialValue: onboardingStore.hasSeenOnboarding)
     }
     #else
-    init(store: CMUXMobileShellStore) {
+    init(store: CMUXMobileShellStore, signOutHook: MobileSignOutHook) {
         self.store = store
+        self.signOutHook = signOutHook
     }
     #endif
 
@@ -141,7 +149,7 @@ struct CMUXMobileRootView: View {
             store.currentTeamDidChange()
         }
         .onChange(of: scenePhase) { _, phase in
-            guard phase == .active else { return }
+            guard phase == .active else { store.suspendForegroundRefresh(); return }
             store.resumeForegroundRefresh()
             // The user may have toggled Tailscale while we were backgrounded.
             tailscaleStatusMonitor?.refresh()
@@ -462,19 +470,6 @@ struct CMUXMobileRootView: View {
     }
 
     private func signOut() {
-        #if os(iOS)
-        // The hook receives the tokens captured before the local-first clear:
-        // by the time it runs, the live token store is already empty.
-        let pushCoordinator = pushCoordinator
-        let onSignedOut: @Sendable (String?, String?) async -> Void = { accessToken, refreshToken in
-            await pushCoordinator.unregisterFromServer(
-                accessToken: accessToken,
-                refreshToken: refreshToken
-            )
-        }
-        #else
-        let onSignedOut: @Sendable (String?, String?) async -> Void = { _, _ in }
-        #endif
         Task {
             // Local shell teardown first so the whole UI lands signed out
             // immediately; authManager.signOut clears the local session up
@@ -482,7 +477,8 @@ struct CMUXMobileRootView: View {
             // (push-token DELETE, Stack session revocation).
             didAuthenticateWithAttachTicket = false
             store.signOut()
-            await authManager.signOut(onSignedOut: onSignedOut)
+            let serverTeardown = signOutHook.begin()
+            await authManager.signOut(onSignedOut: serverTeardown)
         }
     }
 
@@ -508,7 +504,9 @@ struct CMUXMobileRootView: View {
         }
         didConsumeUITestAttachURL = true
         Task {
-            await store.connectPairingURL(attachURL)
+            await dogfoodAttachPreparation.run {
+                await store.connectPairingURL(attachURL)
+            }
         }
         return true
         #else

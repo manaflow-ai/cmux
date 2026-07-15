@@ -16,6 +16,7 @@ public struct CMUXMobileAppView: View {
     /// state lives here (not in the shell store) because, unlike terminals, it
     /// has no Mac-side counterpart and must survive `workspace.updated` re-syncs.
     @State private var browserStore: BrowserSurfaceStore
+    private let signOutHook: MobileSignOutHook
     #if os(iOS)
     private let onboardingStore: MobileOnboardingStore
     #endif
@@ -32,28 +33,36 @@ public struct CMUXMobileAppView: View {
     public init(
         store: CMUXMobileShellStore = .preview(),
         browserStore: BrowserSurfaceStore = BrowserSurfaceStore(),
-        onboardingStore: MobileOnboardingStore = MobileOnboardingStore(defaults: .standard, forceSeen: true)
+        onboardingStore: MobileOnboardingStore = MobileOnboardingStore(defaults: .standard, forceSeen: true),
+        signOutHook: MobileSignOutHook = MobileSignOutHook()
     ) {
         _store = State(initialValue: store)
         _browserStore = State(initialValue: browserStore)
         self.onboardingStore = onboardingStore
+        self.signOutHook = signOutHook
     }
     #else
     public init(
         store: CMUXMobileShellStore = .preview(),
-        browserStore: BrowserSurfaceStore = BrowserSurfaceStore()
+        browserStore: BrowserSurfaceStore = BrowserSurfaceStore(),
+        signOutHook: MobileSignOutHook = MobileSignOutHook()
     ) {
         _store = State(initialValue: store)
         _browserStore = State(initialValue: browserStore)
+        self.signOutHook = signOutHook
     }
     #endif
 
     public var body: some View {
         #if os(iOS)
-        CMUXMobileRootView(store: store, onboardingStore: onboardingStore)
+        CMUXMobileRootView(
+            store: store,
+            onboardingStore: onboardingStore,
+            signOutHook: signOutHook
+        )
             .environment(browserStore)
         #else
-        CMUXMobileRootView(store: store)
+        CMUXMobileRootView(store: store, signOutHook: signOutHook)
             .environment(browserStore)
         #endif
     }

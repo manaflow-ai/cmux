@@ -16,6 +16,7 @@ extension TerminalSurface {
     /// Without this, `createSurface` would replay a stale state on recreation.
     public func recordExternalFocusState(_ focused: Bool) {
         desiredFocusState = focused
+        updateRendererCallbackProfilingState()
     }
 
     /// Applies a focus state to the runtime surface (deduplicated).
@@ -25,6 +26,7 @@ extension TerminalSurface {
         // prompt redraws with zsh themes like Powerlevel10k.
         guard force || focused != desiredFocusState else { return }
         desiredFocusState = focused
+        updateRendererCallbackProfilingState()
         // Track desired state even before the C surface exists (e.g. during
         // layout restoration). createSurface syncs the state once created.
         guard let surface = surface else { return }
@@ -43,10 +45,44 @@ extension TerminalSurface {
         }
     }
 
-    /// Applies the occlusion state to the runtime surface.
+    /// Records and applies the desired occlusion state.
+    ///
+    /// The desired value survives periods without a native surface. This is
+    /// important for hidden restored and hibernated panes: their portal often
+    /// transitions to hidden before creation and does not emit a duplicate
+    /// transition after recreation.
     public func setOcclusion(_ visible: Bool) {
+        desiredOcclusionVisible = visible
+        updateRendererCallbackProfilingState()
+        applyDesiredOcclusionIfNeeded()
+    }
+
+    private func updateRendererCallbackProfilingState() {
+        surfaceCallbackContext?.takeUnretainedValue().updateRendererProfilingState(
+            visible: desiredOcclusionVisible,
+            focused: desiredFocusState
+        )
+    }
+
+    /// Applies retained visibility to the current native surface once.
+    /// Called after creation and by visibility transitions.
+    public func applyDesiredOcclusionIfNeeded() {
         guard let surface = surface else { return }
-        ghostty_surface_set_occlusion(surface, visible)
+        guard lastAppliedOcclusionVisible != desiredOcclusionVisible else { return }
+        ghostty_surface_set_occlusion(surface, desiredOcclusionVisible)
+        lastAppliedOcclusionVisible = desiredOcclusionVisible
+    }
+
+    /// Starts deduplication afresh when a native surface is replaced.
+    func noteRuntimeSurfaceRecreatedForOcclusion() {
+        lastAppliedOcclusionVisible = nil
+    }
+
+    /// Finalizes one native-surface installation at the lifecycle boundary
+    /// where display, scale, size, and focus have already converged.
+    func applyRetainedOcclusionAfterRuntimeInstallation() {
+        noteRuntimeSurfaceRecreatedForOcclusion()
+        applyDesiredOcclusionIfNeeded()
     }
 
     /// Whether this surface currently holds realized GPU renderer resources.
@@ -93,16 +129,17 @@ extension TerminalSurface {
     /// no-ops if there is no runtime surface, it is already released, or the
     /// surface is currently visible (a hard safety net so we never blank an
     /// on-screen terminal regardless of how the caller picked it).
+    @discardableResult
     @MainActor
-    public func releaseRenderer() {
+    public func releaseRenderer() -> Bool {
 #if os(macOS)
-        guard rendererRealized, !rendererPortalVisible else { return }
+        guard rendererRealized, !rendererPortalVisible else { return false }
         // The reclamation controller is default-on and scans every registered
         // wrapper, so validate the native pointer (registry ownership +
         // liveness) before the C call instead of trusting `surface != nil`.
         // This self-heals a stale wrapper whose runtime surface was freed
         // out-of-band rather than passing a dangling pointer to Ghostty.
-        guard let surface = liveSurfaceForGhosttyAccess(reason: "renderer.release") else { return }
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "renderer.release") else { return false }
         // Only advance our mirror state when the message was actually enqueued
         // (a `.forever` push can still drop on a spurious wakeup while the
         // mailbox is full). If it dropped, keep `rendererRealized = true` so the
@@ -110,7 +147,11 @@ extension TerminalSurface {
         // Ghostty's still-realized swap chain.
         if ghostty_surface_set_renderer_realized(surface, false) {
             rendererRealized = false
+            return true
         }
+        return false
+#else
+        return false
 #endif
     }
 

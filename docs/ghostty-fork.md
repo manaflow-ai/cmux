@@ -12,7 +12,143 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `541e5e89d`, which merges the render-grid span
+Current cmux pinned fork head: `b4b6d69c8`. It advances the previous cmux pin
+`a6305908a` with an exact Ghostty CLI executable-path contract for embedded
+hosts. The commit is reachable from fork `main` through `67b388b73` and was
+published via https://github.com/manaflow-ai/ghostty/pull/115.
+The corresponding universal ReleaseFast GhosttyKit archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-b4b6d69c82033e16137266a04b364dc53d16c350-crashsubdir-cmux-crash-v1
+and pinned in `scripts/ghosttykit-checksums.txt`.
+
+### Embedded Ghostty CLI path ownership
+
+- `src/termio/Exec.zig` exports `GHOSTTY_BIN` as the exact CLI executable.
+  Native Ghostty resolves to its running binary; an embedded host can supply a
+  separate helper without assuming the host GUI executable is named `ghostty`.
+- The zsh, bash, fish, nushell, and elvish SSH integrations invoke
+  `GHOSTTY_BIN` directly. They install no SSH wrapper when an embedded host has
+  not supplied a helper, so missing optional CLI support cannot break ordinary
+  `ssh`.
+- `GHOSTTY_BIN_DIR` remains the directory contract for the independent `path`
+  shell-integration feature; it is no longer used to reconstruct a CLI filename.
+- Conflict note: future upstream merges must preserve the distinction between
+  the exact CLI path (`GHOSTTY_BIN`) and its PATH directory
+  (`GHOSTTY_BIN_DIR`) across `src/termio/Exec.zig` and every shell integration.
+
+The earlier fork history below includes terminal-owned scrollbar snapshots,
+absolute row-space identity, OSC-boundary geometry, and compare-and-set
+absolute-row restoration for notification scrollback replay.
+
+The underlying compression, selection, and full-scrollback changes were
+published via
+https://github.com/manaflow-ai/ghostty/pull/96 and
+https://github.com/manaflow-ai/ghostty/pull/99 and
+https://github.com/manaflow-ai/ghostty/pull/104 and
+https://github.com/manaflow-ai/ghostty/pull/105 and
+https://github.com/manaflow-ai/ghostty/pull/106.
+
+### Notification replay viewport authority
+
+- OSC PWD actions carry the terminal scrollbar snapshot and row-space revision
+  from the exact byte position where the replay boundary was parsed.
+- `ghostty_surface_scrollbar` reads live terminal geometry without waiting for
+  renderer publication.
+- `ghostty_surface_scroll_to_row_if_revision` validates the row-space identity,
+  scrolls, and returns the resulting geometry under one terminal lock. A reset,
+  reflow, screen replacement, surface replacement, or scrollback eviction makes
+  a stale request fail closed instead of scrolling the wrong rows.
+- Conflict note: keep the PWD snapshot fields ABI-stable in
+  `src/apprt/action.zig` / `include/ghostty.h`, preserve the PageList revision
+  increments around row renumbering, and keep the embedded compare-and-set API
+  adjacent to `ghostty_surface_scrollbar` during future fork merges.
+
+### Upstream TLDR (`d560c645..7e02af879`)
+
+- Terminal memory: idle renderer work now compresses cold scrollback pages,
+  typically cutting their resident memory by 70% to 90%; unused page-pool
+  backing is returned to the OS; the default logical scrollback limit rises
+  from 10 MB to 50 MB.
+- Terminal performance: pipelined PTY reads improve measured IO throughput by
+  25% to 55%, parser/VT processing is substantially faster, and renderer-state
+  lock hold time is reduced.
+- libghostty-vt: adds compression scheduling APIs, color query/report APIs,
+  Unicode width helpers, absolute-row viewport scrolling, and tracked grid
+  references.
+- Protocols and correctness: adds Kitty drag-and-drop parsing and fixes PageList
+  capacity, ownership, bitmap allocator, cursor-height, and link-allocation
+  edge cases.
+- macOS: fixes IME preedit commits, quick-terminal sizing after display
+  reconnects, and pasteboard handling for file URLs and multiple items.
+
+### Fork integration and conflict notes
+
+1. `src/Surface.zig`: kept the fork's latched Ctrl/Cmd-click semantics while
+   adopting upstream's cached release position, drag guard, and renderer-lock
+   ownership. The obsolete selection tests were dropped; the fork link-click
+   regression test remains.
+2. `src/renderer/Thread.zig`: kept cmux's iOS external-drain ownership and
+   combined it with upstream's visibility refresh and idle compression
+   scheduler. Desktop embedded surfaces therefore get automatic compression
+   without a cmux-side timer.
+3. `src/terminal/stream_terminal.zig`: used upstream's color-query response
+   implementation because it supersedes the fork-only `a78fe53ef` patch while
+   retaining terminal-stream APC handling.
+4. `src/apprt/embedded.zig`: render-grid JSON snapshots now decode compressed
+   nodes through `pagePreservingState`, reuse one temporary decode per page,
+   and leave the original scrollback compressed. This prevents iOS snapshot
+   streaming from undoing desktop memory savings. Replacement pages are
+   acquired before the current page is released, so OOM leaves one valid owner
+   for the scope defer instead of double-freeing the prior decode.
+5. Fork CI keeps the `ubuntu-latest` aggregate-test fallback and skips
+   upstream-only Vouch jobs outside `ghostty-org/ghostty`.
+6. Selection changes and screen lifecycle transitions advance a terminal-wide
+   atomic activity epoch. Renderer wakes compare the epoch without acquiring
+   the terminal mutex, including for hidden surfaces, then invoke
+   `selection_changed`. Accessibility callbacks can therefore read the
+   selection synchronously without deadlocking or adding lock contention to
+   output-heavy surfaces.
+7. `selection_changed` is appended after every previously released C action
+   tag. The old tail remains numeric value 64 and the new callback is 65, so
+   existing binary embedders do not reinterpret later action payloads.
+8. `PageListFormatter` decodes compressed history into temporary owned pages
+   and frees them after formatting, so full `read-screen` and clipboard reads
+   no longer make cold history resident. Temporary decode allocation failures
+   propagate as `OutOfMemory` through Zig and C formatter APIs.
+9. `ghostty_surface_read_screen_tail_vt` lets cmux preserve terminal history
+   while replacing a completed remote-command surface. Ghostty derives the
+   newest physical-row suffix from `PageList` pins and formats VT into a fixed
+   byte buffer, halving the suffix on overflow so output is never cut inside a
+   control sequence or UTF-8 codepoint. The formatter preserves SGR conceal,
+   wide/grapheme cells, and compressed-page ownership. Upstream conflicts should
+   keep this beside the existing embedded read-text APIs and retain
+   `PageListFormatter.pagePreservingState` rather than restoring cold pages.
+
+Verified with Zig 0.15.2: compression, formatter, selection activity, and
+libghostty-vt compression tests,
+the cmux link-click regression test, the `wasm32-freestanding` libghostty-vt
+build, a clean universal GhosttyKit build, tagged cmux reloads `gcmp` and
+`gsel2`, and live accessibility reads across select-all, endpoint adjustment,
+and clearing.
+Prebuilt archive:
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-eb500e9f45c8b6ffa6043350ec1488a42d195406-crashsubdir-cmux-crash-v1
+
+### Previous pin
+
+The previous cmux pin was `5ae712a89`, which added the bounded VT screen-tail
+export on top of `e215e78bf`. Before that, `1ae98c991` was superseded by
+`e215e78bf` after
+full scrollback formatting was changed to preserve compressed storage and
+selection notifications moved to a lock-free terminal-wide epoch. The initial
+compression merge for this update was `870ed36f9`; it was superseded by
+`4117298e4` after the preserved-page OOM ownership fix, by `bdf4baa80` after
+the selection notification callback fix, then by `1ae98c991` after preserving
+public action tag values. The fork's prior `main` head was
+`cc31d54ee`, which merged upstream through `d560c645`; both histories are
+ancestors of `e215e78bf`.
+
+### Earlier pin
+
+Previous cmux pinned fork head: `541e5e89d`, which merges the render-grid span
 preservation head `1b454eb99` from manaflow-ai/ghostty#89 with the
 Arabic/Hebrew RTL shaping head `7a5179843` from manaflow-ai/ghostty#88.
 
@@ -42,6 +178,16 @@ zig build test -Dapp-runtime=none -Demit-macos-app=false -Demit-xcframework=fals
 The corresponding prebuilt archive is published at
 https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-541e5e89db0448d5cd85a7b348d8f6a64618c900-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
+
+### 0a) lib-vt OSC color query replies
+
+- Files:
+  - `src/terminal/stream_terminal.zig`
+- Summary:
+  - Adds OSC 4/10/11/12 query replies to the non-termio `TerminalStream` path used by libghostty-vt consumers.
+  - Reports known palette/default/override colors through the existing `write_pty` effect in 16-bit `rgb:xxxx/xxxx/xxxx` form, preserving the query's BEL or ST terminator.
+  - Leaves unknown dynamic colors unanswered so embedders that have not supplied host defaults preserve the previous silent behavior.
+  - Upstreamability: mirrors the existing termio stream handler behavior, but scoped to lib-vt's callback-based reply mechanism.
 
 The previous cmux pinned fork head was `1b454eb99`, which retained the
 Darwin-only `ghostty_surface_set_renderer_realized` C API (a

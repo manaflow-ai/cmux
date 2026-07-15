@@ -66,6 +66,11 @@ ALLOW_DEVICE_REGISTRATION=0
 NO_SIGN_IN=0
 NO_ATTACH=0
 NO_SETUP=0
+# Disable AArch64 GlobalISel codegen for this build. Xcode 26's Swift frontend
+# can miscompile under -O/wholemodule on the GlobalISel path, surfacing as bogus
+# "undefined symbol: _abort/_free/..." link failures. Mirrors scripts/reload.sh.
+# Also honored via CMUX_SWIFT_FRONTEND_WORKAROUND=1.
+SWIFT_FRONTEND_WORKAROUND="${CMUX_SWIFT_FRONTEND_WORKAROUND:-0}"
 # --prod-auth: bake CMUXAuthEnvironment=production so the dev build signs in
 # against the production Stack project and can pair with a release Mac.
 PROD_AUTH=0
@@ -132,6 +137,10 @@ while [[ $# -gt 0 ]]; do
       NO_SETUP=1
       shift
       ;;
+    --swift-frontend-workaround|--swift-workaround)
+      SWIFT_FRONTEND_WORKAROUND=1
+      shift
+      ;;
     --prod-auth)
       PROD_AUTH=1
       shift
@@ -166,6 +175,20 @@ if [[ "$ALLOW_DEVICE_REGISTRATION" -eq 1 && "$ALLOW_PROVISIONING_UPDATES" -eq 0 
   exit 1
 fi
 
+# Extra xcodebuild settings to disable AArch64 GlobalISel when the workaround is
+# requested. Expanded into the build invocations via the empty-array-safe idiom
+# ${arr[@]+"${arr[@]}"} so it is a no-op (and set -u safe) when disabled.
+SWIFT_WORKAROUND_ARGS=()
+if [[ "$SWIFT_FRONTEND_WORKAROUND" == "1" ]]; then
+  echo "==> Swift frontend workaround enabled (AArch64 GlobalISel disabled)"
+  SWIFT_WORKAROUND_ARGS=(
+    SWIFT_ENABLE_BATCH_MODE=NO
+    DEBUG_INFORMATION_FORMAT=
+    GCC_GENERATE_DEBUGGING_SYMBOLS=NO
+    'OTHER_SWIFT_FLAGS=$(inherited) -Xllvm -aarch64-enable-global-isel-at-O=-1'
+  )
+fi
+
 # --prod-auth: point the build at the production auth channel so it can pair
 # with a real beta/stable Mac (https://github.com/manaflow-ai/cmux/issues/7145).
 # The value lands in the CMUXAuthEnvironment Info.plist key (a tapped device
@@ -185,6 +208,25 @@ if [[ "$PROD_AUTH" -eq 1 ]]; then
   fi
 fi
 
+# Bake the web API origin because a launched iOS app does not inherit the
+# tagged macOS process environment. Simulator dogfood uses the matching tag's
+# isolated CMUX_PORT; production-auth builds retain the production origin.
+# CMUX_IOS_API_BASE_URL is the explicit escape hatch for a physical device or
+# another reachable development host.
+CMUX_IOS_API_BASE_URL_VALUE="${CMUX_IOS_API_BASE_URL:-}"
+if [[ -z "$CMUX_IOS_API_BASE_URL_VALUE" ]]; then
+  if [[ "$PROD_AUTH" -eq 1 ]]; then
+    CMUX_IOS_API_BASE_URL_VALUE="https://cmux.com"
+  elif [[ -n "${CMUX_VM_API_BASE_URL:-}" ]]; then
+    CMUX_IOS_API_BASE_URL_VALUE="$CMUX_VM_API_BASE_URL"
+  elif [[ "${CMUX_PORT:-}" =~ ^[0-9]+$ ]] \
+      && (( 10#$CMUX_PORT >= 1 && 10#$CMUX_PORT <= 65535 )); then
+    CMUX_IOS_API_BASE_URL_VALUE="http://localhost:$((10#$CMUX_PORT))"
+  else
+    CMUX_IOS_API_BASE_URL_VALUE="http://localhost:3000"
+  fi
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IOS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 # Shared tag/identity + attach helpers; sanitize_tag() above delegates here so the
@@ -192,10 +234,9 @@ IOS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 # sanitize_tag call below.
 # shellcheck source=../../scripts/lib/mobile-attach.sh
 source "$IOS_DIR/../scripts/lib/mobile-attach.sh"
-# Fail closed on tags with no alphanumerics (their slug collapses onto the shared
-# fallback identity), matching the macOS reload's reject-empty behavior.
-if ! cmux_attach_tag_has_alnum "$TAG"; then
-  echo "error: --tag '$TAG' has no letters or digits; pick a tag with at least one alphanumeric character" >&2
+# Fail before building if the tag would collide with a fallback/reserved identity
+# or exceed the cloud presence limit.
+if ! cmux_attach_validate_dev_tag "$TAG"; then
   exit 1
 fi
 WORKSPACE="$IOS_DIR/cmux.xcworkspace"
@@ -505,11 +546,13 @@ reload_simulator() {
     CMUX_DEV_TAG="$TAG" \
     CMUX_PRESENCE_BASE_URL="${CMUX_PRESENCE_BASE_URL:-}" \
     CMUX_IOS_AUTH_ENV="$CMUX_IOS_AUTH_ENV_VALUE" \
+    CMUX_API_BASE_URL="$CMUX_IOS_API_BASE_URL_VALUE" \
     EXCLUDED_SOURCE_FILE_NAMES=Info.plist \
     CODE_SIGNING_ALLOWED=NO \
     SWIFT_OPTIMIZATION_LEVEL=-O \
     SWIFT_COMPILATION_MODE=wholemodule \
     GCC_OPTIMIZATION_LEVEL=s \
+    ${SWIFT_WORKAROUND_ARGS[@]+"${SWIFT_WORKAROUND_ARGS[@]}"} \
     build
 
   APP_PATH="$DERIVED_DATA/Build/Products/Debug-iphonesimulator/cmux.app"
@@ -620,6 +663,7 @@ reload_device() {
     CMUX_DEV_TAG="$TAG"
     CMUX_PRESENCE_BASE_URL="${CMUX_PRESENCE_BASE_URL:-}"
     CMUX_IOS_AUTH_ENV="$CMUX_IOS_AUTH_ENV_VALUE"
+    CMUX_API_BASE_URL="$CMUX_IOS_API_BASE_URL_VALUE"
     EXCLUDED_SOURCE_FILE_NAMES=Info.plist
     CODE_SIGNING_ALLOWED=YES
     CODE_SIGN_STYLE=Automatic
@@ -629,6 +673,10 @@ reload_device() {
     SWIFT_COMPILATION_MODE=wholemodule
     GCC_OPTIMIZATION_LEVEL=s
   )
+
+  if [[ "${#SWIFT_WORKAROUND_ARGS[@]}" -gt 0 ]]; then
+    build_args+=("${SWIFT_WORKAROUND_ARGS[@]}")
+  fi
 
   if [[ -n "$DEVELOPMENT_TEAM" ]]; then
     build_args+=("DEVELOPMENT_TEAM=$DEVELOPMENT_TEAM")
