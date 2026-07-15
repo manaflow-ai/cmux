@@ -43,6 +43,36 @@ struct DockPortalReconcileTests {
         #expect(BrowserWindowPortalRegistry.debugSnapshot(for: browser.webView)?.visibleInUI == true)
     }
 
+    @Test("Split attach repairs a placeholder-only source pane")
+    @MainActor
+    func splitAttachRepairsPlaceholderOnlySourcePane() throws {
+        let sourceWorkspaceId = UUID()
+        let browser = BrowserPanel(workspaceId: sourceWorkspaceId, renderInitialNavigation: false)
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil },
+            browserAvailabilityProvider: { true }
+        )
+        defer { store.closeAllPanels() }
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let detached = Self.detachedBrowserTransfer(panel: browser, sourceWorkspaceId: sourceWorkspaceId)
+
+        let attachedPanelId = store.attachDetachedSurface(
+            detached,
+            bySplitting: rootPane,
+            orientation: .horizontal,
+            insertFirst: false,
+            focus: true
+        )
+
+        #expect(attachedPanelId == browser.id)
+        #expect(store.paneId(forPanelId: browser.id) != rootPane)
+        let sourceTabs = store.bonsplitController.tabs(inPane: rootPane)
+        #expect(!sourceTabs.isEmpty)
+        #expect(sourceTabs.allSatisfy { store.panel(for: $0.id) != nil })
+        #expect(sourceTabs.contains { store.panel(for: $0.id) is TerminalPanel })
+    }
+
     @Test("Browser reveal restores portal visibility")
     @MainActor
     func dockBrowserRevealRestoresPortalVisibility() throws {
