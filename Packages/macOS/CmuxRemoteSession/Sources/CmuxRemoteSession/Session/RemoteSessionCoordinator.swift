@@ -84,6 +84,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     var lastKnownRuntimeStateRevision: UInt64 = 0
     var pendingRuntimeStateUpload: RemoteRuntimeStateUpload?
     var pendingAuthoritativeRuntimeStateDocument: RemoteRuntimeStateDocument?
+    var runtimeStateRPCTask: Task<Void, Never>?
     var runtimeStatePublicationTask: Task<Void, Never>?
     var runtimeStatePublicationGeneration: UInt64 = 0
     var runtimeStateRetryTask: Task<Void, Never>?
