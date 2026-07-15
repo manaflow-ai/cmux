@@ -526,7 +526,7 @@ jobs:
             echo "::warning::Passwordless sudo unavailable; XCTest will use its default automation-mode setup"
           fi
 
-      - name: Run notification routing regressions
+      - name: Run process-scope fingerprint regressions
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
           # The tolerant full-suite step can accept assertion failures or stop
@@ -534,6 +534,7 @@ jobs:
           # move/clear causality coverage on a non-tolerant focused invocation.
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          ENUMERATION_OUTPUT="$RUNNER_TEMP/process-scope-fingerprint-tests.json"
           scripts/ci/run-in-console-session.sh \
             scripts/ci/run-app-host-xcodebuild.sh \
             -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
@@ -542,9 +543,36 @@ jobs:
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
             CMUX_SKIP_ZIG_BUILD=1 \
-            -only-testing:cmuxTests/SessionPersistenceResumeBindingTests/processScopeFingerprintTracksSamePIDExecutableChanges \
-            -only-testing:cmuxTests/SessionPersistenceResumeBindingTests/processScopeFingerprintIgnoresTransientChildrenOutsideForegroundOwnership \
-            -only-testing:cmuxTests/SessionPersistenceResumeBindingTests/processScopeFingerprintTracksForegroundProcessGroupChanges \
+            -only-testing:cmuxTests/SessionPersistenceResumeBindingTests \
+            -enumerate-tests \
+            -test-enumeration-style flat \
+            -test-enumeration-format json \
+            -test-enumeration-output-path "$ENUMERATION_OUTPUT" \
+            test
+
+          ONLY_TESTING_ARGS=()
+          while IFS= read -r identifier; do
+            ONLY_TESTING_ARGS+=("-only-testing:$identifier")
+          done < <(
+            jq -r '.. | objects | .identifier? // empty' "$ENUMERATION_OUTPUT" \
+              | grep -E '/processScopeFingerprint(TracksSamePIDExecutableChanges|IgnoresTransientChildrenOutsideForegroundOwnership|TracksForegroundProcessGroupChanges)(\(\))?$' \
+              | sort -u
+          )
+          if [[ "${#ONLY_TESTING_ARGS[@]}" -ne 3 ]]; then
+            echo "Expected exactly 3 process-scope fingerprint tests, found ${#ONLY_TESTING_ARGS[@]}" >&2
+            cat "$ENUMERATION_OUTPUT" >&2
+            exit 1
+          fi
+
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            "${ONLY_TESTING_ARGS[@]}" \
             test
 
       - name: Run remote tmux mirror detach and placement regressions
