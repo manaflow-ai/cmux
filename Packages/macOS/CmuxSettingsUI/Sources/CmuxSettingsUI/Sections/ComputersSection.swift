@@ -3,24 +3,24 @@ import SwiftUI
 
 /// **Computers** section — the account's registered computers (from the team
 /// device registry) with live presence, plus Mac-to-Mac pairing: pair a
-/// listed computer in one click, paste a pairing link from another Mac, or
-/// show this Mac's own pairing code.
+/// listed computer in one click, or pair by typing the 6-digit code another
+/// Mac is showing.
 @MainActor
 public struct ComputersSection: View {
     @State private var model: ComputersListModel
     /// Device ids with a pair/unpair action in flight, so their buttons show
     /// a busy state without re-rendering unrelated rows.
     @State private var pendingDeviceIDs: Set<String> = []
-    /// The pasted pairing-link draft.
-    @State private var pairingLink: String = ""
-    /// Result of the most recent pair action, shown inline under the link row.
+    /// The typed pairing-code draft.
+    @State private var codeInput: String = ""
+    /// Result of the most recent pair action, shown inline under the code row.
     @State private var pairResult: ComputersPairResult?
-    /// Guards overlapping link-pair submissions.
-    @State private var isPairingLink = false
-    /// Result of the most recent copy-link action, shown under its row.
-    @State private var copyLinkResult: ComputersCopyLinkResult?
-    /// Guards overlapping copy-link mints.
-    @State private var isCopyingLink = false
+    /// Guards overlapping code-pair submissions.
+    @State private var isPairingCode = false
+    /// Result of the most recent mint, shown under the Pair This Mac row.
+    @State private var mintResult: ComputersPairingCodeMintResult?
+    /// Guards overlapping mints.
+    @State private var isMintingCode = false
 
     private let hostActions: SettingsHostActions
 
@@ -50,16 +50,24 @@ public struct ComputersSection: View {
                     ))
                     SettingsCardDivider()
                 }
-                pairingLinkRow
+                pairingCodeRow
                 pairResultCaption
                 SettingsCardDivider()
                 pairThisMacRow
-                copyLinkResultCaption
+                mintResultCaption
             }
         }
         .task {
             startSettingsObservation([model])
             hostActions.refreshComputers()
+            // Periodic registry re-fetch replaces the old manual Refresh
+            // button; a bounded cadence delay cancelled with the view's task,
+            // not condition-polling.
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(30))
+                guard !Task.isCancelled else { break }
+                hostActions.refreshComputers()
+            }
         }
     }
 
@@ -87,58 +95,38 @@ public struct ComputersSection: View {
                 defaultValue: "Couldn't reach the device registry. Showing locally known computers."
             ))
         }
-        refreshRow
     }
 
     @ViewBuilder
-    private var refreshRow: some View {
+    private var pairingCodeRow: some View {
         SettingsCardRow(
             configurationReview: .action,
-            searchAnchorID: "setting:computers:refresh",
-            String(localized: "settings.computers.refresh", defaultValue: "Refresh List"),
+            searchAnchorID: "setting:computers:pairingCode",
+            String(localized: "settings.computers.pairingCode", defaultValue: "Pair with Code"),
             subtitle: String(
-                localized: "settings.computers.refresh.subtitle",
-                defaultValue: "Fetch the account's registered computers again."
-            )
-        ) {
-            Button(String(localized: "settings.computers.refresh.button", defaultValue: "Refresh")) {
-                hostActions.refreshComputers()
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .accessibilityIdentifier("SettingsComputersRefreshButton")
-        }
-    }
-
-    @ViewBuilder
-    private var pairingLinkRow: some View {
-        SettingsCardRow(
-            configurationReview: .action,
-            searchAnchorID: "setting:computers:pairingLink",
-            String(localized: "settings.computers.pairingLink", defaultValue: "Add by Pairing Link"),
-            subtitle: String(
-                localized: "settings.computers.pairingLink.subtitle",
-                defaultValue: "Paste the pairing link from the other Mac's pairing window (the QR code's contents)."
+                localized: "settings.computers.pairingCode.subtitle",
+                defaultValue: "Type the 6-digit code shown by “Pair This Mac” on the other Mac."
             ),
-            controlWidth: 260
+            controlWidth: 200
         ) {
             HStack(spacing: 8) {
                 TextField(
-                    String(localized: "settings.computers.pairingLink.placeholder", defaultValue: "cmux-ios://attach?…"),
-                    text: $pairingLink
+                    String(localized: "settings.computers.pairingCode.placeholder", defaultValue: "6-digit code"),
+                    text: $codeInput
                 )
                 .textFieldStyle(.roundedBorder)
-                .onChange(of: pairingLink) { pairResult = nil }
-                .onSubmit { pairFromLink() }
-                .accessibilityIdentifier("SettingsComputersPairingLinkField")
+                .font(.body.monospacedDigit())
+                .onChange(of: codeInput) { pairResult = nil }
+                .onSubmit { pairFromCode() }
+                .accessibilityIdentifier("SettingsComputersPairingCodeField")
 
-                Button(String(localized: "settings.computers.pairingLink.add", defaultValue: "Add")) {
-                    pairFromLink()
+                Button(String(localized: "settings.computers.pairingCode.pair", defaultValue: "Pair")) {
+                    pairFromCode()
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-                .disabled(isPairingLink || pairingLink.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .accessibilityIdentifier("SettingsComputersPairingLinkAddButton")
+                .disabled(isPairingCode || codeInput.filter(\.isNumber).count != 6)
+                .accessibilityIdentifier("SettingsComputersPairingCodePairButton")
             }
         }
     }
@@ -163,31 +151,53 @@ public struct ComputersSection: View {
             String(localized: "settings.computers.showPairingCode", defaultValue: "Pair This Mac"),
             subtitle: String(
                 localized: "settings.computers.showPairingCode.subtitle",
-                defaultValue: "Copy a pairing link and paste it into “Add by Pairing Link” on another Mac."
+                defaultValue: "Show a 6-digit code, then type it into “Pair with Code” on another Mac."
             )
         ) {
-            Button(String(localized: "settings.computers.copyLink.button", defaultValue: "Copy Pairing Link")) {
-                copyPairingLink()
+            Button(String(localized: "settings.computers.showPairingCode.button", defaultValue: "Show Pairing Code")) {
+                mintPairingCode()
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
-            .disabled(isCopyingLink)
-            .accessibilityIdentifier("SettingsComputersCopyPairingLinkButton")
+            .disabled(isMintingCode)
+            .accessibilityIdentifier("SettingsComputersShowPairingCodeButton")
         }
     }
 
     @ViewBuilder
-    private var copyLinkResultCaption: some View {
-        if let copyLinkResult, let text = Self.copyLinkText(copyLinkResult) {
-            Label(
-                text,
-                systemImage: copyLinkResult == .copied ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
-            )
-            .foregroundStyle(copyLinkResult == .copied ? AnyShapeStyle(.secondary) : AnyShapeStyle(.orange))
-            .cmuxFont(.caption)
+    private var mintResultCaption: some View {
+        switch mintResult {
+        case .minted(let code, let expiresAt):
+            VStack(alignment: .leading, spacing: 4) {
+                Text(Self.displayCode(code))
+                    .font(.system(size: 26, weight: .semibold, design: .monospaced))
+                    .textSelection(.enabled)
+                    .accessibilityIdentifier("SettingsComputersPairingCodeValue")
+                HStack(spacing: 4) {
+                    Text(String(
+                        localized: "settings.computers.showPairingCode.expiresIn",
+                        defaultValue: "Expires in"
+                    ))
+                    Text(timerInterval: Date.now...expiresAt, countsDown: true)
+                        .monospacedDigit()
+                }
+                .foregroundStyle(.secondary)
+                .cmuxFont(.caption)
+            }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 14)
             .padding(.bottom, 8)
+        case .needsTailscale, .signedOut, .failed:
+            if let text = Self.mintFailureText(mintResult) {
+                Label(text, systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                    .cmuxFont(.caption)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 8)
+            }
+        case nil:
+            EmptyView()
         }
     }
 
@@ -209,50 +219,53 @@ public struct ComputersSection: View {
         }
     }
 
-    private func copyPairingLink() {
-        guard !isCopyingLink else { return }
-        isCopyingLink = true
-        copyLinkResult = nil
+    private func mintPairingCode() {
+        guard !isMintingCode else { return }
+        isMintingCode = true
+        mintResult = nil
         Task {
-            copyLinkResult = await hostActions.copyComputerPairingLink()
-            isCopyingLink = false
+            mintResult = await hostActions.mintComputerPairingCode()
+            isMintingCode = false
         }
     }
 
-    private func pairFromLink() {
-        let link = pairingLink.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !isPairingLink, !link.isEmpty else { return }
-        isPairingLink = true
+    private func pairFromCode() {
+        let code = codeInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !isPairingCode, code.filter(\.isNumber).count == 6 else { return }
+        isPairingCode = true
         pairResult = nil
         Task {
-            let result = await hostActions.pairComputerWithLink(link)
+            let result = await hostActions.pairComputer(code: code)
             pairResult = result
-            if result == .paired { pairingLink = "" }
-            isPairingLink = false
+            if result == .paired { codeInput = "" }
+            isPairingCode = false
         }
     }
 
-    private static func copyLinkText(_ result: ComputersCopyLinkResult) -> String? {
+    /// `042117` → `042 117`: grouped for reading aloud across the room.
+    static func displayCode(_ code: String) -> String {
+        guard code.count == 6 else { return code }
+        return "\(code.prefix(3)) \(code.suffix(3))"
+    }
+
+    private static func mintFailureText(_ result: ComputersPairingCodeMintResult?) -> String? {
         switch result {
-        case .copied:
-            return String(
-                localized: "settings.computers.copyLink.copied",
-                defaultValue: "Link copied. Paste it into “Add by Pairing Link” on the other Mac."
-            )
+        case .minted, nil:
+            return nil
         case .needsTailscale:
             return String(
-                localized: "settings.computers.copyLink.needsTailscale",
+                localized: "settings.computers.showPairingCode.needsTailscale",
                 defaultValue: "No reachable address. Install and sign in to Tailscale on both Macs, then try again."
             )
         case .signedOut:
             return String(
-                localized: "settings.computers.copyLink.signedOut",
-                defaultValue: "Sign in to cmux first, then copy the pairing link."
+                localized: "settings.computers.showPairingCode.signedOut",
+                defaultValue: "Sign in to cmux first, then show a pairing code."
             )
         case .failed:
             return String(
-                localized: "settings.computers.copyLink.failed",
-                defaultValue: "Couldn't create a pairing link. Try again."
+                localized: "settings.computers.showPairingCode.failed",
+                defaultValue: "Couldn't create a pairing code. Try again."
             )
         }
     }
@@ -262,9 +275,14 @@ public struct ComputersSection: View {
         case .paired:
             return String(localized: "settings.computers.pairResult.paired", defaultValue: "Paired.")
         case .invalidLink:
-            return String(localized: "settings.computers.pairResult.invalidLink", defaultValue: "That doesn't look like a cmux pairing link.")
+            return String(localized: "settings.computers.pairResult.invalidLink", defaultValue: "That doesn't look like a cmux pairing code.")
+        case .codeNotFound:
+            return String(
+                localized: "settings.computers.pairResult.codeNotFound",
+                defaultValue: "No computer is showing that code. Check the digits and that the code hasn't expired."
+            )
         case .loopbackRejected:
-            return String(localized: "settings.computers.pairResult.loopback", defaultValue: "That link points back at this Mac. Pairing over the network needs Tailscale on both Macs.")
+            return String(localized: "settings.computers.pairResult.loopback", defaultValue: "That code belongs to this Mac. Enter it on the other Mac instead.")
         case .accountMismatch:
             return String(localized: "settings.computers.pairResult.accountMismatch", defaultValue: "That computer is signed in to a different account.")
         case .noRoutes:

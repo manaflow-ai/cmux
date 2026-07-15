@@ -235738,125 +235738,6 @@
         }
       }
     },
-    "settings.computers.refresh": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Refresh List"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "リストを更新"
-          }
-        }
-      }
-    },
-    "settings.computers.refresh.subtitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fetch the account's registered computers again."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "アカウントに登録されたコンピュータを再取得します。"
-          }
-        }
-      }
-    },
-    "settings.computers.refresh.button": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Refresh"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "更新"
-          }
-        }
-      }
-    },
-    "settings.computers.pairingLink": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Add by Pairing Link"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ペアリングリンクで追加"
-          }
-        }
-      }
-    },
-    "settings.computers.pairingLink.subtitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Paste the pairing link from the other Mac's pairing window (the QR code's contents)."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "相手の Mac のペアリングウィンドウに表示されるペアリングリンク（QR コードの内容）を貼り付けてください。"
-          }
-        }
-      }
-    },
-    "settings.computers.pairingLink.placeholder": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux-ios://attach?…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux-ios://attach?…"
-          }
-        }
-      }
-    },
-    "settings.computers.pairingLink.add": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Add"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "追加"
-          }
-        }
-      }
-    },
     "settings.computers.showPairingCode": {
       "extractionState": "manual",
       "localizations": {
@@ -235880,13 +235761,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copy a pairing link and paste it into “Add by Pairing Link” on another Mac."
+            "value": "Show a 6-digit code, then type it into “Pair with Code” on another Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ペアリングリンクをコピーして、別の Mac の「ペアリングリンクで追加」に貼り付けてください。"
+            "value": "6 桁のコードを表示し、別の Mac の「コードでペアリング」に入力してください。"
           }
         }
       }
@@ -235897,13 +235778,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show Pairing Code…"
+            "value": "Show Pairing Code"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ペアリングコードを表示…"
+            "value": "ペアリングコードを表示"
           }
         }
       }
@@ -235931,13 +235812,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "That doesn't look like a cmux pairing link."
+            "value": "That doesn't look like a cmux pairing code."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux のペアリングリンクではないようです。"
+            "value": "cmux のペアリングコードではないようです。"
           }
         }
       }
@@ -235948,13 +235829,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "That link points back at this Mac. Pairing over the network needs Tailscale on both Macs."
+            "value": "That code belongs to this Mac. Enter it on the other Mac instead."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "そのリンクはこの Mac 自身を指しています。ネットワーク越しのペアリングには両方の Mac で Tailscale が必要です。"
+            "value": "そのコードはこの Mac のものです。もう一方の Mac で入力してください。"
           }
         }
       }
@@ -236129,91 +236010,6 @@
         }
       }
     },
-    "settings.computers.copyLink.button": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copy Pairing Link"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ペアリングリンクをコピー"
-          }
-        }
-      }
-    },
-    "settings.computers.copyLink.copied": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Link copied. Paste it into “Add by Pairing Link” on the other Mac."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "リンクをコピーしました。もう一方の Mac の「ペアリングリンクで追加」に貼り付けてください。"
-          }
-        }
-      }
-    },
-    "settings.computers.copyLink.needsTailscale": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No reachable address. Install and sign in to Tailscale on both Macs, then try again."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "接続可能なアドレスがありません。両方の Mac に Tailscale をインストールしてサインインしてから、もう一度お試しください。"
-          }
-        }
-      }
-    },
-    "settings.computers.copyLink.signedOut": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sign in to cmux first, then copy the pairing link."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "先に cmux にサインインしてから、ペアリングリンクをコピーしてください。"
-          }
-        }
-      }
-    },
-    "settings.computers.copyLink.failed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Couldn't create a pairing link. Try again."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ペアリングリンクを作成できませんでした。もう一度お試しください。"
-          }
-        }
-      }
-    },
     "hive.viewer.error.noRoute": {
       "extractionState": "manual",
       "localizations": {
@@ -236380,6 +236176,159 @@
           "stringUnit": {
             "state": "translated",
             "value": "開く"
+          }
+        }
+      }
+    },
+    "settings.computers.pairingCode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pair with Code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コードでペアリング"
+          }
+        }
+      }
+    },
+    "settings.computers.pairingCode.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Type the 6-digit code shown by “Pair This Mac” on the other Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "もう一方の Mac の「この Mac をペアリング」に表示される 6 桁のコードを入力してください。"
+          }
+        }
+      }
+    },
+    "settings.computers.pairingCode.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "6-digit code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "6 桁のコード"
+          }
+        }
+      }
+    },
+    "settings.computers.pairingCode.pair": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pair"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリング"
+          }
+        }
+      }
+    },
+    "settings.computers.showPairingCode.expiresIn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expires in"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "残り"
+          }
+        }
+      }
+    },
+    "settings.computers.showPairingCode.needsTailscale": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No reachable address. Install and sign in to Tailscale on both Macs, then try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続可能なアドレスがありません。両方の Mac に Tailscale をインストールしてサインインしてから、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "settings.computers.showPairingCode.signedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to cmux first, then show a pairing code."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先に cmux にサインインしてから、ペアリングコードを表示してください。"
+          }
+        }
+      }
+    },
+    "settings.computers.showPairingCode.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't create a pairing code. Try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリングコードを作成できませんでした。もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "settings.computers.pairResult.codeNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No computer is showing that code. Check the digits and that the code hasn't expired."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのコードを表示しているコンピュータが見つかりません。数字と有効期限を確認してください。"
           }
         }
       }

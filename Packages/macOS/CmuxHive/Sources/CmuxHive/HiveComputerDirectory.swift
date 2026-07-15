@@ -163,6 +163,40 @@ public final class HiveComputerDirectory {
         )
     }
 
+    /// Pair from the 6-digit code another Mac's "Pair This Mac" row is
+    /// showing.
+    ///
+    /// The code is a registry rendezvous: the host advertises it (with an
+    /// expiry) in its instance labels, so the claim re-fetches the registry
+    /// and pairs with the unique instance whose unexpired code matches.
+    /// Non-digits in the input are ignored, so `"042 117"` claims `042117`.
+    ///
+    /// - Parameter rawCode: The user-typed code.
+    /// - Returns: The pair outcome; ambiguous or expired codes report
+    ///   ``HivePairOutcome/codeNotFound``.
+    public func pair(code rawCode: String) async -> HivePairOutcome {
+        guard let code = CmxPairingCode.normalizedClaimInput(rawCode) else {
+            return .codeNotFound
+        }
+        await refresh()
+        let claimTime = now()
+        let matches = registryDevices.flatMap { device in
+            device.instances
+                .filter { $0.hasRoutes && $0.activePairingCode(now: claimTime)?.code == code }
+                .map { (device: device, instance: $0) }
+        }
+        // Exactly one live match may claim; a 6-digit collision inside one
+        // team is ambiguous and reports not-found rather than guessing.
+        guard matches.count == 1, let match = matches.first else { return .codeNotFound }
+        guard match.device.deviceId != ownDeviceID else { return .loopbackRejected }
+        return await persistPairing(
+            macDeviceID: match.device.deviceId,
+            displayName: match.device.displayName,
+            routes: match.instance.routes,
+            instanceTag: match.instance.tag
+        )
+    }
+
     /// Pair from a pasted pairing link (the QR payload another Mac shows).
     public func pair(link rawLink: String) async -> HivePairOutcome {
         let scope = await scopeProvider()
