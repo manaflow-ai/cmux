@@ -447,7 +447,7 @@ enum AgentResumeCommandBuilder {
         }
     }
 
-    static func piFamilyForkCapabilityProbe(
+    static func piFamilyVersionProbe(
         launchCommand: AgentLaunchCommandSnapshot?,
         fallbackExecutable: String
     ) -> (executable: String, arguments: [String]) {
@@ -455,7 +455,7 @@ enum AgentResumeCommandBuilder {
             launchCommand: launchCommand,
             fallbackExecutable: fallbackExecutable
         )
-        return (original.executable, ["--help"])
+        return (original.executable, ["--version"])
     }
 
     private static func launchEnvironmentParts(

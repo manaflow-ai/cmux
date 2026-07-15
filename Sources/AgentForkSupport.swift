@@ -49,6 +49,10 @@ private actor OpenCodeVersionProbeCache {
 
 enum AgentForkSupport {
     static let minimumOpenCodeForkVersion = SemanticVersion(major: 1, minor: 14, patch: 50)
+    // Pi v0.60.0 and OMP v13.15.0 are the first releases containing the
+    // upstream CLI `--fork <path|id>` implementation.
+    static let minimumPiForkVersion = SemanticVersion(major: 0, minor: 60, patch: 0)
+    static let minimumOmpForkVersion = SemanticVersion(major: 13, minor: 15, patch: 0)
     private static let commandOutputTimeoutNanoseconds: Int64 = 3_000_000_000
     private static let commandTerminateTimeoutNanoseconds: Int64 = 500_000_000
     private static let openCodeVersionProbeCache = OpenCodeVersionProbeCache()
@@ -304,17 +308,20 @@ enum AgentForkSupport {
                 return false
             }
             let fallbackExecutable = snapshot.registration?.defaultExecutable ?? snapshot.kind.rawValue
-            let probe = AgentResumeCommandBuilder.piFamilyForkCapabilityProbe(
+            let agentID = snapshot.registration?.id ?? snapshot.kind.rawValue
+            let probe = AgentResumeCommandBuilder.piFamilyVersionProbe(
                 launchCommand: snapshot.launchCommand,
                 fallbackExecutable: fallbackExecutable
             )
             return await supportsLocalForkProbe(
                 probe: probe,
                 snapshot: snapshot,
-                cacheDiscriminator: "pi-family-help",
+                cacheDiscriminator: "pi-family-version",
                 probeFromDefaultDirectoryWhenWorkingDirectoryIsMissing: true,
                 cacheResults: false,
-                outputSupportsFork: piFamilyHelpSupportsFork
+                outputSupportsFork: { output in
+                    piFamilyVersionSupportsFork(output, agentID: agentID)
+                }
             )
         }
         guard snapshot.kind == .opencode else { return true }
@@ -352,11 +359,16 @@ enum AgentForkSupport {
         }
     }
 
-    static func piFamilyHelpSupportsFork(_ output: String) -> Bool {
-        output.range(
-            of: #"(?m)(?:^|\s)--fork(?:\s|=|<|$)"#,
-            options: .regularExpression
-        ) != nil
+    static func piFamilyVersionSupportsFork(_ output: String, agentID: String) -> Bool {
+        guard let version = SemanticVersion.first(in: output) else { return false }
+        switch agentID {
+        case "pi":
+            return version >= minimumPiForkVersion
+        case "omp":
+            return version >= minimumOmpForkVersion
+        default:
+            return false
+        }
     }
 
     static func openCodeVersionSupportsFork(_ output: String) -> Bool {

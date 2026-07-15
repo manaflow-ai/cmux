@@ -445,11 +445,12 @@ struct WorkspaceForkConversationContextMenuTests {
     }
 
     @Test
-    func piFamilyCapabilityProbeRecognizesOnlyForkOptions() {
-        #expect(AgentForkSupport.piFamilyHelpSupportsFork("  --fork <path|id>  Fork a session"))
-        #expect(AgentForkSupport.piFamilyHelpSupportsFork("--fork=SESSION"))
-        #expect(!AgentForkSupport.piFamilyHelpSupportsFork("Use /fork inside the session"))
-        #expect(!AgentForkSupport.piFamilyHelpSupportsFork("  --session <id>  Resume a session"))
+    func piFamilyCapabilityProbeUsesCoreVersionThresholds() {
+        #expect(AgentForkSupport.piFamilyVersionSupportsFork("0.60.0", agentID: "pi"))
+        #expect(!AgentForkSupport.piFamilyVersionSupportsFork("0.59.9", agentID: "pi"))
+        #expect(AgentForkSupport.piFamilyVersionSupportsFork("omp/13.15.0", agentID: "omp"))
+        #expect(!AgentForkSupport.piFamilyVersionSupportsFork("omp/13.14.2", agentID: "omp"))
+        #expect(!AgentForkSupport.piFamilyVersionSupportsFork("16.5.2", agentID: "unknown"))
     }
 
     @Test
@@ -489,7 +490,7 @@ struct WorkspaceForkConversationContextMenuTests {
         defer { try? fileManager.removeItem(at: root) }
 
         let executable = root.appendingPathComponent("pi", isDirectory: false)
-        try "#!/bin/sh\nprintf '%s\\n' '  --fork <path|id>'\n"
+        try "#!/bin/sh\nprintf '%s\\n' '0.80.6'\n"
             .write(to: executable, atomically: true, encoding: .utf8)
         try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
         let snapshot = SessionRestorableAgentSnapshot(
@@ -509,6 +510,21 @@ struct WorkspaceForkConversationContextMenuTests {
 
         #expect(await AgentForkSupport.supportsFork(snapshot: snapshot))
         #expect(!(await AgentForkSupport.supportsFork(snapshot: snapshot, isRemoteContext: true)))
+    }
+
+    @Test
+    func processDetectedPiFamilySnapshotsPreserveLaunchPath() {
+        let path = "/Users/example/.bun/bin:/usr/bin"
+        for launcher in ["pi", "omp"] {
+            let command = AgentLaunchCommandSnapshot(
+                processDetectedLauncher: launcher,
+                executablePath: launcher,
+                arguments: [launcher],
+                workingDirectory: nil,
+                environment: ["PATH": path]
+            )
+            #expect(command.environment?["PATH"] == path)
+        }
     }
 
     @Test
