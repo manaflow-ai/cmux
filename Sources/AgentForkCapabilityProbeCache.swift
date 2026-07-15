@@ -14,7 +14,14 @@ actor AgentForkCapabilityProbeCache {
         return valuesByKey[key]
     }
 
-    func store(_ value: Bool, for key: String, expiresAt: TimeInterval) {
+    func store(_ value: Bool, for key: String, now: TimeInterval, expiresAt: TimeInterval) {
+        let expiredKeys = expirationByKey.compactMap { entry in
+            entry.value <= now ? entry.key : nil
+        }
+        for expiredKey in expiredKeys {
+            valuesByKey.removeValue(forKey: expiredKey)
+            expirationByKey.removeValue(forKey: expiredKey)
+        }
         valuesByKey[key] = value
         expirationByKey[key] = expiresAt
     }

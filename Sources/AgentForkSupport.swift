@@ -445,6 +445,7 @@ enum AgentForkSupport {
             await piFamilyVersionProbeCache.store(
                 supportsFork,
                 for: cacheKey,
+                now: probeStartedAt,
                 expiresAt: probeStartedAt + boundedCacheTTL
             )
         } else {
