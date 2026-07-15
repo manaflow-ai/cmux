@@ -579,6 +579,35 @@ describe("developer binding override", () => {
     expect(deviceLimitOverrideAllowed({ ...base, deploymentEnvironment: "production" }, USER_A)).toBe(false);
     expect(deviceLimitOverrideAllowed({ ...base, deviceLimitOverrideEnabled: false }, USER_A)).toBe(false);
   });
+
+  test("supports forty concurrent tagged bindings under an explicit development quota", async () => {
+    const repository = new MemoryRepository();
+    const deviceId = randomUUID();
+    for (let index = 0; index < 40; index += 1) {
+      repository.bindings.push(binding({
+        deviceUuid: deviceId,
+        appInstanceId: randomUUID(),
+        endpointId: index.toString(16).padStart(64, "0"),
+      }));
+    }
+    const fixture = makeFixture({
+      repository,
+      deviceId,
+      developmentBindingLimits: {
+        account: 256,
+        device: 128,
+      },
+    });
+
+    await Effect.runPromise(fixture.broker.register(
+      USER_A,
+      await fixture.signedRegistration(),
+      NOW,
+    ));
+
+    expect(repository.bindings.filter((row) => !row.revokedAt)).toHaveLength(41);
+    expect(repository.bindings.at(-1)?.deviceLimitOverrideUsed).toBe(true);
+  });
 });
 
 type MutableBinding = IrohBindingRecord & { userId: string };
