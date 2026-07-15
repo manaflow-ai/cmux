@@ -50,11 +50,11 @@ import Testing
         let policy = MobileFirstConnectionRegistryRefreshPolicy()
 
         #expect(!policy.shouldRefresh(
-            lastRefreshAt: now.addingTimeInterval(-49),
+            lastRefreshAt: now.addingTimeInterval(-39),
             now: now
         ))
         #expect(policy.shouldRefresh(
-            lastRefreshAt: now.addingTimeInterval(-50),
+            lastRefreshAt: now.addingTimeInterval(-40),
             now: now
         ))
     }

@@ -76,9 +76,8 @@ struct DisconnectedWorkspaceShellView: View {
                     #if os(iOS)
                     guard !Task.isCancelled, activeDiscoveryScopeID == scopeID else { return }
                     await refreshRegistryAndPresentation(scopeID: scopeID)
-                    // Presence refreshes every 10 seconds; registry discovery is
-                    // coalesced at 90 seconds so live sessions never age past the
-                    // server's two-minute lease.
+                    // Presence refreshes every 10 seconds. Registry discovery
+                    // refreshes before the Mac's 60-second lease renewal cadence.
                     while !Task.isCancelled {
                         try? await Task.sleep(for: .seconds(10))
                         guard !Task.isCancelled else { break }
@@ -258,7 +257,8 @@ struct DisconnectedWorkspaceShellView: View {
             guard let workspaceID = await store.prepareRegistrySessionHandoff(
                 deviceID: session.deviceID,
                 instanceTag: session.instanceTag,
-                sessionID: session.sessionID
+                sessionID: session.sessionID,
+                expectedAgentSessionID: session.agentSessionID
             ) else {
                 return
             }

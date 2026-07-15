@@ -176,7 +176,8 @@ import Testing
         #expect(await store.prepareRegistrySessionHandoff(
             deviceID: "missing-device",
             instanceTag: "missing-instance",
-            sessionID: "missing-session"
+            sessionID: "missing-session",
+            expectedAgentSessionID: nil
         ) == nil)
         #expect(store.isRegistryHandoffFailurePresented)
 
@@ -190,7 +191,8 @@ import Testing
         #expect(await store.prepareRegistrySessionHandoff(
             deviceID: "missing-device",
             instanceTag: "missing-instance",
-            sessionID: "missing-session"
+            sessionID: "missing-session",
+            expectedAgentSessionID: nil
         ) == nil)
         #expect(store.isRegistryHandoffFailurePresented)
 

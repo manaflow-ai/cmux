@@ -68,14 +68,16 @@ extension MobileShellComposite {
     public func prepareRegistrySessionHandoff(
         deviceID: String,
         instanceTag: String,
-        sessionID: String
+        sessionID: String,
+        expectedAgentSessionID: String?
     ) async -> MobileWorkspacePreview.ID? {
         guard let scope = await currentScopeSnapshot() else { return nil }
         isRegistryHandoffFailurePresented = false
         guard let session = registryDevices
             .first(where: { $0.deviceId == deviceID })?
             .instances.first(where: { $0.tag == instanceTag })?
-            .sessions.first(where: { $0.id == sessionID }) else {
+            .sessions.first(where: { $0.id == sessionID }),
+              session.agentSessionID == expectedAgentSessionID else {
             await presentRegistryHandoffFailure(ifScopeCurrent: scope)
             return nil
         }
@@ -83,7 +85,7 @@ extension MobileShellComposite {
             deviceID: deviceID,
             instanceTag: instanceTag,
             sessionID: sessionID,
-            agentSessionID: session.agentSessionID
+            agentSessionID: expectedAgentSessionID
         )
         guard await isScopeCurrent(scope) else { return nil }
         guard let workspaceID else {

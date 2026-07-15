@@ -19,7 +19,9 @@ public enum MobileRegistryLoadResult: Equatable, Sendable {
 public struct MobileFirstConnectionRegistryRefreshPolicy: Equatable, Sendable {
     public let refreshInterval: TimeInterval
 
-    public init(refreshInterval: TimeInterval = 90) {
+    /// The Mac renews every 60 seconds. Forty seconds leaves margin for the
+    /// caller's 10-second polling granularity and scheduling jitter.
+    public init(refreshInterval: TimeInterval = 40) {
         self.refreshInterval = refreshInterval
     }
 
