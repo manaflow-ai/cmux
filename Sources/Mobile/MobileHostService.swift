@@ -1086,8 +1086,13 @@ final class MobileHostService {
             guard requiresAuthorization(method: request.method) else { return nil }
             return await stackAuthorization(request)
         case .irohAdmission:
-            return nil
+            guard isPrivilegedMacPowerMethod(request.method) else { return nil }
+            return await stackAuthorization(request)
         }
+    }
+
+    nonisolated private static func isPrivilegedMacPowerMethod(_ method: String) -> Bool {
+        method == "mac.power.status" || method.hasPrefix("mac.power.")
     }
 
     nonisolated static func connectionStatusResult(

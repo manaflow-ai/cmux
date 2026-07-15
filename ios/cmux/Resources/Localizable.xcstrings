@@ -1,6 +1,118 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "mobile.macPower.section": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac Power"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macの電源"
+          }
+        }
+      }
+    },
+    "mobile.macPower.keepAwake": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep Mac Awake"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macのスリープを防ぐ"
+          }
+        }
+      }
+    },
+    "mobile.macPower.lowPower": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Low Power Mode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "低電力モード"
+          }
+        }
+      }
+    },
+    "mobile.macPower.sleep": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sleep Display"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ディスプレイをスリープ"
+          }
+        }
+      }
+    },
+    "mobile.macPower.sleep.confirm.title": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sleep Mac display?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macのディスプレイをスリープしますか？"
+          }
+        }
+      }
+    },
+    "mobile.macPower.sleep.confirm.message": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Mac stays awake, but all connected displays turn off."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macは動作を続け、接続中のすべてのディスプレイが消灯します。"
+          }
+        }
+      }
+    },
+    "mobile.macPower.error": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't update Mac power controls."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macの電源設定を更新できませんでした。"
+          }
+        }
+      }
+    },
     "auth.error.apple_config": {
       "extractionState": "manual",
       "localizations": {

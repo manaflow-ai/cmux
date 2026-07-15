@@ -79,6 +79,9 @@ extension MobileHostService {
             )
         case "mobile.events.subscribe", "mobile.events.unsubscribe":
             return nil
+        case "mac.power.status", "mac.power.sleep_display",
+             "mac.power.keep_awake.set", "mac.power.low_power.set":
+            return ticketMacScopedWorkspaceMutationAuthorizationError(authorization: authorization)
         case "mobile.host.status":
             return nil
         default:

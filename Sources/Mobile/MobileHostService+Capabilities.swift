@@ -35,6 +35,7 @@ extension MobileHostService {
             "chat.artifact.v1",
             "chat.artifact.gallery.v1",
             "dogfood.v1",
+            "mac.power.control.v1",
             // The workspace list carries group sections (group_id per workspace +
             // a top-level groups array) and the host accepts
             // workspace.group.collapse/expand from mobile. iOS feature-detects

@@ -906,6 +906,26 @@ struct MobileHostAuthorizationTests {
         #expect(tee.currentSequence(surfaceID: surfaceID) == UInt64(bytes.count))
         _ = await session.unsubscribe(streamID: "grid")
     }
+    @Test(arguments: [
+        "mac.power.status", "mac.power.sleep_display",
+        "mac.power.keep_awake.set", "mac.power.low_power.set",
+    ])
+    func macPowerRequiresMacWideTicket(method: String) throws {
+        let scoped = try scopedAttachTicket(workspaceID: UUID().uuidString, terminalID: nil)
+        let scopedRequest = MobileHostRPCRequest(
+            id: "power", method: method, params: [:],
+            auth: MobileHostRPCAuth(attachToken: scoped.authToken, stackAccessToken: nil)
+        )
+        #expect(MobileHostService.ticketAuthorizationError(ticket: scoped, request: scopedRequest)?.code == "forbidden")
+
+        let macWide = try scopedAttachTicket(workspaceID: "", terminalID: nil)
+        let macWideRequest = MobileHostRPCRequest(
+            id: "power", method: method, params: [:],
+            auth: MobileHostRPCAuth(attachToken: macWide.authToken, stackAccessToken: nil)
+        )
+        #expect(MobileHostService.ticketAuthorizationError(ticket: macWide, request: macWideRequest) == nil)
+    }
+
     private func scopedAttachTicket(workspaceID: String, terminalID: String?) throws -> CmxAttachTicket {
         let route = try CmxAttachRoute(id: "debug", kind: .debugLoopback, endpoint: .hostPort(host: "127.0.0.1", port: 58465))
         return try CmxAttachTicket(
