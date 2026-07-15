@@ -92,16 +92,15 @@ actor GhosttyTitleUpdateDispatcher {
 
     private func flush() async {
         var updates: [GhosttyTitleUpdate] = []
-        let keys = pendingKeys
-        pendingKeys.removeAll(keepingCapacity: true)
-        updates.reserveCapacity(keys.count)
-        for key in keys {
+        updates.reserveCapacity(pendingKeys.count)
+        for key in pendingKeys {
             guard var state = states[key], let update = state.pendingUpdate else { continue }
             state.pendingUpdate = nil
             state.lastPublishedTitle = update.title
             states[key] = state
             updates.append(update)
         }
+        pendingKeys.removeAll(keepingCapacity: true)
         guard !updates.isEmpty else { return }
         await publish(updates)
     }

@@ -56,19 +56,12 @@ final class GhosttyDesktopNotificationIngress: Sendable {
             return
         }
         let workspace = owningManager.workspacesById[target.tabId]
-        if workspace?.suppressesRawTerminalNotification(panelId: target.surfaceId) == true {
-            return
-        }
-        let tabTitle = owningManager.titleForTab(target.tabId) ?? String(
-            localized: "notification.desktop.defaultTerminalTitle",
-            defaultValue: "Terminal"
-        )
         await TerminalNotificationStore.shared.addDesktopNotificationResolvingHooks(
-            tabId: target.tabId,
-            surfaceId: target.surfaceId,
+            tabId: request.tabId,
+            surfaceId: request.surfaceId,
             hookDirectory: workspace?.isRemoteWorkspace == true ? nil : request.hookDirectory,
             globalConfigPath: request.globalConfigPath,
-            title: request.title.isEmpty ? tabTitle : request.title,
+            title: request.title,
             body: request.body
         )
     }

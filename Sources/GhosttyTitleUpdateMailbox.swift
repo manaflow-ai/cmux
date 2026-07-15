@@ -4,18 +4,12 @@ import Foundation
 /// one asynchronous consumer. Retirement is retained as a per-surface barrier,
 /// so a surface retired and reused before a drain is reset before its new title.
 nonisolated struct GhosttyTitleUpdateMailbox: Sendable {
-    struct SurfaceKey: Hashable, Sendable {
-        let tabId: UUID
-        let surfaceId: UUID
-        let sourceSurfaceIdentifier: ObjectIdentifier
-    }
-
-    typealias PendingOperation = (retirement: SurfaceKey?, update: GhosttyTitleUpdate?)
+    typealias PendingOperation = (retirement: GhosttyTitleUpdateSurfaceKey?, update: GhosttyTitleUpdate?)
 
     private var sequence: UInt64 = 0
-    private var lastTitleBySurface: [SurfaceKey: String] = [:]
-    private var pendingUpdates: [SurfaceKey: GhosttyTitleUpdate] = [:]
-    private var pendingRetirements = Set<SurfaceKey>()
+    private var lastTitleBySurface: [GhosttyTitleUpdateSurfaceKey: String] = [:]
+    private var pendingUpdates: [GhosttyTitleUpdateSurfaceKey: GhosttyTitleUpdate] = [:]
+    private var pendingRetirements = Set<GhosttyTitleUpdateSurfaceKey>()
 
     mutating func submit(
         tabId: UUID,
@@ -23,7 +17,7 @@ nonisolated struct GhosttyTitleUpdateMailbox: Sendable {
         sourceSurfaceIdentifier: ObjectIdentifier,
         title: String
     ) -> Bool {
-        let key = SurfaceKey(
+        let key = GhosttyTitleUpdateSurfaceKey(
             tabId: tabId,
             surfaceId: surfaceId,
             sourceSurfaceIdentifier: sourceSurfaceIdentifier
@@ -47,7 +41,7 @@ nonisolated struct GhosttyTitleUpdateMailbox: Sendable {
         surfaceId: UUID,
         sourceSurfaceIdentifier: ObjectIdentifier
     ) -> Bool {
-        let key = SurfaceKey(
+        let key = GhosttyTitleUpdateSurfaceKey(
             tabId: tabId,
             surfaceId: surfaceId,
             sourceSurfaceIdentifier: sourceSurfaceIdentifier
@@ -60,19 +54,17 @@ nonisolated struct GhosttyTitleUpdateMailbox: Sendable {
     }
 
     mutating func takePendingOperations() -> [PendingOperation] {
-        let updates = pendingUpdates
-        let retirements = pendingRetirements
-        pendingUpdates.removeAll(keepingCapacity: true)
-        pendingRetirements.removeAll(keepingCapacity: true)
-        let keys = Set(updates.keys).union(retirements)
+        let keys = Set(pendingUpdates.keys).union(pendingRetirements)
         var operations: [PendingOperation] = []
         operations.reserveCapacity(keys.count)
         for key in keys {
             operations.append((
-                retirement: retirements.contains(key) ? key : nil,
-                update: updates[key]
+                retirement: pendingRetirements.contains(key) ? key : nil,
+                update: pendingUpdates[key]
             ))
         }
+        pendingUpdates.removeAll(keepingCapacity: true)
+        pendingRetirements.removeAll(keepingCapacity: true)
         return operations
     }
 }
