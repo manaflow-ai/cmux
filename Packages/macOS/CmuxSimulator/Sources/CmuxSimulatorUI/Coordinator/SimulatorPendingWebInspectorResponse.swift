@@ -6,4 +6,5 @@ struct SimulatorPendingWebInspectorResponse {
         Never
     >
     let timeoutTask: Task<Void, Never>
+    var sendTask: Task<Void, Never>?
 }

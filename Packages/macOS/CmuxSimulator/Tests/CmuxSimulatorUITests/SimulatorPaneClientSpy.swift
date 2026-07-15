@@ -9,6 +9,7 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
     private let delaysApplicationList: Bool
     private let delaysInvalidation: Bool
     private let delaysActivation: Bool
+    private let delaysWebInspectorSend: Bool
     private let failsApplicationInstall: Bool
     private let eventStream: SimulatorWorkerEventStream
     private let eventContinuation: SimulatorWorkerEventStream.Continuation
@@ -21,6 +22,8 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
     private var delayedInvalidation: CheckedContinuation<Void, Never>?
     private var delayedActivation: CheckedContinuation<Void, Error>?
     private var activationCancellationValue = 0
+    private var delayedWebInspectorSend: CheckedContinuation<SimulatorControlResult, Error>?
+    private var webInspectorSendCancellationValue = 0
 
     init(
         devices: [SimulatorDevice],
@@ -28,6 +31,7 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
         delaysApplicationList: Bool = false,
         delaysInvalidation: Bool = false,
         delaysActivation: Bool = false,
+        delaysWebInspectorSend: Bool = false,
         failsApplicationInstall: Bool = false
     ) {
         self.devicesValue = devices
@@ -35,6 +39,7 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
         self.delaysApplicationList = delaysApplicationList
         self.delaysInvalidation = delaysInvalidation
         self.delaysActivation = delaysActivation
+        self.delaysWebInspectorSend = delaysWebInspectorSend
         self.failsApplicationInstall = failsApplicationInstall
         let source = SimulatorWorkerEventStreamSource(
             maximumBufferedBytes: 1_024 * 1_024,
@@ -77,6 +82,19 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
 
     func perform(_ action: SimulatorControlAction) async throws -> SimulatorControlResult {
         actionValues.append(action)
+        if case .sendWebInspectorMessage = action, delaysWebInspectorSend {
+            return try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { continuation in
+                    if Task.isCancelled {
+                        continuation.resume(throwing: CancellationError())
+                    } else {
+                        delayedWebInspectorSend = continuation
+                    }
+                }
+            } onCancel: {
+                Task { await self.cancelDelayedWebInspectorSend() }
+            }
+        }
         if case .installApplication = action, failsApplicationInstall {
             throw SimulatorFailure(
                 code: "fixture_install_failed",
@@ -139,6 +157,20 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
         activationCancellationValue += 1
         delayedActivation?.resume(throwing: CancellationError())
         delayedActivation = nil
+    }
+
+    func hasDelayedWebInspectorSend() -> Bool {
+        delayedWebInspectorSend != nil
+    }
+
+    func webInspectorSendCancellationCount() -> Int {
+        webInspectorSendCancellationValue
+    }
+
+    private func cancelDelayedWebInspectorSend() {
+        webInspectorSendCancellationValue += 1
+        delayedWebInspectorSend?.resume(throwing: CancellationError())
+        delayedWebInspectorSend = nil
     }
 
     func actions() -> [SimulatorControlAction] {

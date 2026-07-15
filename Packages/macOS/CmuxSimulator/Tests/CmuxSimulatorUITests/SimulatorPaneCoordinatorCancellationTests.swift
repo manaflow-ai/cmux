@@ -6,8 +6,8 @@ import Testing
 @Suite("Simulator pane startup cancellation")
 @MainActor
 struct SimulatorPaneCoordinatorCancellationTests {
-    @Test("Canceled discovery leaves no failure and a later start retries")
-    func canceledDiscoveryCanRetry() async {
+    @Test("A canceled startup waiter does not cancel pane-owned discovery")
+    func canceledStartupWaiterDoesNotCancelDiscovery() async {
         let device = SimulatorDevice(
             id: "phone",
             name: "iPhone",
@@ -21,24 +21,24 @@ struct SimulatorPaneCoordinatorCancellationTests {
         )
         let client = CancellableDiscoveryPaneClient(device: device)
         let coordinator = SimulatorPaneCoordinator(client: client)
-        let firstStart = Task { @MainActor in
+        let paneStart = Task { @MainActor in
             await coordinator.start()
         }
 
         await client.waitForFirstDiscovery()
-        firstStart.cancel()
-        await firstStart.value
+        let socketWaiter = Task { @MainActor in
+            await coordinator.start()
+        }
+        socketWaiter.cancel()
+        await socketWaiter.value
 
         #expect(coordinator.failure == nil)
-        #expect(coordinator.status == .idle)
-        #expect(!coordinator.started)
+        #expect(coordinator.started)
+        #expect(await client.discoveryCount() == 1)
 
-        await coordinator.start()
-
-        #expect(await client.discoveryCount() == 2)
-        #expect(coordinator.devices.map(\.id) == ["phone"])
-        #expect(coordinator.selectedDeviceID == "phone")
         await coordinator.close()
+        await paneStart.value
+        #expect(coordinator.status == .idle)
     }
 
     @Test("Cancelled explicit selection stops its activation generation")

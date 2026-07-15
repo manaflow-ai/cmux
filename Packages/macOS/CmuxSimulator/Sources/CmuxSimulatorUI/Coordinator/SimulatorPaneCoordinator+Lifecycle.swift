@@ -6,11 +6,7 @@ extension SimulatorPaneCoordinator {
     /// Calling this method more than once is harmless.
     public func start() async {
         if let startupTask {
-            await withTaskCancellationHandler {
-                await startupTask.value
-            } onCancel: {
-                startupTask.cancel()
-            }
+            await waitForPaneOwnedStartup(startupTask)
             return
         }
         guard !closed, !started else { return }
@@ -19,12 +15,23 @@ extension SimulatorPaneCoordinator {
             await self.runStartup()
         }
         startupTask = task
-        await withTaskCancellationHandler {
-            await task.value
-        } onCancel: {
-            task.cancel()
-        }
+        await waitForPaneOwnedStartup(task)
+        guard !Task.isCancelled else { return }
+        await task.value
         startupTask = nil
+    }
+
+    private func waitForPaneOwnedStartup(_ task: Task<Void, Never>) async {
+        let receipt = SimulatorStartupWaitReceipt()
+        Task {
+            await task.value
+            receipt.finish()
+        }
+        await withTaskCancellationHandler {
+            await receipt.wait()
+        } onCancel: {
+            receipt.finish()
+        }
     }
 
     private func runStartup() async {

@@ -197,6 +197,41 @@ struct SimulatorWebInspectorCoordinatorTests {
         #expect(response.text.contains(#""fresh":true"#))
     }
 
+    @Test("Cancelling a response wait cancels its deferred worker send")
+    func cancellationStopsDeferredSend() async {
+        let client = SimulatorPaneClientSpy(devices: [], delaysWebInspectorSend: true)
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        await coordinator.start()
+        let sessionID = UUID()
+        await client.emit(.message(.capabilities([.webInspector])))
+        await client.emit(.message(.status(.streaming)))
+        await client.emit(.message(.webInspectorSession(
+            requestID: nil, .attached(sessionID: sessionID, targetID: "target")
+        )))
+        await Self.eventually { coordinator.webInspectorSession != .detached }
+
+        let responseTask = Task { @MainActor in
+            try await coordinator.sendWebInspectorMessageAwaitingResponse(
+                #"{"id":92,"method":"Runtime.evaluate"}"#
+            )
+        }
+        for _ in 0..<100 {
+            if await client.hasDelayedWebInspectorSend() { break }
+            await Task.yield()
+        }
+        responseTask.cancel()
+        do {
+            _ = try await responseTask.value
+            Issue.record("Expected cancellation")
+        } catch {}
+
+        for _ in 0..<100 {
+            if await client.webInspectorSendCancellationCount() == 1 { break }
+            await Task.yield()
+        }
+        #expect(await client.webInspectorSendCancellationCount() == 1)
+    }
+
     @Test("Response-buffer overflow fails correlated commands immediately")
     func responseOverflowFailsCommand() async {
         let client = SimulatorPaneClientSpy(devices: [])

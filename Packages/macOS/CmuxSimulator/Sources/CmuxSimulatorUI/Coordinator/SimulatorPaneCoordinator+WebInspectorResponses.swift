@@ -56,9 +56,10 @@ extension SimulatorPaneCoordinator {
                 }
                 pendingWebInspectorResponses[requestID] = SimulatorPendingWebInspectorResponse(
                     continuation: continuation,
-                    timeoutTask: timeoutTask
+                    timeoutTask: timeoutTask,
+                    sendTask: nil
                 )
-                Task { @MainActor [weak self] in
+                let sendTask = Task { @MainActor [weak self] in
                     guard let self else { return }
                     do {
                         _ = try await sendWebInspectorMessageResult(json)
@@ -74,6 +75,7 @@ extension SimulatorPaneCoordinator {
                         )
                     }
                 }
+                pendingWebInspectorResponses[requestID]?.sendTask = sendTask
             }
         } onCancel: {
             Task { @MainActor [weak self] in
@@ -133,6 +135,7 @@ extension SimulatorPaneCoordinator {
     ) {
         guard let pending = pendingWebInspectorResponses.removeValue(forKey: requestID) else { return }
         pending.timeoutTask.cancel()
+        pending.sendTask?.cancel()
         if retireRequestID { retireWebInspectorRequestID(requestID) }
         pending.continuation.resume(returning: result)
     }
