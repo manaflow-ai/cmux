@@ -4149,6 +4149,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         let timingStart = CmuxTypingTiming.start()
         let phaseStart = ProcessInfo.processInfo.systemUptime
+        var loadMs: Double = 0
         var fingerprintMs: Double = 0
         var saveMs: Double = 0
         defer {
@@ -4159,6 +4160,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 totalMs: totalMs,
                 thresholdMs: 2.0,
                 parts: [
+                    // loadMs is await wall time on a detached utility task, not
+                    // main-thread blocking; fingerprintMs and saveMs are the
+                    // synchronous main-thread portions.
+                    ("loadMs", loadMs),
                     ("fingerprintMs", fingerprintMs),
                     ("saveMs", saveMs),
                 ],
@@ -4176,9 +4181,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let now = Date()
 #if DEBUG
-        let fingerprintStart = ProcessInfo.processInfo.systemUptime
+        let loadStart = ProcessInfo.processInfo.systemUptime
 #endif
         let resumeIndexes = await ProcessDetectedResumeIndexes.load()
+#if DEBUG
+        loadMs = (ProcessInfo.processInfo.systemUptime - loadStart) * 1000.0
+        let fingerprintStart = ProcessInfo.processInfo.systemUptime
+#endif
         guard !isTerminatingApp,
               isCurrentProcessDetectedSessionSaveGeneration(generation) else {
 #if DEBUG

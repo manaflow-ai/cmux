@@ -10623,6 +10623,31 @@ class TerminalController {
         }
     }
 
+    /// Builds a key event backed by a real CGEvent. Events built with
+    /// NSEvent.keyEvent(...) carry no CGEvent, and NSTextInputContext raises an
+    /// NSException on such events inside interpretKeyEvents, which terminates
+    /// the app; that path runs for every simulated key that is not consumed as
+    /// a shortcut before reaching GhosttyNSView.keyDown.
+    private func syntheticKeyEvent(
+        parsed: ParsedShortcutCombo,
+        keyDown: Bool,
+        timestamp: TimeInterval
+    ) -> NSEvent? {
+        guard let cgEvent = CGEvent(
+            keyboardEventSource: nil,
+            virtualKey: parsed.keyCode,
+            keyDown: keyDown
+        ) else { return nil }
+        var flags: CGEventFlags = []
+        if parsed.modifierFlags.contains(.command) { flags.insert(.maskCommand) }
+        if parsed.modifierFlags.contains(.control) { flags.insert(.maskControl) }
+        if parsed.modifierFlags.contains(.option) { flags.insert(.maskAlternate) }
+        if parsed.modifierFlags.contains(.shift) { flags.insert(.maskShift) }
+        cgEvent.flags = flags
+        cgEvent.timestamp = CGEventTimestamp(timestamp * 1_000_000_000)
+        return NSEvent(cgEvent: cgEvent)
+    }
+
     func simulateShortcut(_ args: String) -> String {
         let combo = args.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !combo.isEmpty else {
@@ -10652,33 +10677,20 @@ class TerminalController {
                     ?? NSApp.windows.first
             }()
             prepareWindowForSyntheticInput(targetWindow)
-            let windowNumber = targetWindow?.windowNumber ?? 0
-            guard let keyDownEvent = NSEvent.keyEvent(
-                with: .keyDown,
-                location: .zero,
-                modifierFlags: parsed.modifierFlags,
-                timestamp: requestTimestamp,
-                windowNumber: windowNumber,
-                context: nil,
-                characters: parsed.characters,
-                charactersIgnoringModifiers: parsed.charactersIgnoringModifiers,
-                isARepeat: false,
-                keyCode: parsed.keyCode
+            // Key events route to the key window, which prepareWindowForSyntheticInput
+            // establishes; CGEvent-backed events carry no window number.
+            guard let keyDownEvent = self.syntheticKeyEvent(
+                parsed: parsed,
+                keyDown: true,
+                timestamp: requestTimestamp
             ) else {
-                result = "ERROR: NSEvent.keyEvent returned nil"
+                result = "ERROR: Failed to create CGEvent-backed key event"
                 return
             }
-            let keyUpEvent = NSEvent.keyEvent(
-                with: .keyUp,
-                location: .zero,
-                modifierFlags: parsed.modifierFlags,
-                timestamp: requestTimestamp + 0.0001,
-                windowNumber: windowNumber,
-                context: nil,
-                characters: parsed.characters,
-                charactersIgnoringModifiers: parsed.charactersIgnoringModifiers,
-                isARepeat: false,
-                keyCode: parsed.keyCode
+            let keyUpEvent = self.syntheticKeyEvent(
+                parsed: parsed,
+                keyDown: false,
+                timestamp: requestTimestamp + 0.0001
             )
             // Socket-driven shortcut simulation should reuse the exact same matching logic as the
             // app-level shortcut monitor (so tests are hermetic), while still falling back to the
