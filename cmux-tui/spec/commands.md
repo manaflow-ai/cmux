@@ -1,6 +1,6 @@
 # Command Contract
 
-This file specifies the JSON command contract for the cmux-tui protocol. Implemented commands match protocol v6 in `cmux-tui/crates/cmux-tui-core/src/server.rs`.
+This file specifies the JSON command contract for the cmux-tui protocol. Implemented commands match protocol v7 in `cmux-tui/crates/cmux-tui-core/src/server.rs`.
 
 ## Notation
 
@@ -131,7 +131,7 @@ Example:
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":6,"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","protocol":7,"session":"main","pid":12345}}
 ```
 
 ### ping
@@ -160,7 +160,7 @@ Example:
 
 ```json
 {"id":2,"cmd":"ping"}
-{"id":2,"ok":true,"data":{"ok":true,"version":"0.1.0","protocol":6}}
+{"id":2,"ok":true,"data":{"ok":true,"version":"0.1.0","protocol":7}}
 ```
 
 ### set-client-info
@@ -1499,7 +1499,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Resizes a surface to a cell grid. PTY surfaces resize both the PTY and VT terminal state. Browser surfaces update their cell grid and CDP device metrics. `cols` and `rows` are clamped to at least 1 by the surface runtime. In protocol v6, the final pair becomes the session's latest client size even when the target was already at that size, so later creation requests without a size use the most recent client interaction; internal server resizes (such as the sidebar plugin surface tracking the TUI) never update it. The command result does not report whether the size changed.
+Resizes a surface to a cell grid. PTY surfaces resize both the PTY and VT terminal state. Browser surfaces update their cell grid and CDP device metrics asynchronously. `cols` and `rows` are clamped to at least 1 by the surface runtime. In protocol v6, the final pair becomes the session's latest client size even when the target was already at that size, so later creation requests without a size use the most recent client interaction; internal server resizes (such as the sidebar plugin surface tracking the TUI) never update it. Protocol v7 adds `accepted`: `true` means the resize was applied or queued, while `false` means the surface already has that size, the same browser resize is pending, or its retry backoff has not elapsed. An accepted browser resize returns a numeric `reservation_id`, which is repeated by its `surface-resized` or `surface-resize-failed` completion. PTY resizes and rejected browser resizes return `null` because their completion does not need asynchronous ownership matching.
 
 Params:
 
@@ -1512,7 +1512,7 @@ Params:
 Result:
 
 ```text
-object{}
+object{accepted:bool,reservation_id:uint64|null}
 ```
 
 Errors:
@@ -1536,7 +1536,7 @@ Example:
 
 ```json
 {"id":21,"cmd":"resize-surface","surface":1,"cols":120,"rows":40}
-{"id":21,"ok":true,"data":{}}
+{"id":21,"ok":true,"data":{"accepted":true,"reservation_id":7}}
 ```
 
 ### focus-pane
@@ -2400,7 +2400,7 @@ Example:
 
 ## Proposed Hooks Config
 
-Hooks are proposed protocol v6 config, not a socket command. They are declared in `~/.config/cmux/cmux-tui.json` under `hooks`, with legacy `mux.json` still accepted.
+Hooks are proposed protocol v8 config, not a socket command. They are declared in `~/.config/cmux/cmux-tui.json` under `hooks`, with legacy `mux.json` still accepted.
 
 Schema:
 
@@ -2463,7 +2463,7 @@ The following v5 behaviors are awkward for generated bindings and should be norm
 | --- | --- | --- |
 | Create commands | `new-tab`, `new-browser-tab`, `new-screen`, `new-workspace`, and `split` return only `{surface}` | Return `{surface,pane,screen,workspace}` |
 | Selection commands | `select-*` returns success for unknown targets, out-of-range indexes, and missing selector fields | Return a changed boolean or reject invalid target/index |
-| Resize command | `resize-surface` does not report whether size changed or final clamped size | Return `{changed,cols,rows}` |
+| Resize command | `resize-surface` reports acceptance but not the final clamped size | Return `{accepted,cols,rows}` |
 | Ratio command | `set-ratio` silently clamps and does not return final ratio | Return `{ratio}` after clamping |
 | Naming commands | Empty string clears pane/surface/screen names but stores an empty workspace name | Make empty string clear all optional display names, including workspace |
 | Attach response ordering | v5 `attach-surface` sends `vt-state` before the command response | v6 keeps attach as an event stream and adds `resized` replay events; clients must gate behavior by protocol |

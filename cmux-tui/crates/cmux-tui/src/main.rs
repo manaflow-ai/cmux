@@ -13,6 +13,7 @@ mod config;
 mod host_colors;
 mod keys;
 mod plugin_manager;
+mod pty_input;
 mod session;
 mod sidebar_files;
 mod ui;
@@ -82,7 +83,9 @@ KEYS (prefix: Ctrl-b)
   Ctrl-b  send a literal Ctrl-b
 
 MOUSE
-  Right-click a pane for rename/new tab/split/close; right-click a
+  Mouse-aware PTYs receive clicks, motion, and wheel events. Hold Shift
+  to select text or open the cmux pane menu. Right-click a pane for
+  rename/new tab/split/close; right-click a
   workspace-sidebar row or a status-bar screen for rename/close. Click
   tab-bar entries to switch tabs (+ for a new tab), and status-bar
   screen entries to switch screens (+ for a new screen).

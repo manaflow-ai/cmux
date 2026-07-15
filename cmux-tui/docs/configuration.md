@@ -83,8 +83,8 @@ cmux-tui plugin disable
 | `browser.discover_ports` | integer array | `[9222]` | Local ports to probe for `/json/version` |
 | `browser.user_data_dir` | string | `null` | Persistent profile directory for launched Chrome |
 | `browser.ephemeral` | boolean | `false` | Use a temporary launched Chrome profile and delete it on shutdown |
-| `browser.max_capture_megapixels` | number | `2.0` | Maximum browser capture size before downscaling |
-| `browser.capture_scale` | number or null | `null` | Fixed capture scale from 0.0 through 1.0 |
+| `browser.max_capture_megapixels` | number | `2.0` | Maximum browser capture size before downscaling, from 0.0 through 2.0 |
+| `browser.capture_scale` | number or null | `null` | Maximum capture scale from 0.0 through 1.0, reduced further when needed to stay under the megapixel limit |
 
 When `browser.ephemeral` is true, it takes precedence over `browser.user_data_dir`: launched Chrome uses a fresh temporary profile, and the configured directory is not deleted.
 
