@@ -6,9 +6,8 @@ import UserNotifications
 
 @MainActor
 final class RepositoryScriptLifecycleCoordinator {
-    private var authorizedResolutions: [UUID: RepositoryScriptResolution] = [:]
-    private var activeWorkspaceIDs: Set<UUID> = []
-    private var pendingAuthorizations: [String: [() -> Void]] = [:]
+    private var workspaceStates: [UUID: RepositoryScriptWorkspaceLifecycleState] = [:]
+    private var pendingAuthorizations: [String: Set<UUID>] = [:]
     private let configStore: JSONConfigStore
     private let catalog: SettingCatalog
     private let promptStore: RepositorySetupPromptStore
@@ -34,37 +33,17 @@ final class RepositoryScriptLifecycleCoordinator {
 
     func workspaceCreated(_ workspace: Workspace, directory: String) {
         guard !workspace.isRemoteTmuxMirror,
-              activeWorkspaceIDs.insert(workspace.id).inserted else { return }
+              workspaceStates[workspace.id] == nil else { return }
+        workspaceStates[workspace.id] = .resolving(workspace: workspace)
         let preferences = configStore.snapshotValue(for: catalog.terminal.repositoryScripts)
         let workspaceID = workspace.id
         let resolver = resolver
-        Task { @MainActor [weak self, weak workspace] in
+        Task { @MainActor [weak self] in
             let resolution = await resolver.resolve(
                 directory: directory,
                 preferences: preferences
             )
-            guard let self else { return }
-            guard activeWorkspaceIDs.contains(workspaceID) else { return }
-            guard let workspace else {
-                activeWorkspaceIDs.remove(workspaceID)
-                return
-            }
-            guard let resolution else {
-                activeWorkspaceIDs.remove(workspaceID)
-                return
-            }
-
-            if resolution.shouldPromptForSetup {
-                promptStore.show(
-                    RepositorySetupPrompt(workspaceID: workspace.id, resolution: resolution)
-                )
-            }
-
-            if let descriptor = resolver.trustDescriptor(for: resolution) {
-                requestAuthorization(descriptor, resolution: resolution, workspace: workspace)
-            } else {
-                authorize(resolution, for: workspace)
-            }
+            self?.didResolve(resolution, workspaceID: workspaceID)
         }
     }
 
@@ -74,15 +53,20 @@ final class RepositoryScriptLifecycleCoordinator {
     }
 
     func workspaceWillClose(_ workspace: Workspace) {
-        activeWorkspaceIDs.remove(workspace.id)
         promptStore.remove(workspaceID: workspace.id)
-        guard let resolution = authorizedResolutions.removeValue(forKey: workspace.id),
-              let archive = resolution.archive else { return }
-        let repositoryName = URL(fileURLWithPath: resolution.identity.workTreeRoot).lastPathComponent
-        Task { [weak self, archiveRunner] in
-            let result = await archiveRunner.run(archive, in: resolution.identity.workTreeRoot)
-            guard let self else { return }
-            postArchiveResult(result, repositoryName: repositoryName)
+        guard let state = workspaceStates[workspace.id] else { return }
+        switch state {
+        case .resolving:
+            workspaceStates[workspace.id] = .closingAwaitingResolution
+        case .awaitingAuthorization(let resolution, _):
+            workspaceStates[workspace.id] = .closingAwaitingAuthorization(
+                resolution: resolution
+            )
+        case .authorized(let resolution):
+            workspaceStates.removeValue(forKey: workspace.id)
+            runArchive(for: resolution)
+        case .closingAwaitingResolution, .closingAwaitingAuthorization:
+            break
         }
     }
 
@@ -92,9 +76,74 @@ final class RepositoryScriptLifecycleCoordinator {
         }
     }
 
-    private func authorize(_ resolution: RepositoryScriptResolution, for workspace: Workspace) {
-        guard activeWorkspaceIDs.contains(workspace.id) else { return }
-        authorizedResolutions[workspace.id] = resolution
+    private func didResolve(_ resolution: RepositoryScriptResolution?, workspaceID: UUID) {
+        guard let state = workspaceStates[workspaceID] else { return }
+        switch state {
+        case .resolving(let workspace):
+            guard let resolution else {
+                workspaceStates.removeValue(forKey: workspaceID)
+                return
+            }
+            if resolution.shouldPromptForSetup {
+                promptStore.show(
+                    RepositorySetupPrompt(workspaceID: workspaceID, resolution: resolution)
+                )
+            }
+            if let descriptor = resolver.trustDescriptor(for: resolution) {
+                workspaceStates[workspaceID] = .awaitingAuthorization(
+                    resolution: resolution,
+                    workspace: workspace
+                )
+                requestAuthorization(
+                    descriptor,
+                    resolution: resolution,
+                    workspaceID: workspaceID
+                )
+            } else {
+                workspaceStates[workspaceID] = .authorized(resolution: resolution)
+                launchSetupIfPresent(resolution, workspace: workspace)
+            }
+        case .closingAwaitingResolution:
+            workspaceStates.removeValue(forKey: workspaceID)
+            guard let resolution else { return }
+            if let descriptor = resolver.trustDescriptor(for: resolution),
+               !authorizer.isTrusted(descriptor) {
+                return
+            }
+            runArchive(for: resolution)
+        case .awaitingAuthorization, .authorized, .closingAwaitingAuthorization:
+            break
+        }
+    }
+
+    private func completeAuthorization(workspaceID: UUID) {
+        guard let state = workspaceStates[workspaceID] else { return }
+        switch state {
+        case .awaitingAuthorization(let resolution, let workspace):
+            workspaceStates[workspaceID] = .authorized(resolution: resolution)
+            launchSetupIfPresent(resolution, workspace: workspace)
+        case .closingAwaitingAuthorization(let resolution):
+            workspaceStates.removeValue(forKey: workspaceID)
+            runArchive(for: resolution)
+        case .resolving, .authorized, .closingAwaitingResolution:
+            break
+        }
+    }
+
+    private func denyAuthorization(workspaceID: UUID) {
+        guard let state = workspaceStates[workspaceID] else { return }
+        switch state {
+        case .awaitingAuthorization, .closingAwaitingAuthorization:
+            workspaceStates.removeValue(forKey: workspaceID)
+        case .resolving, .authorized, .closingAwaitingResolution:
+            break
+        }
+    }
+
+    private func launchSetupIfPresent(
+        _ resolution: RepositoryScriptResolution,
+        workspace: Workspace
+    ) {
         guard let setup = resolution.setup else { return }
         launchSetup(setup, in: resolution.identity.workTreeRoot, workspace: workspace)
     }
@@ -102,18 +151,14 @@ final class RepositoryScriptLifecycleCoordinator {
     private func requestAuthorization(
         _ descriptor: CmuxActionTrustDescriptor,
         resolution: RepositoryScriptResolution,
-        workspace: Workspace
+        workspaceID: UUID
     ) {
         let fingerprint = descriptor.fingerprint
-        let authorizeWorkspace = { [weak self, weak workspace] in
-            guard let self, let workspace else { return }
-            authorize(resolution, for: workspace)
-        }
         if pendingAuthorizations[fingerprint] != nil {
-            pendingAuthorizations[fingerprint, default: []].append(authorizeWorkspace)
+            pendingAuthorizations[fingerprint, default: []].insert(workspaceID)
             return
         }
-        pendingAuthorizations[fingerprint] = [authorizeWorkspace]
+        pendingAuthorizations[fingerprint] = [workspaceID]
 
         let projectConfigPath: String?
         if case .projectFile(let path) = resolution.source {
@@ -131,15 +176,30 @@ final class RepositoryScriptLifecycleCoordinator {
                 defaultValue: "Trust Repository Scripts?"
             ),
             onAuthorized: { [weak self] in
-                guard let callbacks = self?.pendingAuthorizations.removeValue(forKey: fingerprint) else {
+                guard let self,
+                      let workspaceIDs = pendingAuthorizations.removeValue(forKey: fingerprint) else {
                     return
                 }
-                callbacks.forEach { $0() }
+                workspaceIDs.forEach { completeAuthorization(workspaceID: $0) }
             },
             onDenied: { [weak self] in
-                self?.pendingAuthorizations.removeValue(forKey: fingerprint)
+                guard let self,
+                      let workspaceIDs = pendingAuthorizations.removeValue(forKey: fingerprint) else {
+                    return
+                }
+                workspaceIDs.forEach { denyAuthorization(workspaceID: $0) }
             }
         )
+    }
+
+    private func runArchive(for resolution: RepositoryScriptResolution) {
+        guard let archive = resolution.archive else { return }
+        let repositoryName = URL(fileURLWithPath: resolution.identity.workTreeRoot).lastPathComponent
+        Task { [weak self, archiveRunner] in
+            let result = await archiveRunner.run(archive, in: resolution.identity.workTreeRoot)
+            guard let self else { return }
+            postArchiveResult(result, repositoryName: repositoryName)
+        }
     }
 
     private func launchSetup(_ script: String, in directory: String, workspace: Workspace) {

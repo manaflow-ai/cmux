@@ -1298,6 +1298,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		F71400080000000000000001 /* RepositoryScriptRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = F71400080000000000000002 /* RepositoryScriptRuntime.swift */; };
 		F71400090000000000000001 /* RepositoryScriptSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = F71400090000000000000002 /* RepositoryScriptSource.swift */; };
 		F71400140000000000000001 /* RepositoryScriptTestAuthorizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F71400140000000000000002 /* RepositoryScriptTestAuthorizer.swift */; };
+		F71400150000000000000001 /* RepositoryScriptWorkspaceLifecycleState.swift in Sources */ = {isa = PBXBuildFile; fileRef = F71400150000000000000002 /* RepositoryScriptWorkspaceLifecycleState.swift */; };
 		F714000A0000000000000001 /* RepositorySetupLaunchPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = F714000A0000000000000002 /* RepositorySetupLaunchPlan.swift */; };
 		F714000B0000000000000001 /* RepositorySetupPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = F714000B0000000000000002 /* RepositorySetupPrompt.swift */; };
 		F714000C0000000000000001 /* RepositorySetupPromptCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = F714000C0000000000000002 /* RepositorySetupPromptCard.swift */; };
@@ -3224,6 +3225,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		F71400080000000000000002 /* RepositoryScriptRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepositoryScriptRuntime.swift; sourceTree = "<group>"; };
 		F71400090000000000000002 /* RepositoryScriptSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepositoryScriptSource.swift; sourceTree = "<group>"; };
 		F71400140000000000000002 /* RepositoryScriptTestAuthorizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepositoryScriptTestAuthorizer.swift; sourceTree = "<group>"; };
+		F71400150000000000000002 /* RepositoryScriptWorkspaceLifecycleState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepositoryScriptWorkspaceLifecycleState.swift; sourceTree = "<group>"; };
 		F714000A0000000000000002 /* RepositorySetupLaunchPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepositorySetupLaunchPlan.swift; sourceTree = "<group>"; };
 		F714000B0000000000000002 /* RepositorySetupPrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepositorySetupPrompt.swift; sourceTree = "<group>"; };
 		F714000C0000000000000002 /* RepositorySetupPromptCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepositorySetupPromptCard.swift; sourceTree = "<group>"; };
@@ -4165,6 +4167,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F71400070000000000000002 /* RepositoryScriptResolver.swift */,
 				F71400080000000000000002 /* RepositoryScriptRuntime.swift */,
 				F71400090000000000000002 /* RepositoryScriptSource.swift */,
+				F71400150000000000000002 /* RepositoryScriptWorkspaceLifecycleState.swift */,
 				F714000A0000000000000002 /* RepositorySetupLaunchPlan.swift */,
 				F714000B0000000000000002 /* RepositorySetupPrompt.swift */,
 				F714000C0000000000000002 /* RepositorySetupPromptCard.swift */,
@@ -7093,6 +7096,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F71400070000000000000001 /* RepositoryScriptResolver.swift in Sources */,
 				F71400080000000000000001 /* RepositoryScriptRuntime.swift in Sources */,
 				F71400090000000000000001 /* RepositoryScriptSource.swift in Sources */,
+				F71400150000000000000001 /* RepositoryScriptWorkspaceLifecycleState.swift in Sources */,
 				F714000A0000000000000001 /* RepositorySetupLaunchPlan.swift in Sources */,
 				F714000B0000000000000001 /* RepositorySetupPrompt.swift in Sources */,
 				F714000C0000000000000001 /* RepositorySetupPromptCard.swift in Sources */,
