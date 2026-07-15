@@ -226,6 +226,32 @@ struct RemoteSessionCleanupLifecycleTests {
     }
 
     @Test
+    func failedNonpersistentDisconnectRetainsOwnerForLaterCleanupRetry() async throws {
+        let runner = CleanupLifecycleRecordingRunner(cleanupStatuses: [1, 0])
+        let workspace = Workspace()
+        workspace.remoteSessionProcessRunnerOverrideForTesting = runner
+        workspace.configureRemoteConnection(
+            Self.configuration(preserveAfterTerminalExit: false),
+            autoConnect: true
+        )
+        _ = try #require(await Self.nextBootstrapRequest(runner))
+
+        workspace.disconnectRemoteConnection(clearConfiguration: false)
+        let failedCleanup = try #require(await Self.nextCleanupCommand(runner))
+        await workspace.remoteSessionTransitionTask?.value
+
+        #expect(!failedCleanup.contains("serve --persistent-stop --slot"))
+        #expect(workspace.remoteSessionCleanupControllers.count == 1)
+
+        workspace.disconnectRemoteConnection(clearConfiguration: false)
+        let retriedCleanup = try #require(await Self.nextCleanupCommand(runner))
+        await workspace.remoteSessionTransitionTask?.value
+
+        #expect(!retriedCleanup.contains("serve --persistent-stop --slot"))
+        #expect(workspace.remoteSessionCleanupControllers.isEmpty)
+    }
+
+    @Test
     func retainedOwnerMatchesStablePersistentIdentityAcrossConfigurationChanges() async throws {
         let runner = CleanupLifecycleRecordingRunner()
         let workspace = Workspace()
