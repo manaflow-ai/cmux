@@ -231,15 +231,23 @@ extension MobileShellComposite {
         }
         let started = terminalCreationRequestOwner.startIfIdle(
             claim: .unreserved,
-            gate: gate
-        ) { @MainActor [weak self] in
-            var succeeded = false
-            defer {
+            gate: gate,
+            cancellationOutcome: .failure(recoveryFailure),
+            completion: { result in
+                let succeeded: Bool
+                if case .success = result {
+                    succeeded = true
+                } else {
+                    succeeded = false
+                }
                 gate.finishRecovery(workspaceID: workspaceID, succeeded: succeeded)
-                completion(succeeded ? .success(()) : .failure(recoveryFailure))
+                completion(result)
             }
-            guard let self, !Task.isCancelled else { return }
-            succeeded = await self.refreshTerminalHierarchy(workspaceID: workspaceID)
+        ) { @MainActor [weak self] in
+            guard let self, !Task.isCancelled else { return .failure(recoveryFailure) }
+            return await self.refreshTerminalHierarchy(workspaceID: workspaceID)
+                ? .success(())
+                : .failure(recoveryFailure)
         }
         if !started {
             gate.finishRecovery(workspaceID: workspaceID, succeeded: false)

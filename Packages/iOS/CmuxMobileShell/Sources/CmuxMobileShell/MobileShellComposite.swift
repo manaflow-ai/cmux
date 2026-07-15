@@ -3658,17 +3658,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // Pin selection to the target so the async create + the resulting
             // terminal selection stay on the workspace the caller intended.
             if let targetWorkspaceID { selectedWorkspaceID = targetWorkspaceID }
+            let cancellationOutcome = Result<Void, MobileWorkspaceMutationFailure>.failure(
+                .resultUnknownNeedsRefresh(hostDisplayName: connectedHostName)
+            )
             let started = terminalCreationRequestOwner.startIfIdle(
                 claim: mutationClaim,
-                gate: terminalReorderGate
+                gate: terminalReorderGate,
+                cancellationOutcome: cancellationOutcome,
+                completion: completion
             ) { @MainActor [weak self] in
-                guard let self else { return }
-                let result = await self.createRemoteTerminal(
+                guard let self else { return cancellationOutcome }
+                return await self.createRemoteTerminal(
                     in: targetWorkspaceID,
                     paneID: targetPaneID
                 )
-                guard !Task.isCancelled else { return }
-                completion(result)
             }
             if !started {
                 completion(.failure(.busy(hostDisplayName: connectedHostName)))
