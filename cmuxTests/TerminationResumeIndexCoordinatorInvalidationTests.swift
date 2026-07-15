@@ -13,6 +13,41 @@ import Testing
 @Suite("Termination resume-index invalidation", .serialized)
 struct TerminationResumeIndexCoordinatorInvalidationTests {
     @Test
+    func confirmedTerminationReusesPreparedUpdateRelaunchAuthority() async throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let directory = try Self.temporaryDirectory(named: "update-confirmation")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let loadCount = OSAllocatedUnfairLock(initialState: 0)
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                let invocation = loadCount.withLock { count in
+                    count += 1
+                    return count
+                }
+                return Self.loadResult(
+                    checkpointId: invocation == 1 ? "updater-prepared" : "after-terminal-stop",
+                    workspaceId: workspaceId,
+                    panelId: panelId
+                )
+            },
+            processScopeFingerprintProvider: { [] },
+            hookStoreDirectoryProvider: { directory.path }
+        )
+        let coordinator = TerminationResumeIndexCoordinator()
+
+        let prepared = await coordinator.prepareForUpdateRelaunch(coordinatedBy: sharedIndex)
+        let confirmed = await coordinator.loadForConfirmedTerminationAttempt(coordinatedBy: sharedIndex)
+
+        #expect(Self.checkpoint(in: prepared, workspaceId: workspaceId, panelId: panelId) == "updater-prepared")
+        #expect(Self.checkpoint(in: confirmed, workspaceId: workspaceId, panelId: panelId) == "updater-prepared")
+        #expect(
+            loadCount.withLock { $0 } == 1,
+            "Confirmed update termination must not rescan after the terminal runtime has stopped."
+        )
+    }
+
+    @Test
     func cancelledOrdinaryQuitPreservesUpdaterRelaunchPreparation() async throws {
         let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()
