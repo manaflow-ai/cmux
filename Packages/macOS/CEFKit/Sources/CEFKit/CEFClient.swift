@@ -3,6 +3,8 @@ import Foundation
 
 /// Browser lifecycle and state callbacks, delivered on the main thread.
 public protocol CEFBrowserDelegate: AnyObject {
+    /// Returns whether a main-frame navigation may proceed.
+    func browser(_ browser: CEFBrowser, shouldAllowNavigationTo url: String) -> Bool
     /// The main frame's address changed.
     func browser(_ browser: CEFBrowser, didUpdateURL url: String)
     /// The page title changed.
@@ -15,6 +17,8 @@ public protocol CEFBrowserDelegate: AnyObject {
 
 /// All delegate callbacks are optional.
 public extension CEFBrowserDelegate {
+    /// Default allow.
+    func browser(_ browser: CEFBrowser, shouldAllowNavigationTo url: String) -> Bool { true }
     /// Default no-op.
     func browser(_ browser: CEFBrowser, didUpdateURL url: String) {}
     /// Default no-op.
@@ -41,6 +45,7 @@ final class CEFClientImpl {
     private var lifeSpanPtr: UnsafeMutablePointer<cef_life_span_handler_t>?
     private var loadPtr: UnsafeMutablePointer<cef_load_handler_t>?
     private var displayPtr: UnsafeMutablePointer<cef_display_handler_t>?
+    private var requestPtr: UnsafeMutablePointer<cef_request_handler_t>?
 
     func makeClientStruct() -> UnsafeMutablePointer<cef_client_t> {
         let ptr = CEFHandler.allocate(cef_client_t.self, object: self)
@@ -62,6 +67,13 @@ final class CEFClientImpl {
             guard let selfPtr else { return nil }
             let impl = CEFHandler.object(CEFClientImpl.self, from: selfPtr)
             let handler = impl.ensureDisplayHandler()
+            CEFHandler.retain(handler)
+            return handler
+        }
+        ptr.pointee.get_request_handler = { selfPtr in
+            guard let selfPtr else { return nil }
+            let impl = CEFHandler.object(CEFClientImpl.self, from: selfPtr)
+            let handler = impl.ensureRequestHandler()
             CEFHandler.retain(handler)
             return handler
         }
@@ -88,6 +100,10 @@ final class CEFClientImpl {
         }
         if let ptr = displayPtr {
             displayPtr = nil
+            cefRelease(UnsafeMutableRawPointer(ptr))
+        }
+        if let ptr = requestPtr {
+            requestPtr = nil
             cefRelease(UnsafeMutableRawPointer(ptr))
         }
     }
@@ -168,6 +184,22 @@ final class CEFClientImpl {
             impl.delegate?.browser(browser, didUpdateTitle: title)
         }
         displayPtr = ptr
+        return ptr
+    }
+
+    private func ensureRequestHandler() -> UnsafeMutablePointer<cef_request_handler_t> {
+        if let existing = requestPtr { return existing }
+        let ptr = CEFHandler.allocate(cef_request_handler_t.self, object: self)
+        ptr.pointee.on_before_browse = { selfPtr, _, frame, request, _, _ in
+            guard let selfPtr, let frame, let request,
+                  frame.pointee.is_main?(frame) != 0 else { return 0 }
+            let impl = CEFHandler.object(CEFClientImpl.self, from: selfPtr)
+            guard let browser = impl.browser,
+                  let userFreeURL = request.pointee.get_url?(request),
+                  let url = String(consumingCEFUserFree: userFreeURL) else { return 0 }
+            return impl.delegate?.browser(browser, shouldAllowNavigationTo: url) == false ? 1 : 0
+        }
+        requestPtr = ptr
         return ptr
     }
 }

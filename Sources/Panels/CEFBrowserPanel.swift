@@ -48,6 +48,7 @@ final class CEFBrowserPanel: Panel, OmnibarHostingPanel, @preconcurrency CEFBrow
     private(set) var isVisibleInUI = true
     private var pendingNavigationURL: String?
     private var lastEmbeddedURL: String
+    private var insecureHTTPBypassHostOnce: String?
 
     var cefProfileName: String {
         profileID.uuidString.lowercased()
@@ -115,7 +116,20 @@ final class CEFBrowserPanel: Panel, OmnibarHostingPanel, @preconcurrency CEFBrow
     /// Navigates the embedded browser, or opens `chrome://` URLs in CEF's Chrome-style window.
     func navigate(to rawURL: String) {
         guard !isClosing, let normalizedURL = Self.normalizedURLString(rawURL) else { return }
-        historyStore.recordTypedNavigation(url: URL(string: normalizedURL))
+        guard let url = URL(string: normalizedURL) else { return }
+
+        if browserShouldBlockInsecureHTTPURL(url), !hasInsecureHTTPBypass(for: url) {
+            presentInsecureHTTPAlert(for: url, recordTypedNavigation: true)
+            return
+        }
+
+        performNavigation(to: normalizedURL, recordTypedNavigation: true)
+    }
+
+    private func performNavigation(to normalizedURL: String, recordTypedNavigation: Bool) {
+        if recordTypedNavigation {
+            historyStore.recordTypedNavigation(url: URL(string: normalizedURL))
+        }
 
         if URL(string: normalizedURL)?.scheme?.lowercased() == "chrome" {
             currentURL = lastEmbeddedURL
@@ -170,7 +184,7 @@ final class CEFBrowserPanel: Panel, OmnibarHostingPanel, @preconcurrency CEFBrow
         }
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         let lowercased = trimmed.lowercased()
-        let hasSupportedOpaqueScheme = ["about:", "chrome:", "data:", "javascript:", "mailto:"].contains {
+        let hasSupportedOpaqueScheme = ["about:", "chrome:", "data:", "mailto:"].contains {
             lowercased.hasPrefix($0)
         }
         return hasSupportedOpaqueScheme ? URL(string: trimmed) : nil
@@ -306,6 +320,19 @@ final class CEFBrowserPanel: Panel, OmnibarHostingPanel, @preconcurrency CEFBrow
         onComplete(true)
     }
 
+    func browser(_ browser: CEFBrowser, shouldAllowNavigationTo urlString: String) -> Bool {
+        guard browser === self.browser, let url = URL(string: urlString) else { return true }
+        if browserShouldConsumeOneTimeInsecureHTTPBypass(
+            url,
+            bypassHostOnce: &insecureHTTPBypassHostOnce
+        ) {
+            return true
+        }
+        guard browserShouldBlockInsecureHTTPURL(url) else { return true }
+        presentInsecureHTTPAlert(for: url, recordTypedNavigation: false)
+        return false
+    }
+
     func browser(_ browser: CEFBrowser, didUpdateURL url: String) {
         guard browser === self.browser else { return }
         currentURL = url
@@ -431,6 +458,10 @@ final class CEFBrowserPanel: Panel, OmnibarHostingPanel, @preconcurrency CEFBrow
     /// The built-in browser profile intentionally uses CEF's global request
     /// context. Every named cmux profile gets a stable UUID-backed context so
     /// restored panes retain the same cookies and storage across launches.
+    func resolveCEFProfileForChildBrowser() -> CEFProfile? {
+        resolveCEFProfile()?.profile
+    }
+
     private func resolveCEFProfile() -> CEFProfileResolution? {
         if profileID == BrowserProfileStore.shared.builtInDefaultProfileID {
             return CEFProfileResolution(profile: nil)
@@ -443,6 +474,68 @@ final class CEFBrowserPanel: Panel, OmnibarHostingPanel, @preconcurrency CEFBrow
         return CEFProfileResolution(profile: profile)
     }
 
+    private func hasInsecureHTTPBypass(for url: URL) -> Bool {
+        guard url.scheme?.lowercased() == "http",
+              let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return false }
+        return insecureHTTPBypassHostOnce == host
+    }
+
+    private func presentInsecureHTTPAlert(for url: URL, recordTypedNavigation: Bool) {
+        guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return }
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(
+            localized: "browser.error.insecure.title",
+            defaultValue: "Connection isn’t secure"
+        )
+        alert.informativeText = String(
+            localized: "browser.error.insecure.message",
+            defaultValue: "\(host) uses plain HTTP, so traffic can be read or modified on the network.\n\nOpen this URL in your default browser, or proceed in cmux."
+        )
+        alert.addButton(withTitle: String(
+            localized: "browser.openInDefaultBrowser",
+            defaultValue: "Open in Default Browser"
+        ))
+        alert.addButton(withTitle: String(
+            localized: "browser.proceedInCmux",
+            defaultValue: "Proceed in cmux"
+        ))
+        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
+        alert.showsSuppressionButton = true
+        alert.suppressionButton?.title = String(
+            localized: "browser.alwaysAllowHost",
+            defaultValue: "Always allow this host in cmux"
+        )
+
+        let handleResponse: (NSApplication.ModalResponse) -> Void = { [weak self, weak alert] response in
+            guard let self else { return }
+            if browserShouldPersistInsecureHTTPAllowlistSelection(
+                response: response,
+                suppressionEnabled: alert?.suppressionButton?.state == .on
+            ) {
+                BrowserInsecureHTTPSettings.addAllowedHost(host)
+            }
+            switch response {
+            case .alertFirstButtonReturn:
+                NSWorkspace.shared.open(url)
+            case .alertSecondButtonReturn:
+                self.insecureHTTPBypassHostOnce = host
+                self.performNavigation(
+                    to: url.absoluteString,
+                    recordTypedNavigation: recordTypedNavigation
+                )
+            default:
+                break
+            }
+        }
+
+        if let window = containerView.window {
+            alert.beginSheetModal(for: window, completionHandler: handleResponse)
+        } else {
+            handleResponse(alert.runModal())
+        }
+    }
+
     private static func normalizedURLString(_ rawURL: String) -> String? {
         let trimmedURL = rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedURL.isEmpty else { return nil }
@@ -452,7 +545,7 @@ final class CEFBrowserPanel: Panel, OmnibarHostingPanel, @preconcurrency CEFBrow
             of: #"^[A-Za-z][A-Za-z0-9+.-]*://"#,
             options: .regularExpression
         ) != nil
-        let hasSupportedOpaqueScheme = ["about:", "chrome:", "data:", "javascript:", "mailto:"].contains {
+        let hasSupportedOpaqueScheme = ["about:", "chrome:", "data:", "mailto:"].contains {
             lowercasedURL.hasPrefix($0)
         }
 

@@ -25,6 +25,7 @@ enum CEFRuntimeSupport {
     /// this runs, so cmux sessions that never open a CEF browser pay nothing.
     static func startIfNeeded() throws {
         guard !CEFApp.shared.isInitialized else { return }
+        guard shouldInitializeCEF() else { return }
         let bundleID = Bundle.main.bundleIdentifier ?? "cmux"
         let rootCache = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent(bundleID, isDirectory: true)
@@ -46,14 +47,17 @@ enum CEFRuntimeSupport {
         config.logFile = rootCache.appendingPathComponent("cef.log")
         config.extensionDirectories = extensionDirectories()
         try CEFApp.shared.initialize(config)
-        // XCTest exits the injected app process directly, bypassing
-        // AppDelegate.applicationShouldTerminate. Arm CEFKit's process-exit
-        // bypass after XCTest has installed its result observer so Chromium's
-        // atexit DCHECK cannot turn a completed test run into a crash.
-        if isRunningUnderXCTest() {
-            _ = CEFApp.shared.prepareForTermination(onReady: {})
-        }
         startedThisSession = true
+    }
+
+    /// Unit-test hosts skip CEF initialization because XCTest exits the
+    /// injected app directly instead of using AppKit's termination path.
+    /// Dedicated CEF integration tests may opt in explicitly.
+    static func shouldInitializeCEF(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        !isRunningUnderXCTest(environment: environment)
+            || environment["CMUX_CEF_ALLOW_XCTEST_RUNTIME"] == "1"
     }
 
     static func isRunningUnderXCTest(

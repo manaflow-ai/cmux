@@ -63,7 +63,7 @@ struct CEFBrowserPanelView: View {
                     EmptyView()
                 },
                 trailingAccessories: { _ in
-                    CEFExtensionActionBar()
+                    CEFExtensionActionBar(panel: panel)
                 }
             )
 
