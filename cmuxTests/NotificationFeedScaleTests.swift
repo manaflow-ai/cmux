@@ -170,6 +170,81 @@ struct NotificationFeedScaleTests {
     }
 
     @Test
+    func retainedFeedEvictsOldestRowsByAggregateContentBytes() throws {
+        let store = TerminalNotificationStore.shared
+        let tabId = UUID()
+        let surfaceId = UUID()
+        let body = String(repeating: "x", count: TerminalNotificationStore.maximumNotificationBodyBytes)
+        let rowBytes = body.utf8.count
+        let retainedByBytes = TerminalNotificationStore.maximumNotificationFeedContentBytes / rowBytes
+        let totalRows = retainedByBytes + 3
+        let notifications = (0..<totalRows).map { index in
+            TerminalNotification(
+                id: UUID(),
+                tabId: tabId,
+                surfaceId: surfaceId,
+                retargetsToLiveSurfaceOwner: false,
+                title: "",
+                subtitle: "",
+                body: body,
+                createdAt: Date(timeIntervalSince1970: TimeInterval(index)),
+                isRead: false
+            )
+        }.sorted(by: TerminalNotificationStore.notificationSortPrecedes)
+
+        store.replaceNotificationsForTesting(notifications)
+        defer { store.replaceNotificationsForTesting([]) }
+
+        #expect(store.notifications.count == retainedByBytes)
+        #expect(store.notifications.first?.createdAt == notifications.first?.createdAt)
+        #expect(store.notifications.last?.createdAt == notifications[retainedByBytes - 1].createdAt)
+        let retainedBytes = store.notifications.reduce(0) {
+            $0 + $1.title.utf8.count + $1.subtitle.utf8.count + $1.body.utf8.count
+        }
+        #expect(retainedBytes <= TerminalNotificationStore.maximumNotificationFeedContentBytes)
+        let evictedIDs = Set(notifications.dropFirst(retainedByBytes).map(\.id))
+        #expect(store.notifications.allSatisfy { !evictedIDs.contains($0.id) })
+    }
+
+    @Test
+    func notificationAdmissionTruncatesOversizedTextFields() throws {
+        let store = TerminalNotificationStore.shared
+        let eventBus = CmuxEventBus.shared
+        let tabId = UUID()
+        let surfaceId = UUID()
+        let title = String(repeating: "é", count: TerminalNotificationStore.maximumNotificationTitleBytes)
+        let subtitle = String(repeating: "s", count: TerminalNotificationStore.maximumNotificationSubtitleBytes + 128)
+        let body = String(repeating: "b", count: TerminalNotificationStore.maximumNotificationBodyBytes + 128)
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        store.configureSuppressedNotificationFeedbackHandlerForTesting { _, _ in }
+        eventBus.resetForTesting()
+        defer {
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            store.resetSuppressedNotificationFeedbackHandlerForTesting()
+            eventBus.resetForTesting()
+        }
+
+        store.addNotification(
+            id: UUID(),
+            acceptedAt: Date(timeIntervalSince1970: 1),
+            tabId: tabId,
+            surfaceId: surfaceId,
+            title: title,
+            subtitle: subtitle,
+            body: body,
+            retargetsToLiveSurfaceOwner: false
+        )
+
+        let notification = try #require(store.notifications.first)
+        #expect(notification.title.utf8.count <= TerminalNotificationStore.maximumNotificationTitleBytes)
+        #expect(notification.subtitle.utf8.count == TerminalNotificationStore.maximumNotificationSubtitleBytes)
+        #expect(notification.body.utf8.count == TerminalNotificationStore.maximumNotificationBodyBytes)
+        #expect(String(notification.title.last ?? "x").utf8.count == 2)
+    }
+
+    @Test
     func frozenFeedSnapshotSurvivesStorageCompaction() {
         let store = TerminalNotificationStore.shared
         let eventBus = CmuxEventBus.shared

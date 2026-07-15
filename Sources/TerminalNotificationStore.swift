@@ -290,6 +290,10 @@ final class TerminalNotificationStore: ObservableObject {
     /// refreshes the Mac Dock badge, so every mutation lane is covered.
     static let badgeEventTopic = "notification.badge"
     static let maximumNotificationFeedCount = 20_000
+    nonisolated static let maximumNotificationTitleBytes = 8 * 1024
+    nonisolated static let maximumNotificationSubtitleBytes = 16 * 1024
+    nonisolated static let maximumNotificationBodyBytes = 64 * 1024
+    nonisolated static let maximumNotificationFeedContentBytes = 8 * 1024 * 1024
 #if DEBUG
     static var notificationFeedCompactionOffsetForTesting: Int?
 #endif
@@ -497,6 +501,7 @@ final class TerminalNotificationStore: ObservableObject {
     /// Every accepted notification, once per stable id, newest first. Equal
     /// timestamps use ascending UUID text as the deterministic tie break.
     private var notificationFeedStorage = TerminalNotificationFeedStorage()
+    private var notificationFeedContentByteCount = 0
     @Published private(set) var notificationFeedRevision: UInt64 = 0
     var notifications: TerminalNotificationFeed {
         TerminalNotificationFeed(storage: notificationFeedStorage)
@@ -1117,6 +1122,11 @@ final class TerminalNotificationStore: ObservableObject {
         body: String,
         retargetsToLiveSurfaceOwner: Bool
     ) -> NotificationPolicyContext {
+        let normalizedText = Self.normalizedNotificationText(
+            title: title,
+            subtitle: subtitle,
+            body: body
+        )
         let appDelegate = AppDelegate.shared
         let context = appDelegate?.contextContainingTabId(tabId)
         let tabManager = context?.tabManager ?? appDelegate?.tabManagerFor(tabId: tabId) ?? appDelegate?.tabManager
@@ -1153,9 +1163,9 @@ final class TerminalNotificationStore: ObservableObject {
                 surfaceId: surfaceId,
                 panelId: panelId,
                 retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
-                title: title,
-                subtitle: subtitle,
-                body: body,
+                title: normalizedText.title,
+                subtitle: normalizedText.subtitle,
+                body: normalizedText.body,
                 cwd: cwd,
                 isAppFocused: isAppFocused,
                 isFocusedPanel: isFocusedPanel
@@ -1177,6 +1187,11 @@ final class TerminalNotificationStore: ObservableObject {
         policyRequestId: UUID?
     ) {
         let payload = envelope.notification
+        let normalizedPayload = Self.normalizedNotificationText(
+            title: payload.title,
+            subtitle: payload.subtitle,
+            body: payload.body
+        )
         applyNotification(
             id: id,
             request: TerminalNotificationPolicyRequest(
@@ -1184,9 +1199,9 @@ final class TerminalNotificationStore: ObservableObject {
                 surfaceId: request.surfaceId,
                 panelId: request.panelId,
                 retargetsToLiveSurfaceOwner: request.retargetsToLiveSurfaceOwner,
-                title: payload.title,
-                subtitle: payload.subtitle,
-                body: payload.body,
+                title: normalizedPayload.title,
+                subtitle: normalizedPayload.subtitle,
+                body: normalizedPayload.body,
                 cwd: request.cwd,
                 isAppFocused: request.isAppFocused,
                 isFocusedPanel: request.isFocusedPanel
@@ -1218,15 +1233,20 @@ final class TerminalNotificationStore: ObservableObject {
             restoreCooldownReservation(cooldownReservation)
             return
         }
+        let normalizedText = Self.normalizedNotificationText(
+            title: request.title,
+            subtitle: request.subtitle,
+            body: request.body
+        )
         let notification = TerminalNotification(
             id: id,
             tabId: request.tabId,
             surfaceId: request.surfaceId,
             panelId: request.panelId,
             retargetsToLiveSurfaceOwner: request.retargetsToLiveSurfaceOwner,
-            title: request.title,
-            subtitle: request.subtitle,
-            body: request.body,
+            title: normalizedText.title,
+            subtitle: normalizedText.subtitle,
+            body: normalizedText.body,
             createdAt: acceptedAt,
             isRead: !effects.markUnread,
             paneFlash: effects.paneFlash,
@@ -1345,13 +1365,20 @@ final class TerminalNotificationStore: ObservableObject {
 
     @discardableResult
     private func commitInsertion(_ notification: TerminalNotification, at index: Int) -> Bool {
-        if index == 0, notifications.count < Self.maximumNotificationFeedCount {
+        let notificationBytes = Self.notificationContentByteCount(notification)
+        if index == 0, notifications.count < Self.maximumNotificationFeedCount,
+           notificationFeedContentByteCount + notificationBytes <= Self.maximumNotificationFeedContentBytes {
             notificationFeedRevision &+= 1
             notificationFeedStorage.appendNewest(notification)
+            notificationFeedContentByteCount += notificationBytes
             notificationFeedDidChange(oldValue: nil, mutation: .insertion(notification))
             return true
         }
         if index == 0, notifications.count == Self.maximumNotificationFeedCount,
+           let oldest = notifications.last,
+           notificationFeedContentByteCount
+               - Self.notificationContentByteCount(oldest)
+               + notificationBytes <= Self.maximumNotificationFeedContentBytes,
            let eviction = notificationFeedStorage.appendNewestEvictingOldest(
                notification,
                compactingAfter: Self.notificationFeedCompactionOffset
@@ -1360,6 +1387,8 @@ final class TerminalNotificationStore: ObservableObject {
                 notificationFeedStorage = replacementStorage
             }
             notificationFeedRevision &+= 1
+            notificationFeedContentByteCount += notificationBytes
+            notificationFeedContentByteCount -= Self.notificationContentByteCount(eviction.evicted)
             notificationFeedDidChange(
                 oldValue: nil,
                 mutation: .insertionEvicting(inserted: notification, evicted: eviction.evicted)
@@ -1392,13 +1421,86 @@ final class TerminalNotificationStore: ObservableObject {
     private static func retainedNotificationFeed(
         from newestFirst: [TerminalNotification]
     ) -> (retained: [TerminalNotification], evicted: [TerminalNotification]) {
-        guard newestFirst.count > maximumNotificationFeedCount else {
-            return (newestFirst, [])
+        var retained: [TerminalNotification] = []
+        retained.reserveCapacity(min(newestFirst.count, maximumNotificationFeedCount))
+        var evicted: [TerminalNotification] = []
+        var retainedBytes = 0
+        for notification in newestFirst {
+            let normalized = normalizedNotificationContent(notification)
+            let notificationBytes = notificationContentByteCount(normalized)
+            if retained.count < maximumNotificationFeedCount,
+               retainedBytes + notificationBytes <= maximumNotificationFeedContentBytes {
+                retained.append(normalized)
+                retainedBytes += notificationBytes
+            } else {
+                evicted.append(normalized)
+            }
         }
-        return (
-            Array(newestFirst.prefix(maximumNotificationFeedCount)),
-            Array(newestFirst.dropFirst(maximumNotificationFeedCount))
+        return (retained, evicted)
+    }
+
+    nonisolated static func normalizedNotificationText(
+        title: String,
+        subtitle: String,
+        body: String
+    ) -> (title: String, subtitle: String, body: String) {
+        (
+            title: truncatedUTF8(title, maxBytes: maximumNotificationTitleBytes),
+            subtitle: truncatedUTF8(subtitle, maxBytes: maximumNotificationSubtitleBytes),
+            body: truncatedUTF8(body, maxBytes: maximumNotificationBodyBytes)
         )
+    }
+
+    private nonisolated static func normalizedNotificationContent(
+        _ notification: TerminalNotification
+    ) -> TerminalNotification {
+        let normalized = normalizedNotificationText(
+            title: notification.title,
+            subtitle: notification.subtitle,
+            body: notification.body
+        )
+        guard normalized.title != notification.title
+            || normalized.subtitle != notification.subtitle
+            || normalized.body != notification.body else {
+            return notification
+        }
+        return TerminalNotification(
+            id: notification.id,
+            tabId: notification.tabId,
+            surfaceId: notification.surfaceId,
+            panelId: notification.panelId,
+            retargetsToLiveSurfaceOwner: notification.retargetsToLiveSurfaceOwner,
+            title: normalized.title,
+            subtitle: normalized.subtitle,
+            body: normalized.body,
+            createdAt: notification.createdAt,
+            isRead: notification.isRead,
+            paneFlash: notification.paneFlash,
+            scrollPosition: notification.scrollPosition,
+            clickAction: notification.clickAction
+        )
+    }
+
+    private nonisolated static func notificationContentByteCount(
+        _ notification: TerminalNotification
+    ) -> Int {
+        notification.title.utf8.count
+            + notification.subtitle.utf8.count
+            + notification.body.utf8.count
+    }
+
+    private nonisolated static func truncatedUTF8(_ value: String, maxBytes: Int) -> String {
+        guard value.utf8.count > maxBytes else { return value }
+        var result = ""
+        result.reserveCapacity(min(value.count, maxBytes))
+        var usedBytes = 0
+        for character in value {
+            let characterBytes = String(character).utf8.count
+            guard usedBytes + characterBytes <= maxBytes else { break }
+            result.append(character)
+            usedBytes += characterBytes
+        }
+        return result
     }
 
     private func commitReadStateChange(
@@ -1417,6 +1519,9 @@ final class TerminalNotificationStore: ObservableObject {
         let retained = Self.retainedNotificationFeed(from: next)
         notificationFeedRevision &+= 1
         notificationFeedStorage = TerminalNotificationFeedStorage(newestFirst: retained.retained)
+        notificationFeedContentByteCount = retained.retained.reduce(0) {
+            $0 + Self.notificationContentByteCount($1)
+        }
         notificationFeedDidChange(
             oldValue: previous,
             mutation: retained.evicted.isEmpty ? mutation : nil

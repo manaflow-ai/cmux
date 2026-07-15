@@ -66,15 +66,20 @@ struct SessionNotificationSnapshot: Codable, Sendable {
         let restoredScrollPosition = scrollPosition.map {
             TerminalNotificationScrollPosition(row: $0.row, totalRows: $0.totalRows)
         }
+        let normalizedText = TerminalNotificationStore.normalizedNotificationText(
+            title: title,
+            subtitle: subtitle,
+            body: body
+        )
         return TerminalNotification(
             id: id,
             tabId: tabId,
             surfaceId: surfaceId ?? self.surfaceId,
             panelId: panelId ?? self.panelId,
             retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner ?? true,
-            title: title,
-            subtitle: subtitle,
-            body: body,
+            title: normalizedText.title,
+            subtitle: normalizedText.subtitle,
+            body: normalizedText.body,
             createdAt: Date(timeIntervalSince1970: createdAt),
             isRead: isRead,
             paneFlash: paneFlash ?? true,
@@ -159,13 +164,15 @@ extension TerminalNotificationStore {
         restoredExternalBannerOwnerIDs: Set<UUID> = []
     ) {
         clearFocusedReadIndicator(forTabId: tabId)
+        let existing = Array(notifications)
         let merged = Self.mergeRestoredSessionNotifications(
-            existing: Array(notifications),
+            existing: existing,
             restored: restoredNotifications,
             tabId: tabId,
             replacingTabId: replacingTabId,
             panelIdMap: panelIdMap
         )
+        guard merged != existing || !restoredExternalBannerOwnerIDs.isEmpty else { return }
         applySessionNotificationMerge(
             merged,
             restoredExternalBannerOwnerIDs: restoredExternalBannerOwnerIDs
@@ -226,6 +233,7 @@ extension TerminalNotificationStore {
         }
 
         var merged = existing
+        var didRemapExisting = false
         if let replacingTabId {
             for index in merged.indices where merged[index].tabId == replacingTabId {
                 let current = merged[index]
@@ -239,12 +247,45 @@ extension TerminalNotificationStore {
                     surfaceId: surfaceId,
                     panelId: panelId
                 )
+                didRemapExisting = true
             }
         }
+        guard didRemapExisting || !canonicalById.isEmpty else { return existing }
 
         var knownIds = Set(merged.map(\.id))
-        merged.append(contentsOf: canonicalById.values.filter { knownIds.insert($0.id).inserted })
-        return merged.sorted(by: notificationSortPrecedes)
+        let additions = canonicalById.values
+            .filter { knownIds.insert($0.id).inserted }
+            .sorted(by: notificationSortPrecedes)
+        guard !additions.isEmpty else { return merged }
+        return mergeSortedNotifications(merged, additions)
+    }
+
+    private nonisolated static func mergeSortedNotifications(
+        _ existing: [TerminalNotification],
+        _ additions: [TerminalNotification]
+    ) -> [TerminalNotification] {
+        var merged: [TerminalNotification] = []
+        merged.reserveCapacity(existing.count + additions.count)
+        var existingIndex = 0
+        var additionIndex = 0
+        while existingIndex < existing.count || additionIndex < additions.count {
+            if additionIndex == additions.count {
+                merged.append(contentsOf: existing[existingIndex...])
+                break
+            }
+            if existingIndex == existing.count {
+                merged.append(contentsOf: additions[additionIndex...])
+                break
+            }
+            if notificationSortPrecedes(additions[additionIndex], existing[existingIndex]) {
+                merged.append(additions[additionIndex])
+                additionIndex += 1
+            } else {
+                merged.append(existing[existingIndex])
+                existingIndex += 1
+            }
+        }
+        return merged
     }
 
     nonisolated static func notificationRestoreCanonicalPrecedes(
@@ -328,6 +369,19 @@ extension TerminalMutationBus {
                 performReplaceKey: entry.performReplaceKey
             )
         }
+    }
+
+    nonisolated static func remappingNotificationKey(
+        _ key: QueuedTerminalNotificationKey,
+        fromTabId: UUID,
+        toTabId: UUID,
+        panelIdMap: [UUID: UUID]
+    ) -> QueuedTerminalNotificationKey {
+        guard key.tabId == fromTabId else { return key }
+        return QueuedTerminalNotificationKey(
+            tabId: toTabId,
+            surfaceId: key.surfaceId.map { panelIdMap[$0] ?? $0 }
+        )
     }
 }
 

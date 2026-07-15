@@ -136,17 +136,18 @@ struct ExternalNotificationBannerOwnership {
 
     @discardableResult
     mutating func rebind(surfaceId: UUID, fromTabId: UUID, toTabId: UUID) -> TerminalNotification? {
-        guard let owner = owner(tabId: fromTabId, surfaceId: surfaceId) else { return nil }
+        guard let owner = ownerMatching(tabId: fromTabId, surfaceId: surfaceId) else { return nil }
         guard owner.retargetsToLiveSurfaceOwner else { return nil }
-        clear(tabId: fromTabId, surfaceId: surfaceId)
+        clear(id: owner.id)
         let moved = owner.replacingLocation(
             tabId: toTabId,
             surfaceId: owner.surfaceId,
             panelId: owner.panelId
         )
-        if let existing = self.owner(tabId: toTabId, surfaceId: surfaceId) {
+        if let existing = ownerMatching(tabId: toTabId, surfaceId: surfaceId) {
             guard existing.id != moved.id else { return nil }
             if TerminalNotificationStore.notificationSortPrecedes(moved, existing) {
+                clear(id: existing.id)
                 setOwner(moved)
                 return existing
             }
@@ -158,6 +159,13 @@ struct ExternalNotificationBannerOwnership {
 
     private static func key(_ notification: TerminalNotification) -> String {
         SupersededPhoneDismissBuffer.key(tabId: notification.tabId, surfaceId: notification.surfaceId)
+    }
+
+    private func ownerMatching(tabId: UUID, surfaceId: UUID?) -> TerminalNotification? {
+        if let exact = owner(tabId: tabId, surfaceId: surfaceId) { return exact }
+        return ownerByKey.values.first {
+            $0.matches(tabId: tabId, surfaceId: surfaceId)
+        }
     }
 
     private mutating func replaceOwners(_ owners: [String: TerminalNotification]) {

@@ -93,6 +93,70 @@ final class TerminalNotificationQueueTests: XCTestCase {
         )
     }
 
+    func testNotifyTargetAsyncWaitsForReliableCapacityInsteadOfDropping() async throws {
+        let socketPath = makeSocketPath("wait")
+        let bus = TerminalMutationBus.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = appDelegate.tabManager ?? TabManager()
+
+        let originalTabManager = appDelegate.tabManager
+        appDelegate.tabManager = manager
+        let workspace = manager.addWorkspace(select: true)
+        guard let focusedPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with a focused panel")
+            return
+        }
+
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        bus.discardPendingNotifications()
+        bus.setDrainsSuspendedForTesting(true)
+        defer {
+            bus.discardPendingNotifications()
+            bus.drainForTesting()
+            bus.setDrainsSuspendedForTesting(false)
+            TerminalController.shared.stop()
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            appDelegate.tabManager = originalTabManager
+        }
+        for index in 0..<TerminalMutationBus.maximumPendingMutationCount {
+            XCTAssertTrue(bus.enqueueNotification(
+                tabId: workspace.id,
+                surfaceId: focusedPanelId,
+                title: "Seed \(index)",
+                subtitle: "",
+                body: ""
+            ))
+        }
+
+        let command = "notify_target_async \(workspace.id.uuidString) \(focusedPanelId.uuidString) Reliable|Queued|Body"
+        let responseTask = Task {
+            try await withCheckedThrowingContinuation { continuation in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    do {
+                        continuation.resume(returning: try self.sendCommands([command], to: socketPath))
+                    } catch {
+                        continuation.resume(throwing: error)
+                    }
+                }
+            }
+        }
+        await waitForReliableAdmissionBlock(bus)
+
+        bus.drainForBackpressure()
+
+        let responses = try await responseTask.value
+        XCTAssertEqual(responses, ["OK"])
+        XCTAssertTrue(bus.notificationQueueStateForTesting().1.contains("Reliable"))
+    }
+
     func testClearNotificationsDropsQueuedNotifyBeforeDrain() throws {
         let store = TerminalNotificationStore.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()
@@ -558,6 +622,14 @@ final class TerminalNotificationQueueTests: XCTestCase {
         }
         XCTFail("Timed out waiting for socket at \(path)")
         throw NSError(domain: NSPOSIXErrorDomain, code: Int(ETIMEDOUT))
+    }
+
+    private func waitForReliableAdmissionBlock(_ bus: TerminalMutationBus) async {
+        for _ in 0..<10_000 {
+            if bus.reliablyWaitingNotificationProducerCountForTesting() == 1 { return }
+            await Task.yield()
+        }
+        XCTFail("Reliable admission worker did not reach the capacity wait")
     }
 
     private nonisolated func sendCommands(_ commands: [String], to socketPath: String) throws -> [String] {

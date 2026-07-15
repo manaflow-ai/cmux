@@ -93,4 +93,43 @@ struct AgentNotificationDelivery: Sendable {
             return .cancelled
         }
     }
+
+    /// Synchronous socket-command path. The mutation bus still owns capacity
+    /// waiting on its serial admission queue; this caller waits for the
+    /// admission result before acknowledging hook commands that discard replies.
+    func enqueueReliablySynchronously(
+        workspaceID: UUID,
+        surfaceID: UUID,
+        title: String,
+        subtitle: String,
+        body: String,
+        category: AgentNotifyCategory?,
+        pending: Bool
+    ) -> AgentNotificationDeliveryResult {
+        if let category,
+           !agentNotificationShouldDeliver(
+               category: category,
+               pending: pending,
+               permissionEnabled: permissionEnabled,
+               turnMode: turnMode,
+               idleEnabled: idleEnabled
+           ) {
+            return .gated
+        }
+        let result = TerminalMutationBus.shared.enqueueNotificationReliablySynchronously(
+            tabId: workspaceID,
+            surfaceId: surfaceID,
+            title: title,
+            subtitle: subtitle,
+            body: body
+        )
+        switch result {
+        case .accepted:
+            return .accepted
+        case .saturated:
+            return .saturated
+        case .cancelled:
+            return .cancelled
+        }
+    }
 }

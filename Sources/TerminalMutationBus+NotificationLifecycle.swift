@@ -134,7 +134,13 @@ extension TerminalMutationBus {
         ).map(notificationEntryFollowingReplacementRoutes)
         for id in reliableAdmissionsById.keys {
             guard var admission = reliableAdmissionsById[id] else { continue }
-            admission.key = notificationKeyFollowingReplacementRoutes(admission.key)
+            let remappedKey = Self.remappingNotificationKey(
+                admission.key,
+                fromTabId: fromTabId,
+                toTabId: toTabId,
+                panelIdMap: panelIdMap
+            )
+            admission.key = notificationKeyFollowingReplacementRoutes(remappedKey)
             reliableAdmissionsById[id] = admission
         }
         lock.broadcast()

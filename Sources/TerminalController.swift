@@ -12205,11 +12205,10 @@ class TerminalController {
         }
     }
 
-    /// `notify_target_async` — worker-lane body with ZERO main hops: parse +
-    /// mutation-bus enqueue on the calling thread (the bus coalesces and
-    /// drains on the main actor). Explicitly fire-and-forget: hooks nohup it
-    /// and discard the reply; existence checks are deferred to bus delivery
-    /// by design.
+    /// `notify_target_async` — worker-lane body with ZERO main hops: parse,
+    /// then register reliable admission before acknowledging. Hooks nohup this
+    /// command and discard the reply, so transient queue pressure must not
+    /// degrade to an acknowledged dropped notification.
     private nonisolated func notifyTargetQueued(_ args: String) -> String {
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -12232,7 +12231,7 @@ class TerminalController {
             return "ERROR: Usage: notify_target_async <workspace_uuid> <surface_uuid> <title>|<subtitle>|<body>"
         }
         let (title, subtitle, body, meta) = parseNotificationPayload(payload)
-        switch AgentNotificationDelivery().enqueue(
+        switch AgentNotificationDelivery().enqueueReliablySynchronously(
             workspaceID: tabId,
             surfaceID: surfaceId,
             title: title,

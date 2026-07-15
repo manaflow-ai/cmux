@@ -148,6 +148,34 @@ final class TerminalMutationBus: @unchecked Sendable {
         }
     }
 
+    nonisolated func enqueueNotificationReliablySynchronously(
+        tabId: UUID,
+        surfaceId: UUID?,
+        title: String,
+        subtitle: String,
+        body: String,
+        allowWorkspaceFallbackForValidatedSurface: Bool = false
+    ) -> ReliableTerminalNotificationEnqueueResult {
+        Self.reliableSubmissionLock.lock()
+        guard let admissionToken = captureNotificationAdmissionToken(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            allowWorkspaceFallbackForValidatedSurface: allowWorkspaceFallbackForValidatedSurface
+        ) else {
+            Self.reliableSubmissionLock.unlock()
+            return .saturated
+        }
+        Self.reliableSubmissionLock.unlock()
+        return Self.reliableAdmissionQueue.sync { [self] in
+            enqueueCapturedNotificationReliably(
+                admissionToken: admissionToken,
+                title: title,
+                subtitle: subtitle,
+                body: body
+            )
+        }
+    }
+
     private nonisolated func captureNotificationAdmissionToken(
         tabId: UUID,
         surfaceId: UUID?,

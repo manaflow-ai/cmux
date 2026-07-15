@@ -77,6 +77,80 @@ struct NotificationRestoreBannerOwnershipTests {
         #expect(Set(ownership.ownerIDs(tabId: tabId)) == Set(owners.map(\.id)).subtracting([removed.id]))
     }
 
+    @Test func rebindFindsAndClearsBannerOwnerThroughPanelAlias() {
+        let sourceTabId = UUID()
+        let destinationTabId = UUID()
+        let sourceSurfaceId = UUID()
+        let destinationSurfaceId = UUID()
+        let panelId = UUID()
+        let sourceOwner = TerminalNotification(
+            id: UUID(),
+            tabId: sourceTabId,
+            surfaceId: sourceSurfaceId,
+            panelId: panelId,
+            title: "Newer source owner",
+            subtitle: "",
+            body: "",
+            createdAt: Date(timeIntervalSince1970: 30),
+            isRead: false
+        )
+        let destinationOwner = TerminalNotification(
+            id: UUID(),
+            tabId: destinationTabId,
+            surfaceId: destinationSurfaceId,
+            panelId: panelId,
+            title: "Older destination owner",
+            subtitle: "",
+            body: "",
+            createdAt: Date(timeIntervalSince1970: 20),
+            isRead: false
+        )
+        var ownership = ExternalNotificationBannerOwnership()
+        ownership.setOwner(sourceOwner)
+        ownership.setOwner(destinationOwner)
+
+        let displaced = ownership.rebind(
+            surfaceId: panelId,
+            fromTabId: sourceTabId,
+            toTabId: destinationTabId
+        )
+
+        #expect(displaced?.id == destinationOwner.id)
+        #expect(ownership.ownerIDs(tabId: sourceTabId).isEmpty)
+        #expect(ownership.ownerIDs(tabId: destinationTabId) == [sourceOwner.id])
+        #expect(ownership.owner(tabId: destinationTabId, surfaceId: sourceSurfaceId)?.id == sourceOwner.id)
+        #expect(ownership.owner(tabId: destinationTabId, surfaceId: destinationSurfaceId) == nil)
+    }
+
+    @Test func unaffectedSessionRestoreDoesNotResortGlobalFeed() {
+        let targetTabId = UUID()
+        let otherTabId = UUID()
+        let older = notification(
+            id: UUID(),
+            tabId: otherTabId,
+            surfaceId: nil,
+            title: "Older first by caller order",
+            createdAt: Date(timeIntervalSince1970: 1)
+        )
+        let newer = notification(
+            id: UUID(),
+            tabId: otherTabId,
+            surfaceId: nil,
+            title: "Newer second by caller order",
+            createdAt: Date(timeIntervalSince1970: 2)
+        )
+
+        let merged = TerminalNotificationStore.mergeRestoredSessionNotifications(
+            existing: [older, newer],
+            restored: [],
+            tabId: targetTabId,
+            replacingTabId: nil,
+            panelIdMap: [:]
+        )
+
+        #expect(merged.map(\.id) == [older.id, newer.id])
+    }
+
     @Test func transferCollisionDismissesDisplacedBannerOwner() {
         let store = TerminalNotificationStore.shared
         let previousNotifications = store.notifications
