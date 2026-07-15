@@ -43,7 +43,7 @@
 2257	Sources/Mobile/MobileHostService.swift
 2229	Sources/TerminalWindowPortal.swift
 2216	Sources/TerminalNotificationStore.swift
-2186	Sources/RestorableAgentSession.swift
+2167	Sources/RestorableAgentSession.swift
 2133	cmuxTests/ShortcutAndCommandPaletteTests.swift
 2126	cmuxTests/CmuxConfigTests.swift
 1999	Sources/SessionPersistence.swift
