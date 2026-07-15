@@ -1,3 +1,4 @@
+import Dispatch
 import Foundation
 import os
 import Testing
@@ -11,6 +12,82 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct SharedLiveAgentIndexAgentLivenessTests {
+    @Test
+    func hookStoreWatcherIgnoresUnrelatedDirectoryWrites() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-hook-store-filter-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let hookStoreURL = root.appendingPathComponent("claude-hook-sessions.json")
+        try Data("{\"sessions\":{}}".utf8).write(to: hookStoreURL, options: .atomic)
+
+        let loadStarted = DispatchSemaphore(value: 0)
+        let loadCompleted = DispatchSemaphore(value: 0)
+        var now = Date(timeIntervalSince1970: 100)
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                loadStarted.signal()
+                return Self.loadResult(index: .empty)
+            },
+            hookStoreDirectoryProvider: { root.path },
+            dateProvider: { now }
+        )
+        let observer = NotificationCenter.default.addObserver(
+            forName: .sharedLiveAgentIndexDidChange,
+            object: sharedIndex,
+            queue: nil
+        ) { _ in
+            loadCompleted.signal()
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        sharedIndex.scheduleRefreshIfStale()
+        #expect(await Self.wait(for: loadStarted))
+        #expect(await Self.wait(for: loadCompleted))
+
+        now.addTimeInterval(10)
+        try Data("event\n".utf8).write(
+            to: root.appendingPathComponent("events.jsonl"),
+            options: .atomic
+        )
+
+        let unrelatedWriteStartedLoad = await Self.wait(for: loadStarted, timeout: 0.5)
+        #expect(
+            !unrelatedWriteStartedLoad,
+            "Writes outside *-hook-sessions.json must not reload the expensive live-agent index."
+        )
+        guard !unrelatedWriteStartedLoad else { return }
+
+        try Data("{\"sessions\":{},\"revision\":1}".utf8).write(
+            to: hookStoreURL,
+            options: .atomic
+        )
+        #expect(await Self.wait(for: loadStarted))
+        #expect(await Self.wait(for: loadCompleted))
+    }
+
+    @Test
+    func hookStoreReloadCadenceScalesWithIndexedHistory() async throws {
+        let index = Self.index(entryCount: 270)
+        try await Self.expectNoHookStoreReload(
+            within: 10,
+            for: index,
+            fixtureName: "indexed-history"
+        )
+    }
+
+    @Test
+    func hookStoreReloadCadenceScalesWithDistinctLiveAgentProcesses() async throws {
+        let index = Self.index(liveAgentProcessIDs: Set(1...64))
+        try await Self.expectNoHookStoreReload(
+            within: 10,
+            for: index,
+            fixtureName: "live-processes"
+        )
+    }
+
     @Test
     func forkAvailabilityIgnoresDeadUnrelatedPanelChildProcess() async throws {
         let fm = FileManager.default
@@ -369,5 +446,141 @@ struct SharedLiveAgentIndexAgentLivenessTests {
             ),
             "A reused PID running the same agent binary for another session must refresh instead of forking stale state."
         )
+    }
+
+    private static func expectNoHookStoreReload(
+        within elapsed: TimeInterval,
+        for index: RestorableAgentSessionIndex,
+        fixtureName: String
+    ) async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-hook-cadence-\(fixtureName)-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let hookStoreURL = root.appendingPathComponent("claude-hook-sessions.json")
+        try Data("{\"sessions\":{}}".utf8).write(to: hookStoreURL, options: .atomic)
+
+        let loadStarted = DispatchSemaphore(value: 0)
+        let loadCompleted = DispatchSemaphore(value: 0)
+        var now = Date(timeIntervalSince1970: 100)
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                loadStarted.signal()
+                return Self.loadResult(index: index)
+            },
+            hookStoreDirectoryProvider: { root.path },
+            dateProvider: { now }
+        )
+        let observer = NotificationCenter.default.addObserver(
+            forName: .sharedLiveAgentIndexDidChange,
+            object: sharedIndex,
+            queue: nil
+        ) { _ in
+            loadCompleted.signal()
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        sharedIndex.scheduleRefreshIfStale()
+        #expect(await Self.wait(for: loadStarted))
+        #expect(await Self.wait(for: loadCompleted))
+
+        now.addTimeInterval(elapsed)
+        try Data("{\"sessions\":{},\"revision\":1}".utf8).write(
+            to: hookStoreURL,
+            options: .atomic
+        )
+
+        #expect(
+            !(await Self.wait(for: loadStarted, timeout: 0.5)),
+            "Large hook-store workloads must use the 30-second reload cadence."
+        )
+    }
+
+    nonisolated private static func loadResult(
+        index: RestorableAgentSessionIndex
+    ) -> SharedLiveAgentIndexLoader.LoadResult {
+        (
+            index: index,
+            liveAgentProcessFingerprint: index.liveAgentProcessFingerprint(),
+            processScopeFingerprint: [],
+            forkValidatedPanels: []
+        )
+    }
+
+    nonisolated private static func index(entryCount: Int) -> RestorableAgentSessionIndex {
+        var detected: [
+            RestorableAgentSessionIndex.PanelKey:
+                RestorableAgentSessionIndex.ProcessDetectedSnapshotEntry
+        ] = [:]
+        for ordinal in 0..<entryCount {
+            detected[
+                RestorableAgentSessionIndex.PanelKey(
+                    workspaceId: UUID(),
+                    panelId: UUID()
+                )
+            ] = (
+                snapshot: SessionRestorableAgentSnapshot(
+                    kind: .codex,
+                    sessionId: "indexed-history-\(ordinal)",
+                    workingDirectory: "/tmp/cmux-indexed-history",
+                    launchCommand: nil
+                ),
+                updatedAt: TimeInterval(ordinal),
+                processIDs: [],
+                agentProcessIDs: [],
+                sessionIDSource: .explicit
+            )
+        }
+        return Self.index(detectedSnapshots: detected)
+    }
+
+    nonisolated private static func index(
+        liveAgentProcessIDs: Set<Int>
+    ) -> RestorableAgentSessionIndex {
+        let key = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: UUID(),
+            panelId: UUID()
+        )
+        return Self.index(detectedSnapshots: [
+            key: (
+                snapshot: SessionRestorableAgentSnapshot(
+                    kind: .codex,
+                    sessionId: "live-process-workload",
+                    workingDirectory: "/tmp/cmux-live-process-workload",
+                    launchCommand: nil
+                ),
+                updatedAt: 1,
+                processIDs: liveAgentProcessIDs,
+                agentProcessIDs: liveAgentProcessIDs,
+                sessionIDSource: .explicit
+            ),
+        ])
+    }
+
+    nonisolated private static func index(
+        detectedSnapshots: [
+            RestorableAgentSessionIndex.PanelKey:
+                RestorableAgentSessionIndex.ProcessDetectedSnapshotEntry
+        ]
+    ) -> RestorableAgentSessionIndex {
+        RestorableAgentSessionIndex.load(
+            homeDirectory: "/tmp/cmux-hook-cadence-missing-home",
+            fileManager: .default,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: detectedSnapshots,
+            processArgumentsProvider: { _ in nil },
+            processIdentityProvider: { _ in nil }
+        )
+    }
+
+    nonisolated private static func wait(
+        for semaphore: DispatchSemaphore,
+        timeout: TimeInterval = 2
+    ) async -> Bool {
+        await Task.detached(priority: .utility) {
+            semaphore.wait(timeout: .now() + timeout) == .success
+        }.value
     }
 }
