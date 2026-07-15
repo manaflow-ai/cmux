@@ -22,8 +22,10 @@ import CmuxMobileDiagnostics
 final class AppCompositionRoot {
     let runtime: CMUXMobileRuntime
     let auth: MobileAuthComposition
+    let iroh: MobileIrohRuntimeComposition
     let reachability: any ReachabilityProviding
     let pushCoordinator: MobilePushCoordinator
+    let signOutHook: MobileSignOutHook
     let analytics: MobileAnalyticsComposition
     let displaySettings: MobileDisplaySettings
     /// First-run onboarding "seen" flag, persisted to `UserDefaults.standard`.
@@ -52,6 +54,7 @@ final class AppCompositionRoot {
     init(
         runtime: CMUXMobileRuntime,
         auth: MobileAuthComposition,
+        iroh: MobileIrohRuntimeComposition,
         reachability: any ReachabilityProviding
     ) {
         #if DEBUG
@@ -62,21 +65,45 @@ final class AppCompositionRoot {
 
         self.runtime = runtime
         self.auth = auth
+        self.iroh = iroh
         self.reachability = reachability
         let telemetryConsent = UserDefaultsAnalyticsConsentProvider(defaults: .standard)
-        MobileCrashReporter.startIfEnabled(
-            consent: telemetryConsent,
-            revocationWatcher: crashRevocationWatcher
-        )
+        if Self.crashReportingEnabled {
+            MobileCrashReporter().startIfEnabled(
+                consent: telemetryConsent,
+                revocationWatcher: crashRevocationWatcher
+            )
+        }
         self.analytics = MobileAnalyticsComposition(
             apiBaseURL: auth.config.apiBaseURL,
             tokenProvider: auth.coordinator,
             consent: telemetryConsent
         )
-        self.pushCoordinator = MobilePushCoordinator(
+        let pushCoordinator = MobilePushCoordinator(
             registration: auth.pushRegistration,
             analytics: analytics.emitter
         )
+        self.pushCoordinator = pushCoordinator
+        self.signOutHook = MobileSignOutHook {
+            let preparation = iroh.beginSignOutPreparation()
+            return { accessToken, refreshToken in
+                await withTaskGroup(of: Void.self) { group in
+                    group.addTask {
+                        await pushCoordinator.unregisterFromServer(
+                            accessToken: accessToken,
+                            refreshToken: refreshToken
+                        )
+                    }
+                    group.addTask {
+                        await iroh.completeSignOutAfterAuthClear(
+                            preparation,
+                            accessToken: accessToken,
+                            refreshToken: refreshToken
+                        )
+                    }
+                }
+            }
+        }
         self.displaySettings = MobileDisplaySettings()
         // Skip the one-time onboarding when a UI-test mock harness
         // (`CMUX_UITEST_MOCK_DATA`/XCUITest) or a dogfood auto-pair attach URL is
@@ -94,6 +121,17 @@ final class AppCompositionRoot {
         #if DEBUG
         self.diagnosticLog = DiagnosticLog(buildStamp: MobileDebugLog.buildStamp)
         #endif
+    }
+
+    private static var crashReportingEnabled: Bool {
+        switch Bundle.main.object(forInfoDictionaryKey: "CMUXCrashReportingEnabled") {
+        case let enabled as Bool:
+            enabled
+        case let enabled as String:
+            enabled.caseInsensitiveCompare("NO") != .orderedSame
+        default:
+            true
+        }
     }
 
     /// The most recent scene phase, so a `.active` transition is classified as a
@@ -118,6 +156,7 @@ final class AppCompositionRoot {
         let emitter = analytics.emitter
         switch phase {
         case .active:
+            iroh.didBecomeActive()
             let now = Date()
             let decision = analytics.sessionizer.resolveForeground(
                 now: now,
@@ -141,6 +180,7 @@ final class AppCompositionRoot {
             emitter.capture("ios_app_foregrounded", foregroundProps)
             hasForegrounded = true
         case .background:
+            iroh.didEnterBackground()
             let now = Date()
             analytics.sessionStore.recordBackgrounded(at: now)
             emitter.capture("ios_app_backgrounded", [:])

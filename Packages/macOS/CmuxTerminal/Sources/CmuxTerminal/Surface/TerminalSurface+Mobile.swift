@@ -13,8 +13,9 @@ extension TerminalSurface {
     /// like the desktop's own scroll path.
     @MainActor
     public func mobileScroll(deltaLines: Double, col: Int, row: Int) {
-        guard deltaLines != 0,
-              let surface = liveSurfaceForGhosttyAccess(reason: "mobileScroll") else { return }
+        guard deltaLines != 0 else { return }
+        didReceiveExplicitInput()
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "mobileScroll") else { return }
         let size = ghostty_surface_size(surface)
         // The surface is sized in backing pixels; `ghostty_surface_mouse_pos`
         // wants points, so divide the cell size by the content scale.
@@ -35,6 +36,7 @@ extension TerminalSurface {
     /// the main actor like the desktop's own click path.
     @MainActor
     public func mobileClick(col: Int, row: Int) {
+        didReceiveExplicitInput()
         guard let surface = liveSurfaceForGhosttyAccess(reason: "mobileClick") else { return }
         let size = ghostty_surface_size(surface)
         // The surface is sized in backing pixels; `ghostty_surface_mouse_pos`

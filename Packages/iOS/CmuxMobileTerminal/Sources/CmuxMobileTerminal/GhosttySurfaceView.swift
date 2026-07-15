@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import CMUXMobileCore
+import CmuxAgentChat
 import CmuxMobileDiagnostics
 import CmuxMobileSupport
 import CmuxMobileTerminalKit
@@ -76,6 +77,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private let zoomPreference = MobileTerminalZoomPreference()
     var bridge = GhosttySurfaceBridge()
     private let prefersSnapshotFallbackRendering = false
+    /// Enables both terminal artifact taps and the coalesced visible-frame count.
+    public var artifactFilesEnabled: Bool {
+        get { inputProxy.artifactFilesEnabled }
+        set {
+            let changed = inputProxy.artifactFilesEnabled != newValue
+            inputProxy.artifactFilesEnabled = newValue
+            guard changed else { return }
+            resetVisibleArtifactCountTracking()
+        }
+    }
     var onFocusInputRequestedForTesting: (() -> Void)?
     private var surfaceTitle: String?
     var displayLink: CADisplayLink?
@@ -166,6 +177,21 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var pendingGeometryApply: PendingSurfaceOperation?
     var pendingVisibleSnapshot: PendingVisibleSnapshot?
     var pendingCopyableTextRead: PendingCopyableTextRead?
+    /// Quiet-frame countdown for local visible-path detection. Output, geometry,
+    /// and coalesced scroll events reset it; detection runs only after the same
+    /// eight-frame settle threshold used by viewport reporting.
+    var visibleArtifactCountSettleFrames: Int?
+    /// Invalidates a visible-text result when newer output or scrolling lands
+    /// while the off-main Ghostty snapshot read is in flight.
+    var visibleArtifactSnapshotGeneration: UInt64 = 0
+    var visibleArtifactCountTask: Task<Void, Never>?
+    var lastVisibleArtifactSnapshotText: String?
+    var lastReportedVisibleArtifactCount = 0
+
+    /// Current visible-snapshot generation used to reject stale artifact totals.
+    public var visibleArtifactCountGeneration: UInt64 {
+        visibleArtifactSnapshotGeneration
+    }
     private var hasPendingSurfaceOperationDeadline: Bool {
         pendingOutputApply != nil || pendingGeometryApply != nil || pendingVisibleSnapshot != nil
             || pendingCopyableTextRead != nil
@@ -555,6 +581,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             guard let self else { return }
             self.delegate?.ghosttySurfaceViewDidRequestToolbarSettings(self)
         }
+        inputProxy.onOpenArtifactFiles = { [weak self] sourceView in
+            guard let self else { return }
+            self.delegate?.ghosttySurfaceView(self, didRequestArtifactFilesFrom: sourceView)
+        }
         inputProxy.accessoryLayoutInsetsProvider = { [weak self] in
             guard let self,
                   let window = self.window else {
@@ -615,6 +645,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         #endif
         installPersistentToolbar()
         installComposerContainer()
+        installArtifactChipContainer()
         initializeSurface()
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
@@ -772,6 +803,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// above it upward while the band stays pinned to the keyboard — the keyboard
     /// itself never moves.
     private var composerBandHeight: CGFloat = 0
+    /// Surface-owned host for the SwiftUI artifact chip. Keeping it beside the
+    /// toolbar/composer containers makes keyboard and composer movement use one
+    /// coordinate system instead of a competing SwiftUI safe-area offset.
+    private let artifactChipHost = GhosttySurfaceArtifactChipHost()
     /// True once SwiftUI has dismantled the hosting representable for this
     /// surface. A dismantled surface performs no render, output, or
     /// accessibility work so a view SwiftUI has removed cannot keep driving the
@@ -959,6 +994,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// above the Ghostty renderer's sublayer so a lifted Liquid-Glass button is not
     /// clipped by the terminal render bounds (item 6). Below the zoom HUD (1100).
     private static let bottomChromeZPosition: CGFloat = 1000
+    /// Floats above dock chrome and terminal content while yielding to the zoom HUD.
+    private static let artifactChipZPosition: CGFloat = 1050
 
     /// Whether the always-visible bottom chrome (the docked accessory toolbar and,
     /// when open, the composer band) is currently on screen.
@@ -1089,6 +1126,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         composerContainer.isHidden = !shouldShow || composerContainer.subviews.isEmpty
         reservedToolbarHeight = reserved
         layoutRenderedTerminalForCurrentViewport()
+        updateArtifactChipVisibility(animated: true)
         setNeedsGeometrySync()
         setNeedsLayout()
     }
@@ -1324,6 +1362,40 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         layoutBottomDock()
     }
 
+    /// Mounts the host-built artifact chip inside the terminal's bottom-dock
+    /// coordinate system, or hides it when `view` is `nil`.
+    ///
+    /// - Parameters:
+    ///   - view: The hosted chip view, or `nil` when no visible paths exist.
+    ///   - animated: Whether visibility changes should fade and slide.
+    public func mountArtifactChipView(_ view: UIView?, animated: Bool) {
+        artifactChipHost.setContent(view)
+        layoutArtifactChip(using: viewportSnapshot())
+        updateArtifactChipVisibility(animated: animated)
+    }
+
+    private func installArtifactChipContainer() {
+        artifactChipHost.install(in: self, zPosition: Self.artifactChipZPosition)
+    }
+
+    private func layoutArtifactChip(using snapshot: TerminalViewportSnapshot) {
+        artifactChipHost.layout(in: bounds, toolbarTop: snapshot.toolbarFrame.minY)
+    }
+
+    private var artifactChipShouldBeVisible: Bool {
+        artifactChipHost.isRequestedVisible
+            && dockedToolbarShouldBeVisible
+            && dockedToolbar?.isHidden == false
+            && !zoomOverlayShown
+    }
+
+    private func updateArtifactChipVisibility(animated: Bool) {
+        artifactChipHost.updateVisibility(
+            shouldShow: artifactChipShouldBeVisible,
+            animated: animated
+        )
+    }
+
     /// Mount (or unmount, with `nil`) the host-built compose field into the surface's
     /// composer band. The terminal package cannot import the SwiftUI composer (that
     /// would invert the package DAG), so `GhosttySurfaceRepresentable` builds it in a
@@ -1405,11 +1477,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// own curve/duration through ``startKeyboardHeightAnimation(to:transition:)``.
     private static let composerReflowDuration: TimeInterval = 0.25
 
-    private func bottomDockFrames() -> (composer: CGRect, toolbar: CGRect) {
-        let snapshot = viewportSnapshot()
-        return (snapshot.composerFrame, snapshot.toolbarFrame)
-    }
-
     /// Position the composer band and docked toolbar from one viewport snapshot.
     private func layoutBottomDock() {
         layoutBottomDock(using: viewportSnapshot())
@@ -1418,6 +1485,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private func layoutBottomDock(using snapshot: TerminalViewportSnapshot) {
         composerContainer.frame = snapshot.composerFrame
         dockedToolbar?.frame = snapshot.toolbarFrame
+        layoutArtifactChip(using: snapshot)
     }
 
     /// Animate the whole bottom dock (composer band + toolbar) to its current target
@@ -1430,7 +1498,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         duration: TimeInterval = 0.25,
         curveOption: UIView.AnimationOptions = .curveEaseInOut
     ) {
-        let frames = bottomDockFrames()
+        let snapshot = viewportSnapshot()
+        let frames = (composer: snapshot.composerFrame, toolbar: snapshot.toolbarFrame)
         UIView.animate(
             withDuration: duration,
             delay: 0,
@@ -1438,6 +1507,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         ) { [weak self] in
             self?.composerContainer.frame = frames.composer
             self?.dockedToolbar?.frame = frames.toolbar
+            self?.layoutArtifactChip(using: snapshot)
         }
     }
 
@@ -1681,6 +1751,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         zoomOverlayLastInteraction = CACurrentMediaTime()
         if !zoomOverlayShown {
             zoomOverlayShown = true
+            updateArtifactChipVisibility(animated: true)
             overlay.isHidden = false
             bringSubviewToFront(overlay)
             UIView.animate(withDuration: 0.18) { overlay.alpha = 1 }
@@ -1694,8 +1765,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         UIView.animate(
             withDuration: 0.3,
             animations: { overlay.alpha = 0 },
-            completion: { [weak overlay] _ in
+            completion: { [weak self, weak overlay] _ in
                 if overlay?.alpha == 0 { overlay?.isHidden = true }
+                self?.updateArtifactChipVisibility(animated: true)
             }
         )
     }
@@ -1829,6 +1901,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             if autoFocusOnWindowAttach {
                 focusInput()
             }
+            resetVisibleArtifactCountTracking()
             startDisplayLink()
         } else {
             prepareForReuseAfterDetach()
@@ -1841,12 +1914,34 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         processOutput(data, completion: nil)
     }
 
-    private func makeSurfaceOperationID() -> UInt64 {
+    /// Process terminal output and return after the output has been applied.
+    ///
+    /// The call still performs libghostty output processing on the serial
+    /// background output queue. The returned async boundary lets callers apply
+    /// per-surface backpressure without blocking the main actor while Ghostty
+    /// consumes the chunk.
+    /// - Parameter data: VT or PTY bytes to feed into the surface.
+    /// - Returns: `true` when the bytes reached the current surface generation,
+    ///   or `false` when the caller should reset its delivery queue and replay.
+    @discardableResult
+    public func processOutputAndWait(_ data: Data) async -> Bool {
+        return await withCheckedContinuation { continuation in
+            let operationID = registerPendingOutputApply(
+                byteCount: data.count,
+                continuation: continuation
+            )
+            processOutput(data) { [weak self] applied in
+                self?.completePendingOutputApply(id: operationID, returning: applied)
+            }
+        }
+    }
+
+    func makeSurfaceOperationID() -> UInt64 {
         nextSurfaceOperationID &+= 1
         return nextSurfaceOperationID
     }
 
-    private func ensureSurfaceOperationDeadlinePump() {
+    func ensureSurfaceOperationDeadlinePump() {
         guard window != nil, displayLink == nil, !renderingSuspended, !renderPipelineRecoveryPaused else { return }
         startDisplayLink()
     }
@@ -1940,10 +2035,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     @discardableResult
-    private func completePendingVisibleSnapshot(id: UInt64, returning section: String?) -> Bool {
+    func completePendingVisibleSnapshot(
+        id: UInt64,
+        returning snapshot: (text: String, columns: Int)?
+    ) -> Bool {
         guard let pending = pendingVisibleSnapshot, pending.id == id else { return false }
         pendingVisibleSnapshot = nil
-        pending.continuation.resume(returning: section)
+        pending.continuation.resume(returning: snapshot)
         return true
     }
 
@@ -2048,6 +2146,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 }
                 self.consecutiveOutputTimeoutRecoveries = 0
                 self.needsDraw = true
+                self.scheduleVisibleArtifactCountUpdate()
                 if let cursorVisibilityDelta, cursorVisibilityDelta != self.hostCursorVisible {
                     self.hostCursorVisible = cursorVisibilityDelta
                     self.updateCursorOverlay()
@@ -2107,6 +2206,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 // new-generation snap has since set.
                 guard let self, self.surfaceGeneration == generation else { return }
                 self.scrollToBottomInFlight = false
+                self.scheduleVisibleArtifactCountUpdate()
             }
         }
     }
@@ -2174,6 +2274,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// tree. Does not set ``isDismantled`` so a transient detach can re-attach
     /// and resume; only ``prepareForDismantle()`` marks the surface dead.
     private func prepareForReuseAfterDetach() {
+        visibleArtifactCountTask?.cancel()
+        visibleArtifactCountTask = nil
+        visibleArtifactCountSettleFrames = nil
+        visibleArtifactSnapshotGeneration &+= 1
+        lastVisibleArtifactSnapshotText = nil
+        lastReportedVisibleArtifactCount = 0
+        delegate?.ghosttySurfaceViewDidResetArtifactCount(self)
+        artifactChipHost.setContent(nil)
+        updateArtifactChipVisibility(animated: false)
         completePendingSurfaceOperations(returning: false)
         cancelRenderPipelineRecoveryResumeTimer()
         renderPipelineRecoveryPaused = false
@@ -2603,6 +2712,24 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
         // Flush coalesced scroll to the Mac at most once per frame.
         flushPendingScrollIfNeeded()
+
+        // Visible artifact detection shares the viewport report's quiet-frame
+        // cadence. Output/scroll/geometry only re-arm this counter; one visible
+        // snapshot is read after eight quiet frames, never per render frame or
+        // per output chunk.
+        if var settleFrames = visibleArtifactCountSettleFrames {
+            if zoomSettleFrames != nil {
+                visibleArtifactCountSettleFrames = 0
+            } else {
+                settleFrames += 1
+                if settleFrames >= Self.viewportReportSettleThreshold {
+                    visibleArtifactCountSettleFrames = nil
+                    refreshVisibleArtifactCount()
+                } else {
+                    visibleArtifactCountSettleFrames = settleFrames
+                }
+            }
+        }
 
         // Fade the zoom HUD once interaction has been quiet. Uses real elapsed
         // time off the continuous display link (no timer / sleep).
@@ -3183,6 +3310,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // settles; the display link fires it once it stops changing.
         pendingViewportReport = reportGrid
         viewportReportSettleFrames = 0
+        scheduleVisibleArtifactCountUpdate()
     }
 
     private func syncRendererLayerFrame(scale: CGFloat, renderRect: CGRect) {
@@ -3511,101 +3639,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
-    /// "What the user sees": the visible viewport text of every on-screen
-    /// terminal surface, for the DEV "Copy Debug Logs" action so a bug report
-    /// pairs the on-screen content with the debug log. Reads the VIEWPORT
-    /// (visible grid only, not scrollback) via libghostty.
-    public static let visibleTerminalSnapshot: @MainActor () async -> String = {
-        registeredSurfaceViews = registeredSurfaceViews.filter { $0.value.value != nil }
-        // Collect the main-actor state + surface pointers first, then read the
-        // viewport text on the serial output queue. `ghostty_surface_read_text`
-        // takes the same surface lock as `process_output` (which runs off-main);
-        // reading it on the MAIN thread here contends that lock during a render
-        // storm and stalls the present — tapping Copy Debug Logs would itself
-        // blank the terminal. The output queue is never concurrent with
-        // `process_output`, so the read can't wedge. The await is bounded by
-        // the surface's display-link deadline so this diagnostic path does not
-        // add a sleeping timer task or block the main actor.
-        var pending: [VisibleSnapshotRequest] = []
-        for view in registeredSurfaceViews.values.compactMap(\.value) {
-            guard view.window != nil, !view.isHidden, view.alpha > 0.01,
-                  let surface = view.surface else { continue }
-            let grid = view.effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "?"
-            pending.append(VisibleSnapshotRequest(
-                view: view,
-                grid: grid,
-                font: Int(view.liveFontSize),
-                surface: surface,
-                generation: view.surfaceGeneration
-            ))
-        }
-        if pending.isEmpty {
-            return "===== visible terminal: (no on-screen surface) ====="
-        }
-        var sections: [String] = []
-        for item in pending {
-            guard let section = await item.view.visibleSnapshotSection(
-                surface: item.surface,
-                generation: item.generation,
-                grid: item.grid,
-                font: item.font
-            ) else {
-                return "===== visible terminal: (snapshot skipped — render busy) ====="
-            }
-            sections.append(section)
-        }
-        return sections.joined(separator: "\n\n")
-    }
 
-    private func visibleSnapshotSection(
-        surface: ghostty_surface_t,
-        generation: UInt64,
-        grid: String,
-        font: Int
-    ) async -> String? {
-        guard self.surface == surface,
-              surfaceGeneration == generation,
-              !renderPipelineRecoveryPaused else {
-            return nil
-        }
-        return await withCheckedContinuation { continuation in
-            let operationID = makeSurfaceOperationID()
-            if let existing = pendingVisibleSnapshot {
-                pendingVisibleSnapshot = nil
-                existing.continuation.resume(returning: nil)
-            }
-            pendingVisibleSnapshot = PendingVisibleSnapshot(
-                id: operationID,
-                startedAt: CACurrentMediaTime(),
-                continuation: continuation
-            )
-            ensureSurfaceOperationDeadlinePump()
-            let queue = outputQueue
-            let read = VisibleSnapshotRead(surface: surface, generation: generation, grid: grid, font: font)
-            queue.async {
-                let text = Self.surfaceText(read.surface, pointTag: GHOSTTY_POINT_VIEWPORT) ?? "(unavailable)"
-                let section = "===== visible terminal · grid=\(read.grid) · font=\(read.font) =====\n"
-                    + text
-                Task { @MainActor [weak self] in
-                    guard let view = self else { return }
-                    guard view.surface == read.surface,
-                          view.surfaceGeneration == read.generation else {
-                        view.completePendingVisibleSnapshot(id: operationID, returning: nil)
-                        return
-                    }
-                    view.completePendingVisibleSnapshot(id: operationID, returning: section)
-                }
-            }
-        }
-    }
-
-    private func handleBell() {
-        UINotificationFeedbackGenerator().notificationOccurred(.warning)
-        NotificationCenter.default.post(
-            name: .ghosttySurfaceDidRingBell,
-            object: self
-        )
-    }
 }
 
 extension GhosttySurfaceView: UIGestureRecognizerDelegate {
@@ -3626,6 +3660,9 @@ extension GhosttySurfaceView: UIGestureRecognizerDelegate {
         // the surface-level tap recognizer would otherwise also fire; exclude it.
         if !composerContainer.isHidden,
            let touched = touch.view, touched.isDescendant(of: composerContainer) {
+            return false
+        }
+        if let touched = touch.view, artifactChipHost.contains(touched) {
             return false
         }
         return true
@@ -3676,12 +3713,12 @@ nonisolated struct PendingSurfaceOperation {
 }
 
 /// One visible-terminal snapshot read awaiting output-queue completion or its
-/// display-link deadline. A timeout skips only the diagnostic snapshot.
+/// display-link deadline. A timeout skips only the pending text snapshot.
 /// Internal for `GhosttySurfaceView+RenderRecovery.swift` deadline handling.
 nonisolated struct PendingVisibleSnapshot {
     let id: UInt64
     let startedAt: CFTimeInterval
-    let continuation: CheckedContinuation<String?, Never>
+    let continuation: CheckedContinuation<(text: String, columns: Int)?, Never>
 }
 
 /// One "View as Text" read awaiting output-queue completion or deadline.
@@ -3697,25 +3734,6 @@ nonisolated struct PendingCopyableTextRead {
     }
 }
 
-/// One surface's request for the bounded visible-terminal snapshot.
-nonisolated private struct VisibleSnapshotRequest {
-    let view: GhosttySurfaceView
-    let grid: String
-    let font: Int
-    let surface: ghostty_surface_t
-    let generation: UInt64
-}
-
-/// Raw surface read payload captured by the off-main output queue.
-///
-/// The C surface pointer is dereferenced only on `GhosttySurfaceWorkQueue`,
-/// which is the same FIFO queue that owns `process_output` and surface free.
-nonisolated private struct VisibleSnapshotRead: @unchecked Sendable {
-    let surface: ghostty_surface_t
-    let generation: UInt64
-    let grid: String
-    let font: Int
-}
 
 /// Raw full-text read payload captured by the off-main output queue.
 ///

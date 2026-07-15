@@ -129,7 +129,7 @@ extension TerminalController {
         guard let host = Self.remoteTmuxHost(from: params) else {
             return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.hostRequired", defaultValue: "host is required"))
         }
-        let activate = (params["activate"] as? Bool) ?? false
+        let activate = Self.remoteTmuxActivate(from: params)
         let routing = remoteTmuxRouting(from: params)
         return v2VmCall(id: id, timeoutSeconds: 60) {
             guard let controller = await MainActor.run(body: { AppDelegate.shared?.remoteTmuxController })
@@ -162,6 +162,45 @@ extension TerminalController {
         }
     }
 
+    /// `remote.tmux.window` — mirror every tmux session on a host into a
+    /// dedicated new window. Params: `host` (required), optional `port`,
+    /// `identity_file`, and `activate`.
+    nonisolated func v2RemoteTmuxWindow(id: Any?, params: [String: Any]) -> String {
+        guard RemoteTmuxController.isEnabled else {
+            return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
+        }
+        guard let host = Self.remoteTmuxHost(from: params) else {
+            return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.hostRequired", defaultValue: "host is required"))
+        }
+        let activate = Self.remoteTmuxActivate(from: params)
+        return v2VmCall(id: id, timeoutSeconds: 60) {
+            guard let controller = await MainActor.run(body: { AppDelegate.shared?.remoteTmuxController })
+            else {
+                throw RemoteTmuxError.unreachable("app not ready")
+            }
+            let outcome = try await controller.attachHost(
+                host: host,
+                windowTarget: .dedicatedNewWindow,
+                activate: activate
+            )
+            switch outcome {
+            case .mirrored(let windowId, let workspaceIds):
+                return [
+                    "host": host.destination,
+                    "mirrored": true,
+                    "window_id": windowId.uuidString,
+                    "workspace_ids": workspaceIds.map(\.uuidString),
+                ]
+            case .authRequired(let sshArgv):
+                return [
+                    "host": host.destination,
+                    "auth_required": true,
+                    "ssh_argv": sshArgv,
+                ]
+            }
+        }
+    }
+
     nonisolated func remoteTmuxRouting(from params: [String: Any]) -> ControlRoutingSelectors {
         ControlRoutingSelectors(
             hasWindowIDParam: v2HasNonNullParam(params, "window_id"),
@@ -173,6 +212,10 @@ extension TerminalController {
                 ?? v2UUID(params, "tab_id"),
             paneID: v2UUID(params, "pane_id")
         )
+    }
+
+    private nonisolated static func remoteTmuxActivate(from params: [String: Any]) -> Bool {
+        (params["activate"] as? Bool) ?? false
     }
 
     @MainActor

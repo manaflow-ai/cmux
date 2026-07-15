@@ -7,14 +7,16 @@ public import CmuxTerminalCore
 /// The native pointer has been removed from all main-thread owner state
 /// before this request is created; this wrapper only transports the one-shot
 /// free. It is `@unchecked Sendable` for exactly that reason: the surface
-/// pointer and `Unmanaged` callback context are exclusively owned by the
-/// request from creation until the coordinator consumes them.
+/// pointer, callback context, and terminal-byte-tee lease are exclusively
+/// owned by the request from creation until the coordinator consumes them.
 struct TerminalSurfaceRuntimeTeardownRequest: @unchecked Sendable {
     let id: UUID
     let workspaceId: UUID
     let reason: String
     let surface: ghostty_surface_t
     let callbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
+    let manualIOContext: Unmanaged<TerminalManualIOWriteBox>?
+    let byteTeeLease: (any TerminalByteTeeLease)?
     let freeSurface: @Sendable (ghostty_surface_t) -> Void
 #if DEBUG
     let surfaceToken: String
@@ -27,6 +29,8 @@ struct TerminalSurfaceRuntimeTeardownRequest: @unchecked Sendable {
         reason: String,
         surface: ghostty_surface_t,
         callbackContext: Unmanaged<GhosttySurfaceCallbackContext>?,
+        manualIOContext: Unmanaged<TerminalManualIOWriteBox>?,
+        byteTeeLease: (any TerminalByteTeeLease)?,
         freeSurface: @escaping @Sendable (ghostty_surface_t) -> Void
     ) {
         self.id = id
@@ -34,6 +38,8 @@ struct TerminalSurfaceRuntimeTeardownRequest: @unchecked Sendable {
         self.reason = reason
         self.surface = surface
         self.callbackContext = callbackContext
+        self.manualIOContext = manualIOContext
+        self.byteTeeLease = byteTeeLease
         self.freeSurface = freeSurface
 #if DEBUG
         self.surfaceToken = String(id.uuidString.prefix(5))

@@ -11,8 +11,13 @@ extension SidebarGitMetadataService {
         }
         requests.removeValue(forKey: key)
         if requests.isEmpty {
+            workspaceGitSnapshotCompletionAuthorityByDirectory.removeValue(forKey: directory)?.invalidate()
             workspaceGitSnapshotRequestsByDirectory.removeValue(forKey: directory)
             workspaceGitSnapshotTaskContextByDirectory.removeValue(forKey: directory)
+            workspaceGitSnapshotPendingContextByDirectory.removeValue(forKey: directory)
+            if let taskID = workspaceGitSnapshotTaskIDByDirectory.removeValue(forKey: directory) {
+                workspaceGitSupersededSnapshotTaskIDs.remove(taskID)
+            }
             workspaceGitSnapshotTasksByDirectory.removeValue(forKey: directory)?.cancel()
         } else {
             workspaceGitSnapshotRequestsByDirectory[directory] = requests
@@ -20,39 +25,42 @@ extension SidebarGitMetadataService {
     }
 
     func cancelAllWorkspaceGitSnapshotTasks() {
+        workspaceGitSnapshotApplyBatcher.cancel()
+        for authority in workspaceGitSnapshotCompletionAuthorityByDirectory.values {
+            authority.invalidate()
+        }
+        workspaceGitSnapshotCompletionAuthorityByDirectory.removeAll()
         for task in workspaceGitSnapshotTasksByDirectory.values {
             task.cancel()
         }
         workspaceGitSnapshotTasksByDirectory.removeAll()
         workspaceGitSnapshotTaskContextByDirectory.removeAll()
+        workspaceGitSnapshotPendingContextByDirectory.removeAll()
+        workspaceGitSupersededSnapshotTaskIDs.removeAll()
+        workspaceGitSnapshotTaskIDByDirectory.removeAll()
         workspaceGitSnapshotRequestsByDirectory.removeAll()
         workspaceGitSnapshotDirectoryByProbeKey.removeAll()
     }
 
-    func trackedPathEventGenerationForSnapshot(
+    func snapshotRequestForSnapshot(
         directory: String,
-        reason: String
-    ) -> GitTrackedPathEventGeneration? {
-        guard shouldUseTrackedSnapshotCache(reason: reason) else {
+        reason: String,
+        fallbackRequest: GitTrackedChangesSnapshotRequest?
+    ) -> GitTrackedChangesSnapshotRequest? {
+        if let fallbackRequest {
+            return fallbackRequest
+        }
+        guard reason == "filesystemEvent" else {
             advanceWorkspaceGitSnapshotCacheGenerationIfEligible(directory: directory)
             return nil
         }
-        guard let generation = workspaceGitSnapshotCacheGeneration(directory: directory) else {
-            return nil
+        let eventID = workspaceGitSnapshotCacheGeneration(directory: directory).map {
+            GitTrackedPathEventGeneration(
+                namespace: workspaceGitSnapshotCacheNamespace,
+                generation: $0
+            )
         }
-        return GitTrackedPathEventGeneration(
-            namespace: workspaceGitSnapshotCacheNamespace,
-            generation: generation
-        )
-    }
-
-    private func shouldUseTrackedSnapshotCache(reason: String) -> Bool {
-        switch reason {
-        case "filesystemEvent":
-            return true
-        default:
-            return false
-        }
+        return .watcherEvent(nil, eventID: eventID)
     }
 
     func markWorkspaceGitSnapshotRerunPending(directory: String) {
@@ -62,5 +70,19 @@ extension SidebarGitMetadataService {
         for request in requests.values {
             markWorkspaceGitProbeRerunPending(for: request.probeKey)
         }
+    }
+
+    func supersedeWorkspaceGitSnapshotTask(
+        directory: String,
+        with context: WorkspaceGitSnapshotTaskContext
+    ) {
+        guard workspaceGitSnapshotTaskContextByDirectory[directory] != context,
+              let taskID = workspaceGitSnapshotTaskIDByDirectory[directory] else {
+            return
+        }
+        workspaceGitSnapshotPendingContextByDirectory[directory] = context
+        workspaceGitSupersededSnapshotTaskIDs.insert(taskID)
+        workspaceGitSnapshotCompletionAuthorityByDirectory[directory]?.invalidate()
+        markWorkspaceGitSnapshotRerunPending(directory: directory)
     }
 }
