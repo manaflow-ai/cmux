@@ -27,6 +27,7 @@ final class SimulatorProcessOutputReader: Sendable {
             var bytes = [UInt8](repeating: 0, count: 8_192)
             while true {
                 let count = Darwin.read(descriptor, &bytes, bytes.count)
+                if count < 0, errno == EINTR { continue }
                 if count <= 0 { break }
                 for batch in batcher.append(Data(bytes.prefix(count))) {
                     continuation.yield(batch)

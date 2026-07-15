@@ -56,11 +56,5 @@ public struct SimulatorPaneView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(backgroundColor)
-        .onAppear {
-            coordinator.setPaneVisibility(true)
-        }
-        .onDisappear {
-            coordinator.setPaneVisibility(false)
-        }
     }
 }

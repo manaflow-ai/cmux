@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 extension SimulatorControlService {
@@ -105,6 +106,14 @@ extension SimulatorControlService {
         deviceID: String,
         route: SimulatorLocationRoute
     ) async throws {
+        let arguments = try locationRouteCommandArguments(deviceID: deviceID, route: route)
+        _ = try await output(arguments: arguments)
+    }
+
+    private func locationRouteCommandArguments(
+        deviceID: String,
+        route: SimulatorLocationRoute
+    ) throws -> [String] {
         try validate(route: route, deviceID: deviceID)
         var arguments = [
             "simctl", "location", deviceID, "start", "--speed=\(route.speed)",
@@ -136,7 +145,7 @@ extension SimulatorControlService {
             arguments.append("--interval=\(interval)")
         }
         arguments += commandWaypoints(for: route).map(coordinateArgument)
-        _ = try await output(arguments: arguments)
+        return arguments
     }
 
     /// Pauses a route at its estimated current coordinate.
@@ -160,7 +169,7 @@ extension SimulatorControlService {
         let elapsed = max(0, now().timeIntervalSince(startedAt))
         let pausedRoute = remainingRoute(route, after: elapsed)
         let coordinate = pausedRoute.waypoints[0]
-        let previousState = ActiveLocationRoute.running(route: route, startedAt: startedAt)
+        let rollbackState = ActiveLocationRoute.running(route: pausedRoute, startedAt: now())
         let token = beginLocationOperation(deviceID: deviceID)
         var clearCommitted = false
         do {
@@ -177,9 +186,9 @@ extension SimulatorControlService {
             let mutationError = error
             finishLocationOperation(deviceID: deviceID, token: token)
             if clearCommitted {
-                try await restoreExternalLocationLifecycle(deviceID: deviceID, state: previousState)
+                try await restoreExternalLocationLifecycle(deviceID: deviceID, state: rollbackState)
             }
-            restoreLocationLifecycle(deviceID: deviceID, state: previousState)
+            restoreLocationLifecycle(deviceID: deviceID, state: rollbackState)
             throw mutationError
         }
     }
@@ -227,7 +236,7 @@ extension SimulatorControlService {
             try await clearLocationExclusively(deviceID: deviceID)
             return
         }
-        let previousState = activeLocationRoutes[deviceID]
+        let rollbackState = locationRollbackState(activeLocationRoutes[deviceID])
         let token = beginLocationOperation(deviceID: deviceID)
         activeLocationRoutes.removeValue(forKey: deviceID)
         var clearCommitted = false
@@ -244,27 +253,57 @@ extension SimulatorControlService {
             let mutationError = error
             finishLocationOperation(deviceID: deviceID, token: token)
             if clearCommitted {
-                try await restoreExternalLocationLifecycle(deviceID: deviceID, state: previousState)
+                try await restoreExternalLocationLifecycle(deviceID: deviceID, state: rollbackState)
             }
-            restoreLocationLifecycle(deviceID: deviceID, state: previousState)
+            restoreLocationLifecycle(deviceID: deviceID, state: rollbackState)
             throw mutationError
         }
+    }
+
+    private func locationRollbackState(_ state: ActiveLocationRoute?) -> ActiveLocationRoute? {
+        guard case let .running(route, startedAt) = state else { return state }
+        let elapsed = max(0, now().timeIntervalSince(startedAt))
+        return .running(route: remainingRoute(route, after: elapsed), startedAt: now())
     }
 
     private func restoreExternalLocationLifecycle(
         deviceID: String,
         state: ActiveLocationRoute?
     ) async throws {
+        let arguments: [String]
         switch state {
         case let .running(route, _):
-            try await runLocationRouteCommand(deviceID: deviceID, route: route)
+            arguments = try locationRouteCommandArguments(deviceID: deviceID, route: route)
         case let .paused(route):
             guard let coordinate = route.waypoints.first else { return }
-            _ = try await output(arguments: [
+            arguments = [
                 "simctl", "location", deviceID, "set", coordinateArgument(coordinate),
-            ])
+            ]
         case nil:
-            break
+            return
+        }
+        let boundedCommands = boundedCommands
+        let directory = currentDirectoryURL.path
+        let timeout = commandTimeout
+        let result = await Task.detached {
+            await boundedCommands.runBounded(
+                directory: directory,
+                executable: "/usr/bin/xcrun",
+                arguments: arguments,
+                timeout: timeout,
+                standardOutputLimit: Self.maximumMutationOutputBytes,
+                standardErrorLimit: Self.maximumBoundedDiagnosticBytes
+            )
+        }.value
+        let commandResult = CommandResult(
+            stdout: String(decoding: result.standardOutput, as: UTF8.self),
+            stderr: String(decoding: result.standardError, as: UTF8.self),
+            exitStatus: result.exitStatus,
+            timedOut: result.timedOut,
+            executionError: result.executionError
+        )
+        guard succeeded(commandResult) else {
+            throw failure(result: commandResult, arguments: arguments)
         }
     }
 
