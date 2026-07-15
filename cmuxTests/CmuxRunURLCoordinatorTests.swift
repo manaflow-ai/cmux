@@ -239,6 +239,7 @@ struct CmuxRunURLCoordinatorTests {
     }
 
     @Test func approvedWorkspacePlanCreatesExactlyOneWorkspace() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
         let app = AppDelegate()
         let manager = TabManager()
         let window = NSWindow(
@@ -273,9 +274,16 @@ struct CmuxRunURLCoordinatorTests {
             Issue.record("Expected workspace creation to succeed, saw \(error)")
         }
         #expect(manager.tabs.count == initialCount + 1)
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelId = try #require(workspace.focusedPanelId)
+        let terminal = try #require(workspace.terminalPanel(for: panelId)?.surface)
+        #expect(terminal.debugInitialCommand() == plan.launchCommand)
+        #expect(terminal.debugInitialInputForTesting() == nil)
+        }
     }
 
     @Test func approvedNewWindowPlanSubmitsTheReviewedCommand() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
         let app = AppDelegate()
         let workingDirectory = try resolvedWorkingDirectory()
         let plan = CmuxRunExecutionPlan(
@@ -305,9 +313,11 @@ struct CmuxRunURLCoordinatorTests {
 
         #expect(terminal.debugInitialCommand() == plan.launchCommand)
         #expect(terminal.debugInitialInputForTesting() == nil)
+        }
     }
 
     @Test func approvedSurfacePlanCreatesAndFocusesTabInBackgroundWorkspace() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
         let app = AppDelegate()
         let manager = TabManager()
         let targetWorkspace = manager.addWorkspace(select: false)
@@ -351,9 +361,14 @@ struct CmuxRunURLCoordinatorTests {
         #expect(newPanelId != sourcePanelId)
         #expect(targetWorkspace.paneId(forPanelId: newPanelId)?.id == paneId)
         #expect(manager.selectedTabId == targetWorkspace.id)
+        let terminal = try #require(targetWorkspace.terminalPanel(for: newPanelId)?.surface)
+        #expect(terminal.debugInitialCommand() == plan.launchCommand)
+        #expect(terminal.debugInitialInputForTesting() == nil)
+        }
     }
 
     @Test func approvedPanePlanCreatesAndFocusesSplitInBackgroundWorkspace() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
         let app = AppDelegate()
         let manager = TabManager()
         let targetWorkspace = manager.addWorkspace(select: false)
@@ -398,6 +413,10 @@ struct CmuxRunURLCoordinatorTests {
         #expect(newPanelId != sourcePanelId)
         #expect(targetWorkspace.paneId(forPanelId: newPanelId)?.id != sourcePaneId)
         #expect(manager.selectedTabId == targetWorkspace.id)
+        let terminal = try #require(targetWorkspace.terminalPanel(for: newPanelId)?.surface)
+        #expect(terminal.debugInitialCommand() == plan.launchCommand)
+        #expect(terminal.debugInitialInputForTesting() == nil)
+        }
     }
 
     @Test func longApprovalDirectoryIsFullyInspectableAndCopyable() throws {
