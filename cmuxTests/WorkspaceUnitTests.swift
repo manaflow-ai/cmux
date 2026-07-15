@@ -5352,6 +5352,55 @@ final class WorkspaceBrowserProfileSelectionTests: XCTestCase {
             "Expected a failed browser split to leave the workspace preferred profile unchanged"
         )
     }
+
+    func testUserInitiatedBrowserCreationUsesCurrentEnginePreference() throws {
+        let defaults = UserDefaults.standard
+        let catalog = SettingCatalog()
+        let engineKey = catalog.browser.engine.userDefaultsKey
+        let disabledKey = catalog.browser.disabled.userDefaultsKey
+        let previousEngine = defaults.object(forKey: engineKey)
+        let previousDisabled = defaults.object(forKey: disabledKey)
+        defer {
+            if let previousEngine {
+                defaults.set(previousEngine, forKey: engineKey)
+            } else {
+                defaults.removeObject(forKey: engineKey)
+            }
+            if let previousDisabled {
+                defaults.set(previousDisabled, forKey: disabledKey)
+            } else {
+                defaults.removeObject(forKey: disabledKey)
+            }
+        }
+
+        defaults.set(BrowserEnginePreference.webKit.rawValue, forKey: engineKey)
+        defaults.set(false, forKey: disabledKey)
+
+        let workspace = Workspace()
+        defer { workspace.panels.values.forEach { $0.close() } }
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let chromiumSource = try XCTUnwrap(
+            workspace.newBrowserSurface(
+                inPane: paneId,
+                focus: true,
+                browserEngineKind: .chromium
+            )
+        )
+
+        let newTab = try XCTUnwrap(
+            workspace.newBrowserSurface(inPane: paneId, focus: false)
+        )
+        let newSplit = try XCTUnwrap(
+            workspace.newBrowserSplit(
+                from: chromiumSource.id,
+                orientation: .horizontal,
+                focus: false
+            )
+        )
+
+        XCTAssertEqual(newTab.engineKind, .webKit)
+        XCTAssertEqual(newSplit.engineKind, .webKit)
+    }
 }
 
 
