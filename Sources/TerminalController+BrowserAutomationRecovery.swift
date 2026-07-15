@@ -34,6 +34,7 @@ extension TerminalController {
     nonisolated func v2RecoverTimedOutBrowserJavaScript(
         _ result: BrowserJavaScriptEvaluationResult,
         webView: WKWebView,
+        browserPanel: BrowserPanel,
         surfaceId: UUID
     ) -> V2JavaScriptResult {
         switch result {
@@ -47,6 +48,7 @@ extension TerminalController {
                     localized: "browser.automation.error.javaScriptTimedOut",
                     defaultValue: "Timed out waiting for JavaScript result"
                 ),
+                browserPanel: browserPanel,
                 surfaceId: surfaceId,
                 expectedWebViewIdentifier: ObjectIdentifier(webView),
                 channel: .javaScript
@@ -56,6 +58,7 @@ extension TerminalController {
 
     nonisolated func v2BrowserAutomationMessageAfterLivenessCheck(
         originalMessage: String,
+        browserPanel: BrowserPanel,
         surfaceId: UUID,
         expectedWebViewIdentifier: ObjectIdentifier,
         channel: BrowserAutomationProbeChannel
@@ -67,17 +70,7 @@ extension TerminalController {
                     finish(.cancelled)
                     return
                 }
-                guard let app = AppDelegate.shared else {
-                    finish(.superseded)
-                    return
-                }
-                let panel = app.windowDockContainingPanel(surfaceId)?.browserPanel(for: surfaceId)
-                    ?? app.workspaceContainingPanel(panelId: surfaceId)?.workspace.browserPanel(for: surfaceId)
-                guard let panel else {
-                    finish(.superseded)
-                    return
-                }
-                let result = await panel.recoverIfAutomationUnresponsive(
+                let result = await browserPanel.recoverIfAutomationUnresponsive(
                     expectedWebViewIdentifier: expectedWebViewIdentifier,
                     channel: channel
                 )

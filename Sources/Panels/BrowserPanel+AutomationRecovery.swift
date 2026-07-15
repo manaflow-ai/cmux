@@ -15,6 +15,7 @@ extension BrowserPanel {
         channel: BrowserAutomationProbeChannel
     ) async -> BrowserAutomationRecoveryOutcome {
         guard ObjectIdentifier(webView) == expectedWebViewIdentifier else { return .superseded }
+        guard pendingInsecureHTTPConsentRequestIDs.isEmpty else { return .responsive }
         let observedWebViewInstanceID = webViewInstanceID
 
         let asyncJavaScriptProbe: BrowserAutomationWatchdog.Probe = { [weak self] finish in

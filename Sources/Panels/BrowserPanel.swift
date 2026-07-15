@@ -3019,7 +3019,6 @@ final class BrowserPanel: Panel, ObservableObject {
     private var loadingStartedAt: Date?
     private var loadingEndWorkItem: DispatchWorkItem?
     private var loadingGeneration: Int = 0
-
     private var faviconTask: Task<Void, Never>?
     private var faviconRefreshGeneration: Int = 0
     private var lastFaviconURLString: String?
@@ -3027,6 +3026,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private let maxPageZoom: CGFloat = 5.0
     private let pageZoomStep: CGFloat = 0.1
     private var insecureHTTPBypassHostOnce: String?
+    var pendingInsecureHTTPConsentRequestIDs: Set<UUID> = []
     var insecureHTTPAlertFactory: () -> NSAlert
     var insecureHTTPAlertWindowProvider: () -> NSWindow? = { NSApp.keyWindow ?? NSApp.mainWindow }
     // Persist user intent across WebKit detach/reattach churn (split/layout updates).
@@ -5118,13 +5118,12 @@ final class BrowserPanel: Panel, ObservableObject {
             waitForManualRecovery: true
         )
     }
-
     @discardableResult
     func replaceWebViewAfterAutomationTimeout(
         expectedWebViewIdentifier: ObjectIdentifier,
         reason: String
     ) -> Bool {
-        guard ObjectIdentifier(webView) == expectedWebViewIdentifier else { return false }
+        guard ObjectIdentifier(webView) == expectedWebViewIdentifier, pendingInsecureHTTPConsentRequestIDs.isEmpty else { return false }
         replaceWebViewPreservingState(
             from: webView,
             websiteDataStore: websiteDataStore,
@@ -5952,7 +5951,7 @@ final class BrowserPanel: Panel, ObservableObject {
     ) {
         guard let url = request.url else { return }
         guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return }
-
+        let consentRequestID = pendingInsecureHTTPConsentRequestIDs.insert(UUID()).memberAfterInsert
         let alert = insecureHTTPAlertFactory()
         alert.alertStyle = .warning
         alert.messageText = String(localized: "browser.error.insecure.title", defaultValue: "Connection isn\u{2019}t secure")
@@ -5964,6 +5963,7 @@ final class BrowserPanel: Panel, ObservableObject {
         alert.suppressionButton?.title = String(localized: "browser.alwaysAllowHost", defaultValue: "Always allow this host in cmux")
 
         let handleResponse: (NSApplication.ModalResponse) -> Void = { [weak self, weak alert] response in
+            self?.pendingInsecureHTTPConsentRequestIDs.remove(consentRequestID)
             self?.handleInsecureHTTPAlertResponse(
                 response,
                 alert: alert,
@@ -5977,7 +5977,7 @@ final class BrowserPanel: Panel, ObservableObject {
         }
 
         if shouldDeferPromptUntilInteractiveHost(for: webView) {
-            presentBrowserAlert(alert, in: webView, completion: handleResponse, cancel: {})
+            presentBrowserAlert(alert, in: webView, completion: handleResponse, cancel: { [weak self] in self?.pendingInsecureHTTPConsentRequestIDs.remove(consentRequestID); onResolution(.cancelled) })
             return
         }
 
