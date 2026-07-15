@@ -422,9 +422,140 @@ import Testing
     #expect(gate.canMutate(workspaceID: durableWorkspace.id))
 }
 
-private func hierarchyGateWorkspace(macID: String?) -> MobileWorkspacePreview {
+@MainActor
+@Test func hierarchyGateMigratesActiveReservationAcrossScopedOwnerAdoption() throws {
+    let fixture = try hierarchyGateScopedOwnerAdoptionFixture()
+    let reservation = try #require(fixture.store.terminalReorderGate.reserve(
+        workspaceID: fixture.anonymousRowID,
+        paneID: "pane-adoption"
+    ))
+
+    fixture.store.adoptForegroundMacIdentity("mac-adopted")
+    let adoptedRowID = try hierarchyGateAdoptedRowID(in: fixture.store)
+
+    #expect(fixture.anonymousRowID != adoptedRowID)
+    #expect(fixture.anonymousRowID.rawValue == "__cmux_foreground__\u{1F}workspace-stable")
+    #expect(adoptedRowID.rawValue == "mac-adopted\u{1F}workspace-stable")
+    #expect(reservation.workspaceID == fixture.anonymousRowID)
+    #expect(reservation.ownerIdentity.ownerMacID == nil)
+    #expect(fixture.store.terminalReorderGate.isActive(workspaceID: adoptedRowID))
+    #expect(fixture.store.terminalReorderGate.owns(reservation))
+    let duplicate = fixture.store.terminalReorderGate.reserve(
+        workspaceID: adoptedRowID,
+        paneID: "pane-adoption"
+    )
+    #expect(duplicate == nil)
+    if let duplicate { fixture.store.terminalReorderGate.finish(duplicate) }
+
+    fixture.store.terminalReorderGate.finish(reservation)
+
+    #expect(!fixture.store.terminalReorderGate.isActive)
+    #expect(fixture.store.terminalReorderGate.canMutate(workspaceID: adoptedRowID))
+}
+
+@MainActor
+@Test func hierarchyGateMigratesRefreshFenceAcrossScopedOwnerAdoption() throws {
+    let fixture = try hierarchyGateScopedOwnerAdoptionFixture()
+    fixture.store.terminalReorderGate.requireRefresh(workspaceID: fixture.anonymousRowID)
+
+    fixture.store.adoptForegroundMacIdentity("mac-adopted")
+    let adoptedRowID = try hierarchyGateAdoptedRowID(in: fixture.store)
+
+    #expect(fixture.anonymousRowID != adoptedRowID)
+    #expect(fixture.anonymousRowID.rawValue == "__cmux_foreground__\u{1F}workspace-stable")
+    #expect(adoptedRowID.rawValue == "mac-adopted\u{1F}workspace-stable")
+    #expect(fixture.store.terminalReorderGate.requiresRefresh(workspaceID: adoptedRowID))
+    #expect(!fixture.store.terminalReorderGate.canMutate(workspaceID: adoptedRowID))
+
+    fixture.store.terminalReorderGate.reconcileAfterAuthoritativeRefresh(
+        workspaceIDs: [adoptedRowID]
+    )
+
+    #expect(fixture.store.terminalReorderGate.refreshRequiredWorkspaceIDs.isEmpty)
+    #expect(fixture.store.terminalReorderGate.canMutate(workspaceID: adoptedRowID))
+}
+
+@MainActor
+@Test func hierarchyGateMigratesRecoveryAcrossScopedOwnerAdoption() throws {
+    let fixture = try hierarchyGateScopedOwnerAdoptionFixture()
+    fixture.store.terminalReorderGate.requireRefresh(workspaceID: fixture.anonymousRowID)
+    #expect(fixture.store.terminalReorderGate.beginRecovery(
+        workspaceID: fixture.anonymousRowID
+    ))
+
+    fixture.store.adoptForegroundMacIdentity("mac-adopted")
+    let adoptedRowID = try hierarchyGateAdoptedRowID(in: fixture.store)
+
+    #expect(fixture.anonymousRowID != adoptedRowID)
+    #expect(fixture.anonymousRowID.rawValue == "__cmux_foreground__\u{1F}workspace-stable")
+    #expect(adoptedRowID.rawValue == "mac-adopted\u{1F}workspace-stable")
+    #expect(fixture.store.terminalReorderGate.isActive(workspaceID: adoptedRowID))
+    #expect(fixture.store.terminalReorderGate.requiresRefresh(workspaceID: adoptedRowID))
+    let duplicate = fixture.store.terminalReorderGate.reserve(
+        workspaceID: adoptedRowID,
+        paneID: "pane-adoption"
+    )
+    #expect(duplicate == nil)
+    if let duplicate { fixture.store.terminalReorderGate.finish(duplicate) }
+
+    fixture.store.terminalReorderGate.finishRecovery(
+        workspaceID: adoptedRowID,
+        succeeded: true
+    )
+
+    #expect(!fixture.store.terminalReorderGate.isActive)
+    #expect(fixture.store.terminalReorderGate.refreshRequiredWorkspaceIDs.isEmpty)
+    #expect(fixture.store.terminalReorderGate.canMutate(workspaceID: adoptedRowID))
+}
+
+@MainActor
+private func hierarchyGateScopedOwnerAdoptionFixture() throws -> (
+    store: MobileShellComposite,
+    anonymousRowID: MobileWorkspacePreview.ID
+) {
+    let store = MobileShellComposite.preview()
+    let anonymousWorkspace = hierarchyGateWorkspace(macID: nil)
+    let secondaryWorkspace = hierarchyGateWorkspace(
+        macID: "mac-secondary",
+        id: "workspace-secondary"
+    )
+    store.setWorkspaceStatesForTesting(
+        [
+            MobileShellComposite.foregroundAnonymousKey: MacWorkspaceState(
+                macDeviceID: MobileShellComposite.foregroundAnonymousKey,
+                workspaces: [anonymousWorkspace]
+            ),
+            "mac-secondary": MacWorkspaceState(
+                macDeviceID: "mac-secondary",
+                workspaces: [secondaryWorkspace]
+            ),
+        ],
+        foregroundMacDeviceID: nil
+    )
+    let anonymousRowID = try #require(
+        store.workspaces.first(where: { $0.rpcWorkspaceID == anonymousWorkspace.id })?.id
+    )
+    return (store, anonymousRowID)
+}
+
+@MainActor
+private func hierarchyGateAdoptedRowID(
+    in store: MobileShellComposite
+) throws -> MobileWorkspacePreview.ID {
+    try #require(
+        store.workspaces.first(where: { workspace in
+            workspace.rpcWorkspaceID == "workspace-stable"
+                && workspace.macDeviceID == "mac-adopted"
+        })?.id
+    )
+}
+
+private func hierarchyGateWorkspace(
+    macID: String?,
+    id: MobileWorkspacePreview.ID = "workspace-stable"
+) -> MobileWorkspacePreview {
     MobileWorkspacePreview(
-        id: "workspace-stable",
+        id: id,
         macDeviceID: macID,
         name: "Stable Workspace",
         terminals: []
