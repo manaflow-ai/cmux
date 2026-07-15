@@ -32,4 +32,15 @@ protocol RemoteDaemonTunnelRPCClient: RemotePTYLifecycleRPCClient {
     ) throws -> RemoteRuntimeStateDocument?
 }
 
+extension RemoteDaemonTunnelRPCClient {
+    func subscribeRuntimeState(
+        queue _: DispatchQueue,
+        onDocument _: @escaping @Sendable (RemoteRuntimeStateDocument) -> Void
+    ) throws -> RemoteRuntimeStateDocument? {
+        throw NSError(domain: "cmux.remote.runtime-state", code: 1, userInfo: [
+            NSLocalizedDescriptionKey: "remote runtime state is unavailable",
+        ])
+    }
+}
+
 extension RemoteDaemonRPCClient: RemoteDaemonTunnelRPCClient {}
