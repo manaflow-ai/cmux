@@ -243,7 +243,7 @@ extension RemoteTmuxWindowMirror {
         // left alone: it applies tmux's own assignment, never a stale one.
         let suppressPin = visibleHostingContext()?.window?.inLiveResize == true
             || TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive
-        var needsKick = false
+        var panesToRepaint: [Int] = []
         for (paneId, panel) in panelsByPaneId {
             // Under zoom the visible tree is the single zoomed leaf, but the
             // hidden BASE panes are still live and still receiving output —
@@ -269,30 +269,26 @@ extension RemoteTmuxWindowMirror {
                 panel.surface.reapplyAssignedGrid()
                 laggedShort = rendered.cols < node.width || rendered.rows < node.height
             }
-            // A pin that grows the grid after tmux streamed those rows leaves
-            // the late-granted cells blank until a repaint, so we owe a kick —
-            // but ONLY when this pane's grid reaches a size not yet refilled at
-            // the current claim. The kick shrinks and restores the client size
-            // to force that repaint, and that resize makes tmux re-round an odd
-            // split and hand this pane a row more or less next reflow. Kicking
-            // on every such change loops forever at an unchanged claim; kicking
-            // on a new high refills the genuine grow once and starves the
-            // oscillation (which never exceeds the high). The high-water resets
-            // when the claim changes (see updateClientSize).
-            let hw = redrawKickHighWater[paneId]
-            let reachesNewHigh = node.width > (hw?.cols ?? 0) || node.height > (hw?.rows ?? 0)
-            if (grewPin || laggedShort) && reachesNewHigh {
-                needsKick = true
-            }
+            // A grid that grew after tmux streamed those rows leaves the
+            // late-granted cells blank: the surface clipped that content while it
+            // was short, and tmux repaints only on change. tmux's own grid still
+            // HAS those rows — only the mirror lost them — so the repair is to read
+            // tmux's screen back into this pane, never to move the CLIENT size. The
+            // old shrink→restore kick did move it, which made tmux re-round an odd
+            // split, which grew a pane again and re-fired the kick: an unbounded
+            // loop (23k kicks in one fuzz iteration). Rationing the kick by a
+            // per-pane high-water bounded the loop but silently dropped genuine
+            // grows (a grow back to a size already refilled at this claim never
+            // repainted, so its cells stayed blank). A capture-pane read perturbs
+            // nothing, so every genuine grow can repaint exactly once with no
+            // budget, no high-water, and no loop.
             if grewPin || laggedShort {
-                redrawKickHighWater[paneId] = (
-                    cols: max(node.width, hw?.cols ?? 0),
-                    rows: max(node.height, hw?.rows ?? 0)
-                )
+                panesToRepaint.append(paneId)
             }
         }
-        if needsKick {
-            connection?.forceRedrawKick(windowIds: [windowId])
+        // Sorted so the command order is deterministic under churn.
+        for paneId in panesToRepaint.sorted() {
+            connection?.repaintPaneVisibleScreen(paneId: paneId)
         }
     }
 
@@ -752,14 +748,6 @@ extension RemoteTmuxWindowMirror {
               containerSizePt.width > 1, containerSizePt.height > 1,
               let cells = clientGrid(contentSize: containerSizePt)
         else { return false }
-        // A changed claim is a real resize: drop the per-pane redraw
-        // high-water so a grow against the new size refills again. tmux
-        // re-rounding an odd split at a STEADY claim leaves this unchanged,
-        // so that oscillation stays starved (see applyAssignedGrids).
-        if redrawKickClaim?.cols != cells.columns || redrawKickClaim?.rows != cells.rows {
-            redrawKickClaim = (cols: cells.columns, rows: cells.rows)
-            redrawKickHighWater.removeAll()
-        }
         connection.setWindowSize(
             windowId: windowId,
             columns: cells.columns,

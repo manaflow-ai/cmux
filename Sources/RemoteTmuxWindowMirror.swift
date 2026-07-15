@@ -272,20 +272,6 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     }
 
     @ObservationIgnored var sizingPassScheduled = false
-    /// Largest tmux-assigned grid a redraw kick has already refilled, per
-    /// pane, at the current window claim. A kick shrinks and restores the
-    /// client size to force a repaint, which makes tmux re-round an odd split
-    /// and hand a stacked pane one row more or less across reflows — so kicking
-    /// on every pin change loops forever at an unchanged claim. Kicking only
-    /// when a pane's grid reaches a NEW high refills a genuine grow (a topology
-    /// change, or a real resize granting rows tmux already streamed) exactly
-    /// once, while the ±1 re-round oscillation, which never exceeds the high,
-    /// is starved. Reset when the claim changes (see updateClientSize) or the
-    /// pane leaves the tree.
-    @ObservationIgnored var redrawKickHighWater: [Int: (cols: Int, rows: Int)] = [:]
-    /// The window claim the high-water map is scoped to; a new claim (a real
-    /// resize) clears the map so a grow against the new size refills again.
-    @ObservationIgnored var redrawKickClaim: (cols: Int, rows: Int)?
     @ObservationIgnored var lastCompletedSizingInputs: SizingInputs?
     @ObservationIgnored var pendingSizingPassIntent = SizingPassIntent.inputChange
 
@@ -414,7 +400,6 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
             if activePaneId == paneId { activePaneId = nil }
         }
         lastRenderedGrids = lastRenderedGrids.filter { livePaneIds.contains($0.key) }
-        redrawKickHighWater = redrawKickHighWater.filter { livePaneIds.contains($0.key) }
         // Structural change (split/close/re-nest) vs geometry-only reflow: only
         // the former re-arms client sizing (the chrome fold's output changed).
         // `init` reconciles the layout it just stored, so the first pass never
@@ -603,8 +588,6 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         cwdByPaneId.removeAll()
         panesAwaitingCreationFocus.removeAll()
         lastRenderedGrids.removeAll()
-        redrawKickHighWater.removeAll()
-        redrawKickClaim = nil
         activePaneId = nil
         connection = nil
     }

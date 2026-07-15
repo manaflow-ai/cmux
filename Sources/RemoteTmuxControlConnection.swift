@@ -557,8 +557,11 @@ final class RemoteTmuxControlConnection {
         #if DEBUG
         // Sizing sends were invisible: every claimed-vs-layout wedge was
         // debugged by inference about what tmux was told. Log the exact
-        // command so the send side is evidence, not conjecture.
-        if command.hasPrefix("refresh-client") {
+        // command so the send side is evidence, not conjecture. `capture-pane`
+        // is here for the same reason — it is how a grown pane's late-granted
+        // cells get refilled (see repaintPaneVisibleScreen), so "did the repaint
+        // fire?" must be answerable from the log rather than argued.
+        if command.hasPrefix("refresh-client") || command.hasPrefix("capture-pane") {
             cmuxDebugLog("remote.send state=\(connectionState) \(command)")
         }
         #endif
@@ -681,6 +684,14 @@ final class RemoteTmuxControlConnection {
         failPendingTrackedSends()
         resetWindowListRequestCoalescing()
         cancelSizingFollowUps()
+        // Subscriptions belong to the dying client, so forget them HERE, not in
+        // the reseed: the reconnect's list-windows restage is what re-issues them
+        // (see stagePendingLayout), and that restage runs BEFORE
+        // reseedAfterReconnect — clearing there would let every surviving window
+        // skip its resubscribe and leave `pane-border-status` unwatched for the
+        // rest of the connection's life.
+        borderStatusSubscribedWindows.removeAll()
+        borderStatusByWindow.removeAll()
         pendingPostAttachAction = nil
         teardownProcessHandles()
         reconnectAttemptCount = 0
@@ -887,10 +898,24 @@ final class RemoteTmuxControlConnection {
                 // rides alongside an attach whose rects fetch is already current.
                 let status = value.trimmingCharacters(in: .whitespacesAndNewlines)
                 let previous = borderStatusByWindow.updateValue(status, forKey: windowId)
-                if let previous, previous != status {
-                    record("border-status @\(windowId) \(previous)->\(status)")
+                // What to compare the push against. tmux pushes the value once on
+                // subscribe, and that first push is NOT automatically a baseline:
+                // it arrives up to a second later (tmux coalesces subscription
+                // evaluation), so the option can change between the rects fetch and
+                // the push, and treating it as a baseline would swallow exactly the
+                // change this subscription exists to catch. A published window's
+                // placement came from its own rects reply, so it is the truth to
+                // compare the first push against. With no published tree yet the
+                // in-flight rects fetch still carries the truth, so the push is a
+                // baseline for real.
+                let baseline: String? = previous
+                    ?? (windowsByID[windowId] != nil
+                        ? (windowTitleRowPlacements[windowId]?.rawValue ?? "off")
+                        : nil)
+                if let baseline, baseline != status {
+                    record("border-status @\(windowId) \(baseline)->\(status)")
                     #if DEBUG
-                    cmuxDebugLog("remote.border.change @\(windowId) \(previous)->\(status) refetching")
+                    cmuxDebugLog("remote.border.change @\(windowId) \(baseline)->\(status) refetching")
                     #endif
                     requestWindows()
                 }

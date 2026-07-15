@@ -187,6 +187,32 @@ extension RemoteTmuxControlConnection {
     /// forever and must not become a per-layout-event ping.
     static let windowClaimParityRearmBudget = 3
 
+    /// The largest row gap between a per-window claim and the window tmux lays
+    /// out that is NOT a lost pin.
+    ///
+    /// Columns always agree exactly (tmux fits the window width to the client
+    /// width; dividers come out of the panes, not the total), so a column
+    /// disagreement is decisive on its own. Rows do not agree exactly: tmux
+    /// spends a row on chrome and an odd split remainder can shift one more
+    /// (both measured on 3.7), so requiring equality is unsatisfiable and only
+    /// spins the re-arm. But dropping the row term entirely is just as wrong —
+    /// a claim tmux never applied leaves the window at a STALE size, which is
+    /// many rows off, and every grid check still passes because the panes
+    /// faithfully render the short assignment. A small allowance separates
+    /// chrome from a lost pin: 42-for-43 is chrome, 35-for-43 is a lost pin.
+    static let windowClaimRowChromeAllowance = 2
+
+    /// Whether the window tmux laid out is the one `claim` asked for: columns
+    /// exact, rows within ``windowClaimRowChromeAllowance``. Both directions are
+    /// bounded — tmux clamps an infeasible claim UP to the tree's minimum, and
+    /// that is a real disagreement the re-arm's budget bounds, not chrome.
+    static func windowMatchesClaim(
+        windowColumns: Int, windowRows: Int, claimColumns: Int, claimRows: Int
+    ) -> Bool {
+        windowColumns == claimColumns
+            && abs(windowRows - claimRows) <= windowClaimRowChromeAllowance
+    }
+
     /// tmux is the only authority on whether a size claim actually landed.
     /// The sent ledger dedups resends, so a pin the server never honored
     /// wedges silently: the reply was lost across a transport gap, or a
@@ -194,17 +220,13 @@ extension RemoteTmuxControlConnection {
     /// the ledger says delivered and dedup suppresses every retry, leaving
     /// the window columns wide of the claim while mirrors render short of
     /// the assignment. Every %layout-change names the window's actual
-    /// size, so it is the parity edge — but only on COLUMNS. tmux fits the
-    /// window width to the client width (dividers come out of panes, not the
-    /// total), so a column disagreement is a real unlanded claim. Rows are
-    /// not comparable this way: tmux spends rows on chrome (status line,
-    /// pane-border title) and hands an odd split remainder to one stacked
-    /// pane or the other from its own prior state, so window rows differ
-    /// from the client claim by design and wobble ±1 across reflows — a
-    /// rows-only difference is tmux rounding, not a lost pin, and resending
-    /// on it just spins a per-layout-event ping. A genuinely short window
-    /// (lost row pin) surfaces instead as mirrors rendering short of their
-    /// assignment, which the output/grid-parity re-arm catches. The
+    /// size, so it is the parity edge — judged by ``windowMatchesClaim``:
+    /// columns exact, rows within the chrome allowance. Rows cannot be compared
+    /// exactly (tmux spends a row on chrome and an odd split remainder shifts
+    /// one more, so equality is unsatisfiable and only spins this re-arm), but
+    /// they cannot be ignored either: a claim tmux never applied leaves the
+    /// window at a stale size — many rows off — and every grid check still
+    /// passes because the panes faithfully render the short assignment. The
     /// per-episode budget bounds the infeasible-claim case; agreement or a
     /// new claim value opens the next episode. Claims still derive only
     /// from measured containers — this resends a decision already made, it
@@ -214,7 +236,10 @@ extension RemoteTmuxControlConnection {
     ) {
         guard supportsPerWindowSize else { return }
         guard let desired = lastWindowSizes[windowId] else { return }
-        if desired.0 == layoutColumns {
+        if Self.windowMatchesClaim(
+            windowColumns: layoutColumns, windowRows: layoutRows,
+            claimColumns: desired.0, claimRows: desired.1
+        ) {
             windowClaimParityRearmsSpent.removeValue(forKey: windowId)
             return
         }
@@ -298,10 +323,19 @@ extension RemoteTmuxControlConnection {
         // session-wide envelope, so capability — not `lastClientSize` presence —
         // decides which kick can remain effective through tmux coalescing.
         let sessionSize = lastClientSize
+        // "Already at the claim" is judged by windowMatchesClaim, not exact
+        // equality: tmux lands the window a row under the claim as a matter of
+        // course (chrome, odd-split remainder), and that window IS at its target —
+        // no further SIGWINCH is coming for it, which is exactly when the kick is
+        // the only thing that makes a running TUI repaint. Requiring equality
+        // dropped those windows and consumed the one-shot for nothing.
         let perWindowNoOps: [(windowId: Int, columns: Int, rows: Int)] = lastWindowSizes
             .compactMap { id, size -> (windowId: Int, columns: Int, rows: Int)? in
                 guard let window = windowsByID[id],
-                      window.width == size.0, window.height == size.1 else { return nil }
+                      Self.windowMatchesClaim(
+                          windowColumns: window.width, windowRows: window.height,
+                          claimColumns: size.0, claimRows: size.1
+                      ) else { return nil }
                 return (windowId: id, columns: size.0, rows: size.1)
             }
             .sorted { $0.windowId < $1.windowId }
@@ -315,7 +349,10 @@ extension RemoteTmuxControlConnection {
                 // size apply above cannot produce a SIGWINCH for it. (window-size latest makes
                 // every window track the client, so one client-level kick redraws them all.)
                 let windowAlreadyAtTarget = windowsByID.values.contains {
-                    $0.width == size.columns && $0.height == size.rows
+                    Self.windowMatchesClaim(
+                        windowColumns: $0.width, windowRows: $0.height,
+                        claimColumns: size.columns, claimRows: size.rows
+                    )
                 }
                 if !windowAlreadyAtTarget {
                     #if DEBUG
@@ -343,38 +380,12 @@ extension RemoteTmuxControlConnection {
         sendPerWindowRedrawKick(kicks: kicks)
     }
 
-    /// Forces a SIGWINCH-style repaint (shrink a row, then restore) for the
-    /// given windows, INDEPENDENT of the attach one-shot. The attach kick is
-    /// armed only at `.enter` (``pendingAttachRedrawKick``), so a pin that
-    /// grows a surface's grid MID-session — tmux's window size unchanged, no
-    /// SIGWINCH — cannot use it: its late-granted cells would stay blank.
-    /// This path re-derives the kick from the live claims (rows > 2 guard,
-    /// per-window no-op detection preserved) so the mirror can call it
-    /// directly on a pin grow.
-    func forceRedrawKick(windowIds: Set<Int>) {
-        guard connectionState == .connected else { return }
-        guard supportsPerWindowSize else {
-            guard let size = lastClientSize, size.rows > 2 else { return }
-            sendSessionRedrawKick(size: size)
-            return
-        }
-        // The caller (the mirror's applyAssignedGrids) already decides WHEN a
-        // kick is warranted — only when a pane's grid reaches a size not yet
-        // refilled at the current claim, which starves tmux's odd-split
-        // re-round oscillation. So this path kicks unconditionally; a second
-        // dedup here would double-suppress and drop a legitimate refill.
-        let kicks: [(windowId: Int, columns: Int, rows: Int)] = windowIds
-            .compactMap { id in
-                guard let size = lastWindowSizes[id], size.1 > 2 else { return nil }
-                return (windowId: id, columns: size.0, rows: size.1)
-            }
-            .sorted { $0.windowId < $1.windowId }
-        guard !kicks.isEmpty else { return }
-        sendPerWindowRedrawKick(kicks: kicks)
-    }
 
-    /// Session-wide shrink→restore SIGWINCH kick. Shared by the attach kick
-    /// and ``forceRedrawKick(windowIds:)``.
+    /// Session-wide shrink→restore SIGWINCH kick, for the attach one-shot: a
+    /// freshly attached client's TUIs must repaint at the size we just applied,
+    /// and when that apply was a no-op tmux sends them no SIGWINCH. This moves the
+    /// client size deliberately, so it is armed ONCE at attach — never per grid
+    /// grow, which is what looped (see repaintPaneVisibleScreen).
     private func sendSessionRedrawKick(size: (columns: Int, rows: Int)) {
         #if DEBUG
         cmuxDebugLog("remote.size.kick shrink to \(size.columns)x\(size.rows - 1)")
