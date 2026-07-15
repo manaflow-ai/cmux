@@ -459,10 +459,19 @@ struct WorkspaceForkConversationContextMenuTests {
             kind: .custom("omp"),
             sessionId: "omp-session",
             workingDirectory: nil,
-            launchCommand: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "omp",
+                executablePath: "omp",
+                arguments: ["omp", "--session", "omp-session"],
+                workingDirectory: nil,
+                environment: ["PATH": "/custom/omp/bin:/usr/bin"],
+                capturedAt: 123,
+                source: "process"
+            ),
             registration: .builtInOmp
         )
         #expect(ContentView.commandPaletteSnapshotForkAvailability(builtIn) == .requiresProbe)
+        #expect(builtIn.forkCommand?.contains("'PATH=/custom/omp/bin:/usr/bin'") == true)
 
         var projectOverride = CmuxVaultAgentRegistration.builtInOmp
         projectOverride.name = "Project OMP"

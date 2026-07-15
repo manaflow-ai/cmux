@@ -55,6 +55,7 @@ enum AgentForkSupport {
     static let minimumOmpForkVersion = SemanticVersion(major: 13, minor: 15, patch: 0)
     private static let commandOutputTimeoutNanoseconds: Int64 = 3_000_000_000
     private static let commandTerminateTimeoutNanoseconds: Int64 = 500_000_000
+    private static let commandOutputMaximumBytes = 64 * 1024
     private static let openCodeVersionProbeCache = OpenCodeVersionProbeCache()
     private static let piFamilyVersionProbeCache = AgentForkCapabilityProbeCache()
     private static let piFamilyVersionProbeCacheTTL: TimeInterval = 30
@@ -65,8 +66,10 @@ enum AgentForkSupport {
 
         func append(_ chunk: Data) {
             lock.lock()
-            data.append(chunk)
-            lock.unlock()
+            defer { lock.unlock() }
+            let remainingCapacity = AgentForkSupport.commandOutputMaximumBytes - data.count
+            guard remainingCapacity > 0 else { return }
+            data.append(contentsOf: chunk.prefix(remainingCapacity))
         }
 
         func value() -> Data {
