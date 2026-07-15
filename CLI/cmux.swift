@@ -25725,6 +25725,12 @@ struct CMUXCLI {
         case unknown
     }
 
+    private enum CodexMonitorWakeReason {
+        case changed
+        case processExited
+        case timedOut
+    }
+
     private func summarizeCodexHookFailure(
         parsedInput: ClaudeHookParsedInput,
         sessionId: String,
@@ -25908,6 +25914,33 @@ struct CMUXCLI {
                     )
                     candidateCanPublishBeforeTerminal = false
                 }
+            case "turn_aborted":
+                let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
+                if let turnId {
+                    if let payloadTurnId {
+                        guard payloadTurnId == turnId else { continue }
+                    } else {
+                        guard sawRelevantTurn else { continue }
+                    }
+                }
+                sawRelevantTurn = true
+                sawTerminalTurn = true
+                if firstString(in: payload, keys: ["reason"])?.lowercased() == "budget_limited" {
+                    candidate = CodexHookFailureCandidate(
+                        message: String(
+                            localized: "agent.codex.error.budgetLimited",
+                            defaultValue: "Codex stopped because the turn budget was reached"
+                        ),
+                        codexErrorInfo: "usage_limit",
+                        additionalDetails: nil,
+                        isStreamError: false
+                    )
+                } else {
+                    // Interrupted, replaced, and review-ended turns are deliberate
+                    // lifecycle transitions, not user-actionable failures.
+                    candidate = nil
+                }
+                candidateCanPublishBeforeTerminal = false
             default:
                 break
             }
@@ -26207,7 +26240,8 @@ struct CMUXCLI {
         excluding publishedCallIds: Set<String>
     ) -> CodexHookUserInputCandidate? {
         guard (payload["type"] as? String) == "function_call",
-              (payload["name"] as? String) == "request_user_input" else {
+              let functionName = payload["name"] as? String,
+              functionName == "request_user_input" || functionName == "request_permissions" else {
             return nil
         }
 
@@ -26220,6 +26254,21 @@ struct CMUXCLI {
             } else {
                 guard sawRelevantTurn else { return nil }
             }
+        }
+
+        if functionName == "request_permissions" {
+            let reason = arguments
+                .flatMap { firstString(in: $0, keys: ["reason", "justification"]) }
+                .map(normalizedSingleLine)
+                .flatMap { $0.isEmpty ? nil : truncate($0, maxLength: 220) }
+                ?? String(
+                    localized: "agent.codex.input.body.needsPermission",
+                    defaultValue: "Codex needs environment permission"
+                )
+            let callId = firstString(in: payload, keys: ["call_id", "callId"])
+                ?? "\(payloadTurnId ?? turnId ?? "session"):request_permissions"
+            guard !publishedCallIds.contains(callId) else { return nil }
+            return CodexHookUserInputCandidate(callId: callId, question: reason)
         }
 
         return codexUserInputCandidate(
@@ -26689,6 +26738,12 @@ struct CMUXCLI {
         if let leasePath, !leasePath.isEmpty {
             monitorArgs += ["--lease", leasePath]
         }
+        if let codexPID = agentPIDFromHookEnvironment(agentName: "codex", env: env) {
+            monitorArgs += ["--pid", String(codexPID)]
+            if let startTime = sessionsListProcessIdentity(for: codexPID)?.startTime {
+                monitorArgs += ["--pid-start", String(startTime)]
+            }
+        }
         process.arguments = monitorArgs
         process.environment = env.merging(["CMUX_CLI_SENTRY_DISABLED": "1"], uniquingKeysWith: { _, new in new })
         process.standardInput = FileHandle.nullDevice
@@ -26714,6 +26769,9 @@ struct CMUXCLI {
         let turnId = optionValue(commandArgs, name: "--turn")
         var transcriptPath = optionValue(commandArgs, name: "--transcript")
         let leasePath = optionValue(commandArgs, name: "--lease")
+        let codexPID = optionValue(commandArgs, name: "--pid").flatMap(Int.init)
+            ?? agentPIDFromHookEnvironment(agentName: "codex", env: env)
+        let codexPIDStartTime = optionValue(commandArgs, name: "--pid-start").flatMap(TimeInterval.init)
 
         guard !workspaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -26786,7 +26844,51 @@ struct CMUXCLI {
 
             let remaining = deadline.timeIntervalSinceNow
             guard remaining > 0 else { return }
-            waitForCodexTranscriptChange(path: transcriptPath, leasePath: leasePath, timeout: min(30, remaining))
+            let wakeReason = waitForCodexTranscriptChange(
+                path: transcriptPath,
+                leasePath: leasePath,
+                codexPID: codexPID,
+                codexPIDStartTime: codexPIDStartTime,
+                timeout: min(30, remaining)
+            )
+            guard wakeReason == .processExited else { continue }
+
+            if let currentTranscriptPath = transcriptPath {
+                switch readCodexTranscriptFailure(
+                    path: currentTranscriptPath,
+                    turnId: turnId,
+                    requireTerminalCompletion: true
+                ) {
+                case .failure(let failure):
+                    publishCodexMonitorFailure(
+                        failure,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        client: client
+                    )
+                    return
+                case .healthy:
+                    return
+                case .pending, .unavailable:
+                    break
+                }
+            }
+
+            publishCodexMonitorFailure(
+                CodexHookFailureCandidate(
+                    message: String(
+                        localized: "agent.codex.error.processExited",
+                        defaultValue: "Codex exited before finishing the turn"
+                    ),
+                    codexErrorInfo: "process_exited",
+                    additionalDetails: nil,
+                    isStreamError: false
+                ),
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                client: client
+            )
+            return
         }
     }
 
@@ -26829,11 +26931,22 @@ struct CMUXCLI {
         )
     }
 
-    private func waitForCodexTranscriptChange(path: String?, leasePath: String?, timeout: TimeInterval) {
-        guard timeout > 0 else { return }
+    private func waitForCodexTranscriptChange(
+        path: String?,
+        leasePath: String?,
+        codexPID: Int?,
+        codexPIDStartTime: TimeInterval?,
+        timeout: TimeInterval
+    ) -> CodexMonitorWakeReason {
+        guard timeout > 0 else { return .timedOut }
+        if let codexPID,
+           !codexMonitorProcessMatches(pid: codexPID, startTime: codexPIDStartTime) {
+            return .processExited
+        }
 
         let semaphore = DispatchSemaphore(value: 0)
         var sources: [DispatchSourceFileSystemObject] = []
+        var processSource: DispatchSourceProcess?
 
         func addFileSource(path: String?, eventMask: DispatchSource.FileSystemEvent) {
             guard let path, !path.isEmpty else { return }
@@ -26858,13 +26971,38 @@ struct CMUXCLI {
         addFileSource(path: path, eventMask: [.write, .extend, .delete, .rename])
         addFileSource(path: leasePath, eventMask: [.write, .delete, .rename])
 
-        guard !sources.isEmpty else {
-            _ = DispatchSemaphore(value: 0).wait(timeout: .now() + timeout)
-            return
+        if let codexPID, codexPID > 0, codexPID <= Int(Int32.max) {
+            let source = DispatchSource.makeProcessSource(
+                identifier: pid_t(codexPID),
+                eventMask: .exit,
+                queue: DispatchQueue.global(qos: .utility)
+            )
+            source.setEventHandler {
+                semaphore.signal()
+            }
+            source.resume()
+            processSource = source
         }
 
-        _ = semaphore.wait(timeout: .now() + timeout)
+        guard !sources.isEmpty || processSource != nil else {
+            _ = DispatchSemaphore(value: 0).wait(timeout: .now() + timeout)
+            return .timedOut
+        }
+
+        let waitResult = semaphore.wait(timeout: .now() + timeout)
         sources.forEach { $0.cancel() }
+        processSource?.cancel()
+        if let codexPID,
+           !codexMonitorProcessMatches(pid: codexPID, startTime: codexPIDStartTime) {
+            return .processExited
+        }
+        return waitResult == .success ? .changed : .timedOut
+    }
+
+    private func codexMonitorProcessMatches(pid: Int, startTime: TimeInterval?) -> Bool {
+        guard let identity = sessionsListProcessIdentity(for: pid) else { return false }
+        guard let startTime else { return true }
+        return abs(identity.startTime - startTime) < 0.001
     }
 
     private func extractMessageText(from message: [String: Any]) -> String? {

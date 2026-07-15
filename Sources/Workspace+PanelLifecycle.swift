@@ -218,7 +218,7 @@ extension Workspace {
         )
     }
 
-    func suppressesRawTerminalNotification(panelId: UUID?) -> Bool {
+    func suppressesRawTerminalNotification(panelId: UUID?, body: String? = nil) -> Bool {
         guard let panelId else {
             return false
         }
@@ -229,7 +229,17 @@ extension Workspace {
         }
 
         let panelKeys = agentPIDKeysByPanelId[panelId] ?? []
+        if isCodexMcpElicitationNotification(body),
+           panelKeys.contains(where: { agentStatusKey(forAgentPIDKey: $0) == "codex" }) {
+            return false
+        }
         return panelKeys.contains { isStructuredAgentHookPIDKey($0) }
+    }
+
+    private func isCodexMcpElicitationNotification(_ body: String?) -> Bool {
+        guard let body = body?.trimmingCharacters(in: .whitespacesAndNewlines) else { return false }
+        let prefix = "Approval requested by "
+        return body.hasPrefix(prefix) && body.count > prefix.count
     }
 
     private func terminalPanelHasManagedSubagentStartupEnvironment(panelId: UUID) -> Bool {

@@ -47,7 +47,7 @@ extension TerminalNotificationStore {
             return
         }
         let workspace = owningManager.workspacesById[target.tabId]
-        guard workspace?.suppressesRawTerminalNotification(panelId: target.surfaceId) != true else { return }
+        guard workspace?.suppressesRawTerminalNotification(panelId: target.surfaceId, body: body) != true else { return }
         let resolvedTitle = title.isEmpty ? owningManager.titleForTab(target.tabId) ?? String(
             localized: "notification.desktop.defaultTerminalTitle",
             defaultValue: "Terminal"
