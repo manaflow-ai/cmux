@@ -373,6 +373,59 @@ final class CmuxEventBusTests: XCTestCase {
         )
     }
 
+    func testBulkNotificationRemovalPublishesPerRowEventsAsynchronously() throws {
+        let bus = CmuxEventBus(retainedEventLimit: 256)
+        let workspaceId = UUID()
+        let surfaceId = UUID()
+        let notifications = (0..<150).map { index in
+            TerminalNotification(
+                id: UUID(),
+                tabId: workspaceId,
+                surfaceId: surfaceId,
+                title: "Removed \(index)",
+                subtitle: "",
+                body: "",
+                createdAt: Date(timeIntervalSince1970: TimeInterval(index)),
+                isRead: false
+            )
+        }
+        let created = TerminalNotification(
+            id: UUID(),
+            tabId: workspaceId,
+            surfaceId: surfaceId,
+            title: "Created after removals",
+            subtitle: "",
+            body: "",
+            createdAt: Date(timeIntervalSince1970: 999),
+            isRead: false
+        )
+
+        bus.publishNotificationsRemoved(notifications + [notifications[0], notifications[1]]) {
+            bus.publishNotificationCreated(created, delivery: "store", replacedNotificationIds: [])
+        }
+
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                bus.retainedSnapshot().count == notifications.count + 1
+            },
+            object: NSObject()
+        )
+        XCTAssertEqual(XCTWaiter().wait(for: [expectation], timeout: 2), .completed)
+        let events = bus.retainedSnapshot()
+        XCTAssertEqual(
+            events.compactMap { $0["name"] as? String },
+            Array(repeating: "notification.removed", count: notifications.count)
+                + ["notification.created"]
+        )
+        let notificationIDs = events.dropLast().compactMap {
+            ($0["payload"] as? [String: Any])?["notification_id"] as? String
+        }
+        XCTAssertEqual(notificationIDs.count, notifications.count)
+        XCTAssertEqual(Set(notificationIDs).count, notifications.count)
+        let createdPayload = try XCTUnwrap(events.last?["payload"] as? [String: Any])
+        XCTAssertEqual(createdPayload["notification_id"] as? String, created.id.uuidString)
+    }
+
     @MainActor
     func testBulkNotificationClearPublishesClearedWithoutRemovedDuplicates() throws {
         let store = TerminalNotificationStore.shared

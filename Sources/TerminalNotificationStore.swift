@@ -2007,8 +2007,13 @@ final class TerminalNotificationStore: ObservableObject {
         case .insertion(let inserted):
             CmuxEventBus.shared.publishNotificationCreated(inserted, delivery: "store", replacedNotificationIds: [])
         case .insertionEvicting(let inserted, let evicted):
-            CmuxEventBus.shared.publishNotificationsRemoved(evicted)
-            CmuxEventBus.shared.publishNotificationCreated(inserted, delivery: "store", replacedNotificationIds: [])
+            CmuxEventBus.shared.publishNotificationsRemoved(evicted) {
+                CmuxEventBus.shared.publishNotificationCreated(
+                    inserted,
+                    delivery: "store",
+                    replacedNotificationIds: []
+                )
+            }
         case .readState(let before, let after) where appliedIncrementally:
             if !before.isRead, after.isRead {
                 CmuxEventBus.shared.publishNotificationRead(

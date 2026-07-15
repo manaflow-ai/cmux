@@ -16,6 +16,7 @@ final class TerminalMutationBus: @unchecked Sendable {
     static let shared = TerminalMutationBus()
     static let maximumPendingMutationCount = 256
     static let maximumWaitingNotificationProducerCount = 16
+    static let maximumReliableAdmissionBacklogCount = maximumPendingMutationCount
     static let notificationCapacityWaitTimeout: TimeInterval = 1
     nonisolated static let maximumQueuedNotificationContentBytes =
         TerminalNotificationStore.maximumNotificationFeedContentBytes
@@ -37,7 +38,7 @@ final class TerminalMutationBus: @unchecked Sendable {
     var notificationReplacementRouteOrder: [UUID] = []
     var notificationLiveOwnerTabIdBySurfaceId: [UUID: UUID] = [:]
     var notificationLiveOwnerSurfaceOrder: [UUID] = []
-    var activeReliableAdmission: ReliableTerminalNotificationAdmission?
+    var reliableAdmissionsById: [UUID: ReliableTerminalNotificationAdmission] = [:]
     private var reliableClearAllBoundary: UInt64?
     private var reliableClearWorkspaceBoundaryByTabId: [UUID: UInt64] = [:]
     private var reliableClearWorkspaceBoundaryOrder: [UUID] = []
@@ -143,14 +144,17 @@ final class TerminalMutationBus: @unchecked Sendable {
             body: body
         )
         return await withCheckedContinuation { (continuation: CheckedContinuation<ReliableTerminalNotificationEnqueueResult, Never>) in
-            let admission = makeReliableNotificationAdmission(
+            guard let admissionToken = captureReliableNotificationAdmission(
                 tabId: tabId,
                 surfaceId: surfaceId,
                 payload: payload,
                 allowWorkspaceFallbackForValidatedSurface: allowWorkspaceFallbackForValidatedSurface
-            )
+            ) else {
+                continuation.resume(returning: .saturated)
+                return
+            }
             Self.reliableAdmissionQueue.async { [self] in
-                continuation.resume(returning: enqueueReliableNotificationAdmission(admission))
+                continuation.resume(returning: enqueueCapturedNotificationReliably(admissionToken: admissionToken))
             }
         }
     }
@@ -168,24 +172,32 @@ final class TerminalMutationBus: @unchecked Sendable {
             subtitle: subtitle,
             body: body
         )
-        let admission = makeReliableNotificationAdmission(
+        guard let admissionToken = captureReliableNotificationAdmission(
             tabId: tabId,
             surfaceId: surfaceId,
             payload: payload,
             allowWorkspaceFallbackForValidatedSurface: allowWorkspaceFallbackForValidatedSurface
-        )
+        ) else {
+            return .saturated
+        }
         return Self.reliableAdmissionQueue.sync { [self] in
-            enqueueReliableNotificationAdmission(admission)
+            enqueueCapturedNotificationReliably(admissionToken: admissionToken)
         }
     }
 
-    private nonisolated func makeReliableNotificationAdmission(
+    private nonisolated func captureReliableNotificationAdmission(
         tabId: UUID,
         surfaceId: UUID?,
         payload: QueuedTerminalNotificationPayload,
         allowWorkspaceFallbackForValidatedSurface: Bool
-    ) -> ReliableTerminalNotificationAdmission {
+    ) -> TerminalNotificationAdmissionToken? {
         lock.lock()
+        guard reliableAdmissionsById.count < Self.maximumReliableAdmissionBacklogCount,
+              queuedNotificationContentByteCountLocked() + payload.contentByteCount
+                  <= Self.maximumQueuedNotificationContentBytes else {
+            lock.unlock()
+            return nil
+        }
         let routedKey = notificationKeyFollowingReplacementRoutes(
             QueuedTerminalNotificationKey(tabId: tabId, surfaceId: surfaceId)
         )
@@ -198,46 +210,51 @@ final class TerminalMutationBus: @unchecked Sendable {
             notificationGeneration: currentNotificationGeneration,
             deadline: Self.reliableAdmissionDeadline()
         )
+        reliableAdmissionsById[registered.id] = registered
         lock.unlock()
-        return registered
+        return TerminalNotificationAdmissionToken(id: registered.id)
     }
 
     /// Called only from the bus-owned serial admission queue. At most one
     /// worker waits on the condition while later internal producers remain
-    /// suspended behind that worker without occupying cooperative threads.
-    private nonisolated func enqueueReliableNotificationAdmission(
-        _ admission: ReliableTerminalNotificationAdmission
+    /// suspended behind that worker without occupying cooperative threads. The
+    /// worker carries only a bounded token; all retained payloads are already
+    /// registered under `lock`, so clears and byte limits see the full backlog.
+    private nonisolated func enqueueCapturedNotificationReliably(
+        admissionToken: TerminalNotificationAdmissionToken
     ) -> ReliableTerminalNotificationEnqueueResult {
         lock.lock()
-        activeReliableAdmission = admission
         reliablyWaitingNotificationProducerCount += 1
-        while activeReliableAdmission?.id == admission.id,
+        while let admission = reliableAdmissionsById[admissionToken.id],
               !shouldDropReliableAdmissionLocked(admission),
-              !hasUnreservedNotificationCapacityLocked(for: admission.payload.contentByteCount) {
+              !hasReservedAdmissionCapacityLocked() {
             guard let waitUntil = Self.waitDateBeforeReliableAdmissionDeadline(admission.deadline) else {
-                activeReliableAdmission = nil
+                reliableAdmissionsById.removeValue(forKey: admissionToken.id)
                 reliablyWaitingNotificationProducerCount -= 1
+                lock.broadcast()
                 lock.unlock()
                 return .saturated
             }
             _ = lock.wait(until: waitUntil)
         }
         reliablyWaitingNotificationProducerCount -= 1
-        guard activeReliableAdmission?.id == admission.id else {
+        guard var admission = reliableAdmissionsById.removeValue(forKey: admissionToken.id) else {
+            lock.broadcast()
             lock.unlock()
             return .cancelled
         }
         let routedKey = notificationKeyFollowingReplacementRoutes(admission.key)
+        admission.key = routedKey
         guard !shouldDropReliableAdmissionLocked(
             key: routedKey,
             generation: admission.notificationGeneration
         ) else {
-            activeReliableAdmission = nil
+            lock.broadcast()
             lock.unlock()
             return .cancelled
         }
         guard hasUnreservedNotificationCapacityLocked(for: admission.payload.contentByteCount) else {
-            activeReliableAdmission = nil
+            lock.broadcast()
             lock.unlock()
             return .saturated
         }
@@ -262,7 +279,7 @@ final class TerminalMutationBus: @unchecked Sendable {
         ))
         let shouldScheduleDrain = !drainScheduled
         if shouldScheduleDrain { drainScheduled = true }
-        activeReliableAdmission = nil
+        lock.broadcast()
         lock.unlock()
 #if DEBUG
         cmuxDebugLog(
@@ -363,6 +380,9 @@ final class TerminalMutationBus: @unchecked Sendable {
                 total += notification.contentByteCount
             }
         }
+        for admission in reliableAdmissionsById.values {
+            total += admission.payload.contentByteCount
+        }
         return total
     }
 
@@ -428,6 +448,10 @@ final class TerminalMutationBus: @unchecked Sendable {
         let boundary = currentNotificationGeneration
         currentNotificationGeneration &+= 1
         recordReliableClearBoundaryLocked(routedTarget, boundary: boundary)
+        reliableAdmissionsById = reliableAdmissionsById.filter { _, admission in
+            let key = notificationKeyFollowingReplacementRoutes(admission.key)
+            return !shouldDropPending(key)
+        }
         compactPendingForMutation()
         pending.removeAll { entry in
             if case .deliverNotification(let notification) = entry.mutation {

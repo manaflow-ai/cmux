@@ -1,6 +1,12 @@
 import Foundation
 import CMUXAgentLaunch
 
+private let notificationRemovalEventQueue = DispatchQueue(
+    label: "com.cmux.notification-removal-events",
+    qos: .utility
+)
+private let notificationRemovalEventChunkSize = 128
+
 extension CmuxEventBus {
     func publishWorkspaceCreated(
         workspaceId: UUID,
@@ -370,11 +376,38 @@ extension CmuxEventBus {
         )
     }
 
-    func publishNotificationsRemoved(_ notifications: [TerminalNotification]) {
+    func publishNotificationsRemoved(
+        _ notifications: [TerminalNotification],
+        completion: (@Sendable () -> Void)? = nil
+    ) {
         var seen = Set<UUID>()
         let unique = notifications.filter { seen.insert($0.id).inserted }
-        for notification in unique {
-            publishNotificationRemoved(notification)
+        guard !unique.isEmpty else {
+            completion?()
+            return
+        }
+        guard unique.count > notificationRemovalEventChunkSize else {
+            for notification in unique {
+                publishNotificationRemoved(notification)
+            }
+            completion?()
+            return
+        }
+
+        notificationRemovalEventQueue.async { [self] in
+            var index = unique.startIndex
+            while index < unique.endIndex {
+                let end = unique.index(
+                    index,
+                    offsetBy: notificationRemovalEventChunkSize,
+                    limitedBy: unique.endIndex
+                ) ?? unique.endIndex
+                for notification in unique[index..<end] {
+                    publishNotificationRemoved(notification)
+                }
+                index = end
+            }
+            completion?()
         }
     }
 

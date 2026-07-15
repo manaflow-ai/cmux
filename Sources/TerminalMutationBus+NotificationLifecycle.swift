@@ -94,7 +94,7 @@ extension TerminalMutationBus {
                 notification.allowWorkspaceFallbackForValidatedSurface
             )
         }
-        if let admission = activeReliableAdmission {
+        for admission in reliableAdmissionsById.values.sorted(by: Self.reliableAdmissionSortPrecedes) {
             let key = notificationKeyFollowingReplacementRoutes(admission.key)
             addresses.append((
                 admission.id,
@@ -121,10 +121,7 @@ extension TerminalMutationBus {
     nonisolated func discardQueuedNotifications(ids: Set<UUID>) {
         guard !ids.isEmpty else { return }
         lock.lock()
-        if let admission = activeReliableAdmission,
-           ids.contains(admission.id) {
-            activeReliableAdmission = nil
-        }
+        reliableAdmissionsById = reliableAdmissionsById.filter { !ids.contains($0.key) }
         compactPendingForMutation()
         pending.removeAll { entry in
             guard case .deliverNotification(let notification) = entry.mutation else { return false }
@@ -153,6 +150,17 @@ extension TerminalMutationBus {
             toTabId: toTabId,
             panelIdMap: panelIdMap
         ).map(notificationEntryFollowingReplacementRoutes)
+        reliableAdmissionsById = reliableAdmissionsById.mapValues { admission in
+            var remapped = admission
+            if remapped.key.tabId == fromTabId {
+                remapped.key = QueuedTerminalNotificationKey(
+                    tabId: toTabId,
+                    surfaceId: remapped.key.surfaceId.map { panelIdMap[$0] ?? $0 }
+                )
+            }
+            remapped.key = notificationKeyFollowingReplacementRoutes(remapped.key)
+            return remapped
+        }
         lock.broadcast()
         lock.unlock()
     }
@@ -209,6 +217,11 @@ extension TerminalMutationBus {
         installNotificationLiveOwnerRoute(surfaceId: surfaceId, toTabId: toTabId)
         compactPendingForMutation()
         pending = pending.map(notificationEntryFollowingReplacementRoutes)
+        reliableAdmissionsById = reliableAdmissionsById.mapValues { admission in
+            var routed = admission
+            routed.key = notificationKeyFollowingReplacementRoutes(routed.key)
+            return routed
+        }
         lock.broadcast()
         lock.unlock()
     }
@@ -297,11 +310,12 @@ extension TerminalMutationBus {
         if advanceGeneration {
             recordReliableClearBoundaryLocked(.all, boundary: currentNotificationGeneration)
         }
-        if let admission = activeReliableAdmission {
+        reliableAdmissionsById = reliableAdmissionsById.filter { _, admission in
             let key = notificationKeyFollowingReplacementRoutes(admission.key)
             if shouldDiscard(key, admission.notificationGeneration) {
-                activeReliableAdmission = nil
+                return false
             }
+            return true
         }
         compactPendingForMutation()
         pending.removeAll { entry in
@@ -316,5 +330,13 @@ extension TerminalMutationBus {
         }
         lock.broadcast()
         lock.unlock()
+    }
+
+    private static func reliableAdmissionSortPrecedes(
+        _ lhs: ReliableTerminalNotificationAdmission,
+        _ rhs: ReliableTerminalNotificationAdmission
+    ) -> Bool {
+        if lhs.acceptedAt != rhs.acceptedAt { return lhs.acceptedAt < rhs.acceptedAt }
+        return lhs.id.uuidString < rhs.id.uuidString
     }
 }
