@@ -40,6 +40,29 @@ extension Workspace {
         ).availability
     }
 
+    func forkAgentConversationContextMenuPresentationAvailability(
+        forPanelId panelId: UUID
+    ) -> WorkspaceForkAgentConversationAvailability {
+        forkAgentConversationContextMenuPresentationAvailability(
+            forPanelId: panelId,
+            liveAgentIndex: .shared
+        )
+    }
+
+    func forkAgentConversationContextMenuPresentationAvailability(
+        forPanelId panelId: UUID,
+        liveAgentIndex: SharedLiveAgentIndex
+    ) -> WorkspaceForkAgentConversationAvailability {
+        let candidateAvailability = forkAgentConversationContextMenuAvailability(forPanelId: panelId)
+        guard candidateAvailability == .requiresProbe else {
+            return candidateAvailability
+        }
+        return forkAgentConversationContextMenuOpenAvailability(
+            forPanelId: panelId,
+            liveAgentIndex: liveAgentIndex
+        )
+    }
+
     func forkAgentConversationContextMenuOpenSelection(
         forPanelId panelId: UUID
     ) -> (
