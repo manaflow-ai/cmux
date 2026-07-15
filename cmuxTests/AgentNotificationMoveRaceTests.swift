@@ -272,8 +272,8 @@ struct AgentNotificationRegressionTests {
         #expect(notification.surfaceId == destinationSurfaceId)
     }
 
-    @Test("Accepted notification falls back to its live workspace when its surface is gone")
-    func acceptedNotificationFallsBackToLiveWorkspaceWhenSurfaceIsGone() throws {
+    @Test("Queued notification with an unknown surface fails closed")
+    func queuedNotificationWithUnknownSurfaceFailsClosed() throws {
         let fixture = try makeFixture()
         defer { fixture.restore() }
         let missingSurfaceId = UUID()
@@ -288,6 +288,40 @@ struct AgentNotificationRegressionTests {
             acceptedAt: Date(),
             notificationGeneration: TerminalMutationBus.shared.notificationGenerationSnapshot()
         )
+
+        #expect(fixture.store.notifications.isEmpty)
+    }
+
+    @Test("Policy-delayed accepted notification falls back only after surface validation")
+    func policyDelayedValidatedSurfaceFallsBackToWorkspaceWhenSurfaceDisappears() async throws {
+        let gateURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-policy-gate-\(UUID().uuidString)"
+        )
+        let completionURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-policy-complete-\(UUID().uuidString)"
+        )
+        let fixture = try makeFixture(
+            policyHookCommand: "while [ ! -f '\(gateURL.path)' ]; do /bin/sleep 0.01; done; cat; touch '\(completionURL.path)'",
+            policyHookTimeoutSeconds: 5
+        )
+        defer {
+            try? FileManager.default.removeItem(at: gateURL)
+            try? FileManager.default.removeItem(at: completionURL)
+            fixture.restore()
+        }
+
+        fixture.store.addNotification(
+            tabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            title: "Validated before disappearance",
+            subtitle: "",
+            body: "",
+            retargetsToLiveSurfaceOwner: true
+        )
+        _ = try #require(fixture.source.detachSurface(panelId: fixture.panelId))
+        try Data().write(to: gateURL)
+        #expect(await waitForFile(at: completionURL))
+        await waitForNotification(in: fixture.store)
 
         let notification = try #require(fixture.store.notifications.first)
         #expect(notification.tabId == fixture.source.id)

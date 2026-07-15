@@ -21,6 +21,46 @@ struct NotificationFeedScaleTests {
     }
 
     @Test
+    func retainedFeedEvictsOldestRowAtDefaultCapacityBoundary() {
+        let store = TerminalNotificationStore.shared
+        let eventBus = CmuxEventBus.shared
+        let tabId = UUID()
+        let surfaceId = UUID()
+        let limit = 20_000
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        store.configureSuppressedNotificationFeedbackHandlerForTesting { _, _ in }
+        eventBus.resetForTesting()
+        defer {
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            store.resetSuppressedNotificationFeedbackHandlerForTesting()
+            eventBus.resetForTesting()
+        }
+
+        for index in 0...limit {
+            store.addNotification(
+                id: UUID(),
+                acceptedAt: Date(timeIntervalSince1970: TimeInterval(index)),
+                tabId: tabId,
+                surfaceId: surfaceId,
+                title: "History \(index)",
+                subtitle: "",
+                body: "",
+                retargetsToLiveSurfaceOwner: false
+            )
+        }
+
+        #expect(store.notifications.count == limit)
+        #expect(store.unreadNotificationCount == limit)
+        #expect(store.notifications.first?.title == "History \(limit)")
+        #expect(store.notifications.last?.title == "History 1")
+        #expect(!store.notifications.contains { $0.title == "History 0" })
+        #expect(Set(store.notifications.map(\.id)).count == limit)
+    }
+
+    @Test
     func inconsistentIncrementalIndexesRebuildInsteadOfTrapping() {
         let tabId = UUID()
         let existing = TerminalNotification(
