@@ -267,42 +267,6 @@ private extension ReflowOptions {
         return result
     }
 
-    /// Promote loose pipe rows around a Markdown separator row into structural
-    /// table rows without treating every shell pipeline as a table.
-    func promoteMarkdownTableRows(_ lines: [Substring], lineKinds: inout [LineKind]) {
-        guard lines.count == lineKinds.count else { return }
-        for i in lines.indices {
-            guard isPromotableTableKind(lineKinds[i]),
-                  lineKindIsMarkdownTableSeparatorRow(lines[i]) else { continue }
-
-            lineKinds[i] = .tableRow
-
-            let headerIndex = i - 1
-            if headerIndex >= 0,
-               isPromotableTableKind(lineKinds[headerIndex]),
-               lineKindIsMarkdownTableCandidateRow(lines[headerIndex]) {
-                lineKinds[headerIndex] = .tableRow
-            }
-
-            var bodyIndex = i + 1
-            while bodyIndex < lines.count,
-                  isPromotableTableKind(lineKinds[bodyIndex]),
-                  lineKindIsMarkdownTableCandidateRow(lines[bodyIndex]) {
-                lineKinds[bodyIndex] = .tableRow
-                bodyIndex += 1
-            }
-        }
-    }
-
-    func isPromotableTableKind(_ kind: LineKind) -> Bool {
-        switch kind {
-        case .prose, .tableRow:
-            return true
-        case .blank, .fenceDelimiter, .insideFence, .heading, .blockquote, .listItem, .urlLine:
-            return false
-        }
-    }
-
     /// Minimum leading-whitespace column count across blank-excluded, fence-excluded
     /// lines. Tabs and spaces each count as one column.
     func computeCommonIndent(_ lines: [Substring], isFenceLine: [Bool]) -> Int {

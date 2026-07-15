@@ -71,6 +71,12 @@ struct ReflowStructureTests {
         #expect(reflow(input) == input)
     }
 
+    @Test func largeSeparatorShapedTablePreserved() {
+        let input = Array(repeating: "---|---", count: 4_000).joined(separator: "\n") + "\n"
+        #expect(input.utf8.count < 256 * 1024)
+        #expect(reflow(input) == input)
+    }
+
     @Test func nestedBulletsPreserved() {
         let input = "- parent item\n  - child item\n"
         #expect(reflow(input) == input)
