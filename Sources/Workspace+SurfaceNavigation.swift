@@ -66,19 +66,29 @@ extension Workspace {
         }
     }
 
-    /// Moves the selected surface within its focused pane without wrapping.
+    /// Moves the selected surface within its focused split or Canvas pane
+    /// without wrapping.
     @discardableResult
     func moveSelectedSurface(by offset: Int) -> Bool {
+        if layoutMode == .canvas {
+            guard let focusedPanelId else { return false }
+            return reorderSurface(panelId: focusedPanelId, by: offset)
+        }
         guard let paneId = bonsplitController.focusedPaneId,
               let selectedTab = bonsplitController.selectedTab(inPane: paneId),
               let panelId = panelIdFromSurfaceId(selectedTab.id) else { return false }
         return reorderSurface(panelId: panelId, by: offset)
     }
 
-    /// Reorders one surface by a relative final-position offset, preserving
-    /// Bonsplit's insertion-index contract and pinned-tab boundary clamping.
+    /// Reorders one surface by a relative final-position offset in the
+    /// current layout's authoritative tab model.
     @discardableResult
     func reorderSurface(panelId: UUID, by offset: Int) -> Bool {
+        if layoutMode == .canvas {
+            guard canvasModel.reorderPanel(panelId, by: offset) else { return false }
+            canvasModel.viewport?.modelDidChangeExternally(animated: false)
+            return true
+        }
         guard let paneId = paneId(forPanelId: panelId),
               let tabId = surfaceIdFromPanelId(panelId) else { return false }
         let tabs = bonsplitController.tabs(inPane: paneId)
