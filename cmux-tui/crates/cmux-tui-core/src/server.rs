@@ -419,6 +419,8 @@ const STREAM_DISCONNECT_POLL: Duration = Duration::from_millis(100);
 const STREAM_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 const OUTBOUND_CAPACITY: usize = 256;
 const OUTBOUND_CONTROL_RESERVE: usize = 256;
+const OUTBOUND_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
+const OUTBOUND_CONTROL_BYTE_RESERVE: usize = 16 * 1024 * 1024;
 
 trait MessageSink: Send + Sync {
     fn send(&self, value: &Value) -> std::io::Result<()>;
@@ -496,8 +498,10 @@ struct BoundedOutbound {
 
 #[derive(Default)]
 struct BoundedOutboundState {
-    queue: VecDeque<(String, bool)>,
-    regular_count: usize,
+    control: VecDeque<String>,
+    regular: VecDeque<String>,
+    control_bytes: usize,
+    regular_bytes: usize,
     closed: bool,
 }
 
@@ -507,10 +511,15 @@ impl BoundedOutbound {
         if state.closed {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
-        let total_capacity = OUTBOUND_CAPACITY + OUTBOUND_CONTROL_RESERVE;
-        if state.queue.len() >= total_capacity
-            || (!control && state.regular_count >= OUTBOUND_CAPACITY)
-        {
+        let bytes = text.len();
+        let over_capacity = if control {
+            state.control.len() >= OUTBOUND_CONTROL_RESERVE
+                || bytes > OUTBOUND_CONTROL_BYTE_RESERVE.saturating_sub(state.control_bytes)
+        } else {
+            state.regular.len() >= OUTBOUND_CAPACITY
+                || bytes > OUTBOUND_BYTE_CAPACITY.saturating_sub(state.regular_bytes)
+        };
+        if over_capacity {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::WouldBlock,
                 if control {
@@ -520,10 +529,13 @@ impl BoundedOutbound {
                 },
             ));
         }
-        if !control {
-            state.regular_count += 1;
+        if control {
+            state.control_bytes += bytes;
+            state.control.push_back(text);
+        } else {
+            state.regular_bytes += bytes;
+            state.regular.push_back(text);
         }
-        state.queue.push_back((text, control));
         self.changed.notify_one();
         Ok(())
     }
@@ -547,10 +559,12 @@ impl BoundedOutbound {
     }
 
     fn pop_locked(state: &mut BoundedOutboundState) -> Option<String> {
-        let (text, control) = state.queue.pop_front()?;
-        if !control {
-            state.regular_count -= 1;
+        if let Some(text) = state.control.pop_front() {
+            state.control_bytes -= text.len();
+            return Some(text);
         }
+        let text = state.regular.pop_front()?;
+        state.regular_bytes -= text.len();
         Some(text)
     }
 
@@ -768,6 +782,7 @@ fn handle_websocket_connection(mux: Arc<Mux>, stream: TcpStream, token: Option<&
         }
     }
     let _ = websocket.get_mut().set_read_timeout(Some(STREAM_DISCONNECT_POLL));
+    let _ = websocket.get_mut().set_write_timeout(Some(STREAM_WRITE_TIMEOUT));
     let outbound = Arc::new(BoundedOutbound::default());
     let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone() });
 
@@ -1780,7 +1795,9 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &MessageWriter) -> anyho
                         return Err(error);
                     }
                 };
-                if let Err(error) = writer.send(&browser_state_json(surface_id, &state, true)) {
+                if let Err(error) =
+                    writer.send_control(&browser_state_json(surface_id, &state, true))
+                {
                     handle_attach_send_error(&lifecycle, &error);
                     return Err(error.into());
                 }
@@ -1833,7 +1850,7 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &MessageWriter) -> anyho
                     return Err(error.into());
                 }
             };
-            if let Err(error) = writer.send(&json!({
+            if let Err(error) = writer.send_control(&json!({
                 "event": "vt-state",
                 "surface": surface_id,
                 "cols": attach.cols,
@@ -1964,15 +1981,27 @@ mod tests {
 
         writer.send_control(&json!({"id": 42, "ok": true, "data": {}})).unwrap();
         writer.send_terminal(&subscription_overflow_json()).unwrap();
-        let drained = (0..OUTBOUND_CAPACITY)
-            .map(|_| outbound.try_pop().expect("accepted output"))
-            .collect::<Vec<_>>();
-        assert!(drained[0].contains("\"sequence\":0"));
         let response: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
         assert_eq!(response["id"], 42);
         let terminal: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
         assert_eq!(terminal["event"], "overflow");
+        let drained = (0..OUTBOUND_CAPACITY)
+            .map(|_| outbound.try_pop().expect("accepted output"))
+            .collect::<Vec<_>>();
+        assert!(drained[0].contains("\"sequence\":0"));
         assert!(writer.is_open());
+    }
+
+    #[test]
+    fn bounded_writer_rejects_payloads_beyond_each_byte_budget() {
+        let outbound = BoundedOutbound::default();
+
+        let regular = outbound.push("x".repeat(OUTBOUND_BYTE_CAPACITY + 1), false).unwrap_err();
+        assert_eq!(regular.kind(), std::io::ErrorKind::WouldBlock);
+        let control =
+            outbound.push("x".repeat(OUTBOUND_CONTROL_BYTE_RESERVE + 1), true).unwrap_err();
+        assert_eq!(control.kind(), std::io::ErrorKind::WouldBlock);
+        assert_eq!(outbound.try_pop(), None);
     }
 
     #[test]
