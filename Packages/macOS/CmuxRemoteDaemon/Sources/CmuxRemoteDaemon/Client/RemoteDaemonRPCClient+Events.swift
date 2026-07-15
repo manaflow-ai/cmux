@@ -153,6 +153,9 @@ extension RemoteDaemonRPCClient {
         if consumePTYEventPayload(payload) {
             return
         }
+        if consumeRuntimeStateEventPayload(payload) {
+            return
+        }
 
         guard let eventName = (payload["event"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines),
@@ -329,6 +332,7 @@ extension RemoteDaemonRPCClient {
         stderrHandle?.readabilityHandler = nil
         stderrHandle = nil
         streamSubscriptions.removeAll(keepingCapacity: false)
+        runtimeStateSubscription = nil
         failPTYSubscriptionsLocked(detail)
         signalPendingFailureLocked(detail)
 
@@ -347,6 +351,7 @@ extension RemoteDaemonRPCClient {
         webSocketSession = nil
         webSocketDelegate = nil
         streamSubscriptions.removeAll(keepingCapacity: false)
+        runtimeStateSubscription = nil
         failPTYSubscriptionsLocked(detail)
         signalPendingFailureLocked(detail)
         capturedTask?.cancel(with: .normalClosure, reason: nil)

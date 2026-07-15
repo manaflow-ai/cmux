@@ -84,6 +84,13 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
         let handler: (RemoteDaemonPTYEvent) -> Void
     }
 
+    // See StreamSubscription for the @unchecked Sendable justification.
+    struct RuntimeStateSubscription: @unchecked Sendable {
+        let id: UUID
+        let queue: DispatchQueue
+        let handler: @Sendable (RemoteRuntimeStateDocument) -> Void
+    }
+
     let configuration: WorkspaceRemoteConfiguration
     let remotePath: String
     let strings: RemoteDaemonStrings
@@ -126,6 +133,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     var stderrBuffer = ""
     var streamSubscriptions: [String: StreamSubscription] = [:]
     var ptySubscriptions: [String: PTYSubscription] = [:]
+    var runtimeStateSubscription: RuntimeStateSubscription?
     var cliRequestsInFlight = 0
     var advertisedCapabilities: Set<String> = []
 
@@ -241,6 +249,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
         stderrBuffer = ""
         streamSubscriptions.removeAll(keepingCapacity: false)
         ptySubscriptions.removeAll(keepingCapacity: false)
+        runtimeStateSubscription = nil
         advertisedCapabilities.removeAll(keepingCapacity: false)
     }
 
@@ -285,6 +294,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
             webSocketSession = nil
             webSocketDelegate = nil
             streamSubscriptions.removeAll(keepingCapacity: false)
+            runtimeStateSubscription = nil
             failPTYSubscriptionsLocked(detail)
             return (
                 capturedProcess,

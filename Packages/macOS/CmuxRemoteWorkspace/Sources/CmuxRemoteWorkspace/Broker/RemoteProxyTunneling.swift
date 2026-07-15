@@ -66,6 +66,14 @@ public protocol RemoteProxyTunneling: AnyObject {
         expectedRevision: UInt64?
     ) throws -> RemoteRuntimeStateDocument
 
+    /// Subscribes to authoritative workspace-state changes on this tunnel.
+    ///
+    /// - Returns: The current document, or `nil` when the runtime is empty.
+    func subscribeRuntimeState(
+        queue: DispatchQueue,
+        onDocument: @escaping @Sendable (RemoteRuntimeStateDocument) -> Void
+    ) throws -> RemoteRuntimeStateDocument?
+
     /// Starts a single-use loopback PTY bridge server for a terminal attach
     /// and returns its endpoint.
     func startPTYBridge(
@@ -92,6 +100,16 @@ public extension RemoteProxyTunneling {
         state _: Data,
         expectedRevision _: UInt64?
     ) throws -> RemoteRuntimeStateDocument {
+        throw NSError(domain: "cmux.remote.runtime-state", code: 1, userInfo: [
+            NSLocalizedDescriptionKey: "remote runtime state is unavailable",
+        ])
+    }
+
+    /// Default for test doubles and transports that predate runtime state.
+    func subscribeRuntimeState(
+        queue _: DispatchQueue,
+        onDocument _: @escaping @Sendable (RemoteRuntimeStateDocument) -> Void
+    ) throws -> RemoteRuntimeStateDocument? {
         throw NSError(domain: "cmux.remote.runtime-state", code: 1, userInfo: [
             NSLocalizedDescriptionKey: "remote runtime state is unavailable",
         ])

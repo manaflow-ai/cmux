@@ -2,6 +2,39 @@ internal import CoreFoundation
 public import Foundation
 
 extension RemoteDaemonRPCClient {
+    /// Subscribes to authoritative workspace-state changes on this transport.
+    ///
+    /// The handler is registered before the subscribe RPC so a commit racing
+    /// the response cannot be missed. Delivery occurs on `queue`; stopping the
+    /// transport removes the local subscription.
+    ///
+    /// - Returns: The current document, or `nil` when no client has seeded the runtime.
+    /// - Throws: A transport, protocol, or malformed-document error.
+    public func subscribeRuntimeState(
+        queue: DispatchQueue,
+        onDocument: @escaping @Sendable (RemoteRuntimeStateDocument) -> Void
+    ) throws -> RemoteRuntimeStateDocument? {
+        let subscription = RuntimeStateSubscription(
+            id: UUID(),
+            queue: queue,
+            handler: onDocument
+        )
+        stateQueue.sync {
+            runtimeStateSubscription = subscription
+        }
+        do {
+            let result = try call(method: "runtime.state.subscribe", params: [:], timeout: 8.0)
+            return try Self.decodeRuntimeStateDocument(result)
+        } catch {
+            stateQueue.sync {
+                if runtimeStateSubscription?.id == subscription.id {
+                    runtimeStateSubscription = nil
+                }
+            }
+            throw error
+        }
+    }
+
     /// Fetches the daemon's authoritative workspace snapshot.
     ///
     /// - Returns: The current document, or `nil` when no client has seeded the runtime.
@@ -85,6 +118,23 @@ extension RemoteDaemonRPCClient {
             state: JSONSerialization.data(withJSONObject: stateObject, options: [.sortedKeys]),
             ptySessions: JSONSerialization.data(withJSONObject: ptySessions, options: [.sortedKeys])
         )
+    }
+
+    func consumeRuntimeStateEventPayload(_ payload: [String: Any]) -> Bool {
+        guard let eventName = (payload["event"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              eventName == "runtime.state.changed" else {
+            return false
+        }
+        guard let result = payload["result"] as? [String: Any],
+              let document = try? Self.decodeRuntimeStateDocument(result),
+              let subscription = runtimeStateSubscription else {
+            return true
+        }
+        subscription.queue.async {
+            subscription.handler(document)
+        }
+        return true
     }
 
     private static func integer(_ value: Any?) -> Int? {

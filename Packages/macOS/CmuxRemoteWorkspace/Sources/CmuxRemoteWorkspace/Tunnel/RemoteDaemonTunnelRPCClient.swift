@@ -25,6 +25,11 @@ protocol RemoteDaemonTunnelRPCClient: RemotePTYLifecycleRPCClient {
         state: Data,
         expectedRevision: UInt64?
     ) throws -> RemoteRuntimeStateDocument
+    /// Subscribes to authoritative workspace-state changes.
+    func subscribeRuntimeState(
+        queue: DispatchQueue,
+        onDocument: @escaping @Sendable (RemoteRuntimeStateDocument) -> Void
+    ) throws -> RemoteRuntimeStateDocument?
 }
 
 extension RemoteDaemonRPCClient: RemoteDaemonTunnelRPCClient {}

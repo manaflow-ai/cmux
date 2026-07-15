@@ -9,6 +9,7 @@ final class IntentionalCleanupTestTunnel: RemoteProxyTunneling, @unchecked Senda
     private var bridgeServers: [(sessionID: String, server: RemotePTYBridgeServer)] = []
     private var runtimeState: RemoteRuntimeStateDocument?
     private var runtimeStateGetFailuresRemaining = 0
+    private var runtimeStateSubscriber: (@Sendable (RemoteRuntimeStateDocument) -> Void)?
 
     func start() throws {}
 
@@ -17,6 +18,7 @@ final class IntentionalCleanupTestTunnel: RemoteProxyTunneling, @unchecked Senda
             let servers = bridgeServers
             bridgeServers.removeAll()
             lifecycleByKey.removeAll()
+            runtimeStateSubscriber = nil
             return servers
         }
         for record in servers { record.server.stop() }
@@ -97,7 +99,7 @@ final class IntentionalCleanupTestTunnel: RemoteProxyTunneling, @unchecked Senda
         state: Data,
         expectedRevision: UInt64?
     ) throws -> RemoteRuntimeStateDocument {
-        try lock.withLock {
+        let (document, subscriber) = try lock.withLock {
             let currentRevision = runtimeState?.revision ?? 0
             if let expectedRevision, expectedRevision != currentRevision {
                 throw NSError(domain: "test.runtime-state", code: 1)
@@ -110,7 +112,23 @@ final class IntentionalCleanupTestTunnel: RemoteProxyTunneling, @unchecked Senda
                 ptySessions: Data("[]".utf8)
             )
             runtimeState = document
-            return document
+            return (document, runtimeStateSubscriber)
+        }
+        subscriber?(document)
+        return document
+    }
+
+    func subscribeRuntimeState(
+        queue: DispatchQueue,
+        onDocument: @escaping @Sendable (RemoteRuntimeStateDocument) -> Void
+    ) throws -> RemoteRuntimeStateDocument? {
+        lock.withLock {
+            runtimeStateSubscriber = { document in
+                queue.sync {
+                    onDocument(document)
+                }
+            }
+            return runtimeState
         }
     }
 
@@ -120,6 +138,14 @@ final class IntentionalCleanupTestTunnel: RemoteProxyTunneling, @unchecked Senda
 
     func failNextRuntimeStateGet() {
         lock.withLock { runtimeStateGetFailuresRemaining += 1 }
+    }
+
+    func publishRuntimeState(_ document: RemoteRuntimeStateDocument) {
+        let subscriber = lock.withLock {
+            runtimeState = document
+            return runtimeStateSubscriber
+        }
+        subscriber?(document)
     }
 
     func startPTYBridge(

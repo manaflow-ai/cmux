@@ -27,6 +27,18 @@ public protocol RemoteProxyBrokering: AnyObject, Sendable {
         onUpdate: @escaping @Sendable (RemoteProxyBrokerUpdate) -> Void
     ) -> RemoteProxyLease
 
+    /// Subscribes to the shared tunnel and its authoritative runtime-state stream.
+    ///
+    /// `onRuntimeState` receives documents committed after the daemon-side
+    /// subscription is installed. Callers still fetch once on `.ready` to
+    /// establish their initial revision.
+    func acquire(
+        configuration: WorkspaceRemoteConfiguration,
+        remotePath: String,
+        onUpdate: @escaping @Sendable (RemoteProxyBrokerUpdate) -> Void,
+        onRuntimeState: @escaping @Sendable (RemoteRuntimeStateDocument) -> Void
+    ) -> RemoteProxyLease
+
     /// Lists persistent PTY sessions through the ready tunnel for
     /// `configuration`; throws when no tunnel is ready.
     func listPTY(configuration: WorkspaceRemoteConfiguration) throws -> [[String: Any]]
@@ -105,6 +117,20 @@ public protocol RemoteProxyBrokering: AnyObject, Sendable {
 }
 
 public extension RemoteProxyBrokering {
+    /// Compatibility default for injected brokers that do not expose runtime events.
+    func acquire(
+        configuration: WorkspaceRemoteConfiguration,
+        remotePath: String,
+        onUpdate: @escaping @Sendable (RemoteProxyBrokerUpdate) -> Void,
+        onRuntimeState _: @escaping @Sendable (RemoteRuntimeStateDocument) -> Void
+    ) -> RemoteProxyLease {
+        acquire(
+            configuration: configuration,
+            remotePath: remotePath,
+            onUpdate: onUpdate
+        )
+    }
+
     /// Default for injected test brokers that do not exercise runtime state.
     func getRuntimeState(configuration _: WorkspaceRemoteConfiguration) throws -> RemoteRuntimeStateDocument? {
         throw NSError(domain: "cmux.remote.runtime-state", code: 1, userInfo: [
