@@ -179,8 +179,8 @@ import Testing
     #expect(delta.clearedRows == [1])
     #expect(delta.styles == frame.styles)
     #expect(delta.rowSpans == [.init(row: 1, column: 0, styleID: 1, text: "green")])
-    #expect(try #require(String(data: delta.vtPatchBytes(), encoding: .utf8))
-        .contains("\u{1B}[0;38;2;0;255;0;48;2;0;0;0mgreen"))
+    let patch = try #require(String(data: delta.vtPatchBytes(), encoding: .utf8))
+    #expect(patch.contains("\u{1B}[0;38;2;0;255;0;48;2;0;0;0mgreen"))
 }
 
 @Test func renderGridFilteredDeltaKeepsOnlyReplayRestoredModeState() throws {

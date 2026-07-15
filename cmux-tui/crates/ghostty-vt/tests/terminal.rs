@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use ghostty_vt::{Callbacks, Cell, ColorSpec, Dirty, RenderState, Rgb, Terminal};
+use ghostty_vt::{Callbacks, Cell, ColorSpec, CursorShape, Dirty, RenderState, Rgb, Terminal};
 
 fn snapshot_cells(term: &mut Terminal) -> Vec<Vec<Cell>> {
     let mut rs = RenderState::new().unwrap();
@@ -110,6 +110,62 @@ fn alt_screen_and_modes() {
     assert!(!term.mouse_tracking());
     term.vt_write(b"\x1b[?1000h");
     assert!(term.mouse_tracking());
+}
+
+#[test]
+fn render_state_cursor_visual_tracks_defaults_and_decscusr() {
+    let mut term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+    term.set_default_cursor(Some(CursorShape::Bar), Some(false));
+
+    let mut rs = RenderState::new().unwrap();
+    rs.update(&mut term).unwrap();
+    assert!(!term.cursor_overridden());
+    assert_eq!(rs.cursor_visual().unwrap(), (CursorShape::Bar, false));
+
+    term.vt_write(b"\x1b[3");
+    term.vt_write(b" q");
+    rs.update(&mut term).unwrap();
+    assert!(term.cursor_overridden());
+    assert_eq!(rs.cursor_visual().unwrap(), (CursorShape::Underline, true));
+
+    term.vt_write(b"\x1b[0 q");
+    rs.update(&mut term).unwrap();
+    assert!(!term.cursor_overridden());
+    assert_eq!(rs.cursor_visual().unwrap(), (CursorShape::Bar, false));
+}
+
+#[test]
+fn cursor_override_tracker_ignores_control_text() {
+    let mut term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+    term.vt_write(b"\x1b]2;not-a-sequence \x1b[3 q\x07");
+    assert!(!term.cursor_overridden());
+
+    term.vt_write(b"\x1b[3q");
+    assert!(!term.cursor_overridden());
+
+    term.vt_write(b"\x1b[5 q");
+    assert!(term.cursor_overridden());
+    term.vt_write(b"\x1bc");
+    assert!(!term.cursor_overridden());
+}
+
+#[test]
+fn cursor_override_tracker_survives_utf8_text() {
+    // U+1F44D encodes as f0 9f 91 8d; the 0x9f byte is UTF-8 text in ground
+    // state, not a C1 OSC opener. A tracker that misreads it enters a control
+    // string it never leaves and misses every later DECSCUSR.
+    let mut term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+    term.vt_write("👍".as_bytes());
+    term.vt_write(b"\x1b[5 q");
+    assert!(term.cursor_overridden());
+
+    // Same for 0x9d (e.g. in "\u{275d}" = e2 9d 9d), including inside a
+    // BEL-terminated OSC title that itself contains emoji.
+    let mut term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+    term.vt_write("❝".as_bytes());
+    term.vt_write("\u{1b}]0;title 👍\u{7}".as_bytes());
+    term.vt_write(b"\x1b[3 q");
+    assert!(term.cursor_overridden());
 }
 
 #[test]

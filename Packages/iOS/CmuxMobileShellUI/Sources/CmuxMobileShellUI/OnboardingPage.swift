@@ -4,17 +4,15 @@ import Foundation
 
 /// Value model for an onboarding page: an SF Symbol, a title, a body, an optional
 /// checklist of short bullet items, and zero or more inline links. Pure data so
-/// the page list is trivial to extend (e.g. a future Hive "add your own servers"
-/// page).
+/// the page list is trivial to extend.
 struct OnboardingPage: Sendable {
     let systemImage: String
     let title: String
     let body: String
     /// Short "do this" bullets, shown under the body. Empty when the page is pure
-    /// prose. Used by the Tailscale checklist page.
+    /// prose. Used by the optional private-network page.
     let checklist: [String]
-    /// Inline links shown under the checklist (e.g. the Tailscale App Store link
-    /// for the phone and the Tailscale download page for the Mac).
+    /// Inline links shown under the checklist.
     let links: [OnboardingPageLink]
 
     init(
@@ -31,10 +29,10 @@ struct OnboardingPage: Sendable {
         self.links = links
     }
 
-    /// The ordered first-run pages: what cmux is, how it connects (the private
-    /// link), the Tailscale set-up checklist (both devices), and how to pair.
+    /// The ordered first-run pages: what cmux is, how Iroh connects, optional
+    /// private-network paths, and how to pair.
     static var allPages: [OnboardingPage] {
-        [whatItIs, howItConnects, tailscaleChecklist, pairNow]
+        [whatItIs, howItConnects, privateNetworkOptions, pairNow]
     }
 
     private static var whatItIs: OnboardingPage {
@@ -56,57 +54,53 @@ struct OnboardingPage: Sendable {
             systemImage: "lock.laptopcomputer",
             title: L10n.string(
                 "mobile.onboarding.connectTitle",
-                defaultValue: "A private link to your Mac"
+                defaultValue: "Encrypted wherever you connect"
             ),
-            // Honest about the path: the phone reaches the Mac directly, the
-            // recommended way is Tailscale (which the standard QR pairing needs),
-            // and same-Wi-Fi manual pairing exists but is unencrypted.
             body: L10n.string(
                 "mobile.onboarding.connectBody",
-                defaultValue: "Your phone has to reach your Mac over the network. The simplest private path is Tailscale: both devices join the same tailnet and connect directly, with no cloud relay. On the same Wi-Fi you can instead type the Mac's local address by hand, but that link is unencrypted, so Tailscale is recommended."
+                defaultValue: "cmux uses Iroh by default. It connects directly to your Mac when possible and uses a cmux relay when needed. Your Mac's identity and cmux account are verified end to end, so the relay cannot read terminal traffic."
             )
         )
     }
 
-    private static var tailscaleChecklist: OnboardingPage {
+    private static var privateNetworkOptions: OnboardingPage {
         OnboardingPage(
             systemImage: "point.3.connected.trianglepath.dotted",
             title: L10n.string(
-                "mobile.onboarding.tailscaleTitle",
-                defaultValue: "Put both devices on Tailscale"
+                "mobile.onboarding.privateNetworkTitle",
+                defaultValue: "Private networks stay available"
             ),
             body: L10n.string(
-                "mobile.onboarding.tailscaleBody",
-                defaultValue: "Tailscale is a free app that gives your devices a private network. Do this once, on both the phone and the Mac."
+                "mobile.onboarding.privateNetworkBody",
+                defaultValue: "After cmux admits both devices over Iroh, Tailscale, WireGuard, another VPN, or the same LAN may become a faster direct path. They are optional, and Iroh keeps its encryption and identity checks."
             ),
             checklist: [
                 L10n.string(
-                    "mobile.onboarding.tailscaleStep1",
-                    defaultValue: "Install Tailscale on this phone and on your Mac."
+                    "mobile.onboarding.privateNetworkStep1",
+                    defaultValue: "Sign this phone and the Mac in to the same cmux account."
                 ),
                 L10n.string(
-                    "mobile.onboarding.tailscaleStep2",
-                    defaultValue: "Sign both in to the same Tailscale account so they share one tailnet."
+                    "mobile.onboarding.privateNetworkStep2",
+                    defaultValue: "Leave cmux running on the Mac so Iroh can reconnect."
                 ),
                 L10n.string(
-                    "mobile.onboarding.tailscaleStep3",
-                    defaultValue: "Keep both signed in to the same cmux account too. Pairing checks that they match."
+                    "mobile.onboarding.privateNetworkStep3",
+                    defaultValue: "Optional: connect both devices to the same private network so an admitted Iroh session can migrate to it."
                 ),
             ],
             links: [
                 OnboardingPageLink(
                     title: L10n.string(
                         "mobile.onboarding.tailscaleAppStoreLink",
-                        defaultValue: "Get Tailscale for iPhone"
+                        defaultValue: "Optional: Tailscale for iPhone"
                     ),
                     url: URL(string: "https://apps.apple.com/app/tailscale/id1470499037")!
                 ),
                 OnboardingPageLink(
                     title: L10n.string(
                         "mobile.onboarding.tailscaleLink",
-                        defaultValue: "Set up Tailscale on the Mac"
+                        defaultValue: "Optional: Tailscale for Mac"
                     ),
-                    // Tailscale download/install page (links every platform).
                     url: URL(string: "https://tailscale.com/download")!
                 ),
             ]
@@ -122,7 +116,7 @@ struct OnboardingPage: Sendable {
             ),
             body: L10n.string(
                 "mobile.onboarding.pairBody",
-                defaultValue: "Make sure cmux on your Mac is signed in to the same account, then scan the pairing QR code it shows (or enter its address by hand). You only do this once per Mac."
+                defaultValue: "Open Pair iPhone in cmux on your Mac and scan its Iroh code. cmux saves the verified Mac identity and reconnects automatically. Tailscale, another VPN, or the same LAN may speed up the authenticated Iroh connection."
             )
         )
     }

@@ -1,0 +1,1 @@
+terminal,coding agent,AI,ssh,developer,devops,remote,cli,automation,workspace

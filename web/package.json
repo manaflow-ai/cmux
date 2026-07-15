@@ -5,8 +5,8 @@
   "private": true,
   "scripts": {
     "dev": "exec bash scripts/dev-local.sh",
-    "build": "next build && bun tools/build-docs-search.mjs",
-    "vercel-build": "VERCEL_PREVIEW_COMMENTS_ENABLED=0 next build && bun tools/build-docs-search.mjs",
+    "build": "bun tools/generate-managed-iroh-relay-catalog.ts --check && next build && bun tools/build-docs-search.mjs",
+    "vercel-build": "bun tools/generate-managed-iroh-relay-catalog.ts --check && VERCEL_PREVIEW_COMMENTS_ENABLED=0 next build && bun tools/build-docs-search.mjs",
     "search:index": "bun tools/build-docs-search.mjs",
     "cloud-vm:env:audit": "bun scripts/cloud-vm/audit-vercel-env.mjs",
     "cloud-vm:migrate": "bun scripts/cloud-vm/migrate-vercel-aurora-iam.mjs",

@@ -624,7 +624,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
     }
 
     // After a session is restored on reload, the UI fork action must still find it. The action
-    // resolves the conversation via Workspace.forkableAgentSnapshot(forPanelId:), which reads the
+    // resolves the conversation via the shared context-menu selection, which reads the
     // snapshot captured at restore (restoredAgentSnapshotsByPanelId). A restored codex/claude/opencode
     // session must therefore still expose a valid fork command + launchable fork input.
     @MainActor
@@ -644,7 +644,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
 
         let forkable = try XCTUnwrap(
-            restored.forkableAgentSnapshot(forPanelId: restoredPanelId),
+            restored.forkAgentConversationContextMenuOpenSelection(forPanelId: restoredPanelId).snapshot,
             "a restored session must remain forkable via the UI"
         )
         XCTAssertEqual(forkable.sessionId, sessionId)

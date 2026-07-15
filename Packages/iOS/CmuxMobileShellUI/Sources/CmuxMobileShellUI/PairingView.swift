@@ -15,7 +15,7 @@ struct PairingView: View {
     @Binding var pairingCode: String
     let connectionError: String?
     /// A shorter, actionable next-step line shown beneath ``connectionError``
-    /// (for example "Check that both devices are on the same Tailscale"). `nil`
+    /// (for example "Check that the selected private route is active"). `nil`
     /// when the headline is already the full instruction.
     let connectionErrorGuidance: String?
     let versionWarning: String?
@@ -32,7 +32,6 @@ struct PairingView: View {
     @State private var port = UITestConfig.addDevicePort ?? "\(CmxMobileDefaults.defaultHostPort)"
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(\.analytics) private var analytics
-    @Environment(\.tailscaleStatusMonitor) private var tailscaleStatusMonitor
     @State private var validationError: String?
     @State private var isPairing = false
     @State private var pairingTaskID: UUID?
@@ -42,14 +41,6 @@ struct PairingView: View {
     var body: some View {
         NavigationStack {
             Form {
-                // Warn before the user burns a pair attempt: without an active
-                // tailnet, the Mac's QR/tailnet route is normally unreachable.
-                if tailscaleStatusMonitor?.status == .inactiveOrNotInstalled {
-                    Section {
-                        TailscaleInactiveCallout(context: .pairing)
-                    }
-                }
-
                 Section {
                     TextField(
                         L10n.string("mobile.addDevice.namePlaceholder", defaultValue: "Work Mac"),
@@ -61,7 +52,7 @@ struct PairingView: View {
                     .accessibilityIdentifier("MobileAddDeviceNameField")
 
                     TextField(
-                        L10n.string("mobile.addDevice.hostPlaceholder", defaultValue: "your-mac.tailnet.ts.net"),
+                        L10n.string("mobile.addDevice.hostPlaceholder", defaultValue: "127.0.0.1 (simulator only)"),
                         text: $host
                     )
                     .focused($focusedField, equals: .host)
@@ -80,7 +71,10 @@ struct PairingView: View {
                 } header: {
                     Text(L10n.string("mobile.addDevice.title", defaultValue: "Add Computer"))
                 } footer: {
-                    Text(L10n.string("mobile.addDevice.help", defaultValue: "Enter a Tailscale, LAN, or local host and port. QR/link pairing from that computer is still the safest setup path."))
+                    Text(L10n.string(
+                        "mobile.addDevice.help",
+                        defaultValue: "Scan the Mac's Iroh QR. Manual host and port is only for loopback development in the simulator."
+                    ))
                 }
                 .overlay(alignment: .topLeading) {
                     #if DEBUG
@@ -285,7 +279,7 @@ struct PairingView: View {
         }
         return L10n.string(
             "mobile.addDevice.manualRouteWarning",
-            defaultValue: "This will connect directly to that address. Use this only on a trusted LAN, VPN, or device you control."
+            defaultValue: "Manual host and port bypasses Iroh. Account credentials are allowed only over simulator loopback; use the Mac's Iroh QR for physical devices."
         )
     }
 

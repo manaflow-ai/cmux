@@ -285,7 +285,7 @@ extension View {
     }
 }
 
-nonisolated struct RightSidebarModeBarItem: Identifiable, Equatable, Sendable {
+struct RightSidebarModeBarItem: Identifiable, Equatable, Sendable {
     enum Kind: Equatable, Sendable {
         case mode(RightSidebarMode)
     }

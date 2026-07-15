@@ -26,6 +26,18 @@ export default function middleware(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
 
+  // The public site only routes docs traffic to the release/nightly origins.
+  // Locale handling belongs to those origins; rewriting it here first causes
+  // the origin to normalize the path back through the router in a loop.
+  const docsChannel = process.env.CMUX_DOCS_CHANNEL;
+  const isDocsOrigin = docsChannel === "release" || docsChannel === "nightly";
+  const isDocsPath = /^\/(?:[a-z]{2}(?:-[A-Z]{2})?\/)?docs(?:\/|$)/u.test(
+    pathname,
+  );
+  if (!isDocsOrigin && isDocsPath) {
+    return NextResponse.next();
+  }
+
   // Temporary redirect: /changelog → /docs/changelog, preserving any locale prefix.
   const changelogMatch = pathname.match(/^(\/[a-z]{2}(?:-[A-Z]{2})?)?\/changelog\/?$/);
   if (changelogMatch) {

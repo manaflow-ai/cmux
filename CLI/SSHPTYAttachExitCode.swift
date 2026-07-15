@@ -7,7 +7,7 @@ import Foundation
 /// and `CMUXCLI.sshPTYAttachRetryLoopLines`; keep those shell contracts in sync
 /// with this taxonomy. The classifier patterns mirror
 /// `userFacingRemotePTYErrorMessage` in `CLI/CMUXCLI+RemotePTYErrors.swift`.
-nonisolated enum SSHPTYAttachExitCode: Int32 {
+enum SSHPTYAttachExitCode: Int32 {
     case fatal = 1
     case sessionNotFound = 253
     case bridgeClosedSessionRunning = 254

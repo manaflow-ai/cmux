@@ -6,7 +6,7 @@ struct MobileHostRouteSnapshot: Sendable {
     let routes: [CmxAttachRoute]
 
     var payload: [[String: Any]] {
-        routes.map(\.mobileHostJSONObject)
+        routes.mobileHostJSONObjects(for: .authenticated)
     }
 }
 
@@ -39,7 +39,9 @@ final class MobileRouteResolver: @unchecked Sendable {
 
     func routesResolvingTailscaleDNS(
         port: Int,
-        resolveHosts: @escaping @Sendable () -> [String] = { MobileRouteResolver.tailscaleRouteHosts(resolveDNS: true) },
+        resolveHosts: @escaping @Sendable () -> [String] = {
+            MobileRouteResolver.tailscaleRouteHosts(resolveDNS: true)
+        },
         now: Date = Date()
     ) async -> MobileHostRouteSnapshot {
         let hosts = await resolvedTailscaleRouteHosts(resolveHosts: resolveHosts, now: now)
@@ -78,7 +80,10 @@ final class MobileRouteResolver: @unchecked Sendable {
             }
         }
 
-        for (index, tailscaleHost) in tailscaleHosts.enumerated() {
+        let numericTailscaleHosts = Self.deduplicatedHosts(tailscaleHosts).filter {
+            Self.isTailscalePeerAddress($0)
+        }
+        for (index, tailscaleHost) in numericTailscaleHosts.enumerated() {
             let id = index == 0
                 ? CmxAttachTransportKind.tailscale.rawValue
                 : "\(CmxAttachTransportKind.tailscale.rawValue)_\(index + 1)"
@@ -102,7 +107,9 @@ final class MobileRouteResolver: @unchecked Sendable {
     }
 
     func refreshTailscaleRoutes(
-        resolveHosts: @escaping @Sendable () -> [String] = { MobileRouteResolver.tailscaleRouteHosts(resolveDNS: true) },
+        resolveHosts: @escaping @Sendable () -> [String] = {
+            MobileRouteResolver.tailscaleRouteHosts(resolveDNS: true)
+        },
         onResolvedHosts: (@Sendable ([String]) -> Void)? = nil
     ) {
         cacheLock.lock()
@@ -216,7 +223,8 @@ final class MobileRouteResolver: @unchecked Sendable {
     }
 
     private static func tailscaleRouteHosts(resolveDNS: Bool) -> [String] {
-        guard let candidate = preferredTailscaleAddressCandidate(resolveDNS: resolveDNS) else {
+        let candidates = tailscaleAddressCandidates(resolveDNS: resolveDNS)
+        guard let candidate = preferredTailscaleAddressCandidate(in: candidates) else {
             return []
         }
 
@@ -224,7 +232,9 @@ final class MobileRouteResolver: @unchecked Sendable {
         if let dnsName = candidate.dnsName {
             hosts.append(dnsName)
         }
-        hosts.append(candidate.address)
+        hosts.append(contentsOf: candidates.lazy
+            .filter { $0.interfaceName == candidate.interfaceName }
+            .map(\.address))
 
         return deduplicatedHosts(hosts)
     }
@@ -241,8 +251,9 @@ final class MobileRouteResolver: @unchecked Sendable {
         }
     }
 
-    private static func preferredTailscaleAddressCandidate(resolveDNS: Bool) -> TailscaleAddressCandidate? {
-        let candidates = tailscaleAddressCandidates(resolveDNS: resolveDNS)
+    private static func preferredTailscaleAddressCandidate(
+        in candidates: [TailscaleAddressCandidate]
+    ) -> TailscaleAddressCandidate? {
         if let match = candidates.first(where: { isTailscaleDNSName($0.dnsName) }) {
             return match
         }
@@ -256,8 +267,7 @@ final class MobileRouteResolver: @unchecked Sendable {
         }
         defer { freeifaddrs(interfaces) }
 
-        var tailscaleInterfaceNames = Set<String>()
-        var cgnatCandidates: [TailscaleAddressCandidate] = []
+        var candidates: [TailscaleAddressCandidate] = []
         var pointer: UnsafeMutablePointer<ifaddrs>? = firstInterface
         while let current = pointer {
             defer { pointer = current.pointee.ifa_next }
@@ -267,7 +277,10 @@ final class MobileRouteResolver: @unchecked Sendable {
             }
             let interfaceName = String(cString: nameCString)
             let flags = Int32(current.pointee.ifa_flags)
-            guard flags & IFF_UP != 0, flags & IFF_LOOPBACK == 0 else {
+            guard flags & IFF_UP != 0,
+                  flags & IFF_RUNNING != 0,
+                  flags & IFF_LOOPBACK == 0,
+                  isTailscaleInterfaceName(interfaceName) else {
                 continue
             }
             guard let address = current.pointee.ifa_addr,
@@ -278,7 +291,7 @@ final class MobileRouteResolver: @unchecked Sendable {
             switch Int32(address.pointee.sa_family) {
             case AF_INET:
                 if isTailscaleCGNAT(candidate) {
-                    cgnatCandidates.append(
+                    candidates.append(
                         TailscaleAddressCandidate(
                             interfaceName: interfaceName,
                             address: candidate,
@@ -287,19 +300,21 @@ final class MobileRouteResolver: @unchecked Sendable {
                     )
                 }
             case AF_INET6:
-                if isTailscaleIPv6ULA(candidate) || isTailscaleInterfaceName(interfaceName) {
-                    tailscaleInterfaceNames.insert(interfaceName)
+                if isTailscaleIPv6ULA(candidate) {
+                    candidates.append(
+                        TailscaleAddressCandidate(
+                            interfaceName: interfaceName,
+                            address: candidate,
+                            dnsName: nil
+                        )
+                    )
                 }
             default:
                 break
             }
         }
 
-        let confirmedCandidates = cgnatCandidates.filter { candidate in
-            tailscaleInterfaceNames.contains(candidate.interfaceName) ||
-                isTailscaleInterfaceName(candidate.interfaceName)
-        }
-        return confirmedCandidates.isEmpty ? cgnatCandidates : confirmedCandidates
+        return candidates
     }
 
     private static func numericHost(for address: UnsafeMutablePointer<sockaddr>) -> String? {
@@ -346,15 +361,34 @@ final class MobileRouteResolver: @unchecked Sendable {
         guard octets.count == 4 else {
             return false
         }
-        return octets[0] == 100 && (64...127).contains(octets[1])
+        guard octets[0] == 100 && (64...127).contains(octets[1]) else {
+            return false
+        }
+        if octets[1] == 100, octets[2] == 0 || octets[2] == 100 {
+            return false
+        }
+        if octets[1] == 115, octets[2] == 92 || octets[2] == 93 {
+            return false
+        }
+        return true
     }
 
     private static func isTailscaleIPv6ULA(_ ipAddress: String) -> Bool {
-        ipAddress.lowercased().hasPrefix("fd7a:115c:a1e0:")
+        var address = in6_addr()
+        let parsed = ipAddress.withCString { pointer in
+            inet_pton(AF_INET6, pointer, &address)
+        }
+        guard parsed == 1 else { return false }
+        let bytes = withUnsafeBytes(of: &address) { Array($0) }
+        return bytes.starts(with: [0xFD, 0x7A, 0x11, 0x5C, 0xA1, 0xE0])
+    }
+
+    private static func isTailscalePeerAddress(_ host: String) -> Bool {
+        isTailscaleCGNAT(host) || isTailscaleIPv6ULA(host)
     }
 
     private static func isTailscaleInterfaceName(_ name: String) -> Bool {
-        name.localizedCaseInsensitiveContains("tailscale")
+        name.hasPrefix("utun") || name.localizedCaseInsensitiveContains("tailscale")
     }
 
     private static func isTailscaleDNSName(_ name: String?) -> Bool {
@@ -368,7 +402,7 @@ final class MobileRouteResolver: @unchecked Sendable {
 }
 
 extension CmxAttachRoute {
-    var mobileHostJSONObject: [String: Any] {
+    func mobileHostJSONObject(at now: Date) -> [String: Any] {
         var endpointPayload: [String: Any] = [:]
         switch endpoint {
         case let .hostPort(host, port):
@@ -377,10 +411,20 @@ extension CmxAttachRoute {
                 "host": host,
                 "port": port
             ]
-        case let .peer(id, relayHint, directAddrs, relayURL):
+        case let .peer(identity, pathHints):
+            let currentPathHints = pathHints.filter { $0.isUsable(at: now) }
+            let relayHint = currentPathHints.first {
+                $0.kind == .relayIdentifier
+            }?.value
+            let directAddrs = currentPathHints
+                .filter { $0.kind == .directAddress && $0.use == .primary }
+                .map(\.value)
+            let relayURL = currentPathHints.first {
+                $0.kind == .relayURL
+            }?.value
             endpointPayload = [
                 "type": "peer",
-                "id": id,
+                "id": identity.endpointID,
                 "relay_hint": relayHint ?? NSNull(),
             ]
             if !directAddrs.isEmpty {
@@ -388,6 +432,9 @@ extension CmxAttachRoute {
             }
             if let relayURL {
                 endpointPayload["relay_url"] = relayURL
+            }
+            if !currentPathHints.isEmpty {
+                endpointPayload["path_hints"] = currentPathHints.map(\.mobileHostJSONObject)
             }
         case let .url(url):
             endpointPayload = [
@@ -402,5 +449,40 @@ extension CmxAttachRoute {
             "endpoint": endpointPayload,
             "priority": priority
         ]
+    }
+}
+
+private extension CmxIrohPathHint {
+    var mobileHostJSONObject: [String: Any] {
+        var payload: [String: Any] = [
+            "kind": kind.rawValue,
+            "value": value,
+            "source": source.rawValue,
+            "privacy_scope": privacyScope.rawValue,
+        ]
+        if let observedAt {
+            payload["observed_at"] = observedAt.timeIntervalSinceReferenceDate
+        }
+        if let expiresAt {
+            payload["expires_at"] = expiresAt.timeIntervalSinceReferenceDate
+        }
+        if let networkProfile {
+            payload["network_profile"] = [
+                "source": networkProfile.source.rawValue,
+                "profile_id": networkProfile.profileID,
+            ]
+        }
+        return payload
+    }
+}
+
+extension Array where Element == CmxAttachRoute {
+    func mobileHostJSONObjects(
+        for disclosure: CmxAttachRouteDisclosure,
+        at now: Date = Date()
+    ) -> [[String: Any]] {
+        compactMap { route in
+            route.disclosed(for: disclosure, at: now)?.mobileHostJSONObject(at: now)
+        }
     }
 }

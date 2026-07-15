@@ -47,7 +47,7 @@ struct SetupHelpGateContent {
                 title: L10n.string("mobile.setupHelp.unreachableTitle", defaultValue: "Wake the computer"),
                 body: L10n.string(
                     "mobile.setupHelp.unreachableBody",
-                    defaultValue: "You have paired this computer before but it is not reachable now. Wake it, make sure cmux is running, and confirm both devices are on the same tailnet or Wi-Fi. Then reconnect."
+                    defaultValue: "You paired this computer before, but it is not reachable now. Wake it and make sure cmux is running. Iroh will retry direct and relay paths; if you rely on a private network, connect both devices to it, then reconnect."
                 ),
                 link: nil,
                 identifierSuffix: "macUnreachable",

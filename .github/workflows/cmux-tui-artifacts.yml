@@ -9,22 +9,12 @@ name: cmux-tui artifacts
 # Layout in R2:
 #   cmux-tui/<commit-sha>/cmux-tui-<rust-target>   immutable, commit-addressed
 #   cmux-tui/<commit-sha>/manifest.json
-#   cmux-tui/latest/cmux-tui-<rust-target>         rolling, main pushes only
+#   cmux-tui/latest/cmux-tui-<rust-target>         rolling, manual publishes only
 #   cmux-tui/latest/manifest.json
 
 on:
+  # Temporarily manual-only beginning 2026-07-13 to pause automatic CI/CD.
   workflow_dispatch: {}
-  push:
-    branches: [main]
-    paths:
-      - "cmux-tui/**"
-      - "ghostty"
-      - ".github/workflows/cmux-tui-artifacts.yml"
-      - ".github/workflows/cmux-tui-build-package.yml"
-      - "scripts/install-zig-ci.sh"
-  pull_request:
-    paths:
-      - ".github/workflows/cmux-tui-artifacts.yml"
 
 concurrency:
   group: cmux-tui-artifacts-${{ github.ref }}

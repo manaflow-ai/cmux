@@ -342,6 +342,7 @@ class GhosttyApp {
     }
 
     static let shared = GhosttyApp()
+    fileprivate let desktopNotificationIngress = GhosttyDesktopNotificationIngress()
 
     // MARK: Transitional terminal engine/services composition
     //
@@ -2639,33 +2640,9 @@ class GhosttyApp {
             }
 
             if action.tag == GHOSTTY_ACTION_DESKTOP_NOTIFICATION {
-                let actionTitle = action.action.desktop_notification.title
-                    .flatMap { String(cString: $0) } ?? ""
-                let actionBody = action.action.desktop_notification.body
-                    .flatMap { String(cString: $0) } ?? ""
-                return performOnMain {
-                    guard let tabManager = AppDelegate.shared?.tabManager,
-                          let tabId = tabManager.selectedTabId else {
-                        return false
-                    }
-                    let owningManager = AppDelegate.shared?.tabManagerFor(tabId: tabId) ?? tabManager
-                    let surfaceId = tabManager.focusedSurfaceId(for: tabId)
-                    if let workspace = owningManager.tabs.first(where: { $0.id == tabId }),
-                       workspace.suppressesRawTerminalNotification(panelId: surfaceId) {
-                        return true
-                    }
-                    let tabTitle = owningManager.titleForTab(tabId) ?? "Terminal"
-                    let command = actionTitle.isEmpty ? tabTitle : actionTitle
-                    let body = actionBody
-                    TerminalNotificationStore.shared.addNotification(
-                        tabId: tabId,
-                        surfaceId: surfaceId,
-                        title: command,
-                        subtitle: "",
-                        body: body
-                    )
-                    return true
-                }
+                // Ghostty's desktop-notification action is surface-originated;
+                // its native macOS host deliberately treats an app target as a no-op.
+                return true
             }
 
             if action.tag == GHOSTTY_ACTION_RING_BELL {
@@ -2896,14 +2873,9 @@ class GhosttyApp {
                 .flatMap { String(cString: $0) } ?? ""
             if let tabId = surfaceView.tabId,
                let sourceSurface = surfaceView.terminalSurface {
-                let change = GhosttyTitleChange(tabId: tabId, surfaceId: sourceSurface.id, title: title)
-                DispatchQueue.main.async {
-                    NotificationCenter.default.post(
-                        name: .ghosttyDidSetTitle,
-                        object: sourceSurface,
-                        userInfo: change.userInfo
-                    )
-                }
+                surfaceView.titleUpdateIngress.submit(
+                    tabId: tabId, surfaceId: sourceSurface.id, sourceSurface: sourceSurface, title: title
+                )
             }
             return true
         case GHOSTTY_ACTION_PWD:
@@ -2921,29 +2893,20 @@ class GhosttyApp {
             )
             return true
         case GHOSTTY_ACTION_DESKTOP_NOTIFICATION:
-            guard let tabId = surfaceView.tabId else { return true }
-            let surfaceId = surfaceView.terminalSurface?.id
+            guard let tabId = callbackTabId ?? surfaceView.tabId,
+                  let surfaceId = callbackSurfaceId ?? surfaceView.terminalSurface?.id else { return true }
             let actionTitle = action.action.desktop_notification.title
                 .flatMap { String(cString: $0) } ?? ""
             let actionBody = action.action.desktop_notification.body
                 .flatMap { String(cString: $0) } ?? ""
-            performOnMain {
-                let owningManager = AppDelegate.shared?.tabManagerFor(tabId: tabId) ?? AppDelegate.shared?.tabManager
-                if let workspace = owningManager?.tabs.first(where: { $0.id == tabId }),
-                   workspace.suppressesRawTerminalNotification(panelId: surfaceId) {
-                    return
-                }
-                let tabTitle = owningManager?.titleForTab(tabId) ?? "Terminal"
-                let command = actionTitle.isEmpty ? tabTitle : actionTitle
-                let body = actionBody
-                TerminalNotificationStore.shared.addNotification(
-                    tabId: tabId,
-                    surfaceId: surfaceId,
-                    title: command,
-                    subtitle: "",
-                    body: body
-                )
-            }
+            desktopNotificationIngress.submit(GhosttyDesktopNotificationRequest(
+                tabId: tabId,
+                surfaceId: surfaceId,
+                hookDirectory: surfaceView.currentDirectoryActionDispatcher.directorySnapshot()
+                    ?? surfaceView.terminalSurface?.requestedWorkingDirectory,
+                title: actionTitle,
+                body: actionBody
+            ))
             return true
         case GHOSTTY_ACTION_COLOR_CHANGE:
             let change = action.action.color_change
@@ -3410,7 +3373,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
 
-    fileprivate static func focusLog(_ message: String) {
+    static func focusLog(_ message: String) {
         guard focusDebugEnabled else { return }
         AppDelegate.shared?.focusLog.append(message)
         #if DEBUG
@@ -3419,6 +3382,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     weak var terminalSurface: TerminalSurface?
+    /// View-scoped ingress keeps title churn independent across terminal surfaces.
+    fileprivate let titleUpdateIngress = GhosttyTitleUpdateIngress()
+    /// Retained independently because the weak surface can clear before view teardown.
+    private var titleUpdateSurfaceKey: GhosttyTitleUpdateSurfaceKey?
     // SAFETY: replay setup replaces this before runtime attachment; callbacks only read it.
     nonisolated(unsafe) var currentDirectoryActionDispatcher = GhosttyCurrentDirectoryActionDispatcher()
     var scrollbar: GhosttyScrollbar?
@@ -3854,6 +3821,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     func attachSurface(_ surface: TerminalSurface) {
         let isSameSurface = terminalSurface === surface
         let isAlreadyAttached = surface.isAttached(to: self)
+        let nextTitleUpdateSurfaceKey = GhosttyTitleUpdateSurfaceKey(
+            surfaceId: surface.id,
+            sourceSurface: surface
+        )
+        if titleUpdateSurfaceKey != nextTitleUpdateSurfaceKey {
+            if titleUpdateSurfaceKey != nil {
+                titleUpdateIngress.retireCurrentAttachment()
+            }
+            titleUpdateSurfaceKey = nextTitleUpdateSurfaceKey
+        }
         if !isSameSurface {
             appliedColorScheme = nil
             // Reset any OSC 22 mouse shape carried over from the previous surface.
@@ -5654,6 +5631,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let typingTimingStart = CmuxTypingTiming.start()
         let phaseTotalStart = ProcessInfo.processInfo.systemUptime
         var ensureSurfaceMs: Double = 0
+        var rightSidebarShortcutMs: Double = 0
         var dismissNotificationMs: Double = 0
         var keyboardCopyModeMs: Double = 0
         var interpretMs: Double = 0
@@ -5668,6 +5646,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 thresholdMs: 1.0,
                 parts: [
                     ("ensureSurfaceMs", ensureSurfaceMs),
+                    ("rightSidebarShortcutMs", rightSidebarShortcutMs),
                     ("dismissNotificationMs", dismissNotificationMs),
                     ("keyboardCopyModeMs", keyboardCopyModeMs),
                     ("interpretMs", interpretMs),
@@ -5692,8 +5671,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #if DEBUG
         ensureSurfaceMs = (ProcessInfo.processInfo.systemUptime - ensureSurfaceStart) * 1000.0
 #endif
-        if let appDelegate = AppDelegate.shared,
-           let mode = appDelegate.rightSidebarModeShortcut(for: event),
+        let appDelegate = AppDelegate.shared
+#if DEBUG
+        let rightSidebarShortcutStart = ProcessInfo.processInfo.systemUptime
+#endif
+        let rightSidebarMode = appDelegate?.rightSidebarModeShortcut(for: event)
+#if DEBUG
+        rightSidebarShortcutMs = (ProcessInfo.processInfo.systemUptime - rightSidebarShortcutStart) * 1000.0
+#endif
+        if let appDelegate,
+           let mode = rightSidebarMode,
            let window,
            appDelegate.shouldRouteRightSidebarModeShortcut(in: window) {
             _ = appDelegate.focusRightSidebarInActiveMainWindow(mode: mode, focusFirstItem: true, preferredWindow: window)
@@ -7494,6 +7481,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
     deinit {
         selectionAccessibilitySignal.finish()
+        if titleUpdateSurfaceKey != nil {
+            titleUpdateIngress.retireCurrentAttachment()
+        }
 #if DEBUG
         cmuxDebugLog(
             "surface.view.deinit view=\(Unmanaged.passUnretained(self).toOpaque()) " +
@@ -7877,31 +7867,6 @@ extension Notification.Name {
     static let workspaceRemoteConnectionPresentationDidChange = Notification.Name(
         "cmux.workspaceRemoteConnectionPresentationDidChange"
     )
-}
-
-// MARK: - Scroll View Wrapper (Ghostty-style scrollbar)
-
-private final class GhosttyScrollView: NSScrollView {
-    weak var surfaceView: GhosttyNSView?
-
-    // Keep keyboard routing on the terminal surface; this wrapper is viewport plumbing.
-    override var acceptsFirstResponder: Bool { false }
-
-    override func scrollWheel(with event: NSEvent) {
-        guard let surfaceView else {
-            super.scrollWheel(with: event)
-            return
-        }
-
-        // Route wheel gestures to the terminal surface so Ghostty handles scrollback.
-        // Letting NSScrollView consume these events moves the wrapper viewport itself,
-        // which causes pane-content drift instead of terminal scrollback movement.
-        GhosttyNSView.focusLog("GhosttyScrollView.scrollWheel: surface scroll")
-        if window?.firstResponder !== surfaceView {
-            window?.makeFirstResponder(surfaceView)
-        }
-        surfaceView.scrollWheel(with: event)
-    }
 }
 
 private final class GhosttyFlashOverlayView: NSView {

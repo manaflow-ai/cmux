@@ -30,7 +30,7 @@ public protocol DeviceRegistryRefreshing: Sendable {
     /// for the device tree (device → tags → workspaces).
     ///
     /// The same team-scoped `GET /api/devices` response that backs
-    /// ``freshRoutes(forMacDeviceID:)``, decoded into the full two-level model
+    /// ``freshRoutes(forMacDeviceID:instanceTag:)``, decoded into the full two-level model
     /// rather than narrowed to one Mac's routes. Returns a three-way outcome so
     /// the caller can tell a transient failure (keep the current tree) from an
     /// auth/scope rejection (clear it). The registry is team-scoped, so a 401/403

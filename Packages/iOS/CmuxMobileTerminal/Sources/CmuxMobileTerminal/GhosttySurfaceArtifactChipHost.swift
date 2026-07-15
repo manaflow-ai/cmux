@@ -28,7 +28,10 @@ final class GhosttySurfaceArtifactChipHost {
         container.addSubview(view)
     }
 
-    func layout(in bounds: CGRect, toolbarTop: CGFloat) {
+    // Anchored to the terminal's top edge: pinned above the toolbar it covered
+    // the input row, which users type into far more often than they read the
+    // first terminal line.
+    func layout(in bounds: CGRect, topInset: CGFloat) {
         guard let content = container.subviews.first else {
             container.frame = .zero
             return
@@ -43,7 +46,7 @@ final class GhosttySurfaceArtifactChipHost {
         let height = max(44, fitting.height)
         container.frame = CGRect(
             x: (bounds.width - width) / 2,
-            y: max(8, toolbarTop - height - 8),
+            y: max(8, topInset + 8),
             width: width,
             height: height
         ).integral
@@ -61,7 +64,7 @@ final class GhosttySurfaceArtifactChipHost {
             }
             if animated {
                 if container.alpha < 0.01 {
-                    container.transform = CGAffineTransform(translationX: 0, y: 8)
+                    container.transform = CGAffineTransform(translationX: 0, y: -8)
                 }
                 UIView.animate(
                     withDuration: 0.2,
@@ -79,7 +82,7 @@ final class GhosttySurfaceArtifactChipHost {
         container.accessibilityElementsHidden = true
         let changes = { [weak self] in
             self?.container.alpha = 0
-            self?.container.transform = CGAffineTransform(translationX: 0, y: 8)
+            self?.container.transform = CGAffineTransform(translationX: 0, y: -8)
         }
         let completion: (Bool) -> Void = { [weak self] _ in
             guard let self, !self.visibilityRequested else { return }

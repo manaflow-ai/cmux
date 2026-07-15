@@ -354,6 +354,16 @@ struct BrowserDiscardRestorePolicyCancelTests {
         #expect(panel.restoreDiscardedWebViewIfNeeded(reason: "test.reveal"))
     }
 
+    @Test func automationRecoveryPreservesPendingInteractivePrompt() throws {
+        let panel = BrowserPanel(workspaceId: UUID(), initialURL: try #require(URL(string: "about:blank")), preloadInitialNavigationInBackground: true)
+        defer { panel.close() }
+        panel.navigationDelegate?.presentAlert(NSAlert(), panel.webView, { _ in }, {})
+        let webViewIdentifier = ObjectIdentifier(panel.webView)
+
+        #expect(!panel.replaceWebViewAfterAutomationTimeout(expectedWebViewIdentifier: webViewIdentifier, reason: "test"))
+        #expect(ObjectIdentifier(panel.webView) == webViewIdentifier)
+    }
+
     @Test func failedInsecureHTTPExternalOpenDoesNotReportTerminalRestore() throws {
         let url = try #require(URL(string: "http://example.com/cmux-issue-7504-open-failure"))
         let panel = BrowserPanel(

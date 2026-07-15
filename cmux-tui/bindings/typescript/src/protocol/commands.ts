@@ -20,6 +20,33 @@ export interface IdentifyResult { app: "cmux-tui"; version: string; protocol: nu
 export interface PingRequest extends CmuxRequestBase { cmd: "ping" }
 export interface PingResult { ok: true; version: string; protocol: number }
 
+export interface SetClientInfoRequest extends CmuxRequestBase {
+  cmd: "set-client-info";
+  name?: string;
+  kind?: string;
+}
+
+export interface ListClientsRequest extends CmuxRequestBase { cmd: "list-clients" }
+export type ClientTransport = "unix" | "ws";
+export interface ClientSize {
+  surface: Id;
+  cols: number | null;
+  rows: number | null;
+}
+export interface ClientInfo {
+  client: Id;
+  transport: ClientTransport;
+  name: string | null;
+  kind: string | null;
+  connected_seconds: number;
+  attached: Id[];
+  sizes: ClientSize[];
+  self: boolean;
+}
+export type ListClientsResult = ClientInfo[];
+
+export interface DetachClientRequest extends CmuxRequestBase { cmd: "detach-client"; client: Id }
+
 export interface ReloadConfigRequest extends CmuxRequestBase { cmd: "reload-config" }
 export interface ReloadConfigResult { reloaded: true; path: string | null }
 
@@ -166,6 +193,7 @@ export interface ResizeSurfaceRequest extends CmuxRequestBase {
   cols: number;
   rows: number;
 }
+export interface ResizeSurfaceResult { accepted: boolean; reservation_id?: number | null }
 
 export interface FocusPaneRequest extends CmuxRequestBase { cmd: "focus-pane"; pane: Id }
 
@@ -273,6 +301,9 @@ export interface ReportAgentResult {
 export type CmuxRequest =
   | IdentifyRequest
   | PingRequest
+  | SetClientInfoRequest
+  | ListClientsRequest
+  | DetachClientRequest
   | ReloadConfigRequest
   | SetWindowTitleRequest
   | ClearWindowTitleRequest
@@ -326,6 +357,9 @@ export type CmuxRequest =
 export interface CmuxResponseDataMap {
   identify: IdentifyResult;
   ping: PingResult;
+  "set-client-info": EmptyResult;
+  "list-clients": ListClientsResult;
+  "detach-client": EmptyResult;
   "reload-config": ReloadConfigResult;
   "set-window-title": EmptyResult;
   "clear-window-title": EmptyResult;
@@ -356,7 +390,7 @@ export interface CmuxResponseDataMap {
   "rename-surface": EmptyResult;
   "rename-screen": EmptyResult;
   "rename-workspace": EmptyResult;
-  "resize-surface": EmptyResult;
+  "resize-surface": ResizeSurfaceResult;
   "focus-pane": EmptyResult;
   "select-tab": EmptyResult;
   "select-screen": EmptyResult;

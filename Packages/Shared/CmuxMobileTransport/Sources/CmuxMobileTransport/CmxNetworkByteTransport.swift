@@ -1,7 +1,7 @@
 public import CMUXMobileCore
 public import Foundation
 import Dispatch
-@preconcurrency import Network
+@preconcurrency public import Network
 
 /// Why a connection attempt failed, classified from the underlying `NWError`
 /// so the UI can give an accurate, actionable message instead of a generic one.
@@ -35,6 +35,14 @@ public enum CmxNetworkByteTransportError: Error, Equatable, Sendable {
     case unsupportedRouteKind(CmxAttachTransportKind)
     /// The endpoint is not a host/port endpoint this transport can dial.
     case unsupportedEndpoint(CmxAttachEndpoint)
+    /// A Tailscale route reached the route-only factory seam without an
+    /// authorization context. Raw Tailscale TCP is never constructed there.
+    case authorizationIntentRequired
+    /// The request's authorization mode cannot be served by plaintext TCP.
+    case unsupportedAuthorizationMode(CmxTransportAuthorizationMode)
+    /// The OS could not provide cryptographic Tailscale peer authorization, so
+    /// plaintext TCP cannot carry the Stack bearer token.
+    case tailscaleAuthorizationUnavailable
     /// An operation was attempted before the connection became ready.
     case notConnected
     /// The transport was already closed.
@@ -55,48 +63,6 @@ public enum CmxNetworkByteTransportError: Error, Equatable, Sendable {
     case sendFailed(String)
 }
 
-/// A ``CmxRouteAwareByteTransportFactory`` that builds Network.framework TCP
-/// transports for host/port routes.
-public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory {
-    /// The route kinds this factory can build a transport for.
-    public var supportedKinds: [CmxAttachTransportKind]
-    /// The maximum number of bytes a single receive call yields.
-    public var maximumReceiveLength: Int
-
-    /// Creates a factory bound to the given supported route kinds.
-    /// - Parameters:
-    ///   - supportedKinds: Route kinds this factory accepts. Defaults to
-    ///     `tailscale` and `debugLoopback`.
-    ///   - maximumReceiveLength: Per-receive byte cap for built transports.
-    public init(
-        supportedKinds: [CmxAttachTransportKind] = [.tailscale, .debugLoopback],
-        maximumReceiveLength: Int = CmxNetworkByteTransport.defaultMaximumReceiveLength
-    ) {
-        self.supportedKinds = supportedKinds
-        self.maximumReceiveLength = maximumReceiveLength
-    }
-
-    /// Builds a connected-on-demand transport for a supported host/port route.
-    /// - Parameter route: The attach route to build a transport for.
-    /// - Returns: A ``CmxNetworkByteTransport`` for the route's host and port.
-    /// - Throws: ``CmxNetworkByteTransportError`` when the route kind or
-    ///   endpoint is unsupported, or the route fails validation.
-    public func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
-        try route.validate()
-        guard supportedKinds.contains(route.kind) else {
-            throw CmxNetworkByteTransportError.unsupportedRouteKind(route.kind)
-        }
-        guard case let .hostPort(host, port) = route.endpoint else {
-            throw CmxNetworkByteTransportError.unsupportedEndpoint(route.endpoint)
-        }
-        return try CmxNetworkByteTransport(
-            host: host,
-            port: port,
-            maximumReceiveLength: maximumReceiveLength
-        )
-    }
-}
-
 /// A ``CmxByteTransport`` over a single Network.framework `NWConnection`.
 ///
 /// The actor owns the connection, its callback queue, and all in-flight
@@ -115,11 +81,11 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         case closed
     }
 
-    private let connection: NWConnection
+    let connection: NWConnection
     // Network.framework requires a callback queue; state changes re-enter this actor.
-    private let callbackQueue: DispatchQueue
-    private let maximumReceiveLength: Int
-    private let connectTimeoutNanoseconds: UInt64
+    let callbackQueue: DispatchQueue
+    let maximumReceiveLength: Int
+    let connectTimeoutNanoseconds: UInt64
     private var state: TransportState = .idle
     private var connectContinuations: [UUID: CheckedContinuation<Void, any Error>] = [:]
     private var receiveContinuation: (id: UUID, continuation: CheckedContinuation<Data?, any Error>)?
@@ -127,16 +93,9 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
     private var receiveBuffer: [Data] = []
     private var sendContinuation: (id: UUID, continuation: CheckedContinuation<Void, any Error>?)?
     private var cancelledOperationIDs: Set<UUID> = []
-    private var connectTimeoutTimer: DispatchSourceTimer?
+    private var connectTimeoutTimer: (any DispatchSourceTimer)?
     private var remoteDidClose = false
 
-    /// Creates a transport for an explicit host and port.
-    /// - Parameters:
-    ///   - host: The destination host; must be non-empty after trimming.
-    ///   - port: The destination port in `1...65535`.
-    ///   - maximumReceiveLength: Per-receive byte cap.
-    ///   - connectTimeoutNanoseconds: Deadline for ``connect()``.
-    /// - Throws: ``CmxNetworkByteTransportError`` for invalid host/port/length.
     public init(
         host: String,
         port: Int,
@@ -147,7 +106,7 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         guard !normalizedHost.isEmpty else {
             throw CmxNetworkByteTransportError.emptyHost
         }
-        guard (1...65535).contains(port) else {
+        guard (1 ... 65535).contains(port) else {
             throw CmxNetworkByteTransportError.invalidPort(port)
         }
         guard maximumReceiveLength > 0 else {
@@ -172,19 +131,15 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         self.connectTimeoutNanoseconds = max(1, connectTimeoutNanoseconds)
     }
 
-    /// Creates a transport from a host/port attach route.
-    /// - Parameters:
-    ///   - route: The route to connect to; must carry a host/port endpoint.
-    ///   - maximumReceiveLength: Per-receive byte cap.
-    ///   - connectTimeoutNanoseconds: Deadline for ``connect()``.
-    /// - Throws: ``CmxNetworkByteTransportError`` when the endpoint is not a
-    ///   host/port, or the underlying host/port init fails.
     public init(
         route: CmxAttachRoute,
         maximumReceiveLength: Int = CmxNetworkByteTransport.defaultMaximumReceiveLength,
         connectTimeoutNanoseconds: UInt64 = CmxNetworkByteTransport.defaultConnectTimeoutNanoseconds
     ) throws {
         try route.validate()
+        guard route.kind != .tailscale else {
+            throw CmxNetworkByteTransportError.authorizationIntentRequired
+        }
         guard case let .hostPort(host, port) = route.endpoint else {
             throw CmxNetworkByteTransportError.unsupportedEndpoint(route.endpoint)
         }
@@ -194,6 +149,31 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
             maximumReceiveLength: maximumReceiveLength,
             connectTimeoutNanoseconds: connectTimeoutNanoseconds
         )
+    }
+
+    public init(acceptedConnection: NWConnection) {
+        connection = acceptedConnection
+        callbackQueue = DispatchQueue(
+            label: "dev.cmux.mobile.accepted-network-byte-transport.\(UUID().uuidString)"
+        )
+        maximumReceiveLength = Self.defaultMaximumReceiveLength
+        connectTimeoutNanoseconds = Self.defaultConnectTimeoutNanoseconds
+    }
+
+    public init(
+        acceptedConnection: NWConnection,
+        maximumReceiveLength: Int,
+        connectTimeoutNanoseconds: UInt64 = CmxNetworkByteTransport.defaultConnectTimeoutNanoseconds
+    ) throws {
+        guard maximumReceiveLength > 0 else {
+            throw CmxNetworkByteTransportError.invalidMaximumReceiveLength(maximumReceiveLength)
+        }
+        connection = acceptedConnection
+        callbackQueue = DispatchQueue(
+            label: "dev.cmux.mobile.accepted-network-byte-transport.\(UUID().uuidString)"
+        )
+        self.maximumReceiveLength = maximumReceiveLength
+        self.connectTimeoutNanoseconds = max(1, connectTimeoutNanoseconds)
     }
 
     /// Opens the connection, awaiting `ready` or failing on error/timeout.
@@ -236,7 +216,13 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         let operationID = UUID()
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                startSend(data, operationID: operationID, continuation: continuation)
+                Task {
+                    await self.startSend(
+                        data,
+                        operationID: operationID,
+                        continuation: continuation
+                    )
+                }
             }
         } onCancel: {
             Task { await self.cancelSend(operationID: operationID) }
@@ -286,7 +272,7 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         }
     }
 
-    private func handleConnectionEvent(_ event: CmxNetworkConnectionEvent) {
+    private func handleConnectionEvent(_ event: CmxNetworkConnectionEvent) async {
         switch event {
         case .ready:
             guard !isTerminal else {
@@ -448,7 +434,7 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         _ data: Data,
         operationID: UUID,
         continuation: CheckedContinuation<Void, any Error>
-    ) {
+    ) async {
         guard !consumeCancelledOperation(operationID) else {
             continuation.resume(throwing: CancellationError())
             return
@@ -472,6 +458,18 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
             return
         }
 
+        beginSend(
+            data,
+            operationID: operationID,
+            continuation: continuation
+        )
+    }
+
+    private func beginSend(
+        _ data: Data,
+        operationID: UUID,
+        continuation: CheckedContinuation<Void, any Error>
+    ) {
         sendContinuation = (operationID, continuation)
         connection.send(
             content: data,
@@ -479,9 +477,7 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
             isComplete: false,
             completion: .contentProcessed { [weak self] error in
                 let errorDescription = error.map(\.cmxUserFacingDescription)
-                guard let self else {
-                    return
-                }
+                guard let self else { return }
                 Task {
                     await self.handleSend(
                         operationID: operationID,
@@ -519,6 +515,7 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         receiveBuffer.removeAll()
         receiveInFlightOperationID = nil
         connection.stateUpdateHandler = nil
+        connection.pathUpdateHandler = nil
         connection.cancel()
         resumeConnectContinuations(throwing: error)
         resumeReceiveContinuation(throwing: error)
@@ -535,6 +532,7 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         receiveBuffer.removeAll()
         receiveInFlightOperationID = nil
         connection.stateUpdateHandler = nil
+        connection.pathUpdateHandler = nil
         connection.cancel()
         resumeConnectContinuations(throwing: pendingError)
         if resumeReceiveWithError {
@@ -579,7 +577,11 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
     private func scheduleConnectTimeout() {
         cancelConnectTimeout()
         let timer = DispatchSource.makeTimerSource(queue: callbackQueue)
-        timer.schedule(deadline: .now() + DispatchTimeInterval.milliseconds(coveringNanoseconds: connectTimeoutNanoseconds))
+        timer.schedule(
+            deadline: .now() + DispatchTimeInterval.milliseconds(
+                coveringNanoseconds: connectTimeoutNanoseconds
+            )
+        )
         timer.setEventHandler { [weak self] in
             guard let self else {
                 return
@@ -652,111 +654,5 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         }
         sendContinuation = nil
         pending.continuation?.resume(throwing: error)
-    }
-}
-
-private extension DispatchTimeInterval {
-    /// A millisecond interval covering `nanoseconds`, rounded up and clamped to `Int.max`.
-    static func milliseconds(coveringNanoseconds nanoseconds: UInt64) -> DispatchTimeInterval {
-        let wholeMilliseconds = nanoseconds / 1_000_000
-        let roundedMilliseconds = wholeMilliseconds + (nanoseconds % 1_000_000 == 0 ? 0 : 1)
-        let milliseconds = max(1, roundedMilliseconds)
-        return .milliseconds(Int(min(milliseconds, UInt64(Int.max))))
-    }
-}
-
-private enum CmxNetworkConnectionEvent: Sendable {
-    case ready
-    case waiting(String, CmxConnectFailureKind)
-    case failed(String, CmxConnectFailureKind)
-    case cancelled
-    case other
-
-    init(_ state: NWConnection.State) {
-        switch state {
-        case .ready:
-            self = .ready
-        case let .waiting(error):
-            self = .waiting(error.cmxUserFacingDescription, error.cmxConnectFailureKind)
-        case let .failed(error):
-            self = .failed(error.cmxUserFacingDescription, error.cmxConnectFailureKind)
-        case .cancelled:
-            self = .cancelled
-        case .setup, .preparing:
-            self = .other
-        @unknown default:
-            self = .other
-        }
-    }
-}
-
-private extension NWError {
-    /// A short, user-presentable description of the failure category.
-    var cmxUserFacingDescription: String {
-        switch self {
-        case .dns:
-            return "DNS lookup failed."
-        case .posix:
-            return "Network connection failed."
-        case .tls:
-            return "Secure connection failed."
-        #if compiler(>=6.2)
-        case .wifiAware:
-            return "Network connection failed."
-        #endif
-        @unknown default:
-            return "Network connection failed."
-        }
-    }
-
-    /// Classify this `NWError` into a ``CmxConnectFailureKind`` so the UI can
-    /// tell a user which knob to turn: app-not-running vs off-Tailscale vs
-    /// permission.
-    var cmxConnectFailureKind: CmxConnectFailureKind {
-        switch self {
-        case let .posix(code):
-            switch code {
-            case .ECONNREFUSED:
-                return .connectionRefused
-            case .EHOSTUNREACH, .ENETUNREACH, .ENETDOWN, .EHOSTDOWN, .ENETRESET, .ECONNABORTED:
-                return .hostUnreachable
-            case .ETIMEDOUT:
-                return .timedOut
-            case .EPERM, .EACCES:
-                return .permissionDenied
-            default:
-                return .generic
-            }
-        case .dns:
-            return .dnsFailed
-        case .tls:
-            return .secureChannelFailed
-        default:
-            return .generic
-        }
-    }
-}
-private extension CmxNetworkByteTransport {
-    /// Whether a `.waiting` reason is definitive enough to fail the initial
-    /// connect immediately.
-    ///
-    /// Only connection-refused qualifies: an RST proves the host is reachable
-    /// and nothing is listening on the port, which will not improve within
-    /// our connect window, and callers race multiple routes, so surfacing it
-    /// now lets the next route start immediately (this was the scan-to-pair
-    /// latency bug: a dead route parked `.waiting` for the full timeout).
-    /// Every other kind stays parked under the bounded connect timeout
-    /// because it can genuinely recover while the path is still converging:
-    /// host/network-unreachable and DNS failures occur transiently while a
-    /// Tailscale/VPN link comes up, permission-denied covers the
-    /// Local Network privacy prompt the very first dial triggers, and
-    /// secure-channel/timeout/generic waits are likewise retry states.
-    func waitingKindFailsConnect(_ kind: CmxConnectFailureKind) -> Bool {
-        switch kind {
-        case .connectionRefused:
-            return true
-        case .hostUnreachable, .dnsFailed, .permissionDenied, .secureChannelFailed, .timedOut, .generic:
-            return false
-        }
     }
 }

@@ -1,7 +1,9 @@
 import { useReducer } from "react";
 import "@xterm/xterm/css/xterm.css";
 import { ConnectScreen } from "./components/ConnectScreen";
+import { ClientsIndicator } from "./components/ClientsIndicator";
 import { Sidebar } from "./components/Sidebar";
+import { StatusBar } from "./components/StatusBar";
 import { TerminalPane } from "./components/TerminalPane";
 import { Toasts } from "./components/Toasts";
 import { useCmuxClient } from "./hooks/useCmuxClient";
@@ -14,6 +16,7 @@ export default function App() {
   const connection = useCmuxClient();
   const [drawer, dispatchDrawer] = useReducer(drawerReducer, "closed");
   const hasSession = connection.info !== null || connection.tree !== null;
+  const activeWorkspace = connection.view.find((workspace) => workspace.active) ?? null;
   if (!hasSession) {
     return (
       <ConnectScreen
@@ -43,7 +46,12 @@ export default function App() {
         >
           <span aria-hidden="true">☰</span>
         </button>
-        <span>{connection.active?.label || t("terminal")}</span>
+        <span className="mobile-title">{connection.active?.label || t("terminal")}</span>
+        <ClientsIndicator
+          clients={connection.clients}
+          onRefresh={connection.refreshClients}
+          onDetach={connection.mutations.detachClient}
+        />
       </header>
       <button
         className="drawer-backdrop"
@@ -55,17 +63,41 @@ export default function App() {
         open={drawer === "open"}
         workspaces={connection.view}
         onClose={() => dispatchDrawer("close")}
-        onSelect={async (...args) => {
+        onSelect={(...args) => {
           dispatchDrawer("select");
-          await connection.selectScreen(...args);
+          connection.selectScreen(...args);
         }}
+        onNewWorkspace={connection.mutations.newWorkspace}
+        onNewScreen={connection.mutations.newScreen}
+        onCloseWorkspace={connection.mutations.closeWorkspace}
+        onRenameWorkspace={connection.mutations.renameWorkspace}
       />
-      <TerminalPane client={connection.client} screen={connection.active} onSelectTab={connection.selectTab} />
-      <footer className="status-bar">
-        <span><b>{t("session")}</b> {connection.info?.session ?? "—"}</span>
-        <span className={`connection-state ${connection.status}`}><i />{t("connection")}: {connection.status === "connected" ? t("connected") : t("disconnected")}</span>
-        <span><b>{t("protocol")}</b> v{connection.info?.protocol ?? "—"}</span>
-      </footer>
+      <TerminalPane
+        client={connection.client}
+        clients={connection.clients}
+        screen={connection.active}
+        onSelectTab={connection.selectTab}
+        onNewTab={connection.mutations.newTab}
+        onSplit={connection.mutations.split}
+        onSetRatio={connection.mutations.setRatio}
+        onSelectPane={connection.selectPane}
+        onZoomPane={connection.mutations.zoomPane}
+        onClosePane={connection.mutations.closePane}
+        onCloseSurface={connection.mutations.closeSurface}
+        onRenamePane={connection.mutations.renamePane}
+        onRenameSurface={connection.mutations.renameSurface}
+      />
+      <StatusBar
+        workspace={activeWorkspace}
+        session={connection.info?.session ?? null}
+        clients={connection.clients}
+        onSelectScreen={connection.selectScreen}
+        onNewScreen={connection.mutations.newScreen}
+        onCloseScreen={connection.mutations.closeScreen}
+        onRenameScreen={connection.mutations.renameScreen}
+        onRefreshClients={connection.refreshClients}
+        onDetachClient={connection.mutations.detachClient}
+      />
       <Toasts toasts={connection.toasts} onDismiss={connection.dismissToast} />
     </main>
   );

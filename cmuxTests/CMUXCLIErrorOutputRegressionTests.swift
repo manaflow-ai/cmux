@@ -1502,7 +1502,7 @@ import Testing
     }
 }
 
-private final class UnixSocketResponder {
+final class UnixSocketResponder {
     let path: String
     private let response: String
     private let responseDelay: TimeInterval

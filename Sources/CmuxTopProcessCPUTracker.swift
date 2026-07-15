@@ -2,23 +2,23 @@ import Darwin
 import Foundation
 import os
 
-nonisolated struct CmuxTopProcessCPUSample: Sendable {
+struct CmuxTopProcessCPUSample: Sendable {
     let totalTimeTicks: UInt64
     let sampledAtNanoseconds: UInt64
 }
 
-private nonisolated struct CmuxTopProcessCPUTrackerState: Sendable {
+private struct CmuxTopProcessCPUTrackerState: Sendable {
     var entries: [CmuxTopProcessScopeCacheKey: CmuxTopProcessCPUTrackerEntry] = [:]
     var latestPrunedAtNanoseconds: UInt64 = 0
 }
 
-private nonisolated struct CmuxTopProcessCPUTrackerEntry: Sendable {
+private struct CmuxTopProcessCPUTrackerEntry: Sendable {
     let sample: CmuxTopProcessCPUSample
     let cpuPercent: Double
     let parentKey: CmuxTopProcessScopeCacheKey?
 }
 
-private nonisolated final class CmuxTopProcessCPUTracker: @unchecked Sendable {
+private final class CmuxTopProcessCPUTracker: @unchecked Sendable {
     private static let minimumSampleWindowNanoseconds: UInt64 = 1_000_000_000
 
     private let state = OSAllocatedUnfairLock(initialState: CmuxTopProcessCPUTrackerState())
@@ -108,7 +108,7 @@ private nonisolated let cmuxTopAbsoluteTimeNanosecondsRatio: Double? = {
     return Double(info.numer) / Double(info.denom)
 }()
 
-nonisolated extension CmuxTopProcessSnapshot {
+extension CmuxTopProcessSnapshot {
     static func cpuSampleClockNanoseconds() -> UInt64 {
         clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
     }

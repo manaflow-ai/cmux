@@ -190,20 +190,23 @@ impl RenderState {
         }
         let x: u16 = self.get(sys::GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_X).ok()?;
         let y: u16 = self.get(sys::GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_Y).ok()?;
-        let shape = match self
-            .get::<sys::GhosttyRenderStateCursorVisualStyle>(
-                sys::GHOSTTY_RENDER_STATE_DATA_CURSOR_VISUAL_STYLE,
-            )
-            .unwrap_or(sys::GHOSTTY_RENDER_STATE_CURSOR_VISUAL_STYLE_BLOCK)
-        {
+        let (shape, blinking) = self.cursor_visual().ok()?;
+        Some(CursorInfo { x, y, shape, blinking })
+    }
+
+    /// Current cursor shape and blink mode, even when the cursor is hidden
+    /// or outside the viewport.
+    pub fn cursor_visual(&self) -> Result<(CursorShape, bool)> {
+        let shape = match self.get::<sys::GhosttyRenderStateCursorVisualStyle>(
+            sys::GHOSTTY_RENDER_STATE_DATA_CURSOR_VISUAL_STYLE,
+        )? {
             sys::GHOSTTY_RENDER_STATE_CURSOR_VISUAL_STYLE_BAR => CursorShape::Bar,
             sys::GHOSTTY_RENDER_STATE_CURSOR_VISUAL_STYLE_UNDERLINE => CursorShape::Underline,
             sys::GHOSTTY_RENDER_STATE_CURSOR_VISUAL_STYLE_BLOCK_HOLLOW => CursorShape::BlockHollow,
             _ => CursorShape::Block,
         };
-        let blinking: bool =
-            self.get(sys::GHOSTTY_RENDER_STATE_DATA_CURSOR_BLINKING).unwrap_or(false);
-        Some(CursorInfo { x, y, shape, blinking })
+        let blinking: bool = self.get(sys::GHOSTTY_RENDER_STATE_DATA_CURSOR_BLINKING)?;
+        Ok((shape, blinking))
     }
 
     /// Walk every row of the snapshot top to bottom. The callback receives

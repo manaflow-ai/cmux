@@ -28,7 +28,8 @@ struct ShortcutListStableLazyView: View {
                     firstStrokeRequiresModifier: !action.allowsBareFirstStroke,
                     isUnbound: effective?.isUnbound ?? true,
                     canRestore: model.canRestore(for: action),
-                    validationMessage: model.validationMessage(for: action)
+                    validationMessage: model.validationMessage(for: action),
+                    recorderAccessibilityIdentifier: "ShortcutRecorder.\(action.rawValue)"
                 )
                 ShortcutListRowView(
                     snapshot: snapshot,

@@ -20,12 +20,20 @@ enum MobileAttachTarget: String, Sendable {
         case .ticketOnly:
             selected = routes
         case .simulatorInjection:
-            selected = routes.filter { route in
-                route.kind == .debugLoopback && CmxLoopbackHost().matches(route)
-            }
+            let irohRoutes = try Self.identityOnlyIrohRoutes(from: routes)
+            selected = irohRoutes.isEmpty
+                ? routes.filter { route in
+                    route.kind == .debugLoopback && CmxLoopbackHost().matches(route)
+                }
+                : irohRoutes
         case .physicalDevice:
-            let physicalRoutes = routes.filter { route in
-                route.kind == .tailscale && !CmxLoopbackHost().matches(route)
+            let irohRoutes = try Self.identityOnlyIrohRoutes(from: routes)
+            guard irohRoutes.isEmpty else {
+                selected = irohRoutes
+                break
+            }
+            let physicalRoutes = routes.filter {
+                $0.kind == .tailscale && !CmxLoopbackHost().matches($0)
             }
             // A route-id filter can leave `tailscale_2` as the only route.
             // Reindex the selected endpoints to the canonical sequence the v2
@@ -44,6 +52,23 @@ enum MobileAttachTarget: String, Sendable {
             throw MobileAttachTicketStoreError.routeUnavailable
         }
         return selected
+    }
+
+    private static func identityOnlyIrohRoutes(
+        from routes: [CmxAttachRoute]
+    ) throws -> [CmxAttachRoute] {
+        try routes.compactMap { route in
+            guard route.kind == .iroh,
+                  case let .peer(identity, _) = route.endpoint else {
+                return nil
+            }
+            return try CmxAttachRoute(
+                id: route.id,
+                kind: .iroh,
+                endpoint: .peer(identity: identity, pathHints: []),
+                priority: route.priority
+            )
+        }
     }
 }
 

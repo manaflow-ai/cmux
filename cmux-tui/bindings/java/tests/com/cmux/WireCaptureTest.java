@@ -25,7 +25,7 @@ public final class WireCaptureTest {
     private static byte[] captureIdentify() throws Exception {
         Path socket = freshSocketPath();
         CaptureServer server = new CaptureServer(socket, new String[] {
-            "{\"id\":1,\"ok\":true,\"data\":{\"app\":\"cmux-tui\",\"version\":\"test\",\"protocol\":6,\"session\":\"wire\",\"pid\":1}}"
+            "{\"id\":1,\"ok\":true,\"data\":{\"app\":\"cmux-tui\",\"version\":\"test\",\"protocol\":7,\"session\":\"wire\",\"pid\":1}}"
         });
         server.start();
         try (CmuxClient client = CmuxClient.builder().socketPath(socket.toString()).timeout(Duration.ofSeconds(2)).build()) {
@@ -39,7 +39,7 @@ public final class WireCaptureTest {
     private static byte[] captureAttach(long surface) throws Exception {
         Path socket = freshSocketPath();
         CaptureServer server = new CaptureServer(socket, new String[] {
-            "{\"id\":1,\"ok\":true,\"data\":{\"app\":\"cmux-tui\",\"version\":\"test\",\"protocol\":6,\"session\":\"wire\",\"pid\":1}}",
+            "{\"id\":1,\"ok\":true,\"data\":{\"app\":\"cmux-tui\",\"version\":\"test\",\"protocol\":7,\"session\":\"wire\",\"pid\":1}}",
             "{\"event\":\"vt-state\",\"surface\":" + surface + ",\"cols\":80,\"rows\":24,\"data\":\"\"}"
         });
         server.start();

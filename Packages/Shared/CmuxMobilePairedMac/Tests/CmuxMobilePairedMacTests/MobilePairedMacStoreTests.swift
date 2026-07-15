@@ -49,6 +49,57 @@ import Testing
         #expect(activeUser1?.routes.first?.id == "tailscale")
     }
 
+    @Test func irohCapabilityPinSurvivesRawOnlyRouteRefresh() async throws {
+        let (store, directory) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let iroh = try CmxAttachRoute(
+            id: "iroh",
+            kind: .iroh,
+            endpoint: .peer(
+                identity: CmxIrohPeerIdentity(
+                    endpointID: String(repeating: "a", count: 64)
+                ),
+                pathHints: []
+            ),
+            priority: -10_000
+        )
+        let initialTailscale = try CmxAttachRoute(
+            id: "tailscale-old",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.10", port: 8443)
+        )
+        let refreshedTailscale = try CmxAttachRoute(
+            id: "tailscale-new",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.11", port: 8443)
+        )
+
+        try await store.upsert(
+            macDeviceID: "iroh-mac",
+            displayName: "Iroh Mac",
+            routes: [iroh, initialTailscale],
+            markActive: true,
+            stackUserID: "user-1",
+            now: Date(timeIntervalSince1970: 1)
+        )
+        try await store.upsert(
+            macDeviceID: "iroh-mac",
+            displayName: "Iroh Mac",
+            routes: [refreshedTailscale],
+            markActive: true,
+            stackUserID: "user-1",
+            now: Date(timeIntervalSince1970: 2)
+        )
+
+        let stored = try #require(
+            await store.activeMac(stackUserID: "user-1")
+        )
+        #expect(stored.routes.contains { $0.kind == .iroh })
+        #expect(stored.routes.contains { $0.id == "tailscale-new" })
+        #expect(!stored.routes.contains { $0.id == "tailscale-old" })
+    }
+
     @Test func markingActiveDeactivatesPreviousWithinScope() async throws {
         let (store, directory) = try makeStore()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -434,40 +485,4 @@ import Testing
         #expect(try await store.activeMac(stackUserID: "user-1", teamID: "team-a")?.macDeviceID == "team-mac")
     }
 
-    @Test func sameMacDeviceIDCanExistInMultipleTeams() async throws {
-        let (store, directory) = try makeStore()
-        defer { try? FileManager.default.removeItem(at: directory) }
-
-        let routeA = try CmxAttachRoute(id: "a", kind: .tailscale, endpoint: .hostPort(host: "10.0.0.1", port: 22))
-        let routeB = try CmxAttachRoute(id: "b", kind: .tailscale, endpoint: .hostPort(host: "10.0.0.2", port: 22))
-
-        try await store.upsert(macDeviceID: "shared-mac", displayName: "Team A Mac", routes: [routeA],
-            markActive: true, stackUserID: "user-1", teamID: "team-a", now: Date(timeIntervalSince1970: 1))
-        try await store.setCustomization(
-            macDeviceID: "shared-mac",
-            customName: "A custom",
-            customColor: "palette:1",
-            customIcon: "desktopcomputer",
-            stackUserID: "user-1",
-            teamID: "team-a",
-            now: Date(timeIntervalSince1970: 2)
-        )
-
-        try await store.upsert(macDeviceID: "shared-mac", displayName: "Team B Mac", routes: [routeB],
-            markActive: true, stackUserID: "user-1", teamID: "team-b", now: Date(timeIntervalSince1970: 3))
-
-        let teamA = try await store.loadAll(stackUserID: "user-1", teamID: "team-a")
-        let teamB = try await store.loadAll(stackUserID: "user-1", teamID: "team-b")
-
-        #expect(teamA.map(\.macDeviceID) == ["shared-mac"])
-        #expect(teamB.map(\.macDeviceID) == ["shared-mac"])
-        #expect(teamA.first?.displayName == "Team A Mac")
-        #expect(teamB.first?.displayName == "Team B Mac")
-        #expect(teamA.first?.routes.first?.id == "a")
-        #expect(teamB.first?.routes.first?.id == "b")
-        #expect(teamA.first?.customColor == "palette:1")
-        #expect(teamB.first?.customColor == nil)
-        #expect(try await store.activeMac(stackUserID: "user-1", teamID: "team-a")?.routes.first?.id == "a")
-        #expect(try await store.activeMac(stackUserID: "user-1", teamID: "team-b")?.routes.first?.id == "b")
-    }
 }

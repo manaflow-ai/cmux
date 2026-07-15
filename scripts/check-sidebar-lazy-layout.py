@@ -101,6 +101,26 @@ CUSTOM_LAYOUT_DECL = re.compile(
     re.DOTALL,
 )
 
+# An always-mounted NSViewRepresentable below the LazyVStack can run AppKit
+# lifecycle callbacks while SwiftUI is updating the same row. Issue #8004's
+# hover and menu helpers wrote row state from that stack and re-entered
+# NSHostingView layout. Discover conformers across repo-owned sources so moving
+# or renaming one cannot bypass the guard, then reject their use in row bodies.
+NSVIEW_REPRESENTABLE_DECL = re.compile(
+    r"\b(?:struct|final\s+class|class|enum|extension)\s+([A-Z]\w*)\b[^{]*?"
+    r"\bNSViewRepresentable\b[^{]*?\{",
+    re.DOTALL,
+)
+
+# These are condition-gated leaf controls. SidebarInlineRenameField exists only
+# during inline rename, and GPUSpinner is mounted indirectly by
+# SidebarWorkspaceLoadingSpinner only while agent activity is visible. Neither
+# writes row state from representable lifecycle callbacks.
+ROW_NSVIEW_REPRESENTABLE_ALLOWLIST = frozenset({
+    "SidebarInlineRenameField",
+    "GPUSpinner",
+})
+
 # Row-view regions guarded against per-row geometry feedback. Four of the five
 # historical regressions in this class entered through the row views, not the
 # container functions above: the #2586/#6556 GeometryReader -> @State row-height
@@ -379,11 +399,55 @@ def find_custom_layout_type_names(paths):
     return names
 
 
+def find_nsview_representable_type_names(paths):
+    """Return repo-owned NSViewRepresentable-conforming type names in ``paths``.
+
+    Sources are comment/string-neutralized before matching, using the same scan
+    discipline as custom Layout discovery.
+    """
+    names = set()
+    seen = set()
+    for path in paths:
+        try:
+            real = os.path.realpath(path)
+        except OSError:
+            continue
+        if real in seen:
+            continue
+        seen.add(real)
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                text = handle.read()
+        except OSError:
+            continue
+        if "NSViewRepresentable" not in text:
+            continue
+        for match in NSVIEW_REPRESENTABLE_DECL.finditer(neutralize_swift(text)):
+            names.add(match.group(1))
+    return names
+
+
+def nsview_representable_violations(body, region_name, type_names):
+    """Return violations for disallowed representable references in ``body``."""
+    violations = []
+    for name in sorted(type_names - ROW_NSVIEW_REPRESENTABLE_ALLOWLIST):
+        if re.search(r"\b" + re.escape(name) + r"\b", body):
+            violations.append(
+                "{0} references always-mounted NSViewRepresentable `{1}`. "
+                "Sidebar row bodies must be value-only so AppKit lifecycle "
+                "callbacks cannot mutate row state during SwiftUI layout "
+                "(issue #8004).".format(region_name, name)
+            )
+    return violations
+
+
 def check_source(
     source,
     custom_layout_names=None,
+    nsview_representable_names=None,
     require_functions=True,
     required_row_types=(),
+    required_row_functions=(),
     scan_all_rows=False,
     required_markers=(),
 ):
@@ -408,6 +472,7 @@ def check_source(
     must appear in the source so a rename/move fails loudly.
     """
     custom_layout_names = custom_layout_names or set()
+    nsview_representable_names = nsview_representable_names or set()
     neutralized = neutralize_swift(source)
     violations = []
     bodies = {}
@@ -469,6 +534,21 @@ def check_source(
                 "(refusing to pass as a no-op).".format(marker)
             )
 
+    for func_name in required_row_functions:
+        body = extract_function_body(neutralized, func_name)
+        if body is None:
+            violations.append(
+                "could not locate row-builder func {0}(...). The sidebar "
+                "NSViewRepresentable guard must be updated to track the "
+                "renamed function (refusing to pass as a no-op).".format(func_name)
+            )
+            continue
+        violations.extend(nsview_representable_violations(
+            body,
+            "{0}(...)".format(func_name),
+            nsview_representable_names,
+        ))
+
     if scan_all_rows:
         for pattern, description in ROW_FORBIDDEN_PATTERNS:
             if pattern.search(neutralized):
@@ -510,6 +590,11 @@ def check_source(
                         type_name, name
                     )
                 )
+        violations.extend(nsview_representable_violations(
+            body,
+            type_name,
+            nsview_representable_names,
+        ))
 
     return violations
 
@@ -519,8 +604,8 @@ def repo_root_dir():
 
 
 def default_targets():
-    """(path, require_functions, required_row_types, scan_all_rows,
-    required_markers) per scanned file.
+    """(path, require_functions, required_row_types, required_row_functions,
+    scan_all_rows, required_markers) per scanned file.
 
     ContentView.swift holds the container functions and TabItemView; the group
     header row view lives in its own file with neither container function; the
@@ -534,6 +619,7 @@ def default_targets():
             os.path.join(root, "Sources", "ContentView.swift"),
             True,
             ("TabItemView",),
+            ("workspaceRow",),
             False,
             (),
         ),
@@ -541,6 +627,7 @@ def default_targets():
             os.path.join(root, "Sources", "SidebarWorkspaceGroupHeaderView.swift"),
             False,
             ("SidebarWorkspaceGroupHeaderView",),
+            (),
             False,
             (),
         ),
@@ -548,6 +635,7 @@ def default_targets():
             os.path.join(root, "Sources", "VerticalTabsSidebar+WorkspaceGroups.swift"),
             False,
             (),
+            ("sidebarWorkspaceGroupHeader",),
             True,
             ("sidebarWorkspaceGroupHeader",),
         ),
@@ -568,7 +656,7 @@ def main(argv=None):
         # "auto": ad-hoc scans of a row-view file (no container functions)
         # skip the container checks instead of failing on their absence; a
         # source containing any guarded function still has both enforced.
-        targets = ((args.file, "auto", (), False, ()),)
+        targets = ((args.file, "auto", (), (), False, ()),)
     else:
         targets = default_targets()
 
@@ -579,9 +667,17 @@ def main(argv=None):
     layout_scan_paths = [target[0] for target in targets]
     layout_scan_paths.extend(sorted(repo_owned_swift_files(repo_root_dir())))
     custom_layout_names = find_custom_layout_type_names(layout_scan_paths)
+    nsview_representable_names = find_nsview_representable_type_names(layout_scan_paths)
 
     exit_code = 0
-    for target, require_functions, required_row_types, scan_all_rows, required_markers in targets:
+    for (
+        target,
+        require_functions,
+        required_row_types,
+        required_row_functions,
+        scan_all_rows,
+        required_markers,
+    ) in targets:
         try:
             with open(target, "r", encoding="utf-8") as handle:
                 source = handle.read()
@@ -594,8 +690,10 @@ def main(argv=None):
         violations = check_source(
             source,
             custom_layout_names,
+            nsview_representable_names,
             require_functions=require_functions,
             required_row_types=required_row_types,
+            required_row_functions=required_row_functions,
             scan_all_rows=scan_all_rows,
             required_markers=required_markers,
         )

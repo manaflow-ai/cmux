@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAppKitSupportUI
 import SwiftUI
 
 /// Invisible popover content view that promotes the popover window to key as
@@ -229,6 +230,7 @@ struct SidebarWorkspaceTodoPopoverHost<Model: Equatable, PopoverContent: View>: 
             NSHostingController(rootView: AnyView(EmptyView()))
             // DO NOT set sizingOptions here — see the type comment.
         }()
+        private let visibleUpdateScheduler = CmuxPopoverVisibleUpdateScheduler()
         private var popover: NSPopover?
         private var currentModel: Model?
         private var currentBuilder: ((Model, @escaping @MainActor () -> Void) -> AnyView)?
@@ -281,7 +283,14 @@ struct SidebarWorkspaceTodoPopoverHost<Model: Equatable, PopoverContent: View>: 
             guard popover?.isShown == true else { return }
             guard lastRenderedModel != model
                 || lastRenderedPresentationCount != presentationCount else { return }
-            refreshContent()
+            scheduleVisibleRefresh()
+        }
+
+        private func scheduleVisibleRefresh() {
+            visibleUpdateScheduler.schedule { [weak self] in
+                guard let self, self.popover?.isShown == true else { return }
+                self.refreshContent()
+            }
         }
 
         private func refreshContent() {
@@ -341,6 +350,7 @@ struct SidebarWorkspaceTodoPopoverHost<Model: Equatable, PopoverContent: View>: 
             // immediate superview anchors the popover to the wrong spot.
             window.contentView?.layoutSubtreeIfNeeded()
             anchorView.superview?.layoutSubtreeIfNeeded()
+            visibleUpdateScheduler.cancel()
             presentationCount += 1
             refreshContent()
             updateContentSize()
@@ -348,6 +358,7 @@ struct SidebarWorkspaceTodoPopoverHost<Model: Equatable, PopoverContent: View>: 
         }
 
         func dismiss() {
+            visibleUpdateScheduler.cancel()
             popover?.performClose(nil)
         }
 
@@ -357,6 +368,7 @@ struct SidebarWorkspaceTodoPopoverHost<Model: Equatable, PopoverContent: View>: 
         }
 
         func popoverDidClose(_ notification: Notification) {
+            visibleUpdateScheduler.cancel()
             popover = nil
             if isPresented {
                 // AppKit closed us (transient click-away / app deactivation)
@@ -393,10 +405,11 @@ struct SidebarWorkspaceTodoPopoverHost<Model: Equatable, PopoverContent: View>: 
         private func updateContentSize() {
             let fitting = hostingController.view.fittingSize
             guard fitting.width > 0, fitting.height > 0 else { return }
-            popover?.contentSize = NSSize(
+            guard let popover else { return }
+            CmuxPopoverMutation.setContentSize(NSSize(
                 width: ceil(max(fitting.width, minWidth)),
                 height: ceil(min(fitting.height, maxHeight))
-            )
+            ), on: popover)
         }
     }
 }

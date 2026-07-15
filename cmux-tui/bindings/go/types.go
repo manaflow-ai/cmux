@@ -1,5 +1,7 @@
 package cmux
 
+import "encoding/json"
+
 type IdentifyResult struct {
 	App      string `json:"app"`
 	Version  string `json:"version"`
@@ -20,6 +22,21 @@ type VtStateResult struct {
 	Cols uint16 `json:"cols"`
 	Rows uint16 `json:"rows"`
 	Data string `json:"data"`
+}
+
+type ResizeSurfaceResult struct {
+	Accepted      bool    `json:"accepted"`
+	ReservationID *uint64 `json:"reservation_id"`
+}
+
+func (r *ResizeSurfaceResult) UnmarshalJSON(data []byte) error {
+	type wireResult ResizeSurfaceResult
+	decoded := wireResult{Accepted: true}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*r = ResizeSurfaceResult(decoded)
+	return nil
 }
 
 type Tree struct {
@@ -124,6 +141,14 @@ type EmptyEvent struct{}
 
 func (EmptyEvent) EventName() string { return "empty" }
 
+type OverflowEvent struct {
+	Error   string  `json:"error"`
+	Scope   *string `json:"scope"`
+	Surface *uint64 `json:"surface"`
+}
+
+func (OverflowEvent) EventName() string { return "overflow" }
+
 type SurfaceEvent struct {
 	Event   string `json:"event"`
 	Surface uint64 `json:"surface"`
@@ -131,13 +156,32 @@ type SurfaceEvent struct {
 
 func (e SurfaceEvent) EventName() string { return e.Event }
 
+type TitleChangedEvent struct {
+	Surface uint64  `json:"surface"`
+	Title   *string `json:"title"`
+}
+
+func (TitleChangedEvent) EventName() string { return "title-changed" }
+
 type SurfaceResizedEvent struct {
-	Surface uint64 `json:"surface"`
-	Cols    uint16 `json:"cols"`
-	Rows    uint16 `json:"rows"`
+	Surface       uint64  `json:"surface"`
+	Cols          uint16  `json:"cols"`
+	Rows          uint16  `json:"rows"`
+	ReservationID *uint64 `json:"reservation_id"`
 }
 
 func (SurfaceResizedEvent) EventName() string { return "surface-resized" }
+
+type SurfaceResizeFailedEvent struct {
+	Surface       uint64  `json:"surface"`
+	Cols          uint16  `json:"cols"`
+	Rows          uint16  `json:"rows"`
+	Error         string  `json:"error"`
+	RetryAfterMS  *uint64 `json:"retry_after_ms"`
+	ReservationID *uint64 `json:"reservation_id"`
+}
+
+func (SurfaceResizeFailedEvent) EventName() string { return "surface-resize-failed" }
 
 type VtStateEvent struct {
 	Surface uint64 `json:"surface"`

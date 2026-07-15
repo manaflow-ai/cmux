@@ -12,7 +12,7 @@ Review production Swift and runtime changes for:
 - Fixed sleeps, delays, and polling used as hacky synchronization.
 - Legacy concurrency patterns where Swift concurrency is available.
 - Incorrect `@concurrent` or `nonisolated async` behavior.
-- Swift file sprawl and missing SwiftPM package boundaries for independently testable feature logic.
+- Missing SwiftPM package boundaries for independently testable feature logic.
 - Production logging that bypasses unified logging or leaks sensitive data.
 - User-facing text that is not fully internationalized across every supported app or web locale.
 - SwiftUI state and layout patterns that cause stale state, broad invalidation, or render-time mutation.

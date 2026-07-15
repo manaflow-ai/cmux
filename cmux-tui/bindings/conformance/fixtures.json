@@ -7,7 +7,7 @@
         {
           "type": "command",
           "request": { "id": 1, "cmd": "identify" },
-          "expect": { "id": 1, "ok": true, "data": { "app": "cmux-tui", "protocol": 6 } },
+          "expect": { "id": 1, "ok": true, "data": { "app": "cmux-tui", "protocol": 7 } },
           "match": "partial"
         }
       ]
@@ -18,7 +18,7 @@
         {
           "type": "command",
           "request": { "id": 1, "cmd": "ping" },
-          "expect": { "id": 1, "ok": true, "data": { "ok": true, "protocol": 6 } },
+          "expect": { "id": 1, "ok": true, "data": { "ok": true, "protocol": 7 } },
           "match": "partial"
         },
         {
@@ -192,6 +192,82 @@
       ]
     },
     {
+      "name": "subscribe-title-changed-carries-title",
+      "steps": [
+        {
+          "type": "command",
+          "request": { "id": 1, "cmd": "new-workspace", "name": "conf-title", "cols": 80, "rows": 24 },
+          "expect": { "id": 1, "ok": true },
+          "match": "partial",
+          "bind": { "surface0": "data.surface" }
+        },
+        {
+          "type": "stream",
+          "name": "events",
+          "request": { "id": 2, "cmd": "subscribe" },
+          "expect": { "id": 2, "ok": true },
+          "match": "partial"
+        },
+        {
+          "type": "command",
+          "request": { "id": 3, "cmd": "send", "surface": "$surface0", "text": "printf '\\033]2;conformance title\\007'; sleep 30\r" },
+          "expect": { "id": 3, "ok": true },
+          "match": "partial"
+        },
+        {
+          "type": "expect_events",
+          "stream": "events",
+          "expect": [
+            { "event": "title-changed", "surface": "$surface0", "title": "conformance title" }
+          ]
+        },
+        {
+          "type": "command",
+          "request": { "id": 4, "cmd": "send", "surface": "$surface0", "text": "\u0003" },
+          "expect": { "id": 4, "ok": true },
+          "match": "partial"
+        }
+      ]
+    },
+    {
+      "name": "attach-resize-carries-replay",
+      "steps": [
+        {
+          "type": "command",
+          "request": { "id": 1, "cmd": "new-workspace", "name": "conf-attach-resize", "cols": 80, "rows": 24 },
+          "expect": { "id": 1, "ok": true },
+          "match": "partial",
+          "bind": { "surface0": "data.surface" }
+        },
+        {
+          "type": "stream",
+          "name": "attach",
+          "request": { "cmd": "attach-surface", "surface": "$surface0" },
+          "expect": { "ok": true },
+          "match": "partial"
+        },
+        {
+          "type": "command",
+          "request": { "id": 2, "cmd": "resize-surface", "surface": "$surface0", "cols": 100, "rows": 31 },
+          "expect": { "id": 2, "ok": true, "data": { "accepted": true } },
+          "match": "partial"
+        },
+        {
+          "type": "expect_events",
+          "stream": "attach",
+          "expect": [
+            {
+              "event": "resized",
+              "surface": "$surface0",
+              "cols": 100,
+              "rows": 31,
+              "replay": { "__match__": "nonempty-string" }
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "send-read-screen-round-trip",
       "steps": [
         {
@@ -213,6 +289,17 @@
           "path": "data.text",
           "contains": "cmux-conformance-marker",
           "timeout_ms": 10000
+        }
+      ]
+    },
+    {
+      "name": "overflow-event-schema",
+      "steps": [
+        {
+          "type": "parse_event",
+          "event": { "event": "overflow", "error": "subscriber fell behind", "scope": "surface", "surface": 7 },
+          "expect": { "event": "overflow", "error": "subscriber fell behind", "scope": "surface", "surface": 7 },
+          "match": "partial"
         }
       ]
     },

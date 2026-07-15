@@ -1,15 +1,25 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
   CmuxClient,
   CmuxTimeoutError,
   WebSocketTransport,
+  type ClientDetachedEvent,
+  type ClientInfo,
   type Id,
   type IdentifyResult,
   type NotificationEvent,
+  type TitleChangedEvent,
   type Tree,
 } from "cmux/browser";
+import { browserClientName } from "../lib/clientName";
+import {
+  initialLocalSelectionState,
+  localSelectionReducer,
+  selectionSnapshot,
+} from "../lib/localSelection";
 import { reconnectTransition, type ReconnectState } from "../lib/reconnect";
-import { activeScreen, treeToViewModel } from "../lib/tree";
+import { supportsProtocol } from "../lib/protocol";
+import { activeScreen, locateSurface, SurfaceTitleReconciler, treeToViewModel } from "../lib/tree";
 import { t } from "../i18n";
 
 export interface ConnectionConfig {
@@ -26,6 +36,7 @@ interface ConnectionState {
   client: CmuxClient | null;
   info: IdentifyResult | null;
   tree: Tree | null;
+  clients: ClientInfo[];
   error: string | null;
   reconnect: ReconnectState | null;
 }
@@ -35,6 +46,7 @@ const initialState: ConnectionState = {
   client: null,
   info: null,
   tree: null,
+  clients: [],
   error: null,
   reconnect: null,
 };
@@ -44,23 +56,63 @@ export function useCmuxClient() {
   const [state, setState] = useState<ConnectionState>(initialState);
   const [unread, setUnread] = useState<Set<Id>>(() => new Set());
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const refreshRef = useRef<(() => Promise<void>) | null>(null);
+  const [selection, dispatchSelection] = useReducer(localSelectionReducer, initialLocalSelectionState);
+  const refreshRef = useRef<(() => Promise<Tree | null>) | null>(null);
+  const localToastId = useRef(-1);
 
   useEffect(() => {
     if (!config) return;
     let cancelled = false;
     let activeClient: CmuxClient | null = null;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let titleFlushTimer: ReturnType<typeof setTimeout> | undefined;
+    const pendingSurfaceTitles = new Map<Id, string>();
+    let titleReconciler = new SurfaceTitleReconciler();
+
+    const discardPendingSurfaceTitles = () => {
+      if (titleFlushTimer !== undefined) clearTimeout(titleFlushTimer);
+      titleFlushTimer = undefined;
+      pendingSurfaceTitles.clear();
+    };
+    const flushSurfaceTitles = () => {
+      titleFlushTimer = undefined;
+      if (cancelled || pendingSurfaceTitles.size === 0) return;
+      pendingSurfaceTitles.clear();
+      setState((current) => current.tree === null
+        ? current
+        : { ...current, tree: titleReconciler.apply(current.tree) });
+    };
+    const queueSurfaceTitle = (surface: Id, title: string) => {
+      titleReconciler.record(surface, title);
+      pendingSurfaceTitles.set(surface, title);
+      titleFlushTimer ??= setTimeout(flushSurfaceTitles, 0);
+    };
 
     const refresh = async () => {
-      if (!activeClient) return;
+      if (!activeClient) return null;
+      discardPendingSurfaceTitles();
+      const token = titleReconciler.beginRefresh();
       const tree = await activeClient.listWorkspaces();
-      if (!cancelled) setState((current) => ({ ...current, tree }));
+      const committed = titleReconciler.commit(tree, token);
+      if (!cancelled && committed.applied) {
+        setState((current) => ({ ...current, tree: committed.tree }));
+        dispatchSelection({ type: "tree-updated", snapshot: selectionSnapshot(committed.tree) });
+      }
+      return committed.tree;
+    };
+    const refreshClients = async () => {
+      if (!activeClient) return;
+      const clients = await activeClient.listClients();
+      if (!cancelled) setState((current) => ({ ...current, clients }));
     };
     refreshRef.current = refresh;
 
     const start = async (reconnecting: boolean, previousAttempt = 0): Promise<void> => {
       if (cancelled) return;
+      // Retained title events belong to one transport generation. A restarted
+      // server may reuse surface IDs, so no title state may cross reconnects.
+      discardPendingSurfaceTitles();
+      titleReconciler = new SurfaceTitleReconciler();
       let dropHandled = false;
       let canReconnect = false;
       const transport = new WebSocketTransport(config.url, { authToken: config.token });
@@ -87,15 +139,23 @@ export function useCmuxClient() {
       try {
         const info = await client.identify();
         if (info.app !== "cmux-tui") throw new Error(t("wrongApp", { app: info.app }));
-        if (info.protocol !== 6) throw new Error(t("wrongProtocol", { protocol: info.protocol }));
+        if (!supportsProtocol(info.protocol)) throw new Error(t("wrongProtocol", { protocol: info.protocol }));
+        // Presence commands are additive (7c5a9e3e60); a protocol-6 server
+        // predating them still serves everything else, so degrade instead of
+        // failing the whole connect.
+        await client.setClientInfo(browserClientName(), "web").catch(() => undefined);
         const events = await client.subscribe();
-        const tree = await client.listWorkspaces();
+        const [tree, clients] = await Promise.all([
+          client.listWorkspaces(),
+          client.listClients().catch(() => []),
+        ]);
         if (cancelled) return;
         canReconnect = true;
         // A successful (re)connect resets the retry baseline so the next drop
         // starts from the first backoff step, not the cap.
         previousAttempt = 0;
-        setState({ status: "connected", client, info, tree, error: null, reconnect: null });
+        setState({ status: "connected", client, info, tree, clients, error: null, reconnect: null });
+        dispatchSelection({ type: "tree-updated", snapshot: selectionSnapshot(tree) });
 
         void (async () => {
           for (;;) {
@@ -119,8 +179,40 @@ export function useCmuxClient() {
                 setUnread((current) => new Set(current).add(notification.surface!));
               }
             }
-            if (["tree-changed", "layout-changed", "surface-resized", "surface-exited", "title-changed"].includes(event.event)) {
+            if (event.event === "title-changed") {
+              const changed = event as TitleChangedEvent;
+              if (changed.title === undefined) {
+                discardPendingSurfaceTitles();
+                await refresh();
+              } else {
+                queueSurfaceTitle(changed.surface, changed.title);
+              }
+            }
+            // This frontend passes only live PTY tabs to useAttachedTerminal;
+            // browser tabs render the unsupported placeholder and never call
+            // resizeSurface. A surface-resize-failed broadcast therefore
+            // belongs to another client and must not be echoed into a
+            // multi-client retry loop. Browser rendering must add explicit
+            // per-client geometry ownership before handling that event.
+            if (["tree-changed", "layout-changed", "surface-resized", "surface-exited"].includes(event.event)) {
+              discardPendingSurfaceTitles();
               await refresh();
+            }
+            if (
+              event.event === "client-attached"
+              || event.event === "client-changed"
+              // Presence sizes feed the foreign-size hint; refresh them when
+              // a surface is resized so the owning client is named correctly.
+              || event.event === "surface-resized"
+            ) {
+              await refreshClients();
+            }
+            if (event.event === "client-detached") {
+              const detached = event as ClientDetachedEvent;
+              setState((current) => ({
+                ...current,
+                clients: current.clients.filter((item) => item.client !== detached.client),
+              }));
             }
           }
         })();
@@ -135,6 +227,7 @@ export function useCmuxClient() {
             client: null,
             info: null,
             tree: null,
+            clients: [],
             error: error instanceof Error ? error.message : String(error),
             reconnect: null,
           });
@@ -147,43 +240,118 @@ export function useCmuxClient() {
     return () => {
       cancelled = true;
       if (retryTimer !== undefined) clearTimeout(retryTimer);
+      discardPendingSurfaceTitles();
       refreshRef.current = null;
       void activeClient?.close();
     };
   }, [config]);
 
   const connect = useCallback((next: ConnectionConfig) => {
+    dispatchSelection({ type: "reset" });
     setConfig({ ...next, token: next.token || undefined });
   }, []);
 
-  const selectScreen = useCallback(async (workspaceIndex: number, screenIndex: number, surface: Id | null) => {
-    if (!state.client) return;
-    await state.client.selectWorkspace({ index: workspaceIndex });
-    await state.client.selectScreen({ index: screenIndex });
+  const runMutation = useCallback(async (mutation: (client: CmuxClient) => Promise<unknown>) => {
+    if (!state.client) return false;
+    try {
+      await mutation(state.client);
+      return true;
+    } catch (error) {
+      const toast: Toast = {
+        event: "notification",
+        notification: localToastId.current--,
+        title: t("commandFailed"),
+        body: error instanceof Error ? error.message : String(error),
+        level: "error",
+        surface: null,
+      };
+      setToasts((current) => [...current.slice(-2), toast]);
+      return false;
+    }
+  }, [state.client]);
+
+  const selectScreen = useCallback((workspaceId: Id, screenId: Id, surface: Id | null) => {
+    dispatchSelection({ type: "navigate", workspaceId, screenId });
     if (surface !== null) setUnread((current) => {
       const next = new Set(current);
       next.delete(surface);
       return next;
     });
-    await refreshRef.current?.();
-  }, [state.client]);
+  }, []);
+
+  const selectPane = useCallback((paneId: Id) => {
+    dispatchSelection({ type: "select-pane", paneId });
+  }, []);
 
   const selectTab = useCallback(async (pane: Id, index: number, surface: Id) => {
-    if (!state.client) return;
-    await state.client.selectTab({ pane, index });
-    setUnread((current) => {
-      const next = new Set(current);
-      next.delete(surface);
-      return next;
+    await runMutation(async (client) => {
+      await client.selectTab({ pane, index });
+      setUnread((current) => {
+        const next = new Set(current);
+        next.delete(surface);
+        return next;
+      });
     });
-    await refreshRef.current?.();
-  }, [state.client]);
+  }, [runMutation]);
+
+  // Creation responses carry only the new surface id; selection is local, so
+  // follow the creation by locating that surface in a fresh tree and
+  // navigating there — only this client moves, per-client navigation intact.
+  const createAndFollow = useCallback(
+    (create: (client: CmuxClient) => Promise<{ surface: Id }>) =>
+      runMutation(async (client) => {
+        const created = await create(client);
+        const tree = await refreshRef.current?.();
+        if (!tree) return;
+        const target = locateSurface(tree, created.surface);
+        if (target) {
+          dispatchSelection({ type: "navigate", workspaceId: target.workspaceId, screenId: target.screenId });
+        }
+      }),
+    [runMutation],
+  );
+
+  const mutations = useMemo(() => ({
+    newWorkspace: () => createAndFollow((client) => client.newWorkspace()),
+    newScreen: (workspace: Id) => createAndFollow((client) => client.newScreen({ workspace })),
+    newTab: (pane: Id) => runMutation((client) => client.newTab({ pane })),
+    newBrowserTab: (pane: Id, url: string) => runMutation((client) => client.newBrowserTab(url, { pane })),
+    split: (pane: Id, dir: "right" | "down") => runMutation((client) => client.split(pane, dir)),
+    closeWorkspace: (workspace: Id) => runMutation((client) => client.closeWorkspace(workspace)),
+    closeScreen: (screen: Id) => runMutation((client) => client.closeScreen(screen)),
+    closePane: (pane: Id) => runMutation((client) => client.closePane(pane)),
+    closeSurface: (surface: Id) => runMutation((client) => client.closeSurface(surface)),
+    renameWorkspace: (workspace: Id, name: string) => runMutation((client) => client.renameWorkspace(workspace, name)),
+    renameScreen: (screen: Id, name: string) => runMutation((client) => client.renameScreen(screen, name)),
+    renamePane: (pane: Id, name: string) => runMutation((client) => client.renamePane(pane, name)),
+    renameSurface: (surface: Id, name: string) => runMutation((client) => client.renameSurface(surface, name)),
+    zoomPane: (pane: Id) => runMutation((client) => client.zoomPane({ pane, mode: "toggle" })),
+    swapPane: (pane: Id, dir: "left" | "right" | "up" | "down") =>
+      runMutation((client) => client.swapPane({ pane, dir })),
+    setRatio: (pane: Id, dir: "right" | "down", ratio: number) =>
+      runMutation((client) => client.setRatio(pane, dir, ratio)),
+    detachClient: (clientId: Id) => runMutation(async (client) => {
+      await client.detachClient(clientId);
+      setState((current) => ({
+        ...current,
+        clients: current.clients.filter((item) => item.client !== clientId),
+      }));
+    }),
+  }), [createAndFollow, runMutation]);
+
+  const refreshClients = useCallback(() => runMutation(async (client) => {
+    const clients = await client.listClients();
+    setState((current) => ({ ...current, clients }));
+  }), [runMutation]);
 
   const dismissToast = useCallback((notification: Id) => {
     setToasts((current) => current.filter((toast) => toast.notification !== notification));
   }, []);
 
-  const view = useMemo(() => state.tree ? treeToViewModel(state.tree, unread) : [], [state.tree, unread]);
+  const view = useMemo(
+    () => state.tree ? treeToViewModel(state.tree, unread, selection) : [],
+    [selection, state.tree, unread],
+  );
   return {
     ...state,
     view,
@@ -191,7 +359,10 @@ export function useCmuxClient() {
     toasts,
     connect,
     selectScreen,
+    selectPane,
     selectTab,
+    mutations,
+    refreshClients,
     dismissToast,
   };
 }

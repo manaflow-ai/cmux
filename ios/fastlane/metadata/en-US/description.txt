@@ -1,0 +1,11 @@
+cmux brings your coding agents to your phone. Pair to your Mac running the cmux terminal and watch your AI agents work in real time, get a push the moment an agent needs your attention or finishes a task, and reply or run commands from anywhere.
+
+cmux is the terminal built for coding agents: vertical tabs, notification rings when agents need input, split panes, an in-app browser, and a scriptable CLI on the desktop. The iOS app is your remote for all of it.
+
+- Live terminal: stream your Mac's cmux workspaces and terminals to your phone
+- Agent notifications: a push the moment an agent asks a question or completes work
+- Reply on the go: send input, run commands, and switch workspaces from your phone
+- Voice to text: dictate into the message box
+- Secure pairing: connect to your own Mac over the local network or relay
+
+Free and open source. Requires a Mac running cmux (free at cmux.com).

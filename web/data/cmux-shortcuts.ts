@@ -101,6 +101,8 @@ export const shortcutCategories: ShortcutCategory[] = [
       },
       { id: "nextSidebarTab", combos: [["⌃", "⌘", "]"]], description: { en: "Next workspace", ja: "次のワークスペース" } },
       { id: "prevSidebarTab", combos: [["⌃", "⌘", "["]], description: { en: "Previous workspace", ja: "前のワークスペース" } },
+      { id: "moveWorkspaceUp", combos: [["⌃", "⌥", "⌘", "["]], description: { en: "Move workspace up", ja: "ワークスペースを上へ移動" } },
+      { id: "moveWorkspaceDown", combos: [["⌃", "⌥", "⌘", "]"]], description: { en: "Move workspace down", ja: "ワークスペースを下へ移動" } },
       {
         id: "focusHistoryBack",
         combos: [["⌘", "["]],
@@ -257,6 +259,8 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "newSurface", combos: [["⌘", "T"]], description: { en: "New surface", ja: "新規サーフェス" } },
       { id: "nextSurface", combos: [["⌘", "⇧", "]"]], description: { en: "Next surface", ja: "次のサーフェス" } },
       { id: "prevSurface", combos: [["⌘", "⇧", "["]], description: { en: "Previous surface", ja: "前のサーフェス" } },
+      { id: "moveSurfaceLeft", combos: [["⌥", "⌘", "⇧", "["]], description: { en: "Move surface left", ja: "サーフェスを左へ移動" } },
+      { id: "moveSurfaceRight", combos: [["⌥", "⌘", "⇧", "]"]], description: { en: "Move surface right", ja: "サーフェスを右へ移動" } },
       { id: "selectSurfaceByNumber", combos: [["⌃", "1…9"]], description: { en: "Select surface 1…9", ja: "サーフェス1…9を選択" } },
       { id: "renameTab", combos: [["⌘", "R"]], description: { en: "Rename tab", ja: "タブ名を変更" } },
       { id: "closeTab", combos: [["⌘", "W"]], description: { en: "Close tab", ja: "タブを閉じる" } },

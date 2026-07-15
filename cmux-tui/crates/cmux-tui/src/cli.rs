@@ -60,6 +60,24 @@ const VERBS: &[VerbSpec] = &[
         kind: socket(build_no_args, print_ping, false),
     },
     VerbSpec {
+        name: "set-client-info",
+        help: "Label this control connection.",
+        allowed: &["name", "kind"],
+        kind: socket(build_set_client_info, print_empty, false),
+    },
+    VerbSpec {
+        name: "list-clients",
+        help: "List connected control clients.",
+        allowed: &[],
+        kind: socket(build_no_args, print_clients, false),
+    },
+    VerbSpec {
+        name: "detach-client",
+        help: "Detach a connected control client.",
+        allowed: &["client"],
+        kind: socket(build_detach_client, print_empty, false),
+    },
+    VerbSpec {
         name: "reload-config",
         help: "Ask a running TUI to reload its config file.",
         allowed: &[],
@@ -92,7 +110,7 @@ const VERBS: &[VerbSpec] = &[
     VerbSpec {
         name: "apply-layout",
         help: "Apply a screen layout.",
-        allowed: &["workspace", "name", "layout"],
+        allowed: &["workspace", "name", "layout", "cols", "rows"],
         kind: socket(build_apply_layout, print_applied_layout, false),
     },
     VerbSpec {
@@ -704,6 +722,17 @@ fn build_no_args(flags: &FlagMap) -> Result<Value, UsageError> {
     Ok(json!({}))
 }
 
+fn build_set_client_info(flags: &FlagMap) -> Result<Value, UsageError> {
+    let mut value = json!({});
+    flags.insert_optional_string(&mut value, "name");
+    flags.insert_optional_string(&mut value, "kind");
+    Ok(value)
+}
+
+fn build_detach_client(flags: &FlagMap) -> Result<Value, UsageError> {
+    Ok(json!({ "client": flags.required_u64("client")? }))
+}
+
 fn build_surface(flags: &FlagMap) -> Result<Value, UsageError> {
     Ok(json!({ "surface": flags.required_u64("surface")? }))
 }
@@ -885,6 +914,7 @@ fn build_apply_layout(flags: &FlagMap) -> Result<Value, UsageError> {
     let mut value = json!({ "layout": layout });
     flags.insert_optional_u64(&mut value, "workspace")?;
     flags.insert_optional_string(&mut value, "name");
+    flags.insert_optional_size(&mut value)?;
     Ok(value)
 }
 
@@ -1149,6 +1179,59 @@ fn print_ping(data: &Value, out: &mut dyn Write) -> io::Result<()> {
         data.get("version").and_then(Value::as_str).unwrap_or(""),
         data.get("protocol").and_then(Value::as_u64).unwrap_or(0)
     )
+}
+
+fn print_clients(data: &Value, out: &mut dyn Write) -> io::Result<()> {
+    let Some(clients) = data.as_array() else { return Ok(()) };
+    for client in clients {
+        let attached = client
+            .get("attached")
+            .and_then(Value::as_array)
+            .map(|surfaces| {
+                surfaces
+                    .iter()
+                    .filter_map(Value::as_u64)
+                    .map(|surface| surface.to_string())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            })
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "-".to_string());
+        let sizes = client
+            .get("sizes")
+            .and_then(Value::as_array)
+            .map(|sizes| {
+                sizes
+                    .iter()
+                    .map(|size| {
+                        let surface = size.get("surface").and_then(Value::as_u64).unwrap_or(0);
+                        match (
+                            size.get("cols").and_then(Value::as_u64),
+                            size.get("rows").and_then(Value::as_u64),
+                        ) {
+                            (Some(cols), Some(rows)) => format!("{surface}:{cols}x{rows}"),
+                            _ => format!("{surface}:null"),
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(",")
+            })
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "-".to_string());
+        writeln!(
+            out,
+            "{} {} {} {} connected={}s attached={} sizes={} self={}",
+            client.get("client").and_then(Value::as_u64).unwrap_or(0),
+            client.get("transport").and_then(Value::as_str).unwrap_or(""),
+            client.get("name").and_then(Value::as_str).unwrap_or("-"),
+            client.get("kind").and_then(Value::as_str).unwrap_or("-"),
+            client.get("connected_seconds").and_then(Value::as_u64).unwrap_or(0),
+            attached,
+            sizes,
+            client.get("self").and_then(Value::as_bool).unwrap_or(false),
+        )?;
+    }
+    Ok(())
 }
 
 fn print_read_screen(data: &Value, out: &mut dyn Write) -> io::Result<()> {

@@ -434,6 +434,19 @@
         "cmuxP1": "cmux 不需要內建一個通用 worktree 管理器。它提供<customCommands>自訂命令</customCommands>、可程式化的<api>CLI 和 socket API</api>，以及可重複使用的<skills>技能</skills>。加號按鈕可以啟動你自己的 worktree 命令、多 repo 設定、非 Git 沙盒或遠端環境。",
         "cmuxP2": "這就是 <home>cmux home</home> 重要的原因。最好的 worktree 管理器，是當工作流程改變時你的代理也能修改的那個；而最適合這個循環的終端機，會把通知、Cmd+Shift+U 和 Cmd+Control+U 接到介面裡。"
       },
+      "cmuxFork": {
+        "title": "cmux Fork 正式推出",
+        "summary": "將代理程式對話分叉到新的分割畫面、分頁或工作區，同時保留完整脈絡。",
+        "date": "2026年7月14日",
+        "p1": "與程式設計代理程式的對話經常會遇到適合分叉的節點。你可以保留一種方案，同時讓另一個代理程式嘗試不同實作、調查支線問題，或從新角度檢視同一個問題。",
+        "p2": "Fork Conversation 會根據目前對話建立新的代理程式工作階段，並保留對話記錄和工作目錄。它支援 Codex、Claude Code、OpenCode、Pi、Hermes，以及其他提供可分叉工作階段的代理程式。",
+        "destinationsTitle": "分叉到你想工作的地方",
+        "destinationsP": "在終端機或分頁按右鍵並選擇 Fork Conversation，或按 <code>Cmd+Shift+P</code> 搜尋 Fork Conversation。你可以將分叉放到任一方向的分割畫面、新分頁或新工作區。",
+        "parallelTitle": "同時探索多個方向",
+        "parallelP1": "多次分叉同一段對話，可以比較不同實作，也可以讓多個代理程式從相同的起始脈絡分工處理問題。每個分叉獨立繼續，原始對話仍然保留。",
+        "parallelP2": "多個分叉可以在同一目錄中工作。如果同時編輯可能重疊，請為它們分配不同的工作或檔案。",
+        "release": "cmux Fork 已在 v0.64.19 中推出。"
+      },
       "showHnLaunch": {
         "title": "在 Show HN 上發布 cmux",
         "summary": "cmux 登上 Hacker News 第 2 名，被 Mitchell Hashimoto 分享，並在日本爆紅。",
@@ -597,6 +610,10 @@
         "終端機工作流",
         "代理式開發"
       ]
+    },
+    "cmuxFork": {
+      "metaTitle": "cmux Fork 正式推出",
+      "metaDescription": "將 Codex、Claude Code、OpenCode、Pi、Hermes 或其他支援代理程式的對話分叉到新的分割畫面、分頁或工作區，同時保留完整脈絡。"
     },
     "cmdShiftU": {
       "metaTitle": "Cmd+Shift+U",

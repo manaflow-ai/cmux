@@ -13,6 +13,7 @@ mod config;
 mod host_colors;
 mod keys;
 mod plugin_manager;
+mod pty_input;
 mod session;
 mod sidebar_files;
 mod ui;
@@ -82,13 +83,16 @@ KEYS (prefix: Ctrl-b)
   Ctrl-b  send a literal Ctrl-b
 
 MOUSE
-  Right-click a pane for rename/new tab/split/close; right-click a
+  Mouse-aware PTYs receive clicks, motion, and wheel events. Hold Shift
+  to select text or open the cmux pane menu. Right-click a pane for
+  rename/new tab/split/close; right-click a
   workspace-sidebar row or a status-bar screen for rename/close. Click
   tab-bar entries to switch tabs (+ for a new tab), and status-bar
   screen entries to switch screens (+ for a new screen).
 
 CLI VERBS
-  identify, ping, reload-config, set-window-title, clear-window-title,
+  identify, ping, set-client-info, list-clients, detach-client,
+  reload-config, set-window-title, clear-window-title,
   list-workspaces, export-layout, apply-layout, send,
   read-screen, vt-state, new-tab, new-browser-tab, new-workspace,
   new-screen, split, set-ratio, pane-neighbor, focus-direction,
@@ -223,6 +227,11 @@ fn run_server(args: Args) -> anyhow::Result<()> {
     surface_options.extra_env.push(("CMUX_MUX_SOCKET".into(), socket_path.display().to_string()));
 
     let mux = Mux::new(args.session.clone(), surface_options);
+    mux.set_default_colors(cmux_tui_core::DefaultColors {
+        cursor_style: config.cursor_style,
+        cursor_blink: config.cursor_blink,
+        ..Default::default()
+    });
     mux.configure_sidebar_plugin(config.sidebar.plugin.clone());
     let websocket_server = match ws_addr {
         Some(addr) => {
@@ -256,7 +265,10 @@ fn run_server(args: Args) -> anyhow::Result<()> {
 
 fn run_tui(session: Session, session_label: String) -> anyhow::Result<()> {
     crossterm::terminal::enable_raw_mode()?;
-    let colors = host_colors::probe_default_colors();
+    let config = config::load();
+    let mut colors = host_colors::probe_default_colors();
+    colors.cursor_style = config.cursor_style;
+    colors.cursor_blink = config.cursor_blink;
     let color_result = session.set_default_colors(colors);
     let raw_result = crossterm::terminal::disable_raw_mode();
     if let Err(err) = color_result {

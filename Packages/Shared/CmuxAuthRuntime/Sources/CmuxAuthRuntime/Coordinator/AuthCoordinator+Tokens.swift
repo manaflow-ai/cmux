@@ -31,6 +31,13 @@ extension AuthCoordinator {
                 try await self.accessTokenWithoutStateClear()
             }
         } catch AuthError.unauthorized {
+            // A session transition owns the temporarily empty token store. This
+            // method is a reader, so it cannot publish a signed-out verdict or
+            // bump sessionGeneration out from under that writer. Callers retry
+            // after restore/sign-in reaches its terminal state.
+            if sessionTokenTransitionIsActive {
+                throw AuthError.networkError
+            }
             if let devToken = await devAuthAccessTokenFallback() {
                 return devToken
             }
@@ -138,6 +145,9 @@ extension AuthCoordinator {
                 try await self.forceRefreshAccessTokenWithoutStateClear()
             }
         } catch AuthError.unauthorized {
+            if sessionTokenTransitionIsActive {
+                throw AuthError.networkError
+            }
             clearAuthState(preservePendingCode: true)
             throw AuthError.unauthorized
         }

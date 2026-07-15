@@ -11,14 +11,30 @@ public struct KeyboardShortcutsSection: View {
     private let hostActions: SettingsHostActions
     @State private var model: ShortcutListModel
 
+    /// Creates the keyboard shortcut editor with both current and compatibility stores.
+    ///
+    /// - Parameters:
+    ///   - jsonStore: The authoritative `cmux.json` settings store.
+    ///   - userDefaultsStore: The store containing compatibility shortcut overrides, or `nil`
+    ///     to preserve the pre-compatibility behavior for existing package consumers.
+    ///   - catalog: The settings key catalog shared with the stores.
+    ///   - errorLog: The error sink for failed JSON writes.
+    ///   - hostActions: Host callbacks for opening the external configuration editor.
     public init(
         jsonStore: JSONConfigStore,
+        userDefaultsStore: UserDefaultsSettingsStore? = nil,
         catalog: SettingCatalog,
         errorLog: SettingsErrorLog,
         hostActions: SettingsHostActions
     ) {
         self.hostActions = hostActions
-        _model = State(initialValue: ShortcutListModel(jsonStore: jsonStore, catalog: catalog, errorLog: errorLog))
+        _model = State(initialValue: ShortcutListModel(
+            jsonStore: jsonStore,
+            userDefaultsStore: userDefaultsStore,
+            catalog: catalog,
+            errorLog: errorLog,
+            onShortcutsChanged: { hostActions.notifyShortcutSettingsDidChange() }
+        ))
     }
 
     public var body: some View {

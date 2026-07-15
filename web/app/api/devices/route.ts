@@ -28,6 +28,7 @@ import {
   AccountDeletionMutationBlockedError,
   assertAccountDeletionUserMutationAllowed,
 } from "../../../services/account/deletionLock";
+import { sanitizeServerPublishedRoutes } from "../../../services/iroh/publicationPolicy";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -109,11 +110,9 @@ function recordOrEmpty(value: unknown): Record<string, unknown> {
 
 /**
  * Keep only structurally valid route entries (a plain object), bounded by
- * `MAX_ROUTES`. Semantic validation of the `CmxAttachRoute` wire schema is left
- * to the typed Mac/iOS clients, so the server stays forward-compatible with new
- * route kinds; this only guarantees the stored jsonb is a bounded array of
- * objects (never a string, number, or array element that would corrupt the
- * column or bloat the row).
+ * `MAX_ROUTES`. Legacy route semantics remain client-owned so the server stays
+ * forward-compatible with non-Iroh route kinds. Iroh entries cross the stricter
+ * publication policy after this structural bound.
  */
 function routesArray(value: unknown): unknown[] {
   if (!Array.isArray(value)) return [];
@@ -153,7 +152,7 @@ export async function POST(request: Request): Promise<Response> {
   const { manual: _ignoredManualLabel, ...labels } = rawLabels;
   void _ignoredManualLabel;
   const tag = trimmedString(body.value.tag) || "default";
-  const routes = routesArray(body.value.routes);
+  const routes = sanitizeServerPublishedRoutes(routesArray(body.value.routes));
   const instanceLabels = recordOrEmpty(body.value.instanceLabels);
   // `manual: true` marks a user-initiated remote added through the cmux CLI
   // (`cmux remotes add`) rather than a Mac self-registering its own live
@@ -178,7 +177,7 @@ export async function POST(request: Request): Promise<Response> {
   }
   // For a user-initiated manual remote, enforce the full attach-route schema on
   // the server (non-empty array; every entry a `tailscale` host:port with a
-  // 1-65535 port and a Tailscale-attachable host). This is the server-side
+  // 1-65535 port and a numeric Tailscale peer host). This is the server-side
   // mirror of the CLI/app check, so a direct authenticated API caller cannot
   // register a remote that lists but cannot connect (empty routes, port 0, wrong
   // kind, or a non-Tailscale host). Scoped to the manual path: the Mac's own
@@ -391,7 +390,9 @@ export async function GET(request: Request): Promise<Response> {
     lastSeenAt: device.lastSeenAt.toISOString(),
     instances: (instancesByDevice.get(device.id) ?? []).map((instance) => ({
       tag: instance.tag,
-      routes: instance.routes,
+      routes: sanitizeServerPublishedRoutes(
+        Array.isArray(instance.routes) ? instance.routes : [],
+      ),
       labels: instance.labels,
       lastSeenAt: instance.lastSeenAt.toISOString(),
     })),

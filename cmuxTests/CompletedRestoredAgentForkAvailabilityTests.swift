@@ -19,14 +19,14 @@ struct CompletedRestoredAgentForkAvailabilityTests {
         workspace.restoredAgentResumeStatesByPanelId[panel.id] = .observedAgentCommandRunning
 
         #expect(workspace.forkAgentConversationContextMenuAvailability(forPanelId: panel.id) == .available)
-        #expect(workspace.forkableAgentSnapshot(forPanelId: panel.id) != nil)
+        #expect(workspace.forkAgentConversationContextMenuOpenSelection(forPanelId: panel.id).snapshot != nil)
 
         workspace.updatePanelShellActivityState(panelId: panel.id, state: .promptIdle)
 
         #expect(workspace.restoredAgentResumeStatesByPanelId[panel.id] == .completedAgentExit)
         #expect(workspace.restoredAgentSnapshotsByPanelId[panel.id] != nil)
         #expect(workspace.forkAgentConversationContextMenuAvailability(forPanelId: panel.id) == .noAgentSnapshot)
-        #expect(workspace.forkableAgentSnapshot(forPanelId: panel.id) == nil)
+        #expect(workspace.forkAgentConversationContextMenuOpenSelection(forPanelId: panel.id).snapshot == nil)
         #expect(
             !workspace.forkAgentConversationFromContextMenu(
                 fromPanelId: panel.id,

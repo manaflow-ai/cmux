@@ -1954,11 +1954,13 @@ private struct SessionTranscriptPopoverHost: NSViewRepresentable {
         coordinator.dismiss()
     }
 
+    @MainActor
     final class Coordinator: NSObject, NSPopoverDelegate {
         @Binding var isPresented: Bool
         weak var anchorView: NSView?
 
         private let hostingController = NSHostingController(rootView: AnyView(EmptyView()))
+        private let visibleUpdateScheduler = CmuxPopoverVisibleUpdateScheduler()
         private var popover: NSPopover?
         private var currentEntry: SessionEntry?
         private let sizeModel = SessionTranscriptPopoverSizeModel()
@@ -1972,7 +1974,18 @@ private struct SessionTranscriptPopoverHost: NSViewRepresentable {
             let shouldRefresh = currentEntry?.id != entry.id
             currentEntry = entry
             if shouldRefresh {
-                refreshContent()
+                if popover?.isShown == true {
+                    scheduleVisibleRefresh()
+                } else {
+                    refreshContent()
+                }
+            }
+        }
+
+        private func scheduleVisibleRefresh() {
+            visibleUpdateScheduler.schedule { [weak self] in
+                guard let self, self.popover?.isShown == true else { return }
+                self.refreshContent()
             }
         }
 
@@ -1994,6 +2007,7 @@ private struct SessionTranscriptPopoverHost: NSViewRepresentable {
             anchorView.superview?.layoutSubtreeIfNeeded()
             let popover = popover ?? makePopover()
             if !popover.isShown {
+                visibleUpdateScheduler.cancel()
                 refreshContent()
                 popover.show(relativeTo: anchorView.bounds, of: anchorView, preferredEdge: .maxX)
             }
@@ -2001,10 +2015,12 @@ private struct SessionTranscriptPopoverHost: NSViewRepresentable {
 
         func dismiss() {
             wantsPresentation = false
+            visibleUpdateScheduler.cancel()
             popover?.performClose(nil)
         }
 
         func popoverDidClose(_ notification: Notification) {
+            visibleUpdateScheduler.cancel()
             wantsPresentation = false
             popover = nil
             if isPresented {
@@ -2053,7 +2069,11 @@ private struct SessionTranscriptPopoverHost: NSViewRepresentable {
         }
 
         private func updatePopoverSize() {
-            popover?.contentSize = NSSize(width: sizeModel.size.width, height: sizeModel.size.height)
+            guard let popover else { return }
+            CmuxPopoverMutation.setContentSize(
+                NSSize(width: sizeModel.size.width, height: sizeModel.size.height),
+                on: popover
+            )
         }
     }
 }
@@ -2112,7 +2132,7 @@ private struct EscapeKeyCatcher: NSViewRepresentable {
 
 // MARK: - "Show more" popover with search
 
-private struct SectionPopoverView: View {
+struct SectionPopoverView: View {
     let section: IndexSection
     /// Closure-typed search handle. The popover never holds a reference to
     /// `SessionIndexStore`; the parent view is the only owner.
@@ -2621,194 +2641,6 @@ private func sessionDragItemProvider(for entry: SessionEntry) -> NSItemProvider 
 
     provider.suggestedName = entry.displayTitle
     return provider
-}
-
-// MARK: - NSPopover host
-
-/// Hosts SectionPopoverView in a real NSPopover. SwiftUI's native `.popover()`
-/// doesn't reliably let the embedded TextField become first responder in cmux's
-/// focus-managed environment because the terminal keeps grabbing focus back.
-struct SectionPopoverHost: NSViewRepresentable {
-    @Binding var isPresented: Bool
-    let section: IndexSection
-    /// Closure-typed search handle passed through to the SwiftUI popover
-    /// body. The host no longer holds a `SessionIndexStore` reference.
-    let search: SessionSearchFn
-    let loadSnapshot: DirectorySnapshotFn
-    let onResume: ((SessionEntry) -> Void)?
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(isPresented: $isPresented)
-    }
-
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        view.translatesAutoresizingMaskIntoConstraints = false
-        context.coordinator.anchorView = view
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        let coordinator = context.coordinator
-        coordinator.anchorView = nsView
-        coordinator.update(
-            section: section,
-            search: search,
-            loadSnapshot: loadSnapshot,
-            onResume: onResume
-        )
-        if isPresented {
-            coordinator.present()
-        } else {
-            coordinator.dismiss()
-        }
-    }
-
-    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
-        coordinator.dismiss()
-    }
-
-    final class Coordinator: NSObject, NSPopoverDelegate {
-        @Binding var isPresented: Bool
-        weak var anchorView: NSView?
-        private(set) var debugRefreshContentCallCount = 0
-        var debugIsPopoverShown: Bool { popover?.isShown == true }
-
-        private let hostingController: NSHostingController<AnyView> = {
-            NSHostingController(rootView: AnyView(EmptyView()))
-            // DO NOT set sizingOptions here. sizingOptions =
-            // [.preferredContentSize] makes NSHostingController
-            // continuously rewrite its preferredContentSize from SwiftUI
-            // layout; NSPopover observes preferredContentSize and will
-            // override any manual popover.contentSize we set. On first
-            // open SwiftUI layout settles over multiple passes and
-            // preferredContentSize briefly reports a partial height —
-            // NSPopover latches onto that and renders squished (evidence:
-            // /tmp/cmux-debug-spin-fix.log, refreshContent logged
-            // fitting=360x486 at present, but visible popover was ~280).
-            // Instead we drive popover.contentSize manually from
-            // fittingSize on every updateNSView / present call.
-        }()
-        private var popover: NSPopover?
-        private var currentSection: IndexSection?
-        private var currentSearch: SessionSearchFn?
-        private var currentLoadSnapshot: DirectorySnapshotFn?
-        private var currentOnResume: ((SessionEntry) -> Void)?
-        private var lastRenderedSection: IndexSection?
-        private var lastRenderedPresentationCount: Int?
-        /// Bumped on every present(). Used as the SwiftUI view identity so each
-        /// open gets fresh view-local state.
-        private var presentationCount = 0
-
-        init(isPresented: Binding<Bool>) {
-            _isPresented = isPresented
-        }
-
-        func update(
-            section: IndexSection,
-            search: @escaping SessionSearchFn,
-            loadSnapshot: @escaping DirectorySnapshotFn,
-            onResume: ((SessionEntry) -> Void)?
-        ) {
-            currentSection = section
-            currentSearch = search
-            currentLoadSnapshot = loadSnapshot
-            currentOnResume = onResume
-            // When hidden, defer rebuilding the hosting view until `present()`.
-            // Rewriting rootView + forcing layout on every parent re-render was
-            // the 100% CPU loop behind #3010.
-            guard popover?.isShown == true else { return }
-            // Rows capture stable closure bundles above the list boundary, so
-            // the section snapshot is the meaningful input here. Skipping
-            // identical visible-section updates avoids re-laying out the popover
-            // during unrelated parent re-renders while still refreshing when the
-            // visible content actually changes.
-            guard lastRenderedSection != section || lastRenderedPresentationCount != presentationCount else { return }
-            refreshContent()
-        }
-
-        private func refreshContent() {
-            guard let section = currentSection,
-                  let search = currentSearch,
-                  let loadSnapshot = currentLoadSnapshot else { return }
-            debugRefreshContentCallCount += 1
-            let onResume = currentOnResume
-            let identity = presentationCount
-            hostingController.rootView = AnyView(
-                SectionPopoverView(
-                    section: section,
-                    search: search,
-                    loadSnapshot: loadSnapshot,
-                    onResume: onResume
-                ) { [weak self] in
-                    self?.closeFromContent()
-                }
-                // Tied to presentationCount so reopening the popover discards
-                // the prior open's view-local search and scroll state.
-                .id(identity)
-            )
-            lastRenderedSection = section
-            lastRenderedPresentationCount = presentationCount
-            hostingController.view.invalidateIntrinsicContentSize()
-            hostingController.view.layoutSubtreeIfNeeded()
-            updateContentSize()
-        }
-
-        func present() {
-            guard let anchorView, anchorView.window != nil else {
-                isPresented = false
-                return
-            }
-            anchorView.superview?.layoutSubtreeIfNeeded()
-            let popover = popover ?? makePopover()
-            // Only bump identity on a hidden-to-shown transition. Bumping on every
-            // updateNSView (which fires on parent re-renders, e.g. ObservedObject
-            // store changes) would reset SectionPopoverView's view-local state
-            // on every tick.
-            if !popover.isShown {
-                presentationCount += 1
-                refreshContent()
-            }
-            updateContentSize()
-            guard !popover.isShown else { return }
-            popover.show(relativeTo: anchorView.bounds, of: anchorView, preferredEdge: .maxX)
-        }
-
-        func dismiss() {
-            popover?.performClose(nil)
-        }
-
-        func closeFromContent() {
-            isPresented = false
-            dismiss()
-        }
-
-        func popoverDidClose(_ notification: Notification) {
-            popover = nil
-            if isPresented {
-                isPresented = false
-            }
-        }
-
-        private func makePopover() -> NSPopover {
-            let p = NSPopover()
-            p.behavior = .transient
-            p.animates = true
-            p.contentViewController = hostingController
-            p.delegate = self
-            self.popover = p
-            return p
-        }
-
-        private func updateContentSize() {
-            let fitting = hostingController.view.fittingSize
-            guard fitting.width > 0, fitting.height > 0 else { return }
-            popover?.contentSize = NSSize(
-                width: ceil(max(fitting.width, 360)),
-                height: ceil(min(fitting.height, 480))
-            )
-        }
-    }
 }
 
 // MARK: - Drag cancel monitor

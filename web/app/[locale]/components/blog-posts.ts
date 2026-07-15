@@ -14,6 +14,14 @@ type BlogPost = {
 
 export const blogPosts = [
   {
+    slug: "cmux-fork",
+    key: "cmuxFork",
+    title: "Introducing cmux Fork",
+    date: "2026-07-14",
+    summary:
+      "Branch an agent conversation into a new split, tab, or workspace without losing its context.",
+  },
+  {
     slug: "claude-code-best-worktree-manager",
     key: "claudeCodeBestWorktreeManager",
     title: "Claude Code Is The Best Worktree Manager",

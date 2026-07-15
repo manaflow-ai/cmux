@@ -36,8 +36,10 @@ import Foundation
 /// value, `p` priority (omitted when 0), `e` endpoint.
 /// Key map (endpoint): the type is implied by the keys present (accepted
 /// explicitly under `t` for first-revision payloads): `h` host + `p` port, or
-/// `i` peer id + `rh` relay hint + `da` direct addrs + `ru` relay URL, or
-/// `u` url.
+/// `i` peer id, or `u` url. New pairing payloads carry no Iroh path hints:
+/// managed relays are app configuration, online discovery is authenticated,
+/// and offline pairing resolves the scanned EndpointID locally. Decoding still
+/// accepts the first compact revision's `ph`, `rh`, `da`, and `ru` fields.
 public struct CmxAttachTicketCompactCoder: Sendable {
     /// Creates a coder. The coder is stateless; instances are interchangeable.
     public init() {}
@@ -47,11 +49,19 @@ public struct CmxAttachTicketCompactCoder: Sendable {
     /// Any `authToken`, `macDisplayName`, and `expiresAt` on the ticket are
     /// intentionally not encoded: the token never authorizes anything on the
     /// host (Stack auth is the sole gate), the name is read post-handshake
-    /// from `mobile.host.status`, and a pairing QR never expires.
-    public func encode(_ ticket: CmxAttachTicket) throws -> Data {
+    /// from `mobile.host.status`, and a pairing QR never expires. Callers must
+    /// explicitly select identity-only disclosure or the temporary released-
+    /// client compatibility mode.
+    public func encode(
+        _ ticket: CmxAttachTicket,
+        routeDisclosureMode: CmxPairingRouteDisclosureMode
+    ) throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        return try encoder.encode(CompactAttachTicket(ticket))
+        return try encoder.encode(CompactAttachTicket(
+            ticket,
+            routeDisclosureMode: routeDisclosureMode
+        ))
     }
 
     /// Decode a compact JSON payload into a validated ``CmxAttachTicket``.

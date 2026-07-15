@@ -11,6 +11,7 @@ final class ShortcutListModel {
     // MARK: - Observed state
 
     private(set) var bindings: [String: StoredShortcut] = [:]
+    private(set) var legacyBindings: [String: StoredShortcut]
     private(set) var whenOverrideClauses: [String: ShortcutWhenClause] = [:]
     private(set) var whenOverrideRawStrings: [String: String] = [:]
     private(set) var chordModeActions: Set<String> = []
@@ -27,19 +28,31 @@ final class ShortcutListModel {
     // MARK: - Observation-ignored internals
 
     @ObservationIgnored private let jsonStore: JSONConfigStore
+    @ObservationIgnored private let userDefaultsStore: UserDefaultsSettingsStore?
     @ObservationIgnored private let catalog: SettingCatalog
     @ObservationIgnored private let errorLog: SettingsErrorLog
+    @ObservationIgnored private let onShortcutsChanged: @MainActor () -> Void
     @ObservationIgnored private let bindingsDriver = SettingReadDriver<[String: StoredShortcut]>()
+    @ObservationIgnored private let legacyBindingsDriver = SettingReadDriver<[String: StoredShortcut]>()
     @ObservationIgnored private let whenDriver = SettingReadDriver<[String: String]>()
 
     // MARK: - Init
 
-    /// Creates the model bound to the given stores. Call ``startObserving()``
-    /// before reading state so the bindings and `when` overrides are populated.
-    init(jsonStore: JSONConfigStore, catalog: SettingCatalog, errorLog: SettingsErrorLog) {
+    /// Creates the model bound to the given stores. Legacy shortcut overrides are
+    /// loaded immediately; call ``startObserving()`` to observe both stores.
+    init(
+        jsonStore: JSONConfigStore,
+        userDefaultsStore: UserDefaultsSettingsStore? = nil,
+        catalog: SettingCatalog,
+        errorLog: SettingsErrorLog,
+        onShortcutsChanged: @escaping @MainActor () -> Void = {}
+    ) {
         self.jsonStore = jsonStore
+        self.userDefaultsStore = userDefaultsStore
+        self.legacyBindings = userDefaultsStore?.initialLegacyShortcutBindings() ?? [:]
         self.catalog = catalog
         self.errorLog = errorLog
+        self.onShortcutsChanged = onShortcutsChanged
     }
 
     // MARK: - Lifecycle
@@ -53,6 +66,12 @@ final class ShortcutListModel {
             { [jsonStore, bindingsKey] in jsonStore.values(for: bindingsKey) },
             sink: { [weak self] dictionary in self?.ingestBindings(dictionary) }
         )
+        if let userDefaultsStore {
+            legacyBindingsDriver.activate(
+                { userDefaultsStore.legacyShortcutBindingValues() },
+                sink: { [weak self] dictionary in self?.ingestLegacyBindings(dictionary) }
+            )
+        }
         whenDriver.activate(
             { [jsonStore, whenKey] in jsonStore.values(for: whenKey) },
             sink: { [weak self] whenMap in
@@ -75,12 +94,21 @@ final class ShortcutListModel {
         pruneNumberedDigitRejections(changedActionIds: Set(changedActionIds))
     }
 
+    private func ingestLegacyBindings(_ dictionary: [String: StoredShortcut]) {
+        let changedActionIds = Set(legacyBindings.keys).union(dictionary.keys)
+            .filter { legacyBindings[$0] != dictionary[$0] }
+        legacyBindings = dictionary
+        pruneRestoreShortcuts()
+        pruneConflictRejections(changedActionIds: Set(changedActionIds))
+        pruneNumberedDigitRejections(changedActionIds: Set(changedActionIds))
+    }
+
     // MARK: - Display helpers (lifted from actionRow inline computations)
 
-    /// The effective shortcut for `action`: its override binding if set,
-    /// otherwise the action's built-in default.
+    /// The effective shortcut for `action`, using the runtime's JSON, legacy
+    /// UserDefaults, then built-in precedence.
     func effective(for action: ShortcutAction) -> StoredShortcut? {
-        latestBindings[action.rawValue] ?? action.defaultShortcut
+        latestBindings[action.rawValue] ?? legacyBindings[action.rawValue] ?? action.defaultShortcut
     }
 
     /// Whether `action` is currently unbound but has a cached stroke available to
@@ -110,8 +138,7 @@ final class ShortcutListModel {
             )
         }
         if let conflict {
-            let conflictOverride = latestBindings[conflict.rawValue]
-            let conflictEffective = conflictOverride ?? conflict.defaultShortcut
+            let conflictEffective = effective(for: conflict)
             let conflictShortcutString = conflictEffective.map {
                 format($0, numbered: conflict.usesNumberedDigitMatching)
             } ?? ""
@@ -209,8 +236,7 @@ final class ShortcutListModel {
                 effectiveWhenClause(for: other),
                 rhsHasPriority: other.hasPriorityShortcutRouting
             ) else { continue }
-            let override = latestBindings[other.rawValue]
-            let effective = override ?? other.defaultShortcut
+            let effective = effective(for: other)
             guard let effective, !effective.isUnbound else { continue }
             if numberedAwareStrokesConflict(
                 stroke.first,
@@ -305,7 +331,7 @@ final class ShortcutListModel {
         numberedDigitRejections.remove(action.rawValue)
         conflictRejections.removeValue(forKey: action.rawValue)
         rejectedConflictShortcuts.removeValue(forKey: action.rawValue)
-        await write(updated)
+        await write(updated, clearingLegacyFor: action)
     }
 
     /// Records a two-stroke chord for `action`, rejecting (without writing) an
@@ -345,53 +371,14 @@ final class ShortcutListModel {
         numberedDigitRejections.remove(action.rawValue)
         conflictRejections.removeValue(forKey: action.rawValue)
         rejectedConflictShortcuts.removeValue(forKey: action.rawValue)
-        await write(updated)
-    }
-
-    /// For a numbered action, normalizes the digit stroke to the "1" placeholder;
-    /// returns `nil` if it is not a 1…9 digit. Non-numbered actions pass through
-    /// unchanged.
-    private func normalizedNumberedShortcutIfNeeded(
-        _ shortcut: StoredShortcut,
-        for action: ShortcutAction
-    ) -> StoredShortcut? {
-        guard action.usesNumberedDigitMatching else {
-            return shortcut
-        }
-        let digitStroke = shortcut.second ?? shortcut.first
-        guard isNumberedDigitKey(digitStroke.key) else {
-            return nil
-        }
-        if let second = shortcut.second {
-            return StoredShortcut(
-                first: shortcut.first,
-                second: ShortcutStroke(
-                    key: "1",
-                    command: second.command,
-                    shift: second.shift,
-                    option: second.option,
-                    control: second.control,
-                    keyCode: second.keyCode
-                )
-            )
-        }
-        return StoredShortcut(
-            first: ShortcutStroke(
-                key: "1",
-                command: shortcut.first.command,
-                shift: shortcut.first.shift,
-                option: shortcut.first.option,
-                control: shortcut.first.control,
-                keyCode: shortcut.first.keyCode
-            )
-        )
+        await write(updated, clearingLegacyFor: action)
     }
 
     /// Persists an unbound binding for `action`.
     func clearBinding(for action: ShortcutAction) async {
         var updated = latestBindings
         updated[action.rawValue] = StoredShortcut.unbound
-        await write(updated)
+        await write(updated, clearingLegacyFor: action)
     }
 
     /// Persists `shortcut` for `action` and clears its rejection/restore state.
@@ -403,7 +390,7 @@ final class ShortcutListModel {
         numberedDigitRejections.remove(action.rawValue)
         conflictRejections.removeValue(forKey: action.rawValue)
         rejectedConflictShortcuts.removeValue(forKey: action.rawValue)
-        await write(updated)
+        await write(updated, clearingLegacyFor: action)
     }
 
     /// Clears every override and all in-memory rejection/restore state — the
@@ -414,18 +401,30 @@ final class ShortcutListModel {
         numberedDigitRejections.removeAll()
         conflictRejections.removeAll()
         rejectedConflictShortcuts.removeAll()
-        await write([:])
+        await write([:], resetAllLegacy: true)
     }
 
     /// Persists `updated` to the bindings store, recording any failure to the
     /// error log.
-    private func write(_ updated: [String: StoredShortcut]) async {
+    private func write(
+        _ updated: [String: StoredShortcut],
+        clearingLegacyFor action: ShortcutAction? = nil,
+        resetAllLegacy: Bool = false
+    ) async {
         pendingWriteGeneration += 1
         let generation = pendingWriteGeneration
         pendingBindings = updated
         bindings = updated
         do {
             try await jsonStore.set(updated, for: catalog.shortcuts.bindings)
+            if resetAllLegacy {
+                await userDefaultsStore?.resetAllLegacyShortcutBindings()
+                legacyBindings.removeAll()
+            } else if let action, legacyBindings[action.rawValue] != nil {
+                await userDefaultsStore?.resetLegacyShortcutBinding(for: action)
+                legacyBindings.removeValue(forKey: action.rawValue)
+            }
+            onShortcutsChanged()
             if pendingWriteGeneration == generation {
                 pendingBindings = nil
             }
@@ -490,8 +489,8 @@ final class ShortcutListModel {
         guard !restoreShortcuts.isEmpty else { return }
         // Iterate a key snapshot because the loop mutates `restoreShortcuts`.
         for key in Array(restoreShortcuts.keys) {
-            let override = latestBindings[key]
-            if let override, override.isUnbound { continue }
+            if let action = ShortcutAction(rawValue: key),
+               effective(for: action)?.isUnbound == true { continue }
             restoreShortcuts.removeValue(forKey: key)
         }
     }

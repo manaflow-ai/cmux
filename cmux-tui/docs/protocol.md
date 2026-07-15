@@ -1,6 +1,6 @@
 # Control Socket Protocol
 
-As of protocol v6, every server speaks JSON Lines over a Unix domain socket. Send one JSON object per line. Every request receives one response line. `subscribe` and `attach-surface` also push event lines on the same connection.
+As of protocol v7, every server speaks JSON Lines over a Unix domain socket. Send one JSON object per line. Every request receives one response line. `subscribe` and `attach-surface` also push event lines on the same connection.
 
 For shell use, prefer `cmux-tui <verb>`; it wraps the same socket commands and preserves JSON output with `--json`.
 
@@ -14,7 +14,7 @@ $TMPDIR/cmux-tui-<uid>/<session>.sock
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":6,"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":7,"session":"main","pid":12345}}
 ```
 
 Responses have this shape:
@@ -100,17 +100,20 @@ Subscribed event lines are:
 
 ```json
 {"event":"surface-output","surface":4}
-{"event":"surface-resized","surface":4,"cols":120,"rows":40}
+{"event":"surface-resized","surface":4,"cols":120,"rows":40,"reservation_id":7}
+{"event":"surface-resize-failed","surface":4,"cols":120,"rows":40,"error":"browser is not responding","retry_after_ms":250,"reservation_id":7}
 {"event":"surface-exited","surface":4}
-{"event":"title-changed","surface":4}
+{"event":"title-changed","surface":4,"title":"build logs"}
 {"event":"bell","surface":4}
 {"event":"tree-changed"}
 {"event":"empty"}
 ```
 
-`surface-resized` reports the final clamped cell size and is emitted only when the surface size actually changes.
+`surface-resized` reports the final clamped cell size and is emitted only when the surface size actually changes. `surface-resize-failed` reports an asynchronous browser resize failure and the delay before an automatic retry, or `null` after retries are exhausted. Browser resize completions repeat the numeric `reservation_id` returned by the accepted request so clients can ignore stale completions.
 
-Browser input, navigation, activation, and browser reconfigure work from `resize-surface` enqueue per-surface CDP work and return `ok:true` after acceptance. Completion or failure is observed later via browser state and status events. Two consecutive CDP call timeouts mark only that browser surface failed with `browser is not responding`.
+Protocol v7 `title-changed` carries the authoritative current `title`. Slow subscribers coalesce repeated pending title changes per surface to the latest value.
+
+Browser input, navigation, activation, and browser reconfigure work from `resize-surface` enqueue per-surface CDP work. Protocol v7 `resize-surface` responses include `data.accepted` and `data.reservation_id`; `true` means the resize was applied or queued, and `false` means it was already satisfied, pending, or waiting for its retry backoff. Completion arrives as `surface-resized`, and asynchronous failure arrives as `surface-resize-failed`. Two consecutive CDP call timeouts mark only that browser surface failed with `browser is not responding`.
 
 ## Attach Surface
 
@@ -130,7 +133,7 @@ Then it sends ordered stream frames:
 
 ```json
 {"event":"output","surface":4,"data":"<base64-pty-bytes>"}
-{"event":"resized","surface":4,"cols":132,"rows":43,"data":"<base64-vt-replay>"}
+{"event":"resized","surface":4,"cols":132,"rows":43,"replay":"<base64-vt-replay>"}
 ```
 
 The `resized` attach frame carries the new cell size and a fresh VT replay captured at that size. It is delivered in the same attach stream as output frames, so a client can reset its local terminal, apply the replay, and continue consuming later output in order.
@@ -145,7 +148,7 @@ When the stream ends, it sends:
 
 ## Client Compatibility
 
-The remote TUI requires protocol v6. It refuses servers reporting any other protocol version because attach streams need resize markers carrying replay data.
+The remote TUI requires protocol v7. It refuses servers reporting any other protocol version because it relies on resized attach replays and authoritative title events.
 
 Attach clients mirror PTY surfaces locally. On first render, a client can resize the server surface before requesting `attach-surface`, so the initial VT replay is captured at the visible geometry.
 
