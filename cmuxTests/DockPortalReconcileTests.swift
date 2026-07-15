@@ -181,6 +181,44 @@ struct DockPortalReconcileTests {
         #expect(registryChangeCount == 0)
     }
 
+    @Test("Portal follow-up observers are object-scoped and bounded")
+    @MainActor
+    func dockPortalFollowUpIsObjectScopedAndBounded() throws {
+        let sourceWorkspaceId = UUID()
+        let browser = BrowserPanel(workspaceId: sourceWorkspaceId, renderInitialNavigation: false)
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil },
+            browserAvailabilityProvider: { true }
+        )
+        defer { store.closeAllPanels() }
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        store.setVisibleInUI(true)
+        let detached = Self.detachedBrowserTransfer(panel: browser, sourceWorkspaceId: sourceWorkspaceId)
+        _ = try #require(store.attachDetachedSurface(detached, inPane: rootPane, focus: true))
+
+        store.clearDockPortalReconcile()
+        store.scheduleDockPortalReconcile(reason: "test.boundedFollowUp")
+        let wakeBudget = store.dockPortalReconcileState.lifecycleWakeAttemptsRemaining
+        #expect(wakeBudget > 0)
+        #expect(!store.dockPortalReconcileState.observers.isEmpty)
+
+        NotificationCenter.default.post(
+            name: .browserPortalRegistryDidChange,
+            object: NSObject()
+        )
+        #expect(store.dockPortalReconcileState.lifecycleWakeAttemptsRemaining == wakeBudget)
+
+        for _ in 0..<wakeBudget {
+            NotificationCenter.default.post(
+                name: .browserPortalRegistryDidChange,
+                object: browser.webView
+            )
+        }
+        #expect(store.dockPortalReconcileState.lifecycleWakeAttemptsRemaining == 0)
+        #expect(store.dockPortalReconcileState.observers.isEmpty)
+    }
+
     @Test("Move into Dock schedules portal reconcile")
     @MainActor
     func moveIntoDockSchedulesPortalReconcile() async throws {

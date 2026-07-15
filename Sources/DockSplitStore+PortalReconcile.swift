@@ -2,15 +2,17 @@ import AppKit
 
 /// Event-driven follow-up state for the Dock portal reconciler.
 ///
-/// Every request performs an immediate pass. Observers remain installed only
-/// while a visible portal reports that its AppKit host is not mounted yet; the
-/// next real host/registry lifecycle event performs the next pass. There is no
-/// timer, backoff, or focus-driven layout dependency.
+/// Every request performs an immediate pass. Object-scoped observers remain
+/// installed only while a visible portal reports that its AppKit host is not
+/// mounted yet, and a bounded number of real host/registry lifecycle events can
+/// perform follow-up passes. There is no timer, backoff, app-wide event fanout,
+/// or focus-driven layout dependency.
 @MainActor
 final class DockPortalReconcileState {
     var observers: [NSObjectProtocol] = []
     var reason: String?
     var isAttempting = false
+    var lifecycleWakeAttemptsRemaining = 0
     var scheduledRequestCount = 0
 
     deinit {
@@ -19,12 +21,18 @@ final class DockPortalReconcileState {
 }
 
 extension DockSplitStore {
+    // A normal mount emits ready, window-attachment, and visibility events.
+    // Leave room for repeated AppKit churn while bounding a permanently stuck host.
+    private static let maxDockPortalLifecycleWakeAttempts = 8
+
     func scheduleDockPortalReconcile(reason: String) {
         let state = dockPortalReconcileState
         state.scheduledRequestCount += 1
         state.reason = reason
+        removeDockPortalReconcileObservers()
+        state.lifecycleWakeAttemptsRemaining = Self.maxDockPortalLifecycleWakeAttempts
         installDockPortalReconcileObservers()
-        attemptDockPortalReconcile()
+        attemptDockPortalReconcile(isLifecycleWake: false)
     }
 
     private func installDockPortalReconcileObservers() {
@@ -32,40 +40,59 @@ extension DockSplitStore {
         guard state.observers.isEmpty else { return }
 
         let wake: () -> Void = { [weak self] in
-            self?.attemptDockPortalReconcile()
+            self?.attemptDockPortalReconcile(isLifecycleWake: true)
         }
-        let notificationNames: [Notification.Name] = [
-            .terminalSurfaceDidBecomeReady,
-            .terminalSurfaceHostedViewDidMoveToWindow,
-            .terminalPortalVisibilityDidChange,
-            .browserPortalRegistryDidChange,
-        ]
-        for name in notificationNames {
+
+        func observe(_ name: Notification.Name, object: AnyObject) {
             state.observers.append(NotificationCenter.default.addObserver(
                 forName: name,
-                object: nil,
+                object: object,
                 queue: .main
             ) { _ in
                 wake()
             })
         }
+
+        for panel in panels.values where panelIsSelectedInVisibleDockPane(panel.id) {
+            if let terminal = panel as? TerminalPanel {
+                observe(.terminalSurfaceDidBecomeReady, object: terminal.surface)
+                observe(.terminalSurfaceHostedViewDidMoveToWindow, object: terminal.surface)
+                observe(.terminalPortalVisibilityDidChange, object: terminal.hostedView)
+            } else if let browser = panel as? BrowserPanel {
+                observe(.browserPortalRegistryDidChange, object: browser.webView)
+            }
+        }
     }
 
     func clearDockPortalReconcile() {
         let state = dockPortalReconcileState
-        state.observers.forEach { NotificationCenter.default.removeObserver($0) }
-        state.observers.removeAll()
+        removeDockPortalReconcileObservers()
+        state.lifecycleWakeAttemptsRemaining = 0
         state.reason = nil
     }
 
-    private func attemptDockPortalReconcile() {
+    private func removeDockPortalReconcileObservers() {
         let state = dockPortalReconcileState
-        guard !state.observers.isEmpty, !state.isAttempting else { return }
+        state.observers.forEach { NotificationCenter.default.removeObserver($0) }
+        state.observers.removeAll()
+    }
+
+    private func attemptDockPortalReconcile(isLifecycleWake: Bool) {
+        let state = dockPortalReconcileState
+        guard !state.isAttempting else { return }
+        if isLifecycleWake {
+            guard state.lifecycleWakeAttemptsRemaining > 0 else {
+                clearDockPortalReconcile()
+                return
+            }
+            state.lifecycleWakeAttemptsRemaining -= 1
+        }
         state.isAttempting = true
         defer { state.isAttempting = false }
 
         let reason = state.reason ?? "dock.portal.reconcile"
-        if !reconcileDockPortalPass(reason: reason) {
+        let needsFollowUp = reconcileDockPortalPass(reason: reason)
+        if !needsFollowUp || state.observers.isEmpty || state.lifecycleWakeAttemptsRemaining == 0 {
             clearDockPortalReconcile()
         }
     }
