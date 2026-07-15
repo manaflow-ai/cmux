@@ -13068,6 +13068,7 @@ struct CMUXCLI {
         }
         let subcommand = subcommandRaw.lowercased()
         let subArgs = Array(args.dropFirst())
+        let browserValueTextFormatter = BrowserValueTextFormatter()
 
         func requireSurface() throws -> String {
             guard let raw = surfaceRaw else {
@@ -13114,32 +13115,6 @@ struct CMUXCLI {
             return lines.joined(separator: "\n")
         }
 
-        func displayBrowserValue(_ value: Any) -> String {
-            if let dict = value as? [String: Any],
-               let type = dict["__cmux_t"] as? String,
-               type == "undefined" {
-                return "undefined"
-            }
-            if value is NSNull {
-                return "null"
-            }
-            if let string = value as? String {
-                return string
-            }
-            if let bool = value as? Bool {
-                return bool ? "true" : "false"
-            }
-            if let number = value as? NSNumber {
-                return number.stringValue
-            }
-            if JSONSerialization.isValidJSONObject(value),
-               let data = try? JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted]),
-               let text = String(data: data, encoding: .utf8) {
-                return text
-            }
-            return String(describing: value)
-        }
-
         func displayBrowserLogItems(_ value: Any?) -> String? {
             guard let items = value as? [Any], !items.isEmpty else {
                 return nil
@@ -13147,7 +13122,7 @@ struct CMUXCLI {
 
             let lines = items.map { item -> String in
                 guard let dict = item as? [String: Any] else {
-                    return displayBrowserValue(item)
+                    return browserValueTextFormatter.string(from: item)
                 }
 
                 let text = (dict["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -13159,7 +13134,7 @@ struct CMUXCLI {
                        !message.isEmpty {
                         return "[error] \(message)"
                     }
-                    return displayBrowserValue(dict)
+                    return browserValueTextFormatter.string(from: dict)
                 }
                 return "[\(level)] \(text)"
             }
@@ -13798,7 +13773,7 @@ struct CMUXCLI {
             let payload = try client.sendV2(method: "browser.eval", params: ["surface_id": sid, "script": trimmed])
             let fallback: String
             if let value = payload["value"] {
-                fallback = displayBrowserValue(value)
+                fallback = browserValueTextFormatter.string(from: value)
             } else {
                 fallback = "OK"
             }
@@ -16949,7 +16924,7 @@ struct CMUXCLI {
               wait [--selector <css>] [--text <text>] [--url-contains <text>|--url <text>] [--load-state <interactive|complete>] [--function <js>] [--timeout-ms <ms>|--timeout <seconds>]
               click|dblclick|hover|focus|check|uncheck|scroll-into-view [--selector <css> | <css>] [--snapshot-after]
               type|fill [--selector <css> | <css>] [--text <text> | <text>] [--snapshot-after]
-              press|key|keydown|keyup [--key <key> | <key>] [--snapshot-after]
+              press|key|keydown|keyup [--key <key> | <key>] [--snapshot-after]  \(String(localized: "cli.browser.help.keyboardNaming", defaultValue: "Named keys follow Playwright/W3C names. Space, Spacebar, and space emit DOM key \" \" with code \"Space\"; --key ' ' passes the raw DOM key."))
               select [--selector <css> | <css>] [--value <value> | <value>] [--snapshot-after]
               scroll [--selector <css>] [--dx <n>] [--dy <n>] [--snapshot-after]
               screenshot [--out <path>]
