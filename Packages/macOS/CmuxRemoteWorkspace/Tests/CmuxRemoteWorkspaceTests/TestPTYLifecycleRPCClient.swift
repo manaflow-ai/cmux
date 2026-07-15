@@ -6,15 +6,19 @@ import Foundation
 final class TestPTYLifecycleRPCClient: RemoteDaemonTunnelRPCClient, @unchecked Sendable {
     private let lock = NSLock()
     private let delaysAttach: Bool
+    private let delaysRuntimeStateGet: Bool
     private let attachStarted = DispatchSemaphore(value: 0)
     private let attachRelease = DispatchSemaphore(value: 0)
     private let attachReturned = DispatchSemaphore(value: 0)
     private let closeStarted = DispatchSemaphore(value: 0)
+    private let runtimeStateGetStarted = DispatchSemaphore(value: 0)
+    private let runtimeStateGetRelease = DispatchSemaphore(value: 0)
     private var _closedSessionIDs: [String] = []
     private var _closeError: (any Error)?
 
-    init(delaysAttach: Bool = false) {
+    init(delaysAttach: Bool = false, delaysRuntimeStateGet: Bool = false) {
         self.delaysAttach = delaysAttach
+        self.delaysRuntimeStateGet = delaysRuntimeStateGet
     }
 
     var closedSessionIDs: [String] { lock.withLock { _closedSessionIDs } }
@@ -37,6 +41,14 @@ final class TestPTYLifecycleRPCClient: RemoteDaemonTunnelRPCClient, @unchecked S
         closeStarted.wait(timeout: timeout)
     }
 
+    func waitForRuntimeStateGetStart() -> DispatchTimeoutResult {
+        runtimeStateGetStarted.wait(timeout: .now() + 2)
+    }
+
+    func releaseRuntimeStateGet() {
+        runtimeStateGetRelease.signal()
+    }
+
     func listPTY() throws -> [[String: Any]] { [] }
 
     func stop() {}
@@ -56,7 +68,11 @@ final class TestPTYLifecycleRPCClient: RemoteDaemonTunnelRPCClient, @unchecked S
     func closeStream(streamID: String) {}
 
     func getRuntimeState() throws -> RemoteRuntimeStateDocument? {
-        throw NSError(domain: "test.remote.runtime-state", code: 1)
+        if delaysRuntimeStateGet {
+            runtimeStateGetStarted.signal()
+            runtimeStateGetRelease.wait()
+        }
+        return nil
     }
 
     func putRuntimeState(

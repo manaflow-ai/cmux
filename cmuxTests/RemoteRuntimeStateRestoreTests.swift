@@ -98,6 +98,17 @@ struct RemoteRuntimeStateRestoreTests {
     }
 
     @MainActor
+    @Test("uses a lower server-committed revision after a same-slot reset")
+    func acceptsLowerCommittedRevisionForSameRuntimeIdentity() {
+        let workspace = Workspace()
+        workspace.remoteRuntimeStateRevision = 7
+
+        workspace.acknowledgeRemoteRuntimeStateRevision(1)
+
+        #expect(workspace.remoteRuntimeStateRevision == 1)
+    }
+
+    @MainActor
     private static func document(
         for workspace: Workspace,
         revision: UInt64,

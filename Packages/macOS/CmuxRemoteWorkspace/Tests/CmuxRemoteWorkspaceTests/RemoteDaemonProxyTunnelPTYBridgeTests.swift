@@ -45,6 +45,29 @@ struct RemoteDaemonProxyTunnelPTYBridgeTests {
         #expect(rpc.closedSessionIDs == [key.sessionID])
     }
 
+    @Test("runtime-state fetch does not block tunnel stop")
+    func runtimeStateFetchDoesNotBlockStop() throws {
+        let rpc = TestPTYLifecycleRPCClient(delaysRuntimeStateGet: true)
+        let tunnel = makeTunnel(rpc: rpc)
+        let fetchFinished = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            defer { fetchFinished.signal() }
+            _ = try? tunnel.getRuntimeState()
+        }
+        #expect(rpc.waitForRuntimeStateGetStart() == .success)
+
+        let stopFinished = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            tunnel.stop()
+            stopFinished.signal()
+        }
+
+        let stopResult = stopFinished.wait(timeout: .now() + 0.25)
+        rpc.releaseRuntimeStateGet()
+        #expect(fetchFinished.wait(timeout: .now() + 2) == .success)
+        #expect(stopResult == .success)
+    }
+
     @Test("cleanup waits for a creating attach before closing the remote PTY")
     func cleanupWaitsForCreatingAttach() throws {
         let rpc = TestPTYLifecycleRPCClient(delaysAttach: true)

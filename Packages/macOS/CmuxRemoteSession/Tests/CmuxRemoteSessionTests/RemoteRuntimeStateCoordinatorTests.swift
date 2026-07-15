@@ -133,6 +133,34 @@ struct RemoteRuntimeStateCoordinatorTests {
         #expect(fixture.host.revisions.isEmpty)
     }
 
+    @Test("a snapshot claiming an unfetched future revision is discarded")
+    func futureRevisionCaptureIsDiscarded() throws {
+        let fixture = Self.fixture()
+        defer { fixture.stop() }
+        let serverState = Data(#"{"title":"server"}"#.utf8)
+        fixture.provider.tunnel.seedRuntimeState(RemoteRuntimeStateDocument(
+            schemaVersion: 1,
+            revision: 7,
+            updatedAtUnixMilliseconds: 1,
+            state: serverState,
+            ptySessions: Data("[]".utf8)
+        ))
+        Self.synchronize(fixture)
+
+        fixture.coordinator.enqueueRuntimeState(
+            schemaVersion: 1,
+            state: Data(#"{"title":"future capture"}"#.utf8),
+            baseRevision: 9
+        )
+        fixture.coordinator.queue.sync {}
+
+        let storedDocument = try fixture.provider.tunnel.getRuntimeState()
+        let stored = try #require(storedDocument)
+        #expect(stored.revision == 7)
+        #expect(stored.state == serverState)
+        #expect(fixture.host.revisions.isEmpty)
+    }
+
     @Test("a reconnect accepts newer server state instead of overwriting it")
     func reconnectAcceptsAdvancedServerRevision() throws {
         let fixture = Self.fixture()

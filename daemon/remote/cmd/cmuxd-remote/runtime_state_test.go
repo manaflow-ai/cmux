@@ -172,6 +172,33 @@ func TestRuntimeStateStoreRejectsOversizedPersistedPayload(t *testing.T) {
 	}
 }
 
+func TestRuntimeStatePutDoesNotExposePersistencePath(t *testing.T) {
+	parentPath := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(parentPath, []byte("occupied"), 0o600); err != nil {
+		t.Fatalf("create blocking file: %v", err)
+	}
+	statePath := filepath.Join(parentPath, "runtime-state.json")
+	store := &runtimeStateStore{
+		filePath:    statePath,
+		subscribers: map[uint64]*runtimeStateSubscriber{},
+	}
+	server := &rpcServer{runtimeState: store}
+	response := server.handleRuntimeStatePut(rpcRequest{
+		ID:     "put",
+		Method: "runtime.state.put",
+		Params: map[string]any{
+			"schema_version": 1,
+			"state":          map[string]any{"title": "private"},
+		},
+	})
+	if response.Error == nil || response.Error.Code != "state_write_failed" {
+		t.Fatalf("runtime state put error = %#v, want state_write_failed", response.Error)
+	}
+	if strings.Contains(response.Error.Message, parentPath) {
+		t.Fatalf("runtime state put exposed persistence path: %q", response.Error.Message)
+	}
+}
+
 func TestRuntimeStateStorePutDoesNotBlockOnSlowSubscriber(t *testing.T) {
 	store, err := newRuntimeStateStore("")
 	if err != nil {
