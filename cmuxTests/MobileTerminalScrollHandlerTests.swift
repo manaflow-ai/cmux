@@ -257,6 +257,21 @@ struct MobileTerminalScrollHandlerTests {
         }
     }
 
+    @Test func replayCapturesOnlyAfterRequestedViewportSettles() async throws {
+        let harness = try makeTerminalHarness()
+        defer { harness.restore() }
+        var params = harness.params(epoch: 1)
+        params["viewport_columns"] = 72
+        params["viewport_rows"] = 61
+        params["viewport_generation"] = 1
+
+        let replay = await TerminalController.shared.v2MobileTerminalReplay(params: params)
+        let replayPayload = try #require(payload(replay))
+
+        #expect(replayPayload["columns"] as? Int == 72)
+        #expect(replayPayload["rows"] as? Int == 61)
+    }
+
     @Test func staleClickIsRejectedBeforeSurfaceMutation() throws {
         let harness = try makeTerminalHarness()
         defer { harness.restore() }
