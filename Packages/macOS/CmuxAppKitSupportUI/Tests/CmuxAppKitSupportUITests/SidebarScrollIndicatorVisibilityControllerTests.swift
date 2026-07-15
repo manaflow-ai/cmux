@@ -51,7 +51,7 @@ import Testing
   }
 
   @MainActor
-  @Test func resolverCachesSuccessfulSiblingResolutionAcrossUpdates() async {
+  @Test func resolverRevalidatesSiblingResolutionAcrossUpdates() async {
     let root = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 700))
     let resolverHost = NSView(frame: NSRect(x: 120, y: 336, width: 0, height: 0))
     let resolver = SidebarScrollViewResolverView(frame: .zero)
@@ -64,8 +64,8 @@ import Testing
     #expect(firstResolution === scrollView)
 
     root.addSubview(NSScrollView(frame: root.bounds))
-    let cachedResolution = await resolve(using: resolver)
-    #expect(cachedResolution === scrollView)
+    let revalidatedResolution = await resolve(using: resolver)
+    #expect(revalidatedResolution == nil)
   }
 
   @MainActor
@@ -217,6 +217,39 @@ import Testing
 
     #expect(indicator.isHidden)
     #expect(indicator.alphaValue == 0)
+  }
+
+  @MainActor
+  @Test func replacingScrollerInvalidatesOldHoverAndFadeState() async throws {
+    let center = NotificationCenter()
+    var fadeCompletions: [@MainActor () -> Void] = []
+    let scrollView = makeScrollableScrollView()
+    let controller = SidebarScrollIndicatorVisibilityController(
+      scrollView: scrollView,
+      notificationCenter: center,
+      sleep: { _ in },
+      fadeDuration: 0,
+      fadeAnimator: { scroller, _, completion in
+        scroller.alphaValue = 0
+        fadeCompletions.append(completion)
+      }
+    )
+
+    scroll(to: 100, in: scrollView, notificationCenter: center)
+    await waitUntil { fadeCompletions.count == 1 }
+    controller.handleIndicatorPointerPresenceChanged(true)
+
+    scrollView.verticalScroller = NSScroller()
+    controller.synchronizeIndicator()
+    let replacement = try #require(controller.indicatorScroller)
+    fadeCompletions[0]()
+
+    #expect(!replacement.isHidden)
+    await waitUntil { fadeCompletions.count == 2 }
+    fadeCompletions[1]()
+
+    #expect(replacement.isHidden)
+    #expect(replacement.alphaValue == 0)
   }
 
   @MainActor

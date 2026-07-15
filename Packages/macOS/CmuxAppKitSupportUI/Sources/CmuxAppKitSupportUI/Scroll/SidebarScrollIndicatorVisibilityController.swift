@@ -102,6 +102,11 @@ final class SidebarScrollIndicatorVisibilityController {
       scrollView.reflectScrolledClipView(scrollView.contentView)
     }
     if scrollerChanged {
+      fadeTask?.cancel()
+      fadeTask = nil
+      fadeGeneration &+= 1
+      indicatorInteractionIsActive = false
+      pointerIsOverIndicator = false
       if let previousScroller = indicatorScroller as? SidebarInteractiveScroller {
         previousScroller.onPointerPresenceChanged = nil
         previousScroller.onInteractionChanged = nil
@@ -114,6 +119,9 @@ final class SidebarScrollIndicatorVisibilityController {
         self?.handleIndicatorInteractionChanged(isActive)
       }
       applyIndicatorState(to: scroller)
+      if indicatorIsActive {
+        scheduleIndicatorFade()
+      }
     } else if !indicatorIsActive, !scroller.isHidden {
       scroller.alphaValue = 0
       scroller.isHidden = true
