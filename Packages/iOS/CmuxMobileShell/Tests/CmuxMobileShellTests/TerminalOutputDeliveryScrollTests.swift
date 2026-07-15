@@ -607,3 +607,45 @@ func gridlessAcknowledgementDeliversSameOrNewerDeferredFrameBeforeAdvancingFloor
     store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: delivered.streamToken)
     #expect(store.equalRevisionTerminalRecoveryReplaysBySurfaceID[surfaceID] == nil)
 }
+
+@MainActor
+@Test func failedDeferredDeliveryAllowsOwedEqualRevisionReplay() async throws {
+    let store = MobileShellComposite.preview()
+    let surfaceID = "live-terminal"
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    store.acceptGridlessTerminalRenderRevision(12, surfaceID: surfaceID)
+    let deferred = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 1,
+        renderRevision: 12,
+        columns: 12,
+        rows: 2,
+        text: "stale\ndeferred",
+        full: true
+    )
+    store.deferTerminalRenderGridEvent(deferred)
+
+    let completed = store.completeGridlessTerminalScrollReconciliation(
+        surfaceID: surfaceID,
+        renderRevision: 12
+    )
+
+    #expect(completed)
+    #expect(store.deferredTerminalRenderGridEventsBySurfaceID[surfaceID] == nil)
+    try #require(store.equalRevisionTerminalRecoveryReplaysBySurfaceID[surfaceID] == 12)
+    let replay = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 2,
+        renderRevision: 12,
+        columns: 12,
+        rows: 2,
+        text: "recovered\nviewport",
+        full: true
+    )
+
+    #expect(store.deliverAuthoritativeTerminalRenderGrid(replay, source: "replay"))
+    let delivered = try #require(await iterator.next())
+    #expect(delivered.data == replay.vtPatchBytes())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: delivered.streamToken)
+    #expect(store.equalRevisionTerminalRecoveryReplaysBySurfaceID[surfaceID] == nil)
+}
