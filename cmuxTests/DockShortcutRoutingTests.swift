@@ -118,6 +118,34 @@ struct DockShortcutRoutingTests {
         }
     }
 
+    @Test("Configured actions keep precedence over legacy Dock tab shortcuts")
+    @MainActor
+    func configuredActionPrecedesLegacyDockTabShortcut() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try Self.withHarness { harness in
+                let firstPanel = try #require(
+                    harness.dock.newSurface(kind: .terminal, inPane: harness.rootPane, focus: true)
+                )
+                _ = try #require(
+                    harness.dock.newSurface(kind: .terminal, inPane: harness.rootPane, focus: true)
+                )
+                harness.dock.focusPanel(firstPanel)
+
+                let controlTab = StoredShortcut(
+                    key: "\t",
+                    command: false,
+                    shift: false,
+                    option: false,
+                    control: true
+                )
+                KeyboardShortcutSettings.setShortcut(controlTab, for: .toggleTerminalCopyMode)
+
+                _ = Self.dispatch(controlTab, in: harness)
+                #expect(harness.dock.focusedPanelId == firstPanel)
+            }
+        }
+    }
+
     @Test("Ghostty split-navigation shortcuts target the focused Dock")
     @MainActor
     func ghosttySplitNavigationTargetsFocusedDock() async throws {
