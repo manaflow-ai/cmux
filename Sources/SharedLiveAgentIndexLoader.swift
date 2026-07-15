@@ -86,8 +86,9 @@ struct SharedLiveAgentIndexLoader {
     static func processScopeFingerprint(from snapshot: CmuxTopProcessSnapshot) -> Set<String> {
         // Snapshot-only fields keep autosave checks cheap while still detecting
         // a same-PID shell-to-agent exec or terminal process-group transition.
-        Set(snapshot.cmuxScopedProcesses().map { process in
-            [
+        var fingerprint: Set<String> = []
+        for process in snapshot.cmuxScopedProcesses() {
+            let components: [String] = [
                 process.cmuxWorkspaceID?.uuidString ?? "",
                 process.cmuxSurfaceID?.uuidString ?? "",
                 String(process.pid),
@@ -97,8 +98,10 @@ struct SharedLiveAgentIndexLoader {
                 process.ttyDevice.map { String($0) } ?? "",
                 process.processGroupID.map { String($0) } ?? "",
                 process.terminalProcessGroupID.map { String($0) } ?? ""
-            ].joined(separator: "|")
-        })
+            ]
+            fingerprint.insert(components.joined(separator: "|"))
+        }
+        return fingerprint
     }
 
     private static func forkValidatedPanels(
