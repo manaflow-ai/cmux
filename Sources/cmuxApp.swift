@@ -915,6 +915,12 @@ struct cmuxApp: App {
             splitCommandButton(title: String(localized: "menu.view.previousSurface", defaultValue: "Previous Surface"), shortcut: menuShortcut(for: .prevSurface)) {
                 activeTabManager.selectPreviousSurface()
             }
+            splitCommandButton(title: String(localized: "shortcut.moveSurfaceLeft.label", defaultValue: "Move Surface Left"), shortcut: menuShortcut(for: .moveSurfaceLeft)) {
+                activeTabManager.selectedWorkspace?.moveSelectedSurface(by: -1)
+            }
+            splitCommandButton(title: String(localized: "shortcut.moveSurfaceRight.label", defaultValue: "Move Surface Right"), shortcut: menuShortcut(for: .moveSurfaceRight)) {
+                activeTabManager.selectedWorkspace?.moveSelectedSurface(by: 1)
+            }
 
             splitCommandButton(title: String(localized: "menu.view.back", defaultValue: "Back"), shortcut: menuShortcut(for: .browserBack)) {
                 activeTabManager.focusedBrowserPanel?.goBack()
@@ -985,6 +991,12 @@ struct cmuxApp: App {
 
             splitCommandButton(title: String(localized: "menu.view.previousWorkspace", defaultValue: "Previous Workspace"), shortcut: menuShortcut(for: .prevSidebarTab)) {
                 activeTabManager.selectPreviousTab()
+            }
+            splitCommandButton(title: String(localized: "shortcut.moveWorkspaceUp.label", defaultValue: "Move Workspace Up"), shortcut: menuShortcut(for: .moveWorkspaceUp)) {
+                activeTabManager.moveSelectedWorkspace(by: -1)
+            }
+            splitCommandButton(title: String(localized: "shortcut.moveWorkspaceDown.label", defaultValue: "Move Workspace Down"), shortcut: menuShortcut(for: .moveWorkspaceDown)) {
+                activeTabManager.moveSelectedWorkspace(by: 1)
             }
 
             splitCommandButton(title: String(localized: "menu.view.renameWorkspace", defaultValue: "Rename Workspace…"), shortcut: menuShortcut(for: .renameWorkspace)) {

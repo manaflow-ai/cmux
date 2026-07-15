@@ -12,12 +12,18 @@ final class SimulatorWebInspectorSocket: SimulatorWebInspectorTransport, @unchec
     /// burst of potentially 64 MiB frames.
     static let maximumBufferedBodyCount = 1
     static let maximumBufferedBodyBytes = maximumBufferedBodyCount * 64 * 1024 * 1024
+    static let maximumPendingWriteBytes = 4 * 1024 * 1024
+    static let writeDeadline: TimeInterval = 5
 
     let messages: AsyncStream<Data>
 
     private let frameCodec: SimulatorWebInspectorPlistFrameCodec
     private let continuation: AsyncStream<Data>.Continuation
     private let descriptor: Int32
+    private let writerQueue = DispatchQueue(label: "com.cmux.simulator.web-inspector-writer")
+    private let writerLock = NSLock()
+    private var pendingWriteBytes = 0
+    private var writesClosed = false
 
     init(descriptor: Int32, frameCodec: SimulatorWebInspectorPlistFrameCodec) {
         self.descriptor = descriptor
@@ -39,27 +45,22 @@ final class SimulatorWebInspectorSocket: SimulatorWebInspectorTransport, @unchec
     @MainActor
     func send(propertyList: [String: Any]) throws {
         let frame = try frameCodec.frame(propertyList)
-        do {
-            try frame.withUnsafeBytes { raw in
-                guard let baseAddress = raw.baseAddress else { return }
-                let written = Darwin.send(
-                    descriptor,
-                    baseAddress,
-                    raw.count,
-                    MSG_DONTWAIT | MSG_NOSIGNAL
-                )
-                guard written == raw.count else {
-                    throw SimulatorWebInspectorError.socketFailure(
-                        written < 0 ? errno : EIO
-                    )
-                }
-            }
-        } catch {
-            // A partial frame cannot be retried without corrupting the plist
-            // stream. Closing also turns socket backpressure into a contained,
-            // recoverable inspector failure instead of a MainActor stall.
+        writerLock.lock()
+        guard !writesClosed else {
+            writerLock.unlock()
+            throw SimulatorWebInspectorError.transportClosed
+        }
+        guard frame.count <= Self.maximumPendingWriteBytes,
+              pendingWriteBytes <= Self.maximumPendingWriteBytes - frame.count else {
+            writerLock.unlock()
             requestClose()
-            throw error
+            throw SimulatorWebInspectorError.socketFailure(ENOBUFS)
+        }
+        pendingWriteBytes += frame.count
+        writerLock.unlock()
+
+        writerQueue.async { [weak self] in
+            self?.write(frame)
         }
     }
 
@@ -126,7 +127,58 @@ final class SimulatorWebInspectorSocket: SimulatorWebInspectorTransport, @unchec
         return Data(bytes)
     }
 
+    private func write(_ frame: Data) {
+        defer {
+            writerLock.lock()
+            pendingWriteBytes -= frame.count
+            writerLock.unlock()
+        }
+        writerLock.lock()
+        let isClosed = writesClosed
+        writerLock.unlock()
+        guard !isClosed else { return }
+
+        let deadline = DispatchTime.now().uptimeNanoseconds
+            &+ UInt64(Self.writeDeadline * 1_000_000_000)
+        var offset = 0
+        let failure = frame.withUnsafeBytes { raw -> Int32? in
+            guard let baseAddress = raw.baseAddress else { return nil }
+            while offset < raw.count {
+                let written = Darwin.send(
+                    descriptor,
+                    baseAddress.advanced(by: offset),
+                    raw.count - offset,
+                    MSG_DONTWAIT | MSG_NOSIGNAL
+                )
+                if written > 0 {
+                    offset += written
+                    continue
+                }
+                if written < 0, errno == EINTR { continue }
+                guard written < 0, errno == EAGAIN || errno == EWOULDBLOCK else {
+                    return written < 0 ? errno : EIO
+                }
+                let now = DispatchTime.now().uptimeNanoseconds
+                guard now < deadline else { return ETIMEDOUT }
+                let remainingMilliseconds = max(
+                    1,
+                    Int32(min((deadline - now) / 1_000_000, UInt64(Int32.max)))
+                )
+                var event = pollfd(fd: descriptor, events: Int16(POLLOUT), revents: 0)
+                let result = Darwin.poll(&event, 1, remainingMilliseconds)
+                if result > 0 { continue }
+                if result < 0, errno == EINTR { continue }
+                return result == 0 ? ETIMEDOUT : errno
+            }
+            return nil
+        }
+        if failure != nil { requestClose() }
+    }
+
     private nonisolated func requestClose() {
+        writerLock.lock()
+        writesClosed = true
+        writerLock.unlock()
         Darwin.shutdown(descriptor, SHUT_RDWR)
         continuation.finish()
     }

@@ -284,11 +284,8 @@ extension SimulatorPaneCoordinator {
         do {
             try session.start(descriptor, capturesOutput: true) { [weak self] line in
                 guard let self else { return }
-                let buffer = self.liveLogBuffer
-                Task { @MainActor [weak self] in
-                    guard let snapshot = await buffer.append(line) else { return }
-                    self?.liveLogsText = snapshot
-                }
+                guard let snapshot = await self.liveLogBuffer.append(line) else { return }
+                self.liveLogsText = snapshot
             } onTermination: { [weak self] in
                 guard let self else { return }
                 self.logSession = nil

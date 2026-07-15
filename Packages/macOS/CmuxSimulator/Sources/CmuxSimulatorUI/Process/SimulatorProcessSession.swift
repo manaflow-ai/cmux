@@ -34,7 +34,7 @@ final class SimulatorProcessSession {
     func start(
         _ descriptor: SimulatorCommandDescriptor,
         capturesOutput: Bool,
-        onOutput: @escaping @MainActor @Sendable (String) -> Void,
+        onOutput: @escaping @MainActor @Sendable (String) async -> Void,
         onTermination: @escaping @MainActor @Sendable () -> Void
     ) throws {
         guard !isRunning else { return }
@@ -44,7 +44,7 @@ final class SimulatorProcessSession {
             outputTask = Task { @MainActor in
                 for await batch in reader.batches() {
                     guard !Task.isCancelled else { return }
-                    onOutput(batch.joined())
+                    await onOutput(batch.joined())
                 }
             }
         }
