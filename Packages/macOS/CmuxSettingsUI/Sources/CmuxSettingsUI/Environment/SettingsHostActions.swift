@@ -177,10 +177,17 @@ public protocol SettingsHostActions: AnyObject {
     /// language selection.
     func applyLanguageOverride(_ language: AppLanguage)
 
-    /// Whether cmux currently has Accessibility permission for local computer use.
+    /// Refreshes the cached computer-use permission status by querying the helper
+    /// app's own TCC identity out of process. Call before reading the granted
+    /// getters so the UI reflects the helper's real grants, not stale values.
+    func refreshComputerUsePermissions() async
+
+    /// Whether the computer-use helper currently has Accessibility permission.
+    /// Reads the last value cached by ``refreshComputerUsePermissions()``.
     func computerUseAccessibilityGranted() -> Bool
 
-    /// Whether cmux currently has Screen Recording permission for local computer use.
+    /// Whether the computer-use helper currently has Screen Recording permission.
+    /// Reads the last value cached by ``refreshComputerUsePermissions()``.
     func computerUseScreenRecordingGranted() -> Bool
 
     /// Requests Accessibility permission through the system trust prompt.
@@ -209,6 +216,7 @@ public extension SettingsHostActions {
     /// Default no-op for package previews and tests without app-language ownership.
     func applyLanguageOverride(_ language: AppLanguage) {}
 
+    func refreshComputerUsePermissions() async {}
     func computerUseAccessibilityGranted() -> Bool { false }
     func computerUseScreenRecordingGranted() -> Bool { false }
     func requestComputerUseAccessibility() {}

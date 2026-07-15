@@ -267,7 +267,7 @@ cmux_codex_emit_computer_use_args() {
         # Non-embedded helper: ask the driver to disclaim responsibility on the
         # in-process mcp path so macOS attributes its TCC grants to the
         # "cmux Computer Use.app" bundle identity rather than to cmux.
-        cua_args_c=("-c" 'mcp_servers.cmux-computer-use.args=["mcp","--no-daemon-relaunch"]' "-c" 'mcp_servers.cmux-computer-use.env.CUA_DRIVER_DISCLAIM_MCP="1"')
+        cua_args_c=("-c" 'mcp_servers.cmux-computer-use.args=["mcp","--no-daemon-relaunch"]' "-c" 'mcp_servers.cmux-computer-use.env.CUA_DRIVER_DISCLAIM="1"')
     else
         cua_args_c=("-c" 'mcp_servers.cmux-computer-use.args=["--embedded"]' "-c" 'mcp_servers.cmux-computer-use.env.CUA_DRIVER_EMBEDDED="1"')
     fi

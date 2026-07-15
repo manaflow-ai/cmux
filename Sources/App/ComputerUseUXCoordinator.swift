@@ -162,28 +162,34 @@ final class ComputerUseUXCoordinator {
     }
 
     private func recordCapableSessionStarted() {
-        agentSessionRequiresRestart = !permissionService.accessibilityGranted()
-            || !permissionService.screenRecordingGranted()
-        // Defer for the same reason as the launch path: this fires from a menu-bar
-        // snapshot refresh on the main actor, and presenting a key window inline can
-        // reenter focus/first-responder handling. Hop to the next runloop turn.
-        DispatchQueue.main.async { [weak self] in
-            self?.presentOnboardingAutomaticallyIfNeeded()
+        // Query the HELPER's own TCC identity (not cmux's) before deciding whether
+        // a permission grant now requires restarting the helper session. The async
+        // hop also defers the present off this synchronous menu-bar refresh, which
+        // avoids reentering focus/first-responder handling with an inline key window.
+        Task { [weak self] in
+            guard let self else { return }
+            let status = await permissionService.refreshHelperStatus()
+            agentSessionRequiresRestart = !status.accessibility || !status.screenRecording
+            presentOnboardingAutomaticallyIfNeeded()
         }
     }
 
     private func presentOnboardingAutomaticallyIfNeeded() {
-        let feature = featureEnabled()
-        let ax = permissionService.accessibilityGranted()
-        let screen = permissionService.screenRecordingGranted()
-        let should = ComputerUseOnboardingWindowController.shouldPresentAutomatically(
-            seen: userDefaults.bool(forKey: ComputerUseOnboardingWindowController.seenDefaultsKey),
-            featureEnabled: feature,
-            accessibilityGranted: ax,
-            screenRecordingGranted: screen
-        )
-        NSLog("[cmux-computer-use] onboarding gate: feature=\(feature) accessibility=\(ax) screenRecording=\(screen) present=\(should)")
-        guard should else { return }
-        presentOnboarding()
+        Task { [weak self] in
+            guard let self else { return }
+            // The helper owns the grants, so refresh from its identity out of
+            // process before gating. The await also hops off the caller's stack.
+            let status = await permissionService.refreshHelperStatus()
+            let feature = featureEnabled()
+            let should = ComputerUseOnboardingWindowController.shouldPresentAutomatically(
+                seen: userDefaults.bool(forKey: ComputerUseOnboardingWindowController.seenDefaultsKey),
+                featureEnabled: feature,
+                accessibilityGranted: status.accessibility,
+                screenRecordingGranted: status.screenRecording
+            )
+            NSLog("[cmux-computer-use] onboarding gate: feature=\(feature) accessibility=\(status.accessibility) screenRecording=\(status.screenRecording) present=\(should)")
+            guard should else { return }
+            presentOnboarding()
+        }
     }
 }

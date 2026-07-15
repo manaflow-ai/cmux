@@ -281,8 +281,21 @@ struct ComputerUseOnboardingView: View {
     }
 
     private func refreshPermissions() {
-        let newAccessibilityGranted = permissionService.accessibilityGranted()
-        let newScreenRecordingGranted = permissionService.screenRecordingGranted()
+        // The helper (not cmux) owns the grants, so query its own TCC identity
+        // out of process, then apply the result on the main actor.
+        Task {
+            let status = await permissionService.refreshHelperStatus()
+            applyPermissions(
+                accessibilityGranted: status.accessibility,
+                screenRecordingGranted: status.screenRecording
+            )
+        }
+    }
+
+    private func applyPermissions(
+        accessibilityGranted newAccessibilityGranted: Bool,
+        screenRecordingGranted newScreenRecordingGranted: Bool
+    ) {
         // Derive directly each refresh rather than gating on a false->true
         // transition observed in this window instance: a fresh onboarding window
         // opened AFTER permissions were granted externally must still surface the

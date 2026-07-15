@@ -97,6 +97,10 @@ final class HostSettingsActions: SettingsHostActions {
         LanguageSettingsStore(defaults: .standard).applyLanguageOverride(language)
     }
 
+    func refreshComputerUsePermissions() async {
+        await computerUsePermissionService.refreshHelperStatus()
+    }
+
     func computerUseAccessibilityGranted() -> Bool {
         computerUsePermissionService.accessibilityGranted()
     }
