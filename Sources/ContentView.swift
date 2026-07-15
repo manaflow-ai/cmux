@@ -926,7 +926,7 @@ struct ContentView: View {
     }
 
     static func tmuxWorkspacePaneExactRect(
-        for panel: Panel,
+        for panel: any Panel,
         in contentView: NSView
     ) -> CGRect? {
         let targetView: NSView?

@@ -310,6 +310,9 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Validate managed relay catalog
+        run: bun ../scripts/generate-managed-iroh-relay-catalog.ts --check
+
       - name: Typecheck
         run: bun run typecheck
 
@@ -1117,6 +1120,7 @@ jobs:
             CmuxRemoteSession
             CmuxAgentChat
             CmuxAuthRuntime
+            CmuxIrohTransport
             CmuxCommandPalette
             CmuxControlSocket
             CmuxFoundation
@@ -1148,21 +1152,8 @@ jobs:
             fi
             echo "::group::swift test $pkgdir"
             case "$pkg" in
-            CmuxAuthRuntime)
-              suite_list="$(
-                find "$pkgdir/Tests" -name '*.swift' -print0 \
-                  | xargs -0 perl -ne 'print "$1\n" if /^\s*@Suite(?:\([^)]*\))?\s+struct\s+([A-Za-z0-9_]+)/' \
-                  | sort -u
-              )"
-              if [ -z "$suite_list" ]; then
-                echo "::error::no Swift Testing suites found for $pkg"
-                exit 1
-              fi
-              while IFS= read -r suite; do
-                [ -n "$suite" ] || continue
-                echo "swift test $pkgdir --filter $suite"
-                swift test --package-path "$pkgdir" --filter "$suite"
-              done <<< "$suite_list"
+            CmuxAuthRuntime|CmuxIrohTransport)
+              ./scripts/ci/run-swift-testing-suites.sh "$pkgdir"
               ;;
             CmuxTerminal|CmuxTerminalCore)
               test_status=0
