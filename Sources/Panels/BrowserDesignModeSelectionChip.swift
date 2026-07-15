@@ -11,12 +11,32 @@ struct BrowserDesignModeSelectionChip: View {
 
     private static let chipBlue = Color(red: 0.35, green: 0.62, blue: 1.0)
 
+    /// SF Symbol describing the kind of element the chip references, so a
+    /// stack of chips reads at a glance (photo vs text vs button vs container).
+    private static func symbol(forTag tag: String) -> String {
+        switch tag.lowercased() {
+        case "img", "picture": "photo"
+        case "video": "play.rectangle"
+        case "audio": "speaker.wave.2"
+        case "a": "link"
+        case "button": "cursorarrow.click"
+        case "input", "textarea", "select", "form": "character.cursor.ibeam"
+        case "h1", "h2", "h3", "h4", "h5", "h6": "textformat.size"
+        case "p", "span", "label", "strong", "em", "b", "i", "blockquote": "text.alignleft"
+        case "ul", "ol", "li": "list.bullet"
+        case "table", "thead", "tbody", "tr", "td", "th": "tablecells"
+        case "svg", "canvas", "path": "paintbrush.pointed"
+        case "iframe": "globe"
+        default: "square.dashed"
+        }
+    }
+
     var body: some View {
-        HStack(spacing: 4) {
-            Image(systemName: "cursorarrow")
-                .font(.system(size: 10.5, weight: .semibold))
+        HStack(spacing: 3.5) {
+            Image(systemName: Self.symbol(forTag: selection.tagName))
+                .font(.system(size: 9.5, weight: .semibold))
             Text(selection.tagName)
-                .cmuxFont(size: 14, weight: .medium)
+                .cmuxFont(size: 12.5, weight: .medium)
                 .lineLimit(1)
             if isHovered {
                 Button(action: onRemove) {
@@ -44,7 +64,7 @@ struct BrowserDesignModeSelectionChip: View {
         }
         .foregroundStyle(Self.chipBlue)
         .padding(.horizontal, 4)
-        .frame(height: 24)
+        .frame(height: 21)
         .background(
             RoundedRectangle(cornerRadius: 5, style: .continuous)
                 .fill(isHovered ? Color.white.opacity(0.08) : Color.clear)

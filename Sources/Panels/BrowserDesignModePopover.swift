@@ -24,10 +24,10 @@ struct BrowserDesignModePopover: View {
                 emptyState
             }
         }
-        .padding(.leading, 18)
-        .padding(.trailing, 9)
-        .padding(.vertical, 9)
-        .frame(width: 440)
+        .padding(.leading, 16)
+        .padding(.trailing, 8)
+        .padding(.vertical, 8)
+        .frame(width: 420)
         .background(cardBackground)
         .environment(\.colorScheme, .dark)
         .onExitCommand { controller.dismissComposer() }
@@ -72,7 +72,7 @@ struct BrowserDesignModePopover: View {
         )
         .textFieldStyle(.plain)
         .lineLimit(1...5)
-        .cmuxFont(size: 15)
+        .cmuxFont(size: 13.5)
         .foregroundStyle(.white.opacity(0.96))
         .tint(Color(red: 0.35, green: 0.62, blue: 1.0))
         .focused($requestFieldFocused)
@@ -106,9 +106,9 @@ struct BrowserDesignModePopover: View {
             Task { @MainActor in await controller.copySelection() }
         } label: {
             Image(systemName: controller.didCopy ? "checkmark" : "doc.on.clipboard.fill")
-                .font(.system(size: 12.5, weight: .semibold))
+                .font(.system(size: 11.5, weight: .semibold))
                 .foregroundStyle(.white)
-                .frame(width: 32, height: 32)
+                .frame(width: 30, height: 30)
                 .background(
                     Circle().fill(
                         controller.canCopy || controller.didCopy
