@@ -2091,7 +2091,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard authoritativeRefreshSucceeded else { return nil }
         return workspaces.first { workspace in
             workspace.rpcWorkspaceID.rawValue == workspaceID
-                && (workspace.macDeviceID == nil || workspace.macDeviceID == deviceID)
+                && workspace.macDeviceID == deviceID
         }?.id
     }
 
