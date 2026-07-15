@@ -103,6 +103,16 @@ struct ReflowParagraphTests {
         #expect(reflow(input) == input)
     }
 
+    @Test func uniformlyIndentedStatusRowsAreNotJoined() {
+        let first = "downloading dependencies from the remote package registry for this workspace"
+        let second = "extracting archives into the local build cache for the next operation"
+        let input = "  \(first)\n  \(second)\n"
+        #expect(reflow(input) == input)
+        #expect(
+            ReflowOptions.default.reflow(input, terminalWidth: first.count) == input
+        )
+    }
+
     @Test func standaloneColumnSpacingIsPreserved() {
         let input = "PID   COMMAND\n123   zsh\n999   cmux\n"
         #expect(reflow(input) == input)
