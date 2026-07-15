@@ -21,7 +21,26 @@ import Testing
         ).shouldPresentManualPairing)
         #expect(!MobileFirstConnectionState(
             hasSavedComputer: false,
+            registryState: .authRejected
+        ).shouldPresentManualPairing)
+        #expect(!MobileFirstConnectionState(
+            hasSavedComputer: false,
             registryState: .unavailable
         ).shouldPresentManualPairing)
+    }
+
+    @Test func savedComputerAndHandoffConnectionsShareOneAttemptGate() {
+        #expect(MobileFirstConnectionAttemptState(
+            connectingSavedComputerID: nil,
+            pendingHandoffID: nil
+        ).canStartConnection)
+        #expect(!MobileFirstConnectionAttemptState(
+            connectingSavedComputerID: "mac-a",
+            pendingHandoffID: nil
+        ).canStartConnection)
+        #expect(!MobileFirstConnectionAttemptState(
+            connectingSavedComputerID: nil,
+            pendingHandoffID: "session-a"
+        ).canStartConnection)
     }
 }

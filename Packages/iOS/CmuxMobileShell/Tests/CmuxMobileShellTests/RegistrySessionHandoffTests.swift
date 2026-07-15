@@ -1,8 +1,20 @@
+import CMUXMobileCore
 import CmuxMobileShellModel
 import Testing
 @testable import CmuxMobileShell
 
 @Suite @MainActor struct RegistrySessionHandoffTests {
+    @Test func registryAuthorizationRejectionIsNotReportedAsAnOutage() async {
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            deviceRegistry: FixedOutcomeDeviceRegistry(outcome: .authRejected),
+            identityProvider: StaticIdentityProvider(userID: "user-1")
+        )
+
+        #expect(await store.loadRegistryDevices() == .authRejected)
+        #expect(store.registryDevices.isEmpty)
+    }
+
     @Test func resolvesRuntimeWorkspaceForTheAdvertisingMac() throws {
         var matching = MobileWorkspacePreview(
             id: .init(rawValue: "row-mac-a"),
@@ -85,7 +97,10 @@ import Testing
     }
 
     @Test func failedHandoffPresentationSurvivesAConnectionTransition() async {
-        let store = CMUXMobileShellStore.preview()
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            identityProvider: StaticIdentityProvider(userID: "user-1")
+        )
 
         #expect(await store.prepareRegistrySessionHandoff(
             deviceID: "missing-device",
@@ -98,7 +113,32 @@ import Testing
         #expect(store.connectionState == .connected)
         #expect(store.isRegistryHandoffFailurePresented)
 
-        store.dismissRegistryHandoffFailure()
+        store.currentTeamDidChange()
+        #expect(!store.isRegistryHandoffFailurePresented)
+
+        #expect(await store.prepareRegistrySessionHandoff(
+            deviceID: "missing-device",
+            instanceTag: "missing-instance",
+            sessionID: "missing-session"
+        ) == nil)
+        #expect(store.isRegistryHandoffFailurePresented)
+
+        store.signOut()
         #expect(!store.isRegistryHandoffFailurePresented)
     }
+}
+
+private actor FixedOutcomeDeviceRegistry: DeviceRegistryRefreshing {
+    let outcome: DeviceRegistryListOutcome
+
+    init(outcome: DeviceRegistryListOutcome) {
+        self.outcome = outcome
+    }
+
+    func freshRoutes(
+        forMacDeviceID macDeviceID: String,
+        instanceTag: String?
+    ) async -> [CmxAttachRoute]? { nil }
+
+    func listDevices() async -> DeviceRegistryListOutcome { outcome }
 }
