@@ -32,3 +32,21 @@ import Testing
     #expect(result == 7)
     #expect(steps == ["register"])
 }
+
+@Test func ordinaryNewStreamTokenDoesNotBeginAuthoritativeReplay() {
+    #expect(!AuthoritativeTerminalAttachmentOrder.shouldBeginReplayForNewStream(
+        authoritativeGridEnabled: false
+    ))
+    #expect(AuthoritativeTerminalAttachmentOrder.shouldBeginReplayForNewStream(
+        authoritativeGridEnabled: true
+    ))
+}
+
+@Test func viewportOnlyOrdinaryChunkStillRestoresRawRenderer() {
+    #expect(AuthoritativeTerminalAttachmentOrder.shouldUseRawRenderer(
+        hasAuthoritativeGrid: false
+    ))
+    #expect(!AuthoritativeTerminalAttachmentOrder.shouldUseRawRenderer(
+        hasAuthoritativeGrid: true
+    ))
+}
