@@ -121,18 +121,12 @@ struct SidebarWorkspaceManualStatusIndicatorMenu: View {
     let neutralColor: Color
     let fontScale: CGFloat
 
+    @State private var isStatusPopoverPresented = false
+
     private var menuModel: SidebarWorkspaceCompactStatusMenuModel {
         SidebarWorkspaceCompactStatusMenuModel.resolve(
             inferred: tab.inferredTaskStatus,
             override: tab.todoState.statusOverride
-        )
-    }
-
-    private var lanes: [WorkspaceTodoStatusLane] {
-        WorkspaceTodoStatusLane.lanes(
-            inferred: menuModel.inferred,
-            activeOverride: menuModel.activeOverride,
-            isHidden: false
         )
     }
 
@@ -145,28 +139,8 @@ struct SidebarWorkspaceManualStatusIndicatorMenu: View {
     }
 
     var body: some View {
-        Menu {
-            ForEach(lanes) { lane in
-                if lane.isNone {
-                    Divider()
-                }
-                Button {
-                    if lane.isNone {
-                        WorkspaceTodoActions.hideStatus(for: [tab])
-                    } else {
-                        WorkspaceTodoActions.applyStatusOverride(lane.status, to: [tab])
-                    }
-                } label: {
-                    if lane.isSelected {
-                        Label(lane.title, systemImage: "checkmark")
-                    } else {
-                        Text(lane.title)
-                    }
-                }
-                if lane.status == nil, !lane.isNone {
-                    Divider()
-                }
-            }
+        Button {
+            isStatusPopoverPresented.toggle()
         } label: {
             SidebarWorkspaceTaskStatusGlyph(
                 status: status,
@@ -180,8 +154,30 @@ struct SidebarWorkspaceManualStatusIndicatorMenu: View {
             .padding(.vertical, 2)
             .contentShape(Rectangle())
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
+        .buttonStyle(.plain)
+        .background(
+            SidebarWorkspaceTodoPopoverHost(
+                isPresented: $isStatusPopoverPresented,
+                model: SidebarWorkspaceStatusPopoverModel(
+                    inferred: menuModel.inferred,
+                    activeOverride: menuModel.activeOverride
+                ),
+                minWidth: 200,
+                maxHeight: 400,
+                preferredEdge: .maxY
+            ) { model, close in
+                SidebarWorkspaceStatusPopover(
+                    model: model,
+                    onSelectLane: { [tab] status in
+                        WorkspaceTodoActions.applyStatusOverride(status, to: [tab])
+                    },
+                    onSelectNone: { [tab] in
+                        WorkspaceTodoActions.hideStatus(for: [tab])
+                    },
+                    onClose: close
+                )
+            }
+        )
         .fixedSize(horizontal: true, vertical: true)
         .safeHelp(String(localized: "sidebar.status.compactTooltip", defaultValue: "Change workspace status"))
         .accessibilityLabel(labelText)
