@@ -5525,6 +5525,46 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
         }
     }
 
+    func testResolvesSingleLabelHostAsEmbeddedBrowser() throws {
+        let target = try XCTUnwrap(TerminalBrowserHostNormalizer().resolveOpenURLTarget("go/docs"))
+        switch target {
+        case let .embeddedBrowser(url):
+            XCTAssertEqual(url.host, "go")
+            XCTAssertEqual(url.path, "/docs")
+        default:
+            XCTFail("Expected a single-label internal host to remain browser-routable")
+        }
+    }
+
+    @MainActor
+    func testLocationCapableEditorBypassesPreviewButPlainOpenerDoesNot() throws {
+        let suiteName = "cmux-tests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: "openSupportedFilesInCmux")
+
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-location-routing-\(UUID().uuidString).swift")
+        try "let value = 1\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let resolution = TerminalPathResolution(path: fileURL.path, line: 1, column: 5)
+        let routeSettings = FileRouteSettingsStore(defaults: defaults)
+
+        let locationRouter = CommandClickFileOpenRouter(
+            routeSettings: routeSettings,
+            supportsExternalLocations: { true },
+            openExternal: { _, _, _ in }
+        )
+        XCTAssertFalse(locationRouter.shouldRouteInCmux(resolution: resolution))
+
+        let plainRouter = CommandClickFileOpenRouter(
+            routeSettings: routeSettings,
+            supportsExternalLocations: { false },
+            openExternal: { _, _, _ in }
+        )
+        XCTAssertTrue(plainRouter.shouldRouteInCmux(resolution: resolution))
+    }
+
     func testResolvesFileSchemeAsExternal() throws {
         let target = try XCTUnwrap(TerminalBrowserHostNormalizer().resolveOpenURLTarget("file:///tmp/cmux.txt"))
         switch target {

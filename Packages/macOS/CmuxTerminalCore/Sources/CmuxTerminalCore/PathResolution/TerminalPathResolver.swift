@@ -224,11 +224,6 @@ public nonisolated struct TerminalPathResolver: Sendable {
                 if reference.line != nil, path.contains(".") {
                     return true
                 }
-                guard let slash = path.firstIndex(of: "/") else { continue }
-                let head = String(path[..<slash]).lowercased()
-                if head != "localhost" && !head.contains(".") {
-                    return true
-                }
             }
         }
         return false
@@ -238,13 +233,11 @@ public nonisolated struct TerminalPathResolver: Sendable {
         guard let scheme = URL(string: rawText)?.scheme?.lowercased() else { return false }
         guard !hasExplicitURLScheme(rawText, parsedScheme: scheme) else { return true }
 
-        // Foundation also parses `File.swift:12` as a custom URL scheme. A
-        // numeric location suffix on a path-shaped stem remains eligible; an
-        // arbitrary `scheme:value` stays on the URL route.
-        let locationReference = rawText.terminalPathReferenceCandidates()
-            .first { $0.line != nil }
-        guard let path = locationReference?.path else { return true }
-        return !path.contains("/") && !path.contains(".") && !path.hasPrefix("~")
+        // Foundation also parses `File.swift:12` and `Makefile:12` as custom
+        // URL schemes. A numeric location suffix remains eligible because the
+        // resolver still requires the stripped path to exist; an arbitrary
+        // `scheme:value` stays on the URL route.
+        return !rawText.terminalPathReferenceCandidates().contains { $0.line != nil }
     }
 
     private func hasExplicitURLScheme(_ rawText: String) -> Bool {

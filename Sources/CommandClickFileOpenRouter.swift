@@ -8,13 +8,16 @@ import Foundation
 @MainActor
 struct CommandClickFileOpenRouter {
     private let routeSettings: any FileRouteSettingsReading
+    private let supportsExternalLocations: @MainActor @Sendable () -> Bool
     private let openExternal: @MainActor @Sendable (URL, Int?, Int?) -> Void
 
     init(
         routeSettings: any FileRouteSettingsReading,
+        supportsExternalLocations: @escaping @MainActor @Sendable () -> Bool,
         openExternal: @escaping @MainActor @Sendable (URL, Int?, Int?) -> Void
     ) {
         self.routeSettings = routeSettings
+        self.supportsExternalLocations = supportsExternalLocations
         self.openExternal = openExternal
     }
 
@@ -22,15 +25,19 @@ struct CommandClickFileOpenRouter {
         let externalOpener = PreferredEditorService(defaults: defaults)
         self.init(
             routeSettings: FileRouteSettingsStore(defaults: defaults),
+            supportsExternalLocations: { externalOpener.supportsSourceLocations },
             openExternal: { url, line, column in
                 externalOpener.open(url, line: line, column: column)
             }
         )
     }
 
-    func shouldRouteInCmux(path: String) -> Bool {
-        routeSettings.shouldRouteMarkdown(path: path)
-            || routeSettings.shouldRouteSupportedFile(path: path)
+    func shouldRouteInCmux(resolution: TerminalPathResolution) -> Bool {
+        if resolution.line != nil, supportsExternalLocations() {
+            return false
+        }
+        return routeSettings.shouldRouteMarkdown(path: resolution.path)
+            || routeSettings.shouldRouteSupportedFile(path: resolution.path)
     }
 
     @MainActor
@@ -39,6 +46,7 @@ struct CommandClickFileOpenRouter {
         sourcePanelId: UUID,
         resolution: TerminalPathResolution
     ) -> Bool {
+        guard shouldRouteInCmux(resolution: resolution) else { return false }
         if routeSettings.shouldRouteMarkdown(path: resolution.path),
            workspace.openOrFocusMarkdownSplit(from: sourcePanelId, filePath: resolution.path) != nil {
             return true
@@ -162,7 +170,7 @@ struct CommandClickFileOpenRouter {
                 fallback?()
                 return
             }
-            guard shouldRouteInCmux(path: resolution.path) else {
+            guard shouldRouteInCmux(resolution: resolution) else {
                 fallback?()
                 return
             }

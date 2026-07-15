@@ -271,12 +271,21 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         )
     }
 
+    @Test func resolvesExtensionlessFilenameWithLineSuffix() {
+        let existingFile = "/Users/dev/project/Makefile"
+        let resolution = TerminalPathResolver(fileExists: existsIn([existingFile]))
+            .resolveOpenURLFileReference(
+                "Makefile:12",
+                context: TerminalPathResolutionContext(workingDirectory: "/Users/dev/project")
+            )
+
+        #expect(resolution == TerminalPathResolution(path: existingFile, line: 12, column: nil))
+    }
+
     @Test(arguments: [
         "./scripts/reload.sh",
         "../Sources/App.swift:4",
         "Sources/App/SettingsWindowFactory.swift:12:7",
-        "a/b/c",
-        "s/pipeline-failure-state-model.md",
         "File.swift:12",
     ])
     func recognizesUnambiguousRelativePathReferences(rawText: String) {
@@ -310,6 +319,9 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         "mailto:test@example.com",
         "example.com/docs",
         "localhost:3000/docs",
+        "go/docs",
+        "a/b/c",
+        "s/pipeline-failure-state-model.md",
         "/tmp/App.swift:12",
         "foo_bar",
     ])

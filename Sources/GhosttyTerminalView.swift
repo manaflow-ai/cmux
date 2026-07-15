@@ -2986,7 +2986,7 @@ class GhosttyApp {
                     ) else {
                         return (false, nil)
                     }
-                    guard fileOpenRouter.shouldRouteInCmux(path: resolution.path) else {
+                    guard fileOpenRouter.shouldRouteInCmux(resolution: resolution) else {
                         return (false, resolution)
                     }
                     #if DEBUG
@@ -3013,7 +3013,10 @@ class GhosttyApp {
                     return true
                 }
             }
-            if TerminalPathResolver().shouldConsumeUnresolvedOpenURLPathReference(trimmedUrlString, resolvedReference: resolvedFileReference) { return true }
+            if TerminalPathResolver().shouldConsumeUnresolvedOpenURLPathReference(
+                trimmedUrlString,
+                resolvedReference: resolvedFileReference
+            ) { return true }
             guard let target = TerminalBrowserHostNormalizer().resolveOpenURLTarget(normalizedOpenURLString) else {
                 #if DEBUG
                 cmuxDebugLog("link.openURL resolve failed, returning false")
@@ -3034,22 +3037,19 @@ class GhosttyApp {
             ) {
                 let fileURL = target.url
                 let routed: Bool = performOnMain {
+                    let resolution = resolvedFileReference ?? TerminalPathResolution(path: fileURL.path, line: nil, column: nil)
                     let fileOpenRouter = CommandClickFileOpenRouter(defaults: .standard)
                     guard let termSurface = surfaceView.terminalSurface,
                           let workspace = termSurface.owningWorkspace(),
                           !workspace.isRemoteTerminalSurface(termSurface.id),
-                          fileOpenRouter.shouldRouteInCmux(path: fileURL.path) else {
+                          fileOpenRouter.shouldRouteInCmux(resolution: resolution) else {
                         return false
                     }
                     fileOpenRouter.deferredOpenFileInCmux(
                         workspace: workspace,
                         preferredWorkspaceId: workspace.id,
                         surfaceId: termSurface.id,
-                        resolution: resolvedFileReference ?? TerminalPathResolution(
-                            path: fileURL.path,
-                            line: nil,
-                            column: nil
-                        )
+                        resolution: resolution
                     ) {
                         NSWorkspace.shared.open(fileURL)
                     }

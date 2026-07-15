@@ -97,7 +97,7 @@ struct PreferredEditorServiceTests {
         #expect(opener.openedURLs.isEmpty)
     }
 
-    @Test func configuredCommandReceivesLineAndColumnSuffix() async throws {
+    @Test func genericConfiguredCommandReceivesPlainPathForSourceLocation() async throws {
         let scratch = try makeScratchDirectory()
         defer { try? FileManager.default.removeItem(at: scratch) }
         let marker = scratch.appendingPathComponent("received-location.txt")
@@ -124,8 +124,36 @@ struct PreferredEditorServiceTests {
             try await Task.sleep(for: .milliseconds(25))
         }
         let received = try String(contentsOf: marker, encoding: .utf8)
-        #expect(received == "/tmp/source file.swift:42:7")
+        #expect(received == "/tmp/source file.swift")
         #expect(opener.openedURLs.isEmpty)
+    }
+
+    @Test func visualStudioCodeCommandUsesGotoForSourceLocation() {
+        let command = PreferredEditorLaunchCommand(command: "code -w")
+
+        #expect(
+            command.shellCommand(
+                url: URL(fileURLWithPath: "/tmp/source file.swift"),
+                line: 42,
+                column: 7
+            ) == "code -w '--goto' '/tmp/source file.swift:42:7'"
+        )
+    }
+
+    @Test func colonLocationEditorsReceiveLocationWithoutGotoFlag() {
+        let command = PreferredEditorLaunchCommand(command: "zed")
+
+        #expect(
+            command.shellCommand(
+                url: URL(fileURLWithPath: "/tmp/App.swift"),
+                line: 9,
+                column: nil
+            ) == "zed '/tmp/App.swift:9'"
+        )
+    }
+
+    @Test func unknownEditorDoesNotClaimSourceLocationSupport() {
+        #expect(!PreferredEditorLaunchCommand(command: "/tmp/editor.sh").supportsSourceLocation)
     }
 
     @Test func systemFallbackReceivesPlainFileURLForSourceLocation() {

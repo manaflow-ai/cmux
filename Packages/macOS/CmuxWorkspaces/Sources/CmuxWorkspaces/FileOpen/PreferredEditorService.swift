@@ -60,12 +60,17 @@ public struct PreferredEditorService: FileOpening {
         open(url, line: nil, column: nil)
     }
 
+    /// Whether the configured editor has a known source-location CLI contract.
+    public var supportsSourceLocations: Bool {
+        guard let command = editor.resolvedCommand else { return false }
+        return PreferredEditorLaunchCommand(command: command).supportsSourceLocation
+    }
+
     /// Opens a file, carrying a one-based source location to editor commands.
     ///
-    /// Configured commands receive one shell-quoted `path:line[:column]`
-    /// argument. Commands that support source locations can navigate directly;
-    /// UI-test capture records that same argument, while the system fallback
-    /// still receives the plain file URL.
+    /// Known editor CLIs receive their source-location syntax; other commands
+    /// receive the plain file path. UI-test capture records the structured
+    /// reference, while the system fallback still receives the plain file URL.
     ///
     /// - Parameters:
     ///   - url: The local file URL to open.
@@ -95,9 +100,11 @@ public struct PreferredEditorService: FileOpening {
             return
         }
 
+        let launchCommand = PreferredEditorLaunchCommand(command: command)
+
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", "\(command) \(editorArgument.posixShellSingleQuoted)"]
+        process.arguments = ["-c", launchCommand.shellCommand(url: url, line: line, column: column)]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
 
