@@ -18,6 +18,10 @@ public struct WorktreeStatus: Equatable, Codable, Sendable {
     /// Commits reachable from the upstream but not HEAD.
     public let behindCount: Int
 
+    /// Whether the configured upstream's commit is no longer resolvable,
+    /// such as after the tracked remote branch was deleted.
+    public let isUpstreamGone: Bool
+
     /// Merge or rebase work currently in progress.
     public let operation: WorktreeOperation?
 
@@ -29,6 +33,7 @@ public struct WorktreeStatus: Equatable, Codable, Sendable {
     ///   - upstream: The configured upstream ref, when present.
     ///   - aheadCount: Commits reachable only from HEAD.
     ///   - behindCount: Commits reachable only from the upstream.
+    ///   - isUpstreamGone: Whether the configured upstream no longer resolves.
     ///   - operation: A merge or rebase currently in progress.
     public init(
         worktree: WorktreeIdentity,
@@ -37,6 +42,7 @@ public struct WorktreeStatus: Equatable, Codable, Sendable {
         upstream: String?,
         aheadCount: Int,
         behindCount: Int,
+        isUpstreamGone: Bool,
         operation: WorktreeOperation?
     ) {
         self.worktree = worktree
@@ -45,6 +51,7 @@ public struct WorktreeStatus: Equatable, Codable, Sendable {
         self.upstream = upstream
         self.aheadCount = aheadCount
         self.behindCount = behindCount
+        self.isUpstreamGone = isUpstreamGone
         self.operation = operation
     }
 }

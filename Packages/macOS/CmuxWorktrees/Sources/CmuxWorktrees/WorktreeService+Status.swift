@@ -3,8 +3,8 @@ import Foundation
 extension WorktreeService {
     /// Reads branch, dirty paths, upstream divergence, and in-progress operations.
     ///
-    /// Status uses one `git status` call and, when an upstream exists, one
-    /// `git rev-list` call. Every Git read disables optional locks.
+    /// Status uses one `git status` call; ahead/behind counts come from the
+    /// porcelain `branch.ab` header. Every Git read disables optional locks.
     ///
     /// - Parameters:
     ///   - worktree: The location-based worktree identity.
@@ -25,37 +25,25 @@ extension WorktreeService {
         )
         let parsed = parsedStatus(statusResult.stdout ?? "")
 
-        var ahead = 0
-        var behind = 0
-        if let upstream = parsed.upstream {
-            let counts = try await runGit(
-                on: host,
-                directory: worktree.worktreePath,
-                arguments: ["rev-list", "--left-right", "--count", "\(upstream)...HEAD"]
-            )
-            let fields = (counts.stdout ?? "")
-                .split(whereSeparator: \Character.isWhitespace)
-                .compactMap { Int($0) }
-            if fields.count >= 2 {
-                behind = fields[0]
-                ahead = fields[1]
-            }
-        }
-
         return WorktreeStatus(
             worktree: worktree,
             branch: parsed.branch,
             dirtyFileCount: parsed.dirtyFileCount,
             upstream: parsed.upstream,
-            aheadCount: ahead,
-            behindCount: behind,
+            aheadCount: parsed.ahead ?? 0,
+            behindCount: parsed.behind ?? 0,
+            isUpstreamGone: parsed.upstream != nil && parsed.ahead == nil,
             operation: try await inProgressOperation(worktree: worktree, on: host)
         )
     }
 
-    func parsedStatus(_ output: String) -> (branch: String?, upstream: String?, dirtyFileCount: Int) {
+    func parsedStatus(
+        _ output: String
+    ) -> (branch: String?, upstream: String?, ahead: Int?, behind: Int?, dirtyFileCount: Int) {
         var branch: String?
         var upstream: String?
+        var ahead: Int?
+        var behind: Int?
         var dirtyFileCount = 0
         for line in output.split(separator: "\n", omittingEmptySubsequences: true).map(String.init) {
             if line.hasPrefix("# branch.head ") {
@@ -63,12 +51,24 @@ extension WorktreeService {
                 branch = value == "(detached)" ? nil : value
             } else if line.hasPrefix("# branch.upstream ") {
                 upstream = String(line.dropFirst("# branch.upstream ".count))
+            } else if line.hasPrefix("# branch.ab ") {
+                // `# branch.ab +<ahead> -<behind>`; emitted only while the
+                // upstream commit is still resolvable.
+                let fields = line.dropFirst("# branch.ab ".count)
+                    .split(separator: " ")
+                for field in fields {
+                    if field.hasPrefix("+"), let value = Int(field.dropFirst()) {
+                        ahead = value
+                    } else if field.hasPrefix("-"), let value = Int(field.dropFirst()) {
+                        behind = value
+                    }
+                }
             } else if line.hasPrefix("1 ") || line.hasPrefix("2 ") ||
                         line.hasPrefix("u ") || line.hasPrefix("? ") {
                 dirtyFileCount += 1
             }
         }
-        return (branch, upstream, dirtyFileCount)
+        return (branch, upstream, ahead, behind, dirtyFileCount)
     }
 
     func inProgressOperation(

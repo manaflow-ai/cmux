@@ -46,6 +46,7 @@ struct WorktreeStatusTests {
         )
         #expect(status.branch == "diverged")
         #expect(status.upstream == "origin/\(upstreamBranch)")
+        #expect(!status.isUpstreamGone)
         #expect(status.aheadCount == 1)
         #expect(status.behindCount == 1)
         #expect(status.dirtyFileCount == 0)
@@ -87,6 +88,7 @@ struct WorktreeStatusTests {
         )
         #expect(status.branch == "gone-upstream")
         #expect(status.upstream == "origin/\(upstreamBranch)")
+        #expect(status.isUpstreamGone)
         #expect(status.aheadCount == 0)
         #expect(status.behindCount == 0)
     }

@@ -288,11 +288,19 @@ extension CMUXCLI {
                 arguments: [Int64(status.dirtyFileCount)]
             ))
             if let upstream = status.upstream {
-                print(worktreeLocalizedFormat(
-                    "cli.worktree.status.upstream",
-                    defaultValue: "upstream: %@ (ahead %lld, behind %lld)",
-                    arguments: [upstream, Int64(status.aheadCount), Int64(status.behindCount)]
-                ))
+                if status.isUpstreamGone {
+                    print(worktreeLocalizedFormat(
+                        "cli.worktree.status.upstreamGone",
+                        defaultValue: "upstream: %@ (gone)",
+                        arguments: [upstream]
+                    ))
+                } else {
+                    print(worktreeLocalizedFormat(
+                        "cli.worktree.status.upstream",
+                        defaultValue: "upstream: %@ (ahead %lld, behind %lld)",
+                        arguments: [upstream, Int64(status.aheadCount), Int64(status.behindCount)]
+                    ))
+                }
             }
             if let operation = status.operation {
                 print(worktreeLocalizedFormat(
