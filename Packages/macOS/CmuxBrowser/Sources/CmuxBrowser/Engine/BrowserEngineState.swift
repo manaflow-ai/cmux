@@ -17,6 +17,9 @@ public struct BrowserEngineState: Equatable, Sendable {
     /// Whether the engine can traverse forward in native history.
     public var canGoForward: Bool
 
+    /// A monotonic revision advanced after each completed top-level navigation.
+    public var navigationCompletionRevision: UInt64
+
     /// A visible engine-startup or transport error, when present.
     public var errorMessage: String?
 
@@ -28,6 +31,7 @@ public struct BrowserEngineState: Equatable, Sendable {
     ///   - isLoading: Whether a top-level navigation is active.
     ///   - canGoBack: Whether native backward history is available.
     ///   - canGoForward: Whether native forward history is available.
+    ///   - navigationCompletionRevision: The number of completed top-level navigations.
     ///   - errorMessage: A user-facing engine error, if present.
     public init(
         url: URL? = nil,
@@ -35,6 +39,7 @@ public struct BrowserEngineState: Equatable, Sendable {
         isLoading: Bool = false,
         canGoBack: Bool = false,
         canGoForward: Bool = false,
+        navigationCompletionRevision: UInt64 = 0,
         errorMessage: String? = nil
     ) {
         self.url = url
@@ -42,6 +47,7 @@ public struct BrowserEngineState: Equatable, Sendable {
         self.isLoading = isLoading
         self.canGoBack = canGoBack
         self.canGoForward = canGoForward
+        self.navigationCompletionRevision = navigationCompletionRevision
         self.errorMessage = errorMessage
     }
 }

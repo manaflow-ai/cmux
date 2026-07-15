@@ -585,9 +585,14 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
             )
         case "Page.frameStartedLoading":
             updateState { $0.isLoading = true }
-        case "Page.frameStoppedLoading", "Page.loadEventFired":
+        case "Page.frameStoppedLoading":
             updateState { $0.isLoading = false }
+        case "Page.loadEventFired":
             await refreshDocumentState(connection: connection, sessionID: sessionID)
+            updateState { state in
+                state.isLoading = false
+                state.navigationCompletionRevision &+= 1
+            }
         case "Page.frameNavigated":
             if let frame = event.parameters["frame"]?.objectValue,
                frame["parentId"] == nil,

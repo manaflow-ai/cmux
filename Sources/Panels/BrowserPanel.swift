@@ -2789,6 +2789,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private var chromiumProfileRuntime: ChromiumProfileRuntime
     private var engineSessionStorage: (any BrowserEngineSession)?
     private var engineStateTask: Task<Void, Never>?
+    private var lastRecordedChromiumNavigationCompletionRevision: UInt64 = 0
     var engineInitializationScripts: [String] = []
     var engineInitializationScriptCounts: [AutomationInitializationScriptKind: Int] = [:]
 
@@ -4419,6 +4420,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private func replaceEngineSession(for webView: WKWebView) {
         engineStateTask?.cancel()
         engineStateTask = nil
+        lastRecordedChromiumNavigationCompletionRevision = 0
         engineSessionStorage?.close()
         engineSessionStorage = Self.makeEngineSession(
             kind: engineKind,
@@ -4447,7 +4449,12 @@ final class BrowserPanel: Panel, ObservableObject {
         }
     }
 
-    private func applyChromiumEngineState(_ state: BrowserEngineState) {
+    func applyChromiumEngineState(_ state: BrowserEngineState) {
+        let completedNavigation = state.navigationCompletionRevision
+            > lastRecordedChromiumNavigationCompletionRevision
+        if completedNavigation {
+            lastRecordedChromiumNavigationCompletionRevision = state.navigationCompletionRevision
+        }
         currentURL = state.url ?? currentURL
         let title = state.title.trimmingCharacters(in: .whitespacesAndNewlines)
         pageTitle = title
@@ -4456,7 +4463,7 @@ final class BrowserPanel: Panel, ObservableObject {
         nativeCanGoBack = state.canGoBack
         nativeCanGoForward = state.canGoForward
         refreshNavigationAvailability()
-        if !state.isLoading, state.errorMessage == nil, let url = state.url {
+        if completedNavigation, !state.isLoading, state.errorMessage == nil, let url = state.url {
             historyStore.recordVisit(url: url, title: title.isEmpty ? nil : title)
         }
     }
