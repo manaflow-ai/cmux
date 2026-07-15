@@ -1,4 +1,4 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -15,7 +15,7 @@ type Catalog = {
   readonly relays: readonly Relay[];
 };
 
-const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const sourcePath = resolve(repositoryRoot, "config/iroh/managed-relay-catalog.json");
 const outputPaths = [
   resolve(repositoryRoot, "web/services/relay/generated/managedRelayCatalog.ts"),
@@ -86,7 +86,7 @@ function generatedSource(catalog: Catalog): string {
  *
  * Fleet rotations are add-before-remove. Bump sequence and add first, deploy
  * both server consumers, wait one signed-policy lifetime, then bump sequence
- * again and remove. Run scripts/generate-managed-iroh-relay-catalog.ts after
+ * again and remove. Run web/tools/generate-managed-iroh-relay-catalog.ts after
  * every edit. Signing keys and relay credentials never belong in this file.
  */
 export const MANAGED_IROH_RELAY_CATALOG = ${JSON.stringify(catalog, null, 2)} as const;
@@ -98,14 +98,14 @@ export const MANAGED_IROH_RELAY_URLS = MANAGED_IROH_RELAY_CATALOG.relays.map(
 `;
 }
 
-const catalog = validatedCatalog(await Bun.file(sourcePath).json());
+const catalog = validatedCatalog(JSON.parse(await readFile(sourcePath, "utf8")));
 const expected = generatedSource(catalog);
-const checkOnly = Bun.argv.includes("--check");
+const checkOnly = process.argv.includes("--check");
 let drifted = false;
 
 for (const outputPath of outputPaths) {
   if (checkOnly) {
-    const current = await Bun.file(outputPath).text().catch(() => "");
+    const current = await readFile(outputPath, "utf8").catch(() => "");
     if (current !== expected) {
       console.error(`generated managed relay catalog is stale: ${outputPath}`);
       drifted = true;
@@ -113,7 +113,7 @@ for (const outputPath of outputPaths) {
     continue;
   }
   await mkdir(dirname(outputPath), { recursive: true });
-  await Bun.write(outputPath, expected);
+  await writeFile(outputPath, expected, "utf8");
   console.log(`generated ${outputPath}`);
 }
 
