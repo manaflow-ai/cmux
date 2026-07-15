@@ -56,7 +56,7 @@ extension DockSplitStore {
             })
         }
 
-        for panel in panels.values where panelIsSelectedInVisibleDockPane(panel.id) {
+        for panel in selectedVisibleDockPortalPanels() {
             if let terminal = panel as? TerminalPanel {
                 observe(.terminalSurfaceDidBecomeReady, object: terminal.surface)
                 observe(.terminalSurfaceHostedViewDidMoveToWindow, object: terminal.surface)
@@ -100,7 +100,7 @@ extension DockSplitStore {
             windows.append(window)
         }
 
-        for panel in panels.values where panelIsSelectedInVisibleDockPane(panel.id) {
+        for panel in selectedVisibleDockPortalPanels() {
             if let terminal = panel as? TerminalPanel {
                 append(terminal.hostedView.window)
             } else if let browser = panel as? BrowserPanel {
@@ -162,11 +162,18 @@ extension DockSplitStore {
     func reconcileDockPortalPass(reason: String) -> Bool {
         var needsFollowUpPass = false
         flushDockWindowLayouts()
+        let visiblePanels = selectedVisibleDockPortalPanels()
+        let visiblePanelIds = Set(visiblePanels.map(\.id))
+        let activePanelId = focusedPanelId
 
         withCoalescedTerminalViewReattach {
             for panel in panels.values {
-                if panelIsSelectedInVisibleDockPane(panel.id) {
-                    needsFollowUpPass = reconcileVisibleDockPortalPanel(panel, reason: reason) || needsFollowUpPass
+                if visiblePanelIds.contains(panel.id) {
+                    needsFollowUpPass = reconcileVisibleDockPortalPanel(
+                        panel,
+                        isActive: panel.id == activePanelId,
+                        reason: reason
+                    ) || needsFollowUpPass
                 } else {
                     applyVisibility(to: panel)
                 }
@@ -176,15 +183,28 @@ extension DockSplitStore {
         return needsFollowUpPass
     }
 
+    private func selectedVisibleDockPortalPanels() -> [any Panel] {
+        guard isVisibleInUI else { return [] }
+        let paneIds = bonsplitController.zoomedPaneId.map { [$0] } ?? bonsplitController.allPaneIds
+        return paneIds.compactMap { paneId in
+            guard let tabId = bonsplitController.selectedTab(inPane: paneId)?.id else { return nil }
+            return panel(for: tabId)
+        }
+    }
+
     private func flushDockWindowLayouts() {
         for window in dockPortalHostWindows() where window.isVisible {
             window.contentView?.layoutSubtreeIfNeeded()
         }
     }
 
-    private func reconcileVisibleDockPortalPanel(_ panel: any Panel, reason: String) -> Bool {
+    private func reconcileVisibleDockPortalPanel(
+        _ panel: any Panel,
+        isActive: Bool,
+        reason: String
+    ) -> Bool {
         if let terminal = panel as? TerminalPanel {
-            return reconcileVisibleDockTerminalPortal(terminal)
+            return reconcileVisibleDockTerminalPortal(terminal, isActive: isActive)
         }
         if let browser = panel as? BrowserPanel {
             return reconcileVisibleDockBrowserPortal(browser, reason: reason)
@@ -192,11 +212,11 @@ extension DockSplitStore {
         return false
     }
 
-    private func reconcileVisibleDockTerminalPortal(_ terminal: TerminalPanel) -> Bool {
+    private func reconcileVisibleDockTerminalPortal(_ terminal: TerminalPanel, isActive: Bool) -> Bool {
         var needsFollowUpPass = false
         let hostedView = terminal.hostedView
         hostedView.setVisibleInUI(true)
-        hostedView.setActive(panelIsActiveInVisibleDockPane(terminal.id))
+        hostedView.setActive(isActive)
 
         let needsPortalReattach = TerminalWindowPortalRegistry
             .updateEntryVisibility(for: hostedView, visibleInUI: true)
