@@ -10496,22 +10496,35 @@ final class Workspace: Identifiable, ObservableObject {
         }
         let renderedPaneIds = bonsplitController.zoomedPaneId.map { [$0] } ?? bonsplitController.allPaneIds
         var visiblePanelIds: Set<UUID> = []
+        let focusedPanelForFallback = focusedPanelId.flatMap { panelId in
+            panels[panelId] == nil ? nil : panelId
+        }
+        let focusedPanelPaneId = focusedPanelForFallback.flatMap { paneId(forPanelId: $0)?.id }
 
         for paneId in renderedPaneIds {
-            let selectedTab = bonsplitController.selectedTab(inPane: paneId) ?? bonsplitController.tabs(inPane: paneId).first
-            guard let selectedTab,
-                  let panelId = panelIdFromSurfaceId(selectedTab.id),
-                  panels[panelId] != nil else {
-                continue
+            let selectedPanelId = bonsplitController
+                .selectedTab(inPane: paneId)
+                .flatMap { panelIdFromSurfaceId($0.id) }
+                .flatMap { panels[$0] == nil ? nil : $0 }
+            let firstPanelId = bonsplitController
+                .tabs(inPane: paneId)
+                .compactMap { tab -> UUID? in
+                    guard let panelId = panelIdFromSurfaceId(tab.id),
+                          panels[panelId] != nil else {
+                        return nil
+                    }
+                    return panelId
+                }
+                .first
+            if let panelId = WorkspacePanelVisibilityPolicy.visiblePanelIdForRenderedPane(
+                paneId: paneId.id,
+                selectedPanelId: selectedPanelId,
+                firstPanelId: firstPanelId,
+                focusedPanelId: focusedPanelForFallback,
+                focusedPanelPaneId: focusedPanelPaneId
+            ) {
+                visiblePanelIds.insert(panelId)
             }
-            visiblePanelIds.insert(panelId)
-        }
-
-        if let focusedPanelId,
-           panels[focusedPanelId] != nil,
-           let focusedPaneId = paneId(forPanelId: focusedPanelId),
-           renderedPaneIds.contains(where: { $0.id == focusedPaneId.id }) {
-            visiblePanelIds.insert(focusedPanelId)
         }
 
         return visiblePanelIds
@@ -11563,6 +11576,7 @@ extension Workspace: BonsplitDelegate {
         // at the AppKit window level, so removing its SwiftUI host does not synchronously hide
         // the portal layer during a tab-selection transition.
         hideBrowserPortalsForDeselectedTabs(inPane: focusedPane, selectedTabId: selectedTabId)
+        reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
 
         if let focusWindow = activationWindow(for: panel) {
             yieldForeignOwnedFocusIfNeeded(

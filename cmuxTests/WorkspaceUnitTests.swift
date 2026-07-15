@@ -4511,6 +4511,19 @@ final class WorkspaceTeardownTests: XCTestCase {
         throw XCTSkip("Debug-only regression test")
 #endif
     }
+
+    func testSelectingWorkspaceTodoPaneHidesDeselectedTerminalPortal() throws {
+        let workspace = Workspace()
+        let terminalPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let terminalPanel = try XCTUnwrap(workspace.terminalPanel(for: terminalPanelId))
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+
+        terminalPanel.hostedView.setVisibleInUI(true)
+        let todoPanel = try XCTUnwrap(workspace.newWorkspaceTodoSurface(inPane: paneId, focus: true))
+
+        XCTAssertEqual(workspace.focusedPanelId, todoPanel.id)
+        XCTAssertFalse(terminalPanel.hostedView.debugPortalVisibleInUI)
+    }
 }
 
 
