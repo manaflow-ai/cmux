@@ -43,6 +43,23 @@ import Testing
         #expect(model.showsPill)
     }
 
+    @Test func automaticDownloadStaysQuietUntilTheUpdateIsPrepared() throws {
+        let model = UpdateStateModel()
+        let driver = UpdateDriver(
+            model: model,
+            log: NoopUpdateLog(),
+            clock: SystemUpdateClock(),
+            isDevLikeBundle: false,
+            automaticallyDownloadsUpdatesProvider: { true }
+        )
+
+        let item = try #require(makeAppcastItem(version: "0.64.99"))
+        driver.handleDidFindValidUpdate(item)
+
+        #expect(model.detectedUpdateVersion == nil)
+        #expect(!model.showsPill)
+    }
+
     @Test func classifiesDebugAndStagingBundlesAsDevLike() {
         #expect(UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app.debug"))
         #expect(UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app.debug.my-tag"))

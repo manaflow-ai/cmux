@@ -15,6 +15,8 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     let log: any UpdateLogging
     private let clock: any UpdateClock
     let infoFeedURLProvider: () -> String?
+    let automaticallyDownloadsUpdatesProvider: () -> Bool
+    let allowsMeteredDownloadsProvider: () -> Bool
     /// Whether the running build is a cmux DEV/staging build that is not on the public release
     /// train. When `true`, the driver must never surface the public appcast's update pill (see
     /// ``UpdateController/isDevLikeBundleIdentifier(_:)``).
@@ -29,12 +31,15 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     private var checkTimeoutTask: Task<Void, Never>?
     private(set) var lastFeedURLString: String?
     private var pendingPromptDismissCallbacks: [UUID] = []
+    var userInitiatedDownloadPending = false
 
     init(
         model: UpdateStateModel,
         log: any UpdateLogging,
         clock: any UpdateClock,
         isDevLikeBundle: Bool = false,
+        automaticallyDownloadsUpdatesProvider: @escaping () -> Bool = { false },
+        allowsMeteredDownloadsProvider: @escaping () -> Bool = { false },
         infoFeedURLProvider: @escaping () -> String? = {
             Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String
         }
@@ -43,6 +48,8 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         self.log = log
         self.clock = clock
         self.infoFeedURLProvider = infoFeedURLProvider
+        self.automaticallyDownloadsUpdatesProvider = automaticallyDownloadsUpdatesProvider
+        self.allowsMeteredDownloadsProvider = allowsMeteredDownloadsProvider
         self.isDevLikeBundle = isDevLikeBundle
         super.init()
     }
@@ -62,8 +69,8 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
             return
         }
 #endif
-        // Never show Sparkle's permission UI. cmux always enables scheduled checks and keeps
-        // automatic downloads disabled so installs remain user-driven.
+        // Never show Sparkle's permission UI. cmux enables scheduled checks and exposes download
+        // behavior in its own Settings UI.
         log.append("auto-allow update permission (no UI)")
         Task { @MainActor in reply(SUUpdatePermissionResponse(automaticUpdateChecks: true, sendSystemProfile: false)) }
     }
@@ -77,7 +84,14 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
                          state: SPUUserUpdateState,
                          reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
         log.append("show update found: \(appcastItem.displayVersionString)")
-        let available = UpdateState.UpdateAvailable(appcastItem: appcastItem) { choice in reply(choice) }
+        let available = UpdateState.UpdateAvailable(appcastItem: appcastItem) { [weak self] choice in
+            MainActor.assumeIsolated {
+                if choice == .install {
+                    self?.userInitiatedDownloadPending = true
+                }
+                reply(choice)
+            }
+        }
         available.reply.onDismissConsumed = { [weak self] reply in
             self?.recordPromptDismissCallbackExpected(for: reply)
         }

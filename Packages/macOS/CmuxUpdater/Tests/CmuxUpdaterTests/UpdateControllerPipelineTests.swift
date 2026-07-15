@@ -46,6 +46,30 @@ import Testing
 
     // MARK: - Replays
 
+    @Test func launchStagesAnAutomaticUpdateInBackground() {
+        let harness = Harness(
+            automaticallyChecksForUpdates: true,
+            automaticallyDownloadsUpdates: true
+        )
+
+        harness.controller.startUpdaterIfNeeded()
+
+        #expect(harness.updater.checkForUpdatesInBackgroundCallCount == 1)
+        #expect(harness.updater.checkForUpdateInformationCallCount == 0)
+    }
+
+    @Test func launchOnlyProbesWhenAutomaticDownloadsAreDisabled() {
+        let harness = Harness(
+            automaticallyChecksForUpdates: true,
+            automaticallyDownloadsUpdates: false
+        )
+
+        harness.controller.startUpdaterIfNeeded()
+
+        #expect(harness.updater.checkForUpdatesInBackgroundCallCount == 0)
+        #expect(harness.updater.checkForUpdateInformationCallCount == 1)
+    }
+
     /// The production bug, replayed end to end from the user's `cmux-update.log`: Install is
     /// pressed while "Update Available" shows, the stale prompt is dismissed (idle #1), Sparkle's
     /// dismiss callback answers (idle #2), the fresh check restarts and resolves the newer

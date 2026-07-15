@@ -12,12 +12,16 @@ public struct UpdateSettings: Sendable {
     public static let automaticChecksKey = "SUEnableAutomaticChecks"
     /// Sparkle's "automatically download/install updates" key.
     public static let automaticallyUpdateKey = "SUAutomaticallyUpdate"
+    /// Whether automatic update archives may use expensive or constrained network paths.
+    public static let allowMeteredDownloadsKey = "cmux.update.allowMeteredDownloads"
     /// Sparkle's scheduled-check-interval key.
     public static let scheduledCheckIntervalKey = "SUScheduledCheckInterval"
     /// Sparkle's "send anonymous system profile" key.
     public static let sendProfileInfoKey = "SUSendProfileInfo"
     /// cmux's marker that the v2 automatic-checks migration already ran.
     public static let migrationKey = "cmux.sparkle.automaticChecksMigration.v2"
+    /// cmux's marker that the background-staging default migration already ran.
+    public static let backgroundDownloadsMigrationKey = "cmux.sparkle.backgroundDownloadsMigration.v3"
 
     /// The previous default scheduled-check interval (24h) that the migration upgrades from.
     public let previousDefaultScheduledCheckInterval: TimeInterval
@@ -44,34 +48,41 @@ public struct UpdateSettings: Sendable {
     public func apply(to defaults: UserDefaults) {
         defaults.register(defaults: [
             Self.automaticChecksKey: true,
-            Self.automaticallyUpdateKey: false,
+            Self.automaticallyUpdateKey: true,
+            Self.allowMeteredDownloadsKey: false,
             Self.scheduledCheckIntervalKey: scheduledCheckInterval,
             Self.sendProfileInfoKey: false,
         ])
 
-        guard !defaults.bool(forKey: Self.migrationKey) else { return }
+        if !defaults.bool(forKey: Self.migrationKey) {
+            // Repair older installs that may have ended up with automatic checks disabled
+            // before the updater defaults were embedded in Info.plist.
+            defaults.set(true, forKey: Self.automaticChecksKey)
 
-        // Repair older installs that may have ended up with automatic checks disabled
-        // before the updater defaults were embedded in Info.plist.
-        defaults.set(true, forKey: Self.automaticChecksKey)
-
-        if let interval = defaults.object(forKey: Self.scheduledCheckIntervalKey) as? NSNumber {
-            let currentInterval = interval.doubleValue
-            if currentInterval <= 0 ||
-                abs(currentInterval - previousDefaultScheduledCheckInterval) < 1 {
+            if let interval = defaults.object(forKey: Self.scheduledCheckIntervalKey) as? NSNumber {
+                let currentInterval = interval.doubleValue
+                if currentInterval <= 0 ||
+                    abs(currentInterval - previousDefaultScheduledCheckInterval) < 1 {
+                    defaults.set(scheduledCheckInterval, forKey: Self.scheduledCheckIntervalKey)
+                }
+            } else {
                 defaults.set(scheduledCheckInterval, forKey: Self.scheduledCheckIntervalKey)
             }
-        } else {
-            defaults.set(scheduledCheckInterval, forKey: Self.scheduledCheckIntervalKey)
+
+            if defaults.object(forKey: Self.sendProfileInfoKey) == nil {
+                defaults.set(false, forKey: Self.sendProfileInfoKey)
+            }
+
+            defaults.set(true, forKey: Self.migrationKey)
         }
 
-        if defaults.object(forKey: Self.automaticallyUpdateKey) == nil {
-            defaults.set(false, forKey: Self.automaticallyUpdateKey)
-        }
-        if defaults.object(forKey: Self.sendProfileInfoKey) == nil {
-            defaults.set(false, forKey: Self.sendProfileInfoKey)
-        }
+        guard !defaults.bool(forKey: Self.backgroundDownloadsMigrationKey) else { return }
 
-        defaults.set(true, forKey: Self.migrationKey)
+        // Automatic downloads were not user-configurable before this migration, so the old false
+        // value only represented cmux's previous foreground-install default. Stage future updates
+        // automatically while keeping metered-path access opt-in.
+        defaults.set(true, forKey: Self.automaticallyUpdateKey)
+        defaults.set(false, forKey: Self.allowMeteredDownloadsKey)
+        defaults.set(true, forKey: Self.backgroundDownloadsMigrationKey)
     }
 }

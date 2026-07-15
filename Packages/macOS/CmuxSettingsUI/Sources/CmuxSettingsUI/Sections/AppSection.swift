@@ -14,7 +14,7 @@ import SwiftUI
 /// Notifications, Notification Sound, Notification Command, Send
 /// anonymous telemetry, Warn Before Quit, Warn Before Closing Tab /
 /// X Button / Hide Tab Close Button, Rename Selects Existing Name,
-/// Command Palette Searches All Surfaces.
+/// Command Palette Searches All Surfaces and update behavior.
 @MainActor
 public struct AppSection: View {
     private let catalog: SettingCatalog
@@ -56,6 +56,9 @@ public struct AppSection: View {
     @State private var soundCommand: DefaultsValueModel<String>
     @State private var customSoundFile: DefaultsValueModel<String>
     @State private var telemetry: DefaultsValueModel<Bool>
+    @State private var automaticUpdateChecks: DefaultsValueModel<Bool>
+    @State private var automaticUpdateDownloads: DefaultsValueModel<Bool>
+    @State private var allowMeteredUpdateDownloads: DefaultsValueModel<Bool>
     @State private var confirmQuit: DefaultsValueModel<ConfirmQuitMode>
     @State private var warnCloseTab: DefaultsValueModel<Bool>
     @State private var warnCloseX: DefaultsValueModel<Bool>
@@ -108,6 +111,9 @@ public struct AppSection: View {
         _soundCommand = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.command))
         _customSoundFile = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.customSoundFilePath))
         _telemetry = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.sendAnonymousTelemetry))
+        _automaticUpdateChecks = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.automaticUpdateChecks))
+        _automaticUpdateDownloads = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.automaticUpdateDownloads))
+        _allowMeteredUpdateDownloads = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.allowMeteredUpdateDownloads))
         _confirmQuit = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.confirmQuitMode))
         _warnCloseTab = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.warnBeforeClosingTab))
         _warnCloseX = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.warnBeforeClosingTabXButton))
@@ -136,7 +142,7 @@ public struct AppSection: View {
             mainCard
         }
         .task {
-            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
+            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, telemetry, automaticUpdateChecks, automaticUpdateDownloads, allowMeteredUpdateDownloads, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
             if languageAtAppear == nil { languageAtAppear = language.current }; if telemetryAtAppear == nil { telemetryAtAppear = telemetry.current }
         }
     }
@@ -670,6 +676,47 @@ public struct AppSection: View {
                 )
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 200)
+            }
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .settingsOnly,
+                searchAnchorID: "setting:app:automatic-update-checks",
+                String(localized: "settings.app.updates.automaticChecks", defaultValue: "Check for Updates Automatically"),
+                subtitle: String(localized: "settings.app.updates.automaticChecks.subtitle", defaultValue: "Check the signed cmux release feed in the background.")
+            ) {
+                Toggle("", isOn: Binding(get: { automaticUpdateChecks.current }, set: { automaticUpdateChecks.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsAutomaticUpdateChecksToggle")
+            }
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .settingsOnly,
+                searchAnchorID: "setting:app:automatic-update-downloads",
+                String(localized: "settings.app.updates.automaticDownloads", defaultValue: "Download Updates Automatically"),
+                subtitle: String(localized: "settings.app.updates.automaticDownloads.subtitle", defaultValue: "Prepare signed updates in the background, then show Restart to Update.")
+            ) {
+                Toggle("", isOn: Binding(get: { automaticUpdateDownloads.current }, set: { automaticUpdateDownloads.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .disabled(!automaticUpdateChecks.current)
+                    .accessibilityIdentifier("SettingsAutomaticUpdateDownloadsToggle")
+            }
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .settingsOnly,
+                searchAnchorID: "setting:app:metered-update-downloads",
+                String(localized: "settings.app.updates.meteredDownloads", defaultValue: "Allow Metered Update Downloads"),
+                subtitle: String(localized: "settings.app.updates.meteredDownloads.subtitle", defaultValue: "Permit automatic downloads on Personal Hotspot and in Low Data Mode.")
+            ) {
+                Toggle("", isOn: Binding(get: { allowMeteredUpdateDownloads.current }, set: { allowMeteredUpdateDownloads.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .disabled(!automaticUpdateChecks.current || !automaticUpdateDownloads.current)
+                    .accessibilityIdentifier("SettingsMeteredUpdateDownloadsToggle")
             }
             SettingsCardDivider()
 

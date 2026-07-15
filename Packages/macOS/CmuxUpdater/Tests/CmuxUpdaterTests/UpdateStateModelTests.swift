@@ -77,6 +77,17 @@ import Testing
         #expect(!model.text.isEmpty)
     }
 
+    @Test func preparedUpdateUsesRestartCopyInsteadOfInstallProgress() {
+        let model = UpdateStateModel()
+        model.setState(.installing(.init(
+            retryTerminatingApplication: {},
+            dismiss: {}
+        )))
+
+        #expect(model.text == "Restart to Update")
+        #expect(model.description == "The update is ready and will finish when cmux restarts")
+    }
+
     @Test func networkErrorTitleIsUserFacing() {
         let offline = NSError(domain: NSURLErrorDomain, code: NSURLErrorNotConnectedToInternet)
         let title = UpdateStateModel.userFacingErrorTitle(for: offline)
