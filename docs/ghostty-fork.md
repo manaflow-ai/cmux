@@ -12,11 +12,68 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `eee34d0f9`. It advances the previous cmux pin
-`a6305908a` with wrap-aware explicit-URL matching for semantic prompt boundaries.
-The commit is reachable from the fork branch
-`issue-8096-wrapped-url-cmd-click`; fork `main` is protected and requires the
-patch to land through its review flow.
+Current cmux pinned fork head: `366c801e0`. It advances the previous cmux pin
+`b4b6d69c8` with wrap-aware URL matching across semantic soft wraps. The commit
+is reachable from fork `main` through the merged
+https://github.com/manaflow-ai/ghostty/pull/118.
+
+The previous `b4b6d69c8` pin introduced an exact Ghostty CLI executable-path
+contract for embedded hosts. That commit is reachable from fork `main` through
+`67b388b73` and was published via
+https://github.com/manaflow-ai/ghostty/pull/115. Its universal ReleaseFast
+GhosttyKit archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-b4b6d69c82033e16137266a04b364dc53d16c350-crashsubdir-cmux-crash-v1
+and pinned in `scripts/ghosttykit-checksums.txt`.
+
+### URL matching across semantic soft wraps
+
+- Commits:
+  - `e0ab6113a` (test: cover URL links across semantic soft wraps)
+  - `eee34d0f9` (fix: match URLs across semantic soft wraps)
+  - `cbf65567a` (fix: scope wrapped link candidates by matcher)
+  - `ee1e56791` (test: cover idempotent URL link finalization)
+  - `30bd02565` (fix: preserve custom matchers across finalization)
+  - `366c801e0` (merge Ghostty PR #118 into fork `main`)
+- Files:
+  - `src/Surface.zig`
+  - `src/config/Config.zig`
+  - `src/config/url.zig`
+  - `src/input/Link.zig`
+  - `src/terminal/StringMap.zig`
+- Summary:
+  - Keeps semantic prompt boundaries for path and custom-link matching, while
+    letting explicit-scheme URLs use the complete soft-wrapped logical line
+    when a semantic marker divides the line at a visual row boundary.
+  - Assigns candidate bounds to each matcher so URL matching can use the wider
+    logical line without weakening the narrower scopes for paths or custom
+    matchers.
+  - Keeps link hover, click, preview, and copy on one selection path; clicking
+    any wrapped row yields the same complete URL.
+  - Preserves custom matchers when configuration finalization or cloning calls
+    `Config.finalize()` repeatedly, with focused regression coverage for that
+    idempotence contract.
+  - Conflict note: future upstream syncs must preserve the explicit-scheme
+    wider scope, matcher-owned candidate bounds, and idempotent custom-matcher
+    finalization together.
+
+### Embedded Ghostty CLI path ownership
+
+- `src/termio/Exec.zig` exports `GHOSTTY_BIN` as the exact CLI executable.
+  Native Ghostty resolves to its running binary; an embedded host can supply a
+  separate helper without assuming the host GUI executable is named `ghostty`.
+- The zsh, bash, fish, nushell, and elvish SSH integrations invoke
+  `GHOSTTY_BIN` directly. They install no SSH wrapper when an embedded host has
+  not supplied a helper, so missing optional CLI support cannot break ordinary
+  `ssh`.
+- `GHOSTTY_BIN_DIR` remains the directory contract for the independent `path`
+  shell-integration feature; it is no longer used to reconstruct a CLI filename.
+- Conflict note: future upstream merges must preserve the distinction between
+  the exact CLI path (`GHOSTTY_BIN`) and its PATH directory
+  (`GHOSTTY_BIN_DIR`) across `src/termio/Exec.zig` and every shell integration.
+
+The earlier fork history below includes terminal-owned scrollbar snapshots,
+absolute row-space identity, OSC-boundary geometry, and compare-and-set
+absolute-row restoration for notification scrollback replay.
 
 The underlying compression, selection, and full-scrollback changes were
 published via
@@ -25,28 +82,6 @@ https://github.com/manaflow-ai/ghostty/pull/99 and
 https://github.com/manaflow-ai/ghostty/pull/104 and
 https://github.com/manaflow-ai/ghostty/pull/105 and
 https://github.com/manaflow-ai/ghostty/pull/106.
-
-### URL matching across semantic soft wraps
-
-- Commits:
-  - `e0ab6113a` (test: cover URL links across semantic soft wraps)
-  - `eee34d0f9` (fix: match URLs across semantic soft wraps)
-- Files:
-  - `src/Surface.zig`
-  - `src/config/url.zig`
-  - `src/terminal/StringMap.zig`
-- Summary:
-  - Keeps semantic prompt boundaries for path and custom-link matching, but
-    lets explicit-scheme URLs use the complete soft-wrapped logical line when
-    a semantic marker divides the line exactly at a visual row boundary.
-  - Link hover, click, preview, and copy continue to share one selection path;
-    clicking any wrapped row now yields the same complete URL.
-  - Adds a focused terminal-grid regression for both the scheme row and its
-    wrapped continuation. The red commit returned only
-    `https://github.com/manaflow-ai/c`; the fix returns the full URL.
-  - Candidate for upstreaming to `ghostty-org/ghostty`. During future upstream
-    syncs, keep the explicit-scheme guard so the wider logical-line search does
-    not undo semantic boundaries for file paths or custom matchers.
 
 ### Notification replay viewport authority
 
