@@ -35,7 +35,7 @@ final class ProcessTerminationGate: @unchecked Sendable {
     }
 }
 
-private actor AgentForkProbeCache {
+private actor OpenCodeVersionProbeCache {
     private var valuesByKey: [String: Bool] = [:]
 
     func value(for key: String) -> Bool? {
@@ -51,7 +51,7 @@ enum AgentForkSupport {
     static let minimumOpenCodeForkVersion = SemanticVersion(major: 1, minor: 14, patch: 50)
     private static let commandOutputTimeoutNanoseconds: Int64 = 3_000_000_000
     private static let commandTerminateTimeoutNanoseconds: Int64 = 500_000_000
-    private static let probeCache = AgentForkProbeCache()
+    private static let openCodeVersionProbeCache = OpenCodeVersionProbeCache()
 
     private final class CommandOutputBuffer: @unchecked Sendable {
         private let lock = NSLock()
@@ -301,7 +301,7 @@ enum AgentForkSupport {
         }
         if requiresLocalPiFamilyCapabilityProbe(snapshot) {
             if isRemoteContext {
-                return true
+                return false
             }
             let fallbackExecutable = snapshot.registration?.defaultExecutable ?? snapshot.kind.rawValue
             let probe = AgentResumeCommandBuilder.piFamilyForkCapabilityProbe(
@@ -312,6 +312,8 @@ enum AgentForkSupport {
                 probe: probe,
                 snapshot: snapshot,
                 cacheDiscriminator: "pi-family-help",
+                probeFromDefaultDirectoryWhenWorkingDirectoryIsMissing: true,
+                cacheResults: false,
                 outputSupportsFork: piFamilyHelpSupportsFork
             )
         }
@@ -368,9 +370,15 @@ enum AgentForkSupport {
         probe: (executable: String, arguments: [String]),
         snapshot: SessionRestorableAgentSnapshot,
         cacheDiscriminator: String,
-        outputSupportsFork: (String) -> Bool
+        probeFromDefaultDirectoryWhenWorkingDirectoryIsMissing: Bool = false,
+        cacheResults: Bool = true,
+        outputSupportsFork: @Sendable (String) -> Bool
     ) async -> Bool {
-        let workingDirectory = probeWorkingDirectory(snapshot: snapshot)
+        let requestedWorkingDirectory = probeWorkingDirectory(snapshot: snapshot)
+        let workingDirectory = probeFromDefaultDirectoryWhenWorkingDirectoryIsMissing
+            && requestedWorkingDirectory.flatMap({ localDirectoryURL(path: $0) }) == nil
+            ? nil
+            : requestedWorkingDirectory
         switch localForkProbeDecision(probe: probe, workingDirectory: workingDirectory) {
         case .run:
             break
@@ -385,7 +393,8 @@ enum AgentForkSupport {
             workingDirectory: workingDirectory,
             discriminator: cacheDiscriminator
         )
-        if let cached = await probeCache.value(for: cacheKey) {
+        if cacheResults,
+           let cached = await openCodeVersionProbeCache.value(for: cacheKey) {
             return cached
         }
         guard let output = await commandOutput(
@@ -397,7 +406,9 @@ enum AgentForkSupport {
             return false
         }
         let supportsFork = outputSupportsFork(output)
-        await probeCache.store(supportsFork, for: cacheKey)
+        if cacheResults {
+            await openCodeVersionProbeCache.store(supportsFork, for: cacheKey)
+        }
         return supportsFork
     }
 

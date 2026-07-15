@@ -440,7 +440,7 @@ struct WorkspaceForkConversationContextMenuTests {
         #expect(!workspace.canForkAgentConversationFromPanel(panelId))
         #expect(
             ContentView.commandPaletteSnapshotForkAvailability(snapshot, isRemoteTerminal: true)
-                == .supportedWithoutProbe
+                == .unsupported
         )
     }
 
@@ -474,6 +474,41 @@ struct WorkspaceForkConversationContextMenuTests {
             registration: projectOverride
         )
         #expect(ContentView.commandPaletteSnapshotForkAvailability(overridden) == .supportedWithoutProbe)
+        #expect(
+            ContentView.commandPaletteSnapshotForkAvailability(overridden, isRemoteTerminal: true)
+                == .supportedWithoutProbe
+        )
+    }
+
+    @Test
+    func piCapabilityProbeUsesFallbackDirectoryWhenSavedDirectoryIsMissing() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-pi-capability-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let executable = root.appendingPathComponent("pi", isDirectory: false)
+        try "#!/bin/sh\nprintf '%s\\n' '  --fork <path|id>'\n"
+            .write(to: executable, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .pi,
+            sessionId: "pi-session",
+            workingDirectory: root.appendingPathComponent("deleted-directory").path,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "pi",
+                executablePath: executable.path,
+                arguments: [executable.path, "--session", "pi-session"],
+                workingDirectory: root.appendingPathComponent("deleted-directory").path,
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        #expect(await AgentForkSupport.supportsFork(snapshot: snapshot))
+        #expect(!(await AgentForkSupport.supportsFork(snapshot: snapshot, isRemoteContext: true)))
     }
 
     @Test

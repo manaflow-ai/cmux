@@ -5545,13 +5545,14 @@ struct ContentView: View {
         case .claude, .codex:
             return .supportedWithoutProbe
         case .pi:
-            return isRemoteTerminal ? .supportedWithoutProbe : .requiresProbe
+            return isRemoteTerminal ? .unsupported : .requiresProbe
         case .opencode:
             return snapshot.launchCommand?.launcher == "omo" || isRemoteTerminal ? .supportedWithoutProbe : .requiresProbe
         case .custom:
-            return AgentForkSupport.requiresLocalPiFamilyCapabilityProbe(snapshot) && !isRemoteTerminal
-                ? .requiresProbe
-                : .supportedWithoutProbe
+            if AgentForkSupport.requiresLocalPiFamilyCapabilityProbe(snapshot) {
+                return isRemoteTerminal ? .unsupported : .requiresProbe
+            }
+            return .supportedWithoutProbe
         default:
             return .unsupported
         }
