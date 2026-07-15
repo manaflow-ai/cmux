@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+#[cfg(feature = "benchmark")]
 use cmux_diff_sidecar::benchmark;
 use cmux_diff_sidecar::server::{self, ServerConfig};
 
@@ -14,6 +15,7 @@ async fn main() {
 async fn run() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
     match args.next().as_deref() {
+        #[cfg(feature = "http-server")]
         Some("serve") => {
             let mut root = None;
             let mut cmux = None;
@@ -63,6 +65,7 @@ async fn run() -> Result<(), String> {
             reject_remaining_arguments(&mut args)?;
             server::write_handshake_to_stdout().await
         }
+        #[cfg(feature = "benchmark")]
         Some("benchmark") => {
             let sample_bytes = args
                 .next()
@@ -85,7 +88,7 @@ async fn run() -> Result<(), String> {
             enforce_benchmark_budget(&report)?;
             Ok(())
         }
-        _ => Err("usage: cmux-diff-sidecar <serve|rpc|handshake|benchmark>".to_owned()),
+        _ => Err("usage: cmux-diff-sidecar <rpc|handshake>".to_owned()),
     }
 }
 
@@ -107,6 +110,7 @@ fn reject_remaining_arguments(args: &mut impl Iterator<Item = String>) -> Result
     Ok(())
 }
 
+#[cfg(feature = "benchmark")]
 fn enforce_benchmark_budget(report: &benchmark::BenchmarkReport) -> Result<(), String> {
     if let Some(maximum) = environment_number::<u128>("CMUX_DIFF_BENCH_MAX_MANIFEST_P95_US")?
         && report.manifest_decode_p95_micros > maximum
@@ -132,6 +136,7 @@ fn enforce_benchmark_budget(report: &benchmark::BenchmarkReport) -> Result<(), S
     Ok(())
 }
 
+#[cfg(feature = "benchmark")]
 fn environment_number<T>(name: &str) -> Result<Option<T>, String>
 where
     T: std::str::FromStr,

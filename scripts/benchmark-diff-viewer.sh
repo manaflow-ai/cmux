@@ -8,12 +8,13 @@ export CMUX_DIFF_BENCH_MAX_MANIFEST_P95_US="${CMUX_DIFF_BENCH_MAX_MANIFEST_P95_U
 export CMUX_DIFF_BENCH_MIN_READ_MIBPS="${CMUX_DIFF_BENCH_MIN_READ_MIBPS:-500}"
 export CMUX_DIFF_BENCH_MAX_STREAM_P95_MS="${CMUX_DIFF_BENCH_MAX_STREAM_P95_MS:-250}"
 
-cargo run \
+"${ROOT}/scripts/run-diff-sidecar-cargo.sh" run \
   --quiet \
   --release \
   --locked \
   --manifest-path "${ROOT}/Native/DiffSidecar/Cargo.toml" \
   --bin cmux-diff-sidecar \
+  --features benchmark \
   -- benchmark "$SAMPLE_BYTES" "$ITERATIONS"
 
 (

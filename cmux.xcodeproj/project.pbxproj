@@ -6255,6 +6255,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		};
 		D1FF50000000000000000001 /* Build Diff Sidecar */ = {
 			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);
@@ -6263,6 +6264,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			inputPaths = (
 				"$(SRCROOT)/Native/DiffSidecar/Cargo.toml",
 				"$(SRCROOT)/Native/DiffSidecar/Cargo.lock",
+				"$(SRCROOT)/Native/DiffSidecar/rust-toolchain.toml",
 				"$(SRCROOT)/Native/DiffSidecar/src/benchmark.rs",
 				"$(SRCROOT)/Native/DiffSidecar/src/lib.rs",
 				"$(SRCROOT)/Native/DiffSidecar/src/main.rs",
@@ -6270,6 +6272,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				"$(SRCROOT)/Native/DiffSidecar/src/protocol.rs",
 				"$(SRCROOT)/Native/DiffSidecar/src/server.rs",
 				"$(SRCROOT)/scripts/build-diff-sidecar.sh",
+				"$(SRCROOT)/scripts/run-diff-sidecar-cargo.sh",
+				"$(SRCROOT)/scripts/verify-diff-sidecar-artifact.sh",
 			);
 			name = "Build Diff Sidecar";
 			outputFileListPaths = (

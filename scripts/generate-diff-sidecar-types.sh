@@ -9,7 +9,7 @@ TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cmux-diff-types.XXXXXX")"
 trap 'rm -rf "$TEMP_DIR"' EXIT
 
 TS_RS_EXPORT_DIR="$TEMP_DIR" TS_RS_LARGE_INT=number \
-  cargo run --quiet --manifest-path "$CRATE" --bin generate_types
+  "$ROOT/scripts/run-diff-sidecar-cargo.sh" run --quiet --locked --manifest-path "$CRATE" --bin generate_types
 
 if [[ "$MODE" == "--check" ]]; then
   diff -ru "$OUTPUT_DIR" "$TEMP_DIR"

@@ -4,14 +4,17 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CRATE_DIR="${ROOT}/Native/DiffSidecar"
 BINARY_NAME="cmux-diff-sidecar"
-BUILD_OUTPUT_DIR="${TARGET_BUILD_DIR:-${CRATE_DIR}/target}/cmux-diff-sidecar"
+BUILD_OUTPUT_DIR="${TARGET_BUILD_DIR:-${CRATE_DIR}/target/cmux-diff-sidecar}"
+BUILD_WORK_DIR="${TARGET_TEMP_DIR:-${CRATE_DIR}/target/cmux-diff-sidecar-build}"
+CARGO_RUNNER="${ROOT}/scripts/run-diff-sidecar-cargo.sh"
+TOOLCHAIN="$(awk -F '"' '/^[[:space:]]*channel[[:space:]]*=/{print $2; exit}' "${CRATE_DIR}/rust-toolchain.toml")"
 
 # Xcode build phases do not inherit a login-shell PATH. Prefer rustup's
 # conventional bin directory, then the standard Homebrew prefixes.
 export PATH="${CARGO_HOME:-${HOME}/.cargo}/bin:/opt/homebrew/bin:/usr/local/bin:${PATH}"
 
-if ! command -v cargo >/dev/null 2>&1; then
-  echo "error: cargo is required to build ${BINARY_NAME}; run ./scripts/setup.sh after installing Rust from https://rustup.rs" >&2
+if ! command -v rustup >/dev/null 2>&1; then
+  echo "error: rustup is required to build ${BINARY_NAME}; run ./scripts/setup.sh after installing Rust from https://rustup.rs" >&2
   exit 1
 fi
 
@@ -28,8 +31,8 @@ rust_target_for_arch() {
 
 ensure_rust_target() {
   local target="$1"
-  if command -v rustup >/dev/null 2>&1 && ! rustup target list --installed | grep -qx "$target"; then
-    rustup target add "$target"
+  if ! rustup target list --toolchain "$TOOLCHAIN" --installed | grep -qx "$target"; then
+    rustup target add --toolchain "$TOOLCHAIN" "$target"
   fi
 }
 
@@ -46,6 +49,7 @@ if [[ -z "$requested_archs" ]]; then
 fi
 
 mkdir -p "$BUILD_OUTPUT_DIR"
+mkdir -p "$BUILD_WORK_DIR"
 binaries=()
 seen_targets=""
 for arch in $requested_archs; do
@@ -55,8 +59,17 @@ for arch in $requested_archs; do
   esac
   seen_targets="$seen_targets $target"
   ensure_rust_target "$target"
-  cargo build --manifest-path "${CRATE_DIR}/Cargo.toml" --bin "$BINARY_NAME" --release --locked --target "$target"
-  source_binary="${CRATE_DIR}/target/${target}/release/${BINARY_NAME}"
+  target_dir="${BUILD_WORK_DIR}/${target}"
+  CARGO_TARGET_DIR="$target_dir" \
+    MACOSX_DEPLOYMENT_TARGET="${CMUX_DIFF_SIDECAR_MIN_MACOS:-14.0}" \
+    "$CARGO_RUNNER" build \
+      --manifest-path "${CRATE_DIR}/Cargo.toml" \
+      --bin "$BINARY_NAME" \
+      --release \
+      --locked \
+      --target "$target" \
+      --no-default-features
+  source_binary="${target_dir}/${target}/release/${BINARY_NAME}"
   [[ -x "$source_binary" ]] || { echo "error: missing ${source_binary}" >&2; exit 1; }
   binaries+=("$source_binary")
 done
@@ -68,6 +81,7 @@ else
   lipo -create -output "$output_binary" "${binaries[@]}"
 fi
 chmod +x "$output_binary"
+"${ROOT}/scripts/verify-diff-sidecar-artifact.sh" "$output_binary" --archs "$requested_archs"
 
 if [[ -z "${TARGET_BUILD_DIR:-}" ]]; then
   echo "built ${output_binary}"

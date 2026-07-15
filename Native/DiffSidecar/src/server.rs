@@ -1,31 +1,45 @@
 use std::collections::HashMap;
 use std::fs::OpenOptions;
-use std::io::{Read, Write};
+#[cfg(feature = "http-server")]
+use std::io::Read;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
+#[cfg(feature = "http-server")]
 use axum::body::Body;
+#[cfg(feature = "http-server")]
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
+#[cfg(feature = "http-server")]
 use axum::extract::{Path as AxumPath, Query, State};
+#[cfg(feature = "http-server")]
 use axum::http::header::{
     CACHE_CONTROL, CONNECTION, CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE, HOST, LOCATION,
     ORIGIN, REFERRER_POLICY,
 };
+#[cfg(feature = "http-server")]
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode};
+#[cfg(feature = "http-server")]
 use axum::response::{IntoResponse, Response};
+#[cfg(feature = "http-server")]
 use axum::routing::{any, get, post};
+#[cfg(feature = "http-server")]
 use axum::{Json, Router};
 use fs2::FileExt;
+#[cfg(feature = "http-server")]
 use futures_util::StreamExt;
+#[cfg(feature = "http-server")]
 use notify::{RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
 use tokio::sync::{RwLock, Semaphore};
+#[cfg(feature = "http-server")]
 use tokio_util::io::ReaderStream;
 
+use crate::PROTOCOL_VERSION;
 use crate::manifest::{
     AllowedFile, Manifest, split_resource_path, valid_request_path, valid_token,
 };
@@ -33,7 +47,8 @@ use crate::protocol::{
     BranchListResult, DiffCommand, DiffRequest, DiffResourceRef, DiffResponse, DiffResult,
     DiffSource, NavigationResult, OpenSessionRequest, SessionOpened, SessionRequest, handshake,
 };
-use crate::{HTTP_PROTOCOL_VERSION, PROTOCOL_VERSION, health_response};
+#[cfg(feature = "http-server")]
+use crate::{HTTP_PROTOCOL_VERSION, health_response};
 
 #[derive(Clone)]
 pub struct ServerConfig {
@@ -45,7 +60,8 @@ pub struct ServerConfig {
 #[derive(Clone)]
 struct AppState {
     config: Arc<ServerConfig>,
-    client: reqwest::Client,
+    #[cfg(feature = "http-server")]
+    client: Option<reqwest::Client>,
     port: u16,
     manifests: Arc<RwLock<HashMap<String, CachedManifest>>>,
     child_processes: Arc<Semaphore>,
@@ -100,6 +116,7 @@ struct SessionOwner {
 // that complete contract while still releasing a stuck child eventually.
 const BRANCH_CHANGE_CHILD_TIMEOUT: Duration = Duration::from_secs(120);
 
+#[cfg(feature = "http-server")]
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ServerStateFile<'a> {
@@ -115,6 +132,7 @@ struct ServerStateFile<'a> {
 /// # Errors
 ///
 /// Returns an error when root validation, listener setup, state persistence, or serving fails.
+#[cfg(feature = "http-server")]
 pub async fn run(config: ServerConfig) -> Result<(), String> {
     validate_root(&config.root).await?;
     prune_orphaned_session_temp_files(
@@ -150,18 +168,36 @@ pub async fn run(config: ServerConfig) -> Result<(), String> {
         .map_err(|error| error.to_string())
 }
 
+#[cfg(feature = "http-server")]
 fn app_state(config: ServerConfig, port: u16) -> Result<AppState, String> {
     Ok(AppState {
         config: Arc::new(config),
-        client: reqwest::Client::builder()
-            .redirect(reqwest::redirect::Policy::limited(5))
-            .timeout(Duration::from_secs(120))
-            .build()
-            .map_err(|error| error.to_string())?,
+        #[cfg(feature = "http-server")]
+        client: if port == 0 {
+            None
+        } else {
+            Some(
+                reqwest::Client::builder()
+                    .redirect(reqwest::redirect::Policy::limited(5))
+                    .timeout(Duration::from_secs(120))
+                    .build()
+                    .map_err(|error| error.to_string())?,
+            )
+        },
         port,
         manifests: Arc::new(RwLock::new(HashMap::new())),
         child_processes: Arc::new(Semaphore::new(MAX_CONCURRENT_CHILD_PROCESSES)),
     })
+}
+
+#[cfg(not(feature = "http-server"))]
+fn app_state(config: ServerConfig, port: u16) -> AppState {
+    AppState {
+        config: Arc::new(config),
+        port,
+        manifests: Arc::new(RwLock::new(HashMap::new())),
+        child_processes: Arc::new(Semaphore::new(MAX_CONCURRENT_CHILD_PROCESSES)),
+    }
 }
 
 /// Handles one typed request from standard input and writes one response to
@@ -181,7 +217,6 @@ pub async fn run_rpc(config: ServerConfig) -> Result<(), String> {
         MAX_ORPHAN_SCAN_ENTRIES,
     )
     .await;
-    let _ = rustls::crypto::ring::default_provider().install_default();
     #[cfg(unix)]
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
         .map_err(|error| error.to_string())?;
@@ -197,7 +232,10 @@ pub async fn run_rpc(config: ServerConfig) -> Result<(), String> {
 async fn run_rpc_request(config: ServerConfig) -> Result<(), String> {
     let response = match read_rpc_request(tokio::io::stdin(), RPC_STDIN_READ_TIMEOUT).await? {
         RpcRequestRead::Request(request) => {
+            #[cfg(feature = "http-server")]
             let state = app_state(config, 0)?;
+            #[cfg(not(feature = "http-server"))]
+            let state = app_state(config, 0);
             handle_protocol_request(request, Some(&state)).await
         }
         RpcRequestRead::Rejected(response) => response,
@@ -262,6 +300,7 @@ async fn write_rpc_response(response: &DiffResponse) -> Result<(), String> {
     stdout.flush().await.map_err(|error| error.to_string())
 }
 
+#[cfg(feature = "http-server")]
 fn router(state: AppState) -> Router {
     Router::new()
         .route("/__cmux_diff_viewer_healthz", get(health))
@@ -298,6 +337,7 @@ async fn validate_root(root: &Path) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(feature = "http-server")]
 async fn write_state_file(config: &ServerConfig, port: u16) -> Result<(), String> {
     let root = config.root.to_string_lossy();
     let executable = config.executable_path.to_string_lossy();
@@ -329,6 +369,7 @@ async fn write_state_file(config: &ServerConfig, port: u16) -> Result<(), String
         .map_err(|error| error.to_string())
 }
 
+#[cfg(feature = "http-server")]
 async fn health(method: Method) -> Response {
     text_response(
         StatusCode::OK,
@@ -338,6 +379,7 @@ async fn health(method: Method) -> Response {
     )
 }
 
+#[cfg(feature = "http-server")]
 async fn rpc(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -349,6 +391,7 @@ async fn rpc(
     Json(handle_protocol_request(request, Some(&state)).await).into_response()
 }
 
+#[cfg(feature = "http-server")]
 async fn websocket(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -361,6 +404,7 @@ async fn websocket(
         .into_response()
 }
 
+#[cfg(feature = "http-server")]
 async fn handle_websocket(mut socket: WebSocket, state: AppState) {
     while let Some(Ok(message)) = socket.next().await {
         match message {
@@ -1349,6 +1393,7 @@ fn resource_url(state: &AppState, token: &str, request_path: &str) -> String {
     }
 }
 
+#[cfg(feature = "http-server")]
 async fn branch_refs(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1410,6 +1455,7 @@ async fn load_branch_refs(
     }
 }
 
+#[cfg(feature = "http-server")]
 async fn branch_change(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1467,31 +1513,25 @@ async fn change_branch(
         return Err(());
     }
     let scheme_url = String::from_utf8_lossy(&output.stdout);
-    let Ok(url) = reqwest::Url::parse(scheme_url.trim()) else {
+    let scheme_url = scheme_url.trim();
+    let authority = format!("cmux-diff-viewer://{token}");
+    let Some(path) = scheme_url.strip_prefix(&authority) else {
         return Err(());
     };
-    if url.scheme() != "cmux-diff-viewer"
-        || url.host_str() != Some(token)
-        || url.port().is_some()
-        || !url.username().is_empty()
-        || url.password().is_some()
-        || url.query().is_some()
-        || url.fragment().is_some()
-        || !valid_request_path(url.path())
-    {
+    if path.contains(['?', '#', '%']) || !valid_request_path(path) {
         return Err(());
     }
-    let resource_path = format!("{token}{}", url.path());
+    let resource_path = format!("{token}{path}");
     if resolve_allowed_file(state, &resource_path).await.is_none() {
         return Err(());
     }
     if state.port == 0 {
-        Ok(url.to_string())
+        Ok(scheme_url.to_owned())
     } else {
         Ok(format!(
             "http://127.0.0.1:{}/{token}{}#cmux-diff-viewer",
             server_port(state),
-            url.path()
+            path
         ))
     }
 }
@@ -1500,6 +1540,7 @@ fn server_port(state: &AppState) -> u16 {
     state.port
 }
 
+#[cfg(feature = "http-server")]
 async fn wait_for_resource(
     State(state): State<AppState>,
     AxumPath(resource_path): AxumPath<String>,
@@ -1527,6 +1568,7 @@ async fn wait_for_resource(
     resource_response(&state, file, method == Method::HEAD).await
 }
 
+#[cfg(feature = "http-server")]
 fn replacement_timeout() -> Duration {
     let seconds = std::env::var("CMUX_DIFF_VIEWER_WAIT_TIMEOUT_SECONDS")
         .ok()
@@ -1537,6 +1579,7 @@ fn replacement_timeout() -> Duration {
     Duration::from_secs_f64(seconds)
 }
 
+#[cfg(feature = "http-server")]
 fn wait_until_replaced(path: &Path, timeout: Duration) -> bool {
     if !file_is_pending(path) {
         return true;
@@ -1562,6 +1605,7 @@ fn wait_until_replaced(path: &Path, timeout: Duration) -> bool {
     true
 }
 
+#[cfg(feature = "http-server")]
 fn file_is_pending(path: &Path) -> bool {
     let Ok(file) = std::fs::File::open(path) else {
         return false;
@@ -1576,6 +1620,7 @@ fn file_is_pending(path: &Path) -> bool {
     String::from_utf8_lossy(&bytes).contains("data-cmux-diff-pending=\"true\"")
 }
 
+#[cfg(feature = "http-server")]
 async fn resource(
     State(state): State<AppState>,
     AxumPath(resource_path): AxumPath<String>,
@@ -1625,6 +1670,7 @@ async fn resolve_allowed_file(
     Some((token.to_owned(), file))
 }
 
+#[cfg(feature = "http-server")]
 fn trusted_browser_request(headers: &HeaderMap, port: u16) -> bool {
     let expected_host = format!("127.0.0.1:{port}");
     let expected_origin = format!("http://127.0.0.1:{port}");
@@ -1715,6 +1761,7 @@ async fn session_allows_repo(session: &BranchSessionAuthorization, canonical_rep
     false
 }
 
+#[cfg(feature = "http-server")]
 async fn resource_response(state: &AppState, file: AllowedFile, head: bool) -> Response {
     if let Some(remote_url) = &file.remote_url {
         return remote_response(state, remote_url, head).await;
@@ -1744,6 +1791,7 @@ async fn resource_response(state: &AppState, file: AllowedFile, head: bool) -> R
     (StatusCode::OK, headers, body).into_response()
 }
 
+#[cfg(feature = "http-server")]
 async fn remote_response(state: &AppState, raw_url: &str, head: bool) -> Response {
     let Ok(url) = reqwest::Url::parse(raw_url) else {
         return not_found(head);
@@ -1760,7 +1808,10 @@ async fn remote_response(state: &AppState, raw_url: &str, head: bool) -> Respons
         set_header(&mut headers, CONTENT_TYPE, content_type("text/x-diff"));
         return (StatusCode::OK, headers, Body::empty()).into_response();
     }
-    let Ok(response) = state.client.get(url).send().await else {
+    let Some(client) = &state.client else {
+        return bad_gateway();
+    };
+    let Ok(response) = client.get(url).send().await else {
         return bad_gateway();
     };
     if !response.status().is_success() {
@@ -1776,6 +1827,7 @@ async fn remote_response(state: &AppState, raw_url: &str, head: bool) -> Respons
     (StatusCode::OK, headers, body).into_response()
 }
 
+#[cfg(feature = "http-server")]
 fn base_headers() -> HeaderMap {
     let mut headers = HeaderMap::new();
     set_header(&mut headers, CACHE_CONTROL, "no-store");
@@ -1787,6 +1839,7 @@ fn base_headers() -> HeaderMap {
     headers
 }
 
+#[cfg(feature = "http-server")]
 fn text_response(
     status: StatusCode,
     content_type_value: &str,
@@ -1804,6 +1857,7 @@ fn text_response(
     (status, headers, response_body).into_response()
 }
 
+#[cfg(feature = "http-server")]
 fn redirect_response(location: &str) -> Response {
     let mut headers = base_headers();
     set_header(&mut headers, LOCATION, location);
@@ -1811,6 +1865,7 @@ fn redirect_response(location: &str) -> Response {
     (StatusCode::FOUND, headers, Body::from("302 Found\n")).into_response()
 }
 
+#[cfg(feature = "http-server")]
 fn not_found(head: bool) -> Response {
     text_response(
         StatusCode::NOT_FOUND,
@@ -1820,6 +1875,7 @@ fn not_found(head: bool) -> Response {
     )
 }
 
+#[cfg(feature = "http-server")]
 fn bad_gateway() -> Response {
     text_response(
         StatusCode::BAD_GATEWAY,
@@ -1829,6 +1885,7 @@ fn bad_gateway() -> Response {
     )
 }
 
+#[cfg(feature = "http-server")]
 fn content_type(mime_type: &str) -> &str {
     match mime_type {
         "text/html" => "text/html; charset=utf-8",
@@ -1838,6 +1895,7 @@ fn content_type(mime_type: &str) -> &str {
     }
 }
 
+#[cfg(feature = "http-server")]
 fn set_header(
     headers: &mut HeaderMap,
     name: impl axum::http::header::IntoHeaderName,
@@ -1909,8 +1967,15 @@ mod tests {
                 .capabilities
                 .contains(&"transport.webkit".to_owned())
         );
+        #[cfg(feature = "http-server")]
         assert!(
             handshake
+                .capabilities
+                .contains(&"transport.websocket".to_owned())
+        );
+        #[cfg(not(feature = "http-server"))]
+        assert!(
+            !handshake
                 .capabilities
                 .contains(&"transport.websocket".to_owned())
         );

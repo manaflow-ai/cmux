@@ -20,24 +20,16 @@ echo "==> Checking for Rust..."
 # Xcode uses a non-login shell, so verify the same PATH used by the sidecar
 # build phase rather than relying on the caller's interactive shell setup.
 export PATH="${CARGO_HOME:-${HOME}/.cargo}/bin:/opt/homebrew/bin:/usr/local/bin:${PATH}"
-if ! command -v cargo &> /dev/null || ! command -v rustc &> /dev/null; then
+if ! command -v rustup &> /dev/null; then
     echo "Error: Rust is not installed."
     echo "Install via: https://rustup.rs"
     exit 1
 fi
-cargo --version
-rustc --version
-rust_version="$(rustc --version | awk '{print $2}')"
-rust_release="${rust_version%%-*}"
-rust_major="${rust_release%%.*}"
-rust_remainder="${rust_release#*.}"
-rust_minor="${rust_remainder%%.*}"
-if ! [[ "$rust_major" =~ ^[0-9]+$ && "$rust_minor" =~ ^[0-9]+$ ]] \
-   || (( rust_major < 1 || (rust_major == 1 && rust_minor < 88) )); then
-    echo "Error: cmux requires Rust 1.88 or newer (found ${rust_version})."
-    echo "Update via: rustup update stable"
-    exit 1
-fi
+DIFF_RUST_TOOLCHAIN="$(awk -F '"' '/^[[:space:]]*channel[[:space:]]*=/{print $2; exit}' Native/DiffSidecar/rust-toolchain.toml)"
+rustup toolchain install "$DIFF_RUST_TOOLCHAIN" --profile minimal --component clippy,rustfmt
+rustup target add --toolchain "$DIFF_RUST_TOOLCHAIN" aarch64-apple-darwin x86_64-apple-darwin
+rustup run "$DIFF_RUST_TOOLCHAIN" cargo --version
+rustup run "$DIFF_RUST_TOOLCHAIN" rustc --version
 
 "$SCRIPT_DIR/ensure-ghosttykit.sh"
 

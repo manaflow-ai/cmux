@@ -273,17 +273,25 @@ impl DiffResponse {
 
 #[must_use]
 pub fn handshake(id: String) -> DiffResponse {
+    let capabilities = vec![
+        "resource.stream".to_owned(),
+        "transport.webkit".to_owned(),
+        "transport.stdio".to_owned(),
+    ];
+    #[cfg(feature = "http-server")]
+    let capabilities = {
+        let mut capabilities = capabilities;
+        capabilities.extend([
+            "transport.fetch".to_owned(),
+            "transport.websocket".to_owned(),
+        ]);
+        capabilities
+    };
     DiffResponse::success(
         id,
         DiffResult::Handshake(HandshakeResult {
             protocol_version: PROTOCOL_VERSION,
-            capabilities: vec![
-                "resource.stream".to_owned(),
-                "transport.fetch".to_owned(),
-                "transport.websocket".to_owned(),
-                "transport.webkit".to_owned(),
-                "transport.stdio".to_owned(),
-            ],
+            capabilities,
         }),
     )
 }
