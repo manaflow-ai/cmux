@@ -39,6 +39,36 @@ Swift Testing is the current Apple-supported primitive for tests on this codebas
 
 `reload.sh` does not compile the test target. It builds only the `cmux` scheme, so a green `reload.sh` says nothing about whether `cmuxTests`/`cmuxUITests` still compile. A symbol that is moved or renamed can keep the `cmux` app building while breaking the test target (real case: a `write(to:atomically:)` typo and a removed `TabManager.CommandResult` only surfaced in the `tests` job). Before pushing package/refactor changes, build the `cmux-unit` scheme (with `-derivedDataPath /tmp/cmux-<tag>` and, for `cmuxApp`/`AppDelegate` churn, the GlobalISel workaround flag) or let the `tests` CI job gate it — never treat `reload.sh` alone as proof the tests build.
 
+## Remote-tmux live layout fuzz
+
+The remote-tmux mirror has a live fuzz: the real app mirroring a real tmux
+server, driven with random layouts and churn, judged at settle by two
+oracles — sizing (claims, plans, and rendered grids agree, settle within
+budget) and content (each pane's `read-screen`, unwrapped, matches
+`tmux capture-pane -J`). Seeds are deterministic: the same seed replays the
+same op sequence, so "seed 3, iteration 1" in a commit message is a
+complete repro recipe.
+
+Everything runs against a local fixture, on any machine, with no real
+network and no MFA. Stand it up once with
+`scripts/remote-tmux-fuzz-host.sh <alias>`: a loopback-only sshd whose
+logins land in an isolated tmux server (generated keys, isolated
+`TMUX_TMPDIR`, zero risk to your own tmux). Then either
+
+- `CMUX_TAG=<tag> scripts/remote-tmux-fuzz-marathon.sh <alias> [seeds] [iters]`
+  for an unattended multi-seed run — one driver at a time; it prints a
+  private evidence directory where every failure leaves its seed and
+  iteration, the fuzz log, the app's debug-log tail, and a process sample
+  for hangs; or
+- `scripts/remote-tmux-live-fuzz.sh <alias> <seed> <iters>` to replay one
+  seed against a running tagged app, which is how you reproduce a specific
+  commit's failure.
+
+Run fuzz on a quiet machine and treat load as part of the result: settle
+budgets are latency assertions, and a loaded box manufactures failures
+that read like code bugs. Both scripts refuse to run alongside another
+driver for the same reason.
+
 ## Detailed references
 
 - Read [references/swift-testing-migration.md](references/swift-testing-migration.md) when converting XCTest unit tests to Swift Testing or adding new package tests.
