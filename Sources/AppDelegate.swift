@@ -4178,7 +4178,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         let fingerprintStart = ProcessInfo.processInfo.systemUptime
 #endif
-        let resumeIndexes = await ProcessDetectedResumeIndexes.load()
+        let resumeIndexes = await ProcessDetectedResumeIndexes.loadForAutosave(
+            cachedRestorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+        )
         guard !isTerminatingApp,
               isCurrentProcessDetectedSessionSaveGeneration(generation) else {
 #if DEBUG
