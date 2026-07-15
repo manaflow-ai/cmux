@@ -22,15 +22,27 @@ public final class BrowserAutomationWatchdog {
     private let probeTimeout: Duration
     private let sleep: Sleep
     private var inFlightObservedInstanceID: UUID?
-    private var inFlightWaiters: [CheckedContinuation<BrowserAutomationRecoveryOutcome, Never>] = []
+    private var inFlightWaiters: [
+        UUID: AsyncStream<BrowserAutomationRecoveryOutcome>.Continuation
+    ] = [:]
 
-    /// Creates a browser automation watchdog.
+    /// Creates a browser automation watchdog using a continuous-clock deadline.
+    /// - Parameter probeTimeout: Maximum time to wait for a liveness callback before recovery.
+    public init(probeTimeout: Duration = .seconds(1)) {
+        self.probeTimeout = probeTimeout
+        let clock = ContinuousClock()
+        self.sleep = { duration in
+            try await clock.sleep(for: duration)
+        }
+    }
+
+    /// Creates a browser automation watchdog with an injected timing source.
     /// - Parameters:
-    ///   - probeTimeout: Maximum time to wait for a liveness callback before recovery. Defaults to one second.
+    ///   - probeTimeout: Maximum time to wait for a liveness callback before recovery.
     ///   - sleep: Cancellable timing source. Tests can inject an immediate or controlled deadline.
     public init(
         probeTimeout: Duration = .seconds(1),
-        sleep: @escaping Sleep = { try await ContinuousClock().sleep(for: $0) }
+        sleep: @escaping Sleep
     ) {
         self.probeTimeout = probeTimeout
         self.sleep = sleep
@@ -54,9 +66,7 @@ public final class BrowserAutomationWatchdog {
         guard !probes.isEmpty else { return .responsive }
 
         if inFlightObservedInstanceID == observedInstanceID {
-            return await withCheckedContinuation { continuation in
-                inFlightWaiters.append(continuation)
-            }
+            return await waitForInFlightRecovery(observedInstanceID: observedInstanceID)
         }
 
         if inFlightObservedInstanceID != nil {
@@ -64,17 +74,31 @@ public final class BrowserAutomationWatchdog {
         }
 
         inFlightObservedInstanceID = observedInstanceID
-        let outcome = await performRecovery(probes: probes, recover: recover)
+        let signal = await performLivenessCheck(probes: probes)
         guard inFlightObservedInstanceID == observedInstanceID else { return .superseded }
 
+        let outcome: BrowserAutomationRecoveryOutcome
+        switch signal {
+        case .responsive:
+            outcome = .responsive
+        case .timedOut:
+            outcome = recover() ? .recovered : .superseded
+        case .cancelled:
+            outcome = .cancelled
+        }
         finishInFlightRecovery(with: outcome)
         return outcome
     }
 
-    private func performRecovery(
-        probes: [Probe],
-        recover: Recovery
-    ) async -> BrowserAutomationRecoveryOutcome {
+    /// Invalidates the current check and cancels callers waiting on its shared result.
+    public func invalidate() {
+        guard inFlightObservedInstanceID != nil else { return }
+        finishInFlightRecovery(with: .cancelled)
+    }
+
+    private func performLivenessCheck(
+        probes: [Probe]
+    ) async -> BrowserAutomationProbeSignal {
         let (signals, continuation) = AsyncStream.makeStream(
             of: Int.self,
             bufferingPolicy: .bufferingOldest(probes.count)
@@ -113,26 +137,40 @@ public final class BrowserAutomationWatchdog {
             let first = await group.next() ?? .cancelled
             group.cancelAll()
             continuation.finish()
+            await group.waitForAll()
             return first
         }
 
+        return Task.isCancelled ? .cancelled : signal
+    }
+
+    private func waitForInFlightRecovery(
+        observedInstanceID: UUID
+    ) async -> BrowserAutomationRecoveryOutcome {
         guard !Task.isCancelled else { return .cancelled }
-        switch signal {
-        case .responsive:
-            return .responsive
-        case .timedOut:
-            return recover() ? .recovered : .superseded
-        case .cancelled:
-            return .cancelled
+        guard inFlightObservedInstanceID == observedInstanceID else { return .superseded }
+
+        let waiterID = UUID()
+        let (events, continuation) = AsyncStream.makeStream(
+            of: BrowserAutomationRecoveryOutcome.self,
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        inFlightWaiters[waiterID] = continuation
+        defer {
+            inFlightWaiters.removeValue(forKey: waiterID)
+            continuation.finish()
         }
+        var iterator = events.makeAsyncIterator()
+        return await iterator.next() ?? .cancelled
     }
 
     private func finishInFlightRecovery(with outcome: BrowserAutomationRecoveryOutcome) {
-        let waiters = inFlightWaiters
+        let waiters = Array(inFlightWaiters.values)
         inFlightWaiters.removeAll()
         inFlightObservedInstanceID = nil
         for waiter in waiters {
-            waiter.resume(returning: outcome)
+            waiter.yield(outcome)
+            waiter.finish()
         }
     }
 }

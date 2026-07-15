@@ -48,6 +48,13 @@ public final class BrowserAutomationDocumentReadiness {
         finishWaiters(with: .committed)
     }
 
+    /// Stops observing the current browser instance and cancels its pending waits.
+    public func invalidate() {
+        observedInstanceID = nil
+        committedInstanceID = nil
+        finishWaiters(with: .cancelled)
+    }
+
     /// Returns whether the currently bound browser instance has committed a document.
     /// - Parameter instanceID: Browser instance to inspect.
     /// - Returns: `true` only after that exact instance produced a commit signal.

@@ -2811,7 +2811,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private let visualAutomationCaptureGate = BrowserScreenshotCaptureGate()
     let automationWatchdog = BrowserAutomationWatchdog()
     let automationDocumentReadiness = BrowserAutomationDocumentReadiness()
-    private var activeVisualAutomationCaptureCount: Int = 0
+    var activeVisualAutomationCaptureCount: Int = 0
     private struct PendingInteractiveBrowserPrompt {
         let present: (NSWindow, @escaping () -> Void) -> Void
         let cancel: () -> Void
@@ -5312,6 +5312,8 @@ final class BrowserPanel: Panel, ObservableObject {
     func close() {
         cancelHiddenWebViewDiscard()
         isClosingWebViewLifecycle = true
+        automationDocumentReadiness.invalidate()
+        automationWatchdog.invalidate()
         refreshWebViewLifecycleState()
         GlobalSearchCoordinator.shared.purgePanel(id: id)
         closeDeveloperToolsForTeardown()

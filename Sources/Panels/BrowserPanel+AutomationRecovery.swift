@@ -38,7 +38,9 @@ extension BrowserPanel {
     }
 
     var canRecoverFromAutomationTimeout: Bool {
-        activeInteractiveBrowserPromptIDs.isEmpty
+        !isClosingWebViewLifecycle &&
+            activeInteractiveBrowserPromptIDs.isEmpty &&
+            activeVisualAutomationCaptureCount == 0
     }
 
     func waitForAutomationDocumentCommit(
