@@ -23,7 +23,8 @@ struct BrowserViewportLayoutTests {
         #expect(layout.mode == .emulated)
         #expect(layout.frame == CGRect(x: 0, y: 75, width: 800, height: 450))
         #expect(layout.bounds == CGRect(x: 0, y: 0, width: 1_280, height: 720))
-        #expect(layout.webViewBounds == layout.bounds)
+        #expect(abs(layout.webViewBounds.width - layout.bounds.width) < 0.000_01)
+        #expect(abs(layout.webViewBounds.height - layout.bounds.height) < 0.000_01)
         #expect(layout.scale == 0.625)
     }
 
@@ -66,7 +67,8 @@ struct BrowserViewportLayoutTests {
             pageZoom: pageZoom
         ))
 
-        #expect(layout.webViewBounds == layout.bounds)
+        #expect(abs(layout.webViewBounds.width - layout.bounds.width) < 0.000_01)
+        #expect(abs(layout.webViewBounds.height - layout.bounds.height) < 0.000_01)
     }
 
     @Test func tallViewportCentersInsideWidePane() throws {

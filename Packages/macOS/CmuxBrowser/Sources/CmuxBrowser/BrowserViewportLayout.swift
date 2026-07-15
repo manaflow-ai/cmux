@@ -118,13 +118,13 @@ public struct BrowserViewportLayout: Equatable, Sendable {
         pageZoom: Double
     ) -> CGFloat {
         let scaledDimension = cssDimension * pageZoom
-        guard pageZoom != 1 else { return scaledDimension }
 
         // WebKit floors the raw AppKit bounds after dividing by pageZoom. AppKit can
         // round an exactly scaled bound one ULP downward while mapping the aspect-fit
-        // host (for example, 1280 * 1.1 becomes 1407.9999999999998), which otherwise
-        // drops the logical viewport to 1279 CSS pixels. This sub-point headroom is
-        // many orders of magnitude below one CSS pixel at every supported page zoom.
+        // host (for example, 1280 * 1.1 becomes 1407.9999999999998, while 720 at
+        // default zoom can become 719.9999999999999), which otherwise drops the
+        // logical viewport by one CSS pixel. This sub-point headroom is many orders
+        // of magnitude below one CSS pixel at every supported page zoom.
         return scaledDimension + emulatedViewportPrecisionBias
     }
 }
