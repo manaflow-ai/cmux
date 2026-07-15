@@ -59,4 +59,28 @@ import Testing
             authoritativeRefreshSucceeded: false
         ) == nil)
     }
+
+    @Test func unknownOwnerDoesNotShadowAdvertisingMac() {
+        var unknownOwner = MobileWorkspacePreview(
+            id: .init(rawValue: "unknown-owner-row"),
+            name: "Unknown owner",
+            terminals: []
+        )
+        unknownOwner.remoteWorkspaceID = .init(rawValue: "runtime-workspace")
+        var advertisingMac = MobileWorkspacePreview(
+            id: .init(rawValue: "advertising-mac-row"),
+            macDeviceID: "mac-a",
+            name: "Advertising Mac",
+            terminals: []
+        )
+        advertisingMac.remoteWorkspaceID = .init(rawValue: "runtime-workspace")
+
+        let resolved = CMUXMobileShellStore.registryHandoffWorkspaceID(
+            workspaceID: "runtime-workspace",
+            deviceID: "mac-a",
+            workspaces: [unknownOwner, advertisingMac]
+        )
+
+        #expect(resolved == advertisingMac.id)
+    }
 }
