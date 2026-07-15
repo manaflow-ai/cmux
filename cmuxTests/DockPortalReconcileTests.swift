@@ -203,15 +203,16 @@ struct DockPortalReconcileTests {
 
         store.clearDockPortalReconcile()
         store.scheduleDockPortalReconcile(reason: "test.boundedFollowUp")
-        let wakeBudget = store.dockPortalReconcileState.lifecycleWakeAttemptsRemaining
+        let wakeBudget = store.dockPortalReconcileState.layoutWakeAttemptsRemaining
         #expect(wakeBudget > 0)
-        #expect(!store.dockPortalReconcileState.observers.isEmpty)
+        #expect(!store.dockPortalReconcileState.portalObservers.isEmpty)
+        #expect(!store.dockPortalReconcileState.layoutObservers.isEmpty)
 
         NotificationCenter.default.post(
             name: .browserPortalRegistryDidChange,
             object: NSObject()
         )
-        #expect(store.dockPortalReconcileState.lifecycleWakeAttemptsRemaining == wakeBudget)
+        #expect(store.dockPortalReconcileState.layoutWakeAttemptsRemaining == wakeBudget)
 
         for _ in 0..<wakeBudget {
             NotificationCenter.default.post(
@@ -219,8 +220,16 @@ struct DockPortalReconcileTests {
                 object: window
             )
         }
-        #expect(store.dockPortalReconcileState.lifecycleWakeAttemptsRemaining == 0)
-        #expect(store.dockPortalReconcileState.observers.isEmpty)
+        #expect(store.dockPortalReconcileState.layoutWakeAttemptsRemaining == 0)
+        #expect(store.dockPortalReconcileState.layoutObservers.isEmpty)
+        #expect(!store.dockPortalReconcileState.portalObservers.isEmpty)
+
+        NotificationCenter.default.post(
+            name: .browserPortalRegistryDidChange,
+            object: browser.webView
+        )
+        #expect(store.dockPortalReconcileState.layoutWakeAttemptsRemaining == wakeBudget)
+        #expect(!store.dockPortalReconcileState.layoutObservers.isEmpty)
     }
 
     @Test("Move into Dock schedules portal reconcile")
