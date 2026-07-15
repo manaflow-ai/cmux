@@ -19,6 +19,14 @@ ALLOWED_IGNORED_PREFIXES = (
 XCODE_PACKAGE_RESOLVED = (
     "cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
 )
+# Workspace-level Xcode lockfiles that are intentionally tracked so their
+# resolution changes stay visible in PR diffs (the iOS workspace lockfile is
+# tracked since #8180).
+TRACKED_WORKSPACE_LOCKFILES = frozenset(
+    {
+        "ios/cmux.xcworkspace/xcshareddata/swiftpm/Package.resolved",
+    }
+)
 XCODE_PROJECT_FILE = "cmux.xcodeproj/project.pbxproj"
 XCODE_PACKAGE_REFERENCE_TOKENS = (
     "XCRemoteSwiftPackageReference",
@@ -253,6 +261,8 @@ def xcode_package_reference_changed(
 
 def is_expected_lockfile_path(lockfile: str, roots: set[str]) -> bool:
     if lockfile == XCODE_PACKAGE_RESOLVED:
+        return True
+    if lockfile in TRACKED_WORKSPACE_LOCKFILES:
         return True
     if has_skipped_part(lockfile):
         return False
