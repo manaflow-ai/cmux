@@ -8,8 +8,11 @@ import type {
   DecodedResizedEvent,
   DecodedVtStateEvent,
   Id,
+  OverflowEvent,
 } from "cmux/browser";
+import { attachRecoveryDelay } from "../lib/attachRecovery";
 import { debounce } from "../lib/debounce";
+import { t } from "../i18n";
 
 interface AttachedTerminalOptions {
   client: CmuxClient | null;
@@ -28,6 +31,7 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
     const terminal = new Terminal({
       cursorBlink: true,
       convertEol: false,
+      disableStdin: true,
       fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", monospace',
       fontSize: 13,
       lineHeight: 1.15,
@@ -65,37 +69,71 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
     sendResize();
     const input = terminal.onData((text) => void client.send(surface, { text }).catch(onError));
     let stream: Awaited<ReturnType<CmuxClient["attachSurface"]>> | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let wakeRetry: (() => void) | null = null;
+
+    const waitForRetry = (delayMs: number) =>
+      new Promise<void>((resolve) => {
+        wakeRetry = resolve;
+        retryTimer = setTimeout(() => {
+          retryTimer = undefined;
+          wakeRetry = null;
+          resolve();
+        }, delayMs);
+      });
 
     void (async () => {
       try {
-        stream = await client.attachSurface(surface);
-        // Cleanup may have raced the attach round-trip; close the stream we
-        // just opened or its buffered events leak for the surface's lifetime.
-        if (cancelled) return;
+        let recoveryAttempt = 0;
         for (;;) {
-          let event;
-          try {
-            event = await stream.next();
-          } catch (error) {
-            if (cancelled) return;
-            // Idle terminals produce no output within the SDK's per-read
-            // timeout; keep reading. Anything else ends the attachment.
-            if (error instanceof CmuxTimeoutError) continue;
-            throw error;
-          }
+          stream = await client.attachSurface(surface);
+          // Cleanup may have raced the attach round-trip; close the stream we
+          // just opened or its buffered events leak for the surface's lifetime.
           if (cancelled) return;
-          if (event.event === "vt-state") {
-            const replay = event as DecodedVtStateEvent;
-            terminal.resize(replay.cols, replay.rows);
-            terminal.write(replay.data);
-          } else if (event.event === "output") {
-            terminal.write((event as DecodedOutputEvent).data);
-          } else if (event.event === "resized") {
-            const resized = event as DecodedResizedEvent;
-            terminal.reset();
-            terminal.resize(resized.cols, resized.rows);
-            terminal.write(resized.data);
+          let overflowed = false;
+          for (;;) {
+            let event;
+            try {
+              event = await stream.next();
+            } catch (error) {
+              if (cancelled) return;
+              // Idle terminals produce no output within the SDK's per-read
+              // timeout; keep reading. Anything else ends the attachment.
+              if (error instanceof CmuxTimeoutError) continue;
+              throw error;
+            }
+            if (cancelled) return;
+            if (event.event === "vt-state") {
+              const replay = event as DecodedVtStateEvent;
+              terminal.reset();
+              terminal.resize(replay.cols, replay.rows);
+              terminal.write(replay.data);
+              terminal.options.disableStdin = false;
+            } else if (event.event === "output") {
+              terminal.write((event as DecodedOutputEvent).data);
+            } else if (event.event === "resized") {
+              const resized = event as DecodedResizedEvent;
+              terminal.reset();
+              terminal.resize(resized.cols, resized.rows);
+              terminal.write(resized.data);
+            } else if (event.event === "overflow") {
+              const overflow = event as OverflowEvent;
+              if (overflow.scope === "surface" && overflow.surface === surface) {
+                terminal.options.disableStdin = true;
+                overflowed = true;
+                break;
+              }
+            }
           }
+          stream.close();
+          stream = null;
+          if (!overflowed) return;
+          const delayMs = attachRecoveryDelay(recoveryAttempt++);
+          if (delayMs === null) {
+            throw new Error(t("attachOverflowRecoveryFailed"));
+          }
+          await waitForRetry(delayMs);
+          if (cancelled) return;
         }
       } catch (error) {
         if (!cancelled) onError(error instanceof Error ? error : new Error(String(error)));
@@ -114,6 +152,8 @@ export function useAttachedTerminal({ client, surface, onError }: AttachedTermin
       host.removeEventListener("touchend", focusOnTouch);
       sendResize.cancel();
       input.dispose();
+      if (retryTimer !== undefined) clearTimeout(retryTimer);
+      wakeRetry?.();
       stream?.close();
       terminal.dispose();
       setFocused(false);
