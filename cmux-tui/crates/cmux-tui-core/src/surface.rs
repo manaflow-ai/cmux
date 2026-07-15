@@ -643,11 +643,7 @@ impl Surface {
     pub fn resize(&self, cols: u16, rows: u16) -> anyhow::Result<bool> {
         match self {
             Surface::Pty(pty) => Ok(pty.resize(cols, rows)),
-            Surface::Browser(browser) => {
-                let before = browser.size();
-                browser.resize(cols, rows);
-                Ok(browser.size() != before)
-            }
+            Surface::Browser(browser) => browser.resize_blocking(cols, rows),
         }
     }
 

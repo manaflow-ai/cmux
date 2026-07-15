@@ -107,6 +107,7 @@ struct BrowserState {
     pane_pixels: (u32, u32),
     capture_pixels: (u32, u32),
     capture_scale: f64,
+    pending_reconfigure: Option<(u32, u32)>,
     page_viewport: Option<(u32, u32)>,
     status: BrowserStatus,
     source: Option<BrowserSource>,
@@ -389,6 +390,7 @@ pub(crate) fn new_surface(
             pane_pixels: (pixel_w, pixel_h),
             capture_pixels,
             capture_scale,
+            pending_reconfigure: None,
             page_viewport: None,
             status: BrowserStatus::Starting,
             source: None,
@@ -754,6 +756,10 @@ fn run_browser_worker_command(
     failures: &mut BrowserWorkerErrorState,
 ) {
     let is_input = command.is_input();
+    let reconfigure = match &command {
+        BrowserCommand::Reconfigure { width, height } => Some((*width, *height)),
+        _ => None,
+    };
     let result = {
         let Some(browser) = surface.as_browser() else {
             return;
@@ -790,6 +796,12 @@ fn run_browser_worker_command(
             }
         }
     };
+    if result.is_ok()
+        && let Some((width, height)) = reconfigure
+        && let Some(browser) = surface.as_browser()
+    {
+        browser.confirm_reconfigure(width, height);
+    }
     record_browser_worker_result(surface, mux, id, is_input, result, failures);
 }
 
@@ -935,6 +947,16 @@ impl BrowserSurface {
         }
     }
 
+    pub(crate) fn resize_blocking(&self, cols: u16, rows: u16) -> anyhow::Result<bool> {
+        let before = self.size();
+        let Some((width, height)) = self.update_resize_state(cols, rows) else {
+            return Ok(false);
+        };
+        self.reconfigure_blocking(width, height)?;
+        self.confirm_reconfigure(width, height);
+        Ok(self.size() != before)
+    }
+
     pub fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) {
         {
             let mut cell = self.cell_pixels.lock().unwrap();
@@ -953,28 +975,33 @@ impl BrowserSurface {
         let cell = *self.cell_pixels.lock().unwrap();
         let pixel_w = cols as u32 * cell.0.max(1) as u32;
         let pixel_h = rows as u32 * cell.1.max(1) as u32;
-        let (unchanged, capture_w, capture_h) = {
-            let mut state = self.state.lock().unwrap();
-            let capture_scale = capture_scale_for(pixel_w, pixel_h, self.capture_options);
-            let capture_pixels = scaled_pixels(pixel_w, pixel_h, capture_scale);
-            let unchanged = state.size == (cols, rows)
-                && state.pane_pixels == (pixel_w, pixel_h)
-                && state.capture_pixels == capture_pixels;
-            state.size = (cols, rows);
-            state.pane_pixels = (pixel_w, pixel_h);
-            state.capture_pixels = capture_pixels;
-            state.capture_scale = capture_scale;
-            if !unchanged {
-                state.live_since = Some(Instant::now());
-                state.last_frame_at = None;
-                state.stall_nudged = false;
-            }
-            (unchanged, capture_pixels.0, capture_pixels.1)
-        };
-        if unchanged {
-            return None;
+        let mut state = self.state.lock().unwrap();
+        let capture_scale = capture_scale_for(pixel_w, pixel_h, self.capture_options);
+        let capture_pixels = scaled_pixels(pixel_w, pixel_h, capture_scale);
+        let unchanged = state.size == (cols, rows)
+            && state.pane_pixels == (pixel_w, pixel_h)
+            && state.capture_pixels == capture_pixels;
+        state.size = (cols, rows);
+        state.pane_pixels = (pixel_w, pixel_h);
+        state.capture_pixels = capture_pixels;
+        state.capture_scale = capture_scale;
+        if !unchanged {
+            state.live_since = Some(Instant::now());
+            state.last_frame_at = None;
+            state.stall_nudged = false;
         }
-        Some((capture_w, capture_h))
+        if unchanged {
+            return state.pending_reconfigure;
+        }
+        state.pending_reconfigure = Some(capture_pixels);
+        Some(capture_pixels)
+    }
+
+    fn confirm_reconfigure(&self, width: u32, height: u32) {
+        let mut state = self.state.lock().unwrap();
+        if state.pending_reconfigure == Some((width, height)) {
+            state.pending_reconfigure = None;
+        }
     }
 
     fn reconfigure_blocking(&self, width: u32, height: u32) -> anyhow::Result<()> {
@@ -993,7 +1020,8 @@ impl BrowserSurface {
         let capture_scale = capture_scale_for(pixel_w, pixel_h, self.capture_options);
         let capture_pixels = scaled_pixels(pixel_w, pixel_h, capture_scale);
         let state = self.state.lock().unwrap();
-        state.size != (cols, rows)
+        state.pending_reconfigure.is_some()
+            || state.size != (cols, rows)
             || state.pane_pixels != (pixel_w, pixel_h)
             || state.capture_pixels != capture_pixels
     }
@@ -2339,6 +2367,21 @@ mod tests {
 
         *browser.cell_pixels.lock().unwrap() = (9, 16);
         assert!(browser.resize_needed(10, 5));
+    }
+
+    #[test]
+    fn browser_resize_stays_retryable_until_reconfigure_completes() {
+        let opts = SurfaceOptions::default();
+        let surface =
+            new_surface(1, "https://example.test".into(), (10, 5), (8, 16), &opts, Weak::new());
+        let browser = surface.as_browser().expect("browser surface");
+        *browser.cell_pixels.lock().unwrap() = (9, 16);
+
+        let (width, height) = browser.update_resize_state(10, 5).expect("changed geometry");
+        assert!(browser.resize_needed(10, 5));
+
+        browser.confirm_reconfigure(width, height);
+        assert!(!browser.resize_needed(10, 5));
     }
 
     #[test]

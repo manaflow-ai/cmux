@@ -969,6 +969,7 @@ fn handle_connection(mux: Arc<Mux>, stream: Box<dyn transport::Stream>) {
                     || write_half.write_all(b"\n").is_err()
                 {
                     writer_outbound.close();
+                    let _ = write_half.shutdown();
                     break;
                 }
             }
@@ -2306,6 +2307,30 @@ mod tests {
         assert_eq!(active.load(Ordering::Acquire), MAX_SERVER_CONNECTIONS as u64);
         drop(permit);
         assert_eq!(active.load(Ordering::Acquire), MAX_SERVER_CONNECTIONS as u64 - 1);
+    }
+
+    #[test]
+    fn shutting_down_a_writer_clone_unblocks_the_reader() {
+        let path = std::env::temp_dir().join(format!(
+            "cmux-tui-shutdown-{}-{}.sock",
+            std::process::id(),
+            Instant::now().elapsed().as_nanos()
+        ));
+        let _ = std::fs::remove_file(&path);
+        let listener = transport::listen(&path).unwrap();
+        let _client = transport::connect(&path).unwrap();
+        let mut reader = listener.accept().unwrap();
+        let writer = reader.try_clone_box().unwrap();
+        let (done, finished) = std::sync::mpsc::channel();
+        let read_thread = std::thread::spawn(move || {
+            let mut byte = [0_u8; 1];
+            done.send(reader.read(&mut byte)).unwrap();
+        });
+
+        writer.shutdown().unwrap();
+        assert_eq!(finished.recv_timeout(Duration::from_secs(1)).unwrap().unwrap(), 0);
+        read_thread.join().unwrap();
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]
