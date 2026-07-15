@@ -179,7 +179,13 @@ extension DockSplitStore {
         var needsFollowUpPass = false
         let hostedView = terminal.hostedView
         hostedView.setVisibleInUI(true, refreshPolicy: .deferredToPortal)
-        hostedView.setActive(panelIsActiveInVisibleDockPane(terminal.id))
+        let rightSidebarOwnsInputFocus = AppDelegate.shared?.rightSidebarOwnsInputFocus(for: self) ?? false
+        hostedView.setActive(
+            panelShouldReceiveInputInVisibleDockPane(
+                terminal.id,
+                rightSidebarOwnsInputFocus: rightSidebarOwnsInputFocus
+            )
+        )
 
         let needsPortalReattach = TerminalWindowPortalRegistry
             .updateEntryVisibility(for: hostedView, visibleInUI: true)

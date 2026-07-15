@@ -113,7 +113,10 @@ private struct DockSplitContentView: View {
     @ViewBuilder
     private func dockContent(tab: Bonsplit.Tab, paneId: PaneID) -> some View {
         if let panel = store.panel(for: tab.id) {
-            let isFocused = store.panelIsActiveInVisibleDockPane(panel.id) && rightSidebarOwnsInputFocus
+            let isFocused = store.panelShouldReceiveInputInVisibleDockPane(
+                panel.id,
+                rightSidebarOwnsInputFocus: rightSidebarOwnsInputFocus
+            )
             let isSelectedInPane = store.bonsplitController.selectedTab(inPane: paneId)?.id == tab.id
             let isVisibleInUI = store.panelIsSelectedInVisibleDockPane(panel.id)
             let isSplit = store.bonsplitController.allPaneIds.count > 1
