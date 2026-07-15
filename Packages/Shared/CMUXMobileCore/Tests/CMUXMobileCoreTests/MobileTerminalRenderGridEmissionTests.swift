@@ -179,3 +179,29 @@ import Testing
 
     #expect(try next.renderGridEmission(comparedTo: previous) != nil)
 }
+
+@Test func renderGridEmissionAnnouncesProducerReplacementWithIdenticalPixels() throws {
+    let previous = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 0,
+        producerEpoch: 7,
+        renderRevision: 1,
+        columns: 8,
+        rows: 2,
+        rowSpans: []
+    ).emissionState
+    let replacement = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 0,
+        producerEpoch: 8,
+        renderRevision: 1,
+        columns: 8,
+        rows: 2,
+        rowSpans: []
+    )
+
+    let emission = try #require(try replacement.renderGridEmission(comparedTo: previous))
+
+    #expect(emission.frame.full)
+    #expect(emission.state.producerEpoch == 8)
+}
