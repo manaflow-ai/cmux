@@ -31,3 +31,18 @@ func staleConnectionCannotSelectFallbackTransport() {
         isCurrentClient: true
     ) == .renderGrid)
 }
+
+@Test("verified replay requires the base render-grid capability")
+func verifiedReplayRequiresBaseRenderGridCapability() {
+    let incompleteCapabilities: Set<String> = [
+        "terminal.bytes.v1",
+        "terminal.render_grid.verified_replay.v1"
+    ]
+
+    #expect(
+        resolvedTerminalOutputTransport(
+            capabilities: incompleteCapabilities,
+            terminalFidelity: nil
+        ) == .rawBytes
+    )
+}
