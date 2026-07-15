@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { Tree } from "cmux/browser";
 import { initialLocalSelectionState } from "../src/lib/localSelection";
-import { activeScreen, applySurfaceTitles, screenSelection, treeToViewModel } from "../src/lib/tree";
+import {
+  activeScreen,
+  applySurfaceTitles,
+  screenSelection,
+  SurfaceTitleReconciler,
+  treeToViewModel,
+} from "../src/lib/tree";
 
 const tree: Tree = {
   workspaces: [{
@@ -100,6 +106,29 @@ describe("applySurfaceTitles", () => {
       ? updated.workspaces[0]!.screens[0]!.panes[0]!.tabs.map(({ title }) => title)
       : []).toEqual(["editor", "logs"]);
     expect(applySurfaceTitles(tree, new Map([[99, "missing"]]))).toBe(tree);
+  });
+
+  it("keeps later title events across overlapping tree refreshes", () => {
+    const reconciler = new SurfaceTitleReconciler();
+    const olderRefresh = reconciler.beginRefresh();
+    reconciler.record(4, "newest");
+    const newerRefresh = reconciler.beginRefresh();
+
+    const newerTree = structuredClone(tree);
+    const committed = reconciler.commit(newerTree, newerRefresh);
+    expect(committed).toEqual({ tree: newerTree, applied: true });
+
+    const olderTree = structuredClone(tree);
+    expect(reconciler.commit(olderTree, olderRefresh)).toEqual({ tree: newerTree, applied: false });
+
+    const replay = new SurfaceTitleReconciler();
+    const inFlight = replay.beginRefresh();
+    replay.record(4, "newest");
+    const staleTree = structuredClone(tree);
+    const recovered = replay.commit(staleTree, inFlight).tree;
+    expect("tabs" in recovered.workspaces[0]!.screens[0]!.panes[0]!
+      ? recovered.workspaces[0]!.screens[0]!.panes[0]!.tabs[0]!.title
+      : null).toBe("newest");
   });
 });
 

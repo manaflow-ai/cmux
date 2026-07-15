@@ -433,6 +433,9 @@ impl RemoteSession {
                 let Some(id) = surface_id() else { return };
                 let cols = value.get("cols").and_then(|v| v.as_u64()).unwrap_or(80) as u16;
                 let rows = value.get("rows").and_then(|v| v.as_u64()).unwrap_or(24) as u16;
+                if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
+                    surface.set_server_size(cols, rows);
+                }
                 self.emit(MuxEvent::SurfaceResized { surface: id, cols, rows });
             }
             Some("output") => {
@@ -1409,6 +1412,37 @@ mod tests {
 
         assert_eq!(*surface.server_size.lock().unwrap(), (8, 4));
         assert_eq!(surface.term.lock().unwrap().plain_text().unwrap(), expected);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn surface_resized_event_reconciles_remote_browser_server_size() {
+        let (client, _server) = UnixStream::pair().unwrap();
+        let session = socket_test_session(client);
+        let events = session.subscribe();
+        let surface = Arc::new(RemoteSurface {
+            id: 7,
+            kind: SurfaceKind::Browser,
+            term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
+            dirty: AtomicBool::new(false),
+            server_size: Mutex::new((12, 4)),
+            asserted_size: Mutex::new(Some((12, 4))),
+            browser: Mutex::new(RemoteBrowserState::default()),
+        });
+        session.surfaces.lock().unwrap().insert(7, surface.clone());
+
+        session.handle_line(json!({
+            "event": "surface-resized",
+            "surface": 7,
+            "cols": 90,
+            "rows": 31,
+        }));
+
+        assert_eq!(surface.server_size(), (90, 31));
+        assert!(events.try_iter().any(|event| matches!(
+            event,
+            MuxEvent::SurfaceResized { surface: 7, cols: 90, rows: 31 }
+        )));
     }
 
     #[cfg(unix)]

@@ -134,3 +134,58 @@ export function applySurfaceTitles(tree: Tree, titles: ReadonlyMap<Id, string>):
   });
   return treeChanged ? { workspaces } : tree;
 }
+
+export interface TreeRefreshToken {
+  requestSequence: number;
+  titleGeneration: number;
+}
+
+interface GeneratedTitle {
+  generation: number;
+  title: string;
+}
+
+export interface TreeRefreshCommit {
+  tree: Tree;
+  applied: boolean;
+}
+
+export class SurfaceTitleReconciler {
+  private titleGeneration = 0;
+  private requestSequence = 0;
+  private appliedRequestSequence = 0;
+  private latestTree: Tree | null = null;
+  private readonly titles = new Map<Id, GeneratedTitle>();
+
+  record(surface: Id, title: string): void {
+    this.titleGeneration += 1;
+    this.titles.set(surface, { generation: this.titleGeneration, title });
+  }
+
+  beginRefresh(): TreeRefreshToken {
+    this.requestSequence += 1;
+    return {
+      requestSequence: this.requestSequence,
+      titleGeneration: this.titleGeneration,
+    };
+  }
+
+  apply(tree: Tree): Tree {
+    return applySurfaceTitles(
+      tree,
+      new Map([...this.titles].map(([surface, update]) => [surface, update.title])),
+    );
+  }
+
+  commit(tree: Tree, token: TreeRefreshToken): TreeRefreshCommit {
+    if (token.requestSequence <= this.appliedRequestSequence && this.latestTree !== null) {
+      return { tree: this.latestTree, applied: false };
+    }
+    this.appliedRequestSequence = token.requestSequence;
+    for (const [surface, update] of this.titles) {
+      if (update.generation <= token.titleGeneration) this.titles.delete(surface);
+    }
+    this.latestTree = this.apply(tree);
+    return { tree: this.latestTree, applied: true };
+  }
+}

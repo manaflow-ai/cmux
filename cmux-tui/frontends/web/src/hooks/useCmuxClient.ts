@@ -19,7 +19,7 @@ import {
 } from "../lib/localSelection";
 import { reconnectTransition, type ReconnectState } from "../lib/reconnect";
 import { supportsProtocol } from "../lib/protocol";
-import { activeScreen, applySurfaceTitles, locateSurface, treeToViewModel } from "../lib/tree";
+import { activeScreen, locateSurface, SurfaceTitleReconciler, treeToViewModel } from "../lib/tree";
 import { t } from "../i18n";
 
 export interface ConnectionConfig {
@@ -57,7 +57,7 @@ export function useCmuxClient() {
   const [unread, setUnread] = useState<Set<Id>>(() => new Set());
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [selection, dispatchSelection] = useReducer(localSelectionReducer, initialLocalSelectionState);
-  const refreshRef = useRef<(() => Promise<void>) | null>(null);
+  const refreshRef = useRef<(() => Promise<Tree | null>) | null>(null);
   const localToastId = useRef(-1);
 
   useEffect(() => {
@@ -67,6 +67,7 @@ export function useCmuxClient() {
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     let titleFlushTimer: ReturnType<typeof setTimeout> | undefined;
     const pendingSurfaceTitles = new Map<Id, string>();
+    const titleReconciler = new SurfaceTitleReconciler();
 
     const discardPendingSurfaceTitles = () => {
       if (titleFlushTimer !== undefined) clearTimeout(titleFlushTimer);
@@ -76,24 +77,28 @@ export function useCmuxClient() {
     const flushSurfaceTitles = () => {
       titleFlushTimer = undefined;
       if (cancelled || pendingSurfaceTitles.size === 0) return;
-      const updates = new Map(pendingSurfaceTitles);
       pendingSurfaceTitles.clear();
       setState((current) => current.tree === null
         ? current
-        : { ...current, tree: applySurfaceTitles(current.tree, updates) });
+        : { ...current, tree: titleReconciler.apply(current.tree) });
     };
     const queueSurfaceTitle = (surface: Id, title: string) => {
+      titleReconciler.record(surface, title);
       pendingSurfaceTitles.set(surface, title);
       titleFlushTimer ??= setTimeout(flushSurfaceTitles, 0);
     };
 
     const refresh = async () => {
-      if (!activeClient) return;
+      if (!activeClient) return null;
+      discardPendingSurfaceTitles();
+      const token = titleReconciler.beginRefresh();
       const tree = await activeClient.listWorkspaces();
-      if (!cancelled) {
-        setState((current) => ({ ...current, tree }));
-        dispatchSelection({ type: "tree-updated", snapshot: selectionSnapshot(tree) });
+      const committed = titleReconciler.commit(tree, token);
+      if (!cancelled && committed.applied) {
+        setState((current) => ({ ...current, tree: committed.tree }));
+        dispatchSelection({ type: "tree-updated", snapshot: selectionSnapshot(committed.tree) });
       }
+      return committed.tree;
     };
     const refreshClients = async () => {
       if (!activeClient) return;
@@ -286,9 +291,8 @@ export function useCmuxClient() {
     (create: (client: CmuxClient) => Promise<{ surface: Id }>) =>
       runMutation(async (client) => {
         const created = await create(client);
-        const tree = await client.listWorkspaces();
-        setState((current) => ({ ...current, tree }));
-        dispatchSelection({ type: "tree-updated", snapshot: selectionSnapshot(tree) });
+        const tree = await refreshRef.current?.();
+        if (!tree) return;
         const target = locateSurface(tree, created.surface);
         if (target) {
           dispatchSelection({ type: "navigate", workspaceId: target.workspaceId, screenId: target.screenId });
