@@ -76,7 +76,9 @@ extension MobileShellComposite {
         defer { finishRegistrySessionHandoffAttempt(requestID) }
         isRegistryHandoffFailurePresented = false
         guard let scope = await currentScopeSnapshot() else { return nil }
-        guard await isRegistrySessionHandoffAttemptCurrent(requestID, scope: scope) else {
+        guard !Task.isCancelled,
+              await isRegistrySessionHandoffAttemptCurrent(requestID, scope: scope),
+              !Task.isCancelled else {
             return nil
         }
         guard let session = registryDevices
@@ -96,7 +98,9 @@ extension MobileShellComposite {
                 self?.isRegistrySessionHandoffAttemptCurrent(requestID) == true
             }
         )
-        guard await isRegistrySessionHandoffAttemptCurrent(requestID, scope: scope) else {
+        guard !Task.isCancelled,
+              await isRegistrySessionHandoffAttemptCurrent(requestID, scope: scope),
+              !Task.isCancelled else {
             return nil
         }
         guard let workspaceID else {
@@ -115,6 +119,7 @@ extension MobileShellComposite {
         invalidateRegistrySessionHandoffAttempt()
         let requestID = UUID()
         registrySessionHandoffAttemptID = requestID
+        isRegistrySessionHandoffInProgress = true
         return requestID
     }
 
@@ -134,10 +139,12 @@ extension MobileShellComposite {
     func finishRegistrySessionHandoffAttempt(_ requestID: UUID) {
         guard registrySessionHandoffAttemptID == requestID else { return }
         registrySessionHandoffAttemptID = nil
+        isRegistrySessionHandoffInProgress = false
     }
 
     func invalidateRegistrySessionHandoffAttempt() {
         registrySessionHandoffAttemptID = nil
+        isRegistrySessionHandoffInProgress = false
         deeplinkWorkspaceNavigationRequest = nil
         registrySessionHandoffNavigationRequest = nil
     }
@@ -153,7 +160,9 @@ extension MobileShellComposite {
         requestID: UUID,
         scope: MobileShellScopeSnapshot
     ) async -> Bool {
-        guard await isRegistrySessionHandoffAttemptCurrent(requestID, scope: scope) else {
+        guard !Task.isCancelled,
+              await isRegistrySessionHandoffAttemptCurrent(requestID, scope: scope),
+              !Task.isCancelled else {
             return false
         }
         selectedWorkspaceID = workspaceID
@@ -168,7 +177,9 @@ extension MobileShellComposite {
         requestID: UUID,
         ifScopeCurrent scope: MobileShellScopeSnapshot
     ) async {
-        guard await isRegistrySessionHandoffAttemptCurrent(requestID, scope: scope) else { return }
+        guard !Task.isCancelled,
+              await isRegistrySessionHandoffAttemptCurrent(requestID, scope: scope),
+              !Task.isCancelled else { return }
         isRegistryHandoffFailurePresented = true
     }
 

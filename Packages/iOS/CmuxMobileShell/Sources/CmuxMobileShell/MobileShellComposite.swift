@@ -3691,6 +3691,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public internal(set) var deeplinkWorkspaceNavigationRequest: DeeplinkWorkspaceNavigationRequest?
     /// One-shot exact agent-session intent created by a registry handoff.
     public internal(set) var registrySessionHandoffNavigationRequest: RegistrySessionHandoffNavigationRequest?
+    /// Keeps the disconnected handoff surface mounted until registry validation finishes.
+    public internal(set) var isRegistrySessionHandoffInProgress = false
     @ObservationIgnored var registrySessionHandoffAttemptID: UUID?
 
     /// Selects `id` as a chrome action (the terminal picker), so the surface

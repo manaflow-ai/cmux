@@ -244,7 +244,8 @@ struct DeviceTreeView: View {
                 deviceID: session.deviceID,
                 instanceTag: session.instanceTag,
                 sessionID: session.sessionID,
-                agentSessionID: session.agentSessionID
+                agentSessionID: session.agentSessionID,
+                ifStillCurrent: { handoffGeneration == generation }
             ) else {
                 guard !Task.isCancelled, handoffGeneration == generation else { return }
                 await reload()

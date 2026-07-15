@@ -21,15 +21,19 @@ extension MobileShellComposite {
         instanceTag: String,
         sessionID: String,
         agentSessionID: String?,
-        ifStillCurrent: @escaping () -> Bool = { !Task.isCancelled }
+        ifStillCurrent: @escaping () -> Bool = { true }
     ) async -> MobileWorkspacePreview.ID? {
-        func isCurrent() -> Bool {
-            !Task.isCancelled && ifStillCurrent()
+        func ownsAttempt() -> Bool {
+            ifStillCurrent()
         }
 
-        guard isCurrent() else { return nil }
+        func canContinue() -> Bool {
+            !Task.isCancelled && ownsAttempt()
+        }
+
+        guard canContinue() else { return nil }
         registrySessionHandoffNavigationRequest = nil
-        guard isCurrent(),
+        guard canContinue(),
               let device = registryDevices.first(where: { $0.deviceId == deviceID }),
               let instance = device.instances.first(where: { $0.tag == instanceTag }),
               let session = instance.sessions.first(where: { $0.id == sessionID }),
@@ -41,26 +45,27 @@ extension MobileShellComposite {
         await connectToRegistryInstance(
             device: device,
             instance: instance,
-            ifStillCurrent: isCurrent
+            ifStillCurrent: canContinue,
+            ifRollbackStillOwned: ownsAttempt
         )
-        guard isCurrent(),
+        guard canContinue(),
               connectionState == .connected,
               connectedMacDeviceID == device.deviceId,
               activeMacInstanceTag == instance.tag else {
-            await restorePreviousMacAfterInterruptedFlow(previousActive, ifStillCurrent: isCurrent)
+            await restorePreviousMacAfterInterruptedFlow(previousActive, ifStillCurrent: ownsAttempt)
             return nil
         }
 
         let authoritativeRefreshSucceeded = await refreshWorkspacesAuthoritatively()
-        guard isCurrent(),
+        guard canContinue(),
               let workspaceID = Self.registryHandoffWorkspaceID(
                   workspaceID: session.workspaceID,
                   deviceID: device.deviceId,
                   workspaces: workspaces,
                   authoritativeRefreshSucceeded: authoritativeRefreshSucceeded
               ) else {
-            await restorePreviousMacAfterInterruptedFlow(previousActive, ifStillCurrent: isCurrent)
-            if isCurrent() { await loadRegistryDevices() }
+            await restorePreviousMacAfterInterruptedFlow(previousActive, ifStillCurrent: ownsAttempt)
+            if canContinue() { await loadRegistryDevices() }
             return nil
         }
 
@@ -68,35 +73,45 @@ extension MobileShellComposite {
         var terminalID = session.terminalID
         if agentSessionID != nil {
             let authoritativeSessions = await chatSessions(workspaceID: session.workspaceID)
-            guard isCurrent(),
+            guard canContinue(),
                   let authoritativeSession = Self.registryHandoffAgentSession(
                       advertisedSession: session,
                       authoritativeSessions: authoritativeSessions
                   ) else {
-                await restorePreviousMacAfterInterruptedFlow(previousActive, ifStillCurrent: isCurrent)
-                if isCurrent() { await loadRegistryDevices() }
+                await restorePreviousMacAfterInterruptedFlow(previousActive, ifStillCurrent: ownsAttempt)
+                if canContinue() { await loadRegistryDevices() }
                 return nil
             }
-            guard isCurrent() else { return nil }
+            guard canContinue() else {
+                await restorePreviousMacAfterInterruptedFlow(previousActive, ifStillCurrent: ownsAttempt)
+                return nil
+            }
             rememberRegistryHandoffChatSessions(authoritativeSessions, workspaceID: workspaceID)
             authoritativeAgentSessionID = authoritativeSession.id
             terminalID = authoritativeSession.terminalID
         }
 
-        guard isCurrent() else {
+        guard canContinue() else {
+            await restorePreviousMacAfterInterruptedFlow(previousActive, ifStillCurrent: ownsAttempt)
             return nil
         }
         if let terminalID,
            let workspace = workspaces.first(where: { $0.id == workspaceID }),
            let terminal = workspace.terminals.first(where: { $0.id.rawValue == terminalID }) {
-            guard isCurrent() else { return nil }
+            guard canContinue() else {
+                await restorePreviousMacAfterInterruptedFlow(previousActive, ifStillCurrent: ownsAttempt)
+                return nil
+            }
             selectTerminal(terminal.id)
         } else if authoritativeAgentSessionID != nil {
-            await restorePreviousMacAfterInterruptedFlow(previousActive, ifStillCurrent: isCurrent)
-            if isCurrent() { await loadRegistryDevices() }
+            await restorePreviousMacAfterInterruptedFlow(previousActive, ifStillCurrent: ownsAttempt)
+            if canContinue() { await loadRegistryDevices() }
             return nil
         }
-        guard isCurrent() else { return nil }
+        guard canContinue() else {
+            await restorePreviousMacAfterInterruptedFlow(previousActive, ifStillCurrent: ownsAttempt)
+            return nil
+        }
         if let authoritativeAgentSessionID {
             registrySessionHandoffNavigationRequest = RegistrySessionHandoffNavigationRequest(
                 token: UUID(),
@@ -105,6 +120,14 @@ extension MobileShellComposite {
             )
         }
         return workspaceID
+    }
+
+    static func registryHandoffShouldRestorePreviousMac(
+        hasPreviousActive: Bool,
+        canContinue: Bool,
+        stillOwnsAttempt: Bool
+    ) -> Bool {
+        hasPreviousActive && !canContinue && stillOwnsAttempt
     }
 
     /// Restore outside a cancelled caller so an interrupted destructive switch can still complete.

@@ -368,13 +368,16 @@ extension MobileShellComposite {
     ///   - device: The registry device the instance belongs to.
     ///   - instance: The tag/app-instance to connect to.
     ///   - ifStillCurrent: Cancellation/generation predicate for the owning UI flow.
+    ///   - ifRollbackStillOwned: Ownership predicate used to restore a replaced connection.
     public func connectToRegistryInstance(
         device: RegistryDevice,
         instance: RegistryAppInstance,
-        ifStillCurrent: (() -> Bool)? = nil
+        ifStillCurrent: (() -> Bool)? = nil,
+        ifRollbackStillOwned: (() -> Bool)? = nil
     ) async {
         guard ifStillCurrent?() ?? true else { return }
         let scope = await currentScopeSnapshot()
+        guard ifStillCurrent?() ?? true else { return }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         let candidateRoutes = Self.storedReconnectRoutes(
             instance.routes,
@@ -405,12 +408,22 @@ extension MobileShellComposite {
             recordsPairingAttempt: true,
             ifStillCurrent: ifStillCurrent
         )
-        let isCurrent = ifStillCurrent?() ?? true
-        guard connectedRoute, isCurrent else {
-            if previousActive != nil, !hasActiveMacConnection, isCurrent {
+        let canContinue = ifStillCurrent?() ?? true
+        let stillOwnsAttempt = ifRollbackStillOwned?() ?? canContinue
+        guard connectedRoute, canContinue else {
+            let shouldRestoreCancelledSwitch = Self.registryHandoffShouldRestorePreviousMac(
+                hasPreviousActive: previousActive != nil,
+                canContinue: canContinue,
+                stillOwnsAttempt: stillOwnsAttempt
+            )
+            let shouldRestoreFailedSwitch = previousActive != nil
+                && !connectedRoute
+                && !hasActiveMacConnection
+                && stillOwnsAttempt
+            if shouldRestoreCancelledSwitch || shouldRestoreFailedSwitch {
                 await restorePreviousMacAfterInterruptedFlow(
                     previousActive,
-                    ifStillCurrent: ifStillCurrent ?? { true }
+                    ifStillCurrent: ifRollbackStillOwned ?? ifStillCurrent ?? { true }
                 )
             }
             return
