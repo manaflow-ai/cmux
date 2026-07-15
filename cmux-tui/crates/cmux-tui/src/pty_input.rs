@@ -18,6 +18,7 @@ use crate::session::{SurfaceHandle, is_remote_timeout, is_remote_transport_failu
 const QUEUE_CAPACITY: usize = 512;
 const MAX_QUEUED_BYTES: usize = 4 * 1024 * 1024;
 const RESERVED_RELEASE_BYTES: usize = 64;
+const REMOTE_RELEASE_MAX_ATTEMPTS: u8 = 3;
 
 pub type PtyInputBytes = SmallVec<[u8; 64]>;
 
@@ -55,6 +56,7 @@ pub struct PtyInputEvent {
     coalesce_key: Option<(&'static str, u64)>,
     remote: bool,
     reservation_id: Option<u64>,
+    remote_release_attempts: u8,
 }
 
 impl PtyInputEvent {
@@ -76,6 +78,7 @@ impl PtyInputEvent {
             coalesce_key: None,
             remote,
             reservation_id: None,
+            remote_release_attempts: 0,
         }
     }
 
@@ -118,6 +121,7 @@ impl PtyInputEvent {
             coalesce_key,
             remote,
             reservation_id: None,
+            remote_release_attempts: 0,
         }
     }
 }
@@ -573,6 +577,9 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
         let surface_id = kind.map(|_| event.surface_id);
         let remote = event.remote;
         let reservation_id = event.reservation_id;
+        if remote && event.kind == PtyInputKind::Release {
+            event.remote_release_attempts = event.remote_release_attempts.saturating_add(1);
+        }
         let result = if let Some(operation) = event.mutation.take() {
             operation()
         } else {
@@ -588,15 +595,24 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
         let known_not_delivered =
             remote_transport_failed || (!remote && event.surface.kind() == SurfaceKind::Browser);
         let suppress_mutation_timeout = remote_timed_out && event.kind == PtyInputKind::Mutation;
-        let retry_ambiguous_release = remote_timed_out && event.kind == PtyInputKind::Release;
+        let ambiguous_release = remote_timed_out && event.kind == PtyInputKind::Release;
+        let retry_ambiguous_release =
+            ambiguous_release && event.remote_release_attempts < REMOTE_RELEASE_MAX_ATTEMPTS;
+        let exhausted_ambiguous_release = ambiguous_release && !retry_ambiguous_release;
         let failure = result.err().and_then(|error| {
             (!suppress_mutation_timeout && !retry_ambiguous_release).then(|| PtyOperationFailure {
                 surface_id,
                 kind,
                 reservation_id,
                 label: event.label,
-                error: error.to_string(),
-                lane_failed: remote_transport_failed,
+                error: if exhausted_ambiguous_release {
+                    format!(
+                        "mouse release timed out after {REMOTE_RELEASE_MAX_ATTEMPTS} attempts; detach and reconnect before sending more input"
+                    )
+                } else {
+                    error.to_string()
+                },
+                lane_failed: remote_transport_failed || exhausted_ambiguous_release,
                 delivery: if known_not_delivered {
                     PtyOperationDelivery::KnownNotDelivered
                 } else {
@@ -614,7 +630,7 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
         {
             state.release_reservations.outstanding.remove(&reservation_id);
         }
-        if remote_transport_failed {
+        if remote_transport_failed || exhausted_ambiguous_release {
             // One dispatcher belongs to one local or remote App session. A
             // A failed socket write means every queued remote request shares
             // the same dead transport, so cancel the backlog immediately.
@@ -624,7 +640,11 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
                 kind: (event.kind != PtyInputKind::Mutation).then_some(event.kind),
                 reservation_id: event.reservation_id,
                 label: event.label,
-                error: "canceled after the remote transport failed".into(),
+                error: if exhausted_ambiguous_release {
+                    "canceled after mouse release recovery timed out; detach and reconnect".into()
+                } else {
+                    "canceled after the remote transport failed".into()
+                },
                 lane_failed: true,
                 delivery: PtyOperationDelivery::KnownNotDelivered,
             }));

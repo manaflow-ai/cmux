@@ -450,6 +450,7 @@ impl OutboundStream {
 }
 
 trait MessageSink: Send + Sync {
+    fn send_initial(&self, value: &Value, stream: &OutboundStream) -> std::io::Result<()>;
     fn send_stream(&self, value: &Value, stream: &OutboundStream) -> std::io::Result<()>;
     fn send_control(&self, value: &Value) -> std::io::Result<()>;
     fn send_terminal(&self, value: &Value, stream: &OutboundStream) -> std::io::Result<()>;
@@ -486,6 +487,17 @@ impl MessageWriter {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
         let result = self.sink.send_stream(value, stream);
+        if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
+            stream.close();
+        }
+        result
+    }
+
+    fn send_initial(&self, value: &Value, stream: &OutboundStream) -> std::io::Result<()> {
+        if !self.is_open() {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        let result = self.sink.send_initial(value, stream);
         if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
             stream.close();
         }
@@ -533,6 +545,7 @@ struct BoundedOutbound {
 
 #[derive(Default)]
 struct BoundedOutboundState {
+    initial: VecDeque<RegularOutbound>,
     control: VecDeque<String>,
     regular: VecDeque<RegularOutbound>,
     control_bytes: usize,
@@ -547,6 +560,19 @@ struct RegularOutbound {
 
 impl BoundedOutbound {
     fn push_regular(&self, text: String, stream: &OutboundStream) -> std::io::Result<()> {
+        self.push_regular_with_priority(text, stream, false)
+    }
+
+    fn push_initial(&self, text: String, stream: &OutboundStream) -> std::io::Result<()> {
+        self.push_regular_with_priority(text, stream, true)
+    }
+
+    fn push_regular_with_priority(
+        &self,
+        text: String,
+        stream: &OutboundStream,
+        initial: bool,
+    ) -> std::io::Result<()> {
         let mut state = self.state.lock().unwrap();
         if state.closed {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
@@ -565,7 +591,7 @@ impl BoundedOutbound {
         }
         loop {
             let byte_full = bytes > OUTBOUND_BYTE_CAPACITY.saturating_sub(state.regular_bytes);
-            let count_full = state.regular.len() >= OUTBOUND_CAPACITY;
+            let count_full = state.initial.len() + state.regular.len() >= OUTBOUND_CAPACITY;
             if !byte_full && !count_full {
                 break;
             }
@@ -588,7 +614,12 @@ impl BoundedOutbound {
             }
         }
         state.regular_bytes += bytes;
-        state.regular.push_back(RegularOutbound { text, stream: stream.clone() });
+        let message = RegularOutbound { text, stream: stream.clone() };
+        if initial {
+            state.initial.push_back(message);
+        } else {
+            state.regular.push_back(message);
+        }
         self.changed.notify_one();
         Ok(())
     }
@@ -633,6 +664,14 @@ impl BoundedOutbound {
 
     fn purge_stream_locked(state: &mut BoundedOutboundState, stream_id: u64) {
         let mut removed_bytes = 0;
+        state.initial.retain(|message| {
+            if message.stream.id == stream_id {
+                removed_bytes += message.text.len();
+                false
+            } else {
+                true
+            }
+        });
         state.regular.retain(|message| {
             if message.stream.id == stream_id {
                 removed_bytes += message.text.len();
@@ -646,7 +685,7 @@ impl BoundedOutbound {
 
     fn largest_stream(state: &BoundedOutboundState, by_bytes: bool) -> Option<OutboundStream> {
         let mut usage = HashMap::<u64, (usize, usize, OutboundStream)>::new();
-        for message in &state.regular {
+        for message in state.initial.iter().chain(&state.regular) {
             let entry =
                 usage.entry(message.stream.id).or_insert_with(|| (0, 0, message.stream.clone()));
             entry.0 += 1;
@@ -696,6 +735,10 @@ impl BoundedOutbound {
     }
 
     fn pop_locked(state: &mut BoundedOutboundState) -> Option<String> {
+        if let Some(message) = state.initial.pop_front() {
+            state.regular_bytes -= message.text.len();
+            return Some(message.text);
+        }
         if let Some(text) = state.control.pop_front() {
             state.control_bytes -= text.len();
             return Some(text);
@@ -720,6 +763,11 @@ struct QueuedSink {
 }
 
 impl MessageSink for QueuedSink {
+    fn send_initial(&self, value: &Value, stream: &OutboundStream) -> std::io::Result<()> {
+        let text = serde_json::to_string(value)?;
+        self.outbound.push_initial(text, stream)
+    }
+
     fn send_stream(&self, value: &Value, stream: &OutboundStream) -> std::io::Result<()> {
         let text = serde_json::to_string(value)?;
         self.outbound.push_regular(text, stream)
@@ -1929,13 +1977,6 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &MessageWriter) -> anyho
             let surface = get_surface(mux, surface_id)?;
             let lifecycle = AttachLifecycle::default();
             let outbound_stream = writer.start_stream(&attach_overflow_json(surface_id))?;
-            spawn_attach_notification_stream(
-                mux.clone(),
-                surface_id,
-                writer.clone(),
-                lifecycle.clone(),
-                outbound_stream.clone(),
-            )?;
             if surface.kind() == SurfaceKind::Browser {
                 let (state, frames) = match surface.attach_frames() {
                     Ok(attach) => attach,
@@ -1944,12 +1985,19 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &MessageWriter) -> anyho
                         return Err(error);
                     }
                 };
-                if let Err(error) =
-                    writer.send_control(&browser_state_json(surface_id, &state, true))
+                if let Err(error) = writer
+                    .send_initial(&browser_state_json(surface_id, &state, true), &outbound_stream)
                 {
                     handle_attach_send_error(&lifecycle, &error);
                     return Err(error.into());
                 }
+                spawn_attach_notification_stream(
+                    mux.clone(),
+                    surface_id,
+                    writer.clone(),
+                    lifecycle.clone(),
+                    outbound_stream.clone(),
+                )?;
                 let writer = writer.clone();
                 std::thread::Builder::new().name("mux-attach-out".into()).spawn(move || {
                     while writer.is_open() && outbound_stream.is_open() && !lifecycle.is_canceled()
@@ -2002,16 +2050,26 @@ fn handle_command(mux: &Arc<Mux>, cmd: Command, writer: &MessageWriter) -> anyho
                     return Err(error.into());
                 }
             };
-            if let Err(error) = writer.send_control(&json!({
-                "event": "vt-state",
-                "surface": surface_id,
-                "cols": attach.cols,
-                "rows": attach.rows,
-                "data": base64::engine::general_purpose::STANDARD.encode(attach.replay),
-            })) {
+            if let Err(error) = writer.send_initial(
+                &json!({
+                    "event": "vt-state",
+                    "surface": surface_id,
+                    "cols": attach.cols,
+                    "rows": attach.rows,
+                    "data": base64::engine::general_purpose::STANDARD.encode(attach.replay),
+                }),
+                &outbound_stream,
+            ) {
                 handle_attach_send_error(&lifecycle, &error);
                 return Err(error.into());
             }
+            spawn_attach_notification_stream(
+                mux.clone(),
+                surface_id,
+                writer.clone(),
+                lifecycle,
+                outbound_stream.clone(),
+            )?;
             let writer = writer.clone();
             std::thread::Builder::new().name("mux-attach-out".into()).spawn(move || {
                 while writer.is_open()
@@ -2156,6 +2214,33 @@ mod tests {
             .map(|_| outbound.try_pop().expect("accepted output"))
             .collect::<Vec<_>>();
         assert!(drained[0].contains("\"sequence\":0"));
+        assert!(writer.is_open());
+    }
+
+    #[test]
+    fn initial_stream_state_precedes_its_response_and_overflows_only_its_stream() {
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone() });
+        let stream = writer.start_stream(&attach_overflow_json(7)).unwrap();
+
+        writer.send_initial(&json!({"event": "vt-state", "surface": 7}), &stream).unwrap();
+        writer.send_control(&json!({"id": 1, "ok": true})).unwrap();
+        let initial: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(initial["event"], "vt-state");
+        let response: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(response["id"], 1);
+
+        let oversized = writer.start_stream(&attach_overflow_json(8)).unwrap();
+        let error = writer
+            .send_initial(
+                &json!({"event": "vt-state", "data": "x".repeat(OUTBOUND_BYTE_CAPACITY)}),
+                &oversized,
+            )
+            .unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
+        let overflow: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(overflow["event"], "overflow");
+        assert_eq!(overflow["surface"], 8);
         assert!(writer.is_open());
     }
 
