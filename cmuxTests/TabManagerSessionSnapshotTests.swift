@@ -1712,30 +1712,6 @@ final class TabManagerSessionSnapshotTests {
         XCTAssertEqual(ClosedItemHistoryStore.shared.menuSnapshot().items.map(\.title), ["Broken Workspace"])
     }
 
-    @Test func testClosedWindowRestoreValidationRejectsFailedRestorablePanelRestore() throws {
-        let manager = TabManager()
-        let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        let snapshot = SessionWindowSnapshot(
-            frame: nil,
-            display: nil,
-            tabManager: SessionTabManagerSnapshot(
-                selectedWorkspaceIndex: 0,
-                workspaces: [workspace.sessionSnapshot(includeScrollback: false)]
-            ),
-            sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil)
-        )
-
-        XCTAssertTrue(snapshot.hasRestorablePanels)
-        XCTAssertFalse(snapshot.hasUsableRestoredContent(
-            restoredPanelIdsByWorkspaceIndex: [[:]],
-            hasLivePanels: true
-        ))
-        XCTAssertTrue(snapshot.hasUsableRestoredContent(
-            restoredPanelIdsByWorkspaceIndex: [[UUID(): UUID()]],
-            hasLivePanels: true
-        ))
-    }
-
     @Test func testRestoreSessionSnapshotWithNoWorkspacesKeepsSingleFallbackWorkspace() {
         let manager = TabManager()
         let emptySnapshot = SessionTabManagerSnapshot(

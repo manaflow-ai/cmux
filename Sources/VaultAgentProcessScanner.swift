@@ -664,15 +664,12 @@ extension RestorableAgentSessionIndex {
         return rawValue
     }
 }
-
 extension SurfaceResumeBindingIndex {
     static func processDetectedTmuxBindings(
         fileManager: FileManager,
         processSnapshot: CmuxTopProcessSnapshot,
         capturedAt: TimeInterval,
-        processArgumentsProvider: (Int) -> CmuxTopProcessArguments? = {
-            CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
-        }
+        processArgumentsProvider: (Int) -> CmuxTopProcessArguments? = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for:)
     ) -> [PanelKey: (binding: SurfaceResumeBindingSnapshot, updatedAt: TimeInterval)] {
         _ = fileManager
         var resolved: [PanelKey: (binding: SurfaceResumeBindingSnapshot, updatedAt: TimeInterval)] = [:]
