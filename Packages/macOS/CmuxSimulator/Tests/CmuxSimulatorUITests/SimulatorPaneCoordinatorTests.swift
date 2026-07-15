@@ -83,6 +83,29 @@ struct SimulatorPaneCoordinatorTests {
         #expect(messages.filter { $0 == .rotate(.portrait) }.count == 1)
     }
 
+    @Test("Hidden panes suspend and resume framebuffer publication")
+    func frameVisibility() async {
+        let client = SimulatorPaneClientSpy(devices: [
+            Self.device(id: "phone", family: .iPhone, state: .booted),
+        ])
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        await coordinator.start()
+        await eventually { coordinator.status == .streaming }
+        await client.emit(.message(.frameTransport(simulatorFrameTransportDescriptor(49))))
+        await eventually { coordinator.frameTransport != nil }
+
+        coordinator.setFrameVisibility(false)
+        await eventually {
+            await client.messages().contains(.setFramebufferPublishing(false))
+        }
+        #expect(coordinator.frameTransport == nil)
+
+        coordinator.setFrameVisibility(true)
+        await eventually {
+            await client.messages().contains(.setFramebufferPublishing(true))
+        }
+    }
+
     @Test("Explicit recovery returns only after the selected device streams")
     func explicitRecoveryWaitsForActivation() async throws {
         let client = SimulatorPaneClientSpy(devices: [

@@ -8,6 +8,8 @@ public enum SimulatorWorkerInbound: Codable, Equatable, Sendable {
     case attach(udid: String, geometry: SimulatorSurfaceGeometry?)
     /// Update the host pane size and backing scale.
     case resize(SimulatorSurfaceGeometry)
+    /// Starts or stops framebuffer publication while preserving control state.
+    case setFramebufferPublishing(Bool)
     /// Forward one ordered touch event.
     case pointer(SimulatorPointerEvent)
     /// Forward one USB HID keyboard event.

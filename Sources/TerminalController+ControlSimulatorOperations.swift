@@ -279,6 +279,7 @@ extension TerminalController {
     }
 
     private func simulatorTimeout(for operation: ControlSimulatorOperation) -> TimeInterval {
+        if case .selectDevice = operation { return 210 }
         if case .recover = operation { return 130 }
         if case .cameraConfigure = operation { return 160 }
         if case .cameraSwitch = operation { return 160 }

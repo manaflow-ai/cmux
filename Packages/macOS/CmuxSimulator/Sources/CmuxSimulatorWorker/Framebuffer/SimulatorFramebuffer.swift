@@ -22,6 +22,7 @@ final class SimulatorFramebuffer {
     private var ioClient: NSObject?
     private var framePublisher: SimulatorFramebufferFramePublisher?
     private var framePublisherGeneration: UInt64 = 0
+    private var publishingEnabled = true
     private var orientationState = SimulatorFramebufferOrientationState()
     private var nativeOrientationRawValue: UInt32?
     private var displayScale = 1.0
@@ -47,7 +48,7 @@ final class SimulatorFramebuffer {
 
     func start(device: NSObject) async throws {
         stop()
-        let publisherGeneration = framePublisherGeneration
+        publishingEnabled = true
         guard let io = objectProperty(device, selectorName: "io") as? NSObject else {
             throw SimulatorWorkerFailure.framebufferUnavailable("Simulator device I/O is unavailable.")
         }
@@ -66,26 +67,7 @@ final class SimulatorFramebuffer {
                 "SimulatorKit did not retain its initial framebuffer surface."
             )
         }
-        let publisher = try await SimulatorFramebufferFramePublisher(
-            initialSurface: initialDisplay.surface,
-            beforeFrameTransportChange: beforeFrameTransportChange,
-            afterFrameTransportChange: afterFrameTransportChange,
-            onFrameTransportChange: { [weak self] transport in
-                guard let self,
-                    self.framePublisherGeneration == publisherGeneration,
-                    self.framePublisher != nil
-                else {
-                    return
-                }
-                self.onFrameTransportChange(transport)
-            }
-        )
-        guard framePublisherGeneration == publisherGeneration else {
-            publisher.cancel()
-            throw CancellationError()
-        }
-        framePublisher = publisher
-        onFrameTransportChange(publisher.initialDescriptor)
+        try await startPublisher(initialSurface: initialDisplay.surface)
         _ = publishLatest(readNativeOrientation: true)
     }
 
@@ -100,6 +82,45 @@ final class SimulatorFramebuffer {
         ioClient = nil
         framePublisher?.cancel()
         framePublisher = nil
+    }
+
+    func setPublishingEnabled(_ enabled: Bool) async throws {
+        guard publishingEnabled != enabled else { return }
+        publishingEnabled = enabled
+        if !enabled {
+            framePublisherGeneration &+= 1
+            framePublisher?.cancel()
+            framePublisher = nil
+            return
+        }
+        guard let surface = bestDisplay(readNativeOrientation: false)?.surface else {
+            throw SimulatorWorkerFailure.framebufferUnavailable(
+                "SimulatorKit retained no framebuffer surface while resuming publication."
+            )
+        }
+        try await startPublisher(initialSurface: surface)
+        _ = publishLatest(readNativeOrientation: true)
+    }
+
+    private func startPublisher(initialSurface: IOSurface) async throws {
+        let publisherGeneration = framePublisherGeneration
+        let publisher = try await SimulatorFramebufferFramePublisher(
+            initialSurface: initialSurface,
+            beforeFrameTransportChange: beforeFrameTransportChange,
+            afterFrameTransportChange: afterFrameTransportChange,
+            onFrameTransportChange: { [weak self] transport in
+                guard let self,
+                      self.framePublisherGeneration == publisherGeneration,
+                      self.framePublisher != nil else { return }
+                self.onFrameTransportChange(transport)
+            }
+        )
+        guard publishingEnabled, framePublisherGeneration == publisherGeneration else {
+            publisher.cancel()
+            throw CancellationError()
+        }
+        framePublisher = publisher
+        onFrameTransportChange(publisher.initialDescriptor)
     }
 
     private func unregisterCallbacks() {

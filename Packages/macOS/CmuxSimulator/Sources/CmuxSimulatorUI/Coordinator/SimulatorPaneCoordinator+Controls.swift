@@ -279,13 +279,24 @@ extension SimulatorPaneCoordinator {
                   bundleIdentifier: bundleIdentifier?.isEmpty == false ? bundleIdentifier : nil
               )) else { return }
         liveLogsText = ""
+        await liveLogBuffer.reset()
         let session = SimulatorProcessSession()
         do {
             try session.start(descriptor, capturesOutput: true) { [weak self] line in
-                self?.appendLiveLog(line)
+                guard let self else { return }
+                let buffer = self.liveLogBuffer
+                Task { @MainActor [weak self] in
+                    guard let snapshot = await buffer.append(line) else { return }
+                    self?.liveLogsText = snapshot
+                }
             } onTermination: { [weak self] in
-                self?.logSession = nil
-                self?.isStreamingLogs = false
+                guard let self else { return }
+                self.logSession = nil
+                self.isStreamingLogs = false
+                let buffer = self.liveLogBuffer
+                Task { @MainActor [weak self] in
+                    self?.liveLogsText = await buffer.snapshot()
+                }
             }
             logSession = session
             isStreamingLogs = true
@@ -334,13 +345,6 @@ extension SimulatorPaneCoordinator {
                 webInspectorResponseBuffer.reset()
                 webInspectorResponses = []
             }
-        }
-    }
-
-    private func appendLiveLog(_ line: String) {
-        liveLogsText.append(line)
-        if liveLogsText.utf8.count > 200_000 {
-            liveLogsText = String(liveLogsText.suffix(150_000))
         }
     }
 

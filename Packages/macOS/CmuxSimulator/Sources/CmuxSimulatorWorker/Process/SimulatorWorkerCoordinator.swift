@@ -102,6 +102,8 @@ final class SimulatorWorkerCoordinator {
             await attach(udid: udid)
         case .resize:
             break
+        case .setFramebufferPublishing(let enabled):
+            await setFramebufferPublishing(enabled)
         case .pointer(let event):
             if event.phase == .began { scrollWheel?.cancel() }
             guard hid?.send(event) == true else {

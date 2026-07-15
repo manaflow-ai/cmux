@@ -3,6 +3,14 @@ import Foundation
 import os
 
 extension SimulatorWorkerCoordinator {
+    func setFramebufferPublishing(_ enabled: Bool) async {
+        do {
+            try await framebuffer?.setPublishingEnabled(enabled)
+        } catch {
+            report(error)
+        }
+    }
+
     func prepareForProcessExit() {
         cancelForegroundApplicationRequests()
         cancelAccessibilitySnapshotRequests()

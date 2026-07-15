@@ -106,6 +106,7 @@ public final class SimulatorPaneCoordinator {
     @ObservationIgnored var actionHistoryByDeviceID: [String: [SimulatorActionLogEntry]] = [:]
     @ObservationIgnored var videoSession: SimulatorProcessSession?
     @ObservationIgnored var logSession: SimulatorProcessSession?
+    @ObservationIgnored let liveLogBuffer = SimulatorLiveLogBuffer()
     @ObservationIgnored let chromeLoader = SimulatorDeviceChromeLoader()
     @ObservationIgnored var chromeTask: Task<Void, Never>?
     @ObservationIgnored var webInspectorResponseBuffer = SimulatorWebInspectorResponseBuffer()
@@ -120,6 +121,7 @@ public final class SimulatorPaneCoordinator {
     @ObservationIgnored var liveStatusGeneration: UInt64 = 0
     @ObservationIgnored var liveStatusIsVisible = true
     @ObservationIgnored var liveStatusPollingActive = false
+    @ObservationIgnored var frameIsVisible = true
     @ObservationIgnored var locationRouteDeviceID: String?
     @ObservationIgnored var locationRoute: SimulatorLocationRoute?
     @ObservationIgnored var locationRouteRemainingDuration: TimeInterval?
