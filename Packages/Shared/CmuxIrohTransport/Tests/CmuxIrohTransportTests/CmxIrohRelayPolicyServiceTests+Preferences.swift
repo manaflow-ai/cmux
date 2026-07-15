@@ -193,4 +193,86 @@ extension CmxIrohRelayPolicyServiceTests {
         #expect(await broker.expectedRevisions() == [1])
         #expect(await service.diagnosticsSnapshot().failure == .preferencePersistenceUnavailable)
     }
+
+    @Test
+    func relayURLChangeQuarantinesOldDeviceSecretUntilReauthenticated() async throws {
+        let fixture = RelayPolicyServiceTestFixture()
+        let oldRelay = try CmxIrohCustomRelayDefinition(
+            id: "private-home",
+            url: "https://old-relay.example.net/",
+            provider: "personal",
+            region: "home",
+            authMode: .staticToken
+        )
+        let newRelay = try CmxIrohCustomRelayDefinition(
+            id: oldRelay.id,
+            url: "https://new-relay.example.net/",
+            provider: oldRelay.provider,
+            region: oldRelay.region,
+            authMode: .staticToken
+        )
+        let oldConfiguration = try CmxIrohAccountRelayConfiguration.custom([oldRelay])
+        let newConfiguration = try CmxIrohAccountRelayConfiguration.custom([newRelay])
+        let credentialStore = CmxIrohCustomRelayCredentialStore(
+            secureStore: TestSecureCredentialStore()
+        )
+        let broker = RelayPolicyServiceBroker(responses: [
+            try CmxIrohRelayPreferenceResponse(
+                preference: newConfiguration,
+                revision: 2
+            ),
+        ])
+        let service = CmxIrohRelayPolicyService(
+            policyCache: CmxIrohRelayPolicyCache(secureStore: TestSecureCredentialStore()),
+            preferenceStore: CmxIrohRelayPreferenceStore(
+                secureStore: TestSecureCredentialStore()
+            ),
+            credentialStore: credentialStore,
+            broker: broker
+        )
+        _ = try await service.install(
+            response: CmxIrohRelayPolicyResponse(
+                policy: fixture.token(sequence: 1),
+                preference: oldConfiguration,
+                preferenceRevision: 1
+            ),
+            accountID: "account-a",
+            trustRoot: fixture.firstTrustRoot,
+            relayCredential: fixture.relayCredential(),
+            now: fixture.now
+        )
+        let oldActive = try await service.setStaticCredential(
+            "old-provider-secret",
+            relayID: oldRelay.id,
+            accountID: "account-a",
+            trustRoot: fixture.firstTrustRoot,
+            now: fixture.now
+        )
+        #expect(oldActive.endpointRelayProfile.activeRelays.first?.authenticationToken
+            == "old-provider-secret")
+
+        let quarantined = try await service.setConfiguration(
+            newConfiguration,
+            accountID: "account-a",
+            trustRoot: fixture.firstTrustRoot,
+            now: fixture.now
+        )
+
+        #expect(quarantined.source == .customUnavailable)
+        #expect(quarantined.endpointRelayProfile.allowedRelayURLs.isEmpty)
+        #expect(quarantined.missingCredentialRelayIDs == [newRelay.id])
+        #expect(try await credentialStore.configuredRelayIDs(accountID: "account-a").isEmpty)
+
+        let reauthenticated = try await service.setStaticCredential(
+            "new-provider-secret",
+            relayID: newRelay.id,
+            accountID: "account-a",
+            trustRoot: fixture.firstTrustRoot,
+            now: fixture.now
+        )
+        #expect(reauthenticated.source == .custom)
+        #expect(reauthenticated.endpointRelayProfile.allowedRelayURLs == [newRelay.url])
+        #expect(reauthenticated.endpointRelayProfile.activeRelays.first?.authenticationToken
+            == "new-provider-secret")
+    }
 }

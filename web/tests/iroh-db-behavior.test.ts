@@ -241,7 +241,6 @@ describe("Iroh trust broker database behavior", () => {
     const appInstanceId = randomUUID();
     const endpointId = "10".repeat(32);
     const nonceHash = "20".repeat(32);
-    const pathHintExpiry = new Date(NOW.getTime() + 30 * 60 * 1_000);
     const challenge = await Effect.runPromise(repo.issueChallenge({
       userId: "user-registration",
       deviceUuid: deviceId,
@@ -268,15 +267,7 @@ describe("Iroh trust broker database behavior", () => {
         identityGeneration: 1,
         pairingEnabled: true,
         capabilities: [],
-        pathHints: [{
-          kind: "direct_address",
-          value: "10.0.0.20:4433",
-          source: "lan",
-          privacy_scope: "local_network",
-          observed_at: new Date(NOW.getTime() - 5 * 60 * 1_000).toISOString(),
-          expires_at: pathHintExpiry.toISOString(),
-          network_profile: { source: "lan", profile_id: "local" },
-        }],
+        pathHints: [],
       },
       now: NOW,
       deviceLimitOverrideAllowed: false,
@@ -299,6 +290,82 @@ describe("Iroh trust broker database behavior", () => {
     expect({ bindings, consumed }).toEqual({ bindings: "1", consumed: "1" });
     expect(nextExpiry).toBeNull();
     expect(pathHints).toEqual([]);
+  });
+
+  dbTest("persists account-private path hints already filtered by the trust broker", async () => {
+    const repo = requiredRepository();
+    const userId = "user-private-registration-hints";
+    const deviceId = randomUUID();
+    const appInstanceId = randomUUID();
+    const endpointId = "40".repeat(32);
+    const nonceHash = "41".repeat(32);
+    const directExpiry = new Date(NOW.getTime() + 20 * 60 * 1_000);
+    const relayExpiry = new Date(NOW.getTime() + 30 * 60 * 1_000);
+    const pathHints: Parameters<
+      IrohRepositoryShape["consumeChallengeAndRegister"]
+    >[0]["payload"]["pathHints"] = [
+      {
+        kind: "direct_address",
+        value: "8.8.4.4:4433",
+        source: "native",
+        privacy_scope: "public_internet",
+        observed_at: new Date(NOW.getTime() - 5 * 60 * 1_000).toISOString(),
+        expires_at: directExpiry.toISOString(),
+      },
+      {
+        kind: "relay_url",
+        value: "https://relay.example.net/",
+        source: "native",
+        privacy_scope: "public_internet",
+        observed_at: new Date(NOW.getTime() - 5 * 60 * 1_000).toISOString(),
+        expires_at: relayExpiry.toISOString(),
+      },
+    ];
+    const challenge = await Effect.runPromise(repo.issueChallenge({
+      userId,
+      deviceUuid: deviceId,
+      appInstanceId,
+      tag: "stable",
+      endpointId,
+      identityGeneration: 1,
+      payloadSha256: "42".repeat(32),
+      nonceHash,
+      now: NOW,
+      expiresAt: new Date(NOW.getTime() + 5 * 60 * 1_000),
+    }));
+
+    await Effect.runPromise(repo.consumeChallengeAndRegister({
+      userId,
+      challengeId: challenge.id,
+      nonceHash,
+      payload: {
+        route_contract_version: 1,
+        deviceId,
+        appInstanceId,
+        tag: "stable",
+        platform: "mac",
+        endpointId,
+        identityGeneration: 1,
+        pairingEnabled: true,
+        capabilities: [],
+        pathHints,
+      },
+      now: NOW,
+      deviceLimitOverrideAllowed: false,
+    }));
+
+    const [stored] = await requiredSql()<Array<{
+      pathHints: unknown[];
+      nextExpiry: Date | null;
+    }>>`
+      select
+        path_hints as "pathHints",
+        path_hints_next_expiry as "nextExpiry"
+      from iroh_endpoint_bindings
+      where app_instance_id = ${appInstanceId}
+    `;
+    expect(stored?.pathHints).toEqual(pathHints);
+    expect(stored?.nextExpiry).toEqual(directExpiry);
   });
 
   dbTest("requires revocation before changing an active binding platform", async () => {

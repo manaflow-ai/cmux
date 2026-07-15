@@ -58,6 +58,56 @@ describe("Iroh trust broker registration", () => {
     expect(fixture.minter.calls).toBe(1);
   });
 
+  test("preserves account-private routes while filtering unsafe registration hints", async () => {
+    const publicDirectHint: IrohRegistrationPayload["pathHints"][number] = {
+      kind: "direct_address",
+      value: "8.8.4.4:4433",
+      source: "native",
+      privacy_scope: "public_internet",
+      observed_at: "2026-07-09T19:55:00.000Z",
+      expires_at: "2026-07-09T20:45:00.000Z",
+    };
+    const customRelayURL = "https://relay.example.net/";
+    const fixture = makeFixture({
+      relayPreference: {
+        mode: "custom",
+        selectedManagedRelayIds: [],
+        customRelays: [{
+          id: "private-relay",
+          provider: "private",
+          region: "home",
+          url: customRelayURL,
+          authMode: "none",
+        }],
+      },
+      registrationPathHints: [
+        publicDirectHint,
+        relayHint(customRelayURL),
+        relayHint("https://substitution.example.net/"),
+        {
+          kind: "direct_address",
+          value: "10.0.0.2:4433",
+          source: "lan",
+          privacy_scope: "local_network",
+          observed_at: "2026-07-09T19:55:00.000Z",
+          expires_at: "2026-07-09T20:45:00.000Z",
+          network_profile: { source: "lan", profile_id: "local" },
+        },
+      ],
+    });
+
+    await Effect.runPromise(fixture.broker.register(
+      USER_A,
+      await fixture.signedRegistration(),
+      NOW,
+    ));
+
+    expect(fixture.repository.bindings[0]?.pathHints).toEqual([
+      publicDirectHint,
+      relayHint(customRelayURL),
+    ]);
+  });
+
   test("relay failure cannot roll back an authenticated registration", async () => {
     const fixture = makeFixture({ minterFailure: true });
     const result = await Effect.runPromise(

@@ -140,42 +140,6 @@ struct CmxIrohServerSessionTests {
     }
 
     @Test
-    func applicationLaneHeaderTimeoutStopsTheStream() async throws {
-        let fixture = try ServerFixture(decision: .accepted)
-        let stalledReceive = TestBlockingIrohReceiveStream(buffer: Data())
-        let stalledSend = TestIrohSendStream()
-        let clock = ServerSessionManualClock()
-        let connection = TestIrohConnection(
-            remoteIdentity: fixture.peerID,
-            bidirectionalStreams: [
-                fixture.controlStream,
-                CmxIrohBidirectionalStream(
-                    receiveStream: stalledReceive,
-                    sendStream: stalledSend
-                ),
-            ]
-        )
-        let session = try CmxIrohServerSession(
-            connection: connection,
-            authorizer: fixture.authorizer,
-            protocolConfiguration: .testApplicationLanes,
-            streamHeaderClock: clock,
-            streamHeaderTimeout: 1
-        )
-        _ = try await session.admit()
-        let accept = Task { try await session.acceptBidirectionalLane() }
-        await clock.waitUntilSleeping()
-
-        await clock.fire()
-
-        await #expect(throws: CmxIrohServerSessionError.streamHeaderTimedOut) {
-            try await accept.value
-        }
-        #expect(await stalledSend.observedResetCodes() == [1])
-        #expect(await stalledReceive.observedStoppedCodes() == [1])
-    }
-
-    @Test
     func denialSendsFixedAckThenClosesTheConnection() async throws {
         let fixture = try ServerFixture(decision: .denied(code: 7))
         let connection = TestIrohConnection(

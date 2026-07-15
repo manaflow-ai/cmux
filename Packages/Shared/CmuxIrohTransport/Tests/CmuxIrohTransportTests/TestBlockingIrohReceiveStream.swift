@@ -3,14 +3,19 @@ import Foundation
 
 actor TestBlockingIrohReceiveStream: CmxIrohReceiveStream {
     private var buffer: Data
+    private let cancellationUnblocksReceive: Bool
     private var waiter: CheckedContinuation<Data?, any Error>?
     private var cancelled = false
     private var stoppedCodes: [UInt64] = []
     private let blockedStream: AsyncStream<Void>
     private let blockedContinuation: AsyncStream<Void>.Continuation
 
-    init(buffer: Data) {
+    init(
+        buffer: Data,
+        cancellationUnblocksReceive: Bool = true
+    ) {
         self.buffer = buffer
+        self.cancellationUnblocksReceive = cancellationUnblocksReceive
         let blocked = AsyncStream<Void>.makeStream()
         blockedStream = blocked.stream
         blockedContinuation = blocked.continuation
@@ -26,8 +31,13 @@ actor TestBlockingIrohReceiveStream: CmxIrohReceiveStream {
             buffer.removeFirst(count)
             return value
         }
-        try Task.checkCancellation()
         blockedContinuation.yield()
+        guard cancellationUnblocksReceive else {
+            return try await withCheckedThrowingContinuation { continuation in
+                waiter = continuation
+            }
+        }
+        try Task.checkCancellation()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 if cancelled {
@@ -53,6 +63,11 @@ actor TestBlockingIrohReceiveStream: CmxIrohReceiveStream {
 
     func observedStoppedCodes() -> [UInt64] {
         stoppedCodes
+    }
+
+    func releaseWithoutStopping() {
+        waiter?.resume(returning: nil)
+        waiter = nil
     }
 
     private func cancelWaiter() {
