@@ -15,13 +15,14 @@ public struct KeyboardShortcutsSection: View {
     ///
     /// - Parameters:
     ///   - jsonStore: The authoritative `cmux.json` settings store.
-    ///   - userDefaultsStore: The store containing compatibility shortcut overrides.
+    ///   - userDefaultsStore: The store containing compatibility shortcut overrides, or `nil`
+    ///     to preserve the pre-compatibility behavior for existing package consumers.
     ///   - catalog: The settings key catalog shared with the stores.
     ///   - errorLog: The error sink for failed JSON writes.
     ///   - hostActions: Host callbacks for opening the external configuration editor.
     public init(
         jsonStore: JSONConfigStore,
-        userDefaultsStore: UserDefaultsSettingsStore,
+        userDefaultsStore: UserDefaultsSettingsStore? = nil,
         catalog: SettingCatalog,
         errorLog: SettingsErrorLog,
         hostActions: SettingsHostActions

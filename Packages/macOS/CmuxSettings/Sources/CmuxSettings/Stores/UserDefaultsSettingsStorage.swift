@@ -20,6 +20,10 @@ final class UserDefaultsSettingsStorage: @unchecked Sendable {
         Value.decodeFromUserDefaults(defaults.object(forKey: key.userDefaultsKey))
     }
 
+    func hasStoredValue(for key: String) -> Bool {
+        defaults.object(forKey: key) != nil
+    }
+
     func set<Value>(_ value: Value, for key: DefaultsKey<Value>) {
         key.set(value, in: defaults)
     }

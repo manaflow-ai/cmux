@@ -15,7 +15,7 @@ import Testing
             setup.removePersistentDomain(forName: suiteName)
             for (action, shortcut) in legacyBindings {
                 setup.set(
-                    shortcut.encodeForUserDefaults(),
+                    try legacyShortcutData(shortcut),
                     forKey: "shortcut.\(action.rawValue)"
                 )
             }
@@ -26,6 +26,30 @@ import Testing
             ),
             suiteName
         )
+    }
+
+    private func legacyShortcutData(_ shortcut: StoredShortcut) throws -> Data {
+        var payload: [String: Any] = [
+            "key": shortcut.first.key,
+            "command": shortcut.first.command,
+            "shift": shortcut.first.shift,
+            "option": shortcut.first.option,
+            "control": shortcut.first.control,
+            "chordCommand": shortcut.second?.command ?? false,
+            "chordShift": shortcut.second?.shift ?? false,
+            "chordOption": shortcut.second?.option ?? false,
+            "chordControl": shortcut.second?.control ?? false,
+        ]
+        if let keyCode = shortcut.first.keyCode {
+            payload["keyCode"] = keyCode
+        }
+        if let second = shortcut.second {
+            payload["chordKey"] = second.key
+            if let keyCode = second.keyCode {
+                payload["chordKeyCode"] = keyCode
+            }
+        }
+        return try JSONSerialization.data(withJSONObject: payload)
     }
 
     private func makeJSONStore() -> JSONConfigStore {
@@ -47,7 +71,8 @@ import Testing
         let legacyShortcut = StoredShortcut(first: ShortcutStroke(
             key: "]",
             command: true,
-            shift: true
+            shift: true,
+            keyCode: 30
         ))
         let (defaultsStore, suiteName) = try makeDefaultsStore(
             legacyBindings: [.nextSidebarTab: legacyShortcut]

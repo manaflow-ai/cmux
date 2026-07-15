@@ -8,8 +8,11 @@ extension UserDefaultsSettingsStore {
     public nonisolated func initialLegacyShortcutBindings() -> [String: StoredShortcut] {
         Dictionary(uniqueKeysWithValues: ShortcutAction.allCases.compactMap { action in
             let key = Self.legacyShortcutKey(for: action)
-            guard let shortcut = storage.valueIfPresent(for: key) else { return nil }
-            return (action.rawValue, shortcut)
+            guard let data = storage.valueIfPresent(for: key),
+                  let payload = try? JSONDecoder().decode(LegacyStoredShortcutPayload.self, from: data) else {
+                return nil
+            }
+            return (action.rawValue, payload.storedShortcut)
         })
     }
 
@@ -18,7 +21,7 @@ extension UserDefaultsSettingsStore {
     /// - Parameter action: The shortcut action whose legacy value should be removed.
     public func resetLegacyShortcutBinding(for action: ShortcutAction) {
         let key = Self.legacyShortcutKey(for: action)
-        guard storage.valueIfPresent(for: key) != nil else { return }
+        guard storage.hasStoredValue(for: key.userDefaultsKey) else { return }
         reset(key)
     }
 
@@ -31,10 +34,10 @@ extension UserDefaultsSettingsStore {
 
     private nonisolated static func legacyShortcutKey(
         for action: ShortcutAction
-    ) -> DefaultsKey<StoredShortcut> {
+    ) -> DefaultsKey<Data> {
         DefaultsKey(
             id: "shortcuts.legacy.\(action.rawValue)",
-            defaultValue: .unbound,
+            defaultValue: Data(),
             userDefaultsKey: "shortcut.\(action.rawValue)"
         )
     }
