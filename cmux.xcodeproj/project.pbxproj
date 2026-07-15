@@ -922,7 +922,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C0DEF0B30000000000000001 /* KeyboardShortcutSettingsFileStoreMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0B30000000000000002 /* KeyboardShortcutSettingsFileStoreMigrationTests.swift */; };
 		E3337001E3337001E3337001 /* KeyboardShortcutSettingsFileStoreStartupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3337002E3337002E3337002 /* KeyboardShortcutSettingsFileStoreStartupTests.swift */; };
 		C1713004C1713004C1713004 /* KeyboardShortcutSettingsLookup.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1713003C1713003C1713003 /* KeyboardShortcutSettingsLookup.swift */; };
-		468170000000000000000001 /* KeyboardShortcutSettingsObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468170000000000000000002 /* KeyboardShortcutSettingsObserver.swift */; };
 		468160000000000000000001 /* KeyboardShortcutSettingsObserverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468160000000000000000002 /* KeyboardShortcutSettingsObserverTests.swift */; };
 		A17110000000000000000001 /* KeyboardShortcutSpaceKeyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17110000000000000000002 /* KeyboardShortcutSpaceKeyTests.swift */; };
 		C34670040000000000000001 /* KeyboardShortcutTestSettingsIsolation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34670040000000000000002 /* KeyboardShortcutTestSettingsIsolation.swift */; };
@@ -2838,7 +2837,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C0DEF0B30000000000000002 /* KeyboardShortcutSettingsFileStoreMigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSettingsFileStoreMigrationTests.swift; sourceTree = "<group>"; };
 		E3337002E3337002E3337002 /* KeyboardShortcutSettingsFileStoreStartupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSettingsFileStoreStartupTests.swift; sourceTree = "<group>"; };
 		C1713003C1713003C1713003 /* KeyboardShortcutSettingsLookup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSettingsLookup.swift; sourceTree = "<group>"; };
-		468170000000000000000002 /* KeyboardShortcutSettingsObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSettingsObserver.swift; sourceTree = "<group>"; };
 		468160000000000000000002 /* KeyboardShortcutSettingsObserverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSettingsObserverTests.swift; sourceTree = "<group>"; };
 		A17110000000000000000002 /* KeyboardShortcutSpaceKeyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSpaceKeyTests.swift; sourceTree = "<group>"; };
 		C34670040000000000000002 /* KeyboardShortcutTestSettingsIsolation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutTestSettingsIsolation.swift; sourceTree = "<group>"; };
@@ -4406,7 +4404,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A50012F6 /* KeyboardShortcutRecorder.swift */,
 				A50012F9 /* KeyboardShortcutSettingsControls.swift */,
 				A5F10010A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore.swift */,
-				468170000000000000000002 /* KeyboardShortcutSettingsObserver.swift */,
 				F7216003000000000000002 /* KeyboardShortcutSettingsFileStore+SectionParsers.swift */,
 				A6AC73030000000000000002 /* KeyboardShortcutSettingsFileStore+SidebarIndicators.swift */,
 				D5671302D5671302D5671302 /* KeyboardShortcutSettingsFileStore+TerminalScrollSpeed.swift */,
@@ -6792,7 +6789,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D5671301D5671301D5671301 /* KeyboardShortcutSettingsFileStore+TerminalScrollSpeed.swift in Sources */,
 				A5F10011A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore.swift in Sources */,
 				C1713004C1713004C1713004 /* KeyboardShortcutSettingsLookup.swift in Sources */,
-				468170000000000000000001 /* KeyboardShortcutSettingsObserver.swift in Sources */,
 				53750022A0B1C2D3E4F50022 /* MacAuthComposition.swift in Sources */,
 				D1F0A00600000000000000C1 /* MacPairedMacBackupBody.swift in Sources */,
 				D1F0A00700000000000000C1 /* MacPairedMacBackupOpWire.swift in Sources */,
