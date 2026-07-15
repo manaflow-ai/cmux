@@ -152,6 +152,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C0DE74140000000000000001 /* AppDelegate+SavedLayoutMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE74140000000000000002 /* AppDelegate+SavedLayoutMenu.swift */; };
 		6419A0016419A0016419A001 /* AppDelegate+ShortcutRoutingTesting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6419A0026419A0026419A002 /* AppDelegate+ShortcutRoutingTesting.swift */; };
 		6419A0036419A0036419A003 /* AppDelegate+ShortcutRoutingWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6419A0046419A0046419A004 /* AppDelegate+ShortcutRoutingWindow.swift */; };
+		D5B10000000000000000000A /* AppDelegate+SubrouterPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5F10000000000000000000A /* AppDelegate+SubrouterPane.swift */; };
 		DCDC1000000000000000C030 /* AppDelegate+WindowDock.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000C031 /* AppDelegate+WindowDock.swift */; };
 		4805E1513D104D02B52A9807 /* AppDelegate+WindowFramePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4085E612770476FA272C012 /* AppDelegate+WindowFramePolicy.swift */; };
 		604500100000000000000005 /* AppDelegate+WindowIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 604500100000000000000006 /* AppDelegate+WindowIdentity.swift */; };
@@ -1534,6 +1535,17 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C0DE70500000000000000002 /* start-cmux-profiling in Copy CLI */ = {isa = PBXBuildFile; fileRef = C0DE70500000000000000001 /* start-cmux-profiling */; };
 		D35B71010000000000000001 /* StartupBreadcrumbLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B71010000000000000002 /* StartupBreadcrumbLog.swift */; };
 		C0DE70530000000000000002 /* submit-cmux-profile in Copy CLI */ = {isa = PBXBuildFile; fileRef = C0DE70530000000000000001 /* submit-cmux-profile */; };
+		D5B200000000000000000003 /* subrouter in Copy CLI */ = {isa = PBXBuildFile; fileRef = D5F200000000000000000002 /* subrouter */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		D5B100000000000000000001 /* SubrouterAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5F100000000000000000001 /* SubrouterAccount.swift */; };
+		D5B100000000000000000002 /* SubrouterAccountService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5F100000000000000000002 /* SubrouterAccountService.swift */; };
+		D5B100000000000000000003 /* SubrouterAccountServiceError.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5F100000000000000000003 /* SubrouterAccountServiceError.swift */; };
+		D5B100000000000000000004 /* SubrouterAccountServicing.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5F100000000000000000004 /* SubrouterAccountServicing.swift */; };
+		D5B200000000000000000001 /* SubrouterExecutable.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5F200000000000000000001 /* SubrouterExecutable.swift */; };
+		D5B200000000000000000002 /* SubrouterExecutable.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5F200000000000000000001 /* SubrouterExecutable.swift */; };
+		D5B100000000000000000005 /* SubrouterPaneFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5F100000000000000000005 /* SubrouterPaneFailure.swift */; };
+		D5B100000000000000000007 /* SubrouterPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5F100000000000000000007 /* SubrouterPanel.swift */; };
+		D5B100000000000000000008 /* SubrouterPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5F100000000000000000008 /* SubrouterPanelView.swift */; };
+		D5B100000000000000000006 /* SubrouterPaneModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5F100000000000000000006 /* SubrouterPaneModel.swift */; };
 		D7AB00000000000000B041 /* SupersededPhoneDismissBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000B040 /* SupersededPhoneDismissBuffer.swift */; };
 		F6572012A1B2C3D4E5F60718 /* SurfaceResumeBindingCodexUpdateCheckTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6572013A1B2C3D4E5F60718 /* SurfaceResumeBindingCodexUpdateCheckTests.swift */; };
 		F0ACC0DE000000000000000F /* SurfaceResumeBindingIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0ACC0DE0000000000000010 /* SurfaceResumeBindingIndex.swift */; };
@@ -1816,6 +1828,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C548600A000000000000001 /* Workspace+SessionRestoreIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C548600A000000000000002 /* Workspace+SessionRestoreIdentity.swift */; };
 		C7268002000000000000001 /* Workspace+SidebarDirectories.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7268002000000000000002 /* Workspace+SidebarDirectories.swift */; };
 		C3744E100000000000000001 /* Workspace+SidebarStatusVisibility.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3744E100000000000000002 /* Workspace+SidebarStatusVisibility.swift */; };
+		D5B100000000000000000009 /* Workspace+SubrouterPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5F100000000000000000009 /* Workspace+SubrouterPane.swift */; };
 		CA52B0170000000000000000 /* Workspace+SurfaceNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0170000000000000000 /* Workspace+SurfaceNavigation.swift */; };
 		4DF302A0C8164672B8547449 /* Workspace+TitleOwnership.swift in Sources */ = {isa = PBXBuildFile; fileRef = D21553D9A12B4EE4974E1943 /* Workspace+TitleOwnership.swift */; };
 		9ACC298766940729D65B3651 /* Workspace+TodoNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97A8F8FE70450C596AE80D94 /* Workspace+TodoNotifications.swift */; };
@@ -1957,6 +1970,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 					D1BEF00002A1B2C3D4E5F719 /* open in Copy CLI */,
 					C0DE70500000000000000002 /* start-cmux-profiling in Copy CLI */,
 					C0DE70530000000000000002 /* submit-cmux-profile in Copy CLI */,
+				D5B200000000000000000003 /* subrouter in Copy CLI */,
 				);
 			name = "Copy CLI";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -2117,6 +2131,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C0DE74140000000000000002 /* AppDelegate+SavedLayoutMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+SavedLayoutMenu.swift"; sourceTree = "<group>"; };
 		6419A0026419A0026419A002 /* AppDelegate+ShortcutRoutingTesting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+ShortcutRoutingTesting.swift"; sourceTree = "<group>"; };
 		6419A0046419A0046419A004 /* AppDelegate+ShortcutRoutingWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+ShortcutRoutingWindow.swift"; sourceTree = "<group>"; };
+		D5F10000000000000000000A /* AppDelegate+SubrouterPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+SubrouterPane.swift"; sourceTree = "<group>"; };
 		DCDC1000000000000000C031 /* AppDelegate+WindowDock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+WindowDock.swift"; sourceTree = "<group>"; };
 		B4085E612770476FA272C012 /* AppDelegate+WindowFramePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+WindowFramePolicy.swift"; sourceTree = "<group>"; };
 		604500100000000000000006 /* AppDelegate+WindowIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+WindowIdentity.swift"; sourceTree = "<group>"; };
@@ -3420,6 +3435,16 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C0DE70500000000000000001 /* start-cmux-profiling */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "Resources/bin/start-cmux-profiling"; sourceTree = SOURCE_ROOT; };
 		D35B71010000000000000002 /* StartupBreadcrumbLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/StartupBreadcrumbLog.swift; sourceTree = "<group>"; };
 		C0DE70530000000000000001 /* submit-cmux-profile */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = "Resources/bin/submit-cmux-profile"; sourceTree = SOURCE_ROOT; };
+		D5F200000000000000000002 /* subrouter */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; path = Resources/bin/subrouter; sourceTree = SOURCE_ROOT; };
+		D5F100000000000000000001 /* SubrouterAccount.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/SubrouterAccount.swift; sourceTree = "<group>"; };
+		D5F100000000000000000002 /* SubrouterAccountService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/SubrouterAccountService.swift; sourceTree = "<group>"; };
+		D5F100000000000000000003 /* SubrouterAccountServiceError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/SubrouterAccountServiceError.swift; sourceTree = "<group>"; };
+		D5F100000000000000000004 /* SubrouterAccountServicing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/SubrouterAccountServicing.swift; sourceTree = "<group>"; };
+		D5F200000000000000000001 /* SubrouterExecutable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubrouterExecutable.swift; sourceTree = "<group>"; };
+		D5F100000000000000000005 /* SubrouterPaneFailure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/SubrouterPaneFailure.swift; sourceTree = "<group>"; };
+		D5F100000000000000000007 /* SubrouterPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/SubrouterPanel.swift; sourceTree = "<group>"; };
+		D5F100000000000000000008 /* SubrouterPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/SubrouterPanelView.swift; sourceTree = "<group>"; };
+		D5F100000000000000000006 /* SubrouterPaneModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/SubrouterPaneModel.swift; sourceTree = "<group>"; };
 		D7AB00000000000000B040 /* SupersededPhoneDismissBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SupersededPhoneDismissBuffer.swift; sourceTree = "<group>"; };
 		F6572013A1B2C3D4E5F60718 /* SurfaceResumeBindingCodexUpdateCheckTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeBindingCodexUpdateCheckTests.swift; sourceTree = "<group>"; };
 		F0ACC0DE0000000000000010 /* SurfaceResumeBindingIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeBindingIndex.swift; sourceTree = "<group>"; };
@@ -3702,6 +3727,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C548600A000000000000002 /* Workspace+SessionRestoreIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SessionRestoreIdentity.swift"; sourceTree = "<group>"; };
 		C7268002000000000000002 /* Workspace+SidebarDirectories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SidebarDirectories.swift"; sourceTree = "<group>"; };
 		C3744E100000000000000002 /* Workspace+SidebarStatusVisibility.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SidebarStatusVisibility.swift"; sourceTree = "<group>"; };
+		D5F100000000000000000009 /* Workspace+SubrouterPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SubrouterPane.swift"; sourceTree = "<group>"; };
 		CA52C0170000000000000000 /* Workspace+SurfaceNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SurfaceNavigation.swift"; sourceTree = "<group>"; };
 		D21553D9A12B4EE4974E1943 /* Workspace+TitleOwnership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+TitleOwnership.swift"; sourceTree = "<group>"; };
 		97A8F8FE70450C596AE80D94 /* Workspace+TodoNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+TodoNotifications.swift"; sourceTree = "<group>"; };
@@ -3902,6 +3928,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			children = (
 				B2E7294509CC42FE9191870E /* xterm-ghostty */,
 				A5002001 /* THIRD_PARTY_LICENSES.md */,
+				D5F200000000000000000002 /* subrouter */,
 					C1ADE20001A1B2C3D4E5F719 /* cmux-claude-wrapper */,
 					C1ADE30001A1B2C3D4E5F719 /* cmux-codex-wrapper */,
 					C1ADE10001A1B2C3D4E5F719 /* grok */,
@@ -4330,6 +4357,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A6D1F0000000000000000001 /* ReleasingWindowController.swift */,
 				A500D011A1B2C3D4E5F60718 /* DebugLogging.swift */,
 				D35B71010000000000000002 /* StartupBreadcrumbLog.swift */,
+				D5F200000000000000000001 /* SubrouterExecutable.swift */,
 				A50016B0A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift */,
 				9AD52285508B1D6A9875E7B3 /* SidebarSelectionState.swift */,
 				B9000017A1B2C3D4E5F60719 /* WindowDragHandleView.swift */,
@@ -4424,6 +4452,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				56EA28B32C38ED8C753C82D3 /* TabItemView+WorkspaceTodo.swift */,
 				E9E7BB6EF7C9F8D2C681999D /* SidebarWorkspaceChecklistView.swift */,
 				C30350CE2602EEAFBD873DC9 /* Workspace+TodoPane.swift */,
+				D5F100000000000000000009 /* Workspace+SubrouterPane.swift */,
+				D5F10000000000000000000A /* AppDelegate+SubrouterPane.swift */,
 				BAC8DE2AF74EC2C272681A75 /* SidebarWorkspaceChecklistPopover.swift */,
 				3896D9D4AD4D31A54882813E /* SidebarWorkspaceStatusPopover.swift */,
 				4AEAD128139F57CB0E5BD39E /* SidebarWorkspaceTodoPopoverHost.swift */,
@@ -4925,6 +4955,14 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5001418 /* MarkdownPanel.swift */,
 				8311EFDE1BC83CBAB1F21B6F /* WorkspaceTodoPanelView.swift */,
 				28F2A069A4931E9403474975 /* WorkspaceTodoPanel.swift */,
+				D5F100000000000000000001 /* SubrouterAccount.swift */,
+				D5F100000000000000000002 /* SubrouterAccountService.swift */,
+				D5F100000000000000000003 /* SubrouterAccountServiceError.swift */,
+				D5F100000000000000000004 /* SubrouterAccountServicing.swift */,
+				D5F100000000000000000005 /* SubrouterPaneFailure.swift */,
+				D5F100000000000000000006 /* SubrouterPaneModel.swift */,
+				D5F100000000000000000007 /* SubrouterPanel.swift */,
+				D5F100000000000000000008 /* SubrouterPanelView.swift */,
 				A50014F0 /* MarkdownPanelFileLinkResolver.swift */,
 				F5168A030000000000000002 /* MarkdownFontSizeSettings.swift */,
 				F5168A040000000000000002 /* MarkdownFontFamily.swift */,
@@ -6360,6 +6398,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE74140000000000000001 /* AppDelegate+SavedLayoutMenu.swift in Sources */,
 				6419A0016419A0016419A001 /* AppDelegate+ShortcutRoutingTesting.swift in Sources */,
 				6419A0036419A0036419A003 /* AppDelegate+ShortcutRoutingWindow.swift in Sources */,
+				D5B10000000000000000000A /* AppDelegate+SubrouterPane.swift in Sources */,
 				DCDC1000000000000000C030 /* AppDelegate+WindowDock.swift in Sources */,
 				4805E1513D104D02B52A9807 /* AppDelegate+WindowFramePolicy.swift in Sources */,
 				604500100000000000000005 /* AppDelegate+WindowIdentity.swift in Sources */,
@@ -7138,6 +7177,15 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					A6AC72070000000000000001 /* SpinnerSpec.swift in Sources */,
 					E30780000000000000000012 /* SSHPTYAttachStartupCommandBuilder.swift in Sources */,
 				D35B71010000000000000001 /* StartupBreadcrumbLog.swift in Sources */,
+				D5B100000000000000000001 /* SubrouterAccount.swift in Sources */,
+				D5B100000000000000000002 /* SubrouterAccountService.swift in Sources */,
+				D5B100000000000000000003 /* SubrouterAccountServiceError.swift in Sources */,
+				D5B100000000000000000004 /* SubrouterAccountServicing.swift in Sources */,
+				D5B200000000000000000001 /* SubrouterExecutable.swift in Sources */,
+				D5B100000000000000000005 /* SubrouterPaneFailure.swift in Sources */,
+				D5B100000000000000000007 /* SubrouterPanel.swift in Sources */,
+				D5B100000000000000000008 /* SubrouterPanelView.swift in Sources */,
+				D5B100000000000000000006 /* SubrouterPaneModel.swift in Sources */,
 				D7AB00000000000000B041 /* SupersededPhoneDismissBuffer.swift in Sources */,
 				F0ACC0DE000000000000000F /* SurfaceResumeBindingIndex.swift in Sources */,
 				F6572010A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+CodexUpdateCheck.swift in Sources */,
@@ -7364,6 +7412,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C548600A000000000000001 /* Workspace+SessionRestoreIdentity.swift in Sources */,
 				C7268002000000000000001 /* Workspace+SidebarDirectories.swift in Sources */,
 				C3744E100000000000000001 /* Workspace+SidebarStatusVisibility.swift in Sources */,
+				D5B100000000000000000009 /* Workspace+SubrouterPane.swift in Sources */,
 				CA52B0170000000000000000 /* Workspace+SurfaceNavigation.swift in Sources */,
 				4DF302A0C8164672B8547449 /* Workspace+TitleOwnership.swift in Sources */,
 				9ACC298766940729D65B3651 /* Workspace+TodoNotifications.swift in Sources */,
@@ -7502,6 +7551,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				E60610100000000000000002 /* SSHPTYAttachReconnectInputFilterSequenceMatch.swift in Sources */,
 				E60610300000000000000002 /* SSHPTYAttachReconnectInputFilterState.swift in Sources */,
 				6379A0046379A0046379A004 /* SSHPTYResizeMonitor.swift in Sources */,
+				D5B200000000000000000002 /* SubrouterExecutable.swift in Sources */,
 				A6AC720A0000000000000001 /* WorkspaceLoadingArguments.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

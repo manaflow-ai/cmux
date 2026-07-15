@@ -76,6 +76,7 @@ extension AppDelegate {
             newWorkspaceContextMenuItems: cmuxConfigStore.newWorkspaceContextMenuItems,
             agentChatAction: resolvedBuiltInNewAgentChatAction(cmuxConfigStore: cmuxConfigStore),
             cloudSectionEnabled: CmuxFeatureFlags.shared.isCloudVMUIEnabled,
+            subrouterSectionEnabled: true,
             templateNames: savedLayoutNames(),
             loadedActions: cmuxConfigStore.loadedActions,
             newWorkspaceActionID: cmuxConfigStore.newWorkspaceActionID,

@@ -5471,6 +5471,8 @@ struct ContentView: View {
             return String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
         case .workspaceTodo:
             return String(localized: "commandPalette.kind.workspaceTodo", defaultValue: "Todos")
+        case .subrouter:
+            return String(localized: "commandPalette.kind.subrouter", defaultValue: "Subrouter")
         case .cloudVMLoading:
             return String(localized: "commandPalette.kind.cloudVMLoading", defaultValue: "Cloud VM")
         }
@@ -5497,6 +5499,8 @@ struct ContentView: View {
             return ["sidebar", "extensions", "extensionkit", "browser"]
         case .workspaceTodo:
             return ["todo", "todos", "checklist", "task", "status"]
+        case .subrouter:
+            return ["subrouter", "accounts", "codex", "router"]
         case .cloudVMLoading:
             return ["cloud", "vm", "loading"]
         }
@@ -6281,6 +6285,14 @@ struct ContentView: View {
             )
         )
         contributions.append(contentsOf: Self.commandPaletteNewAgentChatContributions())
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.openSubrouterPane",
+                title: constant(String(localized: "command.openSubrouterPane.title", defaultValue: "Open Subrouter Pane")),
+                subtitle: constant(String(localized: "command.openSubrouterPane.subtitle", defaultValue: "Provider Accounts")),
+                keywords: ["open", "subrouter", "accounts", "codex", "router"]
+            )
+        )
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.newWindow",
@@ -7511,6 +7523,12 @@ struct ContentView: View {
             }
         }
         registerAgentChatCommandPaletteHandler(&registry)
+        registry.register(commandId: "palette.openSubrouterPane") {
+            guard AppDelegate.shared?.openSubrouterPane(tabManager: tabManager) == true else {
+                NSSound.beep()
+                return
+            }
+        }
         registry.register(commandId: "palette.openFolder") {
             // Defer so the command palette dismisses before the modal sheet appears.
             DispatchQueue.main.async {
@@ -10915,7 +10933,7 @@ struct VerticalTabsSidebar: View {
             return .project
         case .extensionBrowser:
             return .unknown
-        case .workspaceTodo, .cloudVMLoading:
+        case .workspaceTodo, .subrouter, .cloudVMLoading:
             return .unknown
         }
     }

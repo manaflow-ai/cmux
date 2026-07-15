@@ -14,6 +14,39 @@ import CMUXMobileCore
 /// tolerates both wire shapes. These run without any network or running app.
 @Suite struct RemotesClientTests {
 
+    @MainActor
+    @Test func subrouterPaneLoadsAndAddsCodexAccounts() async throws {
+        let listed = SubrouterAccount(id: "existing@example.com", provider: "codex", authMode: "oauth")
+        let added = SubrouterAccount(id: "added@example.com", provider: "codex", authMode: "oauth")
+        let model = SubrouterPaneModel(
+            service: SubrouterAccountServiceStub(listed: [listed], added: [listed, added])
+        )
+
+        await model.load()
+        #expect(model.accounts == [listed])
+        #expect(model.failure == nil)
+
+        await model.addCodexAccount()
+        #expect(model.accounts == [listed, added])
+        #expect(model.didAddCodexAccount)
+    }
+
+    @Test func subrouterParsesBundledAccountsOutput() throws {
+        let accounts = try SubrouterAccountService.parseAccounts("""
+        first@example.com\tcodex\toauth
+        apikey:work\topenai\tapikey
+
+        """)
+        #expect(accounts == [
+            SubrouterAccount(id: "first@example.com", provider: "codex", authMode: "oauth"),
+            SubrouterAccount(id: "apikey:work", provider: "openai", authMode: "apikey"),
+        ])
+    }
+
+    @Test func subrouterTreatsNoAccountsMessageAsEmpty() throws {
+        #expect(try SubrouterAccountService.parseAccounts("No Codex accounts found. Run: subrouter add\n").isEmpty)
+    }
+
     // MARK: - Route parsing
 
     @Test func parsesPlainHostPort() throws {
@@ -256,6 +289,19 @@ import CMUXMobileCore
     // CLI executable target, which `cmuxTests` does not link, so it cannot be
     // unit-tested here (referencing `CMUXCLI` breaks the test-target compile).
     // Its behavior is exercised via the tagged-build `remotes list` dogfood path.
+}
+
+private actor SubrouterAccountServiceStub: SubrouterAccountServicing {
+    let listed: [SubrouterAccount]
+    let added: [SubrouterAccount]
+
+    init(listed: [SubrouterAccount], added: [SubrouterAccount]) {
+        self.listed = listed
+        self.added = added
+    }
+
+    func listAccounts() async throws -> [SubrouterAccount] { listed }
+    func addLocalCodexAccount() async throws -> [SubrouterAccount] { added }
 }
 
 @Suite struct AIAccountCredentialSourcesTests {

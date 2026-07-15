@@ -14,6 +14,7 @@ public enum PanelType: String, Codable, Sendable {
     case project
     case extensionBrowser
     case workspaceTodo
+    case subrouter
     case cloudVMLoading
 
     public init(from decoder: Decoder) throws {

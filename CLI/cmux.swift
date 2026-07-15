@@ -3225,6 +3225,13 @@ struct CMUXCLI {
             return
         }
 
+        // Subrouter is a bundled sidecar, not a socket command. Replace this
+        // process so interactive OAuth, signals, and terminal I/O behave exactly
+        // like invoking `subrouter` or `sr` directly.
+        if command == "subrouter" || command == "sr" {
+            try runSubrouterCommand(program: command, arguments: commandArgs)
+        }
+
         // Check for --help/-h on subcommands before resolving sockets,
         // so help text is available even when cmux is not running.
         let preSeparatorArgs = commandArgs.firstIndex(of: "--").map { commandArgs[..<$0] } ?? commandArgs[...]
@@ -12943,9 +12950,10 @@ struct CMUXCLI {
 
     private func execInteractiveProgram(
         launchPath: String,
+        programName: String? = nil,
         arguments: [String]
     ) throws -> Never {
-        var argv = ([launchPath] + arguments).map { strdup($0) }
+        var argv = ([programName ?? launchPath] + arguments).map { strdup($0) }
         defer {
             for item in argv {
                 free(item)
@@ -12961,6 +12969,19 @@ struct CMUXCLI {
             }
         }
         throw CLIError(message: "Failed to launch \(launchPath): \(String(cString: strerror(code)))")
+    }
+
+    private func runSubrouterCommand(program: String, arguments: [String]) throws -> Never {
+        guard let executableURL = SubrouterExecutable.resolve(
+            executableURL: resolvedExecutableURL()
+        ) else {
+            throw CLIError(message: "Bundled Subrouter executable not found.")
+        }
+        try execInteractiveProgram(
+            launchPath: executableURL.path,
+            programName: program,
+            arguments: arguments
+        )
     }
 
     private func sshOptionValue(named key: String, in options: [String]) -> String? {
@@ -35195,6 +35216,7 @@ export default CMUXSessionRestore;
           vm <base|new|ls|status|snapshot|fork|restore|rm|exec|shell|ssh> [args...]    (alias: cloud)
           remotes <list|add|remove> [--route <host:port>] [--tag <tag>] [--json]    (alias: remote)
           ai-accounts <list|upload|remove> [--team <id>] [--json]
+          subrouter [args...]                                     (alias: sr)
           rpc <method> [json-params]
           identify [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--no-caller]
           list-windows

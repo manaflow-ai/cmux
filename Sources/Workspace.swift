@@ -510,6 +510,7 @@ extension Workspace {
         let rightSidebarToolSnapshot: SessionRightSidebarToolPanelSnapshot?; var customSidebarSnapshot: SessionCustomSidebarPanelSnapshot? = nil
         let agentSessionSnapshot: SessionAgentSessionPanelSnapshot?
         let projectSnapshot: SessionProjectPanelSnapshot?; var workspaceTodoSnapshot: SessionWorkspaceTodoPanelSnapshot? = nil
+        var subrouterSnapshot: SessionSubrouterPanelSnapshot? = nil
         switch panel.panelType {
         case .terminal:
             guard let terminalPanel = panel as? TerminalPanel else { return nil }
@@ -674,6 +675,10 @@ extension Workspace {
             terminalSnapshot = nil; browserSnapshot = nil; markdownSnapshot = nil; filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil; agentSessionSnapshot = nil; projectSnapshot = nil
             workspaceTodoSnapshot = SessionWorkspaceTodoPanelSnapshot()
+        case .subrouter:
+            terminalSnapshot = nil; browserSnapshot = nil; markdownSnapshot = nil; filePreviewSnapshot = nil
+            rightSidebarToolSnapshot = nil; agentSessionSnapshot = nil; projectSnapshot = nil
+            subrouterSnapshot = SessionSubrouterPanelSnapshot()
         case .extensionBrowser:
             return nil
         case .cloudVMLoading:
@@ -704,7 +709,9 @@ extension Workspace {
             rightSidebarTool: rightSidebarToolSnapshot,
             customSidebar: customSidebarSnapshot,
             agentSession: agentSessionSnapshot,
-            project: projectSnapshot, workspaceTodo: workspaceTodoSnapshot
+            project: projectSnapshot,
+            workspaceTodo: workspaceTodoSnapshot,
+            subrouter: subrouterSnapshot
         )
     }
     private func closedPanelHistoryEntry(panelId: UUID, tabId: TabID, pane: PaneID) -> ClosedPanelHistoryEntry? {
@@ -1668,6 +1675,14 @@ extension Workspace {
             guard let todoPanel = newWorkspaceTodoSurface(inPane: paneId, focus: false) else { return nil }
             applySessionPanelMetadata(snapshot, toPanelId: todoPanel.id)
             return todoPanel.id
+        case .subrouter:
+            guard let panel = newSubrouterSurface(
+                inPane: paneId,
+                service: SubrouterAccountService(),
+                focus: false
+            ) else { return nil }
+            applySessionPanelMetadata(snapshot, toPanelId: panel.id)
+            return panel.id
         case .extensionBrowser:
             return nil
         case .cloudVMLoading:
@@ -11563,6 +11578,11 @@ extension Workspace: BonsplitDelegate {
         // at the AppKit window level, so removing its SwiftUI host does not synchronously hide
         // the portal layer during a tab-selection transition.
         hideBrowserPortalsForDeselectedTabs(inPane: focusedPane, selectedTabId: selectedTabId)
+
+        // Terminal views also live in the AppKit window portal. Reconcile them from the
+        // committed Bonsplit selection now so a terminal cannot cover a newly selected
+        // native SwiftUI pane while that pane's view hierarchy is being mounted.
+        _ = reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
 
         if let focusWindow = activationWindow(for: panel) {
             yieldForeignOwnedFocusIfNeeded(

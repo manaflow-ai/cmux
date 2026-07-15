@@ -153,6 +153,13 @@ struct PanelContentView: View {
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }
+        case .subrouter:
+            if let subrouterPanel = panel as? SubrouterPanel {
+                SubrouterPanelView(
+                    panel: subrouterPanel,
+                    onRequestPanelFocus: onRequestPanelFocus
+                )
+            }
         case .cloudVMLoading:
             if let loadingPanel = panel as? CloudVMLoadingPanel {
                 CloudVMLoadingPanelView(panel: loadingPanel)
@@ -175,7 +182,7 @@ struct PanelContentView: View {
     private var shouldInstallPaneDropTarget: Bool {
         guard isVisibleInUI else { return false }
         switch panel.panelType {
-        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .agentSession, .project, .extensionBrowser, .workspaceTodo, .cloudVMLoading:
+        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .agentSession, .project, .extensionBrowser, .workspaceTodo, .subrouter, .cloudVMLoading:
             return true
         case .terminal, .browser:
             return false

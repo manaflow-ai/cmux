@@ -100,6 +100,22 @@ extension AppDelegate {
             case .cloud:
                 let cloudMenu = TitlebarCloudVMButton.makeCloudVMMenu()
                 addRenderedSection(cloudMenu.items)
+            case .subrouter:
+                let item = NSMenuItem(
+                    title: String(
+                        localized: "menu.newWorkspace.openSubrouterPane",
+                        defaultValue: "Open Subrouter Pane"
+                    ),
+                    action: #selector(performOpenSubrouterPaneMenuItem(_:)),
+                    keyEquivalent: ""
+                )
+                item.target = self
+                item.representedObject = context.windowId as NSUUID
+                item.image = NSImage(
+                    systemSymbolName: "point.3.connected.trianglepath.dotted",
+                    accessibilityDescription: nil
+                )
+                addRenderedSection([item])
             case .layouts(let rows):
                 var items: [NSMenuItem] = [
                     .sectionHeader(title: String(

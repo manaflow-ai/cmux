@@ -90,6 +90,7 @@ struct WorkspaceCanvasHostView: View {
         case .project: return "folder"
         case .extensionBrowser: return "puzzlepiece.extension"
         case .workspaceTodo: return "checklist"
+        case .subrouter: return "point.3.connected.trianglepath.dotted"
         case .cloudVMLoading: return "cloud.fill"
         }
     }

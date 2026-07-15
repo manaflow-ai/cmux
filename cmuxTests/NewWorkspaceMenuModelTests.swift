@@ -69,6 +69,49 @@ struct NewWorkspaceMenuModelTests {
     }
 
     @MainActor
+    @Test func subrouterSectionRendersOpenPaneAction() throws {
+        let model = NewWorkspaceMenuModel.build(
+            newWorkspaceContextMenuItems: [],
+            agentChatAction: nil,
+            cloudSectionEnabled: false,
+            subrouterSectionEnabled: true,
+            templateNames: [],
+            loadedActions: [],
+            newWorkspaceActionID: nil,
+            deletable: { _ in false },
+            sectionOrder: .customFirst
+        )
+        guard model.sections.count == 2,
+              case .subrouter = model.sections[0],
+              case .management = model.sections[1] else {
+            Issue.record("Expected Subrouter then management, got \(model.sections)")
+            return
+        }
+
+        let (store, root) = try loadStore(globalJSON: "{}")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager()
+        let windowId = appDelegate.registerMainWindowContextForTesting(
+            tabManager: tabManager,
+            cmuxConfigStore: store
+        )
+        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
+        let context = try #require(appDelegate.mainWindowContexts.values.first { $0.windowId == windowId })
+        let menu = try #require(appDelegate.renderNewWorkspaceContextMenu(
+            model: model,
+            context: context,
+            cmuxConfigStore: store
+        ))
+        #expect(menu.items.contains {
+            $0.title == String(
+                localized: "menu.newWorkspace.openSubrouterPane",
+                defaultValue: "Open Subrouter Pane"
+            )
+        })
+    }
+
+    @MainActor
     @Test func newWorkspaceMenuModelClassifiesAndOrdersSections() throws {
         let (store, root) = try loadStore(globalJSON: """
         {
