@@ -711,6 +711,14 @@ final class WindowTerminalPortal: NSObject {
         for observer in referenceGeometryObservers {
             NotificationCenter.default.removeObserver(observer)
         }
+        // Adoption clears each hosted view's autoresizing mask (see bind) and
+        // detach restores the saved one. A portal that dies without tearDown()
+        // /detachHostedView never restores them, so a surviving hosted view is
+        // left pinned at [] and the NEXT portal saves [] as its "original".
+        // Restore inline — deinit cannot hop to the @MainActor detach path.
+        for (hostedId, mask) in preAdoptionAutoresizingMaskByHostedId {
+            entriesByHostedId[hostedId]?.hostedView?.autoresizingMask = mask
+        }
     }
 
     init(window: NSWindow, syncLayout: Bool = true) {
