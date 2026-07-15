@@ -146,6 +146,12 @@ struct BrowserViewportLayoutTests {
 
         #expect(metrics?.viewportSize == CGSize(width: 1_280, height: 720))
         #expect(metrics?.scrollOffset == CGPoint(x: 10, y: 20))
+        #expect(metrics?.untransformedFullContentSnapshotRect(
+            in: CGRect(x: 0, y: 0, width: 1_280, height: 720)
+        ) == CGRect(x: 0, y: 0, width: 2_560, height: 2_160))
+        #expect(metrics?.untransformedFullContentSnapshotRect(
+            in: CGRect(x: 0, y: 0, width: 2_560, height: 1_440)
+        ) == nil)
     }
 
     @Test func temporaryReparentingRestoresOnlyWhileItOwnsTheWebView() {
@@ -210,10 +216,19 @@ struct BrowserViewportModelTests {
     @Test func attachedInspectorResetsEmulatedViewport() throws {
         let model = BrowserViewportModel()
         let viewport = try #require(BrowserViewport(width: 1_280, height: 720))
+        let inspectorManagedFrame = CGRect(x: 0, y: 0, width: 900, height: 640)
 
         model.setViewport(viewport)
-        #expect(model.resetForAttachedInspector())
+        let nativeLayout = try #require(model.resetForAttachedInspector(
+            webViewFrame: inspectorManagedFrame,
+            pageZoom: 2
+        ))
         #expect(model.viewport == nil)
-        #expect(!model.resetForAttachedInspector())
+        #expect(nativeLayout.frame == inspectorManagedFrame)
+        #expect(nativeLayout.webViewBounds == CGRect(x: 0, y: 0, width: 900, height: 640))
+        #expect(model.resetForAttachedInspector(
+            webViewFrame: inspectorManagedFrame,
+            pageZoom: 2
+        ) == nil)
     }
 }
