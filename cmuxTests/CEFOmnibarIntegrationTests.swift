@@ -109,6 +109,37 @@ struct CEFOmnibarIntegrationTests {
     }
 
     @Test
+    func detachedChromiumPanelRebindsToDestinationWorkspace() throws {
+        let source = Workspace()
+        let sourcePane = try #require(source.bonsplitController.allPaneIds.first)
+        let panel = CEFBrowserPanel(workspaceId: source.id)
+        source.panels[panel.id] = panel
+        source.panelTitles[panel.id] = panel.displayTitle
+        let tabID = try #require(source.bonsplitController.createTab(
+            title: panel.displayTitle,
+            icon: panel.displayIcon,
+            kind: "cefBrowser",
+            isDirty: false,
+            isLoading: false,
+            isPinned: false,
+            inPane: sourcePane
+        ))
+        source.bindSurface(tabID, toPanelId: panel.id)
+
+        let detached = try #require(source.detachSurface(panelId: panel.id))
+        let destination = Workspace()
+        let destinationPane = try #require(destination.bonsplitController.allPaneIds.first)
+        _ = try #require(destination.attachDetachedSurface(
+            detached,
+            inPane: destinationPane,
+            focus: false
+        ))
+
+        #expect(panel.workspaceId == destination.id)
+        #expect(destination.panelSubscriptions[panel.id] != nil)
+    }
+
+    @Test
     func extensionDownloadsRequirePinnedSHA256Digests() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
