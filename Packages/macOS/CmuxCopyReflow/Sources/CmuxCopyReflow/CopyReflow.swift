@@ -71,22 +71,14 @@ private extension ReflowOptions {
         }
         let stripped: [Substring] = displayStorage.map { $0[...] }
 
-        // Preserved view of each line: no common-indent stripping. It is emitted
-        // when a line never participates in a wrap join.
-        let preservedStorage: [String] = rawLines.indices.map { i in
-            switch lineKinds[i] {
-            case .fenceDelimiter, .insideFence:
-                return String(rawLines[i])
-            case .blank:
-                return ""
-            case .heading, .blockquote, .tableRow, .listItem, .urlLine, .prose:
-                return trimTrailingSpaceLike(rawLines[i])
-            }
-        }
+        // Preserved view of each line: no common-indent stripping or whitespace
+        // cleanup. It is emitted when a line never participates in a wrap join.
+        let preservedStorage = rawLines.map(String.init)
 
         // Pass 2: emit.
         var output: [String] = []
         var para: Paragraph?
+        var didJoin = false
 
         func flush() {
             if let p = para {
@@ -107,7 +99,7 @@ private extension ReflowOptions {
 
             case .blank:
                 flush()
-                output.append("")
+                output.append(preservedLine)
 
             case .heading, .blockquote, .tableRow:
                 // Structural lines are hard breaks and never absorb a continuation.
@@ -119,7 +111,7 @@ private extension ReflowOptions {
                 // own wrapped continuation can rejoin onto it.
                 flush()
                 para = Paragraph(
-                    text: preservedLine,
+                    text: trimTrailingSpaceLike(preservedLine[...]),
                     standaloneText: preservedLine,
                     hasJoined: false,
                     baseIndent: line.indentWidth,
@@ -211,6 +203,7 @@ private extension ReflowOptions {
                         let joiner = s3 ? "" : " "
                         p.text += joiner + content.trimmingLeadingWhitespace()
                         p.hasJoined = true
+                        didJoin = true
                         p.prevVisibleLength = visLen
                         p.maxVisibleLength = max(p.maxVisibleLength, visLen)
                         p.prevEndsTerminator = endsTerminator
@@ -227,6 +220,8 @@ private extension ReflowOptions {
             }
         }
         flush()
+
+        if !didJoin { return text }
 
         var result = output.joined(separator: "\n")
         if hadTrailingNewline && !result.hasSuffix("\n") {
