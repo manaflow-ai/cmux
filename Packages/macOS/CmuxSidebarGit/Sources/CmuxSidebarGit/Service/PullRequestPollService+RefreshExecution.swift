@@ -120,7 +120,8 @@ extension PullRequestPollService {
         }
 
         let shouldBypassRepoCache =
-            !survivingBypassRepoCacheKeys.isEmpty
+            (!survivingKeys.isEmpty && !request.allowCachedResults)
+            || !survivingBypassRepoCacheKeys.isEmpty
             || pendingSeedRefresh?.shouldBypassRepoCache == true
             || pendingRefreshRequest?.shouldBypassRepoCache == true
         startWorkspacePullRequestFollowUp(
