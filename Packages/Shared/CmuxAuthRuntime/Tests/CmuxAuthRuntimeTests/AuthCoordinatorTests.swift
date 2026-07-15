@@ -383,7 +383,13 @@ import Testing
 
         #expect(coordinator.isAuthenticated)
         #expect(coordinator.availableTeams.isEmpty)
+        #expect(coordinator.didResolveTeamScope == false)
+
+        await client.setThrowOnListTeams(nil)
+        await coordinator.revalidateSession()
+
         #expect(coordinator.didResolveTeamScope)
+        #expect(coordinator.resolvedTeamID == nil)
     }
 
     @Test func signOutClearsTeamsAndSelection() async throws {

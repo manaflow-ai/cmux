@@ -105,6 +105,18 @@ import Testing
             didResolveTeamScope: true,
             connectionState: .disconnected
         ))
+        #expect(MobileRootAuthGate.shouldWaitForTeamScope(
+            stackAuthenticated: true,
+            didResolveTeamScope: false
+        ))
+        #expect(!MobileRootAuthGate.shouldWaitForTeamScope(
+            stackAuthenticated: true,
+            didResolveTeamScope: true
+        ))
+        #expect(!MobileRootAuthGate.shouldWaitForTeamScope(
+            stackAuthenticated: false,
+            didResolveTeamScope: false
+        ))
     }
 
     @Test func showsRestoringStoredMacWhileReconnectingAKnownPairedMac() {
