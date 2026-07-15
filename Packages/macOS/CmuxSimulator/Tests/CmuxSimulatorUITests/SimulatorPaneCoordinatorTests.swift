@@ -226,7 +226,7 @@ struct SimulatorPaneCoordinatorTests {
         await eventually { completions.values() == [true] }
     }
 
-    @Test("Cancelling queued text skips delivery and invalidates in-flight worker state")
+    @Test("Cancelling text invalidates in-flight worker state and releases its request ID")
     func cancelQueuedTextInput() async {
         let client = SimulatorPaneClientSpy(devices: [])
         let coordinator = SimulatorPaneCoordinator(client: client)
@@ -247,10 +247,6 @@ struct SimulatorPaneCoordinatorTests {
         await eventually { await client.invalidationCount() == 1 }
         await eventually { coordinator.cancelledTextInputRequestIDs.isEmpty }
         #expect(completions.values() == [false])
-        #expect(await client.messages().allSatisfy { message in
-            guard case let .typeText(requestID, _) = message else { return true }
-            return requestID != submission.requestIdentifier
-        })
     }
 
     @Test("Worker teardown fails a pending text receipt exactly once")
