@@ -498,10 +498,10 @@ struct WorkspaceListView: View {
     /// saved legacy pairing never looks like an account or QR failure.
     var disconnectedConnectionFailureDescription: String? {
         guard connectionStatus == .unavailable else { return nil }
-        return MobileDisconnectedFailureCopy.combine(
+        return MobileDisconnectedFailureCopy(
             error: store?.connectionError,
             guidance: store?.connectionErrorGuidance
-        )
+        ).combined
     }
 
     private func updateMachineSnapshots(_ snapshots: WorkspaceMachineSnapshots) {
@@ -666,8 +666,11 @@ struct WorkspaceListView: View {
 
 /// Keeps the classified headline and its recovery guidance together anywhere
 /// the disconnected shell presents a failure.
-enum MobileDisconnectedFailureCopy {
-    static func combine(error: String?, guidance: String?) -> String? {
+struct MobileDisconnectedFailureCopy {
+    let error: String?
+    let guidance: String?
+
+    var combined: String? {
         let parts = [error, guidance].compactMap { value -> String? in
             guard let value else { return nil }
             let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)

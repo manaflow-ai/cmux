@@ -1710,28 +1710,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             self.isReconnectingStoredMac = false
             self.didFinishStoredMacReconnectAttempt = true
         }
-        // The registry endpoint returns every Mac for this account. Load it at
-        // most once, and only after a local route failed or was intentionally
-        // skipped. Reusing this immutable snapshot avoids one request per saved
-        // Mac and prevents one reconnect pass from mixing registry generations.
-        var didLoadRegistrySnapshot = false
-        var didSuccessfullyLoadRegistrySnapshot = false
-        var registrySnapshot: [RegistryDevice]?
-        func loadRegistrySnapshotIfNeeded() async -> [RegistryDevice]? {
-            if didLoadRegistrySnapshot { return registrySnapshot }
-            didLoadRegistrySnapshot = true
-            guard let deviceRegistry else { return nil }
-            switch await deviceRegistry.listDevices() {
-            case .ok(let devices):
-                didSuccessfullyLoadRegistrySnapshot = true
-                registrySnapshot = devices
-            case .authRejected, .transientFailure:
-                registrySnapshot = nil
-            }
-            return registrySnapshot
+        // Capture one coherent post-request view of the registry and paired-Mac
+        // store. The store read happens after the registry await, so an
+        // authenticated Presence write that lands during the request wins. The
+        // immutable indexes are then reused for every candidate, keeping this
+        // reconnect pass linear and on one authority generation.
+        var didLoadRefreshSnapshot = false
+        var refreshSnapshot: ReconnectRefreshSnapshot?
+        func loadRefreshSnapshotIfNeeded() async -> ReconnectRefreshSnapshot? {
+            if didLoadRefreshSnapshot { return refreshSnapshot }
+            didLoadRefreshSnapshot = true
+            refreshSnapshot = await loadReconnectRefreshSnapshot(scope: scope)
+            return refreshSnapshot
         }
 
-        var firstCandidateNeedsMacUpdate = false
+        var firstCandidateNeedingMacUpdateID: String?
         // Try each candidate until one connects, so a single offline Mac never
         // blocks the others.
         for (candidateIndex, mac) in candidates.enumerated() {
@@ -1745,7 +1738,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 || localRoutes.contains { $0.kind == .debugLoopback }
             let isLegacyPrivateNetworkPairing = !mac.routes.contains { $0.kind == .iroh }
                 && mac.routes.contains { $0.kind == .tailscale }
-            var foundPublishedIroh = localHasIroh
 
             // New clients never send a Stack bearer directly over a raw
             // Tailscale/TCP route. Such a saved route is a migration hint only;
@@ -1761,15 +1753,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     }
                 )
             }
-            if connectionState != .connected,
-               let refreshedRoutes = await freshReconnectRoutesAfterLocalFailure(
-                   for: mac,
-                   scope: scope,
-                   registryDevices: await loadRegistrySnapshotIfNeeded()
-               ) {
-                let refreshedHasIroh = refreshedRoutes.contains { $0.kind == .iroh }
-                foundPublishedIroh = foundPublishedIroh || refreshedHasIroh
-                if refreshedHasIroh || refreshedRoutes.contains(where: { $0.kind == .debugLoopback }) {
+            if connectionState != .connected {
+                switch await freshReconnectRoutesAfterLocalFailure(
+                    for: mac,
+                    scope: scope,
+                    snapshot: await loadRefreshSnapshotIfNeeded()
+                ) {
+                case .refreshedRoutes(let refreshedRoutes):
                     _ = await connectStoredMac(
                         name: mac.displayName ?? mac.macDeviceID,
                         routes: refreshedRoutes,
@@ -1779,15 +1769,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                             self?.storedMacReconnectGeneration == generation
                         }
                     )
+                case .confirmedMissingIroh:
+                    if isLegacyPrivateNetworkPairing,
+                       candidateIndex == candidates.startIndex {
+                        firstCandidateNeedingMacUpdateID = mac.macDeviceID
+                    }
+                case .inconclusive:
+                    break
                 }
             }
             if connectionState == .connected { break }
-            if isLegacyPrivateNetworkPairing,
-               candidateIndex == candidates.startIndex,
-               didSuccessfullyLoadRegistrySnapshot,
-               !foundPublishedIroh {
-                firstCandidateNeedsMacUpdate = true
-            }
         }
         restoringDeadline.cancel()
         // A newer attempt may have started during the connect; it now owns the flags.
@@ -1796,8 +1787,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         didFinishStoredMacReconnectAttempt = true
         if connectionState != .connected,
            !connectionRequiresReauth,
-           firstCandidateNeedsMacUpdate {
-            applyStoredMacUpdateRequiredFailure(disconnect: true)
+           let firstCandidateNeedingMacUpdateID {
+            let latestForgottenIDs = await forgottenMacDeviceIDs(scope: scope)
+            if generation == storedMacReconnectGeneration,
+               await isScopeCurrent(scope),
+               !latestForgottenIDs.contains(firstCandidateNeedingMacUpdateID) {
+                applyStoredMacUpdateRequiredFailure(disconnect: true)
+            }
         }
         return connectionState == .connected
     }
@@ -2200,8 +2196,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             || candidateRoutes.contains { $0.kind == .debugLoopback }
         let isLegacyPrivateNetworkPairing = !refreshedTarget.routes.contains { $0.kind == .iroh }
             && refreshedTarget.routes.contains { $0.kind == .tailscale }
-        var foundPublishedIroh = localHasIroh
-        var registryConfirmedMissingIroh = false
+        var refreshOutcome = ReconnectRouteRefreshOutcome.inconclusive
 
         if localCanConnectSecurely {
             _ = await connectStoredMac(
@@ -2223,24 +2218,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         var switched = connectionState == .connected
             && remoteClient != nil
             && foregroundMacDeviceID == macDeviceID
-        if !switched, let scope, let deviceRegistry {
-            let registryDevices: [RegistryDevice]?
-            switch await deviceRegistry.listDevices() {
-            case .ok(let devices):
-                registryDevices = devices
-                registryConfirmedMissingIroh = isLegacyPrivateNetworkPairing
-            case .authRejected, .transientFailure:
-                registryDevices = nil
-            }
-            if let refreshedRoutes = await freshReconnectRoutesAfterLocalFailure(
+        if !switched, let scope {
+            refreshOutcome = await freshReconnectRoutesAfterLocalFailure(
                 for: refreshedTarget,
                 scope: scope,
-                registryDevices: registryDevices
-            ) {
-                let refreshedHasIroh = refreshedRoutes.contains { $0.kind == .iroh }
-                foundPublishedIroh = foundPublishedIroh || refreshedHasIroh
-                registryConfirmedMissingIroh = registryConfirmedMissingIroh && !refreshedHasIroh
-                if refreshedHasIroh || refreshedRoutes.contains(where: { $0.kind == .debugLoopback }) {
+                snapshot: await loadReconnectRefreshSnapshot(scope: scope)
+            )
+            if case .refreshedRoutes(let refreshedRoutes) = refreshOutcome {
                     _ = await connectStoredMac(
                         name: refreshedTarget.displayName ?? macDeviceID,
                         routes: refreshedRoutes,
@@ -2251,7 +2235,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                             self?.isCurrentMacSwitchAttempt(switchAttemptID) == true
                         }
                     )
-                }
             }
             guard isCurrentMacSwitchAttempt(switchAttemptID) else {
                 await restoreMacSwitchBaselineIfCancelled(switchAttemptID, fallback: previousForegroundMac)
@@ -2292,9 +2275,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
         if isLegacyPrivateNetworkPairing,
-           registryConfirmedMissingIroh,
-           !foundPublishedIroh {
-            applyStoredMacUpdateRequiredFailure(disconnect: !hasActiveMacConnection)
+           case .confirmedMissingIroh = refreshOutcome,
+           let scope,
+           isCurrentMacSwitchAttempt(switchAttemptID),
+           await isScopeCurrent(scope) {
+            let latestForgottenIDs = await forgottenMacDeviceIDs(scope: scope)
+            if isCurrentMacSwitchAttempt(switchAttemptID),
+               await isScopeCurrent(scope),
+               !latestForgottenIDs.contains(macDeviceID) {
+                applyStoredMacUpdateRequiredFailure(disconnect: !hasActiveMacConnection)
+            }
         }
         await loadPairedMacs()
         return false

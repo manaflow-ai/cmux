@@ -9,6 +9,50 @@ private let reconnectRouteLog = Logger(
     category: "MobileReconnectRoutes"
 )
 
+enum ReconnectRouteRefreshOutcome: Sendable {
+    case refreshedRoutes([CmxAttachRoute])
+    case confirmedMissingIroh
+    case inconclusive
+}
+
+struct ReconnectRefreshSnapshot: Sendable {
+    private struct Authority: Hashable, Sendable {
+        let deviceID: String
+        let instanceTag: String?
+
+        init(deviceID: String, instanceTag: String?) {
+            self.deviceID = deviceID
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            self.instanceTag = MobileMacInstanceTagAuthority.normalized(instanceTag)
+        }
+    }
+
+    private let pairedMacsByAuthority: [Authority: [MobilePairedMac]]
+    private let registryRoutes: DeviceRegistryRouteIndex?
+
+    init(pairedMacs: [MobilePairedMac], registryDevices: [RegistryDevice]?) {
+        pairedMacsByAuthority = Dictionary(grouping: pairedMacs) {
+            Authority(deviceID: $0.macDeviceID, instanceTag: $0.instanceTag)
+        }
+        registryRoutes = registryDevices.map(DeviceRegistryRouteIndex.init(devices:))
+    }
+
+    func currentMac(for captured: MobilePairedMac) -> MobilePairedMac? {
+        let matches = pairedMacsByAuthority[
+            Authority(deviceID: captured.macDeviceID, instanceTag: captured.instanceTag)
+        ] ?? []
+        return matches.count == 1 ? matches[0] : nil
+    }
+
+    func registryResolution(for captured: MobilePairedMac) -> DeviceRegistryRouteResolution? {
+        registryRoutes?.resolve(
+            macDeviceID: captured.macDeviceID,
+            instanceTag: captured.instanceTag
+        )
+    }
+}
+
 @MainActor
 extension MobileShellComposite {
     /// Supported routes for reconnecting an already-paired Mac.
@@ -164,29 +208,49 @@ extension MobileShellComposite {
         lastBackgroundedAt = runtime?.now() ?? Date()
     }
 
+    func loadReconnectRefreshSnapshot(
+        scope: MobileShellScopeSnapshot
+    ) async -> ReconnectRefreshSnapshot? {
+        guard await isScopeCurrent(scope) else { return nil }
+        let registryDevices: [RegistryDevice]?
+        if let deviceRegistry {
+            switch await deviceRegistry.listDevices() {
+            case .ok(let devices):
+                registryDevices = devices
+            case .authRejected, .transientFailure:
+                registryDevices = nil
+            }
+        } else {
+            registryDevices = nil
+        }
+        guard await isScopeCurrent(scope),
+              let pairedMacStore,
+              let pairedMacs = try? await pairedMacStore.loadAll(
+                  stackUserID: scope.userID,
+                  teamID: scope.teamID
+              ),
+              await isScopeCurrent(scope) else {
+            return nil
+        }
+        return ReconnectRefreshSnapshot(
+            pairedMacs: pairedMacs,
+            registryDevices: registryDevices
+        )
+    }
+
     func freshReconnectRoutesAfterLocalFailure(
         for mac: MobilePairedMac,
         scope: MobileShellScopeSnapshot,
-        registryDevices: [RegistryDevice]?
-    ) async -> [CmxAttachRoute]? {
+        snapshot: ReconnectRefreshSnapshot?
+    ) async -> ReconnectRouteRefreshOutcome {
         let supportedKinds = runtime?.supportedRouteKinds ?? []
-        guard let registryDevices,
+        guard let snapshot,
               await isScopeCurrent(scope),
               await !isForgottenMacDeviceID(mac.macDeviceID, scope: scope),
-              let registryRoutes = DeviceRegistryService.routes(
-                  forMacDeviceID: mac.macDeviceID,
-                  pairedMacInstanceTag: mac.instanceTag,
-                  in: registryDevices
-              ),
-              let pairedMacStore,
-              let currentMac = try? await pairedMacStore.loadAll(
-                  stackUserID: scope.userID,
-                  teamID: scope.teamID
-              ).first(where: { $0.macDeviceID == mac.macDeviceID }),
-              currentMac.instanceTag == mac.instanceTag,
+              let currentMac = snapshot.currentMac(for: mac),
               await isScopeCurrent(scope),
               await !isForgottenMacDeviceID(mac.macDeviceID, scope: scope) else {
-            return nil
+            return .inconclusive
         }
         let localRoutes = Self.storedReconnectRoutes(
             currentMac.routes,
@@ -199,16 +263,31 @@ extension MobileShellComposite {
         // list request is in flight. That current row is newer than the captured
         // candidate and is already scoped to this account/device/instance, so use
         // it directly instead of mistaking registry equality for "no route."
-        let updatedRoutes: [CmxAttachRoute]
         if currentMac.routes != mac.routes {
-            updatedRoutes = currentMac.routes
-        } else if let registryUpdate = DeviceRegistryService.selectReconnectRoutes(
+            let reconnectRoutes = Self.storedReconnectRoutes(
+                currentMac.routes,
+                supportedKinds: supportedKinds,
+                preferNonLoopback: Self.prefersNonLoopbackRoutes
+            )
+            if !reconnectRoutes.isEmpty,
+               !requiresIroh || reconnectRoutes.contains(where: { $0.kind == .iroh }) {
+                return .refreshedRoutes(reconnectRoutes)
+            }
+        }
+
+        guard case .unique(let registryRoutes) = snapshot.registryResolution(for: mac) else {
+            return .inconclusive
+        }
+        let registryHasIroh = registryRoutes.contains { $0.kind == .iroh }
+        let isLegacyPrivateNetworkPairing = !mac.routes.contains { $0.kind == .iroh }
+            && mac.routes.contains { $0.kind == .tailscale }
+        guard let updatedRoutes = DeviceRegistryService.selectReconnectRoutes(
             local: currentMac.routes,
             registry: registryRoutes
-        ) {
-            updatedRoutes = registryUpdate
-        } else {
-            return nil
+        ) else {
+            return isLegacyPrivateNetworkPairing && !registryHasIroh
+                ? .confirmedMissingIroh
+                : .inconclusive
         }
         let reconnectRoutes = Self.storedReconnectRoutes(
             updatedRoutes,
@@ -219,9 +298,15 @@ extension MobileShellComposite {
         // stale or downgraded input. Keep the local Iroh capability pin instead
         // of converting a grant failure into raw private-network RPC.
         guard !requiresIroh || reconnectRoutes.contains(where: { $0.kind == .iroh }) else {
-            return nil
+            return .inconclusive
         }
-        return reconnectRoutes.isEmpty ? nil : reconnectRoutes
+        if !reconnectRoutes.isEmpty,
+           reconnectRoutes.contains(where: { $0.kind == .iroh || $0.kind == .debugLoopback }) {
+            return .refreshedRoutes(reconnectRoutes)
+        }
+        return isLegacyPrivateNetworkPairing && !registryHasIroh
+            ? .confirmedMissingIroh
+            : .inconclusive
     }
 
     func shouldResyncTerminalOutputOnForeground() -> Bool {

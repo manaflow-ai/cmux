@@ -262,10 +262,10 @@ struct DisconnectedWorkspaceShellView: View {
     /// The reconnect attempt owns the store's latest classified failure. Show
     /// it with its guidance, falling back only when no specific reason exists.
     private var connectFailedMessage: String {
-        if let failure = MobileDisconnectedFailureCopy.combine(
+        if let failure = MobileDisconnectedFailureCopy(
             error: store?.connectionError,
             guidance: store?.connectionErrorGuidance
-        ) {
+        ).combined {
             return failure
         }
         return L10n.string(

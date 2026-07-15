@@ -243,9 +243,9 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
             let deviceId = device.deviceId.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !deviceId.isEmpty else { return nil }
             let instances = (device.instances ?? []).map { instance in
-                RegistryAppInstance(
-                    tag: instance.tag?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-                        ? instance.tag! : "default",
+                let tag = instance.tag?.trimmingCharacters(in: .whitespacesAndNewlines)
+                return RegistryAppInstance(
+                    tag: tag?.isEmpty == false ? tag! : "default",
                     routes: (instance.routes ?? []).compactMap(\.value),
                     lastSeenAt: Self.parseTimestamp(instance.lastSeenAt)
                 )
@@ -289,17 +289,11 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         pairedMacInstanceTag: String? = nil,
         in devices: [RegistryDevice]
     ) -> [CmxAttachRoute]? {
-        let target = macDeviceID.lowercased()
-        guard let device = devices.first(where: { $0.deviceId.lowercased() == target }) else {
-            return nil
-        }
-        let candidates = if let pairedMacInstanceTag {
-            device.instances.filter { $0.tag == pairedMacInstanceTag }
-        } else {
-            device.instances
-        }
-        let nonEmpty = candidates.map(\.routes).filter { !$0.isEmpty }
-        return nonEmpty.count == 1 ? nonEmpty[0] : nil
+        guard case .unique(let routes) = DeviceRegistryRouteIndex(devices: devices).resolve(
+            macDeviceID: macDeviceID,
+            instanceTag: pairedMacInstanceTag
+        ) else { return nil }
+        return routes
     }
 
     /// Decode the `/api/devices` list response and return authoritative routes
@@ -343,4 +337,48 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         }
         return request
     }
+}
+
+/// Exact, immutable authority lookup for one authenticated registry generation.
+/// Building it once keeps a reconnect pass linear even with many saved Macs.
+struct DeviceRegistryRouteIndex: Sendable {
+    private let devicesByID: [String: [RegistryDevice]]
+
+    init(devices: [RegistryDevice]) {
+        devicesByID = Dictionary(grouping: devices) { device in
+            Self.normalizedDeviceID(device.deviceId)
+        }
+    }
+
+    func resolve(
+        macDeviceID: String,
+        instanceTag: String?
+    ) -> DeviceRegistryRouteResolution {
+        let matches = devicesByID[Self.normalizedDeviceID(macDeviceID)] ?? []
+        guard !matches.isEmpty else { return .missing }
+        guard matches.count == 1, let device = matches.first else { return .ambiguous }
+
+        let instances: [RegistryAppInstance]
+        if let expectedTag = MobileMacInstanceTagAuthority.normalized(instanceTag) {
+            instances = device.instances.filter {
+                MobileMacInstanceTagAuthority.normalized($0.tag) == expectedTag
+            }
+        } else {
+            instances = device.instances
+        }
+        let nonEmptyRoutes = instances.map(\.routes).filter { !$0.isEmpty }
+        guard !nonEmptyRoutes.isEmpty else { return .missing }
+        guard nonEmptyRoutes.count == 1 else { return .ambiguous }
+        return .unique(nonEmptyRoutes[0])
+    }
+
+    private static func normalizedDeviceID(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+}
+
+enum DeviceRegistryRouteResolution: Equatable, Sendable {
+    case unique([CmxAttachRoute])
+    case missing
+    case ambiguous
 }

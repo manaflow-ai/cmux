@@ -334,7 +334,7 @@ extension MobilePairingFailureCategory {
         case .macUpdateRequired:
             return L10n.string(
                 "mobile.pairing.guidance.macUpdateRequired",
-                defaultValue: "Your saved computer will reconnect automatically after the Mac publishes its Iroh route. You do not need to sign out or pair again."
+                defaultValue: "Your saved computer will reconnect automatically after you update cmux on the Mac. You do not need to sign out or pair again."
             )
         case .invalidCode, .loopbackRejected, .cancelled, .unknown:
             return nil

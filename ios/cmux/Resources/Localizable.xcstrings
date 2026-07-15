@@ -3458,13 +3458,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your saved computer will reconnect automatically after the Mac publishes its Iroh route. You do not need to sign out or pair again."
+            "value": "Your saved computer will reconnect automatically after you update cmux on the Mac. You do not need to sign out or pair again."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "MacがIrohルートを公開すると、保存済みのコンピュータに自動的に再接続します。サインアウトや再ペアリングは不要です。"
+            "value": "Macのcmuxをアップデートすると、保存済みのコンピュータに自動的に再接続します。サインアウトや再ペアリングは不要です。"
           }
         }
       }
