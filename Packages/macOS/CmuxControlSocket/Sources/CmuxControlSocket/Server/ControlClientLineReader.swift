@@ -40,6 +40,8 @@ public final class ControlClientLineReader {
     private let idleReadTimeoutNanoseconds: UInt64?
     private var idleReadDeadlineUptimeNanoseconds: UInt64?
     private let authorizationRevocationSignal: SocketAuthorizationRevocationSignal?
+    /// Reused because `poll(2)` rewrites `revents` on every wait.
+    private var readinessPollDescriptors: [pollfd]
     private let monotonicNowNanoseconds: @Sendable () -> UInt64
 
     /// Creates a reader for `socket`.
@@ -61,6 +63,16 @@ public final class ControlClientLineReader {
         self.socket = socket
         self.buffer = [UInt8](repeating: 0, count: bufferSize)
         self.authorizationRevocationSignal = authorizationRevocationSignal
+        var readinessPollDescriptors = [
+            pollfd(fd: socket, events: Int16(POLLIN), revents: 0)
+        ]
+        if let readFileDescriptor = authorizationRevocationSignal?.readFileDescriptor,
+           readFileDescriptor >= 0 {
+            readinessPollDescriptors.append(
+                pollfd(fd: readFileDescriptor, events: Int16(POLLIN), revents: 0)
+            )
+        }
+        self.readinessPollDescriptors = readinessPollDescriptors
         self.monotonicNowNanoseconds = monotonicNowNanoseconds ?? {
             DispatchTime.now().uptimeNanoseconds
         }
@@ -181,25 +193,19 @@ public final class ControlClientLineReader {
                   let timeoutMilliseconds = nextReadinessPollTimeoutMilliseconds() else {
                 return false
             }
-            var descriptors = [pollfd(fd: socket, events: Int16(POLLIN), revents: 0)]
-            if let authorizationRevocationSignal,
-               authorizationRevocationSignal.readFileDescriptor >= 0 {
-                descriptors.append(
-                    pollfd(
-                        fd: authorizationRevocationSignal.readFileDescriptor,
-                        events: Int16(POLLIN),
-                        revents: 0
-                    )
-                )
+            readinessPollDescriptors[0].revents = 0
+            if readinessPollDescriptors.count == 2 {
+                readinessPollDescriptors[1].revents = 0
             }
-            let result = descriptors.withUnsafeMutableBufferPointer { buffer in
+            let result = readinessPollDescriptors.withUnsafeMutableBufferPointer { buffer in
                 poll(buffer.baseAddress, nfds_t(buffer.count), timeoutMilliseconds)
             }
             if result > 0 {
-                if descriptors.count == 2, descriptors[1].revents != 0 {
+                if readinessPollDescriptors.count == 2,
+                   readinessPollDescriptors[1].revents != 0 {
                     return false
                 }
-                return descriptors[0].revents & Int16(POLLIN | POLLHUP) != 0
+                return readinessPollDescriptors[0].revents & Int16(POLLIN | POLLHUP) != 0
             }
             if result == 0 { continue }
             guard errno == EINTR else { return false }
