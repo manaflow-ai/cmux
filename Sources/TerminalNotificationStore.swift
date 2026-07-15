@@ -343,6 +343,8 @@ final class TerminalNotificationStore: ObservableObject {
     private var retainedSupersededBannerIDs = Set<UUID>()
     private var retainedSupersededBannerIDsLoaded = false
     private var retainedSupersededBannerPersistenceScheduled = false
+    private var retainedSupersededBannerPersistenceInFlight = false
+    private var retainedSupersededBannerPersistenceDirty = false
     private static let retainedSupersededBannerPersistenceQueue = DispatchQueue(
         label: "com.cmux.notification.retained-superseded-banner-persistence",
         qos: .utility
@@ -407,15 +409,26 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     private func scheduleRetainedSupersededBannerIDPersistence() {
-        guard !retainedSupersededBannerPersistenceScheduled else { return }
+        retainedSupersededBannerPersistenceDirty = true
+        guard !retainedSupersededBannerPersistenceScheduled,
+              !retainedSupersededBannerPersistenceInFlight else { return }
         retainedSupersededBannerPersistenceScheduled = true
         Task { @MainActor [weak self] in
             await Task.yield()
             guard let self else { return }
             retainedSupersededBannerPersistenceScheduled = false
+            retainedSupersededBannerPersistenceInFlight = true
+            retainedSupersededBannerPersistenceDirty = false
             let ids = retainedSupersededBannerIDs.map(\.uuidString)
             Self.retainedSupersededBannerPersistenceQueue.async {
                 UserDefaults.standard.set(ids, forKey: Self.retainedSupersededBannerDefaultsKey)
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    retainedSupersededBannerPersistenceInFlight = false
+                    if retainedSupersededBannerPersistenceDirty {
+                        scheduleRetainedSupersededBannerIDPersistence()
+                    }
+                }
             }
         }
     }
@@ -744,6 +757,53 @@ final class TerminalNotificationStore: ObservableObject {
         emitUnreadBadgeEventIfChanged()
     }
 
+    private func refreshUnreadPresentation(
+        changedWorkspaceIds: Set<UUID>,
+        changedSurfaceKeys: Set<SidebarSurfaceUnreadKey>
+    ) {
+        guard !changedWorkspaceIds.isEmpty || !changedSurfaceKeys.isEmpty else {
+            refreshUnreadPresentation()
+            return
+        }
+        let nextMenuSnapshot = NotificationMenuSnapshotBuilder.make(
+            notifications: notifications,
+            workspaceUnreadIndicatorCount: workspaceUnreadIndicatorCount,
+            cachedUnreadNotificationCount: indexes.unreadCount
+        )
+        if notificationMenuSnapshot != nextMenuSnapshot {
+            notificationMenuSnapshot = nextMenuSnapshot
+        }
+        var changedSummaries: [UUID: SidebarWorkspaceUnreadSummary] = [:]
+        var removedSummaryIds: Set<UUID> = []
+        for id in changedWorkspaceIds {
+            if let summary = sidebarUnreadSummary(forWorkspaceId: id) {
+                changedSummaries[id] = summary
+            } else {
+                removedSummaryIds.insert(id)
+            }
+        }
+        var insertedSurfaceKeys: Set<SidebarSurfaceUnreadKey> = []
+        var removedSurfaceKeys: Set<SidebarSurfaceUnreadKey> = []
+        for key in changedSurfaceKeys {
+            if hasUnreadNotification(forTabId: key.workspaceId, surfaceId: key.surfaceId) {
+                insertedSurfaceKeys.insert(key)
+            } else {
+                removedSurfaceKeys.insert(key)
+            }
+        }
+        sidebarUnread.applyIncremental(
+            totalUnreadCount: unreadCount,
+            changedSummaries: changedSummaries,
+            removedSummaryIds: removedSummaryIds,
+            insertedUnreadSurfaceKeys: insertedSurfaceKeys,
+            removedUnreadSurfaceKeys: removedSurfaceKeys,
+            focusedReadIndicatorByWorkspaceId: focusedReadIndicatorByTabId,
+            manualUnreadWorkspaceIds: manualUnreadWorkspaceIds
+        )
+        refreshDockBadge()
+        emitUnreadBadgeEventIfChanged()
+    }
+
     /// Builds the per-workspace unread summaries the sidebar renders. Mirrors
     /// `unreadCount(forTabId:)` and `latestNotification(forTabId:)` so the
     /// coalesced model is a drop-in source for the sidebar's per-row reads.
@@ -769,6 +829,20 @@ final class TerminalNotificationStore: ObservableObject {
             )
         }
         return result
+    }
+
+    private func sidebarUnreadSummary(forWorkspaceId id: UUID) -> SidebarWorkspaceUnreadSummary? {
+        let count = unreadCount(forTabId: id)
+        let latestText: String? = indexes.latestByTabId[id].flatMap { notification in
+            let text = notification.body.isEmpty ? notification.title : notification.body
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        guard count != 0 || latestText != nil else { return nil }
+        return SidebarWorkspaceUnreadSummary(
+            unreadCount: count,
+            latestNotificationText: latestText
+        )
     }
 
     private func logAuthorization(_ message: String) {
@@ -1660,9 +1734,17 @@ final class TerminalNotificationStore: ObservableObject {
         mutation: NotificationMutationHint?
     ) {
         let appliedIncrementally: Bool
+        var changedWorkspaceIds: Set<UUID> = []
+        var changedSurfaceKeys: Set<SidebarSurfaceUnreadKey> = []
+        var shouldRefreshUnreadPresentationFully = false
         switch mutation {
         case .insertion(let inserted):
             Self.insertNotification(inserted, into: &indexes, notifications: notifications)
+            changedWorkspaceIds.insert(inserted.tabId)
+            changedSurfaceKeys.insert(SidebarSurfaceUnreadKey(
+                workspaceId: inserted.tabId,
+                surfaceId: inserted.surfaceId
+            ))
             appliedIncrementally = true
         case .insertionEvicting(let inserted, let evicted):
             Self.insertNotification(
@@ -1674,6 +1756,18 @@ final class TerminalNotificationStore: ObservableObject {
             let evictedIds = Set(evicted.map(\.id))
             deferredUnreadNavigationIds.removeAll { evictedIds.contains($0) }
             removeRetainedSupersededBannerIDs(ids: Array(evictedIds))
+            changedWorkspaceIds.insert(inserted.tabId)
+            changedSurfaceKeys.insert(SidebarSurfaceUnreadKey(
+                workspaceId: inserted.tabId,
+                surfaceId: inserted.surfaceId
+            ))
+            for notification in evicted {
+                changedWorkspaceIds.insert(notification.tabId)
+                changedSurfaceKeys.insert(SidebarSurfaceUnreadKey(
+                    workspaceId: notification.tabId,
+                    surfaceId: notification.surfaceId
+                ))
+            }
             appliedIncrementally = true
         case .readState(let before, let after):
             appliedIncrementally = Self.updateReadState(
@@ -1682,13 +1776,31 @@ final class TerminalNotificationStore: ObservableObject {
                 in: &indexes,
                 notifications: Array(notifications)
             )
+            changedWorkspaceIds.insert(before.tabId)
+            changedWorkspaceIds.insert(after.tabId)
+            changedSurfaceKeys.insert(SidebarSurfaceUnreadKey(
+                workspaceId: before.tabId,
+                surfaceId: before.surfaceId
+            ))
+            changedSurfaceKeys.insert(SidebarSurfaceUnreadKey(
+                workspaceId: after.tabId,
+                surfaceId: after.surfaceId
+            ))
         case nil:
             indexes = Self.buildIndexes(for: notifications)
             deferredUnreadNavigationIds.removeAll { !indexes.ids.contains($0) }
+            shouldRefreshUnreadPresentationFully = true
             appliedIncrementally = false
         }
         unreadNavigationProjectionIsDirty = true
-        refreshUnreadPresentation()
+        if shouldRefreshUnreadPresentationFully {
+            refreshUnreadPresentation()
+        } else {
+            refreshUnreadPresentation(
+                changedWorkspaceIds: changedWorkspaceIds,
+                changedSurfaceKeys: changedSurfaceKeys
+            )
+        }
         switch mutation {
         case .insertion(let inserted):
             CmuxEventBus.shared.publishNotificationCreated(inserted, delivery: "store", replacedNotificationIds: [])
@@ -2744,6 +2856,48 @@ final class SidebarUnreadModel: ObservableObject {
         }
         if self.unreadSurfaceKeys != unreadSurfaceKeys {
             self.unreadSurfaceKeys = unreadSurfaceKeys
+        }
+        if self.focusedReadIndicatorByWorkspaceId != focusedReadIndicatorByWorkspaceId {
+            self.focusedReadIndicatorByWorkspaceId = focusedReadIndicatorByWorkspaceId
+        }
+        if self.manualUnreadWorkspaceIds != manualUnreadWorkspaceIds {
+            self.manualUnreadWorkspaceIds = manualUnreadWorkspaceIds
+        }
+    }
+
+    func applyIncremental(
+        totalUnreadCount: Int,
+        changedSummaries: [UUID: SidebarWorkspaceUnreadSummary],
+        removedSummaryIds: Set<UUID>,
+        insertedUnreadSurfaceKeys: Set<SidebarSurfaceUnreadKey>,
+        removedUnreadSurfaceKeys: Set<SidebarSurfaceUnreadKey>,
+        focusedReadIndicatorByWorkspaceId: [UUID: UUID],
+        manualUnreadWorkspaceIds: Set<UUID>
+    ) {
+        if self.totalUnreadCount != totalUnreadCount {
+            self.totalUnreadCount = totalUnreadCount
+        }
+        var summariesChanged = false
+        for id in removedSummaryIds where summaryByWorkspaceId[id] != nil {
+            summaryByWorkspaceId.removeValue(forKey: id)
+            summariesChanged = true
+        }
+        for (id, summary) in changedSummaries where summaryByWorkspaceId[id] != summary {
+            summaryByWorkspaceId[id] = summary
+            summariesChanged = true
+        }
+        if summariesChanged {
+            summaryByWorkspaceId = summaryByWorkspaceId
+        }
+        var surfaceKeysChanged = false
+        for key in removedUnreadSurfaceKeys where unreadSurfaceKeys.remove(key) != nil {
+            surfaceKeysChanged = true
+        }
+        for key in insertedUnreadSurfaceKeys where unreadSurfaceKeys.insert(key).inserted {
+            surfaceKeysChanged = true
+        }
+        if surfaceKeysChanged {
+            unreadSurfaceKeys = unreadSurfaceKeys
         }
         if self.focusedReadIndicatorByWorkspaceId != focusedReadIndicatorByWorkspaceId {
             self.focusedReadIndicatorByWorkspaceId = focusedReadIndicatorByWorkspaceId

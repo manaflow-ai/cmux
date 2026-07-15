@@ -112,14 +112,17 @@ final class TerminalNotificationPolicyInFlightStore {
             let request = entry.request
             if !request.retargetsToLiveSurfaceOwner {
                 if let surfaceId {
-                    if request.tabId == tabId, request.surfaceId == surfaceId { idsToDiscard.append(id) }
+                    if request.tabId == tabId,
+                       request.surfaceId == surfaceId || request.panelId == surfaceId {
+                        idsToDiscard.append(id)
+                    }
                 } else if request.tabId == tabId {
                     idsToDiscard.append(id)
                 }
                 continue
             }
             if let surfaceId {
-                if request.surfaceId == surfaceId { idsToDiscard.append(id) }
+                if request.surfaceId == surfaceId || request.panelId == surfaceId { idsToDiscard.append(id) }
                 continue
             }
             guard let requestSurfaceId = request.surfaceId else {
