@@ -5542,12 +5542,16 @@ struct ContentView: View {
             return .unsupported
         }
         switch snapshot.kind {
-        case .claude, .codex, .pi:
+        case .claude, .codex:
             return .supportedWithoutProbe
+        case .pi:
+            return isRemoteTerminal ? .supportedWithoutProbe : .requiresProbe
         case .opencode:
             return snapshot.launchCommand?.launcher == "omo" || isRemoteTerminal ? .supportedWithoutProbe : .requiresProbe
         case .custom:
-            return .supportedWithoutProbe
+            return AgentForkSupport.requiresLocalPiFamilyCapabilityProbe(snapshot) && !isRemoteTerminal
+                ? .requiresProbe
+                : .supportedWithoutProbe
         default:
             return .unsupported
         }

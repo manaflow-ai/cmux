@@ -447,6 +447,17 @@ enum AgentResumeCommandBuilder {
         }
     }
 
+    static func piFamilyForkCapabilityProbe(
+        launchCommand: AgentLaunchCommandSnapshot?,
+        fallbackExecutable: String
+    ) -> (executable: String, arguments: [String]) {
+        let original = commandParts(
+            launchCommand: launchCommand,
+            fallbackExecutable: fallbackExecutable
+        )
+        return (original.executable, ["--help"])
+    }
+
     private static func launchEnvironmentParts(
         kind: RestorableAgentKind,
         environment: [String: String]?

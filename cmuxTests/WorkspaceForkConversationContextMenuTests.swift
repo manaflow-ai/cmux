@@ -413,7 +413,7 @@ struct WorkspaceForkConversationContextMenuTests {
     }
 
     @Test
-    func nativePiSnapshotIsAvailableFromPanelContextMenu() throws {
+    func nativePiSnapshotRequiresCapabilityProbeFromPanelContextMenu() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
         let sessionId = "pi-session-123"
@@ -435,9 +435,45 @@ struct WorkspaceForkConversationContextMenuTests {
 
         #expect(snapshot.forkCommand != nil)
         #expect(
-            workspace.forkAgentConversationContextMenuAvailability(forPanelId: panelId) == .available
+            workspace.forkAgentConversationContextMenuAvailability(forPanelId: panelId) == .requiresProbe
         )
-        #expect(workspace.canForkAgentConversationFromPanel(panelId))
+        #expect(!workspace.canForkAgentConversationFromPanel(panelId))
+        #expect(
+            ContentView.commandPaletteSnapshotForkAvailability(snapshot, isRemoteTerminal: true)
+                == .supportedWithoutProbe
+        )
+    }
+
+    @Test
+    func piFamilyCapabilityProbeRecognizesOnlyForkOptions() {
+        #expect(AgentForkSupport.piFamilyHelpSupportsFork("  --fork <path|id>  Fork a session"))
+        #expect(AgentForkSupport.piFamilyHelpSupportsFork("--fork=SESSION"))
+        #expect(!AgentForkSupport.piFamilyHelpSupportsFork("Use /fork inside the session"))
+        #expect(!AgentForkSupport.piFamilyHelpSupportsFork("  --session <id>  Resume a session"))
+    }
+
+    @Test
+    func builtInOmpRequiresProbeButProjectForkOverrideDoesNot() {
+        let builtIn = SessionRestorableAgentSnapshot(
+            kind: .custom("omp"),
+            sessionId: "omp-session",
+            workingDirectory: nil,
+            launchCommand: nil,
+            registration: .builtInOmp
+        )
+        #expect(ContentView.commandPaletteSnapshotForkAvailability(builtIn) == .requiresProbe)
+
+        var projectOverride = CmuxVaultAgentRegistration.builtInOmp
+        projectOverride.name = "Project OMP"
+        projectOverride.forkCommand = "{{executable}} --branch {{sessionId}}"
+        let overridden = SessionRestorableAgentSnapshot(
+            kind: .custom("omp"),
+            sessionId: "omp-session",
+            workingDirectory: nil,
+            launchCommand: nil,
+            registration: projectOverride
+        )
+        #expect(ContentView.commandPaletteSnapshotForkAvailability(overridden) == .supportedWithoutProbe)
     }
 
     @Test

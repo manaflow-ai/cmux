@@ -35,7 +35,7 @@ final class ProcessTerminationGate: @unchecked Sendable {
     }
 }
 
-private actor OpenCodeVersionProbeCache {
+private actor AgentForkProbeCache {
     private var valuesByKey: [String: Bool] = [:]
 
     func value(for key: String) -> Bool? {
@@ -51,7 +51,7 @@ enum AgentForkSupport {
     static let minimumOpenCodeForkVersion = SemanticVersion(major: 1, minor: 14, patch: 50)
     private static let commandOutputTimeoutNanoseconds: Int64 = 3_000_000_000
     private static let commandTerminateTimeoutNanoseconds: Int64 = 500_000_000
-    private static let openCodeVersionProbeCache = OpenCodeVersionProbeCache()
+    private static let probeCache = AgentForkProbeCache()
 
     private final class CommandOutputBuffer: @unchecked Sendable {
         private let lock = NSLock()
@@ -299,6 +299,22 @@ enum AgentForkSupport {
            snapshot.forkStartupInput(allowLauncherScript: false) == nil {
             return false
         }
+        if requiresLocalPiFamilyCapabilityProbe(snapshot) {
+            if isRemoteContext {
+                return true
+            }
+            let fallbackExecutable = snapshot.registration?.defaultExecutable ?? snapshot.kind.rawValue
+            let probe = AgentResumeCommandBuilder.piFamilyForkCapabilityProbe(
+                launchCommand: snapshot.launchCommand,
+                fallbackExecutable: fallbackExecutable
+            )
+            return await supportsLocalForkProbe(
+                probe: probe,
+                snapshot: snapshot,
+                cacheDiscriminator: "pi-family-help",
+                outputSupportsFork: piFamilyHelpSupportsFork
+            )
+        }
         guard snapshot.kind == .opencode else { return true }
         if snapshot.launchCommand?.launcher == "omo" {
             return true
@@ -311,11 +327,51 @@ enum AgentForkSupport {
         ) else {
             return false
         }
-        let workingDirectory = openCodeProbeWorkingDirectory(snapshot: snapshot)
-        switch localOpenCodeVersionProbeDecision(
+        return await supportsLocalForkProbe(
             probe: probe,
-            workingDirectory: workingDirectory
-        ) {
+            snapshot: snapshot,
+            cacheDiscriminator: "opencode-version",
+            outputSupportsFork: openCodeVersionSupportsFork
+        )
+    }
+
+    static func requiresLocalPiFamilyCapabilityProbe(
+        _ snapshot: SessionRestorableAgentSnapshot
+    ) -> Bool {
+        switch snapshot.kind {
+        case .pi:
+            return snapshot.registration == nil || snapshot.registration == .builtInPi
+        case .custom("pi"):
+            return snapshot.registration == .builtInPi
+        case .custom("omp"):
+            return snapshot.registration == .builtInOmp
+        default:
+            return false
+        }
+    }
+
+    static func piFamilyHelpSupportsFork(_ output: String) -> Bool {
+        output.range(
+            of: #"(?m)(?:^|\s)--fork(?:\s|=|<|$)"#,
+            options: .regularExpression
+        ) != nil
+    }
+
+    static func openCodeVersionSupportsFork(_ output: String) -> Bool {
+        guard let version = SemanticVersion.first(in: output) else {
+            return false
+        }
+        return version >= minimumOpenCodeForkVersion
+    }
+
+    private static func supportsLocalForkProbe(
+        probe: (executable: String, arguments: [String]),
+        snapshot: SessionRestorableAgentSnapshot,
+        cacheDiscriminator: String,
+        outputSupportsFork: (String) -> Bool
+    ) async -> Bool {
+        let workingDirectory = probeWorkingDirectory(snapshot: snapshot)
+        switch localForkProbeDecision(probe: probe, workingDirectory: workingDirectory) {
         case .run:
             break
         case .skipRemoteLikeContext:
@@ -323,12 +379,13 @@ enum AgentForkSupport {
         case .rejectMissingExecutable:
             return false
         }
-        let cacheKey = openCodeVersionProbeCacheKey(
+        let cacheKey = forkProbeCacheKey(
             probe: probe,
             environment: snapshot.launchCommand?.environment,
-            workingDirectory: workingDirectory
+            workingDirectory: workingDirectory,
+            discriminator: cacheDiscriminator
         )
-        if let cached = await openCodeVersionProbeCache.value(for: cacheKey) {
+        if let cached = await probeCache.value(for: cacheKey) {
             return cached
         }
         guard let output = await commandOutput(
@@ -339,22 +396,16 @@ enum AgentForkSupport {
         ) else {
             return false
         }
-        let supportsFork = openCodeVersionSupportsFork(output)
-        await openCodeVersionProbeCache.store(supportsFork, for: cacheKey)
+        let supportsFork = outputSupportsFork(output)
+        await probeCache.store(supportsFork, for: cacheKey)
         return supportsFork
     }
 
-    static func openCodeVersionSupportsFork(_ output: String) -> Bool {
-        guard let version = SemanticVersion.first(in: output) else {
-            return false
-        }
-        return version >= minimumOpenCodeForkVersion
-    }
-
-    private static func openCodeVersionProbeCacheKey(
+    private static func forkProbeCacheKey(
         probe: (executable: String, arguments: [String]),
         environment: [String: String]?,
-        workingDirectory: String?
+        workingDirectory: String?,
+        discriminator: String
     ) -> String {
         let processEnvironment = processEnvironmentForOpenCodeProbe(environment: environment)
         let relevantEnvironmentKeys = [
@@ -365,7 +416,7 @@ enum AgentForkSupport {
         let environmentParts = relevantEnvironmentKeys.map { key in
             "\(key)=\(processEnvironment[key] ?? "")"
         }
-        return ([probe.executable] + probe.arguments + environmentParts + ["cwd=\(workingDirectory ?? "")"])
+        return ([discriminator, probe.executable] + probe.arguments + environmentParts + ["cwd=\(workingDirectory ?? "")"])
             .joined(separator: "\u{1f}")
     }
 
@@ -436,20 +487,20 @@ enum AgentForkSupport {
         return processEnvironment
     }
 
-    private static func openCodeProbeWorkingDirectory(snapshot: SessionRestorableAgentSnapshot) -> String? {
+    private static func probeWorkingDirectory(snapshot: SessionRestorableAgentSnapshot) -> String? {
         normalized(snapshot.launchCommand?.workingDirectory) ?? normalized(snapshot.workingDirectory)
     }
 
-    private enum LocalOpenCodeVersionProbeDecision {
+    private enum LocalForkProbeDecision {
         case run
         case skipRemoteLikeContext
         case rejectMissingExecutable
     }
 
-    private static func localOpenCodeVersionProbeDecision(
+    private static func localForkProbeDecision(
         probe: (executable: String, arguments: [String]),
         workingDirectory: String?
-    ) -> LocalOpenCodeVersionProbeDecision {
+    ) -> LocalForkProbeDecision {
         if let workingDirectory, localDirectoryURL(path: workingDirectory) == nil {
             return .skipRemoteLikeContext
         }
