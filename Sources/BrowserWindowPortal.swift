@@ -1172,7 +1172,7 @@ final class WindowBrowserSlotView: NSView {
     private let paneDropTargetView = BrowserPaneDropTargetView(frame: .zero)
     private let dropZoneOverlayView = BrowserDropZoneOverlayView(frame: .zero)
     private var searchOverlayHostingView: NSHostingView<BrowserSearchOverlay>?
-    private var designComposerHostingView: NSHostingView<BrowserDesignModePopoverHost>?
+    private var designComposerHostingView: BrowserDesignModeComposerHostingView?
     private var designComposerPanelId: UUID?
     private var omnibarSuggestionsHostingView: BrowserPortalOmnibarSuggestionsHostingView?
     private weak var hostedWebView: WKWebView?
@@ -1402,11 +1402,13 @@ final class WindowBrowserSlotView: NSView {
             return
         }
 
-        let rootView = BrowserDesignModePopoverHost(controller: configuration.controller)
-
         if let overlay = designComposerHostingView {
             if designComposerPanelId != configuration.panelId {
-                overlay.rootView = rootView
+                overlay.rootView = Self.makeDesignComposerRootView(
+                    configuration: configuration,
+                    overlay: overlay
+                )
+                overlay.cardFrameInTopLeftCoordinates = .zero
                 designComposerPanelId = configuration.panelId
             }
             if overlay.superview !== self {
@@ -1423,7 +1425,13 @@ final class WindowBrowserSlotView: NSView {
             return
         }
 
-        let overlay = NSHostingView(rootView: rootView)
+        let overlay = BrowserDesignModeComposerHostingView(
+            rootView: BrowserDesignModePopoverHost(controller: configuration.controller)
+        )
+        overlay.rootView = Self.makeDesignComposerRootView(
+            configuration: configuration,
+            overlay: overlay
+        )
         overlay.translatesAutoresizingMaskIntoConstraints = false
         addSubview(overlay)
         NSLayoutConstraint.activate([
@@ -1435,6 +1443,15 @@ final class WindowBrowserSlotView: NSView {
         designComposerHostingView = overlay
         designComposerPanelId = configuration.panelId
         bringInteractionLayersToFrontIfNeeded()
+    }
+
+    private static func makeDesignComposerRootView(
+        configuration: BrowserPortalDesignComposerConfiguration,
+        overlay: BrowserDesignModeComposerHostingView
+    ) -> BrowserDesignModePopoverHost {
+        BrowserDesignModePopoverHost(controller: configuration.controller) { [weak overlay] frame in
+            overlay?.cardFrameInTopLeftCoordinates = frame
+        }
     }
 
     private func logOmnibarSuggestionsEvent(_ action: String, configuration: BrowserPortalOmnibarSuggestionsConfiguration?) {
