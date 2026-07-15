@@ -1378,7 +1378,28 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
 
 final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
     private final class TestRightSidebarResponder: NSView, FeedKeyboardFocusResponder {
+        let isRightSidebarFeedResponder = true
+
         override var acceptsFirstResponder: Bool { true }
+    }
+
+    private final class TestFeedPaneResponder: NSView, FeedKeyboardFocusResponder {
+        let isRightSidebarFeedResponder = false
+
+        override var acceptsFirstResponder: Bool { true }
+    }
+
+    @MainActor
+    func testFeedPaneResponderDoesNotClaimRightSidebarFocus() {
+        let controller = MainWindowFocusController(
+            windowId: UUID(),
+            window: nil,
+            tabManager: TabManager(),
+            fileExplorerState: FileExplorerState()
+        )
+        let responder = TestFeedPaneResponder(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+
+        XCTAssertFalse(controller.ownsRightSidebarFocus(responder))
     }
 
     @MainActor
