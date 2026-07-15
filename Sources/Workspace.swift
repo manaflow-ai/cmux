@@ -3367,9 +3367,9 @@ final class Workspace: Identifiable, ObservableObject {
     private var pendingReparentFocusSuppressionViews: [ObjectIdentifier: GhosttySurfaceScrollView] = [:]
     private var portalRenderingEnabled = true
     var portalPresentationVisible = true
-    private var agentHibernationAutoResumePresentationVisible = true
+    var agentHibernationAutoResumePresentationVisible = true
     /// Mounted WorkspaceContentView hosts. The value records whether that visible host is input-active.
-    private var contentViewPresentationHosts: [UUID: Bool] = [:]
+    var contentViewPresentationHosts: [UUID: Bool] = [:]
     private var isAttemptingLayoutFollowUp = false
     private var isNormalizingPinnedTabOrder = false
     /// The pending non-focusing-split focus re-assert request (the value
@@ -9838,29 +9838,6 @@ final class Workspace: Identifiable, ObservableObject {
             hideAllBrowserPortalViews()
         }
     }
-    func setAgentHibernationAutoResumePresentationVisible(_ isVisible: Bool) {
-        guard agentHibernationAutoResumePresentationVisible != isVisible else { return }
-        agentHibernationAutoResumePresentationVisible = isVisible
-        guard isVisible else { return }
-        _ = resumeVisibleAgentHibernationPanels(panelIds: agentHibernationVisiblePanelIdsForCurrentLayout())
-    }
-
-    func setContentViewPresentationVisibility(
-        isVisible: Bool,
-        isInputActive: Bool,
-        hostId: UUID
-    ) {
-        if isVisible {
-            contentViewPresentationHosts[hostId] = isInputActive
-        } else {
-            contentViewPresentationHosts.removeValue(forKey: hostId)
-        }
-        setPortalPresentationVisible(!contentViewPresentationHosts.isEmpty)
-        setAgentHibernationAutoResumePresentationVisible(
-            contentViewPresentationHosts.values.contains(true)
-        )
-    }
-
     // MARK: - Utility
 
     /// Create a new terminal panel (used when replacing the last panel)
