@@ -196,6 +196,10 @@ struct DockPortalReconcileTests {
         store.setVisibleInUI(true)
         let detached = Self.detachedBrowserTransfer(panel: browser, sourceWorkspaceId: sourceWorkspaceId)
         _ = try #require(store.attachDetachedSurface(detached, inPane: rootPane, focus: true))
+        let window = Self.portalWindow()
+        defer { Self.closePortalWindow(window) }
+        browser.portalAnchorView.frame = .zero
+        window.contentView?.addSubview(browser.portalAnchorView)
 
         store.clearDockPortalReconcile()
         store.scheduleDockPortalReconcile(reason: "test.boundedFollowUp")
@@ -211,8 +215,8 @@ struct DockPortalReconcileTests {
 
         for _ in 0..<wakeBudget {
             NotificationCenter.default.post(
-                name: .browserPortalRegistryDidChange,
-                object: browser.webView
+                name: NSWindow.didUpdateNotification,
+                object: window
             )
         }
         #expect(store.dockPortalReconcileState.lifecycleWakeAttemptsRemaining == 0)

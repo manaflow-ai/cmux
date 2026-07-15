@@ -62,6 +62,33 @@ extension DockSplitStore {
                 observe(.browserPortalRegistryDidChange, object: browser.webView)
             }
         }
+        for window in dockPortalHostWindows() {
+            observe(NSWindow.didUpdateNotification, object: window)
+        }
+    }
+
+    private func dockPortalHostWindows() -> [NSWindow] {
+        var seen: Set<ObjectIdentifier> = []
+        var windows: [NSWindow] = []
+        func append(_ window: NSWindow?) {
+            guard let window, seen.insert(ObjectIdentifier(window)).inserted else { return }
+            windows.append(window)
+        }
+
+        for panel in panels.values where panelIsSelectedInVisibleDockPane(panel.id) {
+            if let terminal = panel as? TerminalPanel {
+                append(terminal.hostedView.window)
+            } else if let browser = panel as? BrowserPanel {
+                append(browser.portalAnchorView.window)
+                append(browser.webView.window)
+            }
+        }
+        if let app = AppDelegate.shared,
+           let manager = app.dockReferenceTabManager(for: self),
+           let windowId = app.windowId(for: manager) {
+            append(app.windowForMainWindowId(windowId))
+        }
+        return windows
     }
 
     func clearDockPortalReconcile() {
