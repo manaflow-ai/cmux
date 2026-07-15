@@ -251,6 +251,12 @@ final class MobileWorkspaceListObserver {
                 // tab set, `workspaceGroups`, the panel set, or the title, so
                 // without this the phone never learns the membership changed.
                 workspace.$groupId.map { _ in () }.eraseToAnyPublisher(),
+                // Remote eligibility controls whether the phone shows Review
+                // Changes. A workspace can become local/remote or become/stop
+                // being a remote tmux mirror without changing title, panels, or
+                // group membership, so those flags need their own invalidations.
+                workspace.$remoteConfiguration.map { _ in () }.eraseToAnyPublisher(),
+                workspace.$isRemoteTmuxMirror.map { _ in () }.eraseToAnyPublisher(),
                 workspace.$currentDirectory.map { _ in () }.eraseToAnyPublisher(),
                 workspace.$panelDirectories.map { _ in () }.eraseToAnyPublisher(),
                 // Todo status override + checklist are workspace-list-facing
@@ -438,6 +444,8 @@ final class MobileWorkspaceListObserver {
     ) -> Int {
         var hasher = Hasher()
         hasher.combine(workspace.title)
+        hasher.combine(workspace.isRemoteWorkspace)
+        hasher.combine(workspace.isRemoteTmuxMirror)
         hasher.combine(workspace.isPinned)
         // Group membership is iOS-facing (the phone nests members under the
         // group header), and a pure move-into/out-of-group need not change the

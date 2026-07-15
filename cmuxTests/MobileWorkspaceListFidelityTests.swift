@@ -171,6 +171,55 @@ struct MobileWorkspaceListFidelityTests {
         #expect(before != after, "a pure group-membership move must change the mobile summary hash")
     }
 
+    @Test func remoteEligibilityFlagsChangeObserverHashAndPayload() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+
+        let localHash = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: manager.tabs,
+            groups: manager.workspaceGroups,
+            selectedTabID: manager.selectedTabId
+        )
+        let localPayload = TerminalController.shared.mobileWorkspacePayload(
+            workspace: workspace,
+            isSelected: true,
+            requestedTerminalID: nil
+        )
+        #expect(localPayload["is_remote_workspace"] as? Bool == false)
+        #expect(localPayload["is_remote_tmux_mirror"] as? Bool == false)
+
+        workspace.remoteConfiguration = sshRemoteConfiguration()
+        let remoteHash = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: manager.tabs,
+            groups: manager.workspaceGroups,
+            selectedTabID: manager.selectedTabId
+        )
+        let remotePayload = TerminalController.shared.mobileWorkspacePayload(
+            workspace: workspace,
+            isSelected: true,
+            requestedTerminalID: nil
+        )
+        #expect(localHash != remoteHash, "remote eligibility must change the mobile summary hash")
+        #expect(remotePayload["is_remote_workspace"] as? Bool == true)
+        #expect(remotePayload["is_remote_tmux_mirror"] as? Bool == false)
+
+        workspace.remoteConfiguration = nil
+        workspace.isRemoteTmuxMirror = true
+        let mirrorHash = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: manager.tabs,
+            groups: manager.workspaceGroups,
+            selectedTabID: manager.selectedTabId
+        )
+        let mirrorPayload = TerminalController.shared.mobileWorkspacePayload(
+            workspace: workspace,
+            isSelected: true,
+            requestedTerminalID: nil
+        )
+        #expect(localHash != mirrorHash, "remote-tmux eligibility must change the mobile summary hash")
+        #expect(mirrorPayload["is_remote_workspace"] as? Bool == false)
+        #expect(mirrorPayload["is_remote_tmux_mirror"] as? Bool == true)
+    }
+
     /// A new notification (or clearing the latest one) changes only a workspace's
     /// preview signature, not the tab set, groups, panels, title, or pin state.
     /// The signature must be folded into the summary hash so the observer

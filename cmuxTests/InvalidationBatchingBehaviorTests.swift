@@ -123,6 +123,43 @@ struct InvalidationBatchingBehaviorTests {
         #expect(scheduler.activeDeadlineCount == 0)
     }
 
+    @Test func mobileRemoteEligibilityTransitionsDrainWithFinalState() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        let scheduler = VirtualInvalidationDeadlineScheduler()
+        var emittedFlags: [(isRemote: Bool, isMirror: Bool)] = []
+        let observer = MobileWorkspaceListObserver(
+            tabManager: manager,
+            scheduler: scheduler.schedule,
+            emitWorkspaceUpdated: {
+                emittedFlags.append((
+                    isRemote: workspace.isRemoteWorkspace,
+                    isMirror: workspace.isRemoteTmuxMirror
+                ))
+            }
+        )
+        defer { withExtendedLifetime(observer) {} }
+
+        scheduler.advance(by: 1)
+        emittedFlags.removeAll()
+        #expect(scheduler.activeDeadlineCount == 0)
+
+        workspace.remoteConfiguration = remoteConfiguration()
+        scheduler.advance(by: 0.049)
+        #expect(emittedFlags.isEmpty)
+        scheduler.advance(by: 0.002)
+        #expect(emittedFlags.map { [$0.isRemote, $0.isMirror] } == [[true, false]])
+
+        emittedFlags.removeAll()
+        workspace.remoteConfiguration = nil
+        workspace.isRemoteTmuxMirror = true
+        scheduler.advance(by: 0.049)
+        #expect(emittedFlags.isEmpty)
+        scheduler.advance(by: 0.002)
+        #expect(emittedFlags.map { [$0.isRemote, $0.isMirror] } == [[false, true]])
+        #expect(scheduler.activeDeadlineCount == 0)
+    }
+
     private func settleInitialObserverBatch(
         scheduler: VirtualInvalidationDeadlineScheduler,
         emittedTitles: inout [String]
@@ -149,6 +186,21 @@ struct InvalidationBatchingBehaviorTests {
         #expect(snapshot.emits == 1)
         #expect(snapshot.skips == 0)
         #expect(snapshot.fullGraphRebuilds == 0)
+    }
+
+    private func remoteConfiguration() -> WorkspaceRemoteConfiguration {
+        WorkspaceRemoteConfiguration(
+            destination: "seepine@192.168.5.20",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64007,
+            relayID: "relay-\(UUID().uuidString)",
+            relayToken: String(repeating: "a", count: 64),
+            localSocketPath: "/tmp/cmux-mobile-observer-\(UUID().uuidString).sock",
+            terminalStartupCommand: "ssh seepine@192.168.5.20"
+        )
     }
 }
 
