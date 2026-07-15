@@ -147,8 +147,9 @@ enum BrowserCommand {
     Reload,
     Activate,
     Reconfigure {
-        width: u32,
-        height: u32,
+        cols: u16,
+        rows: u16,
+        completion: Option<SyncSender<Result<(), String>>>,
     },
 }
 
@@ -750,14 +751,14 @@ fn coalesce_worker_mouse_moves(batch: &mut Vec<BrowserCommand>) {
 
 fn run_browser_worker_command(
     surface: &Surface,
-    command: BrowserCommand,
+    mut command: BrowserCommand,
     mux: &Weak<Mux>,
     id: SurfaceId,
     failures: &mut BrowserWorkerErrorState,
 ) {
     let is_input = command.is_input();
-    let reconfigure = match &command {
-        BrowserCommand::Reconfigure { width, height } => Some((*width, *height)),
+    let completion = match &mut command {
+        BrowserCommand::Reconfigure { completion, .. } => completion.take(),
         _ => None,
     };
     let result = {
@@ -791,16 +792,14 @@ fn run_browser_worker_command(
             BrowserCommand::Forward => browser.forward_blocking(),
             BrowserCommand::Reload => browser.reload_blocking(),
             BrowserCommand::Activate => browser.activate_blocking(),
-            BrowserCommand::Reconfigure { width, height } => {
-                browser.reconfigure_blocking(width, height)
+            BrowserCommand::Reconfigure { cols, rows, completion: _ } => {
+                browser.reconfigure_resize_blocking(cols, rows)
             }
         }
     };
-    if result.is_ok()
-        && let Some((width, height)) = reconfigure
-        && let Some(browser) = surface.as_browser()
-    {
-        browser.confirm_reconfigure(width, height);
+    if let Some(completion) = completion {
+        let outcome = result.as_ref().map(|_| ()).map_err(ToString::to_string);
+        let _ = completion.send(outcome);
     }
     record_browser_worker_result(surface, mux, id, is_input, result, failures);
 }
@@ -937,24 +936,41 @@ impl BrowserSurface {
     }
 
     pub fn resize(&self, cols: u16, rows: u16) {
-        let Some((width, height)) = self.update_resize_state(cols, rows) else {
+        let (cols, rows) = (cols.max(1), rows.max(1));
+        if !self.resize_needed(cols, rows) {
             return;
-        };
-        if let Err(e) =
-            self.enqueue_latest_reconfigure(BrowserCommand::Reconfigure { width, height })
-        {
+        }
+        if let Err(e) = self.enqueue_latest_reconfigure(BrowserCommand::Reconfigure {
+            cols,
+            rows,
+            completion: None,
+        }) {
             eprintln!("cmux-tui: browser resize failed for surface {}: {e}", self.meta.id);
         }
     }
 
     pub(crate) fn resize_blocking(&self, cols: u16, rows: u16) -> anyhow::Result<bool> {
         let before = self.size();
+        let (completion, finished) = sync_channel(1);
+        self.enqueue_control(BrowserCommand::Reconfigure {
+            cols: cols.max(1),
+            rows: rows.max(1),
+            completion: Some(completion),
+        })?;
+        finished
+            .recv()
+            .map_err(|_| anyhow::anyhow!("browser command worker closed"))?
+            .map_err(anyhow::Error::msg)?;
+        Ok(self.size() != before)
+    }
+
+    fn reconfigure_resize_blocking(&self, cols: u16, rows: u16) -> anyhow::Result<()> {
         let Some((width, height)) = self.update_resize_state(cols, rows) else {
-            return Ok(false);
+            return Ok(());
         };
         self.reconfigure_blocking(width, height)?;
         self.confirm_reconfigure(width, height);
-        Ok(self.size() != before)
+        Ok(())
     }
 
     pub fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) {
@@ -2032,16 +2048,19 @@ mod tests {
 
     #[test]
     fn latest_reconfigure_and_nav_slots_do_not_clobber_each_other() {
-        let latest_reconfigure =
-            Arc::new(Mutex::new(Some(BrowserCommand::Reconfigure { width: 111, height: 222 })));
+        let latest_reconfigure = Arc::new(Mutex::new(Some(BrowserCommand::Reconfigure {
+            cols: 111,
+            rows: 222,
+            completion: None,
+        })));
         let latest_nav =
             Arc::new(Mutex::new(Some(BrowserCommand::Navigate("https://next.test".to_string()))));
 
         let commands = take_latest_worker_commands(&latest_reconfigure, &latest_nav);
         assert_eq!(commands.len(), 2);
         match &commands[0] {
-            BrowserCommand::Reconfigure { width, height } => {
-                assert_eq!((*width, *height), (111, 222));
+            BrowserCommand::Reconfigure { cols, rows, completion: None } => {
+                assert_eq!((*cols, *rows), (111, 222));
             }
             _ => panic!("reconfigure must drain before nav"),
         }
@@ -2342,7 +2361,7 @@ mod tests {
         }
         assert!(browser.frames_stalled_at(now));
 
-        browser.resize(10, 5);
+        browser.resize_blocking(10, 5).unwrap();
         {
             let state = browser.state.lock().unwrap();
             assert_eq!(state.last_frame_at, Some(now - Duration::from_secs(3)));
@@ -2350,7 +2369,7 @@ mod tests {
         }
         assert!(browser.frames_stalled_at(now));
 
-        browser.resize(11, 5);
+        browser.resize_blocking(11, 5).unwrap();
         let state = browser.state.lock().unwrap();
         assert_eq!(state.last_frame_at, None);
         assert!(!state.stall_nudged);
