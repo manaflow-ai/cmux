@@ -213,6 +213,9 @@ struct CmxIrohRelayCredentialCoordinatorTests {
     @Test
     func rateLimitRetryNeverPrecedesValidatedServerFloor() async throws {
         let fixture = try RelayCoordinatorFixture()
+        let expectedRetryEvent = TestRelayClock.Event.sleep(
+            fixture.now.addingTimeInterval(600)
+        )
         let endpoint = TestIrohEndpoint(identity: fixture.identity)
         let supervisor = try await fixture.activeSupervisor(endpoint: endpoint)
         let clock = TestRelayClock(now: fixture.now)
@@ -231,10 +234,7 @@ struct CmxIrohRelayCredentialCoordinatorTests {
             endpointIdentity: fixture.identity
         )
 
-        #expect(
-            await clockEvents.next()
-                == .sleep(fixture.now.addingTimeInterval(600))
-        )
+        #expect(await clockEvents.next() == expectedRetryEvent)
         #expect(await endpoint.observedRelayUpdates().isEmpty)
         await coordinator.deactivate()
     }
