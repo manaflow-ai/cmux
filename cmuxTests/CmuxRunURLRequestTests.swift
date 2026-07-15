@@ -67,20 +67,21 @@ struct CmuxRunURLRequestTests {
         #expect(request.command.contains("\t"))
     }
 
-    @Test func shellWrapperPreservesQuotesAndExpansion() {
+    @Test func shellWrapperPreservesQuotesAndExpansion() throws {
         let command = "printf '%s\\n' \"$HOME\""
         let launchCommand = CmuxRunShellCommandBuilder(
             command: command,
             workingDirectory: "/tmp/project's",
             approvedIdentity: .init(device: 1, inode: 2)
         ).launchCommand
-        #expect(launchCommand.contains("/tmp/project"))
-        #expect(launchCommand.contains("printf"))
-        #expect(launchCommand.contains("%s\\n"))
-        #expect(launchCommand.contains("$HOME"))
+        let script = try #require(decodedGuardedScript(from: launchCommand))
+        #expect(script.contains("/tmp/project"))
+        #expect(script.contains("printf"))
+        #expect(script.contains("%s\\n"))
+        #expect(script.contains("$HOME"))
     }
 
-    @Test func shellWrapperBindsTheReviewedWorkingDirectoryFailClosed() {
+    @Test func shellWrapperBindsTheReviewedWorkingDirectoryFailClosed() throws {
         let launchCommand = CmuxRunExecutionPlan(
             command: "printf reviewed",
             workingDirectory: "/tmp/reviewed-directory",
@@ -89,29 +90,31 @@ struct CmuxRunURLRequestTests {
             placementDescription: "New workspace",
             targetDescription: "New window"
         ).launchCommand
+        let script = try #require(decodedGuardedScript(from: launchCommand))
 
-        #expect(launchCommand.contains("cd -- "))
-        #expect(launchCommand.contains("/tmp/reviewed-directory"))
-        #expect(launchCommand.contains("|| builtin exit"))
-        #expect(launchCommand.hasPrefix("/bin/zsh -dflc "))
+        #expect(launchCommand.hasPrefix("direct:/bin/zsh -dflc "))
+        #expect(script.contains("cd -- "))
+        #expect(script.contains("/tmp/reviewed-directory"))
+        #expect(script.contains("|| builtin exit"))
         #expect(
-            launchCommand.range(of: "/tmp/reviewed-directory")!.lowerBound
-                < launchCommand.range(of: "printf reviewed")!.lowerBound
+            script.range(of: "/tmp/reviewed-directory")!.lowerBound
+                < script.range(of: "printf reviewed")!.lowerBound
         )
     }
 
-    @Test func shellWrapperRevalidatesApprovedDirectoryIdentityAfterEntering() {
+    @Test func shellWrapperRevalidatesApprovedDirectoryIdentityAfterEntering() throws {
         let launchCommand = CmuxRunShellCommandBuilder(
             command: "printf reviewed",
             workingDirectory: "/tmp/reviewed-directory",
             approvedIdentity: .init(device: 1, inode: 2)
         ).launchCommand
+        let script = try #require(decodedGuardedScript(from: launchCommand))
 
-        #expect(launchCommand.contains("builtin cd -- "))
-        #expect(launchCommand.contains("/usr/bin/stat -f"))
+        #expect(script.contains("builtin cd -- "))
+        #expect(script.contains("/usr/bin/stat -f"))
         #expect(
-            launchCommand.range(of: "/usr/bin/stat -f")!.lowerBound
-                < launchCommand.range(of: "printf reviewed")!.lowerBound
+            script.range(of: "/usr/bin/stat -f")!.lowerBound
+                < script.range(of: "printf reviewed")!.lowerBound
         )
     }
 
@@ -158,6 +161,14 @@ struct CmuxRunURLRequestTests {
 
         var environment = ProcessInfo.processInfo.environment
         environment["ZDOTDIR"] = root.path
+        let bashEnvironment = root.appendingPathComponent("bash-env")
+        try "exec() { :; }\n".write(
+            to: bashEnvironment,
+            atomically: true,
+            encoding: .utf8
+        )
+        environment["BASH_ENV"] = bashEnvironment.path
+        environment["BASH_FUNC_exec%%"] = "() { :; }"
         for startupFile in [
             "alias exit=':'\nalias builtin=':'\nalias command=':'\n",
             "exit() { :; }\nbuiltin() { :; }\ncommand() { print '0:0'; }\n"
@@ -610,14 +621,31 @@ struct CmuxRunURLRequestTests {
         _ command: String,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) throws -> Int32 {
+        let arguments = try #require(directArguments(from: command))
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        process.arguments = ["-lc", command]
+        process.executableURL = URL(fileURLWithPath: arguments[0])
+        process.arguments = Array(arguments.dropFirst())
         process.environment = environment
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         try process.run()
         process.waitUntilExit()
         return process.terminationStatus
+    }
+
+    private func decodedGuardedScript(from command: String) -> String? {
+        guard let encodedScript = directArguments(from: command)?.last,
+              let data = Data(base64Encoded: encodedScript) else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
+    }
+
+    private func directArguments(from command: String) -> [String]? {
+        let prefix = "direct:"
+        guard command.hasPrefix(prefix) else { return nil }
+        let payload = command.dropFirst(prefix.count).trimmingCharacters(in: .whitespaces)
+        let arguments = payload.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+        return arguments.isEmpty ? nil : arguments
     }
 }
