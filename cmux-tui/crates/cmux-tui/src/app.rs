@@ -600,6 +600,7 @@ pub struct OrderedSession {
     remote_refresh_sequence: Arc<AtomicU64>,
     surface_resize_claims: Arc<Mutex<HashMap<SurfaceId, SurfaceResizeClaimState>>>,
     surface_resize_claim_sequence: Arc<AtomicU64>,
+    surface_resize_ownership: Arc<Mutex<HashMap<SurfaceId, (u16, u16)>>>,
     surface_attach_claims: Arc<Mutex<HashSet<SurfaceId>>>,
     surface_attach_failures: Arc<Mutex<HashMap<SurfaceId, SurfaceSyncFailureState>>>,
     surface_resize_failures: Arc<Mutex<HashMap<SurfaceId, SurfaceResizeFailure>>>,
@@ -627,6 +628,7 @@ impl OrderedSession {
             remote_refresh_sequence: Arc::new(AtomicU64::new(0)),
             surface_resize_claims: Arc::new(Mutex::new(HashMap::new())),
             surface_resize_claim_sequence: Arc::new(AtomicU64::new(0)),
+            surface_resize_ownership: Arc::new(Mutex::new(HashMap::new())),
             surface_attach_claims: Arc::new(Mutex::new(HashSet::new())),
             surface_attach_failures: Arc::new(Mutex::new(HashMap::new())),
             surface_resize_failures: Arc::new(Mutex::new(HashMap::new())),
@@ -678,6 +680,7 @@ impl OrderedSession {
         self.surface_attach_failures.lock().unwrap().remove(&id);
         self.surface_attach_claims.lock().unwrap().remove(&id);
         self.surface_resize_failures.lock().unwrap().remove(&id);
+        self.surface_resize_ownership.lock().unwrap().remove(&id);
         self.inner.forget_surface(id);
     }
 
@@ -1118,9 +1121,21 @@ impl OrderedSession {
     }
 
     fn confirm_surface_resize(&self, surface: SurfaceId, size: (u16, u16)) {
+        let mut ownership = self.surface_resize_ownership.lock().unwrap();
+        if ownership.get(&surface).is_some_and(|desired| *desired == size) {
+            ownership.remove(&surface);
+        }
+        drop(ownership);
         let mut failures = self.surface_resize_failures.lock().unwrap();
         if failures.get(&surface).is_some_and(|failure| failure.desired == size) {
             failures.remove(&surface);
+        }
+    }
+
+    fn release_surface_resize_ownership(&self, surface: SurfaceId, desired: (u16, u16)) {
+        let mut ownership = self.surface_resize_ownership.lock().unwrap();
+        if ownership.get(&surface).is_some_and(|owned| *owned == desired) {
+            ownership.remove(&surface);
         }
     }
 
@@ -1129,7 +1144,16 @@ impl OrderedSession {
         surface: SurfaceId,
         desired: (u16, u16),
         retry_after_ms: Option<u64>,
-    ) {
+    ) -> bool {
+        if self
+            .surface_resize_ownership
+            .lock()
+            .unwrap()
+            .get(&surface)
+            .is_none_or(|owned| *owned != desired)
+        {
+            return false;
+        }
         let mut failures = self.surface_resize_failures.lock().unwrap();
         let previous = failures
             .get(&surface)
@@ -1141,6 +1165,7 @@ impl OrderedSession {
             state.sticky_until_reconnect = false;
         }
         failures.insert(surface, SurfaceResizeFailure { desired, state });
+        true
     }
 
     fn surface_resize_retry_due(&self) -> bool {
@@ -3114,11 +3139,14 @@ impl App {
                 error,
                 retry_after_ms,
             }) => {
-                self.session.note_surface_resize_failure(surface, (cols, rows), retry_after_ms);
-                self.status_message = Some(format!(
-                    "browser surface {surface} resize to {cols}x{rows} failed: {error}"
-                ));
-                Ok(RenderAction::Draw)
+                if self.session.note_surface_resize_failure(surface, (cols, rows), retry_after_ms) {
+                    self.status_message = Some(format!(
+                        "browser surface {surface} resize to {cols}x{rows} failed: {error}"
+                    ));
+                    Ok(RenderAction::Draw)
+                } else {
+                    Ok(RenderAction::None)
+                }
             }
             AppEvent::Mux(MuxEvent::Status(message)) => {
                 self.status_message = Some(message);
@@ -3144,6 +3172,10 @@ impl App {
             }
             AppEvent::Mux(_) => Ok(RenderAction::Draw),
             AppEvent::BrowserResizeFailed(failure) => {
+                self.session.release_surface_resize_ownership(
+                    failure.surface_id,
+                    (failure.cols, failure.rows),
+                );
                 self.status_message = Some(format!(
                     "browser surface {} resize to {}x{} failed: {}",
                     failure.surface_id, failure.cols, failure.rows, failure.error
@@ -3664,6 +3696,7 @@ impl App {
     ) {
         if surface.kind() == SurfaceKind::Browser {
             let Some(claim) = claim else { return };
+            let ownership = self.session.surface_resize_ownership.clone();
             let _ = self.browser_input.enqueue(BrowserInputEvent {
                 surface_id,
                 surface,
@@ -3672,6 +3705,9 @@ impl App {
                     rows,
                     reassert,
                     _claim: Some(Box::new(claim)),
+                    on_dispatch: Some(Box::new(move || {
+                        ownership.lock().unwrap().insert(surface_id, (cols, rows));
+                    })),
                 },
             });
         } else {
@@ -5063,12 +5099,10 @@ impl App {
             *position = (x, y);
             *stored_modifiers = modifiers;
         }
-        let _ = self.forward_pty_mouse_to_surface(
+        let _ = self.forward_pty_mouse_motion_if_uncontended(
             surface,
             content,
-            x,
-            y,
-            MouseAction::Motion,
+            (x, y),
             Some(Self::ghostty_mouse_button(active_button)),
             modifiers,
             true,
@@ -5254,8 +5288,8 @@ impl App {
             return self.forward_pty_mouse_motion_if_uncontended(
                 area.surface,
                 area.content,
-                x,
-                y,
+                (x, y),
+                None,
                 modifiers,
                 any_button_pressed,
             );
@@ -5280,17 +5314,18 @@ impl App {
         &mut self,
         surface_id: SurfaceId,
         content: Rect,
-        x: u16,
-        y: u16,
+        position: (u16, u16),
+        button: Option<GhosttyMouseButton>,
         modifiers: KeyModifiers,
         any_button_pressed: bool,
     ) -> bool {
         let Some(surface) = self.session.surface(surface_id) else { return false };
+        let (x, y) = position;
         let cell_width = u32::from(self.cell_pixels.0.max(1));
         let cell_height = u32::from(self.cell_pixels.1.max(1));
         let input = MouseInput {
             action: MouseAction::Motion,
-            button: None,
+            button,
             mods: Self::ghostty_mouse_mods(modifiers),
             position: (
                 (x as f32 - content.x as f32 + 0.5) * cell_width as f32,
@@ -6537,7 +6572,8 @@ mod tests {
         Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
     };
     use ghostty_vt::{
-        Callbacks, KeyEncoder, Mods, MouseAction, MouseEncoder, MouseInput, RenderState,
+        Callbacks, KeyEncoder, Mods, MouseAction, MouseButton as GhosttyMouseButton, MouseEncoder,
+        MouseInput, RenderState,
     };
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
@@ -6758,10 +6794,18 @@ mod tests {
         assert!(app.forward_pty_mouse_motion_if_uncontended(
             surface.id,
             Rect { x: 2, y: 3, width: 20, height: 8 },
-            6,
-            5,
+            (6, 5),
+            None,
             KeyModifiers::NONE,
             false,
+        ));
+        assert!(app.forward_pty_mouse_motion_if_uncontended(
+            surface.id,
+            Rect { x: 2, y: 3, width: 20, height: 8 },
+            (7, 5),
+            Some(GhosttyMouseButton::Left),
+            KeyModifiers::NONE,
+            true,
         ));
 
         release_tx.send(()).unwrap();
@@ -7559,6 +7603,7 @@ mod tests {
             false,
             Some(claim),
         );
+        assert!(app.session.surface_resize_ownership.lock().unwrap().get(&7).is_none());
         let _ = app.browser_input.enqueue(BrowserInputEvent {
             surface_id: 7,
             surface: SurfaceHandle::RemoteBrowserUnsupported,
@@ -7767,11 +7812,16 @@ mod tests {
         let mux = Mux::new("session-resize-retry-due-test", SurfaceOptions::default());
         let app = test_app(Session::Local(mux));
 
-        app.session.note_surface_resize_failure(41, (90, 31), Some(0));
+        assert!(!app.session.note_surface_resize_failure(41, (90, 31), Some(0)));
+        assert!(!app.session.surface_resize_retry_due());
+
+        app.session.surface_resize_ownership.lock().unwrap().insert(41, (90, 31));
+        assert!(app.session.note_surface_resize_failure(41, (90, 31), Some(0)));
         assert!(app.session.surface_resize_retry_due());
 
         app.session.confirm_surface_resize(41, (90, 31));
         assert!(!app.session.surface_resize_retry_due());
+        assert!(!app.session.surface_resize_ownership.lock().unwrap().contains_key(&41));
     }
 
     #[test]

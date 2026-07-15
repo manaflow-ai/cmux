@@ -79,6 +79,7 @@ pub enum BrowserInputKind {
         rows: u16,
         reassert: bool,
         _claim: Option<Box<dyn Send>>,
+        on_dispatch: Option<Box<dyn FnOnce() + Send>>,
     },
     Navigate(String),
     Back,
@@ -324,7 +325,7 @@ fn worker(
         let mut batch = vec![event];
         finish_ordered_batch(&rx, &order, &latest_resizes, &mut batch);
         coalesce_sequenced_browser_events(&mut batch);
-        for event in batch {
+        for mut event in batch {
             if event.lifetime.load(Ordering::Acquire) {
                 continue;
             }
@@ -338,6 +339,11 @@ fn worker(
                     .is_some_and(|failure| failed_browser_resize_blocks(failure, desired))
             }) {
                 continue;
+            }
+            if let BrowserInputKind::Resize { on_dispatch, .. } = &mut event.event.kind
+                && let Some(mark_dispatched) = on_dispatch.take()
+            {
+                mark_dispatched();
             }
             let result = dispatch(&event.event);
             let Some((cols, rows)) = desired else {
@@ -523,7 +529,13 @@ mod tests {
         BrowserInputEvent {
             surface_id: surface,
             surface: SurfaceHandle::RemoteBrowserUnsupported,
-            kind: BrowserInputKind::Resize { cols, rows: 24, reassert: false, _claim: None },
+            kind: BrowserInputKind::Resize {
+                cols,
+                rows: 24,
+                reassert: false,
+                _claim: None,
+                on_dispatch: None,
+            },
         }
     }
 
@@ -540,6 +552,7 @@ mod tests {
                 rows: 24,
                 reassert: false,
                 _claim: Some(Box::new(DropProbe(dropped))),
+                on_dispatch: None,
             },
         }
     }
@@ -749,8 +762,15 @@ mod tests {
         )
         .unwrap();
 
-        let _ = dispatcher.enqueue(resize_event(7, 100));
+        let dispatched = Arc::new(AtomicBool::new(false));
+        let mut first = resize_event(7, 100);
+        if let BrowserInputKind::Resize { on_dispatch, .. } = &mut first.kind {
+            let dispatched = dispatched.clone();
+            *on_dispatch = Some(Box::new(move || dispatched.store(true, Ordering::Release)));
+        }
+        let _ = dispatcher.enqueue(first);
         let failure = failure_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(dispatched.load(Ordering::Acquire));
         assert_eq!((failure.surface_id, failure.cols, failure.rows), (7, 100, 24));
         assert!(dispatcher.resize_failed(7, (100, 24)));
 

@@ -67,7 +67,7 @@ export function useCmuxClient() {
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     let titleFlushTimer: ReturnType<typeof setTimeout> | undefined;
     const pendingSurfaceTitles = new Map<Id, string>();
-    const titleReconciler = new SurfaceTitleReconciler();
+    let titleReconciler = new SurfaceTitleReconciler();
 
     const discardPendingSurfaceTitles = () => {
       if (titleFlushTimer !== undefined) clearTimeout(titleFlushTimer);
@@ -109,6 +109,10 @@ export function useCmuxClient() {
 
     const start = async (reconnecting: boolean, previousAttempt = 0): Promise<void> => {
       if (cancelled) return;
+      // Retained title events belong to one transport generation. A restarted
+      // server may reuse surface IDs, so no title state may cross reconnects.
+      discardPendingSurfaceTitles();
+      titleReconciler = new SurfaceTitleReconciler();
       let dropHandled = false;
       let canReconnect = false;
       const transport = new WebSocketTransport(config.url, { authToken: config.token });
