@@ -99,6 +99,95 @@ struct SharedLiveAgentIndexAgentLivenessTests {
     }
 
     @Test
+    func autosaveCacheIsUnavailableWhileHookReloadIsDeferred() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-autosave-hook-pending-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let loadCompleted = DispatchSemaphore(value: 0)
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: { Self.loadResult(index: .empty) },
+            hookStoreDirectoryProvider: { root.path },
+            dateProvider: { Date(timeIntervalSince1970: 100) }
+        )
+        let observer = NotificationCenter.default.addObserver(
+            forName: .sharedLiveAgentIndexDidChange,
+            object: sharedIndex,
+            queue: nil
+        ) { _ in
+            loadCompleted.signal()
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        sharedIndex.scheduleRefreshIfStale()
+        #expect(await Self.wait(for: loadCompleted))
+        #expect(sharedIndex.currentAutosaveCacheSchedulingRefresh() != nil)
+
+        sharedIndex.handleHookStoreDirectoryEvent([
+            HookStoreFileStamp(
+                filename: "claude-hook-sessions.json",
+                deviceID: 1,
+                inode: 2,
+                size: 3,
+                modificationTimeSeconds: 4,
+                modificationTimeNanoseconds: 5
+            )
+        ])
+
+        #expect(sharedIndex.currentAutosaveCacheSchedulingRefresh() == nil)
+    }
+
+    @Test
+    func autosaveCacheIsUnavailableWhileIndexRefreshIsInFlight() async {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-autosave-refresh-in-flight-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let loadIndex = OSAllocatedUnfairLock(initialState: 0)
+        let initialLoadCompleted = DispatchSemaphore(value: 0)
+        let refreshStarted = DispatchSemaphore(value: 0)
+        let releaseRefresh = DispatchSemaphore(value: 0)
+        var now = Date(timeIntervalSince1970: 100)
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                let currentLoadIndex = loadIndex.withLock { loadIndex in
+                    defer { loadIndex += 1 }
+                    return loadIndex
+                }
+                if currentLoadIndex > 0 {
+                    refreshStarted.signal()
+                    _ = releaseRefresh.wait(timeout: .now() + 2)
+                }
+                return Self.loadResult(index: .empty)
+            },
+            hookStoreDirectoryProvider: { root.path },
+            dateProvider: { now }
+        )
+        let observer = NotificationCenter.default.addObserver(
+            forName: .sharedLiveAgentIndexDidChange,
+            object: sharedIndex,
+            queue: nil
+        ) { _ in
+            initialLoadCompleted.signal()
+        }
+        defer {
+            releaseRefresh.signal()
+            NotificationCenter.default.removeObserver(observer)
+        }
+
+        sharedIndex.scheduleRefreshIfStale()
+        #expect(await Self.wait(for: initialLoadCompleted))
+        #expect(sharedIndex.currentAutosaveCacheSchedulingRefresh() != nil)
+
+        now.addTimeInterval(61)
+        sharedIndex.scheduleRefreshIfStale()
+        #expect(await Self.wait(for: refreshStarted))
+        #expect(sharedIndex.currentAutosaveCacheSchedulingRefresh() == nil)
+    }
+
+    @Test
     func hookStoreReloadCadenceScalesWithIndexedHistory() async throws {
         let index = Self.index(entryCount: 270)
         let reloadStarted = try await Self.hookStoreReloadStarted(
