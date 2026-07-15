@@ -92,6 +92,11 @@ final class HostSettingsActions: SettingsHostActions {
         AppDelegate.shared?.reconcileSocketListenerConfiguration(source: "settings.reset_all")
     }
 
+    func notifyShortcutSettingsDidChange() {
+        KeyboardShortcutSettings.settingsFileStore.reload()
+        KeyboardShortcutSettings.notifySettingsFileDidChange()
+    }
+
     func applyLanguageOverride(_ language: AppLanguage) {
         LanguageSettingsStore(defaults: .standard).applyLanguageOverride(language)
     }

@@ -56,25 +56,25 @@ extension TerminalController {
                   passwordAuthorization: &streamPasswordAuthorization
               ),
               writeEventsStreamLine(snapshot.ack, socket: socket) else { return }
-        for frame in snapshot.replayFrames {
+        for event in snapshot.replay {
             guard socketEventStreamAuthorizationIsCurrent(
                       authorizationGeneration,
                       passwordAuthorization: &streamPasswordAuthorization
                   ),
-                  writeEventsStreamFrame(frame, socket: socket) else { return }
+                  writeEventsStreamLine(event, socket: socket) else { return }
         }
 
         while socketEventStreamAuthorizationIsCurrent(
             authorizationGeneration,
             passwordAuthorization: &streamPasswordAuthorization
         ) {
-            let frame = snapshot.subscription.nextFrame(timeout: CmuxEventBus.defaultHeartbeatIntervalSeconds)
+            let event = snapshot.subscription.next(timeout: CmuxEventBus.defaultHeartbeatIntervalSeconds)
             guard socketEventStreamAuthorizationIsCurrent(
                 authorizationGeneration,
                 passwordAuthorization: &streamPasswordAuthorization
             ) else { return }
-            if let frame {
-                guard writeEventsStreamFrame(frame, socket: socket) else { return }
+            if let event {
+                guard writeEventsStreamLine(event, socket: socket) else { return }
             } else if snapshot.subscription.isClosed {
                 if let reason = snapshot.subscription.closeReason {
                     _ = writeEventsStreamLine([
@@ -110,10 +110,6 @@ extension TerminalController {
             guard let line = CmuxEventBus.encodeLine(object) else { return false }
             return transport.writeAll(Data((line + "\n").utf8), to: socket)
         }
-    }
-
-    private nonisolated func writeEventsStreamFrame(_ frame: CmuxEventFrame, socket: Int32) -> Bool {
-        transport.writeAll(frame.wireData, to: socket)
     }
 
     private nonisolated static func stringSet(_ value: Any?) -> Set<String> {
