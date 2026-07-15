@@ -18,10 +18,12 @@ extension WorktreeService {
         try ensureIdentityHost(worktree, matches: host)
         try await ensureAvailable(host)
 
+        // Collapsed untracked directories keep the buffered output bounded;
+        // the snapshot reports a count, not a per-file inventory.
         let statusResult = try await runGit(
             on: host,
             directory: worktree.worktreePath,
-            arguments: ["status", "--porcelain=v2", "--branch", "--untracked-files=all"]
+            arguments: ["status", "--porcelain=v2", "--branch", "--untracked-files=normal"]
         )
         let parsed = parsedStatus(statusResult.stdout ?? "")
 

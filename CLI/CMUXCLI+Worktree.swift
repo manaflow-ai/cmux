@@ -214,7 +214,7 @@ extension CMUXCLI {
         var preview = [worktreeLocalizedFormat(
             "cli.worktree.preview.remove",
             defaultValue: "Will remove worktree %@.",
-            arguments: [worktree.identity.worktreePath]
+            arguments: [terminalSafeWorktreeText(worktree.identity.worktreePath)]
         )]
         if force {
             preview.append(String(
@@ -227,21 +227,22 @@ extension CMUXCLI {
                 ? worktreeLocalizedFormat(
                     "cli.worktree.preview.keepBranch",
                     defaultValue: "Will keep branch %@.",
-                    arguments: [branch]
+                    arguments: [terminalSafeWorktreeText(branch)]
                 )
                 : worktreeLocalizedFormat(
                     "cli.worktree.preview.deleteBranchIfMerged",
                     defaultValue: "Will delete branch %@ if it is fully merged.",
-                    arguments: [branch]
+                    arguments: [terminalSafeWorktreeText(branch)]
                 ))
         }
         let stalePlan = try await service.prune(repoRoot: repoRoot, on: host, dryRun: true)
         if !stalePlan.output.isEmpty {
             preview.append(String(
                 localized: "cli.worktree.preview.pruneStale",
-                defaultValue: "Will also prune these stale worktree records:"
+                defaultValue: "If removal must recover from stale administrative data, Git will also prune these stale worktree records:"
             ))
-            preview.append(contentsOf: stalePlan.output.split(separator: "\n").map(String.init))
+            preview.append(contentsOf: stalePlan.output.split(separator: "\n")
+                .map { terminalSafeWorktreeText(String($0)) })
         }
         let prompted = try confirmWorktreeMutation(preview: preview, assumeYes: assumeYes)
         if prompted {
@@ -317,8 +318,19 @@ extension CMUXCLI {
         let preview = [String(
             localized: "cli.worktree.preview.prune",
             defaultValue: "Will prune these stale worktree records:"
-        )] + planned.output.split(separator: "\n").map(String.init)
-        try confirmWorktreeMutation(preview: preview, assumeYes: assumeYes)
+        )] + planned.output.split(separator: "\n").map { terminalSafeWorktreeText(String($0)) }
+        let prompted = try confirmWorktreeMutation(preview: preview, assumeYes: assumeYes)
+        if prompted {
+            // The prompt can stay open indefinitely; refuse to prune records
+            // that never appeared in the confirmed plan.
+            let recheck = try await service.prune(repoRoot: repoRoot, on: host, dryRun: true)
+            guard recheck.output == planned.output else {
+                throw CLIError(message: String(
+                    localized: "cli.worktree.error.prunePlanChanged",
+                    defaultValue: "The prune plan changed while awaiting confirmation; run the command again to review the new plan."
+                ))
+            }
+        }
         let result = try await service.prune(repoRoot: repoRoot, on: host)
         if jsonOutput {
             try printWorktreeJSON(result)
@@ -327,6 +339,17 @@ extension CMUXCLI {
                 ? String(localized: "cli.worktree.output.noStaleRecords", defaultValue: "No stale worktree records.")
                 : result.output)
         }
+    }
+
+    /// Replaces C0 control characters and DEL so Git-provided values cannot
+    /// inject terminal escapes into a destructive confirmation preview.
+    private func terminalSafeWorktreeText(_ raw: String) -> String {
+        let replacement: Unicode.Scalar = "\u{FFFD}"
+        var scalars = String.UnicodeScalarView()
+        for scalar in raw.unicodeScalars {
+            scalars.append(scalar.value < 0x20 || scalar.value == 0x7F ? replacement : scalar)
+        }
+        return String(scalars)
     }
 
     /// Prints a destructive-operation preview, then requires `--yes` or an
