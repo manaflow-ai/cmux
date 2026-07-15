@@ -1423,7 +1423,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C0DE1A020000000000000001 /* SavedLayoutStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1A020000000000000002 /* SavedLayoutStore.swift */; };
 		C0DE1A070000000000000001 /* SavedLayoutStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1A070000000000000002 /* SavedLayoutStoreTests.swift */; };
 		D43310000000000000000034 /* SavingTextView+CurrentLineHighlight.swift in Sources */ = {isa = PBXBuildFile; fileRef = D43310000000000000000033 /* SavingTextView+CurrentLineHighlight.swift */; };
-		D43310000000000000000036 /* SavingTextView+Factory.swift in Sources */ = {isa = PBXBuildFile; fileRef = D43310000000000000000035 /* SavingTextView+Factory.swift */; };
 		E8BA79E246754A8B99A0B823 /* ScreenIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47D5AA7D29C94F5CA865B2BF /* ScreenIdentity.swift */; };
 		D1F0A00600000000000000F1 /* ScreenLockObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00600000000000000F2 /* ScreenLockObserver.swift */; };
 		3865A0013865A0013865A001 /* SearchIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0013865B0013865B001 /* SearchIndex.swift */; };
@@ -3452,7 +3451,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C0DE1A020000000000000002 /* SavedLayoutStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedLayoutStore.swift; sourceTree = "<group>"; };
 		C0DE1A070000000000000002 /* SavedLayoutStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedLayoutStoreTests.swift; sourceTree = "<group>"; };
 		D43310000000000000000033 /* SavingTextView+CurrentLineHighlight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/SavingTextView+CurrentLineHighlight.swift"; sourceTree = "<group>"; };
-		D43310000000000000000035 /* SavingTextView+Factory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/SavingTextView+Factory.swift"; sourceTree = "<group>"; };
 		47D5AA7D29C94F5CA865B2BF /* ScreenIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ScreenIdentity.swift; sourceTree = "<group>"; };
 		D1F0A00600000000000000F2 /* ScreenLockObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenLockObserver.swift; sourceTree = "<group>"; };
 		3865B0013865B0013865B001 /* SearchIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/SearchIndex.swift; sourceTree = "<group>"; };
@@ -5528,7 +5526,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D4331000000000000000003B /* SessionIndexStore+LiveSessionEntries.swift */,
 				D43310000000000000000039 /* RightSidebarMode.swift */,
 				D43310000000000000000037 /* RestorableAgentSessionIndex+AllEntries.swift */,
-				D43310000000000000000035 /* SavingTextView+Factory.swift */,
 				D43310000000000000000033 /* SavingTextView+CurrentLineHighlight.swift */,
 				D43310000000000000000031 /* MarkdownWebRenderer+FragmentRouting.swift */,
 				D4331000000000000000002F /* MarkdownPanel+Notes.swift */,
@@ -7478,7 +7475,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				FE003107 /* RovoDevTranscriptPreview.swift in Sources */,
 				C0DE1A020000000000000001 /* SavedLayoutStore.swift in Sources */,
 				D43310000000000000000034 /* SavingTextView+CurrentLineHighlight.swift in Sources */,
-				D43310000000000000000036 /* SavingTextView+Factory.swift in Sources */,
 				E8BA79E246754A8B99A0B823 /* ScreenIdentity.swift in Sources */,
 				D1F0A00600000000000000F1 /* ScreenLockObserver.swift in Sources */,
 				3865A0013865A0013865A001 /* SearchIndex.swift in Sources */,
