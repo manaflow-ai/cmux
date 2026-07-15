@@ -51,7 +51,7 @@ actor RepositoryScriptResolver {
         for resolution: RepositoryScriptResolution
     ) -> CmuxActionTrustDescriptor? {
         guard !resolution.scripts.isEmpty,
-              case .projectFile = resolution.source else { return nil }
+              case .projectFile(let configPath) = resolution.source else { return nil }
         let fingerprintPayload = [
             resolution.setup.map { "setup:\n\($0)" },
             resolution.archive.map { "archive:\n\($0)" },
@@ -62,10 +62,8 @@ actor RepositoryScriptResolver {
             command: fingerprintPayload,
             target: "workspaceLifecycle",
             workspaceCommand: nil,
-            // The source path is passed separately for the prompt. Excluding the
-            // worktree-specific path keeps trust stable across linked worktrees.
-            configPath: nil,
-            projectRoot: resolution.identity.commonDirectory,
+            configPath: configPath,
+            projectRoot: resolution.identity.workTreeRoot,
             iconFingerprint: nil
         )
     }

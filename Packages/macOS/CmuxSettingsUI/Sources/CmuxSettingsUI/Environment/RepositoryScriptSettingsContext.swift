@@ -1,5 +1,8 @@
 /// The active repository scripts displayed by the terminal Settings section.
 public struct RepositoryScriptSettingsContext: Sendable, Equatable {
+    /// Stable repository identity shared by linked work trees.
+    public let repositoryID: String
+
     /// Repository name shown above the script editors.
     public let repositoryName: String
 
@@ -21,6 +24,7 @@ public struct RepositoryScriptSettingsContext: Sendable, Equatable {
     /// Creates the Settings snapshot for one repository.
     ///
     /// - Parameters:
+    ///   - repositoryID: Stable identity derived from Git's common directory.
     ///   - repositoryName: Repository name shown in Settings.
     ///   - repositoryRoot: Canonical work-tree root.
     ///   - setup: Effective setup script.
@@ -28,6 +32,7 @@ public struct RepositoryScriptSettingsContext: Sendable, Equatable {
     ///   - projectSetup: Project-config setup script.
     ///   - projectArchive: Project-config archive script.
     public init(
+        repositoryID: String,
         repositoryName: String,
         repositoryRoot: String,
         setup: String,
@@ -35,6 +40,7 @@ public struct RepositoryScriptSettingsContext: Sendable, Equatable {
         projectSetup: String?,
         projectArchive: String?
     ) {
+        self.repositoryID = repositoryID
         self.repositoryName = repositoryName
         self.repositoryRoot = repositoryRoot
         self.setup = setup

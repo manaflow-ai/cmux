@@ -157,7 +157,12 @@ struct RepositoryTerminalScriptsTests {
                 runRepositoryScripts: false
             )
             #expect(manager.selectedWorkspace?.currentDirectory == second.path)
-            #expect(await hostActions.saveRepositoryScripts(setup: "echo first", archive: ""))
+            let updated = await hostActions.saveRepositoryScripts(
+                context: displayed,
+                setup: "echo first",
+                archive: ""
+            )
+            #expect(updated?.repositoryID == displayed.repositoryID)
 
             let resolver = RepositoryScriptResolver()
             let firstID = try #require(

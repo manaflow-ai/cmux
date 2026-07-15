@@ -16,6 +16,7 @@ extension HostSettingsActions {
             preferences: preferences
         ) else { return nil }
         return RepositoryScriptSettingsContext(
+            repositoryID: resolution.identity.id,
             repositoryName: URL(fileURLWithPath: resolution.identity.workTreeRoot).lastPathComponent,
             repositoryRoot: resolution.identity.workTreeRoot,
             setup: resolution.setup ?? "",
@@ -25,23 +26,26 @@ extension HostSettingsActions {
         )
     }
 
-    func saveRepositoryScripts(setup: String, archive: String) async -> Bool {
+    func saveRepositoryScripts(
+        context: RepositoryScriptSettingsContext,
+        setup: String,
+        archive: String
+    ) async -> RepositoryScriptSettingsContext? {
         guard let appDelegate = AppDelegate.shared,
-              let runtime = appDelegate.settingsRuntime,
-              let tabManager = appDelegate.activeTabManagerForCommands(),
-              let workspace = tabManager.selectedWorkspace else { return false }
-        let directory = workspace.currentDirectory
+              let runtime = appDelegate.settingsRuntime else { return nil }
         let preferences = await runtime.jsonStore.value(for: runtime.catalog.terminal.repositoryScripts)
         guard let resolution = await RepositoryScriptResolver().resolve(
-            directory: directory,
+            directory: context.repositoryRoot,
             preferences: preferences
-        ) else { return false }
+        ), resolution.identity.id == context.repositoryID,
+           resolution.identity.workTreeRoot == context.repositoryRoot else { return nil }
         let normalizedSetup = Self.nonblankRepositoryScript(setup)
+        let normalizedArchive = Self.nonblankRepositoryScript(archive)
         let preference = RepositoryScriptPreference(
             repositoryID: resolution.identity.id,
             repositoryRoot: resolution.identity.workTreeRoot,
             setup: normalizedSetup,
-            archive: Self.nonblankRepositoryScript(archive),
+            archive: normalizedArchive,
             overridesProjectScripts: true,
             promptDismissed: normalizedSetup != nil
         )
@@ -55,16 +59,26 @@ extension HostSettingsActions {
                 }
                 return updated
             }
-            tabManager.repositorySetupPromptStore?.remove(repositoryID: resolution.identity.id)
-            return true
+            appDelegate.repositoryScriptRuntime?.promptStore.remove(repositoryID: resolution.identity.id)
+            return RepositoryScriptSettingsContext(
+                repositoryID: resolution.identity.id,
+                repositoryName: URL(fileURLWithPath: resolution.identity.workTreeRoot).lastPathComponent,
+                repositoryRoot: resolution.identity.workTreeRoot,
+                setup: normalizedSetup ?? "",
+                archive: normalizedArchive ?? "",
+                projectSetup: resolution.projectScripts.normalized.setup,
+                projectArchive: resolution.projectScripts.normalized.archive
+            )
         } catch {
-            return false
+            return nil
         }
     }
 
-    func importProjectRepositoryScripts() async -> Bool {
-        guard let context = await repositoryScriptSettingsContext() else { return false }
+    func importProjectRepositoryScripts(
+        context: RepositoryScriptSettingsContext
+    ) async -> RepositoryScriptSettingsContext? {
         return await saveRepositoryScripts(
+            context: context,
             setup: context.projectSetup ?? "",
             archive: context.projectArchive ?? ""
         )

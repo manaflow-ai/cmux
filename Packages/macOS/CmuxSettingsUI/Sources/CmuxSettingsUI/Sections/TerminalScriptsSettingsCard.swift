@@ -294,27 +294,38 @@ struct TerminalScriptsSettingsCard: View {
     }
 
     private func saveRepositoryScripts() {
+        guard let context = repositoryContext else { return }
+        let setup = repositorySetup
+        let archive = repositoryArchive
         repositorySaveTask?.cancel()
         repositorySaveTask = Task {
-            let saved = await hostActions.saveRepositoryScripts(
-                setup: repositorySetup,
-                archive: repositoryArchive
+            let updatedContext = await hostActions.saveRepositoryScripts(
+                context: context,
+                setup: setup,
+                archive: archive
             )
             if !Task.isCancelled {
-                repositorySaveFailed = !saved
-                if saved { await refreshRepositoryContext() }
+                repositorySaveFailed = updatedContext == nil
+                if let updatedContext { applyRepositoryContext(updatedContext) }
             }
         }
     }
 
     private func importProjectScripts() {
+        guard let context = repositoryContext else { return }
         repositorySaveTask?.cancel()
         repositorySaveTask = Task {
-            let saved = await hostActions.importProjectRepositoryScripts()
+            let updatedContext = await hostActions.importProjectRepositoryScripts(context: context)
             if !Task.isCancelled {
-                repositorySaveFailed = !saved
-                if saved { await refreshRepositoryContext() }
+                repositorySaveFailed = updatedContext == nil
+                if let updatedContext { applyRepositoryContext(updatedContext) }
             }
         }
+    }
+
+    private func applyRepositoryContext(_ context: RepositoryScriptSettingsContext) {
+        repositoryContext = context
+        repositorySetup = context.setup
+        repositoryArchive = context.archive
     }
 }
