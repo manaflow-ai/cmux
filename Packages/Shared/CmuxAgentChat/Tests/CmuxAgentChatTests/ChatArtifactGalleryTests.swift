@@ -28,6 +28,8 @@ struct ChatArtifactGalleryTests {
         let data = try coding.encode(page)
         let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         #expect(json["session_id"] as? String == "session-1")
+        #expect(json["created_total"] as? Int == 1)
+        #expect(json["attached_total"] as? Int == 0)
         #expect(json["referenced_total"] as? Int == 7)
         #expect(json["next_cursor"] as? String == "cursor")
         let created = try #require(json["created"] as? [[String: Any]])
@@ -94,7 +96,7 @@ struct ChatArtifactGalleryTests {
             query: nil
         )
         #expect(legacy.referenced.map(\.path) == [file.path])
-        #expect(legacy.referencedTotal == 1)
+        #expect(legacy.referencedTotal == 2)
 
         let folders = builder.page(
             sessionID: "session",
@@ -120,6 +122,65 @@ struct ChatArtifactGalleryTests {
         #expect(oldHostPage.created.isEmpty)
         #expect(oldHostPage.referenced.isEmpty)
         #expect(oldHostPage.referencedTotal == 0)
+    }
+
+    @Test("each provenance section stats only one bounded page at a time")
+    func allSectionsPageLazily() throws {
+        let items = (1...3).flatMap { index in
+            [
+                ChatArtifactIndexedReference(
+                    path: "/missing/created-\(index).txt",
+                    provenance: .created,
+                    lastReferencedSeq: index
+                ),
+                ChatArtifactIndexedReference(
+                    path: "/missing/attached-\(index).txt",
+                    provenance: .attached,
+                    lastReferencedSeq: index
+                ),
+                ChatArtifactIndexedReference(
+                    path: "/missing/referenced-\(index).txt",
+                    provenance: .referenced,
+                    lastReferencedSeq: index
+                ),
+            ]
+        }
+        let builder = ChatArtifactGalleryBuilder()
+
+        let first = builder.page(
+            sessionID: "session",
+            items: items,
+            generation: "generation",
+            cursor: nil,
+            pageSize: 2,
+            query: nil,
+            includeDirectories: true
+        )
+        let cursor = try #require(first.nextCursor.flatMap(ChatArtifactGalleryCursor.init(token:)))
+        let second = builder.page(
+            sessionID: "session",
+            items: items,
+            generation: "generation",
+            cursor: cursor,
+            pageSize: 2,
+            query: nil,
+            includeDirectories: true
+        )
+        let snapshot = ChatArtifactGallerySnapshot(page: first).appending(second)
+
+        #expect(first.created.count == 2)
+        #expect(first.attached.count == 2)
+        #expect(first.referenced.count == 2)
+        #expect(first.createdTotal == 3)
+        #expect(first.attachedTotal == 3)
+        #expect(first.referencedTotal == 3)
+        #expect(second.created.count == 1)
+        #expect(second.attached.count == 1)
+        #expect(second.referenced.count == 1)
+        #expect(second.nextCursor == nil)
+        #expect(snapshot.created.count == 3)
+        #expect(snapshot.attached.count == 3)
+        #expect(snapshot.referenced.count == 3)
     }
 
     @Test("directory child counts stop at the listing cap")

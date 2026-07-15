@@ -11,8 +11,8 @@ public struct ChatArtifactGalleryBuilder: Sendable {
     ///   - sessionID: Session represented by the artifact index.
     ///   - items: De-duplicated transcript artifact references.
     ///   - generation: Stable snapshot generation carried by page cursors.
-    ///   - cursor: Position after which the referenced section continues.
-    ///   - pageSize: Maximum referenced entries to include.
+    ///   - cursor: Per-section positions after which paging continues.
+    ///   - pageSize: Maximum entries to stat and include per section.
     ///   - query: Optional basename or path search.
     ///   - includeDirectories: Whether directory references are eligible for
     ///     rows. This defaults to `false` for clients without folder capability.
@@ -27,64 +27,94 @@ public struct ChatArtifactGalleryBuilder: Sendable {
         includeDirectories: Bool = false
     ) -> ChatArtifactGalleryPage {
         let ordering = ChatArtifactGalleryOrdering()
-        let eligibleItems = eligibleItems(items, includeDirectories: includeDirectories)
         let normalizedQuery = query?.trimmingCharacters(in: .whitespacesAndNewlines)
         let isSearch = normalizedQuery?.isEmpty == false
-        let candidates: [ChatArtifactIndexedReference]
+        let createdCandidates: [ChatArtifactIndexedReference]
+        let attachedCandidates: [ChatArtifactIndexedReference]
+        let referencedCandidates: [ChatArtifactIndexedReference]
         if let normalizedQuery, !normalizedQuery.isEmpty {
-            candidates = ordering.search(eligibleItems, query: normalizedQuery)
+            createdCandidates = []
+            attachedCandidates = []
+            referencedCandidates = ordering.search(items, query: normalizedQuery)
         } else {
-            candidates = ordering.sorted(eligibleItems.filter { $0.provenance == .referenced })
+            createdCandidates = ordering.sorted(items.filter { $0.provenance == .created })
+            attachedCandidates = ordering.sorted(items.filter { $0.provenance == .attached })
+            referencedCandidates = ordering.sorted(items.filter { $0.provenance == .referenced })
         }
-        let remaining = ordering.items(candidates, strictlyAfter: cursor)
-        let pageReferences = Array(remaining.prefix(pageSize))
+        let count = max(1, pageSize)
+        let starts = pageStarts(
+            cursor: cursor,
+            created: createdCandidates,
+            attached: attachedCandidates,
+            referenced: referencedCandidates,
+            ordering: ordering
+        )
+        let pageCreated = Array(createdCandidates.dropFirst(starts.created).prefix(count))
+        let pageAttached = Array(attachedCandidates.dropFirst(starts.attached).prefix(count))
+        let pageReferenced = Array(referencedCandidates.dropFirst(starts.referenced).prefix(count))
+        let nextCreatedOffset = starts.created + pageCreated.count
+        let nextAttachedOffset = starts.attached + pageAttached.count
+        let nextReferencedOffset = starts.referenced + pageReferenced.count
         let nextCursor: String?
-        if remaining.count > pageReferences.count, let last = pageReferences.last {
+        if nextCreatedOffset < createdCandidates.count
+            || nextAttachedOffset < attachedCandidates.count
+            || nextReferencedOffset < referencedCandidates.count {
+            let last = pageReferenced.last
             nextCursor = try? ChatArtifactGalleryCursor(
                 generation: generation,
-                seq: last.lastReferencedSeq,
-                path: last.path
+                seq: last?.lastReferencedSeq ?? cursor?.seq ?? .max,
+                path: last?.path ?? cursor?.path ?? "",
+                createdOffset: nextCreatedOffset,
+                attachedOffset: nextAttachedOffset,
+                referencedOffset: nextReferencedOffset
             ).token()
         } else {
             nextCursor = nil
         }
 
-        let includeCompleteSections = cursor == nil && !isSearch
-        let created = includeCompleteSections
-            ? statItems(ordering.sorted(eligibleItems.filter { $0.provenance == .created }))
-            : []
-        let attached = includeCompleteSections
-            ? statItems(ordering.sorted(eligibleItems.filter { $0.provenance == .attached }))
-            : []
         return ChatArtifactGalleryPage(
             sessionID: sessionID,
-            created: created,
-            attached: attached,
-            referenced: statItems(pageReferences),
-            referencedTotal: candidates.count,
+            created: isSearch ? [] : statItems(pageCreated, includeDirectories: includeDirectories),
+            createdTotal: createdCandidates.count,
+            attached: isSearch ? [] : statItems(pageAttached, includeDirectories: includeDirectories),
+            attachedTotal: attachedCandidates.count,
+            referenced: statItems(pageReferenced, includeDirectories: includeDirectories),
+            referencedTotal: referencedCandidates.count,
             nextCursor: nextCursor,
             generation: generation
         )
     }
 
-    private func eligibleItems(
-        _ items: [ChatArtifactIndexedReference],
-        includeDirectories: Bool
-    ) -> [ChatArtifactIndexedReference] {
-        guard !includeDirectories else { return items }
-        let reader = ArtifactByteReader()
-        return items.filter { reference in
-            (try? reader.stat(path: reference.path).isDirectory) != true
+    private func pageStarts(
+        cursor: ChatArtifactGalleryCursor?,
+        created: [ChatArtifactIndexedReference],
+        attached: [ChatArtifactIndexedReference],
+        referenced: [ChatArtifactIndexedReference],
+        ordering: ChatArtifactGalleryOrdering
+    ) -> (created: Int, attached: Int, referenced: Int) {
+        guard let cursor else { return (0, 0, 0) }
+        if let createdOffset = cursor.createdOffset,
+           let attachedOffset = cursor.attachedOffset,
+           let referencedOffset = cursor.referencedOffset {
+            return (
+                min(max(0, createdOffset), created.count),
+                min(max(0, attachedOffset), attached.count),
+                min(max(0, referencedOffset), referenced.count)
+            )
         }
+        let remaining = ordering.items(referenced, strictlyAfter: cursor)
+        return (created.count, attached.count, referenced.count - remaining.count)
     }
 
     private func statItems(
-        _ references: [ChatArtifactIndexedReference]
+        _ references: [ChatArtifactIndexedReference],
+        includeDirectories: Bool
     ) -> [ChatArtifactGalleryItem] {
         let reader = ArtifactByteReader()
-        return references.map { reference in
+        return references.compactMap { reference in
             do {
                 let stat = try reader.stat(path: reference.path)
+                guard includeDirectories || !stat.isDirectory else { return nil }
                 let listing = stat.isDirectory ? try? reader.list(path: reference.path) : nil
                 return ChatArtifactGalleryItem(
                     path: reference.path,

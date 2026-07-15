@@ -183,7 +183,7 @@ extension TerminalArtifactFilesSheet {
                                 defaultValue: "Created by agent",
                                 bundle: .module
                             ),
-                            count: created.count,
+                            count: usesCompleteSessionSnapshot ? created.count : snapshot.createdTotal,
                             items: created,
                             expanded: $createdExpanded,
                             swipeOrder: swipeOrder
@@ -194,7 +194,7 @@ extension TerminalArtifactFilesSheet {
                                 defaultValue: "You attached",
                                 bundle: .module
                             ),
-                            count: attached.count,
+                            count: usesCompleteSessionSnapshot ? attached.count : snapshot.attachedTotal,
                             items: attached,
                             expanded: $attachedExpanded,
                             swipeOrder: swipeOrder

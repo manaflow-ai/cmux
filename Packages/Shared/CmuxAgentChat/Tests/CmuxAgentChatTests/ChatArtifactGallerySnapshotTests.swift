@@ -22,6 +22,10 @@ struct ChatArtifactGallerySnapshotTests {
         )
         let page = ChatArtifactGalleryPage(
             sessionID: "session",
+            created: [created, item(path: "/session/created-next.txt", provenance: .created)],
+            createdTotal: 2,
+            attached: [attached, item(path: "/session/attached-next.txt", provenance: .attached)],
+            attachedTotal: 2,
             referenced: [created, attached, referenced, next, next],
             referencedTotal: 2,
             generation: "generation"
@@ -29,9 +33,11 @@ struct ChatArtifactGallerySnapshotTests {
 
         let snapshot = ChatArtifactGallerySnapshot(page: initial).appending(page)
 
-        #expect(snapshot.created.map(\.path) == [created.path])
-        #expect(snapshot.attached.map(\.path) == [attached.path])
+        #expect(snapshot.created.map(\.path) == [created.path, "/session/created-next.txt"])
+        #expect(snapshot.attached.map(\.path) == [attached.path, "/session/attached-next.txt"])
         #expect(snapshot.referenced.map(\.path) == [referenced.path, next.path])
+        #expect(snapshot.createdTotal == 2)
+        #expect(snapshot.attachedTotal == 2)
     }
 
     private func item(

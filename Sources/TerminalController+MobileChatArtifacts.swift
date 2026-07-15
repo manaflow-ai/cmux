@@ -54,12 +54,7 @@ extension TerminalController {
                     includeDirectories: includeDirectories
                 )
             }.value
-            var payload = ChatArtifactWire.payload(page) ?? [:]
-            if cursor != nil {
-                payload.removeValue(forKey: "created")
-                payload.removeValue(forKey: "attached")
-            }
-            return .ok(payload)
+            return .ok(ChatArtifactWire.payload(page) ?? [:])
         } catch {
             return mobileChatArtifactError(.notFound, path: "")
         }
