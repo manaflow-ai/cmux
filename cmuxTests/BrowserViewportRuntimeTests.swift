@@ -58,15 +58,19 @@ struct BrowserViewportRuntimeTests {
         let layout = try #require(webView.cmuxApplyBrowserViewportLayout(in: pane.bounds))
         #expect(layout.mode == .emulated)
 
-        let rawMetrics = try await webView.evaluateJavaScript(
+        let rawMetrics = try await webView.callAsyncJavaScript(
             """
-            new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve({
+            await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+            return {
               width: window.innerWidth,
               height: window.innerHeight,
               wide: window.matchMedia('(min-width: 1000px)').matches,
               responsiveDisplay: getComputedStyle(document.getElementById('responsive')).display
-            }))))
-            """
+            };
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
         )
         let metrics = try #require(rawMetrics as? [String: Any])
 
