@@ -273,7 +273,14 @@ struct MobileIrohRuntimeCompositionTests {
             return
         }
         #expect(identity.endpointID == String(repeating: "a", count: 64))
-        #expect(hints.isEmpty)
+        let tailscaleHint = try #require(hints.first)
+        #expect(tailscaleHint.kind == .directAddress)
+        #expect(tailscaleHint.value == "100.64.0.10:50906")
+        #expect(tailscaleHint.source == .tailscale)
+        #expect(tailscaleHint.privacyScope == .privateNetwork)
+        #expect(tailscaleHint.use == .fallbackOnly)
+        #expect(tailscaleHint.networkProfile?.source == .tailscale)
+        #expect(tailscaleHint.isUsable(at: Date()))
         #expect(await registry.freshRoutes(
             forMacDeviceID: "123e4567-e89b-42d3-a456-426614174099",
             instanceTag: "test"
