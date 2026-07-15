@@ -543,6 +543,15 @@ struct CmuxRunURLRequestTests {
         )
     }
 
+    @Test func canonicalVerifierKeepsBlockingOperationsInTheTrackedProcess() {
+        let command = CmuxRunWorkingDirectoryResolver.canonicalDirectoryCommand(for: "/tmp")
+        let script = command.arguments.joined(separator: " ")
+
+        #expect(!script.contains("$("))
+        #expect(script.contains("pwd -P"))
+        #expect(script.contains("exec /usr/bin/stat"))
+    }
+
     private func parsed(_ queryItems: [URLQueryItem]) throws -> CmuxRunURLRequest {
         switch parse(queryItems) {
         case .success(let request):
