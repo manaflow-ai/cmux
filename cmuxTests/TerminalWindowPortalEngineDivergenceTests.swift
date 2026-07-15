@@ -638,6 +638,10 @@ extension TerminalWindowPortalLifecycleTests {
         let window = makeTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 340)
         )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")
             return

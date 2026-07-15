@@ -63,6 +63,10 @@ import Testing
         var surface: TerminalSurface? = makeSurface()
         surface?.installRuntimeSurfaceForTesting(fakeRuntimeSurface())
         surface?.mobileByteTeeLease = RecordingTerminalByteTeeLease(recorder: recorder)
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in
+            recorder.record(.nativeFree)
+        }
+        defer { TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil }
 
         surface = nil
 
@@ -73,8 +77,10 @@ import Testing
             "deinit released the tee lease inline instead of handing it to the teardown coordinator"
         )
 
-        await recorder.waitForEventCount(1)
-        #expect(recorder.events == [.teeLeaseRelease])
+        await recorder.waitForEventCount(2)
+        // The native free must land before the tee-lease release: ghostty's IO
+        // reader thread can fire the tee callback until the free joins it.
+        #expect(recorder.events == [.nativeFree, .teeLeaseRelease])
     }
 
     @Test func teardownSurfaceKeepsManualIOContextUntilNativeFree() async {

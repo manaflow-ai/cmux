@@ -298,8 +298,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let debugForceRefreshCountLock = NSLock()
     var debugForceRefreshCountValue = 0
     /// Test-only override for the native free used by teardown paths.
-    @MainActor
-    public static var runtimeSurfaceFreeOverrideForTesting: (@Sendable (ghostty_surface_t) -> Void)?
+    // nonisolated(unsafe) so the nonisolated deinit teardown path can read it,
+    // like the @MainActor teardownSurface/suspend paths already do; tests only
+    // set and clear it on the main actor.
+    public nonisolated(unsafe) static var runtimeSurfaceFreeOverrideForTesting: (@Sendable (ghostty_surface_t) -> Void)?
 #endif
     var portalLifecycleState: PortalLifecycleState = .live
     var portalLifecycleGeneration: UInt64 = 1
@@ -598,6 +600,21 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         // io_write_cb) until ghostty_surface_free joins those threads, so releasing
         // manualIOContext or teeLease here would leave a use-after-free window until
         // the coordinator's deferred free runs.
+#if DEBUG
+        if let freeSurface = Self.runtimeSurfaceFreeOverrideForTesting {
+            runtimeTeardown.enqueueRuntimeTeardown(
+                id: id,
+                workspaceId: tabId,
+                reason: "deinit",
+                surface: surfaceToFree,
+                callbackContext: callbackContext,
+                manualIOContext: manualIOContext,
+                byteTeeLease: teeLease,
+                freeSurface: freeSurface
+            )
+            return
+        }
+#endif
         runtimeTeardown.enqueueRuntimeTeardown(
             id: id,
             workspaceId: tabId,
