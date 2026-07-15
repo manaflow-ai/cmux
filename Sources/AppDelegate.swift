@@ -13549,15 +13549,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Surface navigation: Cmd+Shift+] / Cmd+Shift+[
-        if matchConfiguredShortcut(event: event, action: .nextSurface) {
-            (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?.selectNextSurface()
-            return true
-        }
-        if matchConfiguredShortcut(event: event, action: .prevSurface) {
-            (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?.selectPreviousSurface()
-            return true
-        }
+        if handleAdjacentNavigationShortcut(event: event) { return true }
 
         if matchConfiguredShortcut(event: event, action: .toggleTerminalCopyMode) {
             let handled = tabManager?.toggleFocusedTerminalCopyMode() ?? false
