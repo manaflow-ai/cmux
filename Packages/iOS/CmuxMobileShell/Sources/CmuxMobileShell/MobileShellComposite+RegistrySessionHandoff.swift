@@ -71,7 +71,7 @@ extension MobileShellComposite {
                 if !Task.isCancelled { await loadRegistryDevices() }
                 return nil
             }
-            rememberChatSessions(authoritativeSessions, workspaceID: session.workspaceID)
+            rememberRegistryHandoffChatSessions(authoritativeSessions, workspaceID: workspaceID)
             authoritativeAgentSessionID = authoritativeSession.id
             terminalID = authoritativeSession.terminalID
         }
@@ -135,6 +135,14 @@ extension MobileShellComposite {
                 && (advertisedSession.terminalID == nil
                     || session.terminalID == advertisedSession.terminalID)
         }
+    }
+
+    /// Seed the destination row with the authoritative sessions fetched during handoff.
+    func rememberRegistryHandoffChatSessions(
+        _ sessions: [ChatSessionDescriptor],
+        workspaceID: MobileWorkspacePreview.ID
+    ) {
+        rememberChatSessions(sessions, workspaceID: workspaceID.rawValue)
     }
 
     /// Consume the handoff chat intent only if the presented detail still owns its token.
