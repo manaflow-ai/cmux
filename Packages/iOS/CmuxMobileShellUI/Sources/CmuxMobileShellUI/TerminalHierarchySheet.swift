@@ -36,6 +36,7 @@ struct TerminalHierarchySheet: View {
     @State private var moveUnavailable = false
     @State private var showRefreshAlert = false
     @State private var refreshResultIsUnknown = false
+    @State private var refreshStateWasStale = false
     @State private var optimisticTerminalIDsByPane: [MobilePanePreview.ID: [MobileTerminalPreview.ID]] = [:]
     var body: some View {
         NavigationStack {
@@ -366,6 +367,8 @@ struct TerminalHierarchySheet: View {
             presentRefreshRequired(resultIsUnknown: true)
         case .resultUnknownRefreshed:
             mutationResultUnknownRefreshed = true
+        case .staleStateNeedsRefresh:
+            presentRefreshRequired(stateWasStale: true)
         case .protected:
             mutationProtected = true
         case .failed:
@@ -432,6 +435,8 @@ struct TerminalHierarchySheet: View {
                 presentRefreshRequired(resultIsUnknown: true)
             case .resultUnknownRefreshed:
                 mutationResultUnknownRefreshed = true
+            case .staleStateNeedsRefresh:
+                presentRefreshRequired(stateWasStale: true)
             case .protected:
                 closeProtected = true
             case .failed:
@@ -471,6 +476,12 @@ struct TerminalHierarchySheet: View {
     }
 
     private var refreshAlertTitle: String {
+        if refreshStateWasStale {
+            return L10n.string(
+                "mobile.terminal.hierarchy.staleStateTitle",
+                defaultValue: "Terminal List Out of Date"
+            )
+        }
         if refreshResultIsUnknown {
             return L10n.string(
                 "mobile.terminal.hierarchy.resultUnknownTitle",
@@ -481,6 +492,12 @@ struct TerminalHierarchySheet: View {
     }
 
     private var refreshAlertMessage: String {
+        if refreshStateWasStale {
+            return L10n.string(
+                "mobile.terminal.hierarchy.staleStateMessage",
+                defaultValue: "The Mac rejected the change because this terminal list is out of date. Refresh before making another change."
+            )
+        }
         if refreshResultIsUnknown {
             return L10n.string(
                 "mobile.terminal.hierarchy.resultUnknownMessage",
@@ -493,9 +510,13 @@ struct TerminalHierarchySheet: View {
         )
     }
 
-    private func presentRefreshRequired(resultIsUnknown: Bool) {
+    private func presentRefreshRequired(
+        resultIsUnknown: Bool = false,
+        stateWasStale: Bool = false
+    ) {
         reorderGate.requireRefresh(workspaceID: snapshot.workspaceID)
         refreshResultIsUnknown = resultIsUnknown
+        refreshStateWasStale = stateWasStale
         showRefreshAlert = true
     }
 

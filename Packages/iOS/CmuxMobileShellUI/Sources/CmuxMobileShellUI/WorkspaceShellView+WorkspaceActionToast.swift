@@ -62,6 +62,12 @@ extension WorkspaceShellView {
                 defaultValue: "Latest workspace state loaded. Verify the change."
             )
         }
+        if case .staleStateNeedsRefresh = failure {
+            return L10n.string(
+                "mobile.workspaceAction.failure.staleStateNeedsRefresh",
+                defaultValue: "The Mac rejected the change because this workspace is out of date. Refresh to load the latest state."
+            )
+        }
         return String.localizedStringWithFormat(
             L10n.string(
                 "mobile.workspaceAction.failure.message",
@@ -123,6 +129,11 @@ extension WorkspaceShellView {
             return L10n.string(
                 "mobile.workspaceAction.failure.resultUnknownRefreshed",
                 defaultValue: "Latest workspace state loaded. Verify the change."
+            )
+        case .staleStateNeedsRefresh:
+            return L10n.string(
+                "mobile.workspaceAction.failure.staleStateNeedsRefresh",
+                defaultValue: "The Mac rejected the change because this workspace is out of date. Refresh to load the latest state."
             )
         case let .notConnected(hostDisplayName):
             if let hostDisplayName = trimmedWorkspaceActionHostDisplayName(hostDisplayName) {

@@ -9539,6 +9539,13 @@
         "ja": { "stringUnit": { "state": "translated", "value": "最新のワークスペース状態を読み込みました。変更を確認してください。" } }
       }
     },
+    "mobile.workspaceAction.failure.staleStateNeedsRefresh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The Mac rejected the change because this workspace is out of date. Refresh to load the latest state." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースの状態が古いため、Mac は変更を拒否しました。最新の状態を読み込むには更新してください。" } }
+      }
+    },
     "mobile.workspaceAction.failure.message": {
       "extractionState": "manual",
       "localizations": {
@@ -10203,6 +10210,18 @@
       "extractionState": "manual", "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Latest terminal state loaded. Verify the change." } },
         "ja": { "stringUnit": { "state": "translated", "value": "最新のターミナル状態を読み込みました。変更を確認してください。" } }
+      }
+    },
+    "mobile.terminal.hierarchy.staleStateTitle": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Terminal List Out of Date" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルリストが最新ではありません" } }
+      }
+    },
+    "mobile.terminal.hierarchy.staleStateMessage": {
+      "extractionState": "manual", "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The Mac rejected the change because this terminal list is out of date. Refresh before making another change." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルリストが最新ではないため、Mac は変更を拒否しました。別の変更を行う前に更新してください。" } }
       }
     },
     "mobile.terminal.hierarchy.refreshAction": {

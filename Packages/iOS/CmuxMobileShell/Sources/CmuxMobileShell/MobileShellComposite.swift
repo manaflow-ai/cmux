@@ -3757,8 +3757,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let targetWorkspace = workspaces.first(where: { $0.id == targetWorkspaceID })
         guard remoteClient == nil else {
             if let targetWorkspaceID,
-               recoverTerminalHierarchyForCreateIfRequired(in: targetWorkspaceID) {
-                completion(.success(()))
+               recoverTerminalHierarchyForCreateIfRequired(
+                   in: targetWorkspaceID,
+                   completion: completion
+               ) {
                 return
             }
             let targetPaneID = remoteTerminalCreationPaneID(

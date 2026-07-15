@@ -211,14 +211,22 @@ extension MobileShellComposite {
     /// that workspace. The action intentionally refreshes without creating:
     /// the preceding uncertain request may already have succeeded on the Mac.
     func recoverTerminalHierarchyForCreateIfRequired(
-        in workspaceID: MobileWorkspacePreview.ID
+        in workspaceID: MobileWorkspacePreview.ID,
+        completion: @escaping @MainActor (Result<Void, MobileWorkspaceMutationFailure>) -> Void
     ) -> Bool {
         guard terminalReorderGate.requiresRefresh(workspaceID: workspaceID) else {
             return false
         }
         let gate = terminalReorderGate
-        guard !terminalCreationRequestOwner.isActive,
-              gate.beginRecovery(workspaceID: workspaceID) else {
+        let recoveryFailure = MobileWorkspaceMutationFailure.appliedNeedsRefresh(
+            hostDisplayName: connectedHostName
+        )
+        guard !terminalCreationRequestOwner.isActive else {
+            completion(.failure(.busy(hostDisplayName: connectedHostName)))
+            return true
+        }
+        guard gate.beginRecovery(workspaceID: workspaceID) else {
+            completion(.failure(.busy(hostDisplayName: connectedHostName)))
             return true
         }
         let started = terminalCreationRequestOwner.startIfIdle(
@@ -228,12 +236,14 @@ extension MobileShellComposite {
             var succeeded = false
             defer {
                 gate.finishRecovery(workspaceID: workspaceID, succeeded: succeeded)
+                completion(succeeded ? .success(()) : .failure(recoveryFailure))
             }
             guard let self, !Task.isCancelled else { return }
             succeeded = await self.refreshTerminalHierarchy(workspaceID: workspaceID)
         }
         if !started {
             gate.finishRecovery(workspaceID: workspaceID, succeeded: false)
+            completion(.failure(.busy(hostDisplayName: connectedHostName)))
         }
         return true
     }

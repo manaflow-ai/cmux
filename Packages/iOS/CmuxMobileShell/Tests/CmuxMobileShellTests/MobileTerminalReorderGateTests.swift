@@ -453,8 +453,8 @@ import Testing
         reservation: reservation
     )
 
-    guard case .failure(.rejected) = result else {
-        Issue.record("Expected definite rejected failure, got \(result)")
+    guard case .failure(.staleStateNeedsRefresh) = result else {
+        Issue.record("Expected refresh-required failure, got \(result)")
         return
     }
     #expect(await router.recordedTerminalCloseCount() == 1)

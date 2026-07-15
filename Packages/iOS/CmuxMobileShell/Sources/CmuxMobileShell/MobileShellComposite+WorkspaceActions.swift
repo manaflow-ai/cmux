@@ -162,6 +162,7 @@ extension MobileShellComposite {
             method: "workspace.move",
             params: params,
             target: target,
+            hierarchyWorkspaceID: id,
             hostDisplayName: hostDisplayName,
             logID: id.rawValue,
             actionName: "move"
@@ -301,6 +302,7 @@ extension MobileShellComposite {
             method: method,
             params: params,
             target: target,
+            hierarchyWorkspaceID: id,
             hostDisplayName: workspaceMutationHostDisplayName(
                 target: target,
                 fallback: workspaceHostDisplayName(for: id)
@@ -342,6 +344,7 @@ extension MobileShellComposite {
         method: String,
         params: [String: Any],
         target: WorkspaceMutationTarget,
+        hierarchyWorkspaceID: MobileWorkspacePreview.ID? = nil,
         hostDisplayName: String?,
         logID: String,
         actionName: String
@@ -377,7 +380,13 @@ extension MobileShellComposite {
             case .immediateRejection:
                 return .failure(workspaceMutationFailure(error, hostDisplayName: hostDisplayName))
             case .definiteDivergence:
-                _ = await refreshAfterWorkspaceMutation(target)
+                let reconciled = await refreshAfterWorkspaceMutation(target)
+                if !reconciled {
+                    if let hierarchyWorkspaceID {
+                        terminalReorderGate.requireRefresh(workspaceID: hierarchyWorkspaceID)
+                    }
+                    return .failure(.staleStateNeedsRefresh(hostDisplayName: hostDisplayName))
+                }
                 return .failure(workspaceMutationFailure(error, hostDisplayName: hostDisplayName))
             case .ambiguous:
                 let reconciled = await refreshAfterWorkspaceMutation(target)

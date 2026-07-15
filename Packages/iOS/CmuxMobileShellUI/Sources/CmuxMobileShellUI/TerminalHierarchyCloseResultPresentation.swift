@@ -6,6 +6,7 @@ enum TerminalHierarchyCloseResultPresentation: Equatable {
     case appliedNeedsRefresh
     case resultUnknownNeedsRefresh
     case resultUnknownRefreshed
+    case staleStateNeedsRefresh
     case protected
     case failed
 
@@ -21,6 +22,8 @@ enum TerminalHierarchyCloseResultPresentation: Equatable {
             self = .resultUnknownNeedsRefresh
         case .failure(.resultUnknownRefreshed):
             self = .resultUnknownRefreshed
+        case .failure(.staleStateNeedsRefresh):
+            self = .staleStateNeedsRefresh
         case .failure(.protected):
             self = .protected
         case .failure:

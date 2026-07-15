@@ -25,4 +25,7 @@ public enum MobileWorkspaceMutationFailure: Error, Equatable, Sendable {
     case resultUnknownNeedsRefresh(hostDisplayName: String?)
     /// The request result is unknown, but iOS loaded the Mac's latest authoritative state.
     case resultUnknownRefreshed(hostDisplayName: String?)
+    /// The Mac rejected the mutation because iOS acted on stale state, and the
+    /// authoritative refresh needed before another mutation also failed.
+    case staleStateNeedsRefresh(hostDisplayName: String?)
 }

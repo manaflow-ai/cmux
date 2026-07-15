@@ -171,6 +171,9 @@ import Testing
         .failure(.resultUnknownNeedsRefresh(hostDisplayName: "Test Mac"))
     ) == .resultUnknownNeedsRefresh)
     #expect(TerminalHierarchyCloseResultPresentation(
+        .failure(.staleStateNeedsRefresh(hostDisplayName: "Test Mac"))
+    ) == .staleStateNeedsRefresh)
+    #expect(TerminalHierarchyCloseResultPresentation(
         .failure(.rejected(hostDisplayName: "Test Mac"))
     ) == .failed)
 }
@@ -207,6 +210,9 @@ import Testing
         .completed(.failure(.resultUnknownRefreshed(hostDisplayName: "Test Mac")))
     ) == .resultUnknownRefreshed)
     #expect(TerminalHierarchyMoveResultPresentation(
+        .completed(.failure(.staleStateNeedsRefresh(hostDisplayName: "Test Mac")))
+    ) == .staleStateNeedsRefresh)
+    #expect(TerminalHierarchyMoveResultPresentation(
         .completed(.failure(.protected(hostDisplayName: "Test Mac")))
     ) == .protected)
     #expect(TerminalHierarchyMoveResultPresentation(
@@ -225,6 +231,10 @@ import Testing
         action: .renameWorkspace,
         failure: .resultUnknownRefreshed(hostDisplayName: "Test Mac")
     ) == "Latest workspace state loaded. Verify the change.")
+    #expect(view.workspaceActionFailureMessage(
+        action: .renameWorkspace,
+        failure: .staleStateNeedsRefresh(hostDisplayName: "Test Mac")
+    ) == "The Mac rejected the change because this workspace is out of date. Refresh to load the latest state.")
     #expect(view.workspaceActionFailureMessage(
         action: .renameWorkspace,
         failure: .rejected(hostDisplayName: nil)

@@ -4,6 +4,7 @@ enum TerminalHierarchyMoveResultPresentation: Equatable {
     case appliedNeedsRefresh
     case resultUnknownNeedsRefresh
     case resultUnknownRefreshed
+    case staleStateNeedsRefresh
     case protected
     case failed
 
@@ -19,6 +20,8 @@ enum TerminalHierarchyMoveResultPresentation: Equatable {
             self = .resultUnknownNeedsRefresh
         case .completed(.failure(.resultUnknownRefreshed)):
             self = .resultUnknownRefreshed
+        case .completed(.failure(.staleStateNeedsRefresh)):
+            self = .staleStateNeedsRefresh
         case .completed(.failure(.protected)):
             self = .protected
         case .completed(.failure):
