@@ -583,6 +583,16 @@ if [[ -n "$CMUX_SURFACE_ID" ]]; then
     IN_CMUX=1
 fi
 
+# Claude Code's incremental alternate-screen renderer can retain stale rows or
+# compute cursor moves from a drifted frame model. Claude's supported full-frame
+# compatibility mode makes each repaint self-contained. Default it only for
+# cmux launches and preserve an explicit user override.
+# https://github.com/manaflow-ai/cmux/issues/5680
+# https://github.com/anthropics/claude-code/issues/68461
+if [[ "$IN_CMUX" == "1" && -z "${CLAUDE_CODE_ALT_SCREEN_FULL_REPAINT+x}" ]]; then
+    export CLAUDE_CODE_ALT_SCREEN_FULL_REPAINT=1
+fi
+
 exec_real_claude_passthrough() {
     if [[ "$IN_CMUX" == "1" ]]; then
         clear_inherited_claude_session_identity_env
