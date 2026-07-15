@@ -50,7 +50,7 @@ cmux browser <surface> eval '<js>'
 cmux browser <surface> click|dblclick|hover|focus <selector-or-ref>
 cmux browser <surface> fill <selector-or-ref> [text]   # empty text clears
 cmux browser <surface> type <selector-or-ref> <text>
-cmux browser <surface> press|keydown|keyup <key>
+cmux browser <surface> press|key|keydown|keyup [--key <key> | <key>]
 cmux browser <surface> select <selector-or-ref> <value>
 cmux browser <surface> check|uncheck <selector-or-ref>
 cmux browser <surface> scroll [--selector <css>] [--dx <n>] [--dy <n>]
