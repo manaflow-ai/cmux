@@ -78,6 +78,81 @@ struct DockShortcutRoutingTests {
         }
     }
 
+    @Test("Legacy tab shortcuts target the focused Dock")
+    @MainActor
+    func legacyTabShortcutsTargetFocusedDock() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try Self.withHarness { harness in
+                let firstPanel = try #require(
+                    harness.dock.newSurface(kind: .terminal, inPane: harness.rootPane, focus: true)
+                )
+                let secondPanel = try #require(
+                    harness.dock.newSurface(kind: .terminal, inPane: harness.rootPane, focus: true)
+                )
+                harness.dock.focusPanel(firstPanel)
+                let mainPanelBefore = harness.mainWorkspace.focusedPanelId
+                KeyboardShortcutSettings.setShortcut(.unbound, for: .nextSurface)
+                KeyboardShortcutSettings.setShortcut(.unbound, for: .prevSurface)
+
+                let next = StoredShortcut(
+                    key: "\t",
+                    command: false,
+                    shift: false,
+                    option: false,
+                    control: true
+                )
+                #expect(Self.dispatch(next, in: harness))
+                #expect(harness.dock.focusedPanelId == secondPanel)
+
+                let previous = StoredShortcut(
+                    key: "\t",
+                    command: false,
+                    shift: true,
+                    option: false,
+                    control: true
+                )
+                #expect(Self.dispatch(previous, in: harness))
+                #expect(harness.dock.focusedPanelId == firstPanel)
+                #expect(harness.mainWorkspace.focusedPanelId == mainPanelBefore)
+            }
+        }
+    }
+
+    @Test("Ghostty split-navigation shortcuts target the focused Dock")
+    @MainActor
+    func ghosttySplitNavigationTargetsFocusedDock() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try Self.withHarness { harness in
+                let leftPanel = try #require(
+                    harness.dock.newSurface(kind: .terminal, inPane: harness.rootPane, focus: true)
+                )
+                let rightPanel = try #require(
+                    harness.dock.newSplit(
+                        kind: .terminal,
+                        orientation: .horizontal,
+                        insertFirst: false,
+                        sourcePanelId: leftPanel,
+                        focus: true
+                    )
+                )
+                let rightPane = try #require(harness.dock.paneId(forPanelId: rightPanel))
+                harness.dock.focusPanel(leftPanel)
+                let mainPanelBefore = harness.mainWorkspace.focusedPanelId
+                KeyboardShortcutSettings.setShortcut(.unbound, for: .focusRight)
+                let originalGhosttyShortcut = harness.appDelegate.ghosttyGotoSplitRightShortcut
+                defer { harness.appDelegate.ghosttyGotoSplitRightShortcut = originalGhosttyShortcut }
+                harness.appDelegate.ghosttyGotoSplitRightShortcut = Self.customShortcut(key: "y")
+                let ghosttyShortcut = try #require(
+                    harness.appDelegate.ghosttyGotoSplitShortcut(for: .right)
+                )
+
+                #expect(Self.dispatch(ghosttyShortcut, in: harness))
+                #expect(harness.dock.bonsplitController.focusedPaneId == rightPane)
+                #expect(harness.mainWorkspace.focusedPanelId == mainPanelBefore)
+            }
+        }
+    }
+
     @Test("Focus-history shortcuts navigate focused Dock surfaces")
     @MainActor
     func focusHistoryNavigatesFocusedDockSurfaces() async throws {

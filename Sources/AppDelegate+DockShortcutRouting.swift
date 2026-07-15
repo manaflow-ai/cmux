@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import CmuxPanes
 
 /// Routes "create a surface" keyboard shortcuts (New Browser, New Terminal,
@@ -77,8 +78,10 @@ extension AppDelegate {
     }
 
     /// Routes configurable surface/focus commands through the focused Dock's
-    /// own controller. Key matching stays in `KeyboardShortcutSettings`; the
-    /// Dock receives only semantic commands and never duplicates key bindings.
+    /// own controller. Configurable matching stays in `KeyboardShortcutSettings`,
+    /// while the existing legacy-tab and Ghostty compatibility resolvers are
+    /// shared with the main-area dispatcher. The Dock receives only semantic
+    /// commands and never duplicates those bindings.
     func handleFocusedDockSurfaceShortcut(event: NSEvent) -> Bool {
         guard let store = focusedDockStoreForShortcut(preferredWindow: event.window) else {
             return false
@@ -97,6 +100,15 @@ extension AppDelegate {
             return true
         }
 
+        if matchesLegacyNextSurfaceShortcut(event: event) {
+            if !store.performShortcutCommand(.selectNextSurface) { NSSound.beep() }
+            return true
+        }
+        if matchesLegacyPreviousSurfaceShortcut(event: event) {
+            if !store.performShortcutCommand(.selectPreviousSurface) { NSSound.beep() }
+            return true
+        }
+
         if let digit = routableNumberedConfiguredShortcutDigit(event: event, action: .selectSurfaceByNumber) {
             if !store.performShortcutCommand(.selectSurface(number: digit)) { NSSound.beep() }
             return true
@@ -106,18 +118,21 @@ extension AppDelegate {
             action: KeyboardShortcutSettings.Action,
             glyph: String,
             keyCode: UInt16,
+            direction: NavigationDirection,
             command: DockShortcutCommand
         )] = [
-            (.focusLeft, "←", 123, .focusPane(.left)),
-            (.focusRight, "→", 124, .focusPane(.right)),
-            (.focusUp, "↑", 126, .focusPane(.up)),
-            (.focusDown, "↓", 125, .focusPane(.down)),
+            (.focusLeft, "←", 123, .left, .focusPane(.left)),
+            (.focusRight, "→", 124, .right, .focusPane(.right)),
+            (.focusUp, "↑", 126, .up, .focusPane(.up)),
+            (.focusDown, "↓", 125, .down, .focusPane(.down)),
         ]
-        for route in directionalCommands where matchConfiguredDirectionalShortcut(
-            event: event,
-            action: route.action,
-            arrowGlyph: route.glyph,
-            arrowKeyCode: route.keyCode
+        for route in directionalCommands where (
+            matchConfiguredDirectionalShortcut(
+                event: event,
+                action: route.action,
+                arrowGlyph: route.glyph,
+                arrowKeyCode: route.keyCode
+            ) || matchesGhosttyGotoSplitShortcut(event: event, direction: route.direction)
         ) {
             if !store.performShortcutCommand(route.command) { NSSound.beep() }
             return true
@@ -132,5 +147,44 @@ extension AppDelegate {
             return true
         }
         return false
+    }
+
+    func matchesLegacyNextSurfaceShortcut(event: NSEvent) -> Bool {
+        matchTabShortcut(
+            event: event,
+            shortcut: StoredShortcut(key: "\t", command: false, shift: false, option: false, control: true)
+        )
+    }
+
+    func matchesLegacyPreviousSurfaceShortcut(event: NSEvent) -> Bool {
+        matchTabShortcut(
+            event: event,
+            shortcut: StoredShortcut(key: "\t", command: false, shift: true, option: false, control: true)
+        )
+    }
+
+    func ghosttyGotoSplitShortcut(for direction: NavigationDirection) -> StoredShortcut? {
+        switch direction {
+        case .left: ghosttyGotoSplitLeftShortcut
+        case .right: ghosttyGotoSplitRightShortcut
+        case .up: ghosttyGotoSplitUpShortcut
+        case .down: ghosttyGotoSplitDownShortcut
+        }
+    }
+
+    func matchesGhosttyGotoSplitShortcut(event: NSEvent, direction: NavigationDirection) -> Bool {
+        guard let shortcut = ghosttyGotoSplitShortcut(for: direction) else { return false }
+        let route: (glyph: String, keyCode: UInt16) = switch direction {
+        case .left: ("←", 123)
+        case .right: ("→", 124)
+        case .up: ("↑", 126)
+        case .down: ("↓", 125)
+        }
+        return matchDirectionalShortcut(
+            event: event,
+            shortcut: shortcut,
+            arrowGlyph: route.glyph,
+            arrowKeyCode: route.keyCode
+        )
     }
 }
