@@ -126,14 +126,20 @@ struct TerminalOutputDeliveryQueue: Sendable {
     }
 
     private mutating func appendPending(_ delivery: TerminalOutputDelivery) {
-        if let replacementScope = delivery.replacementScope,
-           let lastIndex = pending.indices.last,
-           lastIndex >= pendingHeadIndex,
-           pending[lastIndex].replacementScope == replacementScope {
-            pending[lastIndex] = delivery
-        } else {
+        guard let replacementScope = delivery.replacementScope else {
             pending.append(delivery)
+            return
         }
+        var candidateIndex = pending.count
+        while candidateIndex > pendingHeadIndex {
+            candidateIndex -= 1
+            guard pending[candidateIndex].replaceable else { break }
+            if pending[candidateIndex].replacementScope == replacementScope {
+                pending.remove(at: candidateIndex)
+                break
+            }
+        }
+        pending.append(delivery)
     }
 
     private mutating func compactPendingStorageIfNeeded() {
