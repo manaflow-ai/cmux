@@ -5178,13 +5178,10 @@ impl App {
                     self.pty_input.cancel_release_reservation(reservation_id);
                 }
             }
-            PtyMouseReleaseCapture::Failed => {
+            PtyMouseReleaseCapture::Failed | PtyMouseReleaseCapture::NotReported => {
                 if !self.enqueue_pty_release(surface, handle, reservation_id, fallback) {
                     self.pty_input.cancel_release_reservation(reservation_id);
                 }
-            }
-            PtyMouseReleaseCapture::NotReported => {
-                self.pty_input.cancel_release_reservation(reservation_id);
             }
         }
         true
@@ -5286,13 +5283,10 @@ impl App {
                     self.pty_input.cancel_release_reservation(reservation_id);
                 }
             }
-            PtyMouseReleaseCapture::Failed => {
+            PtyMouseReleaseCapture::Failed | PtyMouseReleaseCapture::NotReported => {
                 if !self.enqueue_pty_release(surface, handle, reservation_id, fallback) {
                     self.pty_input.cancel_release_reservation(reservation_id);
                 }
-            }
-            PtyMouseReleaseCapture::NotReported => {
-                self.pty_input.cancel_release_reservation(reservation_id);
             }
         }
     }
@@ -6699,7 +6693,7 @@ mod tests {
         surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002l\x1b[?1006l"));
         app.encode_buf.clear();
         app.handle_mouse(event(MouseEventKind::Up(MouseButton::Left), KeyModifiers::NONE)).unwrap();
-        assert!(app.encode_buf.is_empty());
+        assert_eq!(app.encode_buf, b"\x1b[<0;5;3m");
         assert!(app.drag.is_none());
         surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002h\x1b[?1006h"));
 
@@ -6779,6 +6773,7 @@ mod tests {
 
         app.handle_mouse(event(MouseEventKind::Down(MouseButton::Left), KeyModifiers::NONE))
             .unwrap();
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002l\x1b[?1006l"));
         app.handle(AppEvent::Input(Event::FocusLost)).unwrap();
         assert_eq!(app.encode_buf, b"\x1b[<0;5;3m");
         assert!(app.drag.is_none());
