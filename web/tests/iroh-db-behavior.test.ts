@@ -270,7 +270,7 @@ describe("Iroh trust broker database behavior", () => {
         pathHints: [],
       },
       now: NOW,
-      deviceLimitOverrideAllowed: false,
+      bindingQuota: { account: 32, device: 8, baselineDevice: 8, staleAfterMs: null },
     }));
     const results = await Promise.allSettled([register(), register()]);
     expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
@@ -290,6 +290,96 @@ describe("Iroh trust broker database behavior", () => {
     expect({ bindings, consumed }).toEqual({ bindings: "1", consumed: "1" });
     expect(nextExpiry).toBeNull();
     expect(pathHints).toEqual([]);
+  });
+
+  dbTest("recycles the least-recently-seen stale development binding under pressure", async () => {
+    const repo = requiredRepository();
+    const userId = "user-development-recycling";
+    const deviceId = randomUUID();
+    const oldestId = await insertBinding({
+      userId,
+      deviceUuid: deviceId,
+      endpointId: "21".repeat(32),
+    });
+    const newerInactiveId = await insertBinding({
+      userId,
+      deviceUuid: deviceId,
+      endpointId: "22".repeat(32),
+    });
+    await insertBinding({ userId, deviceUuid: deviceId, endpointId: "23".repeat(32) });
+    await insertBinding({ userId, deviceUuid: deviceId, endpointId: "24".repeat(32) });
+    await requiredSql()`
+      update iroh_endpoint_bindings
+      set last_seen_at = case id
+        when ${oldestId} then ${new Date(NOW.getTime() - 72 * 60 * 60 * 1_000)}
+        when ${newerInactiveId} then ${new Date(NOW.getTime() - 48 * 60 * 60 * 1_000)}
+        else ${NOW}
+      end
+      where user_id = ${userId}
+    `;
+
+    const appInstanceId = randomUUID();
+    const endpointId = "25".repeat(32);
+    const nonceHash = "26".repeat(32);
+    const challenge = await Effect.runPromise(repo.issueChallenge({
+      userId,
+      deviceUuid: deviceId,
+      appInstanceId,
+      tag: "newest",
+      endpointId,
+      identityGeneration: 1,
+      payloadSha256: "27".repeat(32),
+      nonceHash,
+      now: NOW,
+      expiresAt: new Date(NOW.getTime() + 5 * 60 * 1_000),
+    }));
+    await Effect.runPromise(repo.consumeChallengeAndRegister({
+      userId,
+      challengeId: challenge.id,
+      nonceHash,
+      payload: {
+        route_contract_version: 1,
+        deviceId,
+        appInstanceId,
+        tag: "newest",
+        platform: "mac",
+        endpointId,
+        identityGeneration: 1,
+        pairingEnabled: true,
+        capabilities: [],
+        pathHints: [],
+      },
+      now: NOW,
+      bindingQuota: {
+        account: 8,
+        device: 4,
+        baselineDevice: 8,
+        staleAfterMs: 24 * 60 * 60 * 1_000,
+      },
+    }));
+
+    const [state] = await requiredSql()<Array<{
+      active: string;
+      oldestReason: string | null;
+      newerInactive: boolean;
+      generation: number;
+    }>>`
+      select
+        (select count(*)::text from iroh_endpoint_bindings
+          where user_id = ${userId} and revoked_at is null) as active,
+        (select revoked_reason from iroh_endpoint_bindings
+          where id = ${oldestId}) as "oldestReason",
+        exists(select 1 from iroh_endpoint_bindings
+          where id = ${newerInactiveId} and revoked_at is null) as "newerInactive",
+        (select lan_discovery_generation from iroh_account_security_states
+          where user_id = ${userId}) as generation
+    `;
+    expect(state).toEqual({
+      active: "4",
+      oldestReason: "stale_development_binding",
+      newerInactive: true,
+      generation: 2,
+    });
   });
 
   dbTest("persists account-private path hints already filtered by the trust broker", async () => {
@@ -351,7 +441,7 @@ describe("Iroh trust broker database behavior", () => {
         pathHints,
       },
       now: NOW,
-      deviceLimitOverrideAllowed: false,
+      bindingQuota: { account: 32, device: 8, baselineDevice: 8, staleAfterMs: null },
     }));
 
     const [stored] = await requiredSql()<Array<{
@@ -406,7 +496,7 @@ describe("Iroh trust broker database behavior", () => {
           pathHints: [],
         },
         now,
-        deviceLimitOverrideAllowed: false,
+        bindingQuota: { account: 32, device: 8, baselineDevice: 8, staleAfterMs: null },
       });
     };
 
