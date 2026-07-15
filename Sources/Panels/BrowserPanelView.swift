@@ -5819,8 +5819,13 @@ struct WebViewRepresentable: NSViewRepresentable {
             }
 
             localInlineSlotView.displayIfNeeded()
+            // Flush only this panel's subtree. A whole-window displayIfNeeded
+            // here would also draw sibling Metal terminal panes — and this
+            // method runs from updateNSView/viewDidMoveToWindow, inside the
+            // layout pass, where a synchronous terminal draw can wedge the
+            // main thread against the still-open window transaction. WebKit
+            // subtree flushes carry no such wait.
             displayIfNeeded()
-            window?.displayIfNeeded()
         }
 
         func prepareForWindowPortalHosting() {
@@ -5848,19 +5853,20 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
 
         func pinHostedWebView(_ webView: WKWebView, in container: NSView) {
-            guard webView.superview === container || webView.isDescendant(of: container) else { return }
+            let presentationView = webView.cmuxBrowserViewportPresentationView
+            guard presentationView.superview === container ||
+                    presentationView.isDescendant(of: container) else { return }
 
             let hasCompanionWKSubviews = container.browserPortalHasVisibleWebKitCompanionSubview(for: webView)
             let needsPlainWebViewFrameReset =
-                webView.superview === container &&
+                presentationView.superview === container &&
                 !hasCompanionWKSubviews &&
-                Self.frameDiffersFromBounds(webView.frame, bounds: container.bounds)
+                !webView.cmuxBrowserViewportLayoutMatches(container.bounds)
             let needsFrameHosting =
                 hostedWebView !== webView ||
                 !hostedWebViewConstraints.isEmpty ||
                 needsPlainWebViewFrameReset ||
-                !webView.translatesAutoresizingMaskIntoConstraints ||
-                webView.autoresizingMask != [.width, .height]
+                !presentationView.translatesAutoresizingMaskIntoConstraints
             guard needsFrameHosting else {
                 needsLayout = true
                 layoutSubtreeIfNeeded()
@@ -5874,20 +5880,14 @@ struct WebViewRepresentable: NSViewRepresentable {
             // WebKit's attached inspector does not reliably dock into a constraint-managed
             // WKWebView hierarchy on macOS. Host the moved webview with autoresizing and
             // preserve WebKit-managed split frames when docked DevTools siblings exist.
-            webView.translatesAutoresizingMaskIntoConstraints = true
-            webView.autoresizingMask = [.width, .height]
-            if webView.superview === container && !hasCompanionWKSubviews {
-                webView.frame = container.bounds
+            if presentationView.superview === container && !hasCompanionWKSubviews {
+                webView.cmuxApplyBrowserViewportLayout(in: container.bounds)
+            } else {
+                presentationView.translatesAutoresizingMaskIntoConstraints = true
+                presentationView.autoresizingMask = [.width, .height]
             }
             needsLayout = true
             layoutSubtreeIfNeeded()
-        }
-
-        private static func frameDiffersFromBounds(_ frame: NSRect, bounds: NSRect, epsilon: CGFloat = 0.5) -> Bool {
-            abs(frame.minX - bounds.minX) > epsilon ||
-                abs(frame.minY - bounds.minY) > epsilon ||
-                abs(frame.width - bounds.width) > epsilon ||
-                abs(frame.height - bounds.height) > epsilon
         }
 
         private func ensureHostedInspectorSideDockContainerView() -> HostedInspectorSideDockContainerView {
@@ -7028,7 +7028,8 @@ struct WebViewRepresentable: NSViewRepresentable {
     }
 
     private static func localInlineTransferRoot(for webView: WKWebView) -> NSView? {
-        var current = webView.superview
+        let presentationView = webView.cmuxBrowserViewportPresentationView
+        var current = presentationView.superview
         var last: NSView?
         while let view = current {
             if view is WindowBrowserSlotView {
@@ -7040,7 +7041,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             last = view
             current = view.superview
         }
-        return last ?? webView.superview
+        return last ?? presentationView.superview
     }
 
     private static func directTransferChild(of container: NSView, containing descendant: NSView) -> NSView? {
@@ -7077,7 +7078,6 @@ struct WebViewRepresentable: NSViewRepresentable {
         } else {
             append(primaryWebView)
         }
-
         let inspectorFrontendWebView = primaryWebView.cmuxInspectorFrontendWebView()
         for view in sourceSuperview.subviews {
             if view === primaryWebView { continue }
@@ -7227,7 +7227,7 @@ struct WebViewRepresentable: NSViewRepresentable {
 
         let shouldPreserveExistingExternalLocalHost =
             host.window == nil &&
-            webView.superview != nil &&
+            webView.cmuxBrowserViewportAttachmentSuperview != nil &&
             !host.containsManagedLocalInlineContent(webView)
         if shouldPreserveExistingExternalLocalHost {
             // Split zoom can instantiate a replacement local host before it joins a window.
@@ -7280,7 +7280,11 @@ struct WebViewRepresentable: NSViewRepresentable {
                     reason: "attachLocalHost"
                 )
             } else {
-                slotView.addSubview(webView, positioned: .above, relativeTo: nil)
+                slotView.addSubview(
+                    webView.cmuxBrowserViewportPresentationView,
+                    positioned: .above,
+                    relativeTo: nil
+                )
             }
         }
 
@@ -7558,7 +7562,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             let portalEntryMissing = !BrowserWindowPortalRegistry.isWebView(webView, boundTo: portalAnchorView)
             let shouldBindNow =
                 coordinator.lastPortalHostId != hostId ||
-                webView.superview == nil ||
+                webView.cmuxBrowserViewportAttachmentSuperview == nil ||
                 portalEntryMissing ||
                 previousVisible != shouldAttachWebView ||
                 previousZPriority != portalZPriority
