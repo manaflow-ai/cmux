@@ -12,14 +12,6 @@ final class CmuxRunURLConfirmationPresenter {
         self.nonModalFailurePresenter = nonModalFailurePresenter
     }
 
-    var nonModalFailureWindowForTesting: NSWindow? {
-        nonModalFailurePresenter.window
-    }
-
-    func dismissNonModalFailureForTesting() {
-        nonModalFailurePresenter.dismiss()
-    }
-
     func confirm(_ plan: CmuxRunExecutionPlan, presentingWindow: NSWindow?) -> Bool {
         let alert = NSAlert()
         alert.alertStyle = .critical

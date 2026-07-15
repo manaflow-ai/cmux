@@ -187,7 +187,7 @@ struct CmuxRunWorkingDirectoryResolver: @unchecked Sendable {
         ))
     }
 
-    private static func canonicalDirectoryCommand(
+    static func canonicalDirectoryCommand(
         for expandedPath: String
     ) -> CmuxRunWorkingDirectoryCommand {
         CmuxRunWorkingDirectoryCommand(
@@ -195,9 +195,9 @@ struct CmuxRunWorkingDirectoryResolver: @unchecked Sendable {
             arguments: [
                 "-c",
                 "CDPATH= cd -P -- \"$1\" || exit; "
-                    + "cmux_path=$(/bin/pwd -P) || exit; "
-                    + "printf '%s\\0' \"$cmux_path\" || exit; "
-                    + "/usr/bin/stat -f '%d:%i' .",
+                    + "pwd -P || exit; "
+                    + "printf '\\0' || exit; "
+                    + "exec /usr/bin/stat -f '%d:%i' .",
                 "cmux-run",
                 expandedPath
             ]
@@ -209,12 +209,14 @@ struct CmuxRunWorkingDirectoryResolver: @unchecked Sendable {
     ) -> CmuxRunResolvedWorkingDirectory? {
         guard output.last == 0x0A,
               let separator = output.firstIndex(of: 0),
+              separator > output.startIndex,
+              output[output.index(before: separator)] == 0x0A,
               output[output.index(after: separator)..<output.index(before: output.endIndex)]
                 .firstIndex(of: 0) == nil else {
             return nil
         }
 
-        let pathData = output[..<separator]
+        let pathData = output[..<output.index(before: separator)]
         let identityData = output[
             output.index(after: separator)..<output.index(before: output.endIndex)
         ]

@@ -43,15 +43,18 @@ struct CmuxRunURLCoordinatorTests {
     }
 
     @Test func repeatedBusyFailuresReuseOneModelessWindow() throws {
-        let presenter = CmuxRunURLConfirmationPresenter()
-        presenter.dismissNonModalFailureForTesting()
-        defer { presenter.dismissNonModalFailureForTesting() }
+        let failurePresenter = CmuxRunURLNonModalFailurePresenter()
+        let presenter = CmuxRunURLConfirmationPresenter(
+            nonModalFailurePresenter: failurePresenter
+        )
+        failurePresenter.dismiss()
+        defer { failurePresenter.dismiss() }
 
         presenter.showNonModalFailure(.busy)
-        let firstWindow = try #require(presenter.nonModalFailureWindowForTesting)
+        let firstWindow = try #require(failurePresenter.window)
         presenter.showNonModalFailure(.busy)
 
-        #expect(presenter.nonModalFailureWindowForTesting === firstWindow)
+        #expect(failurePresenter.window === firstWindow)
         #expect(NSApp.modalWindow == nil)
     }
 
