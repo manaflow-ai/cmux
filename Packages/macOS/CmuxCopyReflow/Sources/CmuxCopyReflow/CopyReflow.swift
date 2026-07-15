@@ -180,7 +180,11 @@ private extension ReflowOptions {
                         || caselessContinuation
                     let proseContinuationShape = startsProseContinuation
                         && !looksLikeOpaqueTokenRow(content)
-                        && !startsIndependentRecord(content, after: p.prevContent)
+                        && !startsIndependentRecord(
+                            content,
+                            after: p.prevContent,
+                            alreadyJoined: p.hasJoined
+                        )
                     let indentationHasWrapEvidence = terminalWidth == nil
                         ? p.prevVisibleLength >= minWrapWidth
                         : previousLineReachedTerminalWidth

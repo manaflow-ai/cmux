@@ -49,7 +49,7 @@ extension ReflowOptions {
             .dropFirst()
             .contains { token in
                 guard token.first == "-" else { return false }
-                return token.dropFirst().first?.isLetter == true
+                return token.drop(while: { $0 == "-" }).first?.isLetter == true
             }
     }
 
@@ -71,12 +71,16 @@ extension ReflowOptions {
         return false
     }
 
-    /// Common starts for terminal log/status records. These are left as separate
-    /// rows unless a stronger continuation-indent or command-token signal exists.
-    func startsIndependentRecord(_ current: String, after previous: String) -> Bool {
+    /// Known status starts always break; a repeated leading word only blocks
+    /// before the paragraph has established a valid wrap join.
+    func startsIndependentRecord(
+        _ current: String,
+        after previous: String,
+        alreadyJoined: Bool
+    ) -> Bool {
         guard let currentFirst = firstWord(in: current) else { return false }
         if Self.recordStartWords.contains(currentFirst) { return true }
-        return currentFirst == firstWord(in: previous)
+        return !alreadyJoined && currentFirst == firstWord(in: previous)
     }
 
     /// Option/help rows are line-oriented records even when they are long and
