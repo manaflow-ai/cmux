@@ -62,7 +62,7 @@ struct TerminalScriptsSettingsCard: View {
         .task {
             location.startObserving()
             commands.startObserving()
-            refreshRepositoryContext()
+            await refreshRepositoryContext()
         }
         .onDisappear { repositorySaveTask?.cancel() }
     }
@@ -285,10 +285,12 @@ struct TerminalScriptsSettingsCard: View {
         return !commands.current.canSave(name: trimmed, id: editingCommandID)
     }
 
-    private func refreshRepositoryContext() {
-        repositoryContext = hostActions.repositoryScriptSettingsContext()
-        repositorySetup = repositoryContext?.setup ?? ""
-        repositoryArchive = repositoryContext?.archive ?? ""
+    private func refreshRepositoryContext() async {
+        let context = await hostActions.repositoryScriptSettingsContext()
+        guard !Task.isCancelled else { return }
+        repositoryContext = context
+        repositorySetup = context?.setup ?? ""
+        repositoryArchive = context?.archive ?? ""
     }
 
     private func saveRepositoryScripts() {
@@ -300,7 +302,7 @@ struct TerminalScriptsSettingsCard: View {
             )
             if !Task.isCancelled {
                 repositorySaveFailed = !saved
-                if saved { refreshRepositoryContext() }
+                if saved { await refreshRepositoryContext() }
             }
         }
     }
@@ -311,7 +313,7 @@ struct TerminalScriptsSettingsCard: View {
             let saved = await hostActions.importProjectRepositoryScripts()
             if !Task.isCancelled {
                 repositorySaveFailed = !saved
-                if saved { refreshRepositoryContext() }
+                if saved { await refreshRepositoryContext() }
             }
         }
     }

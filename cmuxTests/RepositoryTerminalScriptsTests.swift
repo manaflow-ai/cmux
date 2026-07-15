@@ -1,5 +1,6 @@
 import CmuxFoundation
 import CmuxSettings
+import CryptoKit
 import Foundation
 import Testing
 
@@ -25,7 +26,7 @@ struct RepositoryTerminalScriptsTests {
         }
     }
 
-    @Test func projectScriptsResolveWithPrivateSettingsPrecedenceAndTrustBoundary() throws {
+    @Test func projectScriptsResolveWithPrivateSettingsPrecedenceAndTrustBoundary() async throws {
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         try makeNormalRepository(at: root)
@@ -35,7 +36,7 @@ struct RepositoryTerminalScriptsTests {
         )
 
         let resolver = RepositoryScriptResolver()
-        let project = try #require(resolver.resolve(directory: root.path, preferences: []))
+        let project = try #require(await resolver.resolve(directory: root.path, preferences: []))
         #expect(project.setup == "pnpm install")
         #expect(project.archive == "pnpm clean")
         let canonicalConfigPath = root.resolvingSymlinksInPath()
@@ -51,7 +52,7 @@ struct RepositoryTerminalScriptsTests {
             overridesProjectScripts: true,
             promptDismissed: true
         )
-        let overridden = try #require(resolver.resolve(directory: root.path, preferences: [preference]))
+        let overridden = try #require(await resolver.resolve(directory: root.path, preferences: [preference]))
         #expect(overridden.setup == "mise install")
         #expect(overridden.archive == "mise prune")
         #expect(overridden.projectScripts.setup == "pnpm install")
@@ -59,7 +60,7 @@ struct RepositoryTerminalScriptsTests {
         #expect(resolver.trustDescriptor(for: overridden) == nil)
     }
 
-    @Test func scopedConfigWinsOverLegacyRootConfig() throws {
+    @Test func scopedConfigWinsOverLegacyRootConfig() async throws {
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         try makeNormalRepository(at: root)
@@ -68,13 +69,13 @@ struct RepositoryTerminalScriptsTests {
         try writeConfig(#"{"scripts":{"setup":"scoped"}}"#, at: scopedURL)
 
         let resolver = RepositoryScriptResolver()
-        #expect(resolver.resolve(directory: root.path, preferences: [])?.setup == "scoped")
+        #expect(await resolver.resolve(directory: root.path, preferences: [])?.setup == "scoped")
 
         try FileManager.default.removeItem(at: scopedURL)
-        #expect(resolver.resolve(directory: root.path, preferences: [])?.setup == "legacy")
+        #expect(await resolver.resolve(directory: root.path, preferences: [])?.setup == "legacy")
     }
 
-    @Test func linkedWorktreesShareRepositoryIdentityAndTrustFingerprint() throws {
+    @Test func linkedWorktreesShareRepositoryIdentityAndTrustFingerprint() async throws {
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let common = root.appendingPathComponent("shared.git")
@@ -87,8 +88,8 @@ struct RepositoryTerminalScriptsTests {
         try writeConfig(config, at: second.appendingPathComponent(".cmux/cmux.json"))
 
         let resolver = RepositoryScriptResolver()
-        let firstResolution = try #require(resolver.resolve(directory: first.path, preferences: []))
-        let secondResolution = try #require(resolver.resolve(directory: second.path, preferences: []))
+        let firstResolution = try #require(await resolver.resolve(directory: first.path, preferences: []))
+        let secondResolution = try #require(await resolver.resolve(directory: second.path, preferences: []))
         #expect(firstResolution.identity.id == secondResolution.identity.id)
         #expect(firstResolution.identity.commonDirectory == secondResolution.identity.commonDirectory)
         #expect(firstResolution.identity.workTreeRoot != secondResolution.identity.workTreeRoot)
@@ -98,7 +99,26 @@ struct RepositoryTerminalScriptsTests {
         )
     }
 
-    @Test func changingAProjectScriptInvalidatesItsTrustFingerprint() throws {
+    @Test func repositoryIdentityUsesStableLowercaseSHA256Encoding() async throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try makeNormalRepository(at: root)
+
+        let resolution = try #require(
+            await RepositoryScriptResolver().resolve(directory: root.path, preferences: [])
+        )
+        let digits = Array("0123456789abcdef".utf8)
+        var expectedBytes: [UInt8] = []
+        expectedBytes.reserveCapacity(64)
+        for byte in SHA256.hash(data: Data(resolution.identity.commonDirectory.utf8)) {
+            expectedBytes.append(digits[Int(byte >> 4)])
+            expectedBytes.append(digits[Int(byte & 0x0f)])
+        }
+
+        #expect(resolution.identity.id == String(decoding: expectedBytes, as: UTF8.self))
+    }
+
+    @Test func changingAProjectScriptInvalidatesItsTrustFingerprint() async throws {
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         try makeNormalRepository(at: root)
@@ -106,11 +126,11 @@ struct RepositoryTerminalScriptsTests {
         try writeConfig(#"{"scripts":{"setup":"pnpm install"}}"#, at: configURL)
 
         let resolver = RepositoryScriptResolver()
-        let original = try #require(resolver.resolve(directory: root.path, preferences: []))
+        let original = try #require(await resolver.resolve(directory: root.path, preferences: []))
         let originalFingerprint = try #require(resolver.trustDescriptor(for: original)?.fingerprint)
 
         try writeConfig(#"{"scripts":{"setup":"pnpm install --frozen-lockfile"}}"#, at: configURL)
-        let changed = try #require(resolver.resolve(directory: root.path, preferences: []))
+        let changed = try #require(await resolver.resolve(directory: root.path, preferences: []))
         let changedFingerprint = try #require(resolver.trustDescriptor(for: changed)?.fingerprint)
 
         #expect(changedFingerprint != originalFingerprint)
@@ -171,7 +191,7 @@ struct RepositoryTerminalScriptsTests {
 }
 
 struct RepositoryScriptSafetyTests {
-    @Test func oversizedProjectConfigIsIgnored() throws {
+    @Test func oversizedProjectConfigIsIgnored() async throws {
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         try makeNormalRepository(at: root)
@@ -184,7 +204,7 @@ struct RepositoryScriptSafetyTests {
         )
 
         let resolution = try #require(
-            RepositoryScriptResolver().resolve(directory: root.path, preferences: [])
+            await RepositoryScriptResolver().resolve(directory: root.path, preferences: [])
         )
 
         #expect(resolution.setup == nil)

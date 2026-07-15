@@ -1745,9 +1745,8 @@ final class CmuxConfigStore: ObservableObject {
     private weak var tabManager: TabManager?
     let globalConfigPath: String
     private let fileWatchingEnabled: Bool
-    private lazy var terminalScriptSettingsStore = JSONConfigStore(
-        fileURL: URL(fileURLWithPath: globalConfigPath)
-    )
+    private let terminalScriptSettingsStore: JSONConfigStore
+    private let settingCatalog: SettingCatalog
 
     nonisolated static func defaultGlobalConfigPath() -> String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
@@ -1836,11 +1835,16 @@ final class CmuxConfigStore: ObservableObject {
     init(
         globalConfigPath: String = CmuxConfigStore.defaultGlobalConfigPath(),
         localConfigPath: String? = nil,
-        startFileWatchers: Bool = false
+        startFileWatchers: Bool = false,
+        terminalScriptSettingsStore: JSONConfigStore? = nil,
+        settingCatalog: SettingCatalog = SettingCatalog()
     ) {
         self.globalConfigPath = globalConfigPath
         self.localConfigPath = localConfigPath
         self.fileWatchingEnabled = startFileWatchers
+        self.terminalScriptSettingsStore = terminalScriptSettingsStore
+            ?? JSONConfigStore(fileURL: URL(fileURLWithPath: globalConfigPath))
+        self.settingCatalog = settingCatalog
         self.localConfigSearchDirectory = localConfigPath.map(Self.searchDirectoryForLocalConfigPath(_:))
         NotificationCenter.default.publisher(for: CmuxActionTrust.didChangeNotification)
             .receive(on: DispatchQueue.main)
@@ -2051,7 +2055,7 @@ final class CmuxConfigStore: ObservableObject {
         }
 
         let savedTerminalCommands = terminalScriptSettingsStore.snapshotValue(
-            for: SettingCatalog().terminal.savedCommands
+            for: settingCatalog.terminal.savedCommands
         ).commands
         for savedCommand in savedTerminalCommands {
             let name = savedCommand.name.trimmingCharacters(in: .whitespacesAndNewlines)

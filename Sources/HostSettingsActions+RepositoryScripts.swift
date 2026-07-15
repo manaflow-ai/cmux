@@ -3,7 +3,7 @@ import CmuxSettingsUI
 import Foundation
 
 extension HostSettingsActions {
-    func repositoryScriptSettingsContext() -> RepositoryScriptSettingsContext? {
+    func repositoryScriptSettingsContext() async -> RepositoryScriptSettingsContext? {
         guard let appDelegate = AppDelegate.shared,
               let runtime = appDelegate.settingsRuntime,
               let directory = appDelegate.activeTabManagerForCommands()?
@@ -11,7 +11,7 @@ extension HostSettingsActions {
             return nil
         }
         let preferences = runtime.jsonStore.snapshotValue(for: runtime.catalog.terminal.repositoryScripts)
-        guard let resolution = RepositoryScriptResolver().resolve(
+        guard let resolution = await RepositoryScriptResolver().resolve(
             directory: directory,
             preferences: preferences
         ) else { return nil }
@@ -31,8 +31,8 @@ extension HostSettingsActions {
               let tabManager = appDelegate.activeTabManagerForCommands(),
               let workspace = tabManager.selectedWorkspace else { return false }
         let directory = workspace.currentDirectory
-        var preferences = await runtime.jsonStore.value(for: runtime.catalog.terminal.repositoryScripts)
-        guard let resolution = RepositoryScriptResolver().resolve(
+        let preferences = await runtime.jsonStore.value(for: runtime.catalog.terminal.repositoryScripts)
+        guard let resolution = await RepositoryScriptResolver().resolve(
             directory: directory,
             preferences: preferences
         ) else { return false }
@@ -45,13 +45,16 @@ extension HostSettingsActions {
             overridesProjectScripts: true,
             promptDismissed: normalizedSetup != nil
         )
-        if let index = preferences.firstIndex(where: { $0.repositoryID == resolution.identity.id }) {
-            preferences[index] = preference
-        } else {
-            preferences.append(preference)
-        }
         do {
-            try await runtime.jsonStore.set(preferences, for: runtime.catalog.terminal.repositoryScripts)
+            try await runtime.jsonStore.update(for: runtime.catalog.terminal.repositoryScripts) { current in
+                var updated = current
+                if let index = updated.firstIndex(where: { $0.repositoryID == resolution.identity.id }) {
+                    updated[index] = preference
+                } else {
+                    updated.append(preference)
+                }
+                return updated
+            }
             tabManager.repositorySetupPromptStore?.remove(repositoryID: resolution.identity.id)
             return true
         } catch {
@@ -60,7 +63,7 @@ extension HostSettingsActions {
     }
 
     func importProjectRepositoryScripts() async -> Bool {
-        guard let context = repositoryScriptSettingsContext() else { return false }
+        guard let context = await repositoryScriptSettingsContext() else { return false }
         return await saveRepositoryScripts(
             setup: context.projectSetup ?? "",
             archive: context.projectArchive ?? ""

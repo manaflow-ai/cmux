@@ -36,21 +36,25 @@ final class RepositorySetupPromptStore {
     }
 
     func dismiss(_ prompt: RepositorySetupPrompt) async {
-        var preferences = await configStore.value(for: catalog.terminal.repositoryScripts)
-        if let index = preferences.firstIndex(where: {
-            $0.repositoryID == prompt.resolution.identity.id
-        }) {
-            preferences[index].promptDismissed = true
-        } else {
-            preferences.append(RepositoryScriptPreference(
-                repositoryID: prompt.resolution.identity.id,
-                repositoryRoot: prompt.resolution.identity.workTreeRoot,
-                promptDismissed: true
-            ))
-        }
+        let repositoryID = prompt.resolution.identity.id
+        let repositoryRoot = prompt.resolution.identity.workTreeRoot
         do {
-            try await configStore.set(preferences, for: catalog.terminal.repositoryScripts)
-            remove(repositoryID: prompt.resolution.identity.id)
+            try await configStore.update(for: catalog.terminal.repositoryScripts) { current in
+                var updated = current
+                if let index = updated.firstIndex(where: {
+                    $0.repositoryID == repositoryID
+                }) {
+                    updated[index].promptDismissed = true
+                } else {
+                    updated.append(RepositoryScriptPreference(
+                        repositoryID: repositoryID,
+                        repositoryRoot: repositoryRoot,
+                        promptDismissed: true
+                    ))
+                }
+                return updated
+            }
+            remove(repositoryID: repositoryID)
         } catch {
             dismissalFailures.insert(prompt.workspaceID)
         }

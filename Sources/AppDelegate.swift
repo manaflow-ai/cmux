@@ -8689,7 +8689,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         tabManager.syncWorkspaceTabBarLeadingInset(initialTabBarLeadingInset)
         let notificationStore = TerminalNotificationStore.shared
 
-        let cmuxConfigStore = CmuxConfigStore()
+        let cmuxConfigStore = CmuxConfigStore(
+            globalConfigPath: settingsRuntime?.jsonStore.fileURL.path
+                ?? CmuxConfigStore.defaultGlobalConfigPath(),
+            terminalScriptSettingsStore: settingsRuntime?.jsonStore,
+            settingCatalog: settingsRuntime?.catalog ?? SettingCatalog()
+        )
         cmuxConfigStore.wireDirectoryTracking(tabManager: tabManager)
         cmuxConfigStore.loadAll()
 

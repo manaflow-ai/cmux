@@ -1,5 +1,4 @@
 import AppKit
-import CmuxTerminalCore
 import Foundation
 
 @MainActor
@@ -138,10 +137,11 @@ struct CmuxConfigExecutor {
                 targetTerminal?.submitCommand(shellInput)
             case .newTabInCurrentPane:
                 targetWorkspace?.clearSplitZoom()
-                targetWorkspace?.newTerminalSurfaceInFocusedPane(
+                let panel = targetWorkspace?.newTerminalSurfaceInFocusedPane(
                     focus: true,
-                    initialInput: TerminalCommandSubmission(command: shellInput).text
+                    initialInput: nil
                 )
+                panel?.submitCommand(shellInput)
             }
             onExecuted?()
         }

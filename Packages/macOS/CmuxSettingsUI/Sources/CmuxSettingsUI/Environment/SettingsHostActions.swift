@@ -56,7 +56,10 @@ public protocol SettingsHostActions: AnyObject {
     func openTerminalConfigWindow()
 
     /// Returns scripts for the repository owning the focused workspace.
-    func repositoryScriptSettingsContext() -> RepositoryScriptSettingsContext?
+    ///
+    /// This is asynchronous because repository discovery and project-config reads
+    /// run outside the main actor.
+    func repositoryScriptSettingsContext() async -> RepositoryScriptSettingsContext?
 
     /// Saves private script overrides for the repository owning the focused workspace.
     ///
@@ -210,7 +213,7 @@ public extension SettingsHostActions {
     func customizeWorkspaceLayouts() {}
 
     /// Default empty repository context for previews and package-only hosts.
-    func repositoryScriptSettingsContext() -> RepositoryScriptSettingsContext? { nil }
+    func repositoryScriptSettingsContext() async -> RepositoryScriptSettingsContext? { nil }
 
     /// Default failed save for hosts without repository-script persistence.
     func saveRepositoryScripts(setup: String, archive: String) async -> Bool { false }

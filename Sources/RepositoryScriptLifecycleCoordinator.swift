@@ -33,24 +33,35 @@ final class RepositoryScriptLifecycleCoordinator {
         guard !workspace.isRemoteTmuxMirror,
               activeWorkspaceIDs.insert(workspace.id).inserted else { return }
         let preferences = configStore.snapshotValue(for: catalog.terminal.repositoryScripts)
-        guard let resolution = resolver.resolve(
-            directory: directory,
-            preferences: preferences
-        ) else {
-            activeWorkspaceIDs.remove(workspace.id)
-            return
-        }
-
-        if resolution.shouldPromptForSetup {
-            promptStore.show(
-                RepositorySetupPrompt(workspaceID: workspace.id, resolution: resolution)
+        let workspaceID = workspace.id
+        let resolver = resolver
+        Task { @MainActor [weak self, weak workspace] in
+            let resolution = await resolver.resolve(
+                directory: directory,
+                preferences: preferences
             )
-        }
+            guard let self else { return }
+            guard activeWorkspaceIDs.contains(workspaceID) else { return }
+            guard let workspace else {
+                activeWorkspaceIDs.remove(workspaceID)
+                return
+            }
+            guard let resolution else {
+                activeWorkspaceIDs.remove(workspaceID)
+                return
+            }
 
-        if let descriptor = resolver.trustDescriptor(for: resolution) {
-            requestAuthorization(descriptor, resolution: resolution, workspace: workspace)
-        } else {
-            authorize(resolution, for: workspace)
+            if resolution.shouldPromptForSetup {
+                promptStore.show(
+                    RepositorySetupPrompt(workspaceID: workspace.id, resolution: resolution)
+                )
+            }
+
+            if let descriptor = resolver.trustDescriptor(for: resolution) {
+                requestAuthorization(descriptor, resolution: resolution, workspace: workspace)
+            } else {
+                authorize(resolution, for: workspace)
+            }
         }
     }
 
@@ -176,19 +187,32 @@ final class RepositoryScriptLifecycleCoordinator {
                 localized: "notification.repositoryArchive.success.body",
                 defaultValue: "%@ cleanup completed."
             )
-            content.body = String(format: format, repositoryName)
+            content.body = String.localizedStringWithFormat(format, repositoryName)
         } else if let executionError = result.executionError {
+            cmuxDebugLog(
+                "repositoryArchive.launch.failed repository=\(repositoryName) error=\(executionError)"
+            )
             let format = String(
                 localized: "notification.repositoryArchive.launchFailure.body",
-                defaultValue: "%@ cleanup couldn't start: %@"
+                defaultValue: "%@ cleanup couldn't start."
             )
-            content.body = String(format: format, repositoryName, executionError)
+            content.body = String.localizedStringWithFormat(format, repositoryName)
+        } else if result.timedOut {
+            let format = String(
+                localized: "notification.repositoryArchive.timeout.body",
+                defaultValue: "%@ cleanup timed out after 5 minutes."
+            )
+            content.body = String.localizedStringWithFormat(format, repositoryName)
         } else {
             let format = String(
                 localized: "notification.repositoryArchive.failure.body",
                 defaultValue: "%@ cleanup exited with status %d."
             )
-            content.body = String(format: format, repositoryName, result.exitStatus ?? -1)
+            content.body = String.localizedStringWithFormat(
+                format,
+                repositoryName,
+                result.exitStatus ?? -1
+            )
         }
         let request = UNNotificationRequest(
             identifier: "cmux.repository-archive.\(UUID().uuidString)",
