@@ -44,10 +44,17 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         let fixture = try makeSocketFixture(name: "notif-dismiss-read")
         defer { fixture.cleanup() }
 
-        let firstRead = makeNotification(tabId: fixture.workspace.id, surfaceId: fixture.surfaceId, title: "Read 1", isRead: true)
-        let secondRead = makeNotification(tabId: fixture.workspace.id, surfaceId: fixture.surfaceId, title: "Read 2", isRead: true)
+        let readNotifications = (0..<128).map { index in
+            makeNotification(
+                tabId: fixture.workspace.id,
+                surfaceId: fixture.surfaceId,
+                title: "Read \(index)",
+                isRead: true
+            )
+        }
         let unread = makeNotification(tabId: fixture.workspace.id, surfaceId: fixture.surfaceId, title: "Unread")
-        fixture.store.replaceNotificationsForTesting([firstRead, secondRead, unread])
+        fixture.store.replaceNotificationsForTesting(readNotifications + [unread])
+        TerminalNotificationStore.resetFullIndexRebuildCountForTesting()
 
         let response = try await sendV2RequestAsync(
             method: "notification.dismiss",
@@ -57,10 +64,14 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
 
         XCTAssertEqual(response["ok"] as? Bool, true, "\(response)")
         let result = try XCTUnwrap(response["result"] as? [String: Any])
-        XCTAssertEqual(result["dismissed"] as? Int, 2)
+        XCTAssertEqual(result["dismissed"] as? Int, readNotifications.count)
         XCTAssertEqual(result["all_read"] as? Bool, true)
-        XCTAssertFalse(fixture.store.notifications.contains(where: { $0.id == firstRead.id }))
-        XCTAssertFalse(fixture.store.notifications.contains(where: { $0.id == secondRead.id }))
+        XCTAssertEqual(TerminalNotificationStore.fullIndexRebuildCountForTesting, 1)
+        XCTAssertFalse(
+            fixture.store.notifications.contains { notification in
+                readNotifications.contains { $0.id == notification.id }
+            }
+        )
         XCTAssertTrue(fixture.store.notifications.contains(where: { $0.id == unread.id }))
     }
 

@@ -557,6 +557,37 @@ struct NotificationRestoreBannerOwnershipTests {
         #expect(store.flushSupersededPhoneDismissIDsForTesting(tabId: tabId, surfaceId: surfaceId) == [])
     }
 
+    @Test func explicitlyRestoredReadBannerOwnerOwnsRowActions() {
+        let store = TerminalNotificationStore.shared
+        let previousNotifications = store.notifications
+        let tabId = UUID()
+        let surfaceId = UUID()
+        let restoredOwner = notification(
+            id: UUID(), tabId: tabId, surfaceId: surfaceId,
+            title: "Read restored owner",
+            createdAt: Date(timeIntervalSince1970: 20),
+            isRead: true
+        )
+        defer {
+            _ = store.flushSupersededPhoneDismissIDsForTesting(tabId: tabId, surfaceId: surfaceId)
+            store.replaceNotificationsForTesting(previousNotifications)
+        }
+
+        store.replaceNotificationsForTesting([])
+        store.applySessionNotificationMerge(
+            [restoredOwner],
+            restoredExternalBannerOwnerIDs: [restoredOwner.id]
+        )
+
+        #expect(store.externalBannerOwnerIDForTesting(tabId: tabId, surfaceId: surfaceId) == restoredOwner.id)
+        store.stashSupersededPhoneDismissIDsForTesting(
+            ["drain-with-restored-read-owner"], tabId: tabId, surfaceId: surfaceId
+        )
+        store.remove(id: restoredOwner.id)
+        #expect(store.externalBannerOwnerIDForTesting(tabId: tabId, surfaceId: surfaceId) == nil)
+        #expect(store.flushSupersededPhoneDismissIDsForTesting(tabId: tabId, surfaceId: surfaceId) == [])
+    }
+
     @Test func nextLiveNotificationSupersedesLiveOwnerInsteadOfNewerRestoredRow() {
         let store = TerminalNotificationStore.shared
         let tabId = UUID()

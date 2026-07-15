@@ -115,7 +115,7 @@ struct NotificationFeedScaleTests {
         #expect(store.latestNotification(forTabId: tabId)?.title == "Live at cap")
         #expect(TerminalNotificationStore.fullIndexRebuildCountForTesting == 0)
         let lifecycleNames = eventBus.retainedSnapshot().compactMap { $0["name"] as? String }
-        #expect(lifecycleNames == ["notification.created"])
+        #expect(lifecycleNames == ["notification.removed", "notification.created"])
     }
 
     @Test
