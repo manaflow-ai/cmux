@@ -148,8 +148,11 @@ public final class CanvasModel {
               let panelIds = layout.panelIds(in: paneID),
               let currentIndex = panelIds.firstIndex(of: panel),
               !panelIds.isEmpty else { return false }
+        // `offset` may be Int.min/Int.max; saturate instead of trapping.
+        let (sum, overflowed) = currentIndex.addingReportingOverflow(offset)
+        let target = overflowed ? (offset > 0 ? Int.max : Int.min) : sum
         let destinationIndex = min(
-            max(currentIndex + offset, panelIds.startIndex),
+            max(target, panelIds.startIndex),
             panelIds.index(before: panelIds.endIndex)
         )
         guard destinationIndex != currentIndex else { return true }
