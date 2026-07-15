@@ -1,4 +1,5 @@
 public import SwiftUI
+import CmuxAppKitSupportUI
 import CmuxFoundation
 public import CmuxUpdater
 import AppKit
@@ -146,6 +147,7 @@ struct UpdatePillPopoverAnchor: NSViewRepresentable {
 
         weak var anchorView: NSView?
         private let hostingController = NSHostingController(rootView: AnyView(EmptyView()))
+        private let visibleUpdateScheduler = CmuxPopoverVisibleUpdateScheduler()
         private var popover: NSPopover?
 
         init(isPresented: Binding<Bool>, popover: NSPopover? = nil) {
@@ -154,10 +156,17 @@ struct UpdatePillPopoverAnchor: NSViewRepresentable {
         }
 
         func updateRootView(_ rootView: AnyView) {
-            hostingController.rootView = rootView
-            hostingController.view.invalidateIntrinsicContentSize()
-            hostingController.view.layoutSubtreeIfNeeded()
-            updateContentSize()
+            guard popover?.isShown == true else {
+                visibleUpdateScheduler.cancel()
+                applyRootView(rootView)
+                return
+            }
+            // Leave the representable update before touching the shown popover; AppKit's
+            // animated resize can otherwise re-enter SwiftUI's active view-graph update.
+            visibleUpdateScheduler.schedule { [weak self] in
+                guard let self, self.popover?.isShown == true else { return }
+                self.applyRootView(rootView)
+            }
         }
 
         func present() {
@@ -169,13 +178,14 @@ struct UpdatePillPopoverAnchor: NSViewRepresentable {
 
             anchorView.superview?.layoutSubtreeIfNeeded()
             let popover = popover ?? makePopover()
-            updateContentSize()
             guard !popover.isShown else { return }
+            updateContentSize()
 
             popover.show(relativeTo: anchorView.bounds, of: anchorView, preferredEdge: .maxY)
         }
 
         func dismiss() {
+            visibleUpdateScheduler.cancel()
             popover?.performClose(nil)
         }
 
@@ -185,6 +195,7 @@ struct UpdatePillPopoverAnchor: NSViewRepresentable {
         }
 
         func popoverDidClose(_ notification: Notification) {
+            visibleUpdateScheduler.cancel()
             popover = nil
             if isPresented {
                 isPresented = false
@@ -201,13 +212,23 @@ struct UpdatePillPopoverAnchor: NSViewRepresentable {
             return popover
         }
 
+        private func applyRootView(_ rootView: AnyView) {
+            CmuxPopoverMutation.performWithoutImplicitAnimation {
+                hostingController.rootView = rootView
+                hostingController.view.invalidateIntrinsicContentSize()
+                hostingController.view.layoutSubtreeIfNeeded()
+            }
+            updateContentSize()
+        }
+
         private func updateContentSize() {
             let fittingSize = hostingController.view.fittingSize
             guard fittingSize.width > 0, fittingSize.height > 0 else { return }
-            popover?.contentSize = NSSize(
+            guard let popover else { return }
+            CmuxPopoverMutation.setContentSize(NSSize(
                 width: ceil(fittingSize.width),
                 height: ceil(fittingSize.height)
-            )
+            ), on: popover)
         }
     }
 }

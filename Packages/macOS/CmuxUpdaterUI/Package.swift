@@ -14,6 +14,7 @@ let package = Package(
         ),
     ],
     dependencies: [
+        .package(path: "../CmuxAppKitSupportUI"),
         .package(path: "../CmuxFoundation"),
         .package(path: "../CmuxUpdater"),
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.0"),
@@ -22,6 +23,7 @@ let package = Package(
         .target(
             name: "CmuxUpdaterUI",
             dependencies: [
+                "CmuxAppKitSupportUI",
                 "CmuxFoundation",
                 "CmuxUpdater",
                 .product(name: "Sparkle", package: "Sparkle"),
