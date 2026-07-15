@@ -7,6 +7,10 @@ extension CmuxVaultAgentRegistration {
         return markers.allSatisfy { marker in
             arguments.contains { argument in
                 argument.compare(marker, options: [.caseInsensitive, .literal]) == .orderedSame
+                    || (marker.hasPrefix("-") && argument.range(
+                        of: marker + "=",
+                        options: [.anchored, .caseInsensitive, .literal]
+                    ) != nil)
             }
         }
     }

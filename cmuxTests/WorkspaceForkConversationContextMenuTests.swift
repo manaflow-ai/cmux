@@ -441,6 +441,51 @@ struct WorkspaceForkConversationContextMenuTests {
     }
 
     @Test
+    func persistedBuiltInOmpSnapshotMigratesLegacyForkTemplate() throws {
+        let sessionId = "omp-session-123"
+        var legacyRegistration = CmuxVaultAgentRegistration.builtInOmp
+        legacyRegistration.forkCommand = "{{executable}} --session {{sessionId}} --fork"
+        let persisted = SessionRestorableAgentSnapshot(
+            kind: .custom("omp"),
+            sessionId: sessionId,
+            workingDirectory: "/tmp/omp repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "omp",
+                executablePath: "/opt/homebrew/bin/omp",
+                arguments: ["/opt/homebrew/bin/omp", "--session", sessionId],
+                workingDirectory: "/tmp/omp repo",
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            ),
+            registration: legacyRegistration
+        )
+
+        let decoded = try JSONDecoder().decode(
+            SessionRestorableAgentSnapshot.self,
+            from: JSONEncoder().encode(persisted)
+        )
+
+        #expect(decoded.registration == .builtInOmp)
+        #expect(decoded.forkCommand?.contains("'--fork' '\(sessionId)'") == true)
+
+        var projectOverride = legacyRegistration
+        projectOverride.name = "Project OMP"
+        let overridden = SessionRestorableAgentSnapshot(
+            kind: .custom("omp"),
+            sessionId: sessionId,
+            workingDirectory: nil,
+            launchCommand: persisted.launchCommand,
+            registration: projectOverride
+        )
+        let decodedOverride = try JSONDecoder().decode(
+            SessionRestorableAgentSnapshot.self,
+            from: JSONEncoder().encode(overridden)
+        )
+        #expect(decodedOverride.registration == projectOverride)
+    }
+
+    @Test
     func directOpenCodePresentationStaysVisibleWhileValidationRefreshes() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)

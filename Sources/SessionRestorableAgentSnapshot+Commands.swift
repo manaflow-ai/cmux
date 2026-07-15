@@ -16,7 +16,7 @@ extension SessionRestorableAgentSnapshot {
         let registration = try container.decodeIfPresent(
             CmuxVaultAgentRegistration.self,
             forKey: .registration
-        )
+        )?.migratedLegacyBuiltInForkCommand
         // Registry-detected snapshots persist `.custom(id)`, whose raw string
         // collapses to the native case on decode when the id matches a
         // built-in raw value. Restore the write-side identity whenever that

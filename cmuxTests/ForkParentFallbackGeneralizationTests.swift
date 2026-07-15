@@ -101,6 +101,23 @@ struct ForkParentFallbackGeneralizationTests {
         #expect(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId)?.sessionId == fixture.parentPiPath)
     }
 
+    @Test func piEqualsForkFlagDemotesDetectedParent() throws {
+        let fixture = try Fixture.make()
+        defer { fixture.cleanup() }
+
+        let registry = CmuxVaultAgentRegistry(registrations: [.builtInPi])
+        let detected = detectedSnapshots(
+            fixture: fixture,
+            registry: registry,
+            argv: ["/usr/local/bin/pi", "--fork=\(fixture.parentPiPath)"],
+            launchKind: "pi",
+            processName: "pi",
+            processPath: "/usr/local/bin/pi"
+        )
+
+        #expect(detected[fixture.forkKey]?.sessionIDSource == .forkParentFallback)
+    }
+
     @Test func piPaneHookIdentityWinsAfterForkMintsOwnSession() throws {
         let fixture = try Fixture.make()
         defer { fixture.cleanup() }

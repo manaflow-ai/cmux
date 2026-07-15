@@ -162,6 +162,12 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
         )
     }
 
+    var migratedLegacyBuiltInForkCommand: CmuxVaultAgentRegistration {
+        var legacyOmp = Self.builtInOmp
+        legacyOmp.forkCommand = "{{executable}} --session {{sessionId}} --fork"
+        return self == legacyOmp ? Self.builtInOmp : self
+    }
+
     static var builtInAntigravity: CmuxVaultAgentRegistration {
         CmuxVaultAgentRegistration(
             id: "antigravity",
