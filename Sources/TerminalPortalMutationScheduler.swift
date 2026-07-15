@@ -4,11 +4,7 @@ import Foundation
 final class TerminalPortalMutationScheduler {
     private typealias Mutation = @MainActor () -> Void
     private typealias Completion = @MainActor () -> Void
-
-    private struct PendingWork {
-        let mutation: Mutation
-        let completion: Completion?
-    }
+    private typealias PendingWork = (mutation: Mutation, completion: Completion?)
 
     private var cancellationGeneration: UInt64 = 0
     private var pendingWork: PendingWork?
