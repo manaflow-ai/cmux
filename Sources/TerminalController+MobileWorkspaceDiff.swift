@@ -51,6 +51,9 @@ extension TerminalController {
                 directory: snapshot.directory,
                 processLifecycle: mobileWorkspaceDiffProcessLifecycle
             )
+            guard mobileWorkspaceDiffSnapshotStillMatches(params: params, snapshot: snapshot) else {
+                return Self.v2MobileWorkspaceDiffStaleRepositoryResult()
+            }
             return Self.v2MobileWorkspaceDiffResult(result)
         }
     }
@@ -119,6 +122,9 @@ extension TerminalController {
                 expectedRepoRoot: expectedRepoRoot,
                 processLifecycle: mobileWorkspaceDiffProcessLifecycle
             )
+            guard mobileWorkspaceDiffSnapshotStillMatches(params: params, snapshot: snapshot) else {
+                return Self.v2MobileWorkspaceDiffStaleRepositoryResult()
+            }
             return Self.v2MobileWorkspaceDiffResult(result)
         }
     }
@@ -148,6 +154,23 @@ extension TerminalController {
             return .failure(.err(code: "unavailable", message: "Workspace directory is unavailable", data: nil))
         }
         return .success(MobileWorkspaceDiffSnapshot(directory: directory))
+    }
+
+    /// Git work runs off the main actor and may take long enough for the user to
+    /// switch workspaces, change directories, or turn the current row into a
+    /// remote workspace. Re-read the same routing context before returning any
+    /// result so a detached Git reply cannot describe a repository the phone is
+    /// no longer viewing.
+    private func mobileWorkspaceDiffSnapshotStillMatches(
+        params: [String: Any],
+        snapshot: MobileWorkspaceDiffSnapshot
+    ) -> Bool {
+        switch mobileWorkspaceDiffSnapshot(params: params) {
+        case .success(let current):
+            return current.directory == snapshot.directory
+        case .failure:
+            return false
+        }
     }
 
     private nonisolated static func mobileWorkspaceDiffStatusResult(
@@ -348,6 +371,10 @@ extension TerminalController {
                 "truncated": truncated,
             ])
         }
+    }
+
+    private nonisolated static func v2MobileWorkspaceDiffStaleRepositoryResult() -> V2CallResult {
+        .err(code: "stale_repository", message: "Workspace repository changed", data: nil)
     }
 
     private nonisolated static func jsonOrNull(_ value: Any?) -> Any {

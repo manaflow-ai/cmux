@@ -178,4 +178,31 @@ import Testing
         #expect(store.macConnectionStatus == .connected)
         #expect(!store.connectionRecoveryFailed)
     }
+
+    @Test func staleSuccessfulWorkspaceDiffReplyIsDiscardedAfterClientReplacement() async throws {
+        let staleRouter = RoutingHostRouter()
+        let replacementRouter = RoutingHostRouter()
+        await staleRouter.setHoldFirstWorkspaceDiffStatus(true)
+        let store = try await makeRoutingConnectedStore(router: staleRouter)
+        store.connectionState = .connected
+        store.macConnectionStatus = .connected
+        let workspaceID = try #require(store.workspaces.first?.id)
+        let staleClient = try #require(store.remoteClient)
+
+        let diffTask = Task {
+            try await store.fetchDiffStatus(workspaceID: workspaceID)
+        }
+        await staleRouter.awaitFirstWorkspaceDiffStatusReached()
+        try installFreshRemoteClient(on: store, router: replacementRouter)
+        let replacementClient = try #require(store.remoteClient)
+        await staleRouter.releaseFirstWorkspaceDiffStatus()
+
+        await #expect(throws: WorkspaceDiffError.self) {
+            try await diffTask.value
+        }
+        #expect(store.remoteClient !== staleClient)
+        #expect(store.remoteClient === replacementClient)
+        #expect(store.connectionState == .connected)
+        #expect(store.macConnectionStatus == .connected)
+    }
 }

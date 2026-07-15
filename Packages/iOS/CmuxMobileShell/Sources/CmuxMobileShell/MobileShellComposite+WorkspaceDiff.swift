@@ -187,10 +187,15 @@ extension MobileShellComposite {
         }
         do {
             let request = try MobileCoreRPCClient.requestData(method: method, params: params)
-            return try await client.sendRequest(
+            let data = try await client.sendRequest(
                 request,
                 timeoutNanoseconds: runtime?.rpcRequestTimeoutNanoseconds
             )
+            try Task.checkCancellation()
+            guard isCurrentWorkspaceMutationTarget(target) else {
+                throw WorkspaceDiffError.staleRepository
+            }
+            return data
         } catch {
             guard !disconnectForAuthorizationFailureIfNeeded(error, target: target) else {
                 throw error
