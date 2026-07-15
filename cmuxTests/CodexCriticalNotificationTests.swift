@@ -24,7 +24,7 @@ struct CodexCriticalNotificationTests {
         #expect(result.process.status == 0, result.process.stderr)
         #expect(
             result.commands.contains { command in
-                command.contains("notify_target \(workspaceID) \(surfaceID) Codex|Rate limit|Codex stopped because the turn budget was reached")
+                command.contains("notify_target \(workspaceID) \(surfaceID) Codex|Budget reached|Codex stopped because the turn budget was reached")
             },
             "Expected a budget-limit notification, saw \(result.commands)"
         )
@@ -44,28 +44,6 @@ struct CodexCriticalNotificationTests {
         #expect(!result.process.timedOut, result.process.stderr)
         #expect(result.process.status == 0, result.process.stderr)
         #expect(!result.commands.contains { $0.contains("notify_target") }, "Unexpected notification: \(result.commands)")
-    }
-
-    @Test("Environment permission requests notify while Codex waits")
-    func requestPermissionsNotifies() throws {
-        let result = try runMonitor(
-            transcript: """
-            {"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-permissions"}}
-            {"type":"response_item","payload":{"type":"function_call","name":"request_permissions","call_id":"call-permissions","arguments":"{\\"permissions\\":[{\\"type\\":\\"network\\"}],\\"reason\\":\\"Access the deployment API\\"}"}}
-            {"type":"event_msg","payload":{"type":"turn_aborted","turn_id":"turn-permissions","reason":"interrupted"}}
-            """,
-            sessionID: "session-permissions",
-            turnID: "turn-permissions"
-        )
-
-        #expect(!result.process.timedOut, result.process.stderr)
-        #expect(result.process.status == 0, result.process.stderr)
-        #expect(
-            result.commands.contains { command in
-                command.contains("notify_target \(workspaceID) \(surfaceID) Codex|Waiting|Access the deployment API")
-            },
-            "Expected a permission notification, saw \(result.commands)"
-        )
     }
 
     @Test("Codex process exit before a terminal event notifies")

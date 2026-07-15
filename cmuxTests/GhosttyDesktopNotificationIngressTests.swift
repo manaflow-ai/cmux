@@ -71,7 +71,7 @@ struct GhosttyDesktopNotificationIngressTests {
         #expect(!store.hasUnreadNotification(forTabId: workspace.id, surfaceId: surfaceId))
     }
 
-    @Test func codexMcpElicitationBypassesStructuredAgentRawNotificationSuppression() async throws {
+    @Test func codexDesktopNotificationsBypassStructuredAgentRawNotificationSuppression() async throws {
         let store = TerminalNotificationStore.shared
         let originalAppDelegate = AppDelegate.shared
         let appDelegate = originalAppDelegate ?? AppDelegate()

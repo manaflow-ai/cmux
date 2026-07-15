@@ -25931,7 +25931,7 @@ struct CMUXCLI {
                             localized: "agent.codex.error.budgetLimited",
                             defaultValue: "Codex stopped because the turn budget was reached"
                         ),
-                        codexErrorInfo: "usage_limit",
+                        codexErrorInfo: "budget_limited",
                         additionalDetails: nil,
                         isStreamError: false
                     )
@@ -26240,8 +26240,7 @@ struct CMUXCLI {
         excluding publishedCallIds: Set<String>
     ) -> CodexHookUserInputCandidate? {
         guard (payload["type"] as? String) == "function_call",
-              let functionName = payload["name"] as? String,
-              functionName == "request_user_input" || functionName == "request_permissions" else {
+              (payload["name"] as? String) == "request_user_input" else {
             return nil
         }
 
@@ -26254,21 +26253,6 @@ struct CMUXCLI {
             } else {
                 guard sawRelevantTurn else { return nil }
             }
-        }
-
-        if functionName == "request_permissions" {
-            let reason = arguments
-                .flatMap { firstString(in: $0, keys: ["reason", "justification"]) }
-                .map(normalizedSingleLine)
-                .flatMap { $0.isEmpty ? nil : truncate($0, maxLength: 220) }
-                ?? String(
-                    localized: "agent.codex.input.body.needsPermission",
-                    defaultValue: "Codex needs environment permission"
-                )
-            let callId = firstString(in: payload, keys: ["call_id", "callId"])
-                ?? "\(payloadTurnId ?? turnId ?? "session"):request_permissions"
-            guard !publishedCallIds.contains(callId) else { return nil }
-            return CodexHookUserInputCandidate(callId: callId, question: reason)
         }
 
         return codexUserInputCandidate(
@@ -26397,7 +26381,12 @@ struct CMUXCLI {
 
         let subtitle: String
         let statusValue: String
-        if signal.contains("usage_limit") ||
+        if signal.contains("budget_limited") ||
+            signal.contains("budget limited") ||
+            signal.contains("turn budget") {
+            subtitle = String(localized: "agent.codex.error.subtitle.budget", defaultValue: "Budget reached")
+            statusValue = String(localized: "agent.codex.error.status.budget", defaultValue: "Codex budget reached")
+        } else if signal.contains("usage_limit") ||
             signal.contains("usage limit") ||
             signal.contains("rate_limit") ||
             signal.contains("rate limit") ||

@@ -218,7 +218,7 @@ extension Workspace {
         )
     }
 
-    func suppressesRawTerminalNotification(panelId: UUID?, body: String? = nil) -> Bool {
+    func suppressesRawTerminalNotification(panelId: UUID?) -> Bool {
         guard let panelId else {
             return false
         }
@@ -229,17 +229,14 @@ extension Workspace {
         }
 
         let panelKeys = agentPIDKeysByPanelId[panelId] ?? []
-        if isCodexMcpElicitationNotification(body),
-           panelKeys.contains(where: { agentStatusKey(forAgentPIDKey: $0) == "codex" }) {
+        // Codex's OSC notification is the only live, authoritative signal for
+        // transient MCP elicitations, which Codex omits from both rollouts and
+        // hooks. Preserve Codex-owned terminal notifications instead of trying
+        // to reconstruct their kind from user-visible copy.
+        if panelKeys.contains(where: { agentStatusKey(forAgentPIDKey: $0) == "codex" }) {
             return false
         }
         return panelKeys.contains { isStructuredAgentHookPIDKey($0) }
-    }
-
-    private func isCodexMcpElicitationNotification(_ body: String?) -> Bool {
-        guard let body = body?.trimmingCharacters(in: .whitespacesAndNewlines) else { return false }
-        let prefix = "Approval requested by "
-        return body.hasPrefix(prefix) && body.count > prefix.count
     }
 
     private func terminalPanelHasManagedSubagentStartupEnvironment(panelId: UUID) -> Bool {

@@ -317,13 +317,17 @@ final class TerminalNotificationClearAllTests: XCTestCase {
 
         workspace.recordAgentPID(key: "codex.codex-session-123", pid: pid_t(12345), panelId: firstPanelId)
 
-        XCTAssertTrue(workspace.suppressesRawTerminalNotification(panelId: firstPanelId))
+        XCTAssertFalse(workspace.suppressesRawTerminalNotification(panelId: firstPanelId))
         XCTAssertFalse(workspace.suppressesRawTerminalNotification(panelId: secondPanel.id))
         XCTAssertFalse(workspace.suppressesRawTerminalNotification(panelId: nil))
 
         workspace.recordAgentPID(key: "custom-tool.session", pid: pid_t(12346), panelId: secondPanel.id)
 
         XCTAssertFalse(workspace.suppressesRawTerminalNotification(panelId: secondPanel.id))
+
+        workspace.recordAgentPID(key: "claude_code.session-456", pid: pid_t(12347), panelId: secondPanel.id)
+
+        XCTAssertTrue(workspace.suppressesRawTerminalNotification(panelId: secondPanel.id))
 
         let managedSubagentPanel = try XCTUnwrap(
             workspace.newTerminalSplit(
