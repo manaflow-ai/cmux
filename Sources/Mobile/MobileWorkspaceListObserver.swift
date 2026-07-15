@@ -234,9 +234,11 @@ final class MobileWorkspaceListObserver {
 
     /// Stable hash of the iOS-facing shape: workspace ids + titles + their
     /// panels in spatial order + each panel's displayed (custom-aware) title and
-    /// directory. Mutations that don't show up on the mobile list (pane geometry,
-    /// scrollback content, focus only) don't trip the event, so we don't fan out
-    /// on every keystroke.
+    /// directory + the `layout.v1` pane topology. The topology hashes pane ids in
+    /// DFS order, each pane's surface-id order, and each pane's selected tab. It
+    /// deliberately excludes split ratios, so divider drags don't spam events,
+    /// and keeps excluding `focusedPanelId` itself. Scrollback content and focus
+    /// changes with no other list-facing effect also remain excluded.
     ///
     /// The panel ids are hashed in `orderedPanelIds` order (not the sorted set),
     /// so a pure drag-reorder, which changes the spatial order but not the id set,
@@ -288,6 +290,15 @@ final class MobileWorkspaceListObserver {
             for id in panelIDs {
                 hasher.combine(workspace.panelTitle(panelId: id))
                 hasher.combine(workspace.reportedPanelDirectory(panelId: id))
+            }
+            let paneTopology = MobileWorkspaceLayoutSerializer.paneTopology(
+                in: workspace.bonsplitController.treeSnapshot()
+            )
+            hasher.combine(paneTopology.count)
+            for pane in paneTopology {
+                hasher.combine(pane.id)
+                hasher.combine(pane.surfaceIDs)
+                hasher.combine(pane.selectedSurfaceID)
             }
             hasher.combine(workspace.presentedCurrentDirectory)
             // Todo mutations change the list-facing shape; without these the

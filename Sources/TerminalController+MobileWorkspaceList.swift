@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import CmuxWorkspaces
 import Foundation
 
@@ -8,6 +9,102 @@ import Foundation
 // serializing the workspace and group-section payloads, and the mobile-gated
 // group collapse/expand handler. Lives in its own file so the mobile list
 // payload code stays together without growing TerminalController.swift.
+
+/// Pure serialization of bonsplit's external tree into the mobile `layout.v1`
+/// dictionary shape.
+struct MobileWorkspaceLayoutSerializer {
+    struct SurfaceMetadata {
+        let id: String
+        let type: String
+        let title: String
+    }
+
+    struct PaneTopology {
+        let id: String
+        let surfaceIDs: [String]
+        let selectedSurfaceID: String?
+    }
+
+    static func payload(
+        tree: ExternalTreeNode,
+        version: Int,
+        focusedPaneID: String?,
+        surfacesByTabID: [String: SurfaceMetadata]
+    ) -> [String: Any] {
+        [
+            "version": version,
+            "focused_pane_id": jsonValue(focusedPaneID),
+            "root": nodePayload(tree, surfacesByTabID: surfacesByTabID),
+        ]
+    }
+
+    static func tabs(in tree: ExternalTreeNode) -> [ExternalTab] {
+        switch tree {
+        case .pane(let pane):
+            return pane.tabs
+        case .split(let split):
+            return tabs(in: split.first) + tabs(in: split.second)
+        }
+    }
+
+    static func paneTopology(in tree: ExternalTreeNode) -> [PaneTopology] {
+        switch tree {
+        case .pane(let pane):
+            return [PaneTopology(
+                id: pane.id,
+                surfaceIDs: pane.tabs.map(\.id),
+                selectedSurfaceID: pane.selectedTabId
+            )]
+        case .split(let split):
+            return paneTopology(in: split.first) + paneTopology(in: split.second)
+        }
+    }
+
+    private static func nodePayload(
+        _ node: ExternalTreeNode,
+        surfacesByTabID: [String: SurfaceMetadata]
+    ) -> [String: Any] {
+        switch node {
+        case .pane(let pane):
+            let surfaces = pane.tabs.map { tab -> [String: Any] in
+                let metadata = surfacesByTabID[tab.id] ?? SurfaceMetadata(
+                    id: tab.id,
+                    type: PanelType.terminal.rawValue,
+                    title: tab.title
+                )
+                return [
+                    "id": metadata.id,
+                    "type": metadata.type,
+                    "title": metadata.title,
+                ]
+            }
+            let selectedSurfaceID = pane.selectedTabId.map { tabID in
+                surfacesByTabID[tabID]?.id ?? tabID
+            }
+            return [
+                "kind": "pane",
+                "id": pane.id,
+                "selected_surface_id": jsonValue(selectedSurfaceID),
+                "surfaces": surfaces,
+            ]
+        case .split(let split):
+            return [
+                "kind": "split",
+                "id": split.id,
+                "orientation": split.orientation,
+                "ratio": split.dividerPosition,
+                "first": nodePayload(split.first, surfacesByTabID: surfacesByTabID),
+                "second": nodePayload(split.second, surfacesByTabID: surfacesByTabID),
+            ]
+        }
+    }
+
+    private static func jsonValue(_ value: String?) -> Any {
+        guard let value else { return NSNull() }
+        return value
+    }
+}
+
 extension TerminalController {
     /// Mobile-gated collapse/expand of a workspace group. P1 group support on
     /// iOS is display-only: the phone renders collapsible group sections and can
@@ -209,6 +306,26 @@ extension TerminalController {
             ]
         }
 
+        let layoutTree = workspace.bonsplitController.treeSnapshot()
+        var layoutSurfacesByTabID: [String: MobileWorkspaceLayoutSerializer.SurfaceMetadata] = [:]
+        for tab in MobileWorkspaceLayoutSerializer.tabs(in: layoutTree) {
+            let panelID = UUID(uuidString: tab.id).flatMap { workspace.panelId(forSurfaceId: $0) }
+            let panel = panelID.flatMap { workspace.panels[$0] }
+            layoutSurfacesByTabID[tab.id] = MobileWorkspaceLayoutSerializer.SurfaceMetadata(
+                id: panelID?.uuidString ?? tab.id,
+                type: panel?.panelType.rawValue ?? PanelType.terminal.rawValue,
+                title: panelID.flatMap { workspace.panelTitle(panelId: $0) }
+                    ?? panel?.displayTitle
+                    ?? tab.title
+            )
+        }
+        let layout = MobileWorkspaceLayoutSerializer.payload(
+            tree: layoutTree,
+            version: workspace.paneLayoutVersion,
+            focusedPaneID: workspace.bonsplitController.focusedPaneId?.id.uuidString,
+            surfacesByTabID: layoutSurfacesByTabID
+        )
+
         let store = notificationStore ?? AppDelegate.shared?.notificationStore
         let latestNotification = store?.latestNotification(forTabId: workspace.id)
         let preview = Self.mobileWorkspacePreview(latestNotification: latestNotification)
@@ -237,6 +354,7 @@ extension TerminalController {
             // unread + manual/panel-derived/restored indicators) so the phone can
             // show an iMessage-style unread dot.
             "has_unread": store?.workspaceIsUnread(forTabId: workspace.id) ?? false,
+            "layout": layout,
             "terminals": terminals
         ]
     }
