@@ -59,6 +59,64 @@ struct ChatArtifactViewerPagerModelTests {
         #expect(model.pageSnapshots.count == 3)
     }
 
+    @Test("projects the highlighting pill only from the selected page")
+    @MainActor
+    func projectsSelectedPagePill() async throws {
+        let suiteName = "cmux.viewer-pill.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let logPath = "/logs/build.log"
+        let csvPath = "/data.csv"
+        let logSize = ChatArtifactSyntaxHighlightPolicy.maxHighlightBytes + 1
+        let loader = ChatArtifactLoader(
+            supportsArtifacts: true,
+            stat: { path in
+                ChatArtifactStat(
+                    exists: true,
+                    isDirectory: false,
+                    size: path == logPath ? logSize : 1,
+                    modifiedAt: Date(timeIntervalSince1970: 1),
+                    kind: .text,
+                    mimeType: "text/plain"
+                )
+            },
+            stream: { path, onChunk in
+                let totalSize = path == logPath ? logSize : 1
+                try await onChunk(ChatArtifactChunk(
+                    data: Data("x".utf8),
+                    offset: 0,
+                    totalSize: totalSize,
+                    eof: true
+                ))
+            }
+        )
+        let model = ChatArtifactViewerPagerModel(
+            initialPath: logPath,
+            swipeOrder: swipeOrder([
+                item(path: logPath, size: logSize),
+                item(path: csvPath, size: 1),
+            ]),
+            textPreferences: ChatArtifactTextPreferences(defaults: defaults)
+        )
+
+        await model.actions(
+            for: logPath,
+            loader: loader,
+            quickLookCanPreview: { _ in false }
+        ).load()
+        await model.actions(
+            for: csvPath,
+            loader: loader,
+            quickLookCanPreview: { _ in false }
+        ).load()
+
+        #expect(model.toolbarSnapshot.path == logPath)
+        #expect(model.toolbarSnapshot.showsHighlightingStatusPill)
+        model.select(path: csvPath)
+        #expect(model.toolbarSnapshot.path == csvPath)
+        #expect(!model.toolbarSnapshot.showsHighlightingStatusPill)
+    }
+
     @Test("streamed snapshots and gallery refreshes do not replay jump requests")
     @MainActor
     func keepsJumpRequestIdentity() async throws {
