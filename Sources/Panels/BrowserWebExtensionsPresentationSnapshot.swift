@@ -10,6 +10,7 @@ struct BrowserWebExtensionsPresentationSnapshot: Equatable, Sendable {
     struct Item: Identifiable, Equatable, Sendable {
         let id: String
         let name: String
+        let hasAction: Bool
     }
 
     struct Failure: Identifiable, Equatable, Sendable {

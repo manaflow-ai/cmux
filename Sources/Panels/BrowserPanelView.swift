@@ -1387,7 +1387,8 @@ struct BrowserPanelView: View {
             iconPointSize: devToolsButtonIconSize,
             hitSize: addressBarButtonSize,
             loadSnapshot: { await panel.browserWebExtensionsPresentationSnapshot() },
-            openManager: { panel.openBrowserExtensionsManager() != nil }
+            openManager: { panel.openBrowserExtensionsManager() != nil },
+            performAction: { panel.performBrowserWebExtensionAction(uniqueIdentifier: $0) }
         )
     }
 

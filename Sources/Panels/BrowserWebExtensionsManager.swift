@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import WebKit
 
@@ -30,10 +31,14 @@ final class BrowserWebExtensionsManager: NSObject {
     let directory: URL
     var loadTask: Task<Void, Never>?
     private let directoryRepository = BrowserWebExtensionDirectoryRepository()
+    private let catalogPackageRepository = BrowserWebExtensionCatalogPackageRepository()
     private(set) var isLoaded = false
     private var loadWaiters: [UUID: LoadWaiter] = [:]
     private(set) var loadedContexts: [WKWebExtensionContext] = []
     private(set) var loadErrors: [(url: URL, error: any Error)] = []
+    private var tabAdapters: [UUID: BrowserWebExtensionTabAdapter] = [:]
+    private var windowAdapters: [UUID: BrowserWebExtensionWindowAdapter] = [:]
+    private var pendingActionAnchors: [String: NSView] = [:]
 
     init(directory: URL, controllerConfiguration: WKWebExtensionController.Configuration? = nil) {
         self.directory = directory
@@ -163,6 +168,55 @@ final class BrowserWebExtensionsManager: NSObject {
         }
     }
 
+    func installCatalogExtension(_ entry: BrowserWebExtensionCatalogEntry) async throws -> BrowserWebExtensionInstallReceipt {
+        let packageURL = try await catalogPackageRepository.download(entry)
+        defer {
+            Task { await catalogPackageRepository.removeDownloadedPackage(at: packageURL) }
+        }
+        return try await installExtension(from: packageURL)
+    }
+
+    func register(panel: BrowserPanel, workspace: Workspace) {
+        if tabAdapters[panel.id] != nil { return }
+
+        let windowAdapter: BrowserWebExtensionWindowAdapter
+        if let existing = windowAdapters[workspace.id] {
+            windowAdapter = existing
+        } else {
+            windowAdapter = BrowserWebExtensionWindowAdapter(workspace: workspace)
+            windowAdapters[workspace.id] = windowAdapter
+            controller.didOpenWindow(windowAdapter)
+        }
+
+        let tabAdapter = BrowserWebExtensionTabAdapter(panel: panel, windowAdapter: windowAdapter)
+        tabAdapters[panel.id] = tabAdapter
+        windowAdapter.tabAdapters.append(tabAdapter)
+        controller.didOpenTab(tabAdapter)
+    }
+
+    func unregister(panelID: UUID) {
+        guard let tabAdapter = tabAdapters.removeValue(forKey: panelID) else { return }
+        controller.didCloseTab(tabAdapter, windowIsClosing: false)
+        guard let windowAdapter = tabAdapter.windowAdapter else { return }
+        windowAdapter.tabAdapters.removeAll { $0 === tabAdapter || $0.panel == nil }
+        if windowAdapter.tabAdapters.isEmpty, let workspaceID = windowAdapter.workspace?.id {
+            windowAdapters.removeValue(forKey: workspaceID)
+            controller.didCloseWindow(windowAdapter)
+        }
+    }
+
+    @discardableResult
+    func performAction(uniqueIdentifier: String, in panel: BrowserPanel) -> Bool {
+        guard let context = loadedContexts.first(where: { $0.uniqueIdentifier == uniqueIdentifier }),
+              let tabAdapter = tabAdapters[panel.id],
+              context.action(for: tabAdapter) != nil else {
+            return false
+        }
+        pendingActionAnchors[context.uniqueIdentifier] = panel.webView
+        context.performAction(for: tabAdapter)
+        return true
+    }
+
     private func loadExtension(at url: URL) async throws -> WKWebExtensionContext {
         let webExtension = try await WKWebExtension(resourceBaseURL: url)
         let context = WKWebExtensionContext(for: webExtension)
@@ -182,7 +236,9 @@ final class BrowserWebExtensionsManager: NSObject {
             extensions: loadedContexts.map { context in
                 BrowserWebExtensionsPresentationSnapshot.Item(
                     id: context.uniqueIdentifier,
-                    name: context.webExtension.displayName ?? context.uniqueIdentifier
+                    name: context.webExtension.displayName ?? context.uniqueIdentifier,
+                    hasAction: context.action(for: nil) != nil
+                        || tabAdapters.values.contains { context.action(for: $0) != nil }
                 )
             },
             failures: loadErrors.map { failure in
@@ -208,6 +264,36 @@ final class BrowserWebExtensionsManager: NSObject {
 
 @available(macOS 15.4, *)
 extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
+    func webExtensionController(
+        _ controller: WKWebExtensionController,
+        openWindowsFor extensionContext: WKWebExtensionContext
+    ) -> [any WKWebExtensionWindow] {
+        orderedWindowAdapters().map { $0 as any WKWebExtensionWindow }
+    }
+
+    func webExtensionController(
+        _ controller: WKWebExtensionController,
+        focusedWindowFor extensionContext: WKWebExtensionContext
+    ) -> (any WKWebExtensionWindow)? {
+        orderedWindowAdapters().first
+    }
+
+    func webExtensionController(
+        _ controller: WKWebExtensionController,
+        presentActionPopup action: WKWebExtension.Action,
+        for extensionContext: WKWebExtensionContext,
+        completionHandler: @escaping ((any Error)?) -> Void
+    ) {
+        guard let popover = action.popupPopover,
+              let anchor = pendingActionAnchors.removeValue(forKey: extensionContext.uniqueIdentifier) else {
+            completionHandler(BrowserWebExtensionActionError.missingPopupAnchor)
+            return
+        }
+        let anchorRect = NSRect(x: anchor.bounds.maxX - 1, y: anchor.bounds.maxY - 1, width: 1, height: 1)
+        popover.show(relativeTo: anchorRect, of: anchor, preferredEdge: .maxY)
+        completionHandler(nil)
+    }
+
     // Runtime permission requests are granted without prompting, but only for
     // what the manifest declares (`permissions`/`host_permissions` plus
     // `optional_permissions`/`optional_host_permissions`); installing the
@@ -252,5 +338,27 @@ extension BrowserWebExtensionsManager: WKWebExtensionControllerDelegate {
     private static func declaredMatchPatterns(of webExtension: WKWebExtension) -> Set<WKWebExtension.MatchPattern> {
         webExtension.allRequestedMatchPatterns
             .union(webExtension.optionalPermissionMatchPatterns)
+    }
+
+    private func orderedWindowAdapters() -> [BrowserWebExtensionWindowAdapter] {
+        let live = windowAdapters.values.filter { !$0.compactTabs().isEmpty }
+        return live.sorted { lhs, rhs in
+            let lhsKey = lhs.compactTabs().contains { $0.panel?.webView.window === NSApp.keyWindow }
+            let rhsKey = rhs.compactTabs().contains { $0.panel?.webView.window === NSApp.keyWindow }
+            if lhsKey != rhsKey { return lhsKey }
+            return (lhs.workspace?.id.uuidString ?? "") < (rhs.workspace?.id.uuidString ?? "")
+        }
+    }
+}
+
+@available(macOS 15.4, *)
+private enum BrowserWebExtensionActionError: LocalizedError {
+    case missingPopupAnchor
+
+    var errorDescription: String? {
+        String(
+            localized: "browser.extensions.action.unavailable",
+            defaultValue: "The extension action could not be shown."
+        )
     }
 }

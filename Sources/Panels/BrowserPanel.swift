@@ -7549,6 +7549,16 @@ extension BrowserPanel {
         return try await browserServices.installWebExtension(from: source)
     }
 
+    func installBrowserWebExtension(_ entry: BrowserWebExtensionCatalogEntry) async throws -> BrowserWebExtensionInstallReceipt {
+        guard let browserServices else { throw BrowserWebExtensionServiceError.unsupported }
+        return try await browserServices.installWebExtension(entry)
+    }
+
+    @discardableResult
+    func performBrowserWebExtensionAction(uniqueIdentifier: String) -> Bool {
+        browserServices?.performWebExtensionAction(uniqueIdentifier: uniqueIdentifier, in: self) ?? false
+    }
+
     func noteWebViewFocused() {
         guard searchState == nil else { return }
         guard preferredFocusIntent != .webView else { return }

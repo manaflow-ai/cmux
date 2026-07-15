@@ -381,6 +381,9 @@ extension Workspace {
         panelSubscriptions.removeValue(forKey: panelId)?.cancel()
         discardAgentSessionPanelSubscription(panelId: panelId, panel: panel)
         discardBrowserPanelSubscription(panelId: panelId, panel: panel)
+        if panel is BrowserPanel {
+            browserServices?.unregisterBrowserPanel(id: panelId)
+        }
         removeBrowserOpenTabSuggestionIfNeeded(panel: panel, panelId: panelId)
         if cleanupControllerSurfaceState {
             TerminalController.shared.cleanupSurfaceState(surfaceIds: [panelId, tabId?.uuid].compactMap { $0 })

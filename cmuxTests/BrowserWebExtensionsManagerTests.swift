@@ -57,6 +57,26 @@ struct BrowserWebExtensionsManagerTests {
         #expect(names == ["archive.zip", "sample"])
     }
 
+    @Test func verifiedCatalogUsesUniqueHTTPSVersionPinnedPackages() throws {
+        let entries = BrowserWebExtensionCatalog.verifiedEntries
+
+        #expect(!entries.isEmpty)
+        #expect(Set(entries.map(\.id)).count == entries.count)
+        #expect(entries.allSatisfy { $0.packageURL.scheme == "https" })
+        #expect(entries.allSatisfy { !$0.version.isEmpty })
+        #expect(entries.allSatisfy { $0.packageSHA256.count == 64 })
+    }
+
+    @Test func packageVerifierAcceptsPinnedDigestAndRejectsChangedBytes() throws {
+        let data = Data("cmux".utf8)
+        let digest = "548d4fabc56e7b556bbd7d01c3bcb6288fc8de3078dcb38fc3698fb3c26508c9"
+
+        try BrowserWebExtensionPackageVerifier.verify(data, expectedSHA256: digest)
+        #expect(throws: BrowserWebExtensionCatalogInstallError.integrityMismatch) {
+            try BrowserWebExtensionPackageVerifier.verify(data + Data([0]), expectedSHA256: digest)
+        }
+    }
+
     @available(macOS 15.4, *)
     @Test func loadsUnpackedExtensionAndGrantsRequestedPermissions() async throws {
         let root = try Self.makeExtensionsRoot()
