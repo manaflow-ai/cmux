@@ -256,6 +256,30 @@ struct VerifiedTerminalReplayStateMachineTests {
             requiresVerifiedReplay: true
         )
         #expect(terminalOutputApplicationPath(for: verifiedChunk) == .verifiedReplay)
+
+        let unnegotiatedChunk = MobileTerminalOutputChunk(
+            data: verifiedFrame.vtPatchBytes(),
+            streamToken: token,
+            sourceRenderGridFrame: verifiedFrame,
+            requiresVerifiedReplay: false
+        )
+        #expect(terminalOutputApplicationPath(for: unnegotiatedChunk) == .legacy)
+
+        let misroutedFrame = try frame(
+            surfaceID: "another-surface",
+            renderEpoch: "epoch",
+            renderRevision: 2,
+            stateSeq: 2,
+            columns: 80,
+            text: "misrouted frame"
+        )
+        let misroutedChunk = MobileTerminalOutputChunk(
+            data: misroutedFrame.vtPatchBytes(),
+            streamToken: token,
+            sourceRenderGridFrame: misroutedFrame,
+            requiresVerifiedReplay: true
+        )
+        #expect(terminalOutputApplicationPath(for: misroutedChunk) == .rejectUnverified)
     }
 
     private func commit(
@@ -277,6 +301,7 @@ struct VerifiedTerminalReplayStateMachineTests {
     }
 
     private func frame(
+        surfaceID: String = "surface-verified-replay",
         renderEpoch: String = "epoch-default",
         renderRevision: UInt64,
         stateSeq: UInt64,
@@ -286,7 +311,7 @@ struct VerifiedTerminalReplayStateMachineTests {
         full: Bool = true
     ) throws -> MobileTerminalRenderGridFrame {
         try MobileTerminalRenderGridFrame(
-            surfaceID: "surface-verified-replay",
+            surfaceID: surfaceID,
             stateSeq: stateSeq,
             renderEpoch: renderEpoch,
             renderRevision: renderRevision,
