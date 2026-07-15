@@ -273,6 +273,33 @@ struct RemoteProxyBrokerTests {
         )
     }
 
+    private func makeManagedWebSocketConfiguration(token: String, expiresAtUnix: Int64) -> WorkspaceRemoteConfiguration {
+        WorkspaceRemoteConfiguration(
+            transport: .websocket,
+            destination: "managed-cloud-vm",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            managedCloudVMID: "vm-123",
+            terminalStartupCommand: nil,
+            daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint(
+                url: "wss://example.invalid/daemon",
+                headers: [:],
+                token: token,
+                sessionId: "daemon-session",
+                expiresAtUnix: expiresAtUnix
+            ),
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "team-window-v1",
+            skipDaemonBootstrap: true
+        )
+    }
+
     @Test("acquire starts one tunnel and delivers .connecting then .ready")
     func acquireStartsTunnel() throws {
         let provider = FakeTunnelProvider()
@@ -308,6 +335,21 @@ struct RemoteProxyBrokerTests {
         #expect(provider.tunnels.count == 1)
         let endpoint = BrowserProxyEndpoint(host: "127.0.0.1", port: try #require(provider.tunnels.first).localPort)
         #expect(second.updates == [.ready(endpoint)])
+    }
+
+    @Test("renewed credentials for one managed VM share its existing broker entry")
+    func renewedManagedCredentialsShareStableTransportIdentity() {
+        let provider = FakeTunnelProvider()
+        let broker = RemoteProxyBroker(tunnelProvider: provider, clock: ManualRetryClock())
+        let first = makeManagedWebSocketConfiguration(token: "old-token", expiresAtUnix: 100)
+        let renewed = makeManagedWebSocketConfiguration(token: "new-token", expiresAtUnix: 200)
+
+        let leaseA = broker.acquire(configuration: first, remotePath: "/usr/local/bin/cmuxd-remote") { _ in }
+        defer { leaseA.release() }
+        let leaseB = broker.acquire(configuration: renewed, remotePath: "/usr/local/bin/cmuxd-remote") { _ in }
+        defer { leaseB.release() }
+
+        #expect(provider.tunnels.count == 1)
     }
 
     @Test("acquiring with a changed remotePath restarts the shared tunnel")
