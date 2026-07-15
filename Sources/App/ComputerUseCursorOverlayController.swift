@@ -141,7 +141,12 @@ struct ComputerUseCursorState: Equatable, Sendable {
 
 /// Selects the cursor the overlay should render from the untrusted feed directory.
 struct ComputerUseCursorFeed: Sendable {
-    static let defaultFreshnessInterval: TimeInterval = 5
+    // Keep the cursor on-screen across the gaps *between* actions (a click is
+    // followed by a slow get_window_state screenshot, often several seconds), so
+    // consecutive actions glide the same visible cursor from one target to the
+    // next instead of fading it out and re-appearing at each spot. The driver
+    // writes visible=false at end_session, which hides it immediately regardless.
+    static let defaultFreshnessInterval: TimeInterval = 20
     private static let maximumFutureClockSkew: TimeInterval = 5 * 60
     private static let maximumFileBytes = 64 * 1_024
     private static let fileSuffix = ".cursor.json"
@@ -276,7 +281,7 @@ final class ComputerUseCursorOverlayController {
         featureEnabled: @escaping @MainActor () -> Bool,
         feed: ComputerUseCursorFeed = ComputerUseCursorFeed(),
         pollInterval: TimeInterval = 0.75,
-        glideDuration: TimeInterval = 0.18
+        glideDuration: TimeInterval = 0.35
     ) {
         self.stateDirectoryURL = stateDirectoryURL
         self.featureEnabled = featureEnabled
@@ -397,7 +402,10 @@ final class ComputerUseCursorOverlayController {
         } else {
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = glideDuration
-                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                // Ease in *and* out so the cursor accelerates off its last target
+                // and settles smoothly onto the next — a gliding path rather than a
+                // snap, matching the feel of other computer-use cursors.
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
                 context.allowsImplicitAnimation = true
                 panel.animator().setFrameOrigin(origin)
             }
