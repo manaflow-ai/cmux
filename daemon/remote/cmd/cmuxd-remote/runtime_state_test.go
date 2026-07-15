@@ -54,6 +54,18 @@ func TestPersistentDaemonServerKeepsPTYAvailableAndFailsRuntimeStateClosedOnCorr
 	}
 
 	conn, reader, writer := openPersistentTestClient(t, socketPath, "token")
+	hello := persistentTestRPCCall(t, conn, reader, writer, rpcRequest{
+		ID:     "hello-after-corruption",
+		Method: "hello",
+		Params: map[string]any{},
+	})
+	helloResult := requireRuntimeStateResult(t, hello)
+	capabilities, _ := helloResult["capabilities"].([]any)
+	for _, capability := range capabilities {
+		if capability == "runtime.state.v1" {
+			t.Fatalf("hello advertised unavailable runtime state: %v", capabilities)
+		}
+	}
 	ping := persistentTestRPCCall(t, conn, reader, writer, rpcRequest{
 		ID:     "ping-after-corruption",
 		Method: "ping",
@@ -422,6 +434,54 @@ func TestRuntimeStateStorePutDoesNotBlockOnSlowSubscriber(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("runtime state put blocked on a slow subscriber")
+	}
+}
+
+func TestRuntimeStateStoreSnapshotDoesNotBlockOnPersistence(t *testing.T) {
+	persistenceStarted := make(chan struct{})
+	releasePersistence := make(chan struct{})
+	var releaseOnce sync.Once
+	defer releaseOnce.Do(func() { close(releasePersistence) })
+	store := newEmptyRuntimeStateStore("runtime-state.json")
+	store.persistDocument = func(string, runtimeStateDocument) error {
+		close(persistenceStarted)
+		<-releasePersistence
+		return nil
+	}
+
+	putDone := make(chan error, 1)
+	go func() {
+		_, err := store.put(1, json.RawMessage(`{"title":"writer"}`), nil)
+		putDone <- err
+	}()
+	select {
+	case <-persistenceStarted:
+	case <-time.After(time.Second):
+		t.Fatal("runtime state persistence did not start")
+	}
+
+	snapshotDone := make(chan *runtimeStateDocument, 1)
+	go func() { snapshotDone <- store.snapshot() }()
+	select {
+	case snapshot := <-snapshotDone:
+		if snapshot != nil {
+			t.Fatalf("snapshot exposed uncommitted runtime state: %+v", snapshot)
+		}
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("runtime state snapshot blocked on persistence")
+	}
+
+	releaseOnce.Do(func() { close(releasePersistence) })
+	select {
+	case err := <-putDone:
+		if err != nil {
+			t.Fatalf("put runtime state: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("runtime state put did not finish")
+	}
+	if snapshot := store.snapshot(); snapshot == nil || snapshot.Revision != 1 {
+		t.Fatalf("committed runtime state snapshot = %+v, want revision 1", snapshot)
 	}
 }
 
