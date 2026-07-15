@@ -6,9 +6,8 @@ import Foundation
 import Testing
 @testable import CmuxMobileShell
 
-/// Regression tests for `stableMacColorSlots` resets on the account/team
-/// boundaries. Split from ``MobileShellCompositePreviewTests`` to keep that
-/// file under the Swift file length budget.
+/// Regression tests for `stableMacColorSlots` resets on account and team
+/// boundaries.
 @MainActor
 @Suite struct MobileShellCompositeColorSlotResetTests {
     @Test func signOutClearsStableMacColorSlots() {
