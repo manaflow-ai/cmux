@@ -89,7 +89,7 @@ struct UsageTipsTests {
     }
 
     @MainActor
-    @Test func deadlineTargetsTheCurrentKeyWindowAndResumesWithoutOne() throws {
+    @Test func expiredDeadlinePresentsImmediatelyWhenNextWindowBecomesKey() throws {
         let suiteName = "UsageTipsTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
@@ -121,7 +121,6 @@ struct UsageTipsTests {
 
         controller.windowDidBecomeKey(windowID: otherWindowID)
         #expect(scheduledActions.count == 2)
-        scheduledActions.last?()
         #expect(controller.presentation?.windowID == otherWindowID)
 
         controller.unregister(windowID: currentWindowID)
@@ -130,7 +129,7 @@ struct UsageTipsTests {
     }
 
     @MainActor
-    @Test func presentedTipHidesWhenItsWindowResignsAndReschedulesForTheNextKeyWindow() throws {
+    @Test func presentedTipHidesWhenItsWindowResignsAndReappearsForTheNextKeyWindow() throws {
         let suiteName = "UsageTipsTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
@@ -163,7 +162,6 @@ struct UsageTipsTests {
 
         controller.windowDidBecomeKey(windowID: nextWindowID)
         #expect(scheduledActions.count == 3)
-        scheduledActions.last?()
         #expect(controller.presentation?.windowID == nextWindowID)
 
         controller.unregister(windowID: firstWindowID)
