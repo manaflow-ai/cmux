@@ -158,6 +158,58 @@ struct AppUtilityPanelTests {
         #expect(localWorkspace.panels.values.contains { ($0 as? AppUtilityPanel)?.kind == .mobilePairing })
     }
 
+    @Test func nonActivatingUtilityOpenUsesExistingLocalWorkspaceWithoutSelectingOrFocusingIt() throws {
+        let appDelegate = AppDelegate()
+        let windowId = appDelegate.createMainWindow(shouldActivate: false)
+        defer { appDelegate.mainWindow(for: windowId)?.close() }
+        let tabManager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+        let remoteWorkspace = try #require(tabManager.selectedWorkspace)
+        remoteWorkspace.isRemoteTmuxMirror = true
+        let localWorkspace = tabManager.addWorkspace(
+            inheritWorkingDirectory: false,
+            select: false,
+            autoWelcomeIfNeeded: false
+        )
+        let originalFocusedPanelId = try #require(localWorkspace.focusedPanelId)
+        let originalPaneId = try #require(localWorkspace.bonsplitController.focusedPaneId)
+        #expect(localWorkspace.toggleSplitZoom(panelId: originalFocusedPanelId))
+
+        let didOpen = appDelegate.openPreferencesWindow(
+            debugSource: "test.nonActivatingExistingLocalFallback",
+            activateApplication: false
+        )
+
+        #expect(didOpen)
+        #expect(tabManager.selectedWorkspace === remoteWorkspace)
+        #expect(localWorkspace.focusedPanelId == originalFocusedPanelId)
+        #expect(localWorkspace.bonsplitController.focusedPaneId == originalPaneId)
+        #expect(localWorkspace.bonsplitController.zoomedPaneId == originalPaneId)
+        #expect(localWorkspace.panels.values.contains { ($0 as? AppUtilityPanel)?.kind == .settings })
+    }
+
+    @Test func nonActivatingUtilityOpenCreatesUnselectedLocalWorkspaceWithoutFocusingUtilityPane() throws {
+        let appDelegate = AppDelegate()
+        let windowId = appDelegate.createMainWindow(shouldActivate: false)
+        defer { appDelegate.mainWindow(for: windowId)?.close() }
+        let tabManager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+        let remoteWorkspace = try #require(tabManager.selectedWorkspace)
+        remoteWorkspace.isRemoteTmuxMirror = true
+
+        let didOpen = appDelegate.openPreferencesWindow(
+            debugSource: "test.nonActivatingNewLocalFallback",
+            activateApplication: false
+        )
+
+        let localWorkspace = try #require(tabManager.tabs.first { !$0.isRemoteTmuxMirror })
+        let utilityPanel = try #require(
+            localWorkspace.panels.values.compactMap { $0 as? AppUtilityPanel }.first
+        )
+        #expect(didOpen)
+        #expect(tabManager.tabs.count == 2)
+        #expect(tabManager.selectedWorkspace === remoteWorkspace)
+        #expect(localWorkspace.focusedPanelId != utilityPanel.id)
+    }
+
     @Test func nonActivatingUtilityPresentationOrdersAndDeminiaturizesWithoutMakingKey() {
         let appDelegate = AppDelegate()
         let window = AppUtilityPresentationTestWindow()

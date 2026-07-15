@@ -130,7 +130,10 @@ extension AppDelegate {
 #endif
             return false
         }
-        let workspace = appUtilityTargetWorkspace(in: targetTabs)
+        let workspace = appUtilityTargetWorkspace(
+            in: targetTabs,
+            select: activateApplication
+        )
         guard let paneId = workspace.bonsplitController.focusedPaneId
                 ?? workspace.bonsplitController.allPaneIds.first else {
 #if DEBUG
@@ -139,12 +142,14 @@ extension AppDelegate {
             return false
         }
 
-        workspace.clearSplitZoom()
+        if activateApplication {
+            workspace.clearSplitZoom()
+        }
         guard workspace.openOrFocusAppUtilityPane(
             fromPane: paneId,
             kind: kind,
             settingsNavigationTarget: settingsNavigationTarget,
-            focus: true
+            focus: activateApplication
         ) != nil else {
             return false
         }
@@ -162,20 +167,23 @@ extension AppDelegate {
     }
 
     /// Utility panes cannot join a remote-tmux mirror's server-owned split
-    /// topology. Keep them in the same window by selecting a local workspace,
-    /// creating one in the same tab manager only when none exists.
-    func appUtilityTargetWorkspace(in tabManager: TabManager) -> Workspace {
+    /// topology. Keep them in the same window by using a local workspace,
+    /// creating one in the same tab manager only when none exists. A
+    /// nonactivating request must not change the visible workspace selection.
+    func appUtilityTargetWorkspace(in tabManager: TabManager, select: Bool = true) -> Workspace {
         if let selectedWorkspace = tabManager.selectedWorkspace,
            !selectedWorkspace.isRemoteTmuxMirror {
             return selectedWorkspace
         }
         if let localWorkspace = tabManager.tabs.first(where: { !$0.isRemoteTmuxMirror }) {
-            tabManager.selectWorkspace(localWorkspace)
+            if select {
+                tabManager.selectWorkspace(localWorkspace)
+            }
             return localWorkspace
         }
         return tabManager.addWorkspace(
             inheritWorkingDirectory: false,
-            select: true,
+            select: select,
             autoWelcomeIfNeeded: false
         )
     }
@@ -186,9 +194,6 @@ extension AppDelegate {
         } else {
             window.alphaValue = 1
             window.ignoresMouseEvents = false
-        }
-        if !activateApplication, NSApp.isHidden {
-            NSApp.unhideWithoutActivation()
         }
         if window.isMiniaturized {
             window.deminiaturize(nil)
