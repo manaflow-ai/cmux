@@ -31,11 +31,15 @@ import CMUXMobileCore
         DeviceRegistryClient.Registration(teamID: team, tag: tag, routes: routes, sessions: sessions)
     }
 
-    private func liveSession(status: CmxLiveSessionStatus = .idle) -> CmxLiveSession {
+    private func liveSession(
+        id: String = "workspace-1",
+        title: String = "Handoff",
+        status: CmxLiveSessionStatus = .idle
+    ) -> CmxLiveSession {
         CmxLiveSession(
-            id: "workspace-1",
-            workspaceID: "workspace-1",
-            title: "Handoff",
+            id: id,
+            workspaceID: id,
+            title: title,
             agent: "codex",
             status: status,
             lastActivityAt: 1_800_000_000
@@ -77,6 +81,20 @@ import CMUXMobileCore
 
     @Test func pairingOffSuppressesSessionDiscovery() {
         #expect(DeviceRegistryClient.advertisedSessions(routes: [], sessions: [liveSession()]).isEmpty)
+    }
+
+    @Test func advertisedSessionsStayWithinTheRegistrationWireBudget() throws {
+        let routes = [try route(host: "100.0.0.1", port: 51000)]
+        let oversizedTitle = String(repeating: "🚀", count: 10_000)
+        let sessions = (0..<50).map { index in
+            liveSession(id: "workspace-\(index)", title: oversizedTitle)
+        }
+
+        let advertised = DeviceRegistryClient.advertisedSessions(routes: routes, sessions: sessions)
+        let encoded = try JSONEncoder().encode(advertised)
+
+        #expect(encoded.count <= DeviceRegistryClient.maximumLiveSessionPayloadBytes)
+        #expect(advertised.allSatisfy { $0.title.unicodeScalars.count <= 160 })
     }
 
     @Test func teamSwitchReRegistersEvenWithUnchangedRoutes() throws {

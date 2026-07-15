@@ -42,4 +42,21 @@ import Testing
             workspaces: [workspace]
         ) == nil)
     }
+
+    @Test func failedAuthoritativeRefreshDoesNotResolveCachedWorkspace() {
+        var cached = MobileWorkspacePreview(
+            id: .init(rawValue: "cached-row"),
+            macDeviceID: "mac-a",
+            name: "Stale cache",
+            terminals: []
+        )
+        cached.remoteWorkspaceID = .init(rawValue: "runtime-workspace")
+
+        #expect(CMUXMobileShellStore.registryHandoffWorkspaceID(
+            workspaceID: "runtime-workspace",
+            deviceID: "mac-a",
+            workspaces: [cached],
+            authoritativeRefreshSucceeded: false
+        ) == nil)
+    }
 }
