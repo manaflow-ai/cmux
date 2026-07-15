@@ -12773,6 +12773,8 @@ extension Workspace: BonsplitDelegate {
             _ = newTerminalSurface(inPane: pane, inheritWorkingDirectoryFallback: true)
         case "browser":
             _ = newBrowserSurface(inPane: pane)
+        case "cefBrowser":
+            _ = newCEFBrowserSurface(inPane: pane)
         default:
             _ = newTerminalSurface(inPane: pane, inheritWorkingDirectoryFallback: true)
         }

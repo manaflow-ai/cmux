@@ -28,13 +28,30 @@ BITWARDEN_VERSION="2026.6.1"
 BITWARDEN_URL="https://github.com/bitwarden/clients/releases/download/browser-v${BITWARDEN_VERSION}/dist-chrome-${BITWARDEN_VERSION}.zip"
 BITWARDEN_SHA256="fcd29c5971d9b218ad9159717a19c38cca5150f2a0aa909ddf805bd7695d097e"
 
+content_digest() {
+  local root="$1" file relative
+  local -a files
+  files=("$root"/**/*(DN.))
+  {
+    for file in "${files[@]}"; do
+      relative="${file#$root/}"
+      [[ "$relative" == ".fetched-version" || "$relative" == ".fetched-content-sha256" ]] && continue
+      printf '%s\0%s\0' "$relative" "$(shasum -a 256 "$file" | awk '{print $1}')"
+    done
+  } | shasum -a 256 | awk '{print $1}'
+}
+
 fetch_zip() {
   local name="$1" version="$2" url="$3" sha256="$4" inner_dir="$5"
   local dest="$EXT_DIR/$name"
   local stamp="$dest/.fetched-version"
-  if [[ -f "$stamp" && "$(cat "$stamp")" == "$version" && -f "$dest/manifest.json" ]]; then
-    echo "fetch-extensions: $name $version already fetched"
-    return
+  local content_stamp="$dest/.fetched-content-sha256"
+  if [[ -f "$stamp" && "$(cat "$stamp")" == "$version" && -f "$dest/manifest.json" && -f "$content_stamp" ]]; then
+    if [[ "$(cat "$content_stamp")" == "$(content_digest "$dest")" ]]; then
+      echo "fetch-extensions: $name $version already fetched and verified"
+      return
+    fi
+    echo "fetch-extensions: $name $version cached content changed; fetching a verified copy" >&2
   fi
   local tmp
   tmp="$(mktemp -d)"
@@ -60,6 +77,7 @@ fetch_zip() {
   mkdir -p "$EXT_DIR"
   ditto "$src" "$dest"
   printf '%s' "$version" > "$stamp"
+  content_digest "$dest" > "$content_stamp"
   rm -rf "$tmp"
   echo "fetch-extensions: $name $version -> $dest"
 }
