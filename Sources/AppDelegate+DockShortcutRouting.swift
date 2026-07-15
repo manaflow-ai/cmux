@@ -75,4 +75,62 @@ extension AppDelegate {
             focus: true
         ) != nil
     }
+
+    /// Routes configurable surface/focus commands through the focused Dock's
+    /// own controller. Key matching stays in `KeyboardShortcutSettings`; the
+    /// Dock receives only semantic commands and never duplicates key bindings.
+    func handleFocusedDockSurfaceShortcut(event: NSEvent) -> Bool {
+        guard let store = focusedDockStoreForShortcut(preferredWindow: event.window) else {
+            return false
+        }
+
+        let commands: [(KeyboardShortcutSettings.Action, DockShortcutCommand)] = [
+            (.nextSurface, .selectNextSurface),
+            (.prevSurface, .selectPreviousSurface),
+            (.moveSurfaceLeft, .moveSurface(offset: -1)),
+            (.moveSurfaceRight, .moveSurface(offset: 1)),
+            (.toggleSplitZoom, .togglePaneZoom),
+            (.triggerFlash, .triggerFlash),
+        ]
+        for (action, command) in commands where matchConfiguredShortcut(event: event, action: action) {
+            _ = store.performShortcutCommand(command)
+            return true
+        }
+
+        if let digit = routableNumberedConfiguredShortcutDigit(event: event, action: .selectSurfaceByNumber) {
+            _ = store.performShortcutCommand(.selectSurface(number: digit))
+            return true
+        }
+
+        let directionalCommands: [(
+            action: KeyboardShortcutSettings.Action,
+            glyph: String,
+            keyCode: UInt16,
+            command: DockShortcutCommand
+        )] = [
+            (.focusLeft, "←", 123, .focusPane(.left)),
+            (.focusRight, "→", 124, .focusPane(.right)),
+            (.focusUp, "↑", 126, .focusPane(.up)),
+            (.focusDown, "↓", 125, .focusPane(.down)),
+        ]
+        for route in directionalCommands where matchConfiguredDirectionalShortcut(
+            event: event,
+            action: route.action,
+            arrowGlyph: route.glyph,
+            arrowKeyCode: route.keyCode
+        ) {
+            _ = store.performShortcutCommand(route.command)
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .focusHistoryBack) {
+            if !store.performShortcutCommand(.focusHistoryBack) { NSSound.beep() }
+            return true
+        }
+        if matchConfiguredShortcut(event: event, action: .focusHistoryForward) {
+            if !store.performShortcutCommand(.focusHistoryForward) { NSSound.beep() }
+            return true
+        }
+        return false
+    }
 }

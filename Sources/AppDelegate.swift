@@ -13543,6 +13543,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if handleFocusedDockSurfaceShortcut(event: event) { return true }
+
         // Flash the currently focused panel so the user can visually confirm focus.
         if matchConfiguredShortcut(event: event, action: .triggerFlash) {
             let targetManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
@@ -15138,7 +15140,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return numberedShortcutDigit(event: event, stroke: shortcut.firstStroke)
     }
 
-    private func routableNumberedConfiguredShortcutDigit(
+    func routableNumberedConfiguredShortcutDigit(
         event: NSEvent,
         action: KeyboardShortcutSettings.Action
     ) -> Int? {
@@ -15166,7 +15168,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
     }
 
-    private func matchConfiguredDirectionalShortcut(
+    func matchConfiguredDirectionalShortcut(
         event: NSEvent,
         action: KeyboardShortcutSettings.Action,
         arrowGlyph: String,

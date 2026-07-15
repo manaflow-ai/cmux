@@ -1,49 +1,38 @@
 import AppKit
 
-/// Event-driven follow-up state for the Dock portal reconciler, owned by
-/// `DockSplitStore.dockPortalReconcileState`. Mirrors the state backing
-/// `Workspace.beginEventDrivenLayoutFollowUp`.
+/// Event-driven follow-up state for the Dock portal reconciler.
+///
+/// Every request performs an immediate pass. Observers remain installed only
+/// while a visible portal reports that its AppKit host is not mounted yet; the
+/// next real host/registry lifecycle event performs the next pass. There is no
+/// timer, backoff, or focus-driven layout dependency.
 @MainActor
 final class DockPortalReconcileState {
     var observers: [NSObjectProtocol] = []
-    var timeoutWorkItem: DispatchWorkItem?
     var reason: String?
-    var attemptScheduled = false
-    var attemptVersion = 0
-    var stalledAttemptCount = 0
     var isAttempting = false
     var scheduledRequestCount = 0
 
     deinit {
-        timeoutWorkItem?.cancel()
         observers.forEach { NotificationCenter.default.removeObserver($0) }
     }
 }
 
 extension DockSplitStore {
-    private static let dockPortalReconcileTimeout: TimeInterval = 2
-
     func scheduleDockPortalReconcile(reason: String) {
         let state = dockPortalReconcileState
         state.scheduledRequestCount += 1
         state.reason = reason
-        state.stalledAttemptCount = 0
-        state.attemptVersion &+= 1
-        state.attemptScheduled = false
-
-        if state.timeoutWorkItem == nil {
-            installDockPortalReconcileObservers()
-        }
-        refreshDockPortalReconcileTimeout()
-        scheduleDockPortalReconcileAttempt()
+        installDockPortalReconcileObservers()
+        attemptDockPortalReconcile()
     }
 
     private func installDockPortalReconcileObservers() {
         let state = dockPortalReconcileState
-        guard state.timeoutWorkItem == nil else { return }
+        guard state.observers.isEmpty else { return }
 
         let wake: () -> Void = { [weak self] in
-            self?.wakeDockPortalReconcileForStructuralEvent()
+            self?.attemptDockPortalReconcile()
         }
         let notificationNames: [Notification.Name] = [
             .terminalSurfaceDidBecomeReady,
@@ -62,83 +51,23 @@ extension DockSplitStore {
         }
     }
 
-    private func refreshDockPortalReconcileTimeout() {
-        let state = dockPortalReconcileState
-        state.timeoutWorkItem?.cancel()
-        let workItem = DispatchWorkItem { [weak self] in
-            self?.clearDockPortalReconcile()
-        }
-        state.timeoutWorkItem = workItem
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + Self.dockPortalReconcileTimeout,
-            execute: workItem
-        )
-    }
-
     func clearDockPortalReconcile() {
         let state = dockPortalReconcileState
-        state.timeoutWorkItem?.cancel()
-        state.timeoutWorkItem = nil
         state.observers.forEach { NotificationCenter.default.removeObserver($0) }
         state.observers.removeAll()
         state.reason = nil
-        state.attemptVersion &+= 1
-        state.attemptScheduled = false
-        state.stalledAttemptCount = 0
-    }
-
-    private func wakeDockPortalReconcileForStructuralEvent() {
-        let state = dockPortalReconcileState
-        guard state.timeoutWorkItem != nil else { return }
-        state.stalledAttemptCount = 0
-        state.attemptVersion &+= 1
-        state.attemptScheduled = false
-        scheduleDockPortalReconcileAttempt()
-    }
-
-    private func scheduleDockPortalReconcileAttempt() {
-        let state = dockPortalReconcileState
-        guard state.timeoutWorkItem != nil else { return }
-        guard !state.attemptScheduled else { return }
-
-        state.attemptScheduled = true
-        let delay = dockPortalReconcileBackoffDelay()
-        let version = state.attemptVersion
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            guard let self else { return }
-            let state = self.dockPortalReconcileState
-            guard state.attemptVersion == version,
-                  state.timeoutWorkItem != nil else { return }
-            state.attemptScheduled = false
-            self.attemptDockPortalReconcile()
-        }
-    }
-
-    private func dockPortalReconcileBackoffDelay() -> TimeInterval {
-        let stalledAttemptCount = dockPortalReconcileState.stalledAttemptCount
-        guard stalledAttemptCount > 0 else { return 0 }
-        let baseDelay: TimeInterval = 0.01
-        let exponent = min(stalledAttemptCount - 1, 5)
-        return min(0.25, baseDelay * pow(2, Double(exponent)))
     }
 
     private func attemptDockPortalReconcile() {
         let state = dockPortalReconcileState
-        guard state.timeoutWorkItem != nil, !state.isAttempting else { return }
+        guard !state.observers.isEmpty, !state.isAttempting else { return }
         state.isAttempting = true
         defer { state.isAttempting = false }
 
-        let attemptVersion = state.attemptVersion
         let reason = state.reason ?? "dock.portal.reconcile"
-        guard reconcileDockPortalPass(reason: reason) else {
+        if !reconcileDockPortalPass(reason: reason) {
             clearDockPortalReconcile()
-            return
         }
-
-        if state.attemptVersion == attemptVersion {
-            state.stalledAttemptCount += 1
-        }
-        scheduleDockPortalReconcileAttempt()
     }
 
     @discardableResult

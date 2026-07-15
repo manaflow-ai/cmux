@@ -267,6 +267,81 @@ extension DockSplitStore {
         scheduleDockPortalReconcile(reason: "dock.attachDetachedSurface")
         return detached.panelId
     }
+
+    /// Attaches a detached live panel directly into a newly split Dock pane.
+    ///
+    /// Unlike attaching to `paneId` and then moving that tab into a split, this
+    /// publishes exactly one portal host for the transferred panel. Registering
+    /// ownership before the single Bonsplit mutation also lets the synchronous
+    /// split delegate and portal reconciler resolve the live panel immediately.
+    @discardableResult
+    func attachDetachedSurface(
+        _ detached: Workspace.DetachedSurfaceTransfer,
+        bySplitting paneId: PaneID,
+        orientation: SplitOrientation,
+        insertFirst: Bool,
+        focus: Bool = true
+    ) -> UUID? {
+        guard bonsplitController.allPaneIds.contains(paneId), panels[detached.panelId] == nil else {
+            return nil
+        }
+        let panel = detached.panel
+
+        if let terminal = panel as? TerminalPanel {
+            terminal.surface.setFocusPlacement(.rightSidebarDock)
+            terminal.updateWorkspaceId(workspaceId)
+        } else if let browser = panel as? BrowserPanel {
+            browser.updateWorkspaceId(workspaceId)
+        }
+
+        let kind = detached.kind ?? ((panel.panelType == .browser) ? "browser" : "terminal")
+        let tab = Bonsplit.Tab(
+            title: detached.title,
+            icon: detached.icon,
+            iconImageData: panel is TerminalPanel ? nil : detached.iconImageData,
+            kind: kind,
+            isDirty: panel.isDirty,
+            isLoading: detached.isLoading,
+            isAudioMuted: (panel as? BrowserPanel)?.isMuted ?? false,
+            isPinned: false
+        )
+
+        panels[detached.panelId] = panel
+        detachedSurfaceTransfersByPanelId[detached.panelId] = detached
+        surfaceIdToPanelId[tab.id] = detached.panelId
+
+        let newPane = withProgrammaticDockSplit {
+            bonsplitController.splitPane(
+                paneId,
+                orientation: orientation,
+                withTab: tab,
+                insertFirst: insertFirst
+            )
+        }
+        guard let newPane else {
+            surfaceIdToPanelId.removeValue(forKey: tab.id)
+            detachedSurfaceTransfersByPanelId.removeValue(forKey: detached.panelId)
+            panels.removeValue(forKey: detached.panelId)
+            return nil
+        }
+
+        installSubscription(for: panel, tracksTerminalTitle: true)
+        withCoalescedTerminalViewReattach {
+            applyVisibility(to: panel)
+            if let terminal = panel as? TerminalPanel {
+                requestTerminalViewReattach(terminal)
+            }
+            recordExplicitPanelCreation()
+            if focus {
+                bonsplitController.focusPane(newPane)
+                bonsplitController.selectTab(tab.id)
+                applyDockSelection(tabId: tab.id, inPane: newPane)
+                panel.focus()
+            }
+        }
+        scheduleDockPortalReconcile(reason: "dock.attachDetachedSurface.split")
+        return detached.panelId
+    }
 }
 
 // MARK: - Tab "Move to…" destinations

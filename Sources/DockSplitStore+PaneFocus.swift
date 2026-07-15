@@ -124,6 +124,11 @@ extension DockSplitStore {
               bonsplitController.focusedPaneId == pane,
               let selectedPanel = panel(for: tabId) else { return }
 
+        focusHistoryNavigation.recordFocusInHistory(
+            workspaceId: workspaceId,
+            panelId: selectedPanel.id,
+            preservingForwardBranch: false
+        )
         let activationIntent = selectedPanel.preferredFocusIntentForActivation()
         selectedPanel.prepareFocusIntentForActivation(activationIntent)
         forEachPanel { panelId, panel in
