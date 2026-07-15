@@ -1,6 +1,10 @@
 import CryptoKit
 import Foundation
 
+private func githubAuthorizationFingerprint(for authHeader: String) -> Data {
+    Data(SHA256.hash(data: Data(authHeader.utf8)))
+}
+
 /// Process-scoped transport policy for GitHub pull-request probes.
 ///
 /// A single instance is shared by every app window. It owns the reusable
@@ -75,7 +79,7 @@ actor GitHubPullRequestRequestCoordinator {
         }
         let requestKey = RequestKey(
             endpoint: endpoint,
-            authorizationFingerprint: Self.authorizationFingerprint(for: authHeader)
+            authorizationFingerprint: githubAuthorizationFingerprint(for: authHeader)
         )
         guard activeRateLimitRetryDate(
             for: requestKey.authorizationFingerprint
@@ -132,7 +136,7 @@ actor GitHubPullRequestRequestCoordinator {
             return nil
         }
         return activeRateLimitRetryDate(
-            for: Self.authorizationFingerprint(for: authHeader)
+            for: githubAuthorizationFingerprint(for: authHeader)
         )
     }
 
@@ -315,10 +319,6 @@ actor GitHubPullRequestRequestCoordinator {
     private func activeRateLimitRetryDate(for authorizationFingerprint: Data) -> Date? {
         removeExpiredRateLimitRetryDates()
         return rateLimitRetryDateByAuthorizationFingerprint[authorizationFingerprint]
-    }
-
-    private static func authorizationFingerprint(for authHeader: String) -> Data {
-        Data(SHA256.hash(data: Data(authHeader.utf8)))
     }
 
     private func removeExpiredRateLimitRetryDates() {
