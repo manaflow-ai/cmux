@@ -351,6 +351,37 @@ struct CmuxConfigWorkspaceActionTests {
     }
 
     @MainActor
+    @Test func unsafeTerminalActionIsRejectedBeforeCreatingNewTab() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let existingPanelIDs = Set(workspace.panels.keys)
+        let action = try #require(CmuxResolvedConfigAction.fromDefinition(
+            id: "unsafe-command",
+            definition: CmuxConfigActionDefinition(
+                action: .command("echo visible\n\u{001B}[201~echo hidden"),
+                terminalCommandTarget: .newTabInCurrentPane
+            ),
+            sourcePath: nil
+        ))
+        var executed = false
+
+        let accepted = CmuxConfigExecutor.execute(
+            action: action,
+            commands: [],
+            commandSourcePaths: [:],
+            tabManager: manager,
+            baseCwd: NSTemporaryDirectory(),
+            globalConfigPath: "/tmp/cmux-test-global-config.json"
+        ) {
+            executed = true
+        }
+
+        #expect(!accepted)
+        #expect(Set(workspace.panels.keys) == existingPanelIDs)
+        #expect(!executed)
+    }
+
+    @MainActor
     @Test func inlineWorkspaceSurfaceTabBarButtonExecutesOnClick() throws {
         let manager = TabManager()
         let workspace = try #require(manager.tabs.first)

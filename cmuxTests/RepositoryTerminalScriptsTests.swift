@@ -253,6 +253,23 @@ struct RepositoryTerminalScriptsTests {
     }
 
     @MainActor
+    @Test func savedCommandNamesMergeCaseInsensitivelyWithConfigCommands() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let configURL = root.appendingPathComponent("cmux.json")
+        try writeConfig(
+            #"{"commands":[{"name":"BUILD","command":"echo config"}],"terminal":{"savedCommands":[{"id":"build","name":"build","command":"echo saved"}]}}"#,
+            at: configURL
+        )
+
+        let store = CmuxConfigStore(globalConfigPath: configURL.path, startFileWatchers: false)
+        store.loadAll()
+
+        #expect(store.loadedCommands.map(\.name) == ["build"])
+        #expect(store.loadedCommands.first?.command == "echo saved")
+    }
+
+    @MainActor
     @Test func savedCommandSettingsChangesReloadTheCurrentCommandPalette() async throws {
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
