@@ -4,15 +4,17 @@ import Foundation
 @MainActor
 final class ChromiumNavigationInterceptor {
     private let targetID: String
+    private let mainFrameIdentity: ChromiumMainFrameIdentity
     var policyHandler: BrowserEngineNavigationPolicyHandler?
-    private var mainFrameID: String?
 
     init(
         targetID: String,
-        policyHandler: BrowserEngineNavigationPolicyHandler?
+        policyHandler: BrowserEngineNavigationPolicyHandler?,
+        mainFrameIdentity: ChromiumMainFrameIdentity = ChromiumMainFrameIdentity()
     ) {
         self.targetID = targetID
         self.policyHandler = policyHandler
+        self.mainFrameIdentity = mainFrameIdentity
     }
 
     func install(connection: CDPConnection, sessionID: String) async throws {
@@ -20,10 +22,7 @@ final class ChromiumNavigationInterceptor {
             method: "Page.getFrameTree",
             sessionID: sessionID
         )
-        mainFrameID = frameTree.objectValue?["frameTree"]?
-            .objectValue?["frame"]?
-            .objectValue?["id"]?
-            .stringValue
+        mainFrameIdentity.record(frameTree: frameTree)
 
         _ = try await connection.send(
             method: "Fetch.enable",
@@ -64,7 +63,7 @@ final class ChromiumNavigationInterceptor {
         case "Target.attachedToTarget":
             return try await handleAttachedTarget(event, connection: connection)
         case "Page.frameNavigated":
-            updateMainFrameID(event)
+            mainFrameIdentity.observe(event)
             return false
         default:
             return false
@@ -82,7 +81,7 @@ final class ChromiumNavigationInterceptor {
             )
         }
         guard event.parameters["resourceType"]?.stringValue == "Document",
-              event.parameters["frameId"]?.stringValue == mainFrameID,
+              mainFrameIdentity.matches(frameID: event.parameters["frameId"]?.stringValue),
               let request = navigationRequest(from: event.parameters["request"]?.objectValue) else {
             try await continueRequest(requestID, connection: connection, sessionID: sessionID)
             return
@@ -140,15 +139,6 @@ final class ChromiumNavigationInterceptor {
             )
         }
         return true
-    }
-
-    private func updateMainFrameID(_ event: CDPEvent) {
-        guard let frame = event.parameters["frame"]?.objectValue,
-              frame["parentId"] == nil,
-              let frameID = frame["id"]?.stringValue else {
-            return
-        }
-        mainFrameID = frameID
     }
 
     private func navigationRequest(

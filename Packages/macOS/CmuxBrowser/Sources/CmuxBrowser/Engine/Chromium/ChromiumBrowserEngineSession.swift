@@ -38,6 +38,7 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
     private let viewportHandler = ChromiumViewportMessageHandler()
     private let cookieCodec = ChromiumBrowserCookieCodec()
     private let documentTitleObservation = ChromiumDocumentTitleObservation()
+    private let mainFrameIdentity = ChromiumMainFrameIdentity()
     private var navigationInterceptor: ChromiumNavigationInterceptor?
     var connection: CDPConnection?
     private var targetID: String?
@@ -426,7 +427,8 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
             _ = try await connection.send(method: "Runtime.enable", sessionID: sessionID)
             let navigationInterceptor = ChromiumNavigationInterceptor(
                 targetID: lease.targetID,
-                policyHandler: navigationPolicyHandler
+                policyHandler: navigationPolicyHandler,
+                mainFrameIdentity: mainFrameIdentity
             )
             self.navigationInterceptor = navigationInterceptor
             try await navigationInterceptor.install(
@@ -540,6 +542,7 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
     }
 
     func handle(_ event: CDPEvent, connection: CDPConnection, sessionID: String) async {
+        mainFrameIdentity.observe(event)
         do {
             if try await navigationInterceptor?.handle(
                 event,
@@ -557,8 +560,14 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
         }
         switch event.method {
         case "Page.frameStartedLoading":
+            guard mainFrameIdentity.matches(
+                frameID: event.parameters["frameId"]?.stringValue
+            ) else { return }
             updateState { $0.isLoading = true }
         case "Page.frameStoppedLoading":
+            guard mainFrameIdentity.matches(
+                frameID: event.parameters["frameId"]?.stringValue
+            ) else { return }
             updateState { $0.isLoading = false }
         case "Page.loadEventFired":
             await refreshDocumentState(connection: connection, sessionID: sessionID)
