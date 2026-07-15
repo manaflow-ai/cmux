@@ -215,6 +215,41 @@ struct VerifiedReplayPresentationTests {
         ))
     }
 
+    @Test("geometry transition replaces the token and rejects the stale callback")
+    func presentationFenceRestartsForNewestGeometry() {
+        let identity = makeIdentity(id: 9, seed: 12)
+        let initial = makeGeometry()
+        let transitioned = makeGeometry(
+            rendererFrame: CGRect(x: 0, y: 0, width: 390, height: 500)
+        )
+        var fence = VerifiedReplayPresentationFence(
+            expectedToken: 42,
+            expectedGeometryRevision: 7,
+            expectedGeometry: initial
+        )
+
+        fence.restart(
+            expectedToken: 43,
+            expectedGeometryRevision: 8,
+            expectedGeometry: transitioned
+        )
+
+        let acceptedStale = fence.acknowledge(
+            token: 42,
+            modelIdentity: identity,
+            geometryRevision: 7,
+            geometry: initial
+        )
+        let acceptedReplacement = fence.acknowledge(
+            token: 43,
+            modelIdentity: identity,
+            geometryRevision: 8,
+            geometry: transitioned
+        )
+        #expect(!acceptedStale)
+        #expect(acceptedReplacement)
+    }
+
     private func makeSurface(fill byte: UInt8) throws -> IOSurface {
         let width = 2
         let height = 2
