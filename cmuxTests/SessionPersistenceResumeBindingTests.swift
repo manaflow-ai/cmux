@@ -1,5 +1,6 @@
 import Foundation
 import CmuxCore
+import os
 import Testing
 
 #if canImport(cmux_DEV)
