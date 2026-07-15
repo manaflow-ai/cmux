@@ -309,7 +309,12 @@ describe("device registry route", () => {
     const list = (await response.json()) as {
       devices: Array<{
         deviceId: string;
-        instances: Array<{ tag: string; routes: unknown[]; sessions: Array<{ id: string }> }>;
+        instances: Array<{
+          tag: string;
+          routes: unknown[];
+          sessions: Array<{ id: string }>;
+          lastSeenAt?: string;
+        }>;
       }>;
     };
     expect(list.devices).toHaveLength(1);
@@ -317,6 +322,7 @@ describe("device registry route", () => {
     expect(list.devices[0].instances).toHaveLength(1);
     expect(list.devices[0].instances[0].tag).toBe("stable");
     expect(list.devices[0].instances[0].routes).toHaveLength(1);
+    expect(typeof list.devices[0].instances[0].lastSeenAt).toBe("string");
     expect(list.devices[0].instances[0].sessions.map((session) => session.id)).toEqual([
       "workspace-private",
     ]);
