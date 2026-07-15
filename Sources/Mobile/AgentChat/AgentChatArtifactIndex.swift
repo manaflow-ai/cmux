@@ -36,7 +36,7 @@ actor AgentChatArtifactIndex {
         let snapshot: Snapshot
     }
 
-    private var cacheBySessionID: [String: CacheEntry] = [:]
+    private var cacheBySessionID = ChatArtifactLRUCache<String, CacheEntry>(capacity: 8)
 
     func snapshot(
         sessionID: String,
@@ -45,7 +45,7 @@ actor AgentChatArtifactIndex {
         workingDirectory: String?
     ) async throws -> Snapshot {
         let key = try Self.cacheKey(transcriptPath: transcriptPath, workingDirectory: workingDirectory)
-        if let cached = cacheBySessionID[sessionID], cached.key == key {
+        if let cached = cacheBySessionID.value(forKey: sessionID), cached.key == key {
             return cached.snapshot
         }
         let snapshot = try Self.buildSnapshot(
@@ -54,7 +54,7 @@ actor AgentChatArtifactIndex {
             workingDirectory: workingDirectory,
             generation: key.generation
         )
-        cacheBySessionID[sessionID] = CacheEntry(key: key, snapshot: snapshot)
+        cacheBySessionID.insert(CacheEntry(key: key, snapshot: snapshot), forKey: sessionID)
         return snapshot
     }
 
