@@ -1,7 +1,7 @@
 import Foundation
 import CmuxFoundation
 
-nonisolated enum SSHPTYAttachStartupCommandBuilder {
+enum SSHPTYAttachStartupCommandBuilder {
     struct ForegroundAuth {
         let destination: String
         let port: Int?

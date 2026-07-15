@@ -57,7 +57,9 @@ extension MobileShellComposite {
     }
 
     /// Re-fetches and installs the foreground Mac's authoritative workspace list.
-    func reloadWorkspaceListFromMac() async -> Bool {
+    func reloadWorkspaceListFromMac(
+        timeoutNanoseconds: UInt64? = nil
+    ) async -> Bool {
         guard let client = remoteClient else { return false }
         let mutationEpoch = foregroundWorkspaceListMutationEpoch
         let focusRevision = workspaceFocusRevisionSnapshot()
@@ -65,7 +67,7 @@ extension MobileShellComposite {
             let request = try MobileCoreRPCClient.requestData(method: "mobile.workspace.list", params: [:])
             let data = try await client.sendRequest(
                 request,
-                timeoutNanoseconds: runtime?.rpcRequestTimeoutNanoseconds
+                timeoutNanoseconds: timeoutNanoseconds ?? runtime?.rpcRequestTimeoutNanoseconds
             )
             let response = try MobileSyncWorkspaceListResponse.decode(data)
             guard remoteClient === client,
@@ -83,6 +85,9 @@ extension MobileShellComposite {
             foregroundWorkspaceMutationLog.error(
                 "workspace list event refresh failed: \(String(describing: error), privacy: .private)"
             )
+            if remoteClient === client {
+                _ = disconnectForAuthorizationFailureIfNeeded(error)
+            }
             return false
         }
     }

@@ -1,4 +1,6 @@
+import CmuxMobileRPC
 import CmuxMobileShellModel
+import Foundation
 import Testing
 @testable import CmuxMobileShell
 
@@ -155,6 +157,50 @@ import Testing
 
         #expect(await router.workspaceListGate.requestCount() == 1)
         #expect(store.foregroundWorkspaceListAppliedMutationEpoch >= laterMutationEpoch)
+    }
+
+    @Test func timedWorkspaceReloadRejectsHierarchyFromAnOlderMutationEpoch() async throws {
+        let router = RoutingHostRouter()
+        await router.workspaceListGate.setHoldFirst(true)
+        await router.workspaceListGate.setUsesOrdinalTitles(true)
+        let store = try await makeRoutingConnectedStore(
+            router: router,
+            connectionState: .connected
+        )
+
+        let reload = Task { @MainActor in
+            await store.reloadWorkspaceListFromMac(timeoutNanoseconds: 5_000_000_000)
+        }
+        await router.workspaceListGate.waitUntilFirstReached()
+        store.advanceForegroundWorkspaceListMutationEpoch()
+        await router.workspaceListGate.releaseFirst()
+        let succeeded = await reload.value
+
+        #expect(!succeeded)
+        #expect(store.workspaces.first?.name == "Routing Workspace")
+    }
+
+    @Test func timedWorkspaceReloadPreservesFocusThatArrivesDuringTheRequest() async throws {
+        let router = RoutingHostRouter()
+        await router.workspaceListGate.setHoldFirst(true)
+        let store = try await makeRoutingConnectedStore(
+            router: router,
+            connectionState: .connected
+        )
+
+        let reload = Task { @MainActor in
+            await store.reloadWorkspaceListFromMac(timeoutNanoseconds: 5_000_000_000)
+        }
+        await router.workspaceListGate.waitUntilFirstReached()
+        let focusEvent = try #require(MobileWorkspaceFocusEvent(payloadJSON: Data("""
+        {"kind":"focus","workspace_id":"\(RoutingHostRouter.workspaceID)","focused_pane_id":null,"selected_terminal_id":"\(RoutingHostRouter.terminalB)"}
+        """.utf8)))
+        store.applyWorkspaceFocusEvent(focusEvent, macID: nil)
+        #expect(store.selectedWorkspace?.selectedTerminalID?.rawValue == RoutingHostRouter.terminalB)
+        await router.workspaceListGate.releaseFirst()
+
+        #expect(await reload.value)
+        #expect(store.selectedWorkspace?.selectedTerminalID?.rawValue == RoutingHostRouter.terminalB)
     }
 
     @Test func staleCreateResponseReconcilesWithoutOverwritingNewerAuthoritativeHierarchy() async throws {
