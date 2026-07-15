@@ -17,10 +17,12 @@ extension GhosttySurfaceRepresentable.Coordinator {
 
     nonisolated static func start<Result>(
         authoritativeGridEnabled: Bool,
+        releaseViewportOwnership: () -> Void,
         suppressPresentation: () -> Void,
         registerStreams: () -> Result
     ) -> Result {
         if shouldBeginReplayForNewStream(authoritativeGridEnabled: authoritativeGridEnabled) {
+            releaseViewportOwnership()
             suppressPresentation()
         }
         return registerStreams()

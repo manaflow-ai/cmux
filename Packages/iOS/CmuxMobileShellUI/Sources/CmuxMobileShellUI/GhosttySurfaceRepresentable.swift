@@ -286,8 +286,14 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             // clears its viewport pin on the Mac.
             // Suppress Ghostty synchronously before stream registration so a
             // stale local parser cannot flash before the first direct grid.
+            var viewportOwnershipRelease: Task<Void, Never>?
             outputTask = Self.start(
                 authoritativeGridEnabled: store.supportsAuthoritativeTerminalGrid,
+                releaseViewportOwnership: {
+                    viewportOwnershipRelease = store.clearTerminalViewport(
+                        surfaceID: surfaceID
+                    )
+                },
                 suppressPresentation: {
                     surfaceView.beginAuthoritativeRenderGridReplay(surfaceID: surfaceID)
                 },
@@ -295,7 +301,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     makeTerminalOutputTask(
                         store: store,
                         surfaceView: surfaceView,
-                        surfaceID: surfaceID
+                        surfaceID: surfaceID,
+                        viewportOwnershipRelease: viewportOwnershipRelease
                     )
                 }
             )

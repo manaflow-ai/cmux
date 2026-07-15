@@ -10,10 +10,15 @@ extension GhosttySurfaceRepresentable.Coordinator {
     func makeTerminalOutputTask(
         store: CMUXMobileShellStore,
         surfaceView: GhosttySurfaceView,
-        surfaceID: String
+        surfaceID: String,
+        viewportOwnershipRelease: Task<Void, Never>? = nil
     ) -> Task<Void, Never> {
         Task { @MainActor [weak self, weak surfaceView, weak store] in
             guard let store else { return }
+            // A previous raw-render attachment may still pin the Mac PTY to
+            // phone geometry. Await its explicit clear before cold replay so
+            // the first direct frame is producer-native too.
+            await viewportOwnershipRelease?.value
             for await chunk in store.authoritativeTerminalOutputStream(surfaceID: surfaceID) {
                 guard !Task.isCancelled, let self, let surfaceView else { return }
                 if authoritativeStreamToken != chunk.streamToken {

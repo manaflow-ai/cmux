@@ -282,13 +282,16 @@ extension MobileShellComposite {
         surfaceID: String,
         bypassReplayBarrier: Bool = false
     ) -> Bool {
+        let usesAuthoritativeGrid = usesAuthoritativeRenderGrid(surfaceID: surfaceID)
         return deliverTerminalOutput(
             TerminalOutputDelivery(
                 renderGrid: frame,
-                replaceable: usesAuthoritativeRenderGrid(surfaceID: surfaceID)
+                replaceable: usesAuthoritativeGrid
                     ? frame.full
                     : frame.isReplaceableViewportPatchForMobileDelivery,
-                viewportPolicy: frame.mobileViewportPolicy
+                viewportPolicy: usesAuthoritativeGrid
+                    ? frame.mobileViewportPolicy
+                    : frame.mobileLegacyReplayViewportPolicy
             ),
             surfaceID: surfaceID,
             bypassReplayBarrier: bypassReplayBarrier

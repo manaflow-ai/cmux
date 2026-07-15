@@ -351,11 +351,30 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     func setAuthoritativeGridAuthorityActive(_ active: Bool) {
         guard isAuthoritativeGridAuthorityActive != active else { return }
         isAuthoritativeGridAuthorityActive = active
-        guard active else { return }
+        if active {
+            // Direct-grid mode presents the Mac producer's immutable geometry.
+            // Discard any phone-natural report that was queued before stream
+            // ownership changed so it cannot resize the producer after attach.
+            pendingViewportReport = nil
+            viewportReportSettleFrames = 0
+            viewportReportRetries = 0
+        } else {
+            // Raw replay owns viewport negotiation again. Force one fresh
+            // natural-capacity report even when the view's bounds did not change.
+            lastReportedSize = nil
+            setNeedsGeometrySync(reassertNaturalSize: true)
+            return
+        }
         #if DEBUG
         debugAccessibilityProxy.accessibilityLabel = nil
         #endif
         resetVisibleArtifactCountTracking()
+    }
+
+    nonisolated static func shouldReportNaturalViewport(
+        authoritativeGridActive: Bool
+    ) -> Bool {
+        !authoritativeGridActive
     }
 
     var surface: ghostty_surface_t?
@@ -2972,7 +2991,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// display-link driven (the existing settle machinery re-fires it); a
     /// confirmed `applyViewSize` resets the counter. No-op once the cap is hit.
     public func retryViewportReport() {
-        guard viewportReportRetries < Self.maxViewportReportRetries,
+        guard Self.shouldReportNaturalViewport(
+                  authoritativeGridActive: isAuthoritativeGridAuthorityActive
+              ),
+              viewportReportRetries < Self.maxViewportReportRetries,
               let pending = lastReportedSize, pending.columns > 0, pending.rows > 0 else { return }
         viewportReportRetries += 1
         MobileDebugLog.anchormux(
@@ -3344,8 +3366,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let effectiveMatchesNatural = effectiveGrid.map { grid in
             grid.cols == naturalSize.columns && grid.rows == naturalSize.rows
         } ?? true
-        let shouldReportNaturalSize = reportGrid != lastReportedSize ||
-            (shouldReassertNaturalSize && !effectiveMatchesNatural)
+        let shouldReportNaturalSize = Self.shouldReportNaturalViewport(
+            authoritativeGridActive: isAuthoritativeGridAuthorityActive
+        ) && (reportGrid != lastReportedSize ||
+            (shouldReassertNaturalSize && !effectiveMatchesNatural))
         guard shouldReportNaturalSize, reportGrid.columns > 0, reportGrid.rows > 0 else { return }
         lastReportedSize = reportGrid
         // Debounce the actual report (a PTY resize on the Mac) until the grid
