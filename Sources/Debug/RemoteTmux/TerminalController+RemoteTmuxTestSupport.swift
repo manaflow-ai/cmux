@@ -487,12 +487,16 @@ extension TerminalController {
                         }
                         // Layer bisect for a live mismatch: what the
                         // plan wants for this pane right now, and
-                        // what its view actually measures. plan≠view
-                        // means the split tree diverged from the
-                        // plan; plan==view but surface short means
-                        // the portal-hosted surface lags its view.
+                        // what its view actually measures. The plan
+                        // size is the pane's OUTER box — it charges
+                        // the per-pane tab bar — while view= is the
+                        // terminal content below that bar, so a
+                        // healthy pane reads exactly tab-bar-height
+                        // shorter here. A WIDTH gap is the real
+                        // signal: the split tree diverged from the
+                        // plan, or the surface lags its view.
                         if let outer = plannedOuterSizes[leaf] {
-                            detail += " plan=\(Int(outer.width))x\(Int(outer.height))"
+                            detail += " planOuter=\(Int(outer.width))x\(Int(outer.height))"
                         }
                         if let view = mirror.panelsByPaneId[leaf]?.hostedView {
                             detail += " view=\(Int(view.frame.width))x\(Int(view.frame.height))"

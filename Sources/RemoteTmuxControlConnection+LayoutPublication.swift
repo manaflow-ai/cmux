@@ -44,6 +44,11 @@ extension RemoteTmuxControlConnection {
         windowId: Int, layout: String, visibleLayout: String? = nil, zoomed: Bool = false
     ) {
         guard let node = RemoteTmuxRawLayoutParser.parse(layout) else { return }
+        // The layout's root carries the window's actual size — the parity
+        // edge for claims the sent ledger believes were delivered.
+        reassertWindowClaimIfLayoutDisagrees(
+            windowId: windowId, layoutColumns: node.width, layoutRows: node.height
+        )
         // Preserve any name tmux already reported (a %layout-change carries no name).
         let existingName = windowsByID[windowId]?.name
             ?? pendingLayouts[windowId]?.name

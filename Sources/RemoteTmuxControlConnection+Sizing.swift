@@ -9,6 +9,11 @@ extension RemoteTmuxControlConnection {
         rows: Int
     ) -> (columns: Int, rows: Int) {
         let previous = lastWindowSizes.updateValue((columns, rows), forKey: windowId)
+        // A new claim value opens a fresh parity episode: the old spend
+        // belonged to a disagreement about a size nobody wants anymore.
+        if previous == nil || previous! != (columns, rows) {
+            windowClaimParityRearmsSpent.removeValue(forKey: windowId)
+        }
         if previous?.0 == maximumWindowClaimColumns, columns < maximumWindowClaimColumns {
             maximumWindowClaimColumns = lastWindowSizes.values.reduce(0) { max($0, $1.0) }
         } else {
@@ -23,6 +28,7 @@ extension RemoteTmuxControlConnection {
     }
 
     func removeWindowSizeClaim(windowId: Int) {
+        windowClaimParityRearmsSpent.removeValue(forKey: windowId)
         guard let removed = lastWindowSizes.removeValue(forKey: windowId) else {
             sentWindowSizes.removeValue(forKey: windowId)
             return
@@ -40,6 +46,7 @@ extension RemoteTmuxControlConnection {
     func retainWindowSizeClaims(for liveWindowIDs: Set<Int>) {
         lastWindowSizes = lastWindowSizes.filter { liveWindowIDs.contains($0.key) }
         sentWindowSizes = sentWindowSizes.filter { liveWindowIDs.contains($0.key) }
+        windowClaimParityRearmsSpent = windowClaimParityRearmsSpent.filter { liveWindowIDs.contains($0.key) }
         maximumWindowClaimColumns = lastWindowSizes.values.reduce(0) { max($0, $1.0) }
         maximumWindowClaimRows = lastWindowSizes.values.reduce(0) { max($0, $1.1) }
         synchronizeClientSizeToWindowClaims()
@@ -171,6 +178,49 @@ extension RemoteTmuxControlConnection {
             self.sendPerWindowSize(windowId: windowId, columns: size.0, rows: size.1)
             self.scheduleAttachRedrawKickIfNeeded()
         }
+    }
+
+
+    /// How many re-arms one disagreement episode may spend. Three sends is
+    /// enough to survive a lost reply or a co-client race; an infeasible
+    /// claim (tmux clamps a window up to its tree minimum) disagrees
+    /// forever and must not become a per-layout-event ping.
+    static let windowClaimParityRearmBudget = 3
+
+    /// tmux is the only authority on whether a size claim actually landed.
+    /// The sent ledger dedups resends, so a pin the server never honored
+    /// wedges silently: the reply was lost across a transport gap, or a
+    /// co-client raced it, or the window-size mode changed — either way
+    /// the ledger says delivered and dedup suppresses every retry, leaving
+    /// the window columns wide of the claim while mirrors render short of
+    /// the assignment. Every %layout-change names the window's actual
+    /// size, so it is the parity edge: when it disagrees with a claim the
+    /// ledger says was delivered, drop that ledger entry and resend. The
+    /// per-episode budget bounds the infeasible-claim case; agreement or a
+    /// new claim value opens the next episode. Claims still derive only
+    /// from measured containers — this resends a decision already made, it
+    /// never makes one.
+    func reassertWindowClaimIfLayoutDisagrees(
+        windowId: Int, layoutColumns: Int, layoutRows: Int
+    ) {
+        guard supportsPerWindowSize else { return }
+        guard let desired = lastWindowSizes[windowId] else { return }
+        if desired == (layoutColumns, layoutRows) {
+            windowClaimParityRearmsSpent.removeValue(forKey: windowId)
+            return
+        }
+        guard let sent = sentWindowSizes[windowId], sent == desired else { return }
+        let spent = windowClaimParityRearmsSpent[windowId] ?? 0
+        guard spent < Self.windowClaimParityRearmBudget else { return }
+        windowClaimParityRearmsSpent[windowId] = spent + 1
+        sentWindowSizes.removeValue(forKey: windowId)
+        #if DEBUG
+        cmuxDebugLog(
+            "remote.rects.claim.rearm @\(windowId) desired=\(desired.0)x\(desired.1) " +
+            "layout=\(layoutColumns)x\(layoutRows) spent=\(spent + 1)"
+        )
+        #endif
+        setWindowSize(windowId: windowId, columns: desired.0, rows: desired.1)
     }
 
 

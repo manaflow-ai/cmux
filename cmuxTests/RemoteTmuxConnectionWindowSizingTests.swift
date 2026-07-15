@@ -141,6 +141,93 @@ import Testing
         #expect(connection.maximumWindowClaimRows == 20)
     }
 
+    /// tmux is the only authority on whether a size claim actually landed.
+    /// The sent-pins ledger dedups resends, so a pin the server never
+    /// honored wedges silently. The reply was lost across a transport gap,
+    /// or a co-client raced it, or the window-size mode changed — either
+    /// way the ledger says delivered and dedup suppresses every retry. The
+    /// window then sits columns wide of the claim and mirrors render short
+    /// of the assignment; the live fuzz caught panes rendering 83 columns
+    /// against an assignment of 86, persisting through settle. Every
+    /// %layout-change names the window's actual size. A layout that
+    /// disagrees with a delivered claim re-arms the claim.
+    @Test func layoutDisagreeingWithDeliveredClaimRearmsThePin() {
+        let connection = makeConnection()
+        connection.setWindowSize(windowId: 3, columns: 83, rows: 40)
+        connection.sentWindowSizes[3] = (83, 40)
+        connection.applyLayout(windowId: 3, layout: "f92f,86x40,0,0,7")
+        #expect(
+            connection.sentWindowSizes[3] == nil,
+            "a delivered claim tmux disagrees with must clear the ledger so the next send is not deduped away"
+        )
+        #expect(connection.lastWindowSizes[3]?.0 == 83, "the desired claim itself must not change")
+    }
+
+    /// The re-arm is budgeted per disagreement episode: an infeasible claim
+    /// (tmux clamps a window up to its tree minimum) disagrees forever, and
+    /// an unbounded re-arm would ping the server once per layout event for
+    /// the rest of the session. Agreement or a new claim value opens the
+    /// next episode.
+    @Test func claimParityRearmIsBudgetedPerEpisode() {
+        let connection = makeConnection()
+        connection.setWindowSize(windowId: 3, columns: 83, rows: 40)
+        for round in 1...5 {
+            connection.sentWindowSizes[3] = (83, 40)
+            connection.applyLayout(windowId: 3, layout: "f92f,86x40,0,0,7")
+            if round <= 3 {
+                #expect(
+                    connection.sentWindowSizes[3] == nil,
+                    "round \(round) is within the episode budget and must re-arm"
+                )
+            } else {
+                #expect(
+                    connection.sentWindowSizes[3] != nil,
+                    "round \(round) must not re-arm — the episode budget is spent"
+                )
+            }
+        }
+
+        // Agreement closes the episode and restores the budget.
+        connection.applyLayout(windowId: 3, layout: "f92f,83x40,0,0,7")
+        connection.sentWindowSizes[3] = (83, 40)
+        connection.applyLayout(windowId: 3, layout: "f92f,86x40,0,0,7")
+        #expect(
+            connection.sentWindowSizes[3] == nil,
+            "agreement resets the budget for the next episode"
+        )
+
+        // A new claim value opens a fresh episode too.
+        connection.sentWindowSizes[3] = (83, 40)
+        connection.applyLayout(windowId: 3, layout: "f92f,86x40,0,0,7")
+        connection.sentWindowSizes[3] = (83, 40)
+        connection.applyLayout(windowId: 3, layout: "f92f,86x40,0,0,7")
+        connection.setWindowSize(windowId: 3, columns: 90, rows: 40)
+        connection.sentWindowSizes[3] = (90, 40)
+        connection.applyLayout(windowId: 3, layout: "f92f,86x40,0,0,7")
+        #expect(
+            connection.sentWindowSizes[3] == nil,
+            "a changed claim value must open a fresh episode with a fresh budget"
+        )
+    }
+
+    /// Attach floods deliver layouts before any claim is sent. Those
+    /// disagreements have no delivered claim to re-arm and must not spend
+    /// the episode budget, or the budget would be gone before the first
+    /// real wedge.
+    @Test func layoutDisagreementWithoutDeliveredClaimSpendsNoBudget() {
+        let connection = makeConnection()
+        connection.setWindowSize(windowId: 3, columns: 83, rows: 40)
+        for _ in 0..<5 {
+            connection.applyLayout(windowId: 3, layout: "f92f,86x40,0,0,7")
+        }
+        connection.sentWindowSizes[3] = (83, 40)
+        connection.applyLayout(windowId: 3, layout: "f92f,86x40,0,0,7")
+        #expect(
+            connection.sentWindowSizes[3] == nil,
+            "no budget may be spent while no delivered claim existed"
+        )
+    }
+
     @Test func clientEnvelopeTracksLiveClaimMaximaDownward() {
         let connection = makeConnection()
         connection.setWindowSize(windowId: 1, columns: 120, rows: 30)

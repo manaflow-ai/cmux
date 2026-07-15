@@ -159,6 +159,11 @@ final class RemoteTmuxControlConnection {
     /// retry of a size the server never saw — a claim wedged at attach
     /// stayed wedged for the connection's lifetime.
     var sentWindowSizes: [Int: (Int, Int)] = [:]
+    /// Re-arms spent against a window whose %layout-change size keeps
+    /// disagreeing with a claim the sent ledger says was delivered. Reset
+    /// on agreement and on a new claim value; see
+    /// ``reassertWindowClaimIfLayoutDisagrees(windowId:layoutColumns:layoutRows:)``.
+    var windowClaimParityRearmsSpent: [Int: Int] = [:]
     /// The most recent window a size was requested for — the deterministic
     /// choice when the old-server fallback must replay one size session-wide.
     var lastSizeRequestWindowId: Int?
