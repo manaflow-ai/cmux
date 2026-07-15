@@ -71,7 +71,7 @@ jobs:
           # out of the cache. The bare repositories cover the failure-prone
           # network fetch while remaining small enough to restore quickly.
           path: .spm-cache/repositories
-          key: spm-repositories-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-repositories-${{ hashFiles('ios/cmuxPackage/Package.resolved') }}
           restore-keys: spm-repositories-
 
       - name: Install asc CLI

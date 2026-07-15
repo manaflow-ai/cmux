@@ -6,7 +6,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CACHE_ACTION = "actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae"
-LOCKFILE = "cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+LOCKFILE = "ios/cmuxPackage/Package.resolved"
 
 
 def require_workflow_cache(path: str, *, consumer: str) -> None:

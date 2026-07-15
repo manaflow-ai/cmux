@@ -248,7 +248,7 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .spm-cache/repositories
-          key: spm-repositories-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-repositories-${{ hashFiles('ios/cmuxPackage/Package.resolved') }}
           restore-keys: spm-repositories-
 
       - name: Install zig

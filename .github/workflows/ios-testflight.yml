@@ -375,7 +375,7 @@ jobs:
           # remove dependency-network stalls without caching build artifacts or
           # absolute-path workspace state.
           path: .spm-cache/repositories
-          key: spm-repositories-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-repositories-${{ hashFiles('ios/cmuxPackage/Package.resolved') }}
           restore-keys: spm-repositories-
 
       - name: Materialize App Store Connect API key
