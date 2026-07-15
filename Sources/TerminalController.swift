@@ -115,6 +115,7 @@ nonisolated private func v2RemotePTYUserFacingErrorMessage(_ message: String) ->
 @MainActor
 class TerminalController {
     static let shared = TerminalController()
+    private let macPowerService: MacPowerService
 
     private nonisolated let remotePTYControllerAvailabilityCondition = NSCondition()
     private nonisolated(unsafe) var remotePTYControllerAvailabilityGeneration: UInt64 = 0
@@ -356,9 +357,11 @@ class TerminalController {
         ),
         remoteProxyBroker: any RemoteProxyBrokering = RemoteProxyBroker(
             tunnelProvider: RemoteDaemonProxyTunnelProvider(strings: .appLocalized, ptyBridgeStrings: AppRemotePTYBridgeStrings())
-        )
+        ),
+        macPowerService: MacPowerService = MacPowerService()
     ) {
         self.passwordStore = passwordStore
+        self.macPowerService = macPowerService
         self.socketClientCapabilityAuthority = Self.makeSocketClientCapabilityAuthority()
         self.socketClientPreauthorizationLimiter = socketClientPreauthorizationLimiter
         self.transport = transport
@@ -13645,12 +13648,52 @@ class TerminalController {
             result = v2MobileNotificationReconcile(params: request.params)
         case "dogfood.feedback.submit":
             result = await v2MobileDogfoodFeedbackSubmit(params: request.params)
+        case "mac.power.status", "mac.power.sleep_display",
+             "mac.power.keep_awake.set", "mac.power.low_power.set":
+            result = await v2MobileMacPower(method: request.method, params: request.params)
         default:
             result = .err(code: "method_not_found", message: "Unknown mobile method", data: [
                 "method": request.method
             ])
         }
         return mobileHostResult(result)
+    }
+
+    func v2MobileMacPower(method: String, params: [String: Any]) async -> V2CallResult {
+        switch method {
+        case "mac.power.status":
+            return macPowerResult(await macPowerService.status())
+        case "mac.power.sleep_display":
+            await macPowerService.sleepDisplay()
+            return .ok(["ok": true])
+        case "mac.power.keep_awake.set":
+            guard let enabled = params["enabled"] as? Bool else {
+                return .err(code: "invalid_params", message: "Missing enabled boolean", data: nil)
+            }
+            do { return macPowerResult(try await macPowerService.setKeepAwake(enabled)) }
+            catch { return .err(code: "power_assertion_failed", message: "Could not change keep-awake", data: nil) }
+        case "mac.power.low_power.set":
+            guard let enabled = params["enabled"] as? Bool else {
+                return .err(code: "invalid_params", message: "Missing enabled boolean", data: nil)
+            }
+            do { return macPowerResult(try await macPowerService.setLowPowerMode(enabled)) }
+            catch {
+                return .err(
+                    code: "low_power_mutation_failed",
+                    message: "Low Power Mode did not change",
+                    data: ["requested_enabled": enabled]
+                )
+            }
+        default:
+            return .err(code: "method_not_found", message: "Unknown Mac power method", data: nil)
+        }
+    }
+
+    private func macPowerResult(_ status: MacPowerStatus) -> V2CallResult {
+        .ok([
+            "keep_awake_enabled": status.keepAwakeEnabled,
+            "low_power_enabled": status.lowPowerEnabled,
+        ])
     }
 
     /// Privileged agent feedback sink (the Mac↔phone feedback loop).

@@ -155,6 +155,38 @@ extension MobileHostAuthorizationTests {
         #expect(error.code == "unauthorized")
         #expect(await recorder.count() == 1)
     }
+    @Test(arguments: [
+        "mac.power.status", "mac.power.sleep_display",
+        "mac.power.keep_awake.set", "mac.power.low_power.set",
+    ])
+    func testIrohPowerMethodsRequireStackAuthorization(method: String) async throws {
+        let recorder = MobileHostAuthorizationInvocationRecorder()
+        let request = MobileHostRPCRequest(id: "power", method: method, params: [:], auth: nil)
+        let result = await MobileHostService.connectionAuthorizationError(
+            for: request,
+            authorization: try irohAdmissionContext(),
+            stackAuthorization: { _ in
+                await recorder.record()
+                return .failure(MobileHostRPCError(code: "unauthorized", message: "Missing Stack bearer"))
+            }
+        )
+        guard case let .failure(error) = result else {
+            return #expect(Bool(false), "Iroh power RPC must require Stack authorization")
+        }
+        #expect(error.code == "unauthorized")
+        #expect(await recorder.count() == 1)
+    }
+
+    @Test func testIrohPowerMethodAcceptsSuccessfulStackAuthorization() async throws {
+        let request = MobileHostRPCRequest(id: "power", method: "mac.power.status", params: [:], auth: nil)
+        let result = await MobileHostService.connectionAuthorizationError(
+            for: request,
+            authorization: try irohAdmissionContext(),
+            stackAuthorization: { _ in nil }
+        )
+        #expect(result == nil)
+    }
+
     @Test func testIrohAdmittedStatusIncludesIdentityWhileTCPPublicStatusDoesNot() async throws {
         let request = MobileHostRPCRequest(
             id: "host-status",

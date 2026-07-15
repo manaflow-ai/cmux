@@ -60,7 +60,8 @@ for a different version), so bump the beta version with
 - iOS: native drag & drop in workspace list + create workspace in group (#7384).
 - iOS: enable multi-Mac workspace aggregation by default; re-aggregate on network recovery.
 - Workspaces as todos: inferred status lifecycle + per-workspace checklist (#7216) — merged but not yet dogfood-confirmed on this version; hold out of External until confirmed.
-- Dogfood focus: confirm the app launches straight to current UI (not the old stale build), sign-in survives an app relaunch, terminal connections recover after backgrounding, and multi-Mac workspaces list correctly.
+- Mac power controls: sleep displays, toggle cmux keep-awake, and toggle Low Power Mode from the connected Mac detail screen.
+- Dogfood focus: verify Mac Power status, keep-awake toggle, display-only sleep, Low Power Mode toggling, then confirm the app launches straight to current UI (not the old stale build), sign-in survives an app relaunch, terminal connections recover after backgrounding, and multi-Mac workspaces list correctly.
 
 ### External
 

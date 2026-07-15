@@ -35,6 +35,10 @@ struct MacComputerDetailView: View {
     @State private var pendingCustomName: String?
     @State private var pendingCustomColor: String?
     @State private var pendingCustomIcon: String?
+    @State private var macPowerStatus: MobileMacPowerStatus?
+    @State private var macPowerError: String?
+    @State private var isMacPowerBusy = false
+    @State private var pendingDisplaySleep = false
 
     /// Curated icon choices: a few computer/utility SF Symbols + emojis.
     private static let symbolChoices = [
@@ -70,6 +74,7 @@ struct MacComputerDetailView: View {
             presenceSection
             routesSection
             identitySection
+            if isForeground && store.supportsMacPowerControl { macPowerSection }
             actionsSection
         }
         .navigationTitle(displayTitle)
@@ -87,6 +92,18 @@ struct MacComputerDetailView: View {
             }
         }
         .confirmationDialog(
+            L10n.string("mobile.macPower.sleep.confirm.title", defaultValue: "Sleep Mac display?"),
+            isPresented: $pendingDisplaySleep,
+            titleVisibility: .visible
+        ) {
+            Button(L10n.string("mobile.macPower.sleep", defaultValue: "Sleep Display"), role: .destructive) {
+                runPowerAction { try await store.sleepMacDisplay() }
+            }
+            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {}
+        } message: {
+            Text(L10n.string("mobile.macPower.sleep.confirm.message", defaultValue: "The Mac stays awake, but all connected displays turn off."))
+        }
+        .confirmationDialog(
             "\(L10n.string("mobile.computers.removeTitlePrefix", defaultValue: "Remove")) \(displayTitle)?",
             isPresented: $pendingRemoval,
             titleVisibility: .visible
@@ -99,6 +116,10 @@ struct MacComputerDetailView: View {
             Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {}
         } message: {
             Text(removeMessage)
+        }
+        .task(id: "\(isForeground)-\(store.supportsMacPowerControl)") {
+            guard isForeground, store.supportsMacPowerControl else { return }
+            await refreshMacPower()
         }
     }
 
@@ -447,6 +468,91 @@ struct MacComputerDetailView: View {
                 Label(L10n.string("mobile.computers.remove", defaultValue: "Remove"), systemImage: "trash")
             }
             .accessibilityIdentifier("MobileComputerDetailRemove")
+        }
+    }
+
+
+    @ViewBuilder
+    private var macPowerSection: some View {
+        Section(L10n.string("mobile.macPower.section", defaultValue: "Mac Power")) {
+            Toggle(
+                L10n.string("mobile.macPower.keepAwake", defaultValue: "Keep Mac Awake"),
+                isOn: Binding(
+                    get: { macPowerStatus?.keepAwakeEnabled ?? false },
+                    set: { enabled in
+                        runPowerStatusAction { try await store.setMacKeepAwake(enabled) }
+                    }
+                )
+            )
+            .disabled(isMacPowerBusy || macPowerStatus == nil)
+            .accessibilityIdentifier("MobileMacKeepAwakeSwitch")
+
+            Toggle(
+                L10n.string("mobile.macPower.lowPower", defaultValue: "Low Power Mode"),
+                isOn: Binding(
+                    get: { macPowerStatus?.lowPowerEnabled ?? false },
+                    set: { enabled in
+                        runPowerStatusAction { try await store.setMacLowPowerMode(enabled) }
+                    }
+                )
+            )
+            .disabled(isMacPowerBusy || macPowerStatus == nil)
+            .accessibilityIdentifier("MobileMacLowPowerSwitch")
+
+            Button {
+                pendingDisplaySleep = true
+            } label: {
+                Label(L10n.string("mobile.macPower.sleep", defaultValue: "Sleep Display"), systemImage: "moon.fill")
+            }
+            .disabled(isMacPowerBusy)
+            .accessibilityIdentifier("MobileMacSleepDisplayButton")
+
+            if isMacPowerBusy { ProgressView() }
+            if let macPowerError {
+                Text(macPowerError).foregroundStyle(.red)
+                    .accessibilityIdentifier("MobileMacPowerError")
+            }
+        }
+    }
+
+    private func refreshMacPower() async {
+        isMacPowerBusy = true
+        defer { isMacPowerBusy = false }
+        do {
+            let status = try await store.macPowerStatus()
+            macPowerStatus = status
+            macPowerError = nil
+        } catch {
+            macPowerError = L10n.string("mobile.macPower.error", defaultValue: "Couldn't update Mac power controls.")
+        }
+    }
+
+    private func runPowerAction(_ action: @escaping @MainActor () async throws -> Void) {
+        guard !isMacPowerBusy else { return }
+        isMacPowerBusy = true
+        macPowerError = nil
+        Task {
+            defer { isMacPowerBusy = false }
+            do { try await action() }
+            catch { macPowerError = L10n.string("mobile.macPower.error", defaultValue: "Couldn't update Mac power controls.") }
+        }
+    }
+
+    private func runPowerStatusAction(
+        _ action: @escaping @MainActor () async throws -> MobileMacPowerStatus
+    ) {
+        guard !isMacPowerBusy else { return }
+        isMacPowerBusy = true
+        macPowerError = nil
+        Task {
+            defer { isMacPowerBusy = false }
+            do {
+                let status = try await action()
+                macPowerStatus = status
+            } catch {
+                macPowerError = L10n.string("mobile.macPower.error", defaultValue: "Couldn't update Mac power controls.")
+                await refreshMacPower()
+            }
         }
     }
 
