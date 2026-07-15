@@ -70,6 +70,27 @@
         }
       }
     },
+    "terminal.artifact.gallery.action_failed.message" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Check the connection to your Mac and try again." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Macへの接続を確認して、もう一度お試しください。" } }
+      }
+    },
+    "terminal.artifact.gallery.action_failed.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Couldn't complete action" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "操作を完了できませんでした" } }
+      }
+    },
+    "terminal.artifact.gallery.browse_folder" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Browse folder" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "フォルダを表示" } }
+      }
+    },
     "terminal.artifact.gallery.child_count" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -102,6 +123,13 @@
             "value" : "%lld項目以上"
           }
         }
+      }
+    },
+    "terminal.artifact.gallery.copy_path" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Copy path" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "パスをコピー" } }
       }
     },
     "terminal.artifact.gallery.empty" : {
@@ -313,6 +341,13 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "新しいファイル%lld件" } }
       }
     },
+    "terminal.artifact.gallery.ok" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "OK" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "OK" } }
+      }
+    },
     "terminal.artifact.gallery.provenance.attached" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -401,6 +436,13 @@
       "localizations" : {
         "en" : { "stringUnit" : { "state" : "translated", "value" : "Sort" } },
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "並べ替え" } }
+      }
+    },
+    "terminal.artifact.gallery.share" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Share" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "共有" } }
       }
     },
     "terminal.artifact.gallery.sort.name" : {

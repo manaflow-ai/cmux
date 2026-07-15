@@ -36,6 +36,11 @@ struct ChatArtifactViewerRouteView: View {
     @State private var goToLineRequestID = 0
     @State private var wrapsLines: Bool
     @State private var textFontSize: Double
+    #if os(iOS)
+    @State private var fileActionPresentation: ChatArtifactFileActionPresentation?
+    @State private var isFileActionRunning = false
+    @State private var showsFileActionError = false
+    #endif
 
     init(
         path: String,
@@ -68,6 +73,11 @@ struct ChatArtifactViewerRouteView: View {
                     }
                 }
                 #if os(iOS)
+                if model.hasFileActions {
+                    ToolbarItem(placement: .primaryAction) {
+                        fileActionsMenu
+                    }
+                }
                 if shouldShowTextJumpControls {
                     ToolbarItemGroup(placement: .primaryAction) {
                         Button {
@@ -195,6 +205,25 @@ struct ChatArtifactViewerRouteView: View {
                 }
                 #endif
             }
+            #if os(iOS)
+            .chatArtifactFileActionPresentation($fileActionPresentation)
+            .alert(
+                String(
+                    localized: "chat.artifact.action_failed.title",
+                    defaultValue: "Couldn't complete action",
+                    bundle: .module
+                ),
+                isPresented: $showsFileActionError
+            ) {
+                Button(String(localized: "chat.artifact.ok", defaultValue: "OK", bundle: .module)) {}
+            } message: {
+                Text(String(
+                    localized: "chat.artifact.action_failed.message",
+                    defaultValue: "Check the connection to your Mac and try again.",
+                    bundle: .module
+                ))
+            }
+            #endif
             .task(id: "\(path)\u{0}\(retryGeneration)") {
                 #if os(iOS)
                 await model.load(
@@ -209,6 +238,82 @@ struct ChatArtifactViewerRouteView: View {
                 await model.cleanup()
             }
     }
+
+    #if os(iOS)
+    private var fileActionsMenu: some View {
+        Menu {
+            Button {
+                prepareFileAction(.share)
+            } label: {
+                Label(
+                    String(localized: "chat.artifact.share", defaultValue: "Share", bundle: .module),
+                    systemImage: "square.and.arrow.up"
+                )
+            }
+            Button {
+                prepareFileAction(.save)
+            } label: {
+                Label(
+                    String(localized: "chat.artifact.save_to_files", defaultValue: "Save to Files", bundle: .module),
+                    systemImage: "folder.badge.plus"
+                )
+            }
+            if model.isTextFile {
+                Button {
+                    UIPasteboard.general.string = model.renderedText
+                } label: {
+                    Label(
+                        String(localized: "chat.artifact.copy_contents", defaultValue: "Copy contents", bundle: .module),
+                        systemImage: "doc.on.doc"
+                    )
+                }
+                .disabled(!model.canCopyContents)
+            }
+            Button {
+                UIPasteboard.general.string = path
+            } label: {
+                Label(
+                    String(localized: "chat.artifact.copy_path", defaultValue: "Copy path", bundle: .module),
+                    systemImage: "link"
+                )
+            }
+        } label: {
+            Label(
+                String(localized: "chat.artifact.file_actions", defaultValue: "File actions", bundle: .module),
+                systemImage: "ellipsis.circle"
+            )
+        }
+        .disabled(isFileActionRunning)
+    }
+
+    private enum PreparedFileAction {
+        case share
+        case save
+    }
+
+    private func prepareFileAction(_ action: PreparedFileAction) {
+        guard !isFileActionRunning else { return }
+        isFileActionRunning = true
+        Task {
+            do {
+                let fileURL = try await ChatArtifactFileActionStore.applicationDefault.materialize(
+                    path: path,
+                    loader: loader
+                )
+                try Task.checkCancellation()
+                fileActionPresentation = switch action {
+                case .share: .share(fileURL)
+                case .save: .save(fileURL)
+                }
+            } catch is CancellationError {
+                // The viewer is going away; no error needs presenting.
+            } catch {
+                showsFileActionError = true
+            }
+            isFileActionRunning = false
+        }
+    }
+    #endif
 
     /// Keeps cleanup structured under the SwiftUI page task after loading ends.
     private func waitForViewerTaskCancellation() async {

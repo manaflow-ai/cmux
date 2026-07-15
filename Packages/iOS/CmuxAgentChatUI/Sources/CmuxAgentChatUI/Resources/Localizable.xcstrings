@@ -18,6 +18,20 @@
         }
       }
     },
+    "chat.artifact.action_failed.message" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Check the connection to your Mac and try again." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Macへの接続を確認して、もう一度お試しください。" } }
+      }
+    },
+    "chat.artifact.action_failed.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Couldn't complete action" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "操作を完了できませんでした" } }
+      }
+    },
     "chat.artifact.actions.title" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -52,6 +66,20 @@
         }
       }
     },
+    "chat.artifact.copy_contents" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Copy contents" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "内容をコピー" } }
+      }
+    },
+    "chat.artifact.copy_path" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Copy path" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "パスをコピー" } }
+      }
+    },
     "chat.artifact.done" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -67,6 +95,13 @@
             "value" : "完了"
           }
         }
+      }
+    },
+    "chat.artifact.file_actions" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "File actions" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ファイル操作" } }
       }
     },
     "chat.artifact.file_missing.message" : {
@@ -545,6 +580,20 @@
         }
       }
     },
+    "chat.artifact.ok" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "OK" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "OK" } }
+      }
+    },
+    "chat.artifact.save_to_files" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Save to Files" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "「ファイル」に保存" } }
+      }
+    },
     "chat.artifact.search.close" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -696,6 +745,13 @@
             "value" : "ファイルが大きすぎてプレビューできません"
           }
         }
+      }
+    },
+    "chat.artifact.share" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Share" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "共有" } }
       }
     },
     "chat.artifact.text_options" : {

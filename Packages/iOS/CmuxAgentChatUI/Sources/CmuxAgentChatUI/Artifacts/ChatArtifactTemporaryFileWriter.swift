@@ -8,14 +8,32 @@ actor ChatArtifactTemporaryFileWriter {
     private var fileHandle: FileHandle?
     private var nextOffset: Int64 = 0
 
-    init(directory: URL, fileExtension: String) throws {
+    init(
+        directory: URL,
+        fileExtension: String,
+        preferredFilename: String? = nil
+    ) throws {
         try FileManager.default.createDirectory(
             at: directory,
             withIntermediateDirectories: true
         )
-        var fileURL = directory.appendingPathComponent(UUID().uuidString)
-        if !fileExtension.isEmpty {
-            fileURL.appendPathExtension(fileExtension)
+        let fileURL: URL
+        if let preferredFilename {
+            let itemDirectory = directory.appendingPathComponent(
+                UUID().uuidString,
+                isDirectory: true
+            )
+            try FileManager.default.createDirectory(
+                at: itemDirectory,
+                withIntermediateDirectories: true
+            )
+            fileURL = itemDirectory.appendingPathComponent(preferredFilename)
+        } else {
+            var generatedURL = directory.appendingPathComponent(UUID().uuidString)
+            if !fileExtension.isEmpty {
+                generatedURL.appendPathExtension(fileExtension)
+            }
+            fileURL = generatedURL
         }
         guard FileManager.default.createFile(atPath: fileURL.path, contents: nil) else {
             throw CocoaError(.fileWriteUnknown)

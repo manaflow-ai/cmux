@@ -27,6 +27,7 @@ actor ChatArtifactTemporaryFileStore {
         modifiedAt: Date? = nil,
         limit: Int64,
         fallbackExtension: String? = nil,
+        preferredFilename: String? = nil,
         loader: ChatArtifactLoader,
         progress: @escaping @Sendable (ChatArtifactChunk) async -> Void
     ) async throws -> URL {
@@ -39,7 +40,8 @@ actor ChatArtifactTemporaryFileStore {
             : originalExtension
         let writer = try ChatArtifactTemporaryFileWriter(
             directory: directory,
-            fileExtension: fileExtension
+            fileExtension: fileExtension,
+            preferredFilename: preferredFilename
         )
         do {
             try await loader.stream(
@@ -61,5 +63,10 @@ actor ChatArtifactTemporaryFileStore {
 
     func remove(_ fileURL: URL) {
         try? FileManager.default.removeItem(at: fileURL)
+        let parent = fileURL.deletingLastPathComponent()
+        if parent != directory,
+           parent.deletingLastPathComponent() == directory {
+            try? FileManager.default.removeItem(at: parent)
+        }
     }
 }

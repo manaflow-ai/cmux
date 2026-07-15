@@ -12,6 +12,7 @@ final class ChatArtifactViewerModel {
     private(set) var totalBytes: Int64?
     private(set) var textReachedEOF = false
     private(set) var activePath: String?
+    private(set) var activeStat: ChatArtifactStat?
     private(set) var markdownPresentation = ChatArtifactMarkdownPresentation(byteCount: 0)
     private(set) var textHighlightDecision: ChatArtifactHighlightDecision = .skippedNoLanguage
     private(set) var textLineIndex = ChatArtifactLineIndex()
@@ -28,6 +29,21 @@ final class ChatArtifactViewerModel {
         textChunks.joined()
     }
 
+    var hasFileActions: Bool {
+        guard let activeStat, !activeStat.isDirectory else { return false }
+        return state != .loading
+    }
+
+    var isTextFile: Bool {
+        state == .text || state == .markdown
+    }
+
+    var canCopyContents: Bool {
+        isTextFile
+            && textReachedEOF
+            && (activeStat?.size ?? .max) <= Self.maximumCopyContentsBytes
+    }
+
     func load(
         path: String,
         loader: ChatArtifactLoader,
@@ -41,6 +57,7 @@ final class ChatArtifactViewerModel {
             try Task.checkCancellation()
             guard path == activePath else { return }
             stat = loadedStat
+            activeStat = loadedStat
             totalBytes = loadedStat.size
             textHighlightDecision = ChatArtifactSyntaxHighlightPolicy().decision(
                 path: path,
@@ -149,6 +166,7 @@ final class ChatArtifactViewerModel {
 
     private func reset(for path: String) {
         activePath = path
+        activeStat = nil
         state = .loading
         textChunks = []
         fetchedBytes = 0
@@ -284,4 +302,6 @@ final class ChatArtifactViewerModel {
             return .tooLarge(actualSize: stat?.size, limit: limitBytes)
         }
     }
+
+    private static let maximumCopyContentsBytes: Int64 = 4 * 1024 * 1024
 }
