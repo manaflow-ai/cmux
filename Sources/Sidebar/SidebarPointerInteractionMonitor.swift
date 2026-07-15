@@ -64,6 +64,8 @@ final class SidebarPointerInteractionMonitor {
     @ObservationIgnored private var middleClickMonitor: Any?
     @ObservationIgnored private var menuEndObserver: NSObjectProtocol?
     @ObservationIgnored private var onMiddleClickWorkspace: ((UUID) -> Void)?
+    @ObservationIgnored private var geometryReconciliationTask: Task<Void, Never>?
+    @ObservationIgnored private var geometryReconciliationGeneration: UInt = 0
 
     func start(onMiddleClickWorkspace: @escaping (UUID) -> Void) {
         self.onMiddleClickWorkspace = onMiddleClickWorkspace
@@ -99,6 +101,9 @@ final class SidebarPointerInteractionMonitor {
     }
 
     func stop() {
+        geometryReconciliationGeneration &+= 1
+        geometryReconciliationTask?.cancel()
+        geometryReconciliationTask = nil
         if let middleClickMonitor {
             NSEvent.removeMonitor(middleClickMonitor)
             self.middleClickMonitor = nil
@@ -163,13 +168,13 @@ final class SidebarPointerInteractionMonitor {
     ) {
         rowFrames[rowId] = frame
         workspaceIdsByRowId[rowId] = workspaceId
-        reconcileHoveredRow()
+        scheduleGeometryReconciliation()
     }
 
     func removeFrame(for rowId: SidebarWorkspaceRenderItemID) {
         rowFrames.removeValue(forKey: rowId)
         workspaceIdsByRowId.removeValue(forKey: rowId)
-        reconcileHoveredRow()
+        scheduleGeometryReconciliation()
     }
 
     /// Test seam and event-input primitive in the monitor's SwiftUI coordinate space.
@@ -249,6 +254,21 @@ final class SidebarPointerInteractionMonitor {
 
     private func reconcileHoveredRow() {
         setHoveredRowId(lastPointerLocation.flatMap { rowId(at: $0) })
+    }
+
+    private func scheduleGeometryReconciliation() {
+        guard geometryReconciliationTask == nil else { return }
+        geometryReconciliationGeneration &+= 1
+        let generation = geometryReconciliationGeneration
+        // Cross the current MainActor job boundary so onGeometryChange never
+        // publishes observable state inside SwiftUI's layout transaction.
+        geometryReconciliationTask = Task { @MainActor [weak self] in
+            guard let self,
+                  !Task.isCancelled,
+                  geometryReconciliationGeneration == generation else { return }
+            geometryReconciliationTask = nil
+            reconcileHoveredRow()
+        }
     }
 
     private func setHoveredRowId(_ rowId: SidebarWorkspaceRenderItemID?) {

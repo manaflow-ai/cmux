@@ -73,7 +73,7 @@ import Testing
         monitor.stop()
     }
 
-    @Test func frameChangesReconcileStationaryPointerAcrossRemountReorderAndScroll() {
+    @Test func frameChangesReconcileStationaryPointerAcrossRemountReorderAndScroll() async {
         let monitor = SidebarPointerInteractionMonitor()
         let firstWorkspaceId = UUID()
         let secondWorkspaceId = UUID()
@@ -95,12 +95,14 @@ import Testing
 
         // A lazy remount removes the old row before its replacement reports.
         monitor.removeFrame(for: firstRowId)
+        await Task.yield()
         #expect(monitor.hoveredRowId == nil)
         monitor.updateFrame(
             CGRect(x: 0, y: 0, width: 200, height: 30),
             for: firstRowId,
             workspaceId: firstWorkspaceId
         )
+        await Task.yield()
         #expect(monitor.hoveredRowId == firstRowId)
 
         // Reordering/scrolling changes only frame data. No new pointer event is
@@ -115,6 +117,7 @@ import Testing
             for: secondRowId,
             workspaceId: secondWorkspaceId
         )
+        await Task.yield()
         #expect(monitor.hoveredRowId == secondRowId)
 
         monitor.updateFrame(
@@ -122,6 +125,7 @@ import Testing
             for: secondRowId,
             workspaceId: secondWorkspaceId
         )
+        await Task.yield()
         #expect(monitor.hoveredRowId == nil)
     }
 
