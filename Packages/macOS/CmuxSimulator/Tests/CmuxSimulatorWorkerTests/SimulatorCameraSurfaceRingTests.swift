@@ -6,36 +6,49 @@ import Testing
 
 @Suite("Simulator camera surface containment")
 struct SimulatorCameraSurfaceRingTests {
-    @Test("Worker processes and devices receive distinct deterministic shared-memory names")
+    @Test("Camera regions require the supervising client's private token")
     func distinctWorkerNames() {
         let device = "A1B2-C3D4"
         let first = simulatorCameraSharedMemoryName(
             deviceIdentifier: device,
-            processIdentifier: 42
+            processIdentifier: 42,
+            token: "first-private-token"
         )
         let second = simulatorCameraSharedMemoryName(
             deviceIdentifier: device,
-            processIdentifier: 43
+            processIdentifier: 43,
+            token: "first-private-token"
         )
         let otherDevice = simulatorCameraSharedMemoryName(
             deviceIdentifier: "FFFF-EEEE",
-            processIdentifier: 42
+            processIdentifier: 42,
+            token: "first-private-token"
+        )
+        let otherToken = simulatorCameraSharedMemoryName(
+            deviceIdentifier: device,
+            processIdentifier: 42,
+            token: "second-private-token"
         )
 
         #expect(first != second)
         #expect(first != otherDevice)
+        #expect(first != otherToken)
         #expect(first.hasPrefix("/cmux-sc-"))
         #expect(first.utf8.count < 31)
         #expect(second.utf8.count < 31)
         #expect(first == simulatorCameraSharedMemoryName(
             deviceIdentifier: device,
-            processIdentifier: 42
+            processIdentifier: 42,
+            token: "first-private-token"
         ))
     }
 
     @Test("Camera control shared memory is private")
     func cameraControlPermissions() throws {
-        let ring = try SimulatorCameraSurfaceRing(deviceIdentifier: "PERMISSIONS-TEST")
+        let ring = try SimulatorCameraSurfaceRing(
+            deviceIdentifier: "PERMISSIONS-TEST",
+            sharedMemoryToken: "permissions-private-token"
+        )
         let descriptor = try simulatorOpenSharedMemory(
             named: ring.sharedMemoryName,
             flags: O_RDONLY
@@ -75,7 +88,10 @@ struct SimulatorCameraSurfaceRingTests {
     @MainActor
     func producerStopCancelsCadence() async throws {
         let probe = CameraTimingProbe()
-        let ring = try SimulatorCameraSurfaceRing(deviceIdentifier: "TIMING-TEST")
+        let ring = try SimulatorCameraSurfaceRing(
+            deviceIdentifier: "TIMING-TEST",
+            sharedMemoryToken: "timing-private-token"
+        )
         let producer = SimulatorCameraFrameProducer(
             surfaceRing: ring,
             timing: TestCameraTiming(probe: probe)

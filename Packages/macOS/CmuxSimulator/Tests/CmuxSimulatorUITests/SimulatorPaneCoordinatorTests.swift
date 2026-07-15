@@ -318,6 +318,27 @@ struct SimulatorPaneCoordinatorTests {
         )))
     }
 
+    @Test("A failed dropped app install keeps its visible error")
+    func failedDroppedApplicationInstall() async {
+        let client = SimulatorPaneClientSpy(
+            devices: [Self.device(id: "phone", family: .iPhone, state: .booted)],
+            failsApplicationInstall: true
+        )
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        await coordinator.start()
+
+        await coordinator.importDroppedFiles([
+            URL(fileURLWithPath: "/tmp/Invalid.ipa"),
+        ])
+        let actions = await client.actions()
+
+        #expect(coordinator.controlFailure?.code == "fixture_install_failed")
+        #expect(!actions.contains { action in
+            if case .listApplications = action { return true }
+            return false
+        })
+    }
+
     @Test("Recoverable tool failures keep a live display interactive")
     func recoverableToolFailure() async {
         let client = SimulatorPaneClientSpy(devices: [

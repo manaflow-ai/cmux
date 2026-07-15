@@ -49,8 +49,10 @@ extension SimulatorPaneCoordinator {
     public func installApplication() async {
         guard let deviceID = selectedDeviceID,
               let url = await filePicker.chooseApplication() else { return }
-        _ = try? await perform(.installApplication(deviceID: deviceID, applicationURL: url))
-        await refreshApplications()
+        do {
+            try await perform(.installApplication(deviceID: deviceID, applicationURL: url))
+            await refreshApplications()
+        } catch {}
     }
 
     /// Launches one installed application with optional native launch options.
@@ -108,16 +110,26 @@ extension SimulatorPaneCoordinator {
             "bmp", "mov", "mp4", "m4v", "hevc", "vcf",
         ])
         let media = urls.filter { mediaExtensions.contains($0.pathExtension.lowercased()) }
+        var installedApplication = false
+        var installFailure: SimulatorFailure?
         for application in applications {
-            _ = try? await perform(.installApplication(
-                deviceID: deviceID,
-                applicationURL: application
-            ))
+            do {
+                try await perform(.installApplication(
+                    deviceID: deviceID,
+                    applicationURL: application
+                ))
+                installedApplication = true
+            } catch let failure as SimulatorFailure {
+                installFailure = failure
+            } catch {}
         }
         if !media.isEmpty {
             _ = try? await perform(.addMedia(deviceID: deviceID, urls: media))
         }
-        if !applications.isEmpty { await refreshApplications() }
+        if installedApplication {
+            await refreshApplications()
+            if let installFailure { controlFailure = installFailure }
+        }
     }
 
     /// Reads plain text from the simulated pasteboard.

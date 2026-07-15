@@ -3,24 +3,20 @@
 //
 // Wire format for serve-sim's simulator camera feed.
 //
-// Frames travel over a small ring of IOSurfaces shared by global surface ID.
-// The host helper (running on macOS) renders BGRA frames straight into the
-// surfaces; the injected dylib inside the simulator app looks the surfaces up
-// by ID and wraps the latest one as a CVPixelBuffer — no per-frame pixel copy.
+// Frames travel over a private POSIX shared-memory ring whose unguessable name
+// is passed only to the injected process. Camera pixels never enter the global
+// IOSurface namespace.
 //
 // A tiny POSIX shared-memory region acts as the control channel: it carries
-// the surface IDs, which surface holds the newest frame, the frame sequence
-// number, and the mirror mode. The pixels themselves live in the IOSurfaces,
-// not in this region.
+// which slot holds the newest frame, the frame sequence number, and the mirror
+// mode. BGRA pixel slots follow the control structures in the same region.
 //
-// Surfaces are BGRA. Row stride comes from IOSurfaceGetBytesPerRow (it may be
-// padded beyond width*4); `bytesPerRow` below mirrors that actual stride.
+// Frames are tightly packed BGRA. `bytesPerRow` is width*4.
 //
-// Synchronization is lock-free and lossy. The writer renders into a surface
-// the reader is not holding, points `latestIndex` at it, then bumps `frameSeq`
-// last. The reader samples `frameSeq` before and after wrapping the surface and
-// retries on the next tick if they disagree. A single dropped frame is fine for
-// a 30 fps camera.
+// Synchronization is lock-free and lossy. The writer renders into the next
+// slot, points `latestIndex` at it, then bumps `frameSeq` last. The reader
+// samples `frameSeq` before and after copying the slot and retries on the next
+// tick if they disagree. A single dropped frame is fine for a 30 fps camera.
 
 #ifndef SIM_CAM_SHARED_H
 #define SIM_CAM_SHARED_H
@@ -34,9 +30,7 @@
 #define SIMCAM_DEFAULT_WIDTH  1280u
 #define SIMCAM_DEFAULT_HEIGHT 720u
 
-// Number of IOSurfaces in the ring. The writer keeps off whichever surface the
-// reader most recently published, so a few buffers absorb a reader that holds
-// a frame for a tick or two without tearing.
+// Number of private pixel slots in the ring.
 #define SIMCAM_SURFACE_RING   4u
 #define SIMCAM_ATTACHMENT_SLOTS 16u
 
@@ -55,7 +49,7 @@ typedef struct {
     uint32_t width;
     uint32_t height;
     uint32_t pixelFormat;  // SIMCAM_PIXEL_BGRA
-    uint32_t bytesPerRow;  // actual IOSurface row stride (may exceed width*4)
+    uint32_t bytesPerRow;
     uint64_t pixelByteSize;// logical frame size: width*height*4
     _Atomic uint64_t frameSeq; // written LAST with release; readers acquire-load
     uint64_t timestampNs;  // mach_absolute_time-based, host monotonic
@@ -77,19 +71,22 @@ typedef struct {
     SimCamAttachmentSlot slots[SIMCAM_ATTACHMENT_SLOTS];
 } SimCamAttachmentTable;
 
-// Ring of global IOSurface IDs, written once at startup. `latestIndex` is
-// updated each frame (before frameSeq) to point at the freshest surface.
+// Pixel-ring metadata. `latestIndex` is updated before frameSeq.
 typedef struct __attribute__((packed)) {
-    uint32_t surfaceCount;                 // valid entries in ids[]
-    uint32_t latestIndex;                  // ids[] slot holding the newest frame
-    uint32_t ids[SIMCAM_SURFACE_RING];     // global IOSurface IDs
-} SimCamSurfaceTable;
+    uint32_t frameCount;
+    uint32_t latestIndex;
+} SimCamFrameTable;
 
 // Total control-region size: header + surface table.
 static inline uint64_t SimCamControlSize(void) {
     return (uint64_t)sizeof(SimCamShmHeader)
         + (uint64_t)sizeof(SimCamAttachmentTable)
-        + (uint64_t)sizeof(SimCamSurfaceTable);
+        + (uint64_t)sizeof(SimCamFrameTable);
+}
+
+static inline uint64_t SimCamSharedSize(uint32_t bytesPerRow, uint32_t height) {
+    return SimCamControlSize()
+        + (uint64_t)bytesPerRow * (uint64_t)height * SIMCAM_SURFACE_RING;
 }
 
 #endif

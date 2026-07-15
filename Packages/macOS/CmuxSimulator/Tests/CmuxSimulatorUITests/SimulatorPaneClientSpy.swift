@@ -8,6 +8,7 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
     private let applicationValues: [SimulatorInstalledApplication]
     private let delaysApplicationList: Bool
     private let delaysInvalidation: Bool
+    private let failsApplicationInstall: Bool
     private let eventStream: SimulatorWorkerEventStream
     private let eventContinuation: SimulatorWorkerEventStream.Continuation
     private var sentMessages: [SimulatorWorkerInbound] = []
@@ -22,12 +23,14 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
         devices: [SimulatorDevice],
         applications: [SimulatorInstalledApplication] = [],
         delaysApplicationList: Bool = false,
-        delaysInvalidation: Bool = false
+        delaysInvalidation: Bool = false,
+        failsApplicationInstall: Bool = false
     ) {
         self.devicesValue = devices
         self.applicationValues = applications
         self.delaysApplicationList = delaysApplicationList
         self.delaysInvalidation = delaysInvalidation
+        self.failsApplicationInstall = failsApplicationInstall
         let source = SimulatorWorkerEventStreamSource(
             maximumBufferedBytes: 1_024 * 1_024,
             maximumBufferedEvents: 64,
@@ -57,6 +60,13 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
 
     func perform(_ action: SimulatorControlAction) async throws -> SimulatorControlResult {
         actionValues.append(action)
+        if case .installApplication = action, failsApplicationInstall {
+            throw SimulatorFailure(
+                code: "fixture_install_failed",
+                message: "The fixture app is invalid.",
+                isRecoverable: true
+            )
+        }
         if case .listApplications = action {
             if delaysApplicationList {
                 return await withCheckedContinuation { delayedApplicationList = $0 }

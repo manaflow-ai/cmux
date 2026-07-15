@@ -488,7 +488,10 @@ struct SimulatorWorkerClientTests {
         SimulatorWorkerClient(
             executableURL: URL(fileURLWithPath: "/fake/cmux"),
             arguments: [SimulatorWorkerClient.workerModeArgument],
-            environment: [:],
+            environment: [
+                SimulatorCameraSharedMemory.tokenEnvironmentKey:
+                    simulatorTestCameraSharedMemoryToken,
+            ],
             ackTimeout: .seconds(60),
             replayTimeout: replayTimeout,
             simulatorControl: control,

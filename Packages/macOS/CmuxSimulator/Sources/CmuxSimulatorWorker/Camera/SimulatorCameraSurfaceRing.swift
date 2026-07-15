@@ -3,16 +3,15 @@ import CoreVideo
 import CmuxSimulator
 import Darwin
 import Foundation
-import IOSurface
 import libkern
 
-/// Single-producer IOSurface ring matching serve-sim's Apache-2 SimCam wire
-/// format. The injected app resolves surfaces by global ID while the pixels
-/// remain owned by this worker.
+/// Single-producer private shared-memory ring derived from serve-sim's
+/// Apache-2 SimCam wire format. Camera pixels never enter the global IOSurface
+/// namespace and the injected app receives only an unguessable region name.
 // SAFETY: source transitions cancel and join playback tasks or drain the
 // serial AVFoundation callback queue before the next producer starts. The
 // injected process accesses shared fields through atomic operations, while
-// host control operations touch disjoint bytes and immutable IOSurfaces.
+// host control operations touch disjoint bytes in the mapped frame region.
 final class SimulatorCameraSurfaceRing: @unchecked Sendable {
     static let width = 1280
     static let height = 720
@@ -25,19 +24,33 @@ final class SimulatorCameraSurfaceRing: @unchecked Sendable {
     private static let attachmentTableByteCount = attachmentSlotCount * attachmentSlotByteCount
     private static let headerByteCount = 64
     private static let surfaceTableOffset = headerByteCount + attachmentTableByteCount
-    private static let controlByteCount = surfaceTableOffset + 24
+    private static let frameTableByteCount = 8
+    private static let controlByteCount = surfaceTableOffset + frameTableByteCount
+    private static let bytesPerRow = width * 4
+    private static let frameByteCount = bytesPerRow * height
+    private static let totalByteCount = controlByteCount + frameByteCount * surfaceCount
     private static let magic: UInt32 = 0x5343_4D31
 
     private let context = CIContext(options: [.cacheIntermediates: false])
     private let colorSpace = CGColorSpaceCreateDeviceRGB()
     private let descriptor: Int32
     private let mapping: UnsafeMutableRawPointer
-    private let surfaces: [IOSurface]
 
-    init(deviceIdentifier: String) throws {
+    init(
+        deviceIdentifier: String,
+        sharedMemoryToken: String? = ProcessInfo.processInfo.environment[
+            SimulatorCameraSharedMemory.tokenEnvironmentKey
+        ]
+    ) throws {
+        guard let sharedMemoryToken, !sharedMemoryToken.isEmpty else {
+            throw SimulatorWorkerFailure.privateAPIUnavailable(
+                "The synthetic-camera private transport token is unavailable."
+            )
+        }
         sharedMemoryName = simulatorCameraSharedMemoryName(
             deviceIdentifier: deviceIdentifier,
-            processIdentifier: getpid()
+            processIdentifier: getpid(),
+            token: sharedMemoryToken
         )
         shm_unlink(sharedMemoryName)
         let descriptor = try simulatorOpenSharedMemory(
@@ -70,7 +83,7 @@ final class SimulatorCameraSurfaceRing: @unchecked Sendable {
                 "Synthetic-camera shared-memory permissions are unsafe: \(detail)"
             )
         }
-        guard ftruncate(descriptor, off_t(Self.controlByteCount)) == 0 else {
+        guard ftruncate(descriptor, off_t(Self.totalByteCount)) == 0 else {
             let detail = simulatorCameraErrnoDescription(operation: "ftruncate")
             close(descriptor)
             shm_unlink(sharedMemoryName)
@@ -80,7 +93,7 @@ final class SimulatorCameraSurfaceRing: @unchecked Sendable {
         }
         guard let mapping = mmap(
             nil,
-            Self.controlByteCount,
+            Self.totalByteCount,
             PROT_READ | PROT_WRITE,
             MAP_SHARED,
             descriptor,
@@ -94,34 +107,13 @@ final class SimulatorCameraSurfaceRing: @unchecked Sendable {
             )
         }
 
-        var surfaces: [IOSurface] = []
-        let properties: [String: Any] = [
-            kIOSurfaceWidth as String: Self.width,
-            kIOSurfaceHeight as String: Self.height,
-            kIOSurfaceBytesPerElement as String: 4,
-            kIOSurfacePixelFormat as String: kCVPixelFormatType_32BGRA,
-            "IOSurfaceIsGlobal": true,
-        ]
-        for _ in 0..<Self.surfaceCount {
-            guard let surface = IOSurfaceCreate(properties as CFDictionary) else {
-                munmap(mapping, Self.controlByteCount)
-                close(descriptor)
-                shm_unlink(sharedMemoryName)
-                throw SimulatorWorkerFailure.privateAPIUnavailable(
-                    "Could not allocate a global IOSurface for synthetic camera frames."
-                )
-            }
-            surfaces.append(surface)
-        }
-
         self.descriptor = descriptor
         self.mapping = mapping
-        self.surfaces = surfaces
         initializeControlRegion()
     }
 
     deinit {
-        munmap(mapping, Self.controlByteCount)
+        munmap(mapping, Self.totalByteCount)
         close(descriptor)
         shm_unlink(sharedMemoryName)
     }
@@ -168,15 +160,24 @@ final class SimulatorCameraSurfaceRing: @unchecked Sendable {
     func publish(_ image: CIImage, fillsFrame: Bool) {
         let table = mapping + Self.surfaceTableOffset
         let currentIndex = Int(table.load(fromByteOffset: 4, as: UInt32.self))
-        let nextIndex = (currentIndex + 1) % surfaces.count
-        let surface = surfaces[nextIndex]
+        let nextIndex = (currentIndex + 1) % Self.surfaceCount
+        let destinationBaseAddress = mapping.advanced(
+            by: Self.controlByteCount + nextIndex * Self.frameByteCount
+        )
         let destination = CGRect(x: 0, y: 0, width: Self.width, height: Self.height)
         let prepared = prepareSimulatorCameraImage(
             image,
             destination: destination,
             fillsFrame: fillsFrame
         )
-        context.render(prepared, to: surface, bounds: destination, colorSpace: colorSpace)
+        context.render(
+            prepared,
+            toBitmap: destinationBaseAddress,
+            rowBytes: Self.bytesPerRow,
+            bounds: destination,
+            format: .BGRA8,
+            colorSpace: colorSpace
+        )
 
         table.storeBytes(of: UInt32(nextIndex), toByteOffset: 4, as: UInt32.self)
         mapping.storeBytes(
@@ -193,14 +194,14 @@ final class SimulatorCameraSurfaceRing: @unchecked Sendable {
     }
 
     private func initializeControlRegion() {
-        memset(mapping, 0, Self.controlByteCount)
+        memset(mapping, 0, Self.totalByteCount)
         mapping.storeBytes(of: Self.magic, toByteOffset: 0, as: UInt32.self)
-        mapping.storeBytes(of: UInt32(3), toByteOffset: 4, as: UInt32.self)
+        mapping.storeBytes(of: UInt32(4), toByteOffset: 4, as: UInt32.self)
         mapping.storeBytes(of: UInt32(Self.width), toByteOffset: 8, as: UInt32.self)
         mapping.storeBytes(of: UInt32(Self.height), toByteOffset: 12, as: UInt32.self)
         mapping.storeBytes(of: UInt32(0), toByteOffset: 16, as: UInt32.self)
         mapping.storeBytes(
-            of: UInt32(IOSurfaceGetBytesPerRow(surfaces[0])),
+            of: UInt32(Self.bytesPerRow),
             toByteOffset: 20,
             as: UInt32.self
         )
@@ -214,13 +215,6 @@ final class SimulatorCameraSurfaceRing: @unchecked Sendable {
         let table = mapping + Self.surfaceTableOffset
         table.storeBytes(of: UInt32(Self.surfaceCount), toByteOffset: 0, as: UInt32.self)
         table.storeBytes(of: UInt32(0), toByteOffset: 4, as: UInt32.self)
-        for (index, surface) in surfaces.enumerated() {
-            table.storeBytes(
-                of: IOSurfaceGetID(surface),
-                toByteOffset: 8 + index * MemoryLayout<UInt32>.size,
-                as: UInt32.self
-            )
-        }
     }
 
 }
@@ -264,11 +258,13 @@ func simulatorCameraAttachmentSlotIndex(
 
 func simulatorCameraSharedMemoryName(
     deviceIdentifier: String,
-    processIdentifier: Int32
+    processIdentifier: Int32,
+    token: String
 ) -> String {
     SimulatorCameraSharedMemory(
         deviceIdentifier: deviceIdentifier,
-        processIdentifier: processIdentifier
+        processIdentifier: processIdentifier,
+        token: token
     ).name
 }
 

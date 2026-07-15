@@ -2,6 +2,8 @@ import Darwin
 import Foundation
 @testable import CmuxSimulator
 
+let simulatorTestCameraSharedMemoryToken = "cmux-simulator-tests-private-token"
+
 final class TestCameraSharedMemoryRegion {
     private let name: String
     private let descriptor: Int32
@@ -9,7 +11,8 @@ final class TestCameraSharedMemoryRegion {
     init(deviceIdentifier: String, processIdentifier: Int32) throws {
         name = SimulatorCameraSharedMemory(
             deviceIdentifier: deviceIdentifier,
-            processIdentifier: processIdentifier
+            processIdentifier: processIdentifier,
+            token: simulatorTestCameraSharedMemoryToken
         ).name
         _ = Darwin.shm_unlink(name)
         descriptor = try openTestCameraSharedMemory(name: name, flags: O_CREAT | O_EXCL | O_RDWR)

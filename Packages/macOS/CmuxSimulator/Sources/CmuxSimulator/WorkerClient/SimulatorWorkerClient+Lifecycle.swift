@@ -121,8 +121,14 @@ extension SimulatorWorkerClient {
         case let .display(display):
             lastDisplayOrientation = display.orientation
         case let .frameTransport(frameTransport):
+            let previousSharedMemoryName = currentFrameTransport?.sharedMemoryName
             currentFrameTransport = frameTransport
             if simulatorFrameSharedMemoryNameIsValid(frameTransport.sharedMemoryName) {
+                if let previousSharedMemoryName,
+                   previousSharedMemoryName != frameTransport.sharedMemoryName {
+                    simulatorUnlinkFrameSharedMemory(named: previousSharedMemoryName)
+                    frameTransportSharedMemoryNames.remove(previousSharedMemoryName)
+                }
                 frameTransportSharedMemoryNames.insert(frameTransport.sharedMemoryName)
             }
         case let .capabilities(capabilities):
@@ -252,7 +258,8 @@ extension SimulatorWorkerClient {
         readerTask = nil
         unlinkSimulatorCameraSharedMemory(
             connection: connection,
-            deviceIdentifier: simulatorAttachedDeviceIdentifier(from: lastAttachment)
+            deviceIdentifier: simulatorAttachedDeviceIdentifier(from: lastAttachment),
+            token: cameraSharedMemoryToken
         )
         clearLiveWorkerState()
         guard !isClosing else { return }
@@ -346,7 +353,8 @@ extension SimulatorWorkerClient {
         if let connection {
             unlinkSimulatorCameraSharedMemory(
                 connection: connection,
-                deviceIdentifier: simulatorAttachedDeviceIdentifier(from: lastAttachment)
+                deviceIdentifier: simulatorAttachedDeviceIdentifier(from: lastAttachment),
+                token: cameraSharedMemoryToken
             )
         }
         if graceful, let connection {

@@ -3,6 +3,26 @@ import Testing
 @testable import CmuxSimulator
 
 extension SimulatorWorkerClientTests {
+    @Test("Replacing a framebuffer transport evicts its obsolete shared-memory name")
+    func replacementFrameTransportEvictsObsoleteName() async throws {
+        let launcher = TestWorkerLauncher()
+        let client = makeClient(launcher: launcher)
+        await client.send(.attach(udid: "DEVICE", geometry: nil))
+        let endpoint = try #require(launcher.endpoint(at: 0))
+        let first = simulatorFrameTransportDescriptor(901)
+        let second = simulatorFrameTransportDescriptor(902)
+
+        endpoint.emit(.frameTransport(first))
+        endpoint.emit(.frameTransport(second))
+        for _ in 0..<1_000 {
+            if await client.currentFrameTransport == second { break }
+            await Task.yield()
+        }
+
+        #expect(await client.frameTransportSharedMemoryNames == [second.sharedMemoryName])
+        await client.stop()
+    }
+
     @Test("Discarding a worker cancels its pending graceful-exit deadline")
     func discardCancelsGracefulTerminationDeadline() async throws {
         let launcher = TestWorkerLauncher()

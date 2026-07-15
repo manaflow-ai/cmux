@@ -21,6 +21,7 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
     let launcher: any SimulatorWorkerLaunching
     let sleeper: any SimulatorWorkerSleeping
     let simulatorControl: any SimulatorControlling
+    let cameraSharedMemoryToken: String
 
     var child: SimulatorWorkerConnection?
     var readerTask: Task<Void, Never>?
@@ -95,9 +96,14 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
         ackTimeout: Duration = .seconds(3),
         simulatorControl: any SimulatorControlling = SimulatorControlService()
     ) {
+        let cameraSharedMemoryToken = environment[SimulatorCameraSharedMemory.tokenEnvironmentKey]
+            ?? UUID().uuidString.lowercased()
         self.executableURL = executableURL
         self.arguments = arguments
-        self.environment = environment
+        self.environment = environment.merging([
+            SimulatorCameraSharedMemory.tokenEnvironmentKey: cameraSharedMemoryToken,
+        ]) { existing, _ in existing }
+        self.cameraSharedMemoryToken = cameraSharedMemoryToken
         self.ackTimeout = ackTimeout
         self.replayTimeout = .seconds(120)
         self.launcher = SimulatorProcessWorkerLauncher()
@@ -115,9 +121,14 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
         launcher: any SimulatorWorkerLaunching,
         sleeper: any SimulatorWorkerSleeping = ContinuousSimulatorWorkerSleeper()
     ) {
+        let cameraSharedMemoryToken = environment[SimulatorCameraSharedMemory.tokenEnvironmentKey]
+            ?? UUID().uuidString.lowercased()
         self.executableURL = executableURL
         self.arguments = arguments
-        self.environment = environment
+        self.environment = environment.merging([
+            SimulatorCameraSharedMemory.tokenEnvironmentKey: cameraSharedMemoryToken,
+        ]) { existing, _ in existing }
+        self.cameraSharedMemoryToken = cameraSharedMemoryToken
         self.ackTimeout = ackTimeout
         self.replayTimeout = replayTimeout
         self.simulatorControl = simulatorControl
@@ -154,7 +165,8 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
         if let child {
             unlinkSimulatorCameraSharedMemory(
                 connection: child,
-                deviceIdentifier: deviceIdentifier
+                deviceIdentifier: deviceIdentifier,
+                token: cameraSharedMemoryToken
             )
             child.terminate()
         }

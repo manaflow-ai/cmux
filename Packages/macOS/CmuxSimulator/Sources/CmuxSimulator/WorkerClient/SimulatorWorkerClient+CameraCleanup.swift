@@ -114,13 +114,15 @@ func simulatorAttachedDeviceIdentifier(
 
 func unlinkSimulatorCameraSharedMemory(
     connection: SimulatorWorkerConnection,
-    deviceIdentifier: String?
+    deviceIdentifier: String?,
+    token: String
 ) {
     guard let deviceIdentifier,
           let processIdentifier = connection.processIdentifier,
           processIdentifier > 1 else { return }
     SimulatorCameraSharedMemory(
         deviceIdentifier: deviceIdentifier,
-        processIdentifier: processIdentifier
+        processIdentifier: processIdentifier,
+        token: token
     ).unlink()
 }
