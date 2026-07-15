@@ -110,6 +110,13 @@ struct ReflowParagraphTests {
         #expect(reflow(input) == input)
     }
 
+    @Test func partialCodeSelectionWithoutFenceIsNotJoined() {
+        let input =
+            "let message = \"This long literal contains enough words to reach the terminal wrap width and the\n"
+            + "next line remains part of the source literal\"\n"
+        #expect(reflow(input) == input)
+    }
+
     @Test func pythonTracebackFrameDoesNotJoinIndentedCode() {
         let input =
             "  File \"/Users/example/project/some/deep/module.py\", line 42, in run_all_tasks_now\n"

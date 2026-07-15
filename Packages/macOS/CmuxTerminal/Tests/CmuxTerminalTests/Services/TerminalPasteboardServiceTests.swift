@@ -141,6 +141,23 @@ struct PasteboardTextContentsTests {
         #expect(types.contains(.html))
         #expect(types.contains(.rtf))
     }
+
+    @Test func unsupportedMultiItemRewriteLeavesPasteboardUnchanged() throws {
+        let scratch = ScratchPasteboard()
+        let service = TerminalPasteboardService()
+        let first = NSPasteboardItem()
+        let second = NSPasteboardItem()
+        #expect(first.setString("first item", forType: .string))
+        #expect(second.setString("second item", forType: .string))
+        #expect(scratch.pasteboard.writeObjects([first, second]))
+
+        #expect(!service.rewriteTextRepresentations("rewritten", in: scratch.pasteboard))
+
+        let items = try #require(scratch.pasteboard.pasteboardItems)
+        #expect(items.count == 2)
+        #expect(items[0].string(forType: .string) == "first item")
+        #expect(items[1].string(forType: .string) == "second item")
+    }
 }
 
 @Suite("Clipboard write capture")
