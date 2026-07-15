@@ -314,6 +314,16 @@ final class RemoteTmuxController {
                 verification: verification
             )
         }
+        workspace.remoteTmuxWindowOrderSyncWithToken = {
+            [weak self, weak workspace] orderedPanelIds, verificationToken, verification in
+            guard let self, let workspace else { return false }
+            return self.handleMirrorWindowsReordered(
+                workspaceId: workspace.id,
+                orderedPanelIds: orderedPanelIds,
+                verificationToken: verificationToken,
+                verification: verification
+            )
+        }
         sessionMirrors[key] = RemoteTmuxSessionMirror(
             host: host,
             sessionName: sessionName,

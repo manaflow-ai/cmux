@@ -3629,12 +3629,27 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) {
         let targetWorkspaceID = workspaceID ?? selectedWorkspace?.id
         let targetWorkspace = workspaces.first(where: { $0.id == targetWorkspaceID })
-        guard remoteClient == nil else {
-            if let targetWorkspaceID,
-               recoverTerminalHierarchyForCreateIfRequired(
-                   in: targetWorkspaceID,
-                   completion: completion
-               ) {
+        let boundMutationTarget = targetWorkspaceID.map { workspaceMutationTarget(for: $0) }
+        let createsOnRemoteHost = remoteClient != nil || boundMutationTarget?.isForeground == false
+        if createsOnRemoteHost {
+            guard let targetWorkspaceID,
+                  let boundMutationTarget else {
+                completion(.failure(.notConnected(hostDisplayName: connectedHostName)))
+                return
+            }
+            let hostDisplayName = workspaceMutationHostDisplayName(
+                target: boundMutationTarget,
+                fallback: workspaceHostDisplayName(for: targetWorkspaceID)
+            )
+            guard boundMutationTarget.client != nil else {
+                completion(.failure(.notConnected(hostDisplayName: hostDisplayName)))
+                return
+            }
+            let requestedWorkspaceID = remoteWorkspaceID(for: targetWorkspaceID)
+            if recoverTerminalHierarchyForCreateIfRequired(
+                in: targetWorkspaceID,
+                completion: completion
+            ) {
                 return
             }
             let targetPaneID = remoteTerminalCreationPaneID(
@@ -3645,21 +3660,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // so a second "+" on another workspace can't strand the UI on that
             // workspace with no new terminal while the earlier RPC still runs.
             guard !terminalCreationRequestOwner.isActive else {
-                completion(.failure(.busy(hostDisplayName: connectedHostName)))
+                completion(.failure(.busy(hostDisplayName: hostDisplayName)))
                 return
             }
             let mutationClaim = claimTerminalCreationMutation(
                 in: targetWorkspace, paneID: targetPaneID ?? targetWorkspace?.terminalCreationPaneID
             )
             if case .blocked = mutationClaim {
-                completion(.failure(.busy(hostDisplayName: connectedHostName)))
+                completion(.failure(.busy(hostDisplayName: hostDisplayName)))
                 return
             }
             // Pin selection to the target so the async create + the resulting
             // terminal selection stay on the workspace the caller intended.
-            if let targetWorkspaceID { selectedWorkspaceID = targetWorkspaceID }
+            selectedWorkspaceID = targetWorkspaceID
             let cancellationOutcome = Result<Void, MobileWorkspaceMutationFailure>.failure(
-                .resultUnknownNeedsRefresh(hostDisplayName: connectedHostName)
+                .resultUnknownNeedsRefresh(hostDisplayName: hostDisplayName)
             )
             let started = terminalCreationRequestOwner.startIfIdle(
                 claim: mutationClaim,
@@ -3670,11 +3685,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 guard let self else { return cancellationOutcome }
                 return await self.createRemoteTerminal(
                     in: targetWorkspaceID,
-                    paneID: targetPaneID
+                    remoteWorkspaceID: requestedWorkspaceID,
+                    paneID: targetPaneID,
+                    target: boundMutationTarget,
+                    hostDisplayName: hostDisplayName
                 )
             }
             if !started {
-                completion(.failure(.busy(hostDisplayName: connectedHostName)))
+                completion(.failure(.busy(hostDisplayName: hostDisplayName)))
             }
             return
         }
@@ -7365,7 +7383,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return true
     }
 
-    private static func shouldDisconnectForAuthorizationFailure(_ error: any Error) -> Bool {
+    static func shouldDisconnectForAuthorizationFailure(_ error: any Error) -> Bool {
         guard let connectionError = error as? MobileShellConnectionError else {
             return false
         }

@@ -430,7 +430,7 @@ extension MobileShellComposite {
         return workspaceMutationTarget(for: anchorWorkspaceID)
     }
 
-    private func workspaceMutationHostDisplayName(
+    func workspaceMutationHostDisplayName(
         target: WorkspaceMutationTarget,
         fallback: String?
     ) -> String? {

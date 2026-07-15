@@ -118,9 +118,7 @@ extension RemoteTmuxMirrorTargetingTests {
                     "confirmed": true,
                 ])
             }
-            for _ in 0..<50 where harness.connection.activityQueryCompletions.isEmpty && !close.isCancelled {
-                await Task.yield()
-            }
+            await waitForPendingCommand(on: harness.connection)
 
             let issuedRedundantQuery = !harness.connection.activityQueryCompletions.isEmpty
             #expect(!issuedRedundantQuery)
@@ -133,7 +131,14 @@ extension RemoteTmuxMirrorTargetingTests {
                     lines: ["%0|0|zsh"],
                     isError: false
                 ))
+                await waitForPendingCommand(on: harness.connection)
             }
+            harness.connection.handleMessageForTesting(.commandResult(
+                commandNumber: 100,
+                lines: [],
+                isError: false
+            ))
+            harness.connection.handleMessageForTesting(.windowClose(windowId: 1))
             let result = await close.value
             guard case .ok = result else {
                 Issue.record("Expected the confirmed remote terminal close to succeed")

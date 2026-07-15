@@ -174,6 +174,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         }
         teardownControlPaneIdentities()
         workspace?.remoteTmuxWindowOrderSync = nil
+        workspace?.remoteTmuxWindowOrderSyncWithToken = nil
         if workspace?.remoteTmuxSessionMirror === self {
             workspace?.remoteTmuxSessionMirror = nil
         }

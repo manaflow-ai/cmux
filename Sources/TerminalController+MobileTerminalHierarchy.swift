@@ -1,6 +1,20 @@
 import Bonsplit
 import Foundation
 
+@MainActor
+private final class MobileRemoteReorderResolution {
+    private var continuation: CheckedContinuation<Bool, Never>?
+
+    init(_ continuation: CheckedContinuation<Bool, Never>) {
+        self.continuation = continuation
+    }
+
+    func resolve(_ succeeded: Bool) {
+        continuation?.resume(returning: succeeded)
+        continuation = nil
+    }
+}
+
 extension TerminalController {
     func v2MobileTerminalCreate(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
@@ -108,7 +122,24 @@ extension TerminalController {
         guard !resolved.workspace.pinnedPanelIds.contains(surfaceID) else {
             return .err(code: "protected", message: "Pinned terminals cannot be closed", data: nil)
         }
-        guard closeSurfaceRecordingHistory(in: resolved.workspace, surfaceId: surfaceID, force: true) else {
+        if resolved.workspace.isRemoteTmuxMirror {
+            guard let remoteTmuxController = AppDelegate.shared?.remoteTmuxController,
+                  await remoteTmuxController.requestMirrorTabClose(
+                      workspaceId: resolved.workspace.id,
+                      panelId: surfaceID
+                  ),
+                  resolved.workspace.terminalPanel(for: surfaceID) == nil else {
+                return .err(
+                    code: "unavailable",
+                    message: "Remote terminal close was not confirmed",
+                    data: nil
+                )
+            }
+        } else if !closeSurfaceRecordingHistory(
+            in: resolved.workspace,
+            surfaceId: surfaceID,
+            force: true
+        ) {
             return .err(code: "internal_error", message: "Failed to close terminal", data: nil)
         }
         clearMobileViewportReports(surfaceID: surfaceID, reason: "mobile.terminal.close")
@@ -120,7 +151,7 @@ extension TerminalController {
     }
 
     /// Reorders one terminal inside its current pane without permitting a boundary crossing.
-    func v2MobileTerminalReorder(params: [String: Any]) -> V2CallResult {
+    func v2MobileTerminalReorder(params: [String: Any]) async -> V2CallResult {
         guard let workspaceID = v2UUID(params, "workspace_id"),
               let paneUUID = v2UUID(params, "pane_id"),
               let surfaceID = v2UUID(params, "surface_id"),
@@ -158,7 +189,40 @@ extension TerminalController {
         ) else {
             return .err(code: "invalid_params", message: "Terminal reorder index is out of range", data: nil)
         }
-        guard workspace.reorderSurface(panelId: surfaceID, toIndex: destinationIndex, focus: false) else {
+        let reordered: Bool
+        if workspace.isRemoteTmuxMirror {
+            let verificationToken = UUID()
+            let connection = workspace.remoteTmuxSessionMirror?.connection
+            reordered = await withTaskCancellationHandler {
+                await withCheckedContinuation { continuation in
+                    let resolution = MobileRemoteReorderResolution(continuation)
+                    let started = workspace.reorderSurface(
+                        panelId: surfaceID,
+                        toIndex: destinationIndex,
+                        focus: false,
+                        remoteVerificationToken: verificationToken
+                    ) { succeeded in
+                        resolution.resolve(succeeded)
+                    }
+                    if !started {
+                        resolution.resolve(false)
+                    } else if Task.isCancelled {
+                        connection?.cancelWindowReorderVerification(token: verificationToken)
+                    }
+                }
+            } onCancel: {
+                Task { @MainActor [weak connection] in
+                    connection?.cancelWindowReorderVerification(token: verificationToken)
+                }
+            }
+        } else {
+            reordered = workspace.reorderSurface(
+                panelId: surfaceID,
+                toIndex: destinationIndex,
+                focus: false
+            )
+        }
+        guard reordered else {
             return .err(code: "internal_error", message: "Failed to reorder terminal", data: nil)
         }
         return .ok([

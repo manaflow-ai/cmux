@@ -10,6 +10,46 @@ nonisolated private let secondaryWorkspaceRefreshLog = Logger(
 )
 
 extension MobileShellComposite {
+    /// Installs a terminal-create response only while the exact secondary
+    /// subscription still owns the same refresh generation. A concurrent list
+    /// refresh wins and makes the create path reconcile through that owner.
+    func applySecondaryCreateResponseIfCurrent(
+        _ response: MobileSyncWorkspaceListResponse,
+        macID: String,
+        subscription: SecondaryMacSubscription,
+        refreshStartedGeneration: UInt64,
+        listStartedAtFocusRevision: UInt64
+    ) -> Bool {
+        guard secondaryListReadIsCurrent(
+            macDeviceID: macID,
+            subscription: subscription,
+            refreshStartedGeneration: refreshStartedGeneration
+        ) else { return false }
+        let previews = response.workspaces.map { remote -> MobileWorkspacePreview in
+            var workspace = MobileWorkspacePreview(remote: remote)
+            workspace.macDeviceID = macID
+            if let existingWorkspace = workspaces.first(where: {
+                $0.rpcWorkspaceID == workspace.rpcWorkspaceID
+                    && $0.macDeviceID == macID
+            }) {
+                preserveNewerWorkspaceFocusIfNeeded(
+                    in: &workspace,
+                    from: existingWorkspace,
+                    macID: macID,
+                    listStartedAtFocusRevision: listStartedAtFocusRevision
+                )
+            }
+            return workspace
+        }
+        installAuthoritativeSecondaryWorkspaceState(
+            macID: macID,
+            displayName: workspacesByMac[macID]?.displayName,
+            workspaces: previews,
+            actionCapabilities: subscription.actionCapabilities
+        )
+        return true
+    }
+
     /// A direct aggregation/subscription seed may install only while no newer
     /// generation-serialized refresh has started for the same connection.
     func secondaryListReadIsCurrent(

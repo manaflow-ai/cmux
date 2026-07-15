@@ -57,6 +57,10 @@ import Testing
 
     private func publishWindows(_ connection: RemoteTmuxControlConnection, order: [Int]) {
         reply(connection, lines: windowLines(order))
+        drainPendingPaneRects(connection)
+    }
+
+    private func drainPendingPaneRects(_ connection: RemoteTmuxControlConnection) {
         while let kind = connection.pendingCommandKindsForTesting.first {
             guard case let .paneRects(windowId, _) = kind else { return }
             reply(connection, lines: ["%\(windowId * 10) 0 0 80 24 1 off :zsh"])
@@ -233,6 +237,9 @@ import Testing
         // pane 10 and queues one follow-up containing the later close's pane 20.
         reply(connection, lines: windowLines([2, 3]))
         #expect(connection.paneIDsRetainedUntilWindowList == [20])
+        // The topology snapshot restages authoritative pane rectangles before
+        // the coalesced follow-up list reply can occupy the FIFO head.
+        drainPendingPaneRects(connection)
         #expect(connection.pendingCommandKindsForTesting == [
             .listWindows(reorderGeneration: 0, retainedPaneIDs: [20]),
         ])
@@ -320,6 +327,41 @@ import Testing
 
         reply(connection, lines: windowOrderLines([2, 1]))
         #expect(verification == true)
+    }
+
+    @Test func orderRefreshSendFailureFencesUntilAuthoritativeRecovery() {
+        let (connection, writer, pipe) = attachedConnection()
+        defer { writer.close(); try? pipe.fileHandleForReading.close() }
+        publishWindows(connection, order: [1, 2])
+        var verification: Bool?
+
+        #expect(connection.sendWindowReorder(
+            ["swap-window -d -s @1 -t @2"],
+            verification: { verification = $0 }
+        ))
+        connection.applyWindowReorder([2, 1])
+
+        // Simulate losing the command writer after tmux accepted the swap but
+        // before cmux can send the cheap order-only verification request.
+        connection.stdinWriter = nil
+        reply(connection, lines: [])
+
+        #expect(verification == false)
+        #expect(connection.windowOrder == [2, 1])
+        #expect(connection.windowReorderRecoveryGeneration == 1)
+        #expect(!connection.sendWindowReorder(["swap-window -d -s @2 -t @1"]))
+
+        // Restoring transport and fetching full topology must replace the
+        // optimistic order before another mutation can begin.
+        connection.installStdinWriterForTesting(writer)
+        connection.requestWindows()
+        #expect(connection.pendingCommandKindsForTesting == [
+            .listWindows(reorderGeneration: 1, retainedPaneIDs: [])
+        ])
+        reply(connection, lines: windowLines([1, 2]))
+
+        #expect(connection.windowOrder == [1, 2])
+        #expect(connection.windowReorderRecoveryGeneration == nil)
     }
 
     @Test func mismatchedOrderFailsVerificationBeforeTopologyPublication() {

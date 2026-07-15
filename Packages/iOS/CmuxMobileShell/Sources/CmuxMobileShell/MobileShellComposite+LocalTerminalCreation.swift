@@ -10,16 +10,44 @@ enum MobileTerminalCreationMutationClaim {
 }
 
 extension MobileShellComposite {
+    /// Lower-level entrypoint retained for focused mutation-fence tests. It
+    /// resolves the exact row owner before entering the async implementation.
     @discardableResult
     func createRemoteTerminal(
         in explicitWorkspaceID: MobileWorkspacePreview.ID? = nil,
         paneID: MobilePanePreview.ID? = nil
     ) async -> Result<Void, MobileWorkspaceMutationFailure> {
-        guard let client = remoteClient,
-              let rowWorkspaceID = explicitWorkspaceID ?? selectedWorkspace?.id else {
+        guard let rowWorkspaceID = explicitWorkspaceID ?? selectedWorkspace?.id else {
             return .failure(.notConnected(hostDisplayName: connectedHostName))
         }
-        let requestedWorkspaceID = remoteWorkspaceID(for: rowWorkspaceID)
+        let target = workspaceMutationTarget(for: rowWorkspaceID)
+        let hostDisplayName = workspaceMutationHostDisplayName(
+            target: target,
+            fallback: workspaceHostDisplayName(for: rowWorkspaceID)
+        )
+        return await createRemoteTerminal(
+            in: rowWorkspaceID,
+            remoteWorkspaceID: remoteWorkspaceID(for: rowWorkspaceID),
+            paneID: paneID,
+            target: target,
+            hostDisplayName: hostDisplayName
+        )
+    }
+
+    @discardableResult
+    func createRemoteTerminal(
+        in rowWorkspaceID: MobileWorkspacePreview.ID,
+        remoteWorkspaceID requestedWorkspaceID: MobileWorkspacePreview.ID,
+        paneID: MobilePanePreview.ID? = nil,
+        target: WorkspaceMutationTarget,
+        hostDisplayName: String?
+    ) async -> Result<Void, MobileWorkspaceMutationFailure> {
+        // The row's owning connection is captured by the synchronous action
+        // entrypoint. Never re-resolve through `remoteClient` after suspension:
+        // aggregated Macs can expose the same raw workspace UUID.
+        guard let client = target.client else {
+            return .failure(.notConnected(hostDisplayName: hostDisplayName))
+        }
         let existingTerminalIDs = Set(
             workspaces.first(where: { $0.id == rowWorkspaceID })?.terminals.map(\.id) ?? []
         )
@@ -28,6 +56,8 @@ extension MobileShellComposite {
         let responseMutationEpoch = foregroundWorkspaceListMutationEpoch
         let responseListRevision = foregroundWorkspaceListAppliedRevision
         let createSelectionRevision = claimForegroundCreateSelection()
+        let secondarySubscription = target.macDeviceID.flatMap { secondaryMacSubscriptions[$0] }
+        let secondaryRefreshStartedGeneration = secondarySubscription?.refreshStartedGeneration
         do {
             var params: [String: Any] = ["workspace_id": requestedWorkspaceID.rawValue]
             if let paneID {
@@ -40,20 +70,51 @@ extension MobileShellComposite {
                 )
             )
             let response = try MobileSyncWorkspaceListResponse.decode(resultData)
-            let responseOutcome = await applyOrReconcileRemoteCreateResponse(
-                response,
-                startedAt: responseMutationEpoch,
-                listRevision: responseListRevision,
-                focusRevision: focusRevision,
-                client: client,
-                generation: generation
-            )
+            let responseOutcome: RemoteCreateResponseOutcome
+            if target.isForeground {
+                responseOutcome = await applyOrReconcileRemoteCreateResponse(
+                    response,
+                    startedAt: responseMutationEpoch,
+                    listRevision: responseListRevision,
+                    focusRevision: focusRevision,
+                    client: client,
+                    generation: generation
+                )
+            } else {
+                guard isCurrentTerminalCreateTarget(
+                    target,
+                    client: client,
+                    generation: generation
+                ), !Task.isCancelled else { return .success(()) }
+                if let macDeviceID = target.macDeviceID,
+                   let secondarySubscription,
+                   let secondaryRefreshStartedGeneration,
+                   applySecondaryCreateResponseIfCurrent(
+                       response,
+                       macID: macDeviceID,
+                       subscription: secondarySubscription,
+                       refreshStartedGeneration: secondaryRefreshStartedGeneration,
+                       listStartedAtFocusRevision: focusRevision
+                   ) {
+                    responseOutcome = .appliedScopedResponse
+                } else {
+                    let reconciled = await refreshAfterWorkspaceMutation(target)
+                    guard isCurrentTerminalCreateTarget(
+                        target,
+                        client: client,
+                        generation: generation
+                    ), !Task.isCancelled else { return .success(()) }
+                    responseOutcome = reconciled
+                        ? .reconciledAuthoritativeList
+                        : .reconciliationRequired
+                }
+            }
             switch responseOutcome {
             case .invalidated:
                 return .success(())
             case .reconciliationRequired:
                 terminalReorderGate.requireRefresh(workspaceID: rowWorkspaceID)
-                return .failure(.appliedNeedsRefresh(hostDisplayName: connectedHostName))
+                return .failure(.appliedNeedsRefresh(hostDisplayName: hostDisplayName))
             case .appliedScopedResponse, .reconciledAuthoritativeList:
                 break
             }
@@ -66,27 +127,35 @@ extension MobileShellComposite {
             )
             return .success(())
         } catch {
-            guard isCurrentRemoteOperation(client: client, generation: generation),
+            guard isCurrentTerminalCreateTarget(target, client: client, generation: generation),
                   !Task.isCancelled else { return .success(()) }
-            guard !disconnectForAuthorizationFailureIfNeeded(error) else {
-                return .failure(.authorizationFailed(hostDisplayName: connectedHostName))
+            guard !invalidateTerminalCreateTargetForAuthorizationFailure(
+                error,
+                target: target,
+                client: client
+            ) else {
+                return .failure(.authorizationFailed(hostDisplayName: hostDisplayName))
             }
-            markMacConnectionUnavailableIfNeeded(after: error)
+            if target.isForeground {
+                markMacConnectionUnavailableIfNeeded(after: error)
+            }
             let disposition = workspaceMutationErrorDisposition(error)
             switch disposition {
             case .immediateRejection:
                 break
             case .definiteDivergence, .ambiguous:
-                let reconciled = await refreshForegroundWorkspaceListAfterMutation()
-                guard isCurrentRemoteOperation(client: client, generation: generation),
+                let reconciled = await refreshAfterWorkspaceMutation(target)
+                guard isCurrentTerminalCreateTarget(target, client: client, generation: generation),
                       !Task.isCancelled else { return .success(()) }
                 if !reconciled {
                     terminalReorderGate.requireRefresh(workspaceID: rowWorkspaceID)
                     if disposition == .ambiguous {
-                        applyOperationalError(error)
+                        if target.isForeground {
+                            applyOperationalError(error)
+                        }
                         return .failure(unreconciledWorkspaceMutationFailure(
                             error,
-                            hostDisplayName: connectedHostName
+                            hostDisplayName: hostDisplayName
                         ))
                     }
                 } else if disposition == .ambiguous {
@@ -94,19 +163,59 @@ extension MobileShellComposite {
                     // reliably attribute any one new terminal to this request.
                     // Keep the user's selection and clear the transient
                     // availability state now that an authoritative read worked.
-                    markMacConnectionHealthy()
+                    if target.isForeground {
+                        markMacConnectionHealthy()
+                    }
                     return .failure(reconciledWorkspaceMutationFailure(
                         error,
-                        hostDisplayName: connectedHostName
+                        hostDisplayName: hostDisplayName
                     ))
                 }
             }
-            applyOperationalError(error)
+            if target.isForeground {
+                applyOperationalError(error)
+            }
             return .failure(workspaceMutationFailure(
                 error,
-                hostDisplayName: connectedHostName
+                hostDisplayName: hostDisplayName
             ))
         }
+    }
+
+    /// Revalidates the exact owner/client captured by the action entrypoint.
+    /// Foreground operations also retain the connection generation; secondary
+    /// operations retain their per-Mac subscription identity through its client.
+    private func isCurrentTerminalCreateTarget(
+        _ target: WorkspaceMutationTarget,
+        client: MobileCoreRPCClient,
+        generation: UUID
+    ) -> Bool {
+        if target.isForeground {
+            return target.client === remoteClient
+                && isCurrentRemoteOperation(client: client, generation: generation)
+        }
+        guard let macDeviceID = target.macDeviceID else { return false }
+        return secondaryMacSubscriptions[macDeviceID]?.client === client
+    }
+
+    /// Authorization failure invalidates only the connection that rejected the
+    /// request. A secondary-Mac failure must never tear down foreground state.
+    private func invalidateTerminalCreateTargetForAuthorizationFailure(
+        _ error: any Error,
+        target: WorkspaceMutationTarget,
+        client: MobileCoreRPCClient
+    ) -> Bool {
+        guard Self.shouldDisconnectForAuthorizationFailure(error) else { return false }
+        if target.isForeground {
+            return disconnectForAuthorizationFailureIfNeeded(error)
+        }
+        guard let macDeviceID = target.macDeviceID,
+              let subscription = secondaryMacSubscriptions[macDeviceID],
+              subscription.client === client else { return true }
+        subscription.cancel()
+        secondaryMacSubscriptions[macDeviceID] = nil
+        markSecondaryMacUnavailable(macDeviceID)
+        return true
     }
 
     /// Selects one uniquely identified create result while the request still

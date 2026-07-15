@@ -13,6 +13,9 @@ enum RemoteTmuxControlCommandKind: Equatable {
     case paneAltScreen(Int)
     case activityQuery(UUID)
     case newWindow(UUID)
+    /// A `kill-window` accepted for one mobile close request. Command success
+    /// is not completion; the request waits for the matching `%window-close`.
+    case windowClose(UUID)
     /// A per-window `refresh-client -C '@id:WxH'` — an %error reply means
     /// the server predates the form and sizing falls back session-wide.
     case perWindowSize(Int)

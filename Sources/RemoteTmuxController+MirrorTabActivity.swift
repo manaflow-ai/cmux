@@ -33,6 +33,31 @@ extension RemoteTmuxController {
         return target.mirror.connection.send("kill-window -t @\(target.windowId)")
     }
 
+    /// Mobile close variant that resolves successfully only after the exact
+    /// tmux window disappearance has rebuilt the mirror topology.
+    func requestMirrorTabClose(workspaceId: UUID, panelId: UUID) async -> Bool {
+        guard let target = mirrorWindowTarget(workspaceId: workspaceId, panelId: panelId),
+              target.mirror.connection.connectionState == .connected else { return false }
+        let connection = target.mirror.connection
+        let token = UUID()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                connection.requestWindowClose(windowID: target.windowId, token: token) {
+                    continuation.resume(returning: $0)
+                }
+                // Cancellation may precede registration. Rechecking on the main
+                // actor makes either ordering converge on the same token.
+                if Task.isCancelled {
+                    connection.cancelWindowCloseRequest(token: token)
+                }
+            }
+        } onCancel: {
+            Task { @MainActor [weak connection] in
+                connection?.cancelWindowCloseRequest(token: token)
+            }
+        }
+    }
+
     /// ``MirrorTabActivity`` from the subscription-fed cache (≤~1s stale).
     private func mirrorTabActivityFromCache(
         target: (mirror: RemoteTmuxSessionMirror, windowId: Int)

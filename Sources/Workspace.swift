@@ -4961,6 +4961,9 @@ final class Workspace: Identifiable, ObservableObject {
     weak var remoteTmuxSessionMirror: RemoteTmuxSessionMirror?
     /// Bound action for this mirror's outbound window-order mutation boundary.
     var remoteTmuxWindowOrderSync: (([UUID], ((Bool) -> Void)?) -> Bool)?
+    /// Tokenized variant used by cancellable mobile RPCs. The token scopes
+    /// cancellation to the exact verification generation it created.
+    var remoteTmuxWindowOrderSyncWithToken: (([UUID], UUID?, ((Bool) -> Void)?) -> Bool)?
 
     /// Per-window multi-pane renderers, keyed by mirrored window-tab panel id.
     private(set) var remoteTmuxWindowMirrors: [UUID: RemoteTmuxWindowMirror] = [:]

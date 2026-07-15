@@ -1,6 +1,10 @@
 import Foundation
 
 extension RemoteTmuxControlConnection {
+    /// Leaves margin inside the mobile RPC budget while bounding a connected
+    /// control stream that stops producing results or notifications.
+    static let mobileMutationVerificationTimeout: Duration = .seconds(1)
+
     /// How many lines of pane history `capture-pane` seeds onto a freshly mounted
     /// (or reconnected) mirror surface. Clamped by the remote pane's `history-limit`.
     private static let scrollbackCaptureLines = 5_000
@@ -14,6 +18,7 @@ extension RemoteTmuxControlConnection {
     /// Atomically enqueues a window-reorder batch and its result correlation.
     func sendWindowReorder(
         _ commands: [String],
+        verificationToken: UUID? = nil,
         verification: ((Bool) -> Void)? = nil
     ) -> Bool {
         guard !commands.isEmpty else {
@@ -27,9 +32,64 @@ extension RemoteTmuxControlConnection {
         }
         guard sendBatchInternal(commands, kinds: kinds) else { return false }
         windowReorderGeneration &+= 1
-        windowReorderVerificationGeneration = windowReorderGeneration
-        windowReorderVerifications[windowReorderGeneration] = verification
+        let generation = windowReorderGeneration
+        windowReorderVerificationGeneration = generation
+        windowReorderVerifications[generation] = verification
+        if let verificationToken {
+            windowReorderVerificationTokens[verificationToken] = generation
+            windowReorderDeadlineCancellations[generation] = scheduleActivityQueryDeadline(
+                Self.mobileMutationVerificationTimeout
+            ) { [weak self] in
+                guard let self,
+                      self.finishWindowReorderVerification(
+                          generation: generation,
+                          succeeded: false
+                      ) else { return }
+                self.requestFullWindowOrderRecovery()
+            }
+        }
         return true
+    }
+
+    /// Sends one exact remote-window close. A successful command block only
+    /// means tmux accepted the command; completion waits for `%window-close`.
+    @discardableResult
+    func requestWindowClose(
+        windowID: Int,
+        token: UUID,
+        completion: @escaping (Bool) -> Void
+    ) -> Bool {
+        guard connectionState == .connected else {
+            completion(false)
+            return false
+        }
+        windowCloseRequests[token] = PendingWindowClose(
+            windowID: windowID,
+            completion: completion
+        )
+        guard sendInternal("kill-window -t @\(windowID)", kind: .windowClose(token)) else {
+            finishWindowCloseRequest(token: token, succeeded: false)
+            return false
+        }
+        windowCloseDeadlineCancellations[token] = scheduleActivityQueryDeadline(
+            Self.mobileMutationVerificationTimeout
+        ) { [weak self] in
+            guard let self,
+                  self.finishWindowCloseRequest(token: token, succeeded: false) else { return }
+            self.requestWindows()
+        }
+        return true
+    }
+
+    func cancelWindowCloseRequest(token: UUID) {
+        guard finishWindowCloseRequest(token: token, succeeded: false) else { return }
+        requestWindows()
+    }
+
+    func cancelWindowReorderVerification(token: UUID) {
+        guard let generation = windowReorderVerificationTokens[token],
+              finishWindowReorderVerification(generation: generation, succeeded: false) else { return }
+        requestFullWindowOrderRecovery()
     }
 
     /// Sends `new-window -P -F '#{window_id}'` and returns its stable window id.

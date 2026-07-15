@@ -36,6 +36,10 @@ extension RemoteTmuxControlConnection {
                let completion = newWindowCompletions.removeValue(forKey: token) {
                 completion(nil)
             }
+            if case let .windowClose(token) = kind,
+               finishWindowCloseRequest(token: token, succeeded: false) {
+                requestWindows()
+            }
             // A rejected per-window size normally means the server predates
             // the '@id:WxH' form: degrade to session-wide sizing, visibly.
             // But a "can't find window" error is about ONE dead window (it
@@ -85,6 +89,10 @@ extension RemoteTmuxControlConnection {
                 RemoteTmuxControlStreamParser.id(Substring($0), sigil: "@")
             }
             completion(windowId)
+        case .windowClose:
+            // Command acceptance is intentionally not completion. The exact
+            // `%window-close` notification owns successful release.
+            break
         case let .paneRects(windowId, generation):
             handlePaneRectsReply(windowId: windowId, generation: generation, lines: lines)
         case let .listWindows(requestGeneration, retainedPaneIDs):
@@ -344,6 +352,7 @@ extension RemoteTmuxControlConnection {
             kind: .listWindowOrder(reorderGeneration: generation)
         ) else {
             finishWindowReorderVerification(generation: generation, succeeded: false)
+            requestFullWindowOrderRecovery()
             return
         }
     }
@@ -363,6 +372,13 @@ extension RemoteTmuxControlConnection {
         windowReorderBatchFailed = windowReorderBatchFailed || failed
         guard isLast else { return }
         if windowReorderBatchFailed {
+            if let generation = windowReorderVerificationGeneration,
+               windowReorderVerificationTokens.values.contains(generation) {
+                // A mobile mutation reports a rejected swap as failure even if
+                // later reconciliation shows another client reached the same
+                // order. Command acceptance is part of this request's result.
+                finishWindowReorderVerification(generation: generation, succeeded: false)
+            }
             requestFullWindowOrderRecovery()
         } else {
             requestWindowOrder()
@@ -376,17 +392,62 @@ extension RemoteTmuxControlConnection {
         completions.forEach { $0(nil) }
     }
 
-    func finishWindowReorderVerification(generation: UInt64, succeeded: Bool) {
+    @discardableResult
+    func finishWindowReorderVerification(generation: UInt64, succeeded: Bool) -> Bool {
+        let cancellation = windowReorderDeadlineCancellations.removeValue(forKey: generation)
+        let completion = windowReorderVerifications.removeValue(forKey: generation)
+        let tokens = windowReorderVerificationTokens.compactMap { entry in
+            entry.value == generation ? entry.key : nil
+        }
+        let owned = windowReorderVerificationGeneration == generation
+            || cancellation != nil
+            || completion != nil
+            || !tokens.isEmpty
+        guard owned else { return false }
+        cancellation?()
+        for token in tokens {
+            windowReorderVerificationTokens[token] = nil
+        }
         if windowReorderVerificationGeneration == generation {
             windowReorderVerificationGeneration = nil
         }
-        windowReorderVerifications.removeValue(forKey: generation)?(succeeded)
+        completion?(succeeded)
+        return true
     }
 
     func failPendingWindowReorderVerifications() {
-        let verifications = windowReorderVerifications.sorted { $0.key < $1.key }
-        windowReorderVerificationGeneration = nil
-        windowReorderVerifications.removeAll()
-        verifications.forEach { $0.value(false) }
+        var generations = Set(windowReorderVerifications.keys)
+        generations.formUnion(windowReorderDeadlineCancellations.keys)
+        generations.formUnion(windowReorderVerificationTokens.values)
+        if let generation = windowReorderVerificationGeneration {
+            generations.insert(generation)
+        }
+        for generation in generations.sorted() {
+            finishWindowReorderVerification(generation: generation, succeeded: false)
+        }
+    }
+
+    @discardableResult
+    func finishWindowCloseRequest(token: UUID, succeeded: Bool) -> Bool {
+        windowCloseDeadlineCancellations.removeValue(forKey: token)?()
+        guard let request = windowCloseRequests.removeValue(forKey: token) else { return false }
+        request.completion(succeeded)
+        return true
+    }
+
+    func finishWindowCloseRequests(windowID: Int, succeeded: Bool) {
+        let tokens = windowCloseRequests.compactMap { entry in
+            entry.value.windowID == windowID ? entry.key : nil
+        }
+        for token in tokens {
+            finishWindowCloseRequest(token: token, succeeded: succeeded)
+        }
+    }
+
+    func failPendingWindowCloseRequests() {
+        let tokens = Array(windowCloseRequests.keys)
+        for token in tokens {
+            finishWindowCloseRequest(token: token, succeeded: false)
+        }
     }
 }

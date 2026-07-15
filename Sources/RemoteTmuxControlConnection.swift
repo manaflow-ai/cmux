@@ -18,6 +18,11 @@ final class RemoteTmuxControlConnection {
         @escaping @MainActor () -> Void
     ) -> ActivityQueryDeadlineCancellation
 
+    struct PendingWindowClose {
+        let windowID: Int
+        let completion: (Bool) -> Void
+    }
+
     /// The host this connection talks to.
     let host: RemoteTmuxHost
     /// The tmux session name this connection attaches to. Mutable because a
@@ -97,6 +102,8 @@ final class RemoteTmuxControlConnection {
     /// cannot bound close RPCs.
     var activityQueryDeadlineCancellations: [UUID: ActivityQueryDeadlineCancellation] = [:]
     var newWindowCompletions: [UUID: (Int?) -> Void] = [:]
+    var windowCloseRequests: [UUID: PendingWindowClose] = [:]
+    var windowCloseDeadlineCancellations: [UUID: ActivityQueryDeadlineCancellation] = [:]
 
     private var process: Process?
     var stdinWriter: RemoteTmuxControlPipeWriter?
@@ -118,6 +125,8 @@ final class RemoteTmuxControlConnection {
     var windowReorderRecoveryGeneration: UInt64?
     var windowReorderVerificationGeneration: UInt64?
     var windowReorderVerifications: [UInt64: (Bool) -> Void] = [:]
+    var windowReorderVerificationTokens: [UUID: UInt64] = [:]
+    var windowReorderDeadlineCancellations: [UInt64: ActivityQueryDeadlineCancellation] = [:]
     private var connectionWaiters: [UUID: (Bool) -> Void] = [:]
     /// `false` until the attach command's own `%begin`/`%end` block — always the
     /// FIRST block on each control stream, preceding every notification — has been
@@ -362,6 +371,7 @@ final class RemoteTmuxControlConnection {
         // caller of spawnProcess can't strand command decisions.
         failPendingActivityQueries()
         failPendingNewWindowRequests()
+        failPendingWindowCloseRequests()
         failPendingWindowReorderVerifications()
         attachBlockDrained = false
         stderrBuffer = ""
@@ -492,6 +502,7 @@ final class RemoteTmuxControlConnection {
     private func cancelScheduledWork() {
         failPendingActivityQueries()
         failPendingNewWindowRequests()
+        failPendingWindowCloseRequests()
         failPendingWindowReorderVerifications()
         reconnectTask?.cancel()
         reconnectTask = nil
@@ -662,6 +673,7 @@ final class RemoteTmuxControlConnection {
         // not hang for the whole backoff window — fail it onto the cache now.
         failPendingActivityQueries()
         failPendingNewWindowRequests()
+        failPendingWindowCloseRequests()
         failPendingWindowReorderVerifications()
         resetWindowListRequestCoalescing()
         cancelSizingFollowUps()
@@ -812,6 +824,9 @@ final class RemoteTmuxControlConnection {
             // ledger above keeps any moved pane's control identity alive until
             // the authoritative window snapshot publishes its destination.
             observers.notifyTopologyChanged()
+            // Only this authoritative notification may release a successful
+            // mobile close, and only after observers removed the exact panel.
+            finishWindowCloseRequests(windowID: id, succeeded: true)
         case let .windowRenamed(id, name):
             record("window-renamed @\(id)")
             // Update published AND quarantined topology. A rename racing a

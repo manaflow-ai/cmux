@@ -13863,7 +13863,7 @@ class TerminalController {
         case "mobile.terminal.close", "terminal.close":
             result = await v2MobileTerminalClose(params: request.params)
         case "mobile.terminal.reorder", "terminal.reorder":
-            result = v2MobileTerminalReorder(params: request.params)
+            result = await v2MobileTerminalReorder(params: request.params)
         case "mobile.terminal.input", "terminal.input":
             result = v2MobileTerminalInput(params: request.params)
         case "mobile.terminal.paste", "terminal.paste":
