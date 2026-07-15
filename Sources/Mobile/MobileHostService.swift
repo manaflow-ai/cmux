@@ -477,12 +477,14 @@ final class MobileHostService {
     /// release and untagged builds keep the catalog default. The listener still
     /// falls back to an OS-assigned ephemeral port if this port is unavailable
     /// at bind time.
-    nonisolated static func configuredPort(defaults: UserDefaults = .standard) -> Int {
-        let fallback = defaultConfiguredPort()
-        guard let raw = defaults.object(forKey: portDefaultsKey) as? Int else {
-            return fallback
-        }
-        return (1...65535).contains(raw) ? raw : fallback
+    nonisolated static func configuredPort(
+        defaults: UserDefaults = .standard,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Int {
+        MobileHostPortPolicy.configuredPort(
+            defaults: defaults,
+            environment: environment
+        )
     }
 
     /// The port a settings change should reconcile the *running* listener to, or
@@ -493,48 +495,15 @@ final class MobileHostService {
     /// running listener and silently rebind it to the default port. Returns the
     /// launch identity's default when unset, the override when valid, and `nil`
     /// when the stored value is out of range.
-    nonisolated static func resolvedDesiredPort(defaults: UserDefaults = .standard) -> Int? {
-        guard let raw = defaults.object(forKey: portDefaultsKey) as? Int else {
-            return defaultConfiguredPort()
-        }
-        return (1...65535).contains(raw) ? raw : nil
-    }
-
-    nonisolated private static func defaultConfiguredPort() -> Int {
-        #if DEBUG
-        if let port = taggedDevelopmentDefaultPort() {
-            return port
-        }
-        #endif
-        return SettingCatalog().mobile.iOSPairingPort.defaultValue
-    }
-
-    #if DEBUG
-    nonisolated private static func taggedDevelopmentDefaultPort(
+    nonisolated static func resolvedDesiredPort(
+        defaults: UserDefaults = .standard,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> Int? {
-        guard let tag = SocketControlSettings.launchTag(environment: environment) else {
-            return nil
-        }
-        let normalizedTag = tag.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !normalizedTag.isEmpty, normalizedTag != "default" else { return nil }
-
-        var hash: UInt32 = 2_166_136_261
-        for byte in normalizedTag.utf8 {
-            hash ^= UInt32(byte)
-            hash &*= 16_777_619
-        }
-
-        let lowerBound = 49_152
-        let upperBound = 65_535
-        let portCount = upperBound - lowerBound + 1
-        var port = lowerBound + Int(hash % UInt32(portCount))
-        if port == CmxMobileDefaults.defaultHostPort {
-            port = lowerBound + ((port - lowerBound + 1) % portCount)
-        }
-        return port
+        MobileHostPortPolicy.resolvedDesiredPort(
+            defaults: defaults,
+            environment: environment
+        )
     }
-    #endif
 
     /// Pure reconciliation between the desired settings and the live listener
     /// state. Factored out so the restart-on-port-change decision is unit

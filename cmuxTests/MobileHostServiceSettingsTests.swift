@@ -1,7 +1,6 @@
 import CMUXMobileCore
 import CmuxIrohTransport
 import CmuxSettings
-import Darwin
 import Foundation
 import Testing
 
@@ -31,9 +30,12 @@ struct MobileHostServiceSettingsTests {
         let suiteName = "MobileHostServiceSettingsTests.Port.Default.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
-        Self.withoutLaunchTag {
+        Self.withoutLaunchTag { environment in
             let expected = SettingCatalog().mobile.iOSPairingPort.defaultValue
-            #expect(MobileHostService.configuredPort(defaults: defaults) == expected)
+            #expect(MobileHostService.configuredPort(
+                defaults: defaults,
+                environment: environment
+            ) == expected)
         }
     }
 
@@ -44,24 +46,36 @@ struct MobileHostServiceSettingsTests {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let catalogDefault = SettingCatalog().mobile.iOSPairingPort.defaultValue
-        let nodivs = Self.withLaunchTag("nodivs") {
-            MobileHostService.configuredPort(defaults: defaults)
+        let nodivs = Self.withLaunchTag("nodivs") { environment in
+            MobileHostService.configuredPort(
+                defaults: defaults,
+                environment: environment
+            )
         }
-        let nodivsRelaunch = Self.withLaunchTag("nodivs") {
-            MobileHostService.configuredPort(defaults: defaults)
+        let nodivsRelaunch = Self.withLaunchTag("nodivs") { environment in
+            MobileHostService.configuredPort(
+                defaults: defaults,
+                environment: environment
+            )
         }
-        let wtodo = Self.withLaunchTag("wtodo") {
-            MobileHostService.configuredPort(defaults: defaults)
+        let wtodo = Self.withLaunchTag("wtodo") { environment in
+            MobileHostService.configuredPort(
+                defaults: defaults,
+                environment: environment
+            )
         }
 
         #expect(nodivs == nodivsRelaunch)
         #expect(nodivs != catalogDefault)
         #expect(wtodo != catalogDefault)
         #expect(nodivs != wtodo)
-        #expect((49_152...65_535).contains(nodivs))
-        #expect((49_152...65_535).contains(wtodo))
-        Self.withLaunchTag("wtodo") {
-            #expect(MobileHostService.resolvedDesiredPort(defaults: defaults) == wtodo)
+        #expect(MobileHostPortPolicy.taggedDevelopmentPortRange.contains(nodivs))
+        #expect(MobileHostPortPolicy.taggedDevelopmentPortRange.contains(wtodo))
+        Self.withLaunchTag("wtodo") { environment in
+            #expect(MobileHostService.resolvedDesiredPort(
+                defaults: defaults,
+                environment: environment
+            ) == wtodo)
         }
     }
     #endif
@@ -72,9 +86,15 @@ struct MobileHostServiceSettingsTests {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         defaults.set(9000, forKey: MobileHostService.portDefaultsKey)
-        Self.withLaunchTag("nodivs") {
-            #expect(MobileHostService.configuredPort(defaults: defaults) == 9000)
-            #expect(MobileHostService.resolvedDesiredPort(defaults: defaults) == 9000)
+        Self.withLaunchTag("nodivs") { environment in
+            #expect(MobileHostService.configuredPort(
+                defaults: defaults,
+                environment: environment
+            ) == 9000)
+            #expect(MobileHostService.resolvedDesiredPort(
+                defaults: defaults,
+                environment: environment
+            ) == 9000)
         }
     }
 
@@ -93,10 +113,13 @@ struct MobileHostServiceSettingsTests {
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        Self.withoutLaunchTag {
+        Self.withoutLaunchTag { environment in
             defaults.set(invalidPort, forKey: MobileHostService.portDefaultsKey)
             let expected = SettingCatalog().mobile.iOSPairingPort.defaultValue
-            #expect(MobileHostService.configuredPort(defaults: defaults) == expected)
+            #expect(MobileHostService.configuredPort(
+                defaults: defaults,
+                environment: environment
+            ) == expected)
         }
     }
 
@@ -105,9 +128,12 @@ struct MobileHostServiceSettingsTests {
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        Self.withoutLaunchTag {
+        Self.withoutLaunchTag { environment in
             // Unset -> catalog default (a valid desired port).
-            #expect(MobileHostService.resolvedDesiredPort(defaults: defaults)
+            #expect(MobileHostService.resolvedDesiredPort(
+                defaults: defaults,
+                environment: environment
+            )
                 == SettingCatalog().mobile.iOSPairingPort.defaultValue)
         }
 
@@ -157,33 +183,21 @@ struct MobileHostServiceSettingsTests {
         #expect(MobileHostService.syncDecision(enabled: true, listenerRunning: true, desiredPort: 58465, appliedPort: nil) == .restart)
     }
 
-    private static func withLaunchTag<T>(_ tag: String, _ body: () throws -> T) rethrows -> T {
-        try withEnvironmentValue(SocketControlSettings.launchTagEnvKey, value: tag, body)
-    }
-
-    private static func withoutLaunchTag<T>(_ body: () throws -> T) rethrows -> T {
-        try withEnvironmentValue(SocketControlSettings.launchTagEnvKey, value: nil, body)
-    }
-
-    private static func withEnvironmentValue<T>(
-        _ key: String,
-        value: String?,
-        _ body: () throws -> T
+    private static func withLaunchTag<T>(
+        _ tag: String,
+        _ body: ([String: String]) throws -> T
     ) rethrows -> T {
-        let previous = getenv(key).map { String(cString: $0) }
-        if let value {
-            setenv(key, value, 1)
-        } else {
-            unsetenv(key)
-        }
-        defer {
-            if let previous {
-                setenv(key, previous, 1)
-            } else {
-                unsetenv(key)
-            }
-        }
-        return try body()
+        var environment = ProcessInfo.processInfo.environment
+        environment[SocketControlSettings.launchTagEnvKey] = tag
+        return try body(environment)
+    }
+
+    private static func withoutLaunchTag<T>(
+        _ body: ([String: String]) throws -> T
+    ) rethrows -> T {
+        var environment = ProcessInfo.processInfo.environment
+        environment[SocketControlSettings.launchTagEnvKey] = nil
+        return try body(environment)
     }
 }
 
