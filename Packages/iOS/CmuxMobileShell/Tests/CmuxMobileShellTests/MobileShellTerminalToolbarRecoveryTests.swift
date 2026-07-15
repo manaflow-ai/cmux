@@ -48,6 +48,77 @@ import Testing
         #expect(completions.count == 1, "the late transport response must not complete the toolbar a second time")
     }
 
+    @Test func replacementCancelledCompatibilityCreateFencesHierarchyBeforeRetry() async throws {
+        let originalRouter = RoutingHostRouter()
+        await originalRouter.setHoldFirstTerminalCreate(true)
+        let compatibilityCapabilities = MobileWorkspaceActionCapabilities(
+            supportsTerminalCloseActions: false,
+            supportsTerminalCreateInPane: true,
+            supportsTerminalReorderActions: false
+        )
+        let store = try await makeRoutingConnectedStore(
+            router: originalRouter,
+            connectionState: .connected,
+            workspaceActionCapabilities: compatibilityCapabilities
+        )
+        let workspace = try #require(store.workspaces.first)
+        var firstCompletions: [Result<Void, MobileWorkspaceMutationFailure>] = []
+
+        store.createTerminal(in: workspace.id) { result in
+            firstCompletions.append(result)
+        }
+        await originalRouter.awaitFirstTerminalCreateReached()
+
+        #expect(store.terminalCreationRequestOwner.isActive)
+        #expect(!store.terminalReorderGate.isActive(workspaceID: workspace.id))
+
+        store.clearRemoteConnectionContext(preservingOtherMacWorkspaceState: true)
+        let replacementRouter = RoutingHostRouter()
+        try installFreshRemoteClient(on: store, router: replacementRouter)
+        store.foregroundMacDeviceID = workspace.macDeviceID
+
+        #expect(!store.terminalCreationRequestOwner.isActive)
+        #expect(firstCompletions.count == 1)
+        guard firstCompletions.count == 1 else {
+            await originalRouter.releaseFirstTerminalCreate()
+            return
+        }
+        guard case .failure(.resultUnknownNeedsRefresh) = firstCompletions[0] else {
+            await originalRouter.releaseFirstTerminalCreate()
+            Issue.record(
+                "cancelled compatibility create should report an unknown result: \(firstCompletions[0])"
+            )
+            return
+        }
+        #expect(store.terminalReorderGate.requiresRefresh(workspaceID: workspace.id))
+        #expect(!store.terminalReorderGate.canMutate(workspaceID: workspace.id))
+
+        let retryResult = await withCheckedContinuation { continuation in
+            store.createTerminal(in: workspace.id) { result in
+                continuation.resume(returning: result)
+            }
+        }
+
+        guard case .success = retryResult else {
+            await originalRouter.releaseFirstTerminalCreate()
+            Issue.record("retry should recover the uncertain hierarchy: \(retryResult)")
+            return
+        }
+        #expect(await replacementRouter.workspaceListGate.requestCount() == 1)
+        let originalCreateCount = await originalRouter.recordedTerminalCreateCount()
+        let replacementCreateCount = await replacementRouter.recordedTerminalCreateCount()
+        let totalCreateCount = originalCreateCount + replacementCreateCount
+        #expect(totalCreateCount == 1)
+        #expect(!store.terminalReorderGate.requiresRefresh(workspaceID: workspace.id))
+        #expect(store.terminalReorderGate.canMutate(workspaceID: workspace.id))
+
+        await originalRouter.releaseFirstTerminalCreate()
+        for _ in 0..<100 {
+            await Task.yield()
+        }
+        #expect(firstCompletions.count == 1)
+    }
+
     @Test func toolbarCompletionWaitsForSuccessfulHierarchyRecovery() async throws {
         let router = RoutingHostRouter()
         await router.workspaceListGate.setHoldFirst(true)
