@@ -272,6 +272,45 @@ struct VerifiedReplayPresentationTests {
         ))
     }
 
+    @Test("geometry transition keeps a token-only drain ready")
+    func presentationFenceRestartsTokenOnlyDrainReady() {
+        let identity = makeIdentity(
+            id: 10,
+            seed: 13,
+            pixelWidth: 1_170,
+            pixelHeight: 1_500
+        )
+        let initial = makeGeometry()
+        let transitioned = makeGeometry(
+            rendererFrame: CGRect(x: 0, y: 0, width: 390, height: 500)
+        )
+        var fence = VerifiedReplayPresentationFence(
+            expectedToken: 42,
+            expectedGeometryRevision: 7,
+            expectedGeometry: initial
+        )
+
+        fence.restart(
+            expectedToken: 43,
+            expectedGeometryRevision: 8,
+            expectedGeometry: transitioned,
+            observedFrameReady: true
+        )
+        #expect(fence.acknowledge(
+            token: 43,
+            modelIdentity: identity,
+            geometryRevision: 8,
+            geometry: transitioned
+        ))
+        #expect(fence.isSatisfied(
+            modelIdentity: identity,
+            presentationIdentity: identity,
+            geometryRevision: 8,
+            modelGeometry: transitioned,
+            presentationGeometry: transitioned
+        ))
+    }
+
     private func makeSurface(fill byte: UInt8) throws -> IOSurface {
         let width = 2
         let height = 2
