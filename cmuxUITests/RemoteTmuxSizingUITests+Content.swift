@@ -211,6 +211,24 @@ extension RemoteTmuxSizingUITests {
         XCTFail("window @\(window) size never stabilized \(context): \(last)")
     }
 
+    /// Waits until tmux reports the window at the expected size. Deterministic
+    /// replacement for pacing sleeps between hidden-window resizes: the next
+    /// resize is issued only once tmux has observably applied the first.
+    func waitForTmuxWindowSize(window: Int, expected: String, within timeout: TimeInterval, context: String) throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        var last = "no samples"
+        while Date() < deadline {
+            if let size = tmux(["display-message", "-p",
+                                "-t", "\(sessionName):@\(window)",
+                                "#{window_width}x#{window_height}"]) {
+                if size == expected { return }
+                last = size
+            }
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        XCTFail("window @\(window) never reached \(expected) \(context): \(last)")
+    }
+
     /// Every pane of a tmux window holds content parity with tmux, each judged
     /// against its OWN surface. Requires the window to be the one on screen:
     /// its panes must all appear in the on-screen surface map, so a scenario
@@ -386,7 +404,7 @@ extension RemoteTmuxSizingUITests {
         XCTAssertTrue(selectTab(named: "split"), "could not select split tab")
         try assertSettles(selectedWindow: split, within: 10, context: "split front")
         mustRunTmux(["resize-window", "-t", "\(sessionName):@\(solo)", "-x", "80", "-y", "24"], "shrinking solo while hidden")
-        Thread.sleep(forTimeInterval: 1.0)
+        try waitForTmuxWindowSize(window: solo, expected: "80x24", within: 10, context: "solo hidden shrink")
         mustRunTmux(["resize-window", "-t", "\(sessionName):@\(solo)", "-x", "150", "-y", "42"], "growing solo while hidden")
         // Reveal and require parity.
         XCTAssertTrue(selectTab(named: "solo"), "could not select solo tab")
