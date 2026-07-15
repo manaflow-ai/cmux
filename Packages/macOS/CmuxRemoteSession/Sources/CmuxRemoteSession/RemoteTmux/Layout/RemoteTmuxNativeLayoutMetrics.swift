@@ -128,7 +128,7 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
         // it away (the tight-container fuzz measures exactly this). Claiming
         // one point per pane fewer cells keeps every claimed cell honestly
         // placeable; the cost is at most one column/row at boundary sizes.
-        let overhead = residual(of: layout)
+        let overhead = claimResidual(of: layout)
         let columns = Int(floor((contentSize.width - overhead.width) / cellSize.width))
         let rows = Int(floor((contentSize.height - overhead.height) / cellSize.height))
         return (
@@ -161,10 +161,44 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
         )
     }
 
+    /// Chrome residual for the window-size CLAIM.
+    ///
+    /// ``residual(of:)`` reads the LIVE parent-minus-children gap, so it moves
+    /// by a cell whenever tmux folds the pane-border title row in or out of a
+    /// child span across a reflow. Feeding that into the claim makes the claim
+    /// read its own effect: it resizes the window, tmux republishes the tree
+    /// with the title row on the other side of the gap, and the next claim
+    /// lands a row away — the window-size claim oscillates and never settles.
+    ///
+    /// This variant reserves chrome from the stable model instead: one native
+    /// divider per STRUCTURAL boundary (`children.count - 1` per split), never
+    /// the assigned gap, plus one title row at the configured window edge under
+    /// `pane-border-status`. Every interior title row shares a border row that
+    /// is already charged as a structural separator, so the single edge title
+    /// is the whole reservation with no double count. The result depends only
+    /// on the container, cell size, pane structure, and border-status setting —
+    /// so the same window always yields the same claim, titled or not, and tmux
+    /// converges instead of the claim chasing the reflow.
+    func claimResidual(of node: RemoteTmuxLayoutNode) -> CGSize {
+        let structural = residual(
+            of: node,
+            panePlacementSlack: Self.paneQuantizationSlack,
+            paneTitleRowPaneIDs: resolvedPaneTitleRowPaneIDs(for: node),
+            useStructuralGap: true
+        )
+        guard paneTitleRowHeight > 0,
+              !resolvedPaneTitleRowPaneIDs(for: node).isEmpty else { return structural }
+        return CGSize(
+            width: structural.width,
+            height: structural.height - paneTitleRowHeight
+        )
+    }
+
     private func residual(
         of node: RemoteTmuxLayoutNode,
         panePlacementSlack: CGFloat,
-        paneTitleRowPaneIDs: Set<Int>
+        paneTitleRowPaneIDs: Set<Int>,
+        useStructuralGap: Bool = false
     ) -> CGSize {
         switch node.content {
         case .pane:
@@ -182,12 +216,18 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
                 residual(
                     of: $0,
                     panePlacementSlack: panePlacementSlack,
-                    paneTitleRowPaneIDs: paneTitleRowPaneIDs
+                    paneTitleRowPaneIDs: paneTitleRowPaneIDs,
+                    useStructuralGap: useStructuralGap
                 )
             }
             return CGSize(
                 width: childResiduals.reduce(0) { $0 + $1.width }
-                    + separatorResidual(parent: node, children: children, axis: .horizontal),
+                    + separatorResidual(
+                        parent: node,
+                        children: children,
+                        axis: .horizontal,
+                        useStructuralGap: useStructuralGap
+                    ),
                 height: childResiduals.map(\.height).max() ?? 0
             )
         case .vertical(let children):
@@ -195,13 +235,19 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
                 residual(
                     of: $0,
                     panePlacementSlack: panePlacementSlack,
-                    paneTitleRowPaneIDs: paneTitleRowPaneIDs
+                    paneTitleRowPaneIDs: paneTitleRowPaneIDs,
+                    useStructuralGap: useStructuralGap
                 )
             }
             return CGSize(
                 width: childResiduals.map(\.width).max() ?? 0,
                 height: childResiduals.reduce(0) { $0 + $1.height }
-                    + separatorResidual(parent: node, children: children, axis: .vertical)
+                    + separatorResidual(
+                        parent: node,
+                        children: children,
+                        axis: .vertical,
+                        useStructuralGap: useStructuralGap
+                    )
             )
         }
     }
@@ -551,14 +597,23 @@ public struct RemoteTmuxNativeLayoutMetrics: Equatable, Sendable {
     private func separatorResidual(
         parent: RemoteTmuxLayoutNode,
         children: [RemoteTmuxLayoutNode],
-        axis: RemoteTmuxSplitOrientation
+        axis: RemoteTmuxSplitOrientation,
+        useStructuralGap: Bool = false
     ) -> CGFloat {
         let boundaries = max(0, children.count - 1)
-        let gapCells = Self.assignedGapCells(
-            parentSpan: axis == .horizontal ? parent.width : parent.height,
-            childSpans: children.map { axis == .horizontal ? $0.width : $0.height },
-            fallback: boundaries
-        )
+        // The claim reserves the STRUCTURAL separator count — one gap cell per
+        // boundary — never the assigned gap. tmux draws the interior title rows
+        // on those same separator rows (no double count), and the single
+        // window-edge title is charged once by ``claimResidual(of:)``. Reading
+        // `parentSpan - childSpans` here instead would let the claim move by a
+        // cell as tmux folds the title row in and out of a child span.
+        let gapCells = useStructuralGap
+            ? boundaries
+            : Self.assignedGapCells(
+                parentSpan: axis == .horizontal ? parent.width : parent.height,
+                childSpans: children.map { axis == .horizontal ? $0.width : $0.height },
+                fallback: boundaries
+            )
         let cell = axis == .horizontal ? cellSize.width : cellSize.height
         return CGFloat(boundaries) * dividerThickness - CGFloat(gapCells) * cell
     }

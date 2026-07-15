@@ -71,12 +71,60 @@ import Testing
         ))
 
         // One rail-slack point per pane comes off the claim (see the
-        // single-pane claim test); title rows still cost the claim nothing —
-        // they live in the tree's coordinates.
+        // single-pane claim test). The claim also RESERVES the one server-owned
+        // title row at the configured window edge (`pane-border-status`): the
+        // window needs that extra row to draw the border title on top of the
+        // panes, so the claim carries a row for it whether or not the current
+        // spans happen to fold it into a child — one more row than the panes
+        // alone would occupy. Height overhead is therefore one cell smaller
+        // than the panes-only chrome (horizontal 35 − 10 = 25, vertical 62 − 10
+        // = 52), lifting each claim by a row (rows 26 → 27, 27 → 28).
         #expect(horizontalGrid.columns == 29)
-        #expect(horizontalGrid.rows == 26)
+        #expect(horizontalGrid.rows == 27)
         #expect(verticalGrid.columns == 29)
-        #expect(verticalGrid.rows == 27)
+        #expect(verticalGrid.rows == 28)
+    }
+
+    @Test func clientGridClaimIsAFixedPointRegardlessOfTitleRowFolding() throws {
+        let metrics = RemoteTmuxNativeLayoutMetrics(
+            cellSize: CGSize(width: 10, height: 10),
+            surfacePadding: CGSize(width: 2, height: 4),
+            tabBarHeight: 30,
+            dividerThickness: 2,
+            paneTitleRowHeight: 10
+        )
+        // One window, two ways tmux publishes it under pane-border-status. The
+        // spans differ only in whether the title row shows as an extra gap row
+        // (parent taller than the children) or is folded so the children sum to
+        // the parent — the reflow flips between these live-to-live. The claim is
+        // a function of the container, cell size, structure, and border-status
+        // setting, so it MUST NOT move with that fold, or it chases its own
+        // effect and the window-size claim never settles.
+        let titleInGap = RemoteTmuxLayoutNode(
+            width: 10,
+            height: 22,
+            x: 0,
+            y: 0,
+            content: .vertical([
+                RemoteTmuxLayoutNode(width: 10, height: 10, x: 0, y: 1, content: .pane(1)),
+                RemoteTmuxLayoutNode(width: 10, height: 10, x: 0, y: 12, content: .pane(2)),
+            ])
+        )
+        let titleFolded = RemoteTmuxLayoutNode(
+            width: 10,
+            height: 21,
+            x: 0,
+            y: 0,
+            content: .vertical([
+                RemoteTmuxLayoutNode(width: 10, height: 10, x: 0, y: 0, content: .pane(1)),
+                RemoteTmuxLayoutNode(width: 10, height: 10, x: 0, y: 11, content: .pane(2)),
+            ])
+        )
+        let container = CGSize(width: 302, height: 340)
+        let gapClaim = try #require(metrics.clientGrid(layout: titleInGap, contentSize: container))
+        let foldedClaim = try #require(metrics.clientGrid(layout: titleFolded, contentSize: container))
+        #expect(gapClaim.columns == foldedClaim.columns)
+        #expect(gapClaim.rows == foldedClaim.rows)
     }
 
     @Test func titleRowsOnlyChargePanesTouchingTheirConfiguredEdge() {
