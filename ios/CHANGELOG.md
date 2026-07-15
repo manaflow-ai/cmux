@@ -48,6 +48,7 @@ for a different version), so bump the beta version with
 
 ### Internal
 
+- Targeted hotfix build (base = last shipped beta commit + one cherry-pick): files chip anchored to the terminal top instead of above the bottom toolbar, where it covered the input row (#8124).
 - Version-sync bump: checked-in beta marketing version catches up to `1.0.4`, the version already live to external founders (an earlier upload under that version shipped stale, pre-#7636 code; the CI reship on 2026-07-09 replaced it with current `main`).
 - Fix iOS surface-teardown deadlock behind external-beta watchdog kills (#7666).
 - Add iOS account deletion and legal links (#7645).
@@ -64,6 +65,7 @@ for a different version), so bump the beta version with
 
 ### External
 
+- The session files chip now sits at the top of the terminal, so it no longer covers the input row while you type.
 - Fixed an issue where the app could freeze or crash in the background.
 - Fixed an issue that could sign you out unexpectedly after updating.
 - Terminal connections recover more reliably after switching apps or losing network.
