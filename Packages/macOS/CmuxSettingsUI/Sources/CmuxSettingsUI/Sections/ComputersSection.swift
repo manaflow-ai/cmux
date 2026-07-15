@@ -364,7 +364,7 @@ private struct ComputersSectionRow: View {
             Button(String(localized: "settings.computers.row.open", defaultValue: "Open")) {
                 open()
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.bordered)
             .controlSize(.small)
             .accessibilityIdentifier("SettingsComputersOpenButton-\(computer.deviceID)")
 
