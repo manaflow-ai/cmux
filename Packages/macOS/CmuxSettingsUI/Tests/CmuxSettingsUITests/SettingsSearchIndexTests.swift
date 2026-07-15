@@ -82,6 +82,32 @@ struct SettingsSearchIndexTests {
         })
     }
 
+    @MainActor
+    @Test func settingsRootsKeepSearchStateIndependent() {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        let first = SettingsSidebarModel(searchIndex: index)
+        let second = SettingsSidebarModel(searchIndex: index)
+
+        first.searchText = "browser"
+
+        #expect(first.isSearching)
+        #expect(second.searchText.isEmpty)
+        #expect(!second.isSearching)
+    }
+
+    @MainActor
+    @Test func sidebarCachesMatchesUntilTheQueryChanges() {
+        let model = SettingsSidebarModel(searchIndex: SettingsSearchIndex(catalog: SettingCatalog()))
+
+        #expect(model.searchEvaluationCount == 1)
+        model.searchText = "browser"
+        #expect(model.searchEvaluationCount == 2)
+
+        model.searchText = "browser"
+        #expect(model.searchEvaluationCount == 2)
+        #expect(model.visibleEntries.contains { $0.title == "Browser" })
+    }
+
     private static func makeDefaultsStore(suiteName: String) -> UserDefaultsSettingsStore {
         UserDefaultsSettingsStore(defaults: UserDefaults(suiteName: suiteName)!)
     }

@@ -28,13 +28,14 @@ public struct SettingsWindowRoot: View {
         self.navigationRouter = SettingsNavigationNotificationRouter(scope: navigationScope)
         self.presentationStyle = presentationStyle
         self.selectionDefaults = selectionDefaults
+        _sidebarModel = State(initialValue: SettingsSidebarModel(searchIndex: runtime.searchIndex))
         let selection = SettingsInitialSelectionResolver(defaults: selectionDefaults)
             .resolve(initialNavigationSection: initialNavigationSection)
         _selectedSectionRaw = State(initialValue: selection.sectionRawValue)
         _selectedSidebarEntryID = State(initialValue: selection.sidebarEntryID)
     }
 
-    @State private var searchText: String = ""
+    @State private var sidebarModel: SettingsSidebarModel
     // Legacy SettingsRootView persists two distinct pieces of state:
     // `selectedSettingsSection` (the top-level section pane shown in
     // the detail) and `selectedSettingsSidebarEntry` (the specific
@@ -96,7 +97,7 @@ public struct SettingsWindowRoot: View {
     /// Whether the user currently has a non-empty search query. When
     /// false the sidebar should track section selection only; when true
     /// the per-entry selection survives.
-    private var isSearching: Bool { !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    private var isSearching: Bool { sidebarModel.isSearching }
 
     // Legacy uses a non-optional `Binding<String>` because a sidebar
     // selection always points at *some* entry (section row or setting
@@ -141,15 +142,6 @@ public struct SettingsWindowRoot: View {
                 isPaneSidebarVisible.toggle()
             }
         }
-        .onChange(of: searchText) { _, newValue in
-            // Legacy SettingsRootView resyncs the sidebar entry to the
-            // section row whenever the search text is cleared, so
-            // typing then clearing doesn't leave a stale "deep" entry
-            // selected.
-            guard newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-            selectedSidebarEntryID = sectionEntryID(for: selectedSection)
-            persistSelection()
-        }
     }
 
     public static let navigationRequestName = Notification.Name("cmux.settings.navigate")
@@ -160,7 +152,11 @@ public struct SettingsWindowRoot: View {
         switch presentationStyle {
         case .window:
             NavigationSplitView(columnVisibility: $columnVisibility) {
-                nativeSidebar
+                SettingsNativeSidebar(
+                    model: sidebarModel,
+                    selection: sidebarSelectionBinding,
+                    onSearchCleared: resetSidebarSelectionAfterSearch
+                )
             } detail: {
                 detailScroll
             }
@@ -168,10 +164,16 @@ public struct SettingsWindowRoot: View {
         case .pane:
             HStack(spacing: 0) {
                 if isPaneSidebarVisible {
-                    paneSidebar
+                    SettingsPaneSidebar(
+                        model: sidebarModel,
+                        selectedEntryID: selectedSidebarEntryID,
+                        onSelect: selectSidebarEntry,
+                        onSearchCleared: resetSidebarSelectionAfterSearch
+                    )
                     Divider()
                 }
                 detailScroll
+                    .dynamicTypeSize(.xLarge)
             }
         }
     }
@@ -202,83 +204,6 @@ public struct SettingsWindowRoot: View {
         navigate(to: target, preferSectionSelection: !shouldPreserveSearchSelection)
     }
 
-    @ViewBuilder
-    private var nativeSidebar: some View {
-        List(selection: sidebarSelectionBinding) {
-            let matches = sidebarEntries(matching: searchText)
-            if matches.isEmpty {
-                Text(String(localized: "settings.search.noResults", defaultValue: "No Results"))
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(matches) { entry in
-                    SettingsSidebarEntryRow(
-                        title: entry.title,
-                        symbolName: entry.symbolName,
-                        subtitle: subtitle(for: entry)
-                    )
-                    .tag(entry.id)
-                }
-            }
-        }
-        .listStyle(.sidebar)
-        .navigationTitle(String(localized: "settings.title", defaultValue: "Settings"))
-        .searchable(text: $searchText, placement: .sidebar, prompt: Text(String(localized: "settings.search.prompt", defaultValue: "Search")))
-        .navigationSplitViewColumnWidth(210)
-    }
-
-    private var paneSidebar: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-                TextField(
-                    String(localized: "settings.search.prompt", defaultValue: "Search"),
-                    text: $searchText
-                )
-                .textFieldStyle(.plain)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    let matches = sidebarEntries(matching: searchText)
-                    if matches.isEmpty {
-                        Text(String(localized: "settings.search.noResults", defaultValue: "No Results"))
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(12)
-                    } else {
-                        ForEach(matches) { entry in
-                            Button {
-                                selectSidebarEntry(entry.id)
-                            } label: {
-                                SettingsSidebarEntryRow(
-                                    title: entry.title,
-                                    symbolName: entry.symbolName,
-                                    subtitle: subtitle(for: entry),
-                                    isSelected: selectedSidebarEntryID == entry.id
-                                )
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 7)
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .overlay(alignment: .leading) {
-                                if selectedSidebarEntryID == entry.id {
-                                    Rectangle()
-                                        .fill(Color.accentColor)
-                                        .frame(width: 2)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        .frame(width: 210)
-    }
-
     func sidebarEntries(matching query: String) -> [SettingsSearchIndex.Entry] { searchIndex.match(query) }
 
     /// Legacy `SettingsSearchEntry` populates `subtitle` with the
@@ -286,13 +211,9 @@ public struct SettingsWindowRoot: View {
     /// section-type hits, so `SettingsSidebarEntryRow` renders the
     /// section name underneath each search hit but keeps section
     /// rows single-line. Mirror that here.
-    private func subtitle(for entry: SettingsSearchIndex.Entry) -> String? {
-        switch entry.kind {
-        case .section:
-            return nil
-        case .setting(let parent):
-            return parent.title
-        }
+    private func resetSidebarSelectionAfterSearch() {
+        selectedSidebarEntryID = sectionEntryID(for: selectedSection)
+        persistSelection()
     }
 
     /// Updates both the sidebar entry selection and the underlying
@@ -602,5 +523,157 @@ public struct SettingsWindowRoot: View {
 
     private func anchorID(for section: SettingsSectionID) -> String {
         "section:\(section.rawValue)"
+    }
+}
+
+@MainActor
+private struct SettingsNativeSidebar: View {
+    @Bindable var model: SettingsSidebarModel
+    let selection: Binding<String>
+    let onSearchCleared: () -> Void
+
+    var body: some View {
+        List(selection: selection) {
+            SettingsSidebarResults(model: model)
+        }
+        .listStyle(.sidebar)
+        .navigationTitle(String(localized: "settings.title", defaultValue: "Settings"))
+        .searchable(
+            text: $model.searchText,
+            placement: .sidebar,
+            prompt: Text(String(localized: "settings.search.prompt", defaultValue: "Search"))
+        )
+        .navigationSplitViewColumnWidth(210)
+        .onChange(of: model.searchText) { oldValue, newValue in
+            guard
+                !oldValue.isEmpty,
+                newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else { return }
+            onSearchCleared()
+        }
+    }
+}
+
+@MainActor
+private struct SettingsPaneSidebar: View {
+    @Bindable var model: SettingsSidebarModel
+    let selectedEntryID: String
+    let onSelect: (String) -> Void
+    let onSearchCleared: () -> Void
+
+    @FocusState private var isSearchFocused: Bool
+
+    var body: some View {
+        VStack(spacing: 0) {
+            searchField
+
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    if model.visibleEntries.isEmpty {
+                        Text(String(localized: "settings.search.noResults", defaultValue: "No Results"))
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(12)
+                    } else {
+                        ForEach(model.visibleEntries) { entry in
+                            Button {
+                                onSelect(entry.id)
+                            } label: {
+                                SettingsSidebarEntryRow(
+                                    title: entry.title,
+                                    symbolName: entry.symbolName,
+                                    subtitle: sidebarSubtitle(for: entry),
+                                    isSelected: selectedEntryID == entry.id
+                                )
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 7)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .overlay(alignment: .leading) {
+                                if selectedEntryID == entry.id {
+                                    Rectangle()
+                                        .fill(Color.accentColor)
+                                        .frame(width: 2)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .frame(width: 210)
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+
+            TextField(
+                String(localized: "settings.search.prompt", defaultValue: "Search"),
+                text: $model.searchText
+            )
+            .textFieldStyle(.plain)
+            .focused($isSearchFocused)
+
+            if !model.searchText.isEmpty {
+                Button {
+                    model.searchText = ""
+                    onSearchCleared()
+                    isSearchFocused = true
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(String(localized: "settings.search.clear", defaultValue: "Clear Search"))
+            }
+        }
+        .padding(.horizontal, 9)
+        .frame(height: 30)
+        .background {
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(Color.primary.opacity(isSearchFocused ? 0.10 : 0.065))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .stroke(
+                    isSearchFocused ? Color.accentColor.opacity(0.9) : Color.primary.opacity(0.10),
+                    lineWidth: isSearchFocused ? 1.5 : 1
+                )
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
+    }
+}
+
+@MainActor
+private struct SettingsSidebarResults: View {
+    let model: SettingsSidebarModel
+
+    var body: some View {
+        if model.visibleEntries.isEmpty {
+            Text(String(localized: "settings.search.noResults", defaultValue: "No Results"))
+                .foregroundStyle(.secondary)
+        } else {
+            ForEach(model.visibleEntries) { entry in
+                SettingsSidebarEntryRow(
+                    title: entry.title,
+                    symbolName: entry.symbolName,
+                    subtitle: sidebarSubtitle(for: entry)
+                )
+                .tag(entry.id)
+            }
+        }
+    }
+}
+
+private func sidebarSubtitle(for entry: SettingsSearchIndex.Entry) -> String? {
+    switch entry.kind {
+    case .section:
+        nil
+    case .setting(let parent):
+        parent.title
     }
 }
