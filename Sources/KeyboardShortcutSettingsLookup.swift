@@ -82,5 +82,19 @@ extension KeyboardShortcutSettings {
         guard isManagedBySettingsFile(action) else { return nil }
         return String(localized: "settings.shortcuts.managedByFile", defaultValue: "Managed in cmux.json")
     }
+}
 
+extension KeyboardShortcutSettings.Action {
+    func tooltip(_ base: String) -> String {
+        "\(base) (\(displayedShortcutString(for: KeyboardShortcutSettings.shortcut(for: self))))"
+    }
+
+    var usesNumberedDigitMatching: Bool {
+        switch self {
+        case .selectSurfaceByNumber, .selectWorkspaceByNumber:
+            return true
+        default:
+            return false
+        }
+    }
 }
