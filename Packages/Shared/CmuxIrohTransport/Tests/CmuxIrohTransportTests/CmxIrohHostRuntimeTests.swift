@@ -5,6 +5,38 @@ import Testing
 
 @Suite
 struct CmxIrohHostRuntimeTests {
+    @Test("cold start retries transient broker connectivity before becoming active")
+    func coldStartRetriesTransientBrokerConnectivity() async throws {
+        let fixture = try HostRuntimeFixture()
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery,
+            registrationError: .connectivity
+        )
+        let runtime = CmxIrohHostRuntime(
+            factory: TestIrohEndpointFactory(
+                endpoints: [TestIrohEndpoint(identity: fixture.endpointID)]
+            ),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            registrationClock: ImmediateHostActivationClock(),
+            registrationRetrySchedule: CmxIrohRetrySchedule(
+                initialDelay: 1,
+                maximumDelay: 1,
+                jitterFraction: 0
+            ),
+            registrationRetryJitter: { 0 },
+            handleTransport: { session, _ in await session.close() }
+        )
+
+        try await runtime.start()
+
+        #expect(await broker.observedRegistrationCount() == 2)
+        #expect(await runtime.snapshot().state == .active)
+        await runtime.stop()
+    }
+
     @Test
     func pendingRevocationFailureBlocksHostRegistrationAndCachedFallback() async throws {
         let fixture = try HostRuntimeFixture()
