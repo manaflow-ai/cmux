@@ -1,7 +1,11 @@
+use std::io::{BufRead, BufReader, Write};
 use std::net::{Shutdown, SocketAddr, TcpStream};
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use base64::Engine;
+use cmux_tui_core::platform::transport;
 use cmux_tui_core::{Mux, MuxEvent, SurfaceOptions, server};
 use serde_json::{Value, json};
 use tungstenite::{Message, WebSocket, client};
@@ -33,6 +37,31 @@ fn read_until(websocket: &mut WebSocket<TcpStream>, predicate: impl Fn(&Value) -
             return value;
         }
     }
+}
+
+fn unique_socket(name: &str) -> PathBuf {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    // serve() chmods the socket's parent directory; temp_dir() itself can be
+    // root-owned (/tmp on Linux CI), so the socket needs a user-owned subdir.
+    let dir = std::env::temp_dir().join(format!("cmux-test-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    dir.join(format!("cmux-{name}-{}.sock", NEXT.fetch_add(1, Ordering::Relaxed)))
+}
+
+fn read_line_until(reader: &mut impl BufRead, predicate: impl Fn(&Value) -> bool) -> Value {
+    loop {
+        let value = read_json_line(reader);
+        if predicate(&value) {
+            return value;
+        }
+    }
+}
+
+fn read_json_line(reader: &mut impl BufRead) -> Value {
+    let mut line = String::new();
+    reader.read_line(&mut line).unwrap();
+    assert!(!line.is_empty(), "Unix connection closed before expected message");
+    serde_json::from_str(&line).unwrap()
 }
 
 #[test]
@@ -124,6 +153,112 @@ fn websocket_streams_subscribe_and_attach_and_survives_unclean_disconnect() {
     assert_eq!(identify["data"]["protocol"], server::PROTOCOL_VERSION);
 
     mux.shutdown();
+}
+
+#[test]
+fn clients_list_identify_resize_and_detach_across_transports() {
+    let mux = Mux::new("client-presence", SurfaceOptions::default());
+    let surface = mux
+        .run_command_surface(vec!["/bin/cat".to_string()], None, true, None, None, Some((80, 24)))
+        .unwrap()
+        .surface;
+    let socket_path = unique_socket("client-presence");
+    server::serve(mux.clone(), Some(socket_path.clone())).unwrap();
+    let websocket_server =
+        server::serve_websocket(mux.clone(), "127.0.0.1:0".parse().unwrap(), None, false).unwrap();
+
+    let unix = transport::connect(&socket_path).unwrap();
+    unix.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    let mut unix_writer = unix.try_clone_box().unwrap();
+    let mut unix_reader = BufReader::new(unix);
+    writeln!(unix_writer, r#"{{"id":1,"cmd":"subscribe"}}"#).unwrap();
+    assert_eq!(read_line_until(&mut unix_reader, |value| value["id"] == 1)["ok"], true);
+    writeln!(unix_writer, r#"{{"id":2,"cmd":"attach-surface","surface":{surface}}}"#).unwrap();
+    assert_eq!(
+        read_line_until(&mut unix_reader, |value| value["event"] == "vt-state")["surface"],
+        surface
+    );
+    assert_eq!(read_line_until(&mut unix_reader, |value| value["id"] == 2)["ok"], true);
+
+    let mut websocket = connect(websocket_server.local_addr());
+    send_json(
+        &mut websocket,
+        json!({"id": 3, "cmd": "set-client-info", "name": "lawrences-iphone", "kind": "web"}),
+    );
+    assert_eq!(read_until(&mut websocket, |value| value["id"] == 3)["ok"], true);
+    send_json(&mut websocket, json!({"id": 4, "cmd": "attach-surface", "surface": surface}));
+    assert_eq!(
+        read_until(&mut websocket, |value| value["event"] == "vt-state")["surface"],
+        surface
+    );
+    assert_eq!(read_until(&mut websocket, |value| value["id"] == 4)["ok"], true);
+
+    writeln!(unix_writer, r#"{{"id":5,"cmd":"list-clients"}}"#).unwrap();
+    let clients = read_line_until(&mut unix_reader, |value| value["id"] == 5);
+    let clients = clients["data"].as_array().unwrap();
+    assert_eq!(clients.len(), 2);
+    let unix_client = clients.iter().find(|client| client["transport"] == "unix").unwrap();
+    let ws_client = clients.iter().find(|client| client["transport"] == "ws").unwrap();
+    assert_eq!(unix_client["self"], true);
+    assert_eq!(ws_client["self"], false);
+    assert_eq!(ws_client["name"], "lawrences-iphone");
+    assert_eq!(ws_client["kind"], "web");
+    assert_eq!(unix_client["attached"], json!([surface]));
+    assert_eq!(ws_client["attached"], json!([surface]));
+    let unix_id = unix_client["client"].as_u64().unwrap();
+    let ws_id = ws_client["client"].as_u64().unwrap();
+
+    send_json(
+        &mut websocket,
+        json!({"id": 6, "cmd": "resize-surface", "surface": surface, "cols": 101, "rows": 37}),
+    );
+    assert_eq!(read_until(&mut websocket, |value| value["id"] == 6)["ok"], true);
+    writeln!(unix_writer, r#"{{"id":7,"cmd":"list-clients"}}"#).unwrap();
+    let clients = read_line_until(&mut unix_reader, |value| value["id"] == 7);
+    let ws_client = clients["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|client| client["client"] == ws_id)
+        .unwrap();
+    assert_eq!(ws_client["sizes"], json!([{"surface": surface, "cols": 101, "rows": 37}]));
+
+    writeln!(unix_writer, r#"{{"id":8,"cmd":"detach-client","client":{ws_id}}}"#).unwrap();
+    assert_eq!(
+        read_until(&mut websocket, |value| value["event"] == "detached")["surface"],
+        surface
+    );
+    assert!(matches!(
+        websocket.read(),
+        Ok(Message::Close(_))
+            | Err(tungstenite::Error::ConnectionClosed)
+            | Err(tungstenite::Error::AlreadyClosed)
+    ));
+    let mut saw_detached = false;
+    let mut saw_response = false;
+    while !saw_detached || !saw_response {
+        let value = read_json_line(&mut unix_reader);
+        if value["event"] == "client-detached" && value["client"] == ws_id {
+            assert_eq!(value, json!({"event": "client-detached", "client": ws_id}));
+            saw_detached = true;
+        }
+        if value["id"] == 8 {
+            assert_eq!(value["ok"], true);
+            saw_response = true;
+        }
+    }
+
+    writeln!(unix_writer, r#"{{"id":9,"cmd":"detach-client","client":{unix_id}}}"#).unwrap();
+    assert_eq!(read_line_until(&mut unix_reader, |value| value["id"] == 9)["ok"], true);
+    assert_eq!(
+        read_line_until(&mut unix_reader, |value| value["event"] == "detached")["surface"],
+        surface
+    );
+    let mut eof = String::new();
+    assert_eq!(unix_reader.read_line(&mut eof).unwrap(), 0);
+
+    mux.shutdown();
+    server::cleanup(&socket_path);
 }
 
 #[test]

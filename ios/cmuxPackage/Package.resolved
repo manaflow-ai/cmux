@@ -1,13 +1,23 @@
 {
-  "originHash" : "eef9bc2175179405e8193eed1f1b9d34d3c35c477aa28a24697f47e4458ecd12",
+  "originHash" : "dc6d4db6aa973b9856528dbbf9756a616960bb3ed0daaa10e59f371203bb3a53",
   "pins" : [
     {
+<<<<<<< HEAD
       "identity" : "highlighterswift",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/smittytone/HighlighterSwift",
       "state" : {
         "revision" : "fe7aae9c9b31d3b296fd3d2dd575e1a207bb29e0",
         "version" : "3.1.0"
+||||||| b041531718
+=======
+      "identity" : "iroh-ffi",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/manaflow-ai/iroh-ffi.git",
+      "state" : {
+        "revision" : "42ed4ceb19922af9eb736253142b831f73029d9f",
+        "version" : "1.0.2-cmux.1"
+>>>>>>> origin/main
       }
     },
     {
