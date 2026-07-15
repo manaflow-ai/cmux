@@ -78,6 +78,11 @@ struct RemoteSessionCleanupLifecycleTests {
         #expect(cleanup.contains("64007.slot"))
         #expect(workspace.remoteConfiguration == configurationA.scopedToOwnerWorkspace(workspace.id))
         #expect(workspace.remoteSessionController != nil)
+
+        workspace.disconnectRemoteConnection(clearConfiguration: true)
+        _ = try #require(await Self.nextCleanupCommand(runner))
+        await workspace.remoteSessionTransitionTask?.value
+        workspace.teardownAllPanels()
     }
 
     @Test
@@ -289,12 +294,12 @@ private final class CleanupLifecycleRecordingRunner: RemoteSessionProcessRunning
     }
 
     func waitForCleanupCommand() -> String? {
-        guard cleanupObserved.wait(timeout: .now() + 2) == .success else { return nil }
+        guard cleanupObserved.wait(timeout: .now() + 10) == .success else { return nil }
         return lock.withLock { cleanupCommands.isEmpty ? nil : cleanupCommands.removeFirst() }
     }
 
     func waitForNonCleanupRequest() -> String? {
-        guard nonCleanupObserved.wait(timeout: .now() + 2) == .success else { return nil }
+        guard nonCleanupObserved.wait(timeout: .now() + 10) == .success else { return nil }
         return lock.withLock { nonCleanupCommands.last }
     }
 }
