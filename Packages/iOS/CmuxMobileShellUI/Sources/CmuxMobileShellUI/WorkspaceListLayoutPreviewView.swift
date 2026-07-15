@@ -18,9 +18,35 @@ public struct WorkspaceListLayoutPreviewView: View {
     private let notificationPresenter = ScreenshotNotificationPresenter()
 
     /// Creates a static workspace-list preview for App Store screenshot capture.
-    public init() {}
+    ///
+    /// With `CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT=<n>` the fixture seeds
+    /// `n` deterministic rows (plus `CMUX_UITEST_WORKSPACE_LIST_PREVIEW_GROUPS`
+    /// leading groups) instead of the static screenshot trio, for scroll
+    /// measurement.
+    public init() {
+        let environment = ProcessInfo.processInfo.environment
+        let seedCount = environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT"].flatMap(Int.init) ?? 0
+        if seedCount > 0 {
+            let groupCount = environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_GROUPS"].flatMap(Int.init) ?? 0
+            (workspaces, groups) = Self.seeded(count: seedCount, groupCount: groupCount)
+        } else {
+            workspaces = Self.defaultWorkspaces
+            groups = []
+        }
+    }
 
-    private let workspaces: [MobileWorkspacePreview] = [
+    private var scrollMetricsEnabled: Bool {
+        ProcessInfo.processInfo.environment["CMUX_UITEST_SCROLL_METRICS"] == "1"
+    }
+
+    private var scrollSweepEnabled: Bool {
+        ProcessInfo.processInfo.environment["CMUX_UITEST_SCROLL_SWEEP"] == "1"
+    }
+
+    private let workspaces: [MobileWorkspacePreview]
+    private let groups: [MobileWorkspaceGroupPreview]
+
+    private static let defaultWorkspaces: [MobileWorkspacePreview] = [
         MobileWorkspacePreview(
             id: "workspace-main",
             macDeviceID: "preview-macbook-pro",
@@ -52,6 +78,65 @@ public struct WorkspaceListLayoutPreviewView: View {
         ),
     ]
 
+    private static let seedNames = [
+        "cmux", "iOS avatar tuning", "Docs", "Sidebar perf", "Typing latency",
+        "Release prep", "Chip gallery", "Diff viewer", "Workspace todos", "Super search",
+    ]
+    private static let seedPreviews = [
+        "Build succeeded in 214s",
+        "Agent finished: 3 files changed, tests green, PR opened for review",
+        "Waiting for dogfood verdict",
+        "codex: refactored the reconciler and re-ran the focused suite twice",
+        "CI green on head",
+    ]
+
+    /// Deterministic long-list seeding for scroll measurement
+    /// (`CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT`, optional
+    /// `CMUX_UITEST_WORKSPACE_LIST_PREVIEW_GROUPS`). Every 4th row is unread,
+    /// preview lengths vary, and with `g` groups the first `g * 4` rows fold
+    /// into anchored groups of 4 (anchor + 3 members) so headers and
+    /// end-of-group drop slots render like a real grouped list.
+    private static func seeded(
+        count: Int, groupCount: Int
+    ) -> ([MobileWorkspacePreview], [MobileWorkspaceGroupPreview]) {
+        let anchorTime = Date(timeIntervalSinceNow: -60)
+        var groups: [MobileWorkspaceGroupPreview] = []
+        let workspaces = (0..<count).map { index -> MobileWorkspacePreview in
+            let groupIndex = index / 4
+            let inGroup = groupIndex < groupCount
+            let groupID = inGroup
+                ? MobileWorkspaceGroupPreview.ID(rawValue: "seed-group-\(groupIndex)") : nil
+            let id = MobileWorkspacePreview.ID(rawValue: "workspace-seed-\(index)")
+            if inGroup, index % 4 == 0, let groupID {
+                groups.append(
+                    MobileWorkspaceGroupPreview(
+                        id: groupID,
+                        name: "Group \(groupIndex + 1)",
+                        anchorWorkspaceID: id
+                    )
+                )
+            }
+            return MobileWorkspacePreview(
+                id: id,
+                macDeviceID: "preview-macbook-pro",
+                macDisplayName: "MacBook Pro",
+                name: "\(seedNames[index % seedNames.count]) \(index)",
+                groupID: groupID,
+                previewText: seedPreviews[index % seedPreviews.count],
+                previewAt: anchorTime.addingTimeInterval(-Double(index) * 3600),
+                lastActivityAt: anchorTime.addingTimeInterval(-Double(index) * 3600),
+                hasUnread: index % 4 == 0,
+                terminals: [
+                    MobileTerminalPreview(
+                        id: MobileTerminalPreview.ID(rawValue: "terminal-seed-\(index)"),
+                        name: "Agent"
+                    ),
+                ]
+            )
+        }
+        return (workspaces, groups)
+    }
+
     private var showNotificationBanner: Bool {
         ProcessInfo.processInfo.environment["CMUX_UITEST_NOTIFICATION_BANNER"] == "1"
     }
@@ -68,6 +153,7 @@ public struct WorkspaceListLayoutPreviewView: View {
                 NavigationStack {
                     WorkspaceListView(
                         workspaces: workspaces,
+                        groups: groups,
                         selectedWorkspaceID: selectedWorkspaceID,
                         host: "Visual Mock Mac",
                         connectionStatus: .connected,
@@ -81,6 +167,13 @@ public struct WorkspaceListLayoutPreviewView: View {
                         createWorkspace: {},
                         macSelection: $macSelection
                     )
+                }
+                .overlay(alignment: .bottomTrailing) {
+                    if scrollMetricsEnabled {
+                        WorkspaceListScrollMetricsProbe(runsSweep: scrollSweepEnabled)
+                            .frame(width: 1, height: 1)
+                            .accessibilityHidden(true)
+                    }
                 }
             }
         }
