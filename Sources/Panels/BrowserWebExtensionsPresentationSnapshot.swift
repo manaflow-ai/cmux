@@ -11,6 +11,7 @@ struct BrowserWebExtensionsPresentationSnapshot: Equatable, Sendable {
         let id: String
         let name: String
         let hasAction: Bool
+        let iconData: Data?
     }
 
     struct Failure: Identifiable, Equatable, Sendable {

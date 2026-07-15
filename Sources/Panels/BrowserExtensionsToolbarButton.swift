@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct BrowserExtensionsToolbarButton: View {
@@ -372,8 +373,9 @@ private struct BrowserExtensionsInstalledSection: View {
                             BrowserInstalledExtensionRow(
                                 name: item.name,
                                 detail: String(localized: "browser.extensions.enabled", defaultValue: "Enabled"),
-                                icon: "checkmark.circle.fill",
-                                color: .green
+                                iconData: item.iconData,
+                                fallbackIcon: "puzzlepiece.extension",
+                                fallbackColor: .secondary
                             )
                             Divider()
                         }
@@ -381,8 +383,9 @@ private struct BrowserExtensionsInstalledSection: View {
                             BrowserInstalledExtensionRow(
                                 name: failure.entryName,
                                 detail: failure.message,
-                                icon: "exclamationmark.triangle.fill",
-                                color: .orange
+                                iconData: nil,
+                                fallbackIcon: "exclamationmark.triangle.fill",
+                                fallbackColor: .orange
                             )
                             Divider()
                         }
@@ -430,12 +433,17 @@ private struct BrowserExtensionStatusRow: View {
 private struct BrowserInstalledExtensionRow: View {
     let name: String
     let detail: String
-    let icon: String
-    let color: Color
+    let iconData: Data?
+    let fallbackIcon: String
+    let fallbackColor: Color
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: icon).foregroundStyle(color)
+            BrowserExtensionIcon(
+                data: iconData,
+                fallbackSystemName: fallbackIcon,
+                fallbackColor: fallbackColor
+            )
             VStack(alignment: .leading, spacing: 2) {
                 Text(name).font(.callout.weight(.medium))
                 Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(2)
@@ -502,8 +510,13 @@ private struct BrowserExtensionsReadyList: View {
                             Button {
                                 _ = performAction(item.id)
                             } label: {
-                                HStack {
-                                    Label(item.name, systemImage: "puzzlepiece.extension")
+                                HStack(spacing: 10) {
+                                    BrowserExtensionIcon(
+                                        data: item.iconData,
+                                        fallbackSystemName: "puzzlepiece.extension",
+                                        fallbackColor: .secondary
+                                    )
+                                    Text(item.name)
                                         .lineLimit(1)
                                     Spacer()
                                     Image(systemName: "chevron.right")
@@ -517,10 +530,18 @@ private struct BrowserExtensionsReadyList: View {
                             .padding(.vertical, 8)
                             .accessibilityIdentifier("BrowserExtensionAction-\(item.id)")
                         } else {
-                            Label(item.name, systemImage: "puzzlepiece.extension")
-                                .lineLimit(1)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
+                            HStack(spacing: 10) {
+                                BrowserExtensionIcon(
+                                    data: item.iconData,
+                                    fallbackSystemName: "puzzlepiece.extension",
+                                    fallbackColor: .secondary
+                                )
+                                Text(item.name)
+                                    .lineLimit(1)
+                                Spacer()
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
                         }
                     }
 
@@ -544,5 +565,28 @@ private struct BrowserExtensionsReadyList: View {
             }
             .frame(maxHeight: 280)
         }
+    }
+}
+
+private struct BrowserExtensionIcon: View {
+    let data: Data?
+    let fallbackSystemName: String
+    let fallbackColor: Color
+
+    var body: some View {
+        Group {
+            if let data, let image = NSImage(data: data) {
+                Image(nsImage: image)
+                    .resizable()
+                    .renderingMode(.original)
+                    .interpolation(.high)
+                    .aspectRatio(contentMode: .fit)
+            } else {
+                Image(systemName: fallbackSystemName)
+                    .foregroundStyle(fallbackColor)
+            }
+        }
+        .frame(width: 20, height: 20)
+        .accessibilityHidden(true)
     }
 }

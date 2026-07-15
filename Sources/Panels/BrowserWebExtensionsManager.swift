@@ -237,7 +237,8 @@ final class BrowserWebExtensionsManager: NSObject {
                 BrowserWebExtensionsPresentationSnapshot.Item(
                     id: context.uniqueIdentifier,
                     name: context.webExtension.displayName ?? context.uniqueIdentifier,
-                    hasAction: Self.definesAction(context.webExtension)
+                    hasAction: Self.definesAction(context.webExtension),
+                    iconData: Self.presentationIconData(for: context.webExtension)
                 )
             },
             failures: loadErrors.map { failure in
@@ -264,6 +265,16 @@ final class BrowserWebExtensionsManager: NSObject {
         webExtension.manifest["action"] != nil
             || webExtension.manifest["browser_action"] != nil
             || webExtension.manifest["page_action"] != nil
+    }
+
+    private static func presentationIconData(for webExtension: WKWebExtension) -> Data? {
+        let size = CGSize(width: 32, height: 32)
+        guard let image = webExtension.actionIcon(for: size) ?? webExtension.icon(for: size),
+              let tiffData = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiffData) else {
+            return nil
+        }
+        return bitmap.representation(using: .png, properties: [:])
     }
 }
 

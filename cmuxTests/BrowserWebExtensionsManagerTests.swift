@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 import WebKit
@@ -43,6 +44,18 @@ struct BrowserWebExtensionsManagerTests {
             ]
         ],
     ]
+
+    private static func makeIconPNG() throws -> Data {
+        let size = NSSize(width: 16, height: 16)
+        let image = NSImage(size: size, flipped: false) { rect in
+            NSColor.systemBlue.setFill()
+            rect.fill()
+            return true
+        }
+        let tiffData = try #require(image.tiffRepresentation)
+        let bitmap = try #require(NSBitmapImageRep(data: tiffData))
+        return try #require(bitmap.representation(using: .png, properties: [:]))
+    }
 
     @available(macOS 15.4, *)
     @Test func candidateDiscoveryFindsDirectoriesAndZipsOnly() throws {
@@ -114,6 +127,29 @@ struct BrowserWebExtensionsManagerTests {
         #expect(FileManager.default.fileExists(atPath: managedRoot.appendingPathComponent("sample/manifest.json").path))
         #expect(manager.loadedContexts.count == 1)
         #expect(manager.presentationSnapshot().extensions.map(\.name) == ["cmux test extension"])
+    }
+
+    @available(macOS 15.4, *)
+    @Test func presentationSnapshotIncludesDeclaredExtensionIcon() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        var manifest = Self.minimalManifest
+        manifest["icons"] = ["16": "icon.png"]
+        manifest["action"] = ["default_icon": ["16": "icon.png"]]
+        let directory = try Self.writeExtension(named: "sample", in: root, manifest: manifest)
+        try "// no-op".write(
+            to: directory.appendingPathComponent("content.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try Self.makeIconPNG().write(to: directory.appendingPathComponent("icon.png"))
+        let manager = BrowserWebExtensionsManager(directory: root, controllerConfiguration: .nonPersistent())
+
+        await manager.loadExtensions()
+
+        let item = try #require(manager.presentationSnapshot().extensions.first)
+        let iconData = try #require(item.iconData)
+        #expect(NSImage(data: iconData) != nil)
     }
 
     @available(macOS 15.4, *)
