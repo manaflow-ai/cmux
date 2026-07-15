@@ -6008,6 +6008,7 @@ class TerminalController {
         script: String,
         timeout: TimeInterval = 5.0,
         useEval: Bool = true,
+        requiresPageWorld: Bool = false,
         onIsolatedWorldFallback: (() -> Void)? = nil
     ) -> V2JavaScriptResult {
         v2EnsureBrowserDocumentLoaded(webView, surfaceId: surfaceId)
@@ -6087,10 +6088,11 @@ class TerminalController {
         // a value from the isolated world that differs from the page world with no visible signal.
         //
         // The isolated world cannot see page-world JS globals (window.reactRoot set by the page's
-        // own scripts). For internal automation (useEval == false) that is transparent. For a
-        // user-supplied browser.eval (useEval == true) it matters, so we invoke
-        // onIsolatedWorldFallback to let browser.eval annotate the result with the content world.
-        if case .failure(let pageMessage) = rawResult,
+        // own scripts). Page-global telemetry and dialog commands therefore set requiresPageWorld
+        // and surface the page-world failure instead of silently reading a different window. For a
+        // user-supplied browser.eval, onIsolatedWorldFallback annotates the result's content world.
+        if !requiresPageWorld,
+           case .failure(let pageMessage) = rawResult,
            v2BrowserFailureLooksLikeCSPEvalBlock(pageMessage),
            #available(macOS 11.0, *) {
             let isolatedResult = v2RunJavaScript(
@@ -8521,7 +8523,8 @@ class TerminalController {
             surfaceId: surfaceId,
             script: source,
             timeout: 5.0,
-            useEval: false
+            useEval: false,
+            requiresPageWorld: true
         )
     }
 
@@ -8532,7 +8535,8 @@ class TerminalController {
             surfaceId: surfaceId,
             script: source,
             timeout: 5.0,
-            useEval: false
+            useEval: false,
+            requiresPageWorld: true
         )
     }
 
@@ -8569,7 +8573,8 @@ class TerminalController {
                 surfaceId: ctx.surfaceId,
                 script: script,
                 timeout: 5.0,
-                useEval: false
+                useEval: false,
+                requiresPageWorld: true
             ) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
@@ -9644,7 +9649,8 @@ class TerminalController {
                 surfaceId: ctx.surfaceId,
                 script: script,
                 timeout: 5.0,
-                useEval: false
+                useEval: false,
+                requiresPageWorld: true
             ) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
@@ -9684,7 +9690,8 @@ class TerminalController {
                 surfaceId: ctx.surfaceId,
                 script: script,
                 timeout: 5.0,
-                useEval: false
+                useEval: false,
+                requiresPageWorld: true
             ) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)

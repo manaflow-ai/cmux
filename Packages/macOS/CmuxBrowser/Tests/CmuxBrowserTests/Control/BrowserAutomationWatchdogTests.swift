@@ -116,6 +116,8 @@ struct BrowserAutomationWatchdogTests {
             bufferingPolicy: .bufferingOldest(2)
         )
         var probeStartsIterator = probeStarts.makeAsyncIterator()
+        let (followerJoins, followerJoinsContinuation) = AsyncStream.makeStream(of: Void.self)
+        var followerJoinsIterator = followerJoins.makeAsyncIterator()
         let watchdog = BrowserAutomationWatchdog()
         let observedInstanceID = UUID()
         let probe: BrowserAutomationWatchdog.Probe = { finish in
@@ -139,13 +141,17 @@ struct BrowserAutomationWatchdogTests {
         #expect(firstProbeStarted != nil)
 
         let secondCheck = Task { @MainActor in
-            await watchdog.recoverIfUnresponsive(
+            // This synchronous signal and the same-actor call form one run-to-suspension region:
+            // the test cannot resume on MainActor until recovery appends this follower and awaits.
+            followerJoinsContinuation.yield()
+            return await watchdog.recoverIfUnresponsive(
                 observedInstanceID: observedInstanceID,
                 probes: [probe],
                 recover: recover
             )
         }
-        await Task.yield()
+        let followerJoined: Void? = await followerJoinsIterator.next()
+        #expect(followerJoined != nil)
 
         #expect(probeCount == 1)
         let completions = pendingProbeCompletions
@@ -160,6 +166,7 @@ struct BrowserAutomationWatchdogTests {
         #expect(probeCount == 1)
         #expect(recoveryCount == 0)
         probeStartsContinuation.finish()
+        followerJoinsContinuation.finish()
     }
 
     @Test("Cancelling the leading check cancels callers sharing its recovery")
@@ -170,6 +177,8 @@ struct BrowserAutomationWatchdogTests {
             bufferingPolicy: .bufferingOldest(2)
         )
         var probeStartsIterator = probeStarts.makeAsyncIterator()
+        let (followerJoins, followerJoinsContinuation) = AsyncStream.makeStream(of: Void.self)
+        var followerJoinsIterator = followerJoins.makeAsyncIterator()
         let watchdog = BrowserAutomationWatchdog()
         let observedInstanceID = UUID()
         let probe: BrowserAutomationWatchdog.Probe = { _ in
@@ -189,13 +198,15 @@ struct BrowserAutomationWatchdogTests {
         #expect(firstProbeStarted != nil)
 
         let secondCheck = Task { @MainActor in
-            await watchdog.recoverIfUnresponsive(
+            followerJoinsContinuation.yield()
+            return await watchdog.recoverIfUnresponsive(
                 observedInstanceID: observedInstanceID,
                 probes: [probe],
                 recover: recover
             )
         }
-        await Task.yield()
+        let followerJoined: Void? = await followerJoinsIterator.next()
+        #expect(followerJoined != nil)
         firstCheck.cancel()
 
         let firstOutcome = await firstCheck.value
@@ -204,6 +215,7 @@ struct BrowserAutomationWatchdogTests {
         #expect(secondOutcome == .cancelled)
         #expect(probeCount == 1)
         probeStartsContinuation.finish()
+        followerJoinsContinuation.finish()
     }
 
     @Test("A newer browser instance supersedes every caller checking the old instance")
@@ -218,6 +230,8 @@ struct BrowserAutomationWatchdogTests {
             bufferingPolicy: .bufferingOldest(2)
         )
         var probeStartsIterator = probeStarts.makeAsyncIterator()
+        let (followerJoins, followerJoinsContinuation) = AsyncStream.makeStream(of: Void.self)
+        var followerJoinsIterator = followerJoins.makeAsyncIterator()
         let watchdog = BrowserAutomationWatchdog()
         let firstInstanceID = UUID()
         let secondInstanceID = UUID()
@@ -245,7 +259,8 @@ struct BrowserAutomationWatchdogTests {
         #expect(firstStarted == firstInstanceID)
 
         let firstFollower = Task { @MainActor in
-            await watchdog.recoverIfUnresponsive(
+            followerJoinsContinuation.yield()
+            return await watchdog.recoverIfUnresponsive(
                 observedInstanceID: firstInstanceID,
                 probes: [firstProbe],
                 recover: {
@@ -254,7 +269,8 @@ struct BrowserAutomationWatchdogTests {
                 }
             )
         }
-        await Task.yield()
+        let followerJoined: Void? = await followerJoinsIterator.next()
+        #expect(followerJoined != nil)
         #expect(firstProbeCount == 1)
 
         let secondLeader = Task { @MainActor in
@@ -279,5 +295,6 @@ struct BrowserAutomationWatchdogTests {
         #expect(firstRecoveryCount == 0)
         #expect(secondRecoveryCount == 0)
         probeStartsContinuation.finish()
+        followerJoinsContinuation.finish()
     }
 }
