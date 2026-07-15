@@ -183,6 +183,124 @@ struct RemoteRuntimeStateCoordinatorTests {
         #expect(storedState == localState)
     }
 
+    @Test("retries an initial fetch failure without waiting for an autosave")
+    func retriesInitialFetchFailureWhileIdle() async {
+        let clock = RuntimeStateRetryClock()
+        let publicationGate = RuntimeStatePublicationGate()
+        let fixture = Self.fixture(
+            host: RuntimeStateRecordingHost(documentGate: publicationGate),
+            clock: clock
+        )
+        defer { fixture.stop() }
+        fixture.provider.tunnel.seedRuntimeState(RemoteRuntimeStateDocument(
+            schemaVersion: 1,
+            revision: 7,
+            updatedAtUnixMilliseconds: 1,
+            state: Data(#"{"title":"server"}"#.utf8),
+            ptySessions: Data("[]".utf8)
+        ))
+        fixture.provider.tunnel.failNextRuntimeStateGet()
+
+        Self.beginSynchronization(fixture)
+
+        let retryScheduled = await Self.wait(
+            for: clock.sleepScheduled,
+            timeout: 1
+        )
+        #expect(retryScheduled == .success)
+        guard retryScheduled == .success else { return }
+        clock.advance()
+        await publicationGate.waitUntilStarted()
+        await publicationGate.release()
+        await Self.drainRuntimeStatePublication(fixture)
+
+        #expect(fixture.coordinator.runtimeStateSynchronized)
+        #expect(fixture.host.documents.map(\.revision) == [7])
+    }
+
+    @Test("retries a transient put failure without waiting for another edit")
+    func retriesPutFailureWhileIdle() async throws {
+        let clock = RuntimeStateRetryClock()
+        let revisionGate = RuntimeStatePublicationGate()
+        let fixture = Self.fixture(
+            host: RuntimeStateRecordingHost(revisionGate: revisionGate),
+            clock: clock
+        )
+        defer { fixture.stop() }
+        fixture.provider.tunnel.seedRuntimeState(RemoteRuntimeStateDocument(
+            schemaVersion: 1,
+            revision: 7,
+            updatedAtUnixMilliseconds: 1,
+            state: Data(#"{"title":"server"}"#.utf8),
+            ptySessions: Data("[]".utf8)
+        ))
+        await Self.synchronize(fixture)
+        fixture.provider.tunnel.failNextRuntimeStatePut()
+
+        let localState = Data(#"{"title":"local"}"#.utf8)
+        fixture.coordinator.enqueueRuntimeState(
+            schemaVersion: 1,
+            state: localState,
+            baseRevision: 7
+        )
+        fixture.coordinator.queue.sync {}
+
+        let retryScheduled = await Self.wait(
+            for: clock.sleepScheduled,
+            timeout: 1
+        )
+        #expect(retryScheduled == .success)
+        guard retryScheduled == .success else { return }
+        clock.advance()
+        await revisionGate.waitUntilStarted()
+        await revisionGate.release()
+        await Self.drainRuntimeStatePublication(fixture)
+
+        let storedDocument = try fixture.provider.tunnel.getRuntimeState()
+        let stored = try #require(storedDocument)
+        #expect(stored.revision == 8)
+        #expect(stored.state == localState)
+        #expect(fixture.coordinator.runtimeStateSynchronized)
+    }
+
+    @Test("applies authoritative state committed by another connected client")
+    func appliesConnectedClientUpdate() async throws {
+        let fixture = Self.fixture()
+        defer { fixture.stop() }
+        fixture.provider.tunnel.seedRuntimeState(RemoteRuntimeStateDocument(
+            schemaVersion: 1,
+            revision: 7,
+            updatedAtUnixMilliseconds: 1,
+            state: Data(#"{"title":"initial"}"#.utf8),
+            ptySessions: Data("[]".utf8)
+        ))
+        fixture.lease.release()
+        fixture.coordinator.queue.sync {
+            fixture.coordinator.daemonReady = true
+            fixture.coordinator.daemonRemotePath = "/remote/cmuxd"
+            fixture.coordinator.runtimeStateCapabilityAvailable = true
+            fixture.coordinator.remotePortScanningEnabled = false
+            fixture.coordinator.startProxyLocked()
+        }
+        fixture.coordinator.queue.sync {}
+        await Self.drainRuntimeStatePublication(fixture)
+
+        let updated = RemoteRuntimeStateDocument(
+            schemaVersion: 1,
+            revision: 8,
+            updatedAtUnixMilliseconds: 2,
+            state: Data(#"{"title":"other-client"}"#.utf8),
+            ptySessions: Data("[]".utf8)
+        )
+        fixture.provider.tunnel.publishRuntimeState(updated)
+        fixture.coordinator.queue.sync {}
+        await Self.drainRuntimeStatePublication(fixture)
+
+        #expect(fixture.host.documents.map(\.revision) == [7, 8])
+        #expect(fixture.coordinator.lastKnownRuntimeStateRevision == 8)
+        #expect(fixture.coordinator.runtimeStateSynchronized)
+    }
+
     @Test("a reconnect uploads local edits when the server revision has not advanced")
     func reconnectPreservesPendingLocalEdit() async throws {
         let fixture = Self.fixture()
@@ -373,8 +491,42 @@ struct RemoteRuntimeStateCoordinatorTests {
     }
 
     private static func fixture(
-        host: RuntimeStateRecordingHost = RuntimeStateRecordingHost()
+        host: RuntimeStateRecordingHost = RuntimeStateRecordingHost(),
+        clock: any RemoteProxyRetryClock = SystemRemoteProxyRetryClock()
     ) -> RemoteRuntimeStateCoordinatorFixture {
-        RemoteRuntimeStateCoordinatorFixture(host: host)
+        RemoteRuntimeStateCoordinatorFixture(host: host, clock: clock)
+    }
+
+    private static func wait(
+        for semaphore: DispatchSemaphore,
+        timeout: TimeInterval
+    ) async -> DispatchTimeoutResult {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                continuation.resume(returning: semaphore.wait(timeout: .now() + timeout))
+            }
+        }
+    }
+}
+
+private final class RuntimeStateRetryClock: RemoteProxyRetryClock, @unchecked Sendable {
+    let sleepScheduled = DispatchSemaphore(value: 0)
+    private let lock = NSLock()
+    private var continuations: [CheckedContinuation<Void, any Error>] = []
+
+    func sleep(forMilliseconds _: Int) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            lock.withLock {
+                continuations.append(continuation)
+            }
+            sleepScheduled.signal()
+        }
+    }
+
+    func advance() {
+        let continuation = lock.withLock {
+            continuations.isEmpty ? nil : continuations.removeFirst()
+        }
+        continuation?.resume()
     }
 }

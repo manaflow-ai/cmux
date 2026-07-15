@@ -9,6 +9,7 @@ final class IntentionalCleanupTestTunnel: RemoteProxyTunneling, @unchecked Senda
     private var bridgeServers: [(sessionID: String, server: RemotePTYBridgeServer)] = []
     private var runtimeState: RemoteRuntimeStateDocument?
     private var runtimeStateGetFailuresRemaining = 0
+    private var runtimeStatePutFailuresRemaining = 0
     private var runtimeStateSubscriber: (@Sendable (RemoteRuntimeStateDocument) -> Void)?
 
     func start() throws {}
@@ -100,6 +101,10 @@ final class IntentionalCleanupTestTunnel: RemoteProxyTunneling, @unchecked Senda
         expectedRevision: UInt64?
     ) throws -> RemoteRuntimeStateDocument {
         let (document, subscriber) = try lock.withLock {
+            if runtimeStatePutFailuresRemaining > 0 {
+                runtimeStatePutFailuresRemaining -= 1
+                throw NSError(domain: "test.runtime-state", code: 3)
+            }
             let currentRevision = runtimeState?.revision ?? 0
             if let expectedRevision, expectedRevision != currentRevision {
                 throw NSError(domain: "test.runtime-state", code: 1)
@@ -138,6 +143,10 @@ final class IntentionalCleanupTestTunnel: RemoteProxyTunneling, @unchecked Senda
 
     func failNextRuntimeStateGet() {
         lock.withLock { runtimeStateGetFailuresRemaining += 1 }
+    }
+
+    func failNextRuntimeStatePut() {
+        lock.withLock { runtimeStatePutFailuresRemaining += 1 }
     }
 
     func publishRuntimeState(_ document: RemoteRuntimeStateDocument) {

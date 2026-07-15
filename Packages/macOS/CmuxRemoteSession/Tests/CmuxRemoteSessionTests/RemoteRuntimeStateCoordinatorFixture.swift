@@ -13,7 +13,10 @@ final class RemoteRuntimeStateCoordinatorFixture {
     let coordinator: RemoteSessionCoordinator
     let lease: RemoteProxyLease
 
-    init(host: RuntimeStateRecordingHost = RuntimeStateRecordingHost()) {
+    init(
+        host: RuntimeStateRecordingHost = RuntimeStateRecordingHost(),
+        clock: any RemoteProxyRetryClock = SystemRemoteProxyRetryClock()
+    ) {
         self.host = host
         configuration = WorkspaceRemoteConfiguration(
             destination: "user@example.test",
@@ -48,7 +51,8 @@ final class RemoteRuntimeStateCoordinatorFixture {
             strings: RemoteSessionStrings(
                 connectedVMNoProxyFormat: "%@",
                 suspendedDetailFormat: "%@"
-            )
+            ),
+            clock: clock
         )
         lease = broker.acquire(configuration: configuration, remotePath: "/remote/cmuxd") { _ in }
     }
