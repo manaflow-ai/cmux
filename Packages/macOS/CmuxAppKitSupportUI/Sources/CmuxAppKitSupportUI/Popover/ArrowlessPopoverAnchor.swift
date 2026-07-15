@@ -82,7 +82,7 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
         }
 
         func updateRootView(_ rootView: AnyView) {
-            CmuxPopoverMutation.performWithoutImplicitAnimation {
+            NSAnimationContext.cmuxPerformWithoutImplicitAnimation {
                 hostingController.rootView = AnyView(rootView.fixedSize())
                 hostingController.view.invalidateIntrinsicContentSize()
                 hostingController.view.layoutSubtreeIfNeeded()
@@ -126,10 +126,10 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
             hostingController.view.layoutSubtreeIfNeeded()
             let fittingSize = hostingController.view.fittingSize
             if fittingSize.width > 0, fittingSize.height > 0 {
-                CmuxPopoverMutation.setContentSize(NSSize(
+                popover.cmuxSetContentSize(NSSize(
                     width: ceil(fittingSize.width),
                     height: ceil(fittingSize.height)
-                ), on: popover)
+                ))
             }
 
             popover.show(

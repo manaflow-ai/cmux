@@ -38,22 +38,25 @@ public final class CmuxPopoverVisibleUpdateScheduler {
 }
 
 @MainActor
-public enum CmuxPopoverMutation {
-    public static func performWithoutImplicitAnimation(_ body: () -> Void) {
-        NSAnimationContext.runAnimationGroup { context in
+public extension NSAnimationContext {
+    static func cmuxPerformWithoutImplicitAnimation(_ body: () -> Void) {
+        runAnimationGroup { context in
             context.duration = 0
             context.allowsImplicitAnimation = false
             body()
         }
     }
+}
 
-    public static func setContentSize(_ size: NSSize, on popover: NSPopover) {
-        if popover.isShown {
-            performWithoutImplicitAnimation {
-                popover.contentSize = size
+@MainActor
+public extension NSPopover {
+    func cmuxSetContentSize(_ size: NSSize) {
+        if isShown {
+            NSAnimationContext.cmuxPerformWithoutImplicitAnimation {
+                contentSize = size
             }
         } else {
-            popover.contentSize = size
+            contentSize = size
         }
     }
 }

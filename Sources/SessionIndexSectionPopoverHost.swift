@@ -176,10 +176,10 @@ struct SectionPopoverHost: NSViewRepresentable {
             let fitting = hostingController.view.fittingSize
             guard fitting.width > 0, fitting.height > 0 else { return }
             guard let popover else { return }
-            CmuxPopoverMutation.setContentSize(NSSize(
+            popover.cmuxSetContentSize(NSSize(
                 width: ceil(max(fitting.width, 360)),
                 height: ceil(min(fitting.height, 480))
-            ), on: popover)
+            ))
         }
     }
 }
