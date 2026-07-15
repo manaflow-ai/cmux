@@ -4737,7 +4737,10 @@ final class BrowserPanel: Panel, ObservableObject {
 
         let previousWebView = webView
         let wasRenderable = shouldRenderWebView
-        let restoreURL = restorableDisplayURLForCurrentErrorPage(liveURL: previousWebView.url)
+        let engineURL = engineKind == .chromium
+            ? (engineSession.state.url ?? currentURL)
+            : previousWebView.url
+        let restoreURL = restorableDisplayURLForCurrentErrorPage(liveURL: engineURL)
         let restoreURLString = restoreURL?.absoluteString
         let shouldRestoreURL = wasRenderable && restoreURLString != nil && restoreURLString != blankURLString
         let history = sessionNavigationHistorySnapshot()
@@ -5243,7 +5246,10 @@ final class BrowserPanel: Panel, ObservableObject {
         let wasRenderable = shouldRenderWebView
         let attemptedURL = Self.remoteProxyDisplayURL(for: navigationDelegate?.lastAttemptedURL)
             ?? navigationDelegate?.lastAttemptedURL
-        let liveURL = restorableDisplayURLForCurrentErrorPage(liveURL: oldWebView.url)
+        let engineURL = engineKind == .chromium
+            ? (engineSession.state.url ?? currentURL)
+            : oldWebView.url
+        let liveURL = restorableDisplayURLForCurrentErrorPage(liveURL: engineURL)
         let restoreURL = (isMainFrameProvisionalNavigationActive ? attemptedURL : nil)
             ?? liveURL
             ?? attemptedURL

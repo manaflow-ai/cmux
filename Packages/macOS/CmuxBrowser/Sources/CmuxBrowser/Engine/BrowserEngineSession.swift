@@ -55,6 +55,24 @@ public protocol BrowserEngineSession: AnyObject {
     /// - Throws: An engine error when the script cannot be installed.
     func addInitializationScript(_ script: String) async throws
 
+    /// Reads all cookies visible to this engine session's browser context.
+    ///
+    /// - Returns: Engine-neutral cookie snapshots.
+    /// - Throws: An engine error when the cookie store cannot be read.
+    func cookies() async throws -> [BrowserEngineCookie]
+
+    /// Creates or replaces one cookie in this engine session's browser context.
+    ///
+    /// - Parameter cookie: The cookie to create or replace.
+    /// - Throws: An engine error when the cookie cannot be stored.
+    func setCookie(_ cookie: BrowserEngineCookie) async throws
+
+    /// Deletes one cookie from this engine session's browser context.
+    ///
+    /// - Parameter cookie: A cookie snapshot identifying the name, domain, and path to delete.
+    /// - Throws: An engine error when the cookie cannot be deleted.
+    func deleteCookie(_ cookie: BrowserEngineCookie) async throws
+
     /// Captures the current page viewport as PNG data.
     ///
     /// - Returns: PNG-encoded viewport pixels.

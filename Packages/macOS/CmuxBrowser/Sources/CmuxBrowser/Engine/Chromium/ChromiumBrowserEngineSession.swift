@@ -24,6 +24,7 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
     private let userDataDirectory: URL
     private let processController = ChromiumProcessController()
     private let viewportHandler = ChromiumViewportMessageHandler()
+    private let cookieCodec = ChromiumBrowserCookieCodec()
     var connection: CDPConnection?
     var cdpSessionID: String?
     private var startupTask: Task<Void, Never>?
@@ -33,6 +34,7 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
     private var initializationScriptInstallations: [Int: Task<Void, any Error>] = [:]
     var viewportInputQueue = ChromiumViewportInputQueue()
     var viewportInputTask: Task<Void, Never>?
+    var viewportInputFailed = false
     var deviceMetricsPending = false
     var deviceMetricsTask: Task<Void, Never>?
     var viewportWidth = 1280
@@ -57,7 +59,9 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
         self.application = application
         self.userDataDirectory = userDataDirectory
         self.initializationScripts = initializationScripts
-        (stateUpdates, stateContinuation) = AsyncStream.makeStream()
+        (stateUpdates, stateContinuation) = AsyncStream.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
         viewportHandler.session = self
         let controller = viewportWebView.configuration.userContentController
         controller.removeScriptMessageHandler(forName: "cmuxChromiumViewport")
@@ -182,6 +186,51 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
         )
     }
 
+    /// Reads cookies from the Chromium browser context.
+    public func cookies() async throws -> [BrowserEngineCookie] {
+        if connection == nil {
+            await startupTask?.value
+        }
+        guard let connection else {
+            throw BrowserEngineSessionError.chromiumProtocol("Chromium is not ready.")
+        }
+        let response = try await connection.send(method: "Storage.getCookies")
+        return try cookieCodec.cookies(from: response)
+    }
+
+    /// Creates or replaces a cookie in the Chromium browser context.
+    public func setCookie(_ cookie: BrowserEngineCookie) async throws {
+        if connection == nil {
+            await startupTask?.value
+        }
+        guard let connection, let cdpSessionID else {
+            throw BrowserEngineSessionError.chromiumProtocol("Chromium is not ready.")
+        }
+        let response = try await connection.send(
+            method: "Network.setCookie",
+            parameters: cookieCodec.setParameters(for: cookie),
+            sessionID: cdpSessionID
+        )
+        if response.objectValue?["success"] == .bool(false) {
+            throw BrowserEngineSessionError.chromiumProtocol("Chromium rejected the cookie.")
+        }
+    }
+
+    /// Deletes a cookie from the Chromium browser context.
+    public func deleteCookie(_ cookie: BrowserEngineCookie) async throws {
+        if connection == nil {
+            await startupTask?.value
+        }
+        guard let connection, let cdpSessionID else {
+            throw BrowserEngineSessionError.chromiumProtocol("Chromium is not ready.")
+        }
+        _ = try await connection.send(
+            method: "Network.deleteCookies",
+            parameters: cookieCodec.deleteParameters(for: cookie),
+            sessionID: cdpSessionID
+        )
+    }
+
     private func isolatedExecutionContextID(
         connection: CDPConnection,
         sessionID: String
@@ -236,6 +285,7 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
         viewportInputTask?.cancel()
         viewportInputTask = nil
         viewportInputQueue.removeAll()
+        viewportInputFailed = true
         deviceMetricsTask?.cancel()
         deviceMetricsTask = nil
         deviceMetricsPending = false
@@ -303,6 +353,7 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
             throw BrowserEngineSessionError.chromiumProtocol("Chromium did not attach to the page target.")
         }
         cdpSessionID = sessionID
+        startViewportInputDrainingIfNeeded()
         beginEvents(connection: connection, sessionID: sessionID)
         _ = try await connection.send(method: "Page.enable", sessionID: sessionID)
         _ = try await connection.send(method: "Runtime.enable", sessionID: sessionID)
@@ -343,8 +394,12 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
         case "Page.screencastFrame":
             guard let data = event.parameters["data"]?.stringValue,
                   let frameSessionID = event.parameters["sessionId"]?.intValue else { return }
-            let literal = ChromiumViewportDocumentJSONLiteral().encode("data:image/jpeg;base64,\(data)")
-            _ = try? await viewportWebView.evaluateJavaScript("window.cmuxChromiumFrame(\(literal))")
+            _ = try? await viewportWebView.callAsyncJavaScript(
+                "return await window.cmuxChromiumFrame('data:image/jpeg;base64,' + base64)",
+                arguments: ["base64": data],
+                in: nil,
+                contentWorld: .page
+            )
             _ = try? await connection.send(
                 method: "Page.screencastFrameAck",
                 parameters: ["sessionId": .number(Double(frameSessionID))],
@@ -472,6 +527,22 @@ public final class ChromiumBrowserEngineSession: BrowserEngineSession {
             localized: "browser.chromium.error.operationFailed",
             defaultValue: "Chromium stopped responding. Reload the page or switch to WebKit."
         ))
+    }
+
+    func failViewportInput() {
+        guard !viewportInputFailed else { return }
+        viewportInputFailed = true
+        viewportInputTask?.cancel()
+        viewportInputTask = nil
+        viewportInputQueue.removeAll()
+        let connection = connection
+        self.connection = nil
+        cdpSessionID = nil
+        Task { [processController] in
+            await processController.close()
+            await connection?.close()
+        }
+        presentOperationFailure()
     }
 
     private func presentMessage(_ message: String) {

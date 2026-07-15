@@ -53,6 +53,8 @@ actor CDPConnection {
 
     private let transport: any CDPWebSocketTransport
     private let requestTimeout: Duration
+    private let encoder = JSONEncoder()
+    private let decoder = JSONDecoder()
     private let eventContinuation: AsyncStream<CDPEvent>.Continuation
     private let eventStream: AsyncStream<CDPEvent>
     private var receiveTask: Task<Void, Never>?
@@ -103,7 +105,7 @@ actor CDPConnection {
             "params": .object(parameters),
         ]
         if let sessionID { message["sessionId"] = .string(sessionID) }
-        let data = try JSONEncoder().encode(message)
+        let data = try encoder.encode(message)
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 guard !Task.isCancelled else {
@@ -112,6 +114,8 @@ actor CDPConnection {
                 }
                 let timeoutTask = Task { [weak self, requestTimeout] in
                     do {
+                        // A bounded request deadline is intentional; a missing CDP reply
+                        // must not retain its continuation forever.
                         try await ContinuousClock().sleep(for: requestTimeout)
                     } catch {
                         return
@@ -140,6 +144,31 @@ actor CDPConnection {
                 await self?.failPendingRequest(requestID, error: CancellationError())
             }
         }
+    }
+
+    /// Sends an ordered command without retaining a request continuation.
+    ///
+    /// Input commands use this path because their replies carry no state and waiting
+    /// for each reply would serialize typing behind a full protocol round trip.
+    func sendUnacknowledged(
+        method: String,
+        parameters: [String: CDPJSONValue] = [:],
+        sessionID: String? = nil
+    ) async throws {
+        guard !isClosed else {
+            throw BrowserEngineSessionError.chromiumProtocol("DevTools connection is closed.")
+        }
+        let requestID = nextRequestID
+        nextRequestID += 1
+        var message: [String: CDPJSONValue] = [
+            "id": .number(Double(requestID)),
+            "method": .string(method),
+            "params": .object(parameters),
+        ]
+        if let sessionID {
+            message["sessionId"] = .string(sessionID)
+        }
+        try await transport.send(encoder.encode(message))
     }
 
     func close() {
@@ -186,7 +215,7 @@ actor CDPConnection {
     }
 
     private func handleMessage(_ data: Data) throws {
-        let payload = try JSONDecoder().decode([String: CDPJSONValue].self, from: data)
+        let payload = try decoder.decode([String: CDPJSONValue].self, from: data)
         if let requestID = payload["id"]?.intValue,
            let request = pendingRequests.removeValue(forKey: requestID) {
             request.timeoutTask.cancel()

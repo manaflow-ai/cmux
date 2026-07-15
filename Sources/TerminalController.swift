@@ -9321,13 +9321,26 @@ class TerminalController {
         ])
     }
 
-    private nonisolated func v2BrowserCookieDict(_ cookie: HTTPCookie) -> [String: Any] {
+    private enum V2BrowserCookieReadResult {
+        case success([BrowserEngineCookie])
+        case timeout
+        case failure(String)
+    }
+
+    private enum V2BrowserCookieMutationResult {
+        case success
+        case timeout
+        case failure(String)
+    }
+
+    private nonisolated func v2BrowserCookieDict(_ cookie: BrowserEngineCookie) -> [String: Any] {
         var out: [String: Any] = [
             "name": cookie.name,
             "value": cookie.value,
             "domain": cookie.domain,
             "path": cookie.path,
             "secure": cookie.isSecure,
+            "http_only": cookie.isHTTPOnly,
             "session_only": cookie.isSessionOnly
         ]
         if let expiresDate = cookie.expiresDate {
@@ -9338,83 +9351,100 @@ class TerminalController {
         return out
     }
 
-    private nonisolated func v2BrowserCookieStoreAll(_ store: WKHTTPCookieStore, timeout: TimeInterval = 3.0) -> [HTTPCookie]? {
-        v2AwaitCallback(timeout: timeout) { finish in
-            v2MainSync {
-                store.getAllCookies { items in
-                    finish(items)
+    private nonisolated func v2BrowserEngineCookies(
+        _ browserPanel: BrowserPanel,
+        timeout: TimeInterval = 12.0
+    ) -> V2BrowserCookieReadResult {
+        let outcome: V2BrowserCookieReadResult? = v2AwaitCallback(timeout: timeout) { finish in
+            Task { @MainActor in
+                do {
+                    finish(.success(try await browserPanel.engineSession.cookies()))
+                } catch {
+                    finish(.failure(error.localizedDescription))
                 }
             }
         }
+        return outcome ?? .timeout
     }
 
-    private nonisolated func v2BrowserCookieStoreSet(_ store: WKHTTPCookieStore, cookie: HTTPCookie, timeout: TimeInterval = 3.0) -> Bool {
-        v2AwaitCallback(timeout: timeout) { finish in
-            v2MainSync {
-                store.setCookie(cookie) {
-                    finish(true)
+    private nonisolated func v2BrowserEngineSetCookie(
+        _ cookie: BrowserEngineCookie,
+        browserPanel: BrowserPanel,
+        timeout: TimeInterval = 12.0
+    ) -> V2BrowserCookieMutationResult {
+        let outcome: V2BrowserCookieMutationResult? = v2AwaitCallback(timeout: timeout) { finish in
+            Task { @MainActor in
+                do {
+                    try await browserPanel.engineSession.setCookie(cookie)
+                    finish(.success)
+                } catch {
+                    finish(.failure(error.localizedDescription))
                 }
             }
-        } ?? false
+        }
+        return outcome ?? .timeout
     }
 
-    private nonisolated func v2BrowserCookieStoreDelete(_ store: WKHTTPCookieStore, cookie: HTTPCookie, timeout: TimeInterval = 3.0) -> Bool {
-        v2AwaitCallback(timeout: timeout) { finish in
-            v2MainSync {
-                store.delete(cookie) {
-                    finish(true)
+    private nonisolated func v2BrowserEngineDeleteCookie(
+        _ cookie: BrowserEngineCookie,
+        browserPanel: BrowserPanel,
+        timeout: TimeInterval = 12.0
+    ) -> V2BrowserCookieMutationResult {
+        let outcome: V2BrowserCookieMutationResult? = v2AwaitCallback(timeout: timeout) { finish in
+            Task { @MainActor in
+                do {
+                    try await browserPanel.engineSession.deleteCookie(cookie)
+                    finish(.success)
+                } catch {
+                    finish(.failure(error.localizedDescription))
                 }
             }
-        } ?? false
+        }
+        return outcome ?? .timeout
     }
 
-    private nonisolated func v2BrowserCookieFromObject(_ raw: [String: Any], fallbackURL: URL?) -> HTTPCookie? {
-        var props: [HTTPCookiePropertyKey: Any] = [:]
-        if let name = raw["name"] as? String {
-            props[.name] = name
+    private nonisolated func v2BrowserCookieFromObject(
+        _ raw: [String: Any],
+        fallbackURL: URL?
+    ) -> BrowserEngineCookie? {
+        guard let name = raw["name"] as? String,
+              let value = raw["value"] as? String else {
+            return nil
         }
-        if let value = raw["value"] as? String {
-            props[.value] = value
+        let explicitURL = (raw["url"] as? String).flatMap(URL.init(string:))
+        guard let domain = raw["domain"] as? String ?? explicitURL?.host ?? fallbackURL?.host else {
+            return nil
         }
-
-        if let urlStr = raw["url"] as? String, let url = URL(string: urlStr) {
-            props[.originURL] = url
-        } else if let fallbackURL {
-            props[.originURL] = fallbackURL
-        }
-
-        if let domain = raw["domain"] as? String {
-            props[.domain] = domain
-        } else if let host = fallbackURL?.host {
-            props[.domain] = host
-        }
-
-        if let path = raw["path"] as? String {
-            props[.path] = path
+        let expiresDate: Date? = if raw["session_only"] as? Bool == true {
+            nil
+        } else if let expires = raw["expires"] as? TimeInterval {
+            Date(timeIntervalSince1970: expires)
+        } else if let expires = raw["expires"] as? Int {
+            Date(timeIntervalSince1970: TimeInterval(expires))
         } else {
-            props[.path] = "/"
+            nil
         }
-
-        if let secure = raw["secure"] as? Bool, secure {
-            props[.secure] = "TRUE"
-        }
-        if let expires = raw["expires"] as? TimeInterval {
-            props[.expires] = Date(timeIntervalSince1970: expires)
-        } else if let expiresInt = raw["expires"] as? Int {
-            props[.expires] = Date(timeIntervalSince1970: TimeInterval(expiresInt))
-        }
-
-        return HTTPCookie(properties: props)
+        return BrowserEngineCookie(
+            name: name,
+            value: value,
+            domain: domain,
+            path: raw["path"] as? String ?? "/",
+            isSecure: raw["secure"] as? Bool ?? false,
+            isHTTPOnly: raw["http_only"] as? Bool ?? raw["httpOnly"] as? Bool ?? false,
+            expiresDate: expiresDate
+        )
     }
 
     private nonisolated func v2BrowserCookiesGet(params: [String: Any]) -> V2CallResult {
         return v2BrowserWithPanelContext(params: params) { ctx in
-            guard let webView = v2WebKitView(ctx) else {
-                return v2WebKitOnlyError(method: "browser.cookies.get", engineKind: ctx.engineKind)
-            }
-            let store = v2MainSync { webView.configuration.websiteDataStore.httpCookieStore }
-            guard var cookies = v2BrowserCookieStoreAll(store) else {
+            var cookies: [BrowserEngineCookie]
+            switch v2BrowserEngineCookies(ctx.browserPanel) {
+            case .success(let engineCookies):
+                cookies = engineCookies
+            case .timeout:
                 return .err(code: "timeout", message: "Timed out reading cookies", data: nil)
+            case .failure(let message):
+                return .err(code: "engine_error", message: message, data: nil)
             }
 
             if let name = v2String(params, "name") {
@@ -9433,14 +9463,10 @@ class TerminalController {
 
     private nonisolated func v2BrowserCookiesSet(params: [String: Any]) -> V2CallResult {
         return v2BrowserWithPanelContext(params: params) { ctx in
-            guard let webView = v2WebKitView(ctx) else {
-                return v2WebKitOnlyError(method: "browser.cookies.set", engineKind: ctx.engineKind)
-            }
-            let cookieContext = v2MainSync {
-                (
-                    store: webView.configuration.websiteDataStore.httpCookieStore,
-                    fallbackURL: ctx.browserPanel.currentURL
-                )
+            let fallbackURL = v2MainSync {
+                ctx.engineKind == .chromium
+                    ? (ctx.browserPanel.engineSession.state.url ?? ctx.browserPanel.currentURL)
+                    : ctx.browserPanel.currentURL
             }
 
             var cookieObjects: [[String: Any]] = []
@@ -9466,13 +9492,16 @@ class TerminalController {
 
             var setCount = 0
             for raw in cookieObjects {
-                guard let cookie = v2BrowserCookieFromObject(raw, fallbackURL: cookieContext.fallbackURL) else {
+                guard let cookie = v2BrowserCookieFromObject(raw, fallbackURL: fallbackURL) else {
                     return .err(code: "invalid_params", message: "Invalid cookie payload", data: ["cookie": raw])
                 }
-                if v2BrowserCookieStoreSet(cookieContext.store, cookie: cookie) {
+                switch v2BrowserEngineSetCookie(cookie, browserPanel: ctx.browserPanel) {
+                case .success:
                     setCount += 1
-                } else {
+                case .timeout:
                     return .err(code: "timeout", message: "Timed out setting cookie", data: ["name": cookie.name])
+                case .failure(let message):
+                    return .err(code: "engine_error", message: message, data: ["name": cookie.name])
                 }
             }
 
@@ -9482,12 +9511,14 @@ class TerminalController {
 
     private nonisolated func v2BrowserCookiesClear(params: [String: Any]) -> V2CallResult {
         return v2BrowserWithPanelContext(params: params) { ctx in
-            guard let webView = v2WebKitView(ctx) else {
-                return v2WebKitOnlyError(method: "browser.cookies.clear", engineKind: ctx.engineKind)
-            }
-            let store = v2MainSync { webView.configuration.websiteDataStore.httpCookieStore }
-            guard let cookies = v2BrowserCookieStoreAll(store) else {
+            let cookies: [BrowserEngineCookie]
+            switch v2BrowserEngineCookies(ctx.browserPanel) {
+            case .success(let engineCookies):
+                cookies = engineCookies
+            case .timeout:
                 return .err(code: "timeout", message: "Timed out reading cookies", data: nil)
+            case .failure(let message):
+                return .err(code: "engine_error", message: message, data: nil)
             }
 
             let name = v2String(params, "name")
@@ -9502,8 +9533,13 @@ class TerminalController {
 
             var removed = 0
             for cookie in targets {
-                if v2BrowserCookieStoreDelete(store, cookie: cookie) {
+                switch v2BrowserEngineDeleteCookie(cookie, browserPanel: ctx.browserPanel) {
+                case .success:
                     removed += 1
+                case .timeout:
+                    return .err(code: "timeout", message: "Timed out deleting cookie", data: ["name": cookie.name])
+                case .failure(let message):
+                    return .err(code: "engine_error", message: message, data: ["name": cookie.name])
                 }
             }
 
@@ -9995,9 +10031,6 @@ class TerminalController {
         }
 
         return v2BrowserWithPanelContext(params: params) { ctx in
-            guard let webView = v2WebKitView(ctx) else {
-                return v2WebKitOnlyError(method: "browser.state.save", engineKind: ctx.engineKind)
-            }
             let storageScript = """
             (() => {
               const readStorage = (st) => {
@@ -10024,18 +10057,28 @@ class TerminalController {
                 storageValue = v2NormalizeJSValue(value)
             }
 
-            let store = v2MainSync { webView.configuration.websiteDataStore.httpCookieStore }
-            let cookies = (v2BrowserCookieStoreAll(store) ?? []).map(v2BrowserCookieDict)
+            let cookies: [BrowserEngineCookie]
+            switch v2BrowserEngineCookies(ctx.browserPanel) {
+            case .success(let engineCookies):
+                cookies = engineCookies
+            case .timeout:
+                return .err(code: "timeout", message: "Timed out reading cookies", data: nil)
+            case .failure(let message):
+                return .err(code: "engine_error", message: message, data: nil)
+            }
             let stateSnapshot = v2MainSync {
-                (
-                    url: ctx.browserPanel.currentURL?.absoluteString ?? "",
+                let currentURL = ctx.engineKind == .chromium
+                    ? (ctx.browserPanel.engineSession.state.url ?? ctx.browserPanel.currentURL)
+                    : ctx.browserPanel.currentURL
+                return (
+                    url: currentURL?.absoluteString ?? "",
                     frameSelector: v2BrowserFrameSelectorBySurface[ctx.surfaceId]
                 )
             }
 
             let state: [String: Any] = [
                 "url": stateSnapshot.url,
-                "cookies": cookies,
+                "cookies": cookies.map(v2BrowserCookieDict),
                 "storage": storageValue,
                 "frame_selector": v2OrNull(stateSnapshot.frameSelector)
             ]
@@ -10072,32 +10115,54 @@ class TerminalController {
         }
 
         return v2BrowserWithPanelContext(params: params) { ctx in
-            guard let webView = v2WebKitView(ctx) else {
-                return v2WebKitOnlyError(method: "browser.state.load", engineKind: ctx.engineKind)
-            }
-            let cookieContext = v2MainSync {
+            let loadContext = v2MainSync {
                 if let frameSelector = raw["frame_selector"] as? String, !frameSelector.isEmpty {
                     v2BrowserFrameSelectorBySurface[ctx.surfaceId] = frameSelector
                 } else {
                     v2BrowserFrameSelectorBySurface.removeValue(forKey: ctx.surfaceId)
                 }
 
-                if let urlStr = raw["url"] as? String,
-                   !urlStr.isEmpty,
-                   let parsed = URL(string: urlStr) {
-                    ctx.browserPanel.navigate(to: parsed)
+                let targetURL: URL?
+                if let rawURL = raw["url"] as? String, !rawURL.isEmpty {
+                    targetURL = URL(string: rawURL)
+                } else {
+                    targetURL = nil
                 }
-
-                return (
-                    store: webView.configuration.websiteDataStore.httpCookieStore,
-                    fallbackURL: ctx.browserPanel.currentURL
-                )
+                let currentURL = ctx.engineKind == .chromium
+                    ? (ctx.browserPanel.engineSession.state.url ?? ctx.browserPanel.currentURL)
+                    : ctx.browserPanel.currentURL
+                return (targetURL: targetURL, fallbackURL: currentURL)
             }
             if let cookieRows = raw["cookies"] as? [[String: Any]] {
                 for row in cookieRows {
-                    if let cookie = v2BrowserCookieFromObject(row, fallbackURL: cookieContext.fallbackURL) {
-                        _ = v2BrowserCookieStoreSet(cookieContext.store, cookie: cookie)
+                    guard let cookie = v2BrowserCookieFromObject(
+                        row,
+                        fallbackURL: loadContext.targetURL ?? loadContext.fallbackURL
+                    ) else {
+                        continue
                     }
+                    switch v2BrowserEngineSetCookie(cookie, browserPanel: ctx.browserPanel) {
+                    case .success:
+                        break
+                    case .timeout:
+                        return .err(
+                            code: "timeout",
+                            message: "Timed out setting cookie",
+                            data: ["name": cookie.name]
+                        )
+                    case .failure(let message):
+                        return .err(
+                            code: "engine_error",
+                            message: message,
+                            data: ["name": cookie.name]
+                        )
+                    }
+                }
+            }
+
+            if let targetURL = loadContext.targetURL {
+                v2MainSync {
+                    ctx.browserPanel.navigate(to: targetURL)
                 }
             }
 

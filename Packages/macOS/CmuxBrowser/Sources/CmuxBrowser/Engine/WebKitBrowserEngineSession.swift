@@ -6,6 +6,10 @@ public import WebKit
 /// A ``BrowserEngineSession`` backed by an in-process `WKWebView`.
 @MainActor
 public final class WebKitBrowserEngineSession: BrowserEngineSession {
+    private enum CookieError: Error {
+        case invalidPayload
+    }
+
     /// The engine family implementing this session.
     public let kind = BrowserEngineKind.webKit
 
@@ -36,7 +40,9 @@ public final class WebKitBrowserEngineSession: BrowserEngineSession {
             canGoBack: webView.canGoBack,
             canGoForward: webView.canGoForward
         )
-        (stateUpdates, stateContinuation) = AsyncStream.makeStream()
+        (stateUpdates, stateContinuation) = AsyncStream.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
         installObservations()
     }
 
@@ -90,6 +96,45 @@ public final class WebKitBrowserEngineSession: BrowserEngineSession {
         )
     }
 
+    /// Reads cookies from the WebKit website data store.
+    public func cookies() async throws -> [BrowserEngineCookie] {
+        await withCheckedContinuation { continuation in
+            webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { cookies in
+                continuation.resume(returning: cookies.map { cookie in
+                    BrowserEngineCookie(
+                        name: cookie.name,
+                        value: cookie.value,
+                        domain: cookie.domain,
+                        path: cookie.path,
+                        isSecure: cookie.isSecure,
+                        isHTTPOnly: cookie.isHTTPOnly,
+                        expiresDate: cookie.expiresDate
+                    )
+                })
+            }
+        }
+    }
+
+    /// Creates or replaces a cookie in the WebKit website data store.
+    public func setCookie(_ cookie: BrowserEngineCookie) async throws {
+        let httpCookie = try makeHTTPCookie(cookie)
+        await withCheckedContinuation { continuation in
+            webView.configuration.websiteDataStore.httpCookieStore.setCookie(httpCookie) {
+                continuation.resume()
+            }
+        }
+    }
+
+    /// Deletes a cookie from the WebKit website data store.
+    public func deleteCookie(_ cookie: BrowserEngineCookie) async throws {
+        let httpCookie = try makeHTTPCookie(cookie)
+        await withCheckedContinuation { continuation in
+            webView.configuration.websiteDataStore.httpCookieStore.delete(httpCookie) {
+                continuation.resume()
+            }
+        }
+    }
+
     /// Captures a PNG snapshot of the current WebKit viewport.
     public func captureScreenshot() async throws -> Data {
         let image = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<NSImage, any Error>) in
@@ -136,6 +181,28 @@ public final class WebKitBrowserEngineSession: BrowserEngineSession {
                 MainActor.assumeIsolated { self?.publishState() }
             },
         ]
+    }
+
+    private func makeHTTPCookie(_ cookie: BrowserEngineCookie) throws -> HTTPCookie {
+        var properties: [HTTPCookiePropertyKey: Any] = [
+            .name: cookie.name,
+            .value: cookie.value,
+            .domain: cookie.domain,
+            .path: cookie.path,
+        ]
+        if cookie.isSecure {
+            properties[.secure] = "TRUE"
+        }
+        if cookie.isHTTPOnly {
+            properties[HTTPCookiePropertyKey("HttpOnly")] = "TRUE"
+        }
+        if let expiresDate = cookie.expiresDate {
+            properties[.expires] = expiresDate
+        }
+        guard let httpCookie = HTTPCookie(properties: properties) else {
+            throw CookieError.invalidPayload
+        }
+        return httpCookie
     }
 
     private func publishState() {

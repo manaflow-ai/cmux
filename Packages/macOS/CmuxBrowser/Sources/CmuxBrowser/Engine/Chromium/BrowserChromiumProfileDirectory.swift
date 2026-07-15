@@ -1,6 +1,11 @@
 public import Foundation
 
-/// Builds isolated profile directories for Chromium engine process sessions.
+/// Builds isolated temporary profile directories for Chromium engine process sessions.
+///
+/// These directories intentionally do not model a persistent cmux browser profile.
+/// Chromium owns a process-wide profile lock, so persistent data shared by several
+/// panes requires one higher-level process owner per cmux profile rather than reuse
+/// or copying of concurrently active `--user-data-dir` trees.
 public struct BrowserChromiumProfileDirectory {
     private let fileManager: FileManager
 

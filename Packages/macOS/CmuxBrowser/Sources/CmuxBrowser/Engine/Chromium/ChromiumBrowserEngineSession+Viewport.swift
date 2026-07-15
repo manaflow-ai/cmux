@@ -6,9 +6,29 @@ struct ChromiumViewportInputCommand: Equatable {
         case mouseWheel
     }
 
+    enum GestureTransition: Equatable {
+        case began(String)
+        case ended(String)
+    }
+
     let method: String
     var parameters: [String: CDPJSONValue]
     let coalescingKind: CoalescingKind?
+
+    var gestureTransition: GestureTransition? {
+        switch (method, parameters["type"], parameters["code"], parameters["button"]) {
+        case ("Input.dispatchKeyEvent", .string("keyDown"), .string(let code), _):
+            return .began("key:\(code)")
+        case ("Input.dispatchKeyEvent", .string("keyUp"), .string(let code), _):
+            return .ended("key:\(code)")
+        case ("Input.dispatchMouseEvent", .string("mousePressed"), _, .string(let button)):
+            return .began("mouse:\(button)")
+        case ("Input.dispatchMouseEvent", .string("mouseReleased"), _, .string(let button)):
+            return .ended("mouse:\(button)")
+        default:
+            return nil
+        }
+    }
 
     static func mouse(parameters: [String: CDPJSONValue]) -> Self {
         let coalescingKind: CoalescingKind? = switch parameters["type"] {
@@ -61,7 +81,12 @@ struct ChromiumViewportInputQueue {
 
     var count: Int { commands.count }
 
-    mutating func enqueue(_ command: ChromiumViewportInputCommand) {
+    /// Enqueues input while retaining the newest complete gestures under pressure.
+    ///
+    /// - Returns: `false` only when the queue contains no fully closed gesture that
+    ///   can be discarded without separating a press from its release.
+    @discardableResult
+    mutating func enqueue(_ command: ChromiumViewportInputCommand) -> Bool {
         if let coalescingKind = command.coalescingKind {
             let currentOrderingSegmentStart = commands.lastIndex(where: {
                 $0.coalescingKind == nil
@@ -70,19 +95,21 @@ struct ChromiumViewportInputQueue {
                 $0.coalescingKind == coalescingKind
             }) {
                 commands[existingIndex] = commands[existingIndex].coalescing(with: command)
-                return
+                return true
             }
         }
 
         if commands.count == Self.maximumPendingCommands {
-            guard let coalescibleIndex = commands.firstIndex(where: {
+            if let coalescibleIndex = commands.firstIndex(where: {
                 $0.coalescingKind != nil
-            }) else {
-                return
+            }) {
+                commands.remove(at: coalescibleIndex)
+            } else if !discardOldestCompleteGesture() {
+                return false
             }
-            commands.remove(at: coalescibleIndex)
         }
         commands.append(command)
+        return true
     }
 
     mutating func popFirst() -> ChromiumViewportInputCommand? {
@@ -92,6 +119,38 @@ struct ChromiumViewportInputQueue {
 
     mutating func removeAll() {
         commands.removeAll(keepingCapacity: true)
+    }
+
+    private mutating func discardOldestCompleteGesture() -> Bool {
+        for startIndex in commands.indices {
+            guard case .began(let firstGesture)? = commands[startIndex].gestureTransition else {
+                continue
+            }
+            var activeGestures: Set<String> = [firstGesture]
+            var endIndex = commands.index(after: startIndex)
+            var isBalanced = true
+            while endIndex < commands.endIndex {
+                switch commands[endIndex].gestureTransition {
+                case .began(let gesture):
+                    activeGestures.insert(gesture)
+                case .ended(let gesture):
+                    if activeGestures.contains(gesture) {
+                        activeGestures.remove(gesture)
+                    } else {
+                        isBalanced = false
+                    }
+                case nil:
+                    break
+                }
+                guard isBalanced else { break }
+                if activeGestures.isEmpty {
+                    commands.removeSubrange(startIndex...endIndex)
+                    return true
+                }
+                endIndex = commands.index(after: endIndex)
+            }
+        }
+        return false
     }
 }
 
@@ -175,7 +234,20 @@ extension ChromiumBrowserEngineSession {
     }
 
     private func enqueueViewportInput(_ command: ChromiumViewportInputCommand) {
-        viewportInputQueue.enqueue(command)
+        guard viewportInputQueue.enqueue(command) else {
+            failViewportInput()
+            return
+        }
+        startViewportInputDrainingIfNeeded()
+    }
+
+    func startViewportInputDrainingIfNeeded() {
+        guard !viewportInputFailed,
+              viewportInputQueue.count > 0,
+              connection != nil,
+              cdpSessionID != nil else {
+            return
+        }
         guard viewportInputTask == nil else { return }
         viewportInputTask = Task { [weak self] in
             await self?.drainViewportInput()
@@ -186,17 +258,16 @@ extension ChromiumBrowserEngineSession {
         defer { viewportInputTask = nil }
         while !Task.isCancelled, let command = viewportInputQueue.popFirst() {
             guard let connection, let cdpSessionID else {
-                viewportInputQueue.removeAll()
                 return
             }
             do {
-                _ = try await connection.send(
+                try await connection.sendUnacknowledged(
                     method: command.method,
                     parameters: command.parameters,
                     sessionID: cdpSessionID
                 )
             } catch {
-                viewportInputQueue.removeAll()
+                failViewportInput()
                 return
             }
         }
