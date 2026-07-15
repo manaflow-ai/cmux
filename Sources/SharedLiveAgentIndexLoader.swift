@@ -84,10 +84,17 @@ struct SharedLiveAgentIndexLoader {
     }
 
     static func processScopeFingerprint(from snapshot: CmuxTopProcessSnapshot) -> Set<String> {
-        // Snapshot-only fields keep autosave checks cheap while still detecting
-        // a same-PID shell-to-agent exec or terminal process-group transition.
+        // Track one owner per terminal instead of every short-lived descendant.
+        // The foreground process-group leader changes when a shell launches an
+        // agent, and its name/path change when the leader execs in place. Prompt
+        // helpers that remain in the shell's process group do not own the terminal
+        // and therefore cannot invalidate the shared agent index.
         var fingerprint: Set<String> = []
         for process in snapshot.cmuxScopedProcesses() {
+            guard let terminalProcessGroupID = process.terminalProcessGroupID,
+                  process.pid == terminalProcessGroupID else {
+                continue
+            }
             let components: [String] = [
                 process.cmuxWorkspaceID?.uuidString ?? "",
                 process.cmuxSurfaceID?.uuidString ?? "",
@@ -97,7 +104,7 @@ struct SharedLiveAgentIndexLoader {
                 process.path ?? "",
                 process.ttyDevice.map { String($0) } ?? "",
                 process.processGroupID.map { String($0) } ?? "",
-                process.terminalProcessGroupID.map { String($0) } ?? ""
+                String(terminalProcessGroupID)
             ]
             fingerprint.insert(components.joined(separator: "|"))
         }
