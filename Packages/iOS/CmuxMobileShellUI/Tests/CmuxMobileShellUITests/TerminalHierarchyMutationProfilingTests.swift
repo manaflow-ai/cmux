@@ -3,6 +3,29 @@ import Foundation
 import Testing
 @testable import CmuxMobileShellUI
 
+@Test func mutationAffordancePolicyKeepsProfilingSettlementAsTheFence() {
+    #expect(TerminalHierarchyMutationAffordancePolicy(
+        reorderGateCanMutate: true,
+        interactionProfilingIsActive: false,
+        hasPendingMutationProfiling: true
+    ).canMutate)
+    #expect(!TerminalHierarchyMutationAffordancePolicy(
+        reorderGateCanMutate: true,
+        interactionProfilingIsActive: true,
+        hasPendingMutationProfiling: true
+    ).canMutate)
+    #expect(TerminalHierarchyMutationAffordancePolicy(
+        reorderGateCanMutate: true,
+        interactionProfilingIsActive: true,
+        hasPendingMutationProfiling: false
+    ).canMutate)
+    #expect(!TerminalHierarchyMutationAffordancePolicy(
+        reorderGateCanMutate: false,
+        interactionProfilingIsActive: false,
+        hasPendingMutationProfiling: false
+    ).canMutate)
+}
+
 @Test func createProfilingWaitsForAuthoritativeExactSelectedAddition() {
     let baseline: Set<MobileTerminalPreview.ID> = ["terminal-a", "terminal-b"]
     var pending = TerminalHierarchyMutationProfilingPending(
