@@ -161,7 +161,8 @@ extension TerminalNotificationStore {
         forTabId tabId: UUID,
         replacingTabId: UUID? = nil,
         panelIdMap: [UUID: UUID] = [:],
-        restoredExternalBannerOwnerIDs: Set<UUID> = []
+        restoredExternalBannerOwnerIDs: Set<UUID> = [],
+        inferLegacyExternalBannerOwners: Bool = false
     ) {
         clearFocusedReadIndicator(forTabId: tabId)
         let existing = Array(notifications)
@@ -172,10 +173,13 @@ extension TerminalNotificationStore {
             replacingTabId: replacingTabId,
             panelIdMap: panelIdMap
         )
-        guard merged != existing || !restoredExternalBannerOwnerIDs.isEmpty else { return }
+        let ownerIDs = inferLegacyExternalBannerOwners && restoredExternalBannerOwnerIDs.isEmpty
+            ? Self.legacyExternalBannerOwnerIDs(from: restoredNotifications)
+            : restoredExternalBannerOwnerIDs
+        guard merged != existing || !ownerIDs.isEmpty else { return }
         applySessionNotificationMerge(
             merged,
-            restoredExternalBannerOwnerIDs: restoredExternalBannerOwnerIDs
+            restoredExternalBannerOwnerIDs: ownerIDs
         )
     }
 
@@ -212,6 +216,19 @@ extension TerminalNotificationStore {
         var result = ids
         if result.remove(oldId) != nil { result.insert(newId) }
         return result
+    }
+
+    nonisolated static func legacyExternalBannerOwnerIDs(
+        from notifications: [TerminalNotification]
+    ) -> Set<UUID> {
+        var latestBySurface: [TabSurfaceKey: TerminalNotification] = [:]
+        for notification in notifications where !notification.isRead {
+            let key = TabSurfaceKey(tabId: notification.tabId, surfaceId: notification.surfaceId)
+            if latestBySurface[key].map({ notificationSortPrecedes(notification, $0) }) ?? true {
+                latestBySurface[key] = notification
+            }
+        }
+        return Set(latestBySurface.values.map(\.id))
     }
 
     nonisolated static func mergeRestoredSessionNotifications(

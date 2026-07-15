@@ -50,6 +50,87 @@ struct NotificationRestoreBannerOwnershipTests {
         #expect(ownership.owner(tabId: tabId, surfaceId: surfaceId) == nil)
     }
 
+    @Test func legacyColdRestoreInfersLatestUnreadBannerOwnerPerSurface() {
+        let store = TerminalNotificationStore.shared
+        let previousNotifications = store.notifications
+        let tabId = UUID()
+        let firstSurfaceId = UUID()
+        let secondSurfaceId = UUID()
+        let older = notification(
+            id: UUID(), tabId: tabId, surfaceId: firstSurfaceId,
+            title: "Older unread", createdAt: Date(timeIntervalSince1970: 10)
+        )
+        let latestUnread = notification(
+            id: UUID(), tabId: tabId, surfaceId: firstSurfaceId,
+            title: "Latest unread", createdAt: Date(timeIntervalSince1970: 20)
+        )
+        let newerRead = notification(
+            id: UUID(), tabId: tabId, surfaceId: firstSurfaceId,
+            title: "Newer read", createdAt: Date(timeIntervalSince1970: 30),
+            isRead: true
+        )
+        let secondSurface = notification(
+            id: UUID(), tabId: tabId, surfaceId: secondSurfaceId,
+            title: "Second surface", createdAt: Date(timeIntervalSince1970: 15)
+        )
+        defer { store.replaceNotificationsForTesting(previousNotifications) }
+
+        store.replaceNotificationsForTesting([])
+        store.restoreSessionNotifications(
+            [older, latestUnread, newerRead, secondSurface],
+            forTabId: tabId,
+            inferLegacyExternalBannerOwners: true
+        )
+
+        #expect(store.externalBannerOwnerIDForTesting(tabId: tabId, surfaceId: firstSurfaceId) == latestUnread.id)
+        #expect(store.externalBannerOwnerIDForTesting(tabId: tabId, surfaceId: secondSurfaceId) == secondSurface.id)
+
+        store.replaceNotificationsForTesting([])
+        store.restoreSessionNotifications([latestUnread], forTabId: tabId)
+
+        #expect(store.externalBannerOwnerIDForTesting(tabId: tabId, surfaceId: firstSurfaceId) == nil)
+    }
+
+    @Test func olderAcceptedNotificationPreservesVisibleBannerOwner() {
+        let store = TerminalNotificationStore.shared
+        let previousNotifications = store.notifications
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+        let tabId = UUID()
+        let surfaceId = UUID()
+        let visibleOwner = notification(
+            id: UUID(), tabId: tabId, surfaceId: surfaceId,
+            title: "Visible owner", createdAt: Date(timeIntervalSince1970: 20)
+        )
+        let olderId = UUID()
+        var deliveredIds: [UUID] = []
+        defer {
+            store.replaceNotificationsForTesting(previousNotifications)
+            store.resetNotificationDeliveryHandlerForTesting()
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+        }
+
+        store.replaceNotificationsForTesting([visibleOwner])
+        AppFocusState.overrideIsFocused = false
+        store.configureNotificationDeliveryHandlerForTesting { _, notification in
+            deliveredIds.append(notification.id)
+        }
+
+        store.addNotification(
+            id: olderId,
+            acceptedAt: Date(timeIntervalSince1970: 10),
+            tabId: tabId,
+            surfaceId: surfaceId,
+            title: "Older incoming",
+            subtitle: "",
+            body: "",
+            retargetsToLiveSurfaceOwner: false
+        )
+
+        #expect(store.notifications.map(\.id) == [visibleOwner.id, olderId])
+        #expect(store.externalBannerOwnerIDForTesting(tabId: tabId, surfaceId: surfaceId) == visibleOwner.id)
+        #expect(deliveredIds.isEmpty)
+    }
+
     @Test func clearingBannerOwnerByIDPreservesOtherOwners() throws {
         let tabId = UUID()
         let owners = (0..<512).map { index in

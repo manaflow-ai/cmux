@@ -215,7 +215,7 @@ final class TerminalNotificationQueueTests: XCTestCase {
         await waitForReliableAdmissionBlock(bus)
 
         let responses = try await responseTask.value
-        XCTAssertEqual(responses, [TerminalNotificationQueueErrorMessages.saturated])
+        XCTAssertEqual(responses, [ReliableTerminalNotificationEnqueueResult.saturatedSocketResponse])
         XCTAssertFalse(bus.notificationQueueStateForTesting().1.contains("Timeout"))
         XCTAssertEqual(bus.reliablyWaitingNotificationProducerCountForTesting(), 0)
     }

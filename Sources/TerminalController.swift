@@ -12171,7 +12171,7 @@ class TerminalController {
 #endif
             return "OK"
         case .saturated, .cancelled:
-            return TerminalNotificationQueueErrorMessages.saturated
+            return ReliableTerminalNotificationEnqueueResult.saturatedSocketResponse
         case .accepted: break
         }
 #if DEBUG

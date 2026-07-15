@@ -299,11 +299,13 @@ extension Workspace {
         } else {
             AppDelegate.shared?.notificationStore?.clearRestoredUnreadIndicator(forTabId: id)
         }
+        let restoredExternalBannerOwnerIDs = snapshot.externalBannerOwnerNotificationIds.map(Set.init)
         AppDelegate.shared?.notificationStore?.restoreSessionNotifications(
             restoredNotifications,
             forTabId: id,
             panelIdMap: oldToNewPanelIds,
-            restoredExternalBannerOwnerIDs: Set(snapshot.externalBannerOwnerNotificationIds ?? [])
+            restoredExternalBannerOwnerIDs: restoredExternalBannerOwnerIDs ?? [],
+            inferLegacyExternalBannerOwners: restoredExternalBannerOwnerIDs == nil
         )
         syncUnreadBadgeStateForAllPanels()
         return oldToNewPanelIds
