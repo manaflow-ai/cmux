@@ -574,6 +574,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		468140000000000000000001 /* CmuxNotificationHookCacheKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468140000000000000000002 /* CmuxNotificationHookCacheKey.swift */; };
 		468100000000000000000001 /* CmuxNotificationHookCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468100000000000000000002 /* CmuxNotificationHookCacheTests.swift */; };
 		468140000000000000000003 /* CmuxNotificationHookFileFingerprint.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468140000000000000000004 /* CmuxNotificationHookFileFingerprint.swift */; };
+		468150000000000000000001 /* CmuxNotificationHookFileSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468150000000000000000002 /* CmuxNotificationHookFileSnapshot.swift */; };
 		468140000000000000000007 /* CmuxNotificationHookParsedConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468140000000000000000008 /* CmuxNotificationHookParsedConfig.swift */; };
 		E3B7A30000000000000000D3 /* CmuxNotifications in Frameworks */ = {isa = PBXBuildFile; productRef = E3B7A30000000000000000D2 /* CmuxNotifications */; };
 		C0DE31390000000000000101 /* CMUXOpenCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE31390000000000000102 /* CMUXOpenCommandTests.swift */; };
@@ -867,7 +868,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D7C6F5010000000000000000 /* GhosttyTitleChangeSubscription.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7C6F5010000000000000001 /* GhosttyTitleChangeSubscription.swift */; };
 		468110000000000000000009 /* GhosttyTitleUpdate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46811000000000000000000A /* GhosttyTitleUpdate.swift */; };
 		468110000000000000000003 /* GhosttyTitleUpdateDispatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468110000000000000000004 /* GhosttyTitleUpdateDispatcher.swift */; };
-		46811000000000000000000D /* GhosttyTitleUpdateEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46811000000000000000000E /* GhosttyTitleUpdateEvent.swift */; };
 		46811000000000000000000B /* GhosttyTitleUpdateIngress.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46811000000000000000000C /* GhosttyTitleUpdateIngress.swift */; };
 		468140000000000000000009 /* GhosttyTitleUpdateSurfaceKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46814000000000000000000A /* GhosttyTitleUpdateSurfaceKey.swift */; };
 		46814000000000000000000B /* GhosttyTitleUpdateSurfaceState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46814000000000000000000C /* GhosttyTitleUpdateSurfaceState.swift */; };
@@ -2518,6 +2518,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		468140000000000000000002 /* CmuxNotificationHookCacheKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxNotificationHookCacheKey.swift; sourceTree = "<group>"; };
 		468100000000000000000002 /* CmuxNotificationHookCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxNotificationHookCacheTests.swift; sourceTree = "<group>"; };
 		468140000000000000000004 /* CmuxNotificationHookFileFingerprint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxNotificationHookFileFingerprint.swift; sourceTree = "<group>"; };
+		468150000000000000000002 /* CmuxNotificationHookFileSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxNotificationHookFileSnapshot.swift; sourceTree = "<group>"; };
 		468140000000000000000008 /* CmuxNotificationHookParsedConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxNotificationHookParsedConfig.swift; sourceTree = "<group>"; };
 		C0DE31390000000000000102 /* CMUXOpenCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXOpenCommandTests.swift; sourceTree = "<group>"; };
 		C0DE31390000000000000112 /* CMUXOpenHTMLFocusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CMUXOpenHTMLFocusTests.swift; sourceTree = "<group>"; };
@@ -2784,7 +2785,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D7C6F5010000000000000001 /* GhosttyTitleChangeSubscription.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTitleChangeSubscription.swift; sourceTree = "<group>"; };
 		46811000000000000000000A /* GhosttyTitleUpdate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTitleUpdate.swift; sourceTree = "<group>"; };
 		468110000000000000000004 /* GhosttyTitleUpdateDispatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTitleUpdateDispatcher.swift; sourceTree = "<group>"; };
-		46811000000000000000000E /* GhosttyTitleUpdateEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTitleUpdateEvent.swift; sourceTree = "<group>"; };
 		46811000000000000000000C /* GhosttyTitleUpdateIngress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTitleUpdateIngress.swift; sourceTree = "<group>"; };
 		46814000000000000000000A /* GhosttyTitleUpdateSurfaceKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTitleUpdateSurfaceKey.swift; sourceTree = "<group>"; };
 		46814000000000000000000C /* GhosttyTitleUpdateSurfaceState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTitleUpdateSurfaceState.swift; sourceTree = "<group>"; };
@@ -4136,7 +4136,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				46811000000000000000000A /* GhosttyTitleUpdate.swift */,
 				468110000000000000000004 /* GhosttyTitleUpdateDispatcher.swift */,
 				46811000000000000000000C /* GhosttyTitleUpdateIngress.swift */,
-				46811000000000000000000E /* GhosttyTitleUpdateEvent.swift */,
 				46814000000000000000000A /* GhosttyTitleUpdateSurfaceKey.swift */,
 				46814000000000000000000C /* GhosttyTitleUpdateSurfaceState.swift */,
 				D7C6F5010000000000000001 /* GhosttyTitleChangeSubscription.swift */,
@@ -5135,6 +5134,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				468140000000000000000006 /* CmuxNotificationHookCacheEntry.swift */,
 				468140000000000000000002 /* CmuxNotificationHookCacheKey.swift */,
 				468140000000000000000004 /* CmuxNotificationHookFileFingerprint.swift */,
+				468150000000000000000002 /* CmuxNotificationHookFileSnapshot.swift */,
 				468140000000000000000008 /* CmuxNotificationHookParsedConfig.swift */,
 				C0DE43000000000000000004 /* CmuxSurfaceTabBarBuiltInAction+Codable.swift */,
 				C10D00040000000000000004 /* CmuxSurfaceTabBarBuiltInAction.swift */,
@@ -6572,6 +6572,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				468140000000000000000005 /* CmuxNotificationHookCacheEntry.swift in Sources */,
 				468140000000000000000001 /* CmuxNotificationHookCacheKey.swift in Sources */,
 				468140000000000000000003 /* CmuxNotificationHookFileFingerprint.swift in Sources */,
+				468150000000000000000001 /* CmuxNotificationHookFileSnapshot.swift in Sources */,
 				468140000000000000000007 /* CmuxNotificationHookParsedConfig.swift in Sources */,
 				A9F200000000000000000005 /* CmuxRuntimeDebugCapture.swift in Sources */,
 				A9F200000000000000000006 /* CmuxRuntimeDebugCaptureConfiguration.swift in Sources */,
@@ -6750,7 +6751,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D7C6F5010000000000000000 /* GhosttyTitleChangeSubscription.swift in Sources */,
 				468110000000000000000009 /* GhosttyTitleUpdate.swift in Sources */,
 				468110000000000000000003 /* GhosttyTitleUpdateDispatcher.swift in Sources */,
-				46811000000000000000000D /* GhosttyTitleUpdateEvent.swift in Sources */,
 				46811000000000000000000B /* GhosttyTitleUpdateIngress.swift in Sources */,
 				468140000000000000000009 /* GhosttyTitleUpdateSurfaceKey.swift in Sources */,
 				46814000000000000000000B /* GhosttyTitleUpdateSurfaceState.swift in Sources */,
