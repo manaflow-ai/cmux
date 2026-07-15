@@ -280,4 +280,28 @@ import Testing
 
         #expect(legacyWasPresentWhenNotified == false)
     }
+
+    @Test func resetAllSettingsClearsLegacyShortcutOverrides() async throws {
+        let action = ShortcutAction.nextSidebarTab
+        let (defaultsStore, suiteName) = try makeDefaultsStore(
+            legacyBindings: [
+                action: StoredShortcut(first: ShortcutStroke(key: "]", command: true, shift: true)),
+            ]
+        )
+        defer { UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName) }
+        let jsonStore = makeJSONStore()
+        let catalog = SettingCatalog()
+        let section = ResetSection(
+            defaultsStore: defaultsStore,
+            jsonStore: jsonStore,
+            catalog: catalog,
+            hostActions: NoopSettingsHostActions()
+        )
+
+        await section.resetAll()
+
+        let verify = try #require(UserDefaults(suiteName: suiteName))
+        #expect(verify.object(forKey: "shortcut.\(action.rawValue)") == nil)
+        #expect(await jsonStore.value(for: catalog.shortcuts.bindings).isEmpty)
+    }
 }
