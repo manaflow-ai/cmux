@@ -3130,7 +3130,11 @@ class TerminalController {
             return item
         }
 
-        let webContentPID = CmuxWebContentProcessIdentifier.pid(for: browserPanel.webView)
+        let webContentPID = Self.resolvedBrowserContentProcessIdentifier(
+            engineKind: browserPanel.engineKind,
+            chromiumProcessIdentifier: nil,
+            webKitProcessIdentifier: CmuxWebContentProcessIdentifier.pid(for: browserPanel.webView)
+        )
         let url = browserPanel.currentURL?.absoluteString ?? ""
         item["url"] = url
         item["browser_web_content_pid"] = v2OrNull(webContentPID)
@@ -3150,6 +3154,14 @@ class TerminalController {
             "lifecycle": browserPanel.webViewLifecycleTopPayload()
         ] as [String: Any]]
         return item
+    }
+
+    static func resolvedBrowserContentProcessIdentifier(
+        engineKind: BrowserEngineKind,
+        chromiumProcessIdentifier: Int32?,
+        webKitProcessIdentifier: Int?
+    ) -> Int? {
+        webKitProcessIdentifier
     }
 
     private func v2TopTagNodes(for workspace: Workspace) -> [[String: Any]] {

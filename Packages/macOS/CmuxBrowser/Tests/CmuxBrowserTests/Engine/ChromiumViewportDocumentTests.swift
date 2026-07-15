@@ -7,22 +7,7 @@ import WebKit
 struct ChromiumViewportDocumentTests {
     @Test
     func forwardsCompositionAndPasteAsCommittedText() async throws {
-        let configuration = WKWebViewConfiguration()
-        let messageHandler = ChromiumViewportNoOpMessageHandler()
-        configuration.userContentController.add(
-            messageHandler,
-            name: "cmuxChromiumViewport"
-        )
-        let webView = WKWebView(frame: .zero, configuration: configuration)
-        let loadDelegate = ChromiumViewportDocumentLoadDelegate()
-        webView.navigationDelegate = loadDelegate
-        try await loadDelegate.load(
-            ChromiumViewportDocument().html(
-                loadingText: "Loading",
-                accessibilityLabel: "Viewport"
-            ),
-            in: webView
-        )
+        let webView = try await makeLoadedWebView()
 
         let result = try await webView.callAsyncJavaScript(
             """
@@ -72,5 +57,52 @@ struct ChromiumViewportDocumentTests {
             "日本",
             "pasted text",
         ])
+    }
+
+    @Test
+    func forwardsTheHeldButtonDuringMouseDrag() async throws {
+        let webView = try await makeLoadedWebView()
+        let result = try await webView.callAsyncJavaScript(
+            """
+            window.__cmuxTestMessages = [];
+            post = (type, values = {}) => window.__cmuxTestMessages.push({ type, ...values });
+            document.getElementById('viewport').dispatchEvent(new MouseEvent('mousemove', {
+              clientX: 10,
+              clientY: 20,
+              button: 0,
+              buttons: 2,
+              bubbles: true
+            }));
+            return window.__cmuxTestMessages;
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+        let messages = try #require(result as? [[String: Any]])
+        let drag = try #require(messages.first { $0["type"] as? String == "mouse" })
+
+        #expect(drag["event"] as? String == "mouseMoved")
+        #expect((drag["button"] as? NSNumber)?.intValue == 2)
+    }
+
+    private func makeLoadedWebView() async throws -> WKWebView {
+        let configuration = WKWebViewConfiguration()
+        let messageHandler = ChromiumViewportNoOpMessageHandler()
+        configuration.userContentController.add(
+            messageHandler,
+            name: "cmuxChromiumViewport"
+        )
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        let loadDelegate = ChromiumViewportDocumentLoadDelegate()
+        webView.navigationDelegate = loadDelegate
+        try await loadDelegate.load(
+            ChromiumViewportDocument().html(
+                loadingText: "Loading",
+                accessibilityLabel: "Viewport"
+            ),
+            in: webView
+        )
+        return webView
     }
 }

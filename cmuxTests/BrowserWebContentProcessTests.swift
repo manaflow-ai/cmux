@@ -14,6 +14,20 @@ struct BrowserWebContentProcessTests {
     private let recoveryURL = URL(string: "data:text/html,cmux-recovery")!
 
     @Test
+    func topologyUsesTheContentProcessForEachBrowserEngine() {
+        #expect(TerminalController.resolvedBrowserContentProcessIdentifier(
+            engineKind: .webKit,
+            chromiumProcessIdentifier: 41,
+            webKitProcessIdentifier: 42
+        ) == 42)
+        #expect(TerminalController.resolvedBrowserContentProcessIdentifier(
+            engineKind: .chromium,
+            chromiumProcessIdentifier: 41,
+            webKitProcessIdentifier: 42
+        ) == 41)
+    }
+
+    @Test
     func browserPanelsShareDefaultWebsiteDataStore() {
         let first = BrowserPanel(workspaceId: UUID())
         let second = BrowserPanel(workspaceId: UUID())
