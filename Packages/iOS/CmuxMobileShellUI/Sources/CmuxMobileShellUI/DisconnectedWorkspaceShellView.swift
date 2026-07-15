@@ -297,52 +297,18 @@ struct DisconnectedWorkspaceShellView: View {
     }
 
     private var registryUnavailableState: some View {
-        ContentUnavailableView {
-            Label(
-                L10n.string("mobile.handoff.failure.title", defaultValue: "Couldn't Continue Session"),
-                systemImage: "wifi.exclamationmark"
-            )
-        } description: {
-            Text(L10n.string(
-                "mobile.handoff.failure.message",
-                defaultValue: "The session may have ended or its computer may be offline. Refresh and try again."
-            ))
-        } actions: {
-            Button {
+        DisconnectedRegistryUnavailableView(
+            isRefreshing: registryRefreshInFlight,
+            retry: {
                 registryState = .loading
                 Task { await refreshRegistryAndPresentation() }
-            } label: {
-                Text(L10n.string("mobile.common.retry", defaultValue: "Retry"))
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(registryRefreshInFlight)
-            Button(action: showAddDevice) {
-                Text(L10n.string("mobile.computers.add", defaultValue: "Add Computer"))
-            }
-        }
+            },
+            addComputer: showAddDevice
+        )
     }
 
     private var registryAuthenticationRequiredState: some View {
-        ContentUnavailableView {
-            Label(
-                L10n.string("mobile.settings.account", defaultValue: "Account"),
-                systemImage: "person.crop.circle.badge.exclamationmark"
-            )
-        } description: {
-            Text(L10n.string(
-                "mobile.recovery.accountMismatch",
-                defaultValue: "This computer is signed in to a different cmux account. Sign out and sign back in with that account."
-            ))
-        } actions: {
-            Button(action: signOut) {
-                Text(L10n.string(
-                    "mobile.recovery.switchAccount",
-                    defaultValue: "Sign Out & Switch Account"
-                ))
-            }
-            .buttonStyle(.borderedProminent)
-            .accessibilityIdentifier("MobileRegistryReauthSignOut")
-        }
+        DisconnectedRegistryAuthenticationRequiredView(switchAccount: signOut)
     }
 
     /// The never-paired/empty state (also previews, where `store` is `nil`).
