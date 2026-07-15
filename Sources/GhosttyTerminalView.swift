@@ -12016,6 +12016,8 @@ struct GhosttyTerminalView: NSViewRepresentable {
     let paneId: PaneID
     var isActive: Bool = true
     var isVisibleInUI: Bool = true
+    var ownershipGeneration: UInt64 = 0
+    var isCurrentPaneOwner: @MainActor () -> Bool = { true }
     var portalZPriority: Int = 0
     var showsInactiveOverlay: Bool = false
     var showsUnreadNotificationRing: Bool = false
@@ -12208,22 +12210,26 @@ struct GhosttyTerminalView: NSViewRepresentable {
 #endif
 
         let hostContainer = nsView as? HostContainerView
+        let ownsCurrentPane = isCurrentPaneOwner()
         let hostOwnsPortalNow = hostContainer.map { host in
-            terminalSurface.claimPortalHost(
+            guard ownsCurrentPane else { return false }
+            return terminalSurface.claimPortalHost(
                 hostId: ObjectIdentifier(host),
                 paneId: paneId,
                 instanceSerial: host.instanceSerial,
+                ownershipGeneration: ownershipGeneration,
                 inWindow: host.window != nil,
                 bounds: host.bounds,
+                allowsAuthorityAcquisition: ownsCurrentPane,
                 reason: "update"
             )
-        } ?? true
+        } ?? ownsCurrentPane
 
         // Keep the surface lifecycle and handlers updated even if we defer re-parenting.
         hostedView.attachSurface(terminalSurface)
-        hostedView.setFocusHandler { onFocus?(terminalSurface.id) }
-        hostedView.setTriggerFlashHandler(onTriggerFlash)
         if hostOwnsPortalNow {
+            hostedView.setFocusHandler { onFocus?(terminalSurface.id) }
+            hostedView.setTriggerFlashHandler(onTriggerFlash)
             hostedView.setPaneDropContext(TerminalPaneDropContext(
                 workspaceId: terminalSurface.tabId,
                 panelId: terminalSurface.id,
@@ -12277,12 +12283,15 @@ struct GhosttyTerminalView: NSViewRepresentable {
             host.onDidMoveToWindow = { [weak host, weak hostedView, weak coordinator] in
                 guard let host, let hostedView, let coordinator else { return }
                 guard coordinator.attachGeneration == generation else { return }
+                guard isCurrentPaneOwner() else { return }
                 guard terminalSurface.claimPortalHost(
                     hostId: ObjectIdentifier(host),
                     paneId: paneId,
                     instanceSerial: host.instanceSerial,
+                    ownershipGeneration: ownershipGeneration,
                     inWindow: host.window != nil,
                     bounds: host.bounds,
+                    allowsAuthorityAcquisition: true,
                     reason: "didMoveToWindow"
                 ) else { return }
                 guard host.window != nil else { return }
@@ -12306,12 +12315,15 @@ struct GhosttyTerminalView: NSViewRepresentable {
             host.onGeometryChanged = { [weak host, weak hostedView, weak coordinator] in
                 guard let host, let hostedView, let coordinator else { return }
                 guard coordinator.attachGeneration == generation else { return }
+                guard isCurrentPaneOwner() else { return }
                 guard terminalSurface.claimPortalHost(
                     hostId: ObjectIdentifier(host),
                     paneId: paneId,
                     instanceSerial: host.instanceSerial,
+                    ownershipGeneration: ownershipGeneration,
                     inWindow: host.window != nil,
                     bounds: host.bounds,
+                    allowsAuthorityAcquisition: true,
                     reason: "geometryChanged"
                 ) else { return }
                 guard portalBindingStillLive() else { return }

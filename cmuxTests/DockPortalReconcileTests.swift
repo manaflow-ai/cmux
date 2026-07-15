@@ -49,6 +49,85 @@ struct DockPortalReconcileTests {
         #expect(panel.surface.debugPortalHostLease().paneId == dockPane.id)
     }
 
+    @Test("Newer stale workspace host is rejected by live Dock ownership")
+    @MainActor
+    func newerStaleWorkspaceHostIsRejectedByLiveDockOwnership() {
+        let panel = TerminalPanel(workspaceId: UUID())
+        defer { panel.surface.teardownSurface() }
+        let dockHost = NSView()
+        let staleWorkspaceHost = NSView()
+        let dockPane = PaneID()
+        let staleWorkspacePane = PaneID()
+        let bounds = CGRect(x: 0, y: 0, width: 400, height: 300)
+
+        #expect(panel.surface.claimPortalHost(
+            hostId: ObjectIdentifier(dockHost),
+            paneId: dockPane,
+            instanceSerial: 2,
+            ownershipGeneration: 2,
+            inWindow: true,
+            bounds: bounds,
+            reason: "test.dock.liveOwner"
+        ))
+        #expect(!panel.surface.claimPortalHost(
+            hostId: ObjectIdentifier(staleWorkspaceHost),
+            paneId: staleWorkspacePane,
+            instanceSerial: 3,
+            ownershipGeneration: 2,
+            inWindow: true,
+            bounds: bounds,
+            allowsAuthorityAcquisition: false,
+            reason: "test.workspace.modelIneligible"
+        ))
+        #expect(panel.surface.debugPortalHostLease().paneId == dockPane.id)
+    }
+
+    @Test("New model ownership permits rollback to an earlier host")
+    @MainActor
+    func newModelOwnershipPermitsRollbackToEarlierHost() {
+        let panel = TerminalPanel(workspaceId: UUID())
+        defer { panel.surface.teardownSurface() }
+        let workspaceHost = NSView()
+        let dockHost = NSView()
+        let workspacePane = PaneID()
+        let dockPane = PaneID()
+        let bounds = CGRect(x: 0, y: 0, width: 400, height: 300)
+
+        #expect(panel.surface.claimPortalHost(
+            hostId: ObjectIdentifier(workspaceHost),
+            paneId: workspacePane,
+            instanceSerial: 10,
+            ownershipGeneration: 1,
+            inWindow: true,
+            bounds: bounds,
+            reason: "test.workspace.beforeMove"
+        ))
+        #expect(panel.surface.claimPortalHost(
+            hostId: ObjectIdentifier(dockHost),
+            paneId: dockPane,
+            instanceSerial: 20,
+            ownershipGeneration: 2,
+            inWindow: true,
+            bounds: bounds,
+            reason: "test.dock.move"
+        ))
+        panel.surface.releasePortalHostIfOwned(
+            hostId: ObjectIdentifier(dockHost),
+            reason: "test.dock.rollback"
+        )
+
+        #expect(panel.surface.claimPortalHost(
+            hostId: ObjectIdentifier(workspaceHost),
+            paneId: workspacePane,
+            instanceSerial: 10,
+            ownershipGeneration: 3,
+            inWindow: true,
+            bounds: bounds,
+            reason: "test.workspace.rollback"
+        ))
+        #expect(panel.surface.debugPortalHostLease().paneId == workspacePane.id)
+    }
+
     @Test("Browser attach into visible Dock shows portal")
     @MainActor
     func dockBrowserAttachIntoVisibleDockShowsPortal() throws {
