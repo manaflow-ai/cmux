@@ -283,7 +283,9 @@ extension SharedLiveAgentIndex {
         } else if generation.ordinal >= latestCompletedOrdinal {
             latestCompletedOrdinal = generation.ordinal
             latestCompletedLoadResult = result
-            latestCompletedAt = dateProvider()
+            let completedAt = dateProvider()
+            latestCompletedAt = completedAt
+            recordEventReloadBackpressure(for: result.index, completedAt: completedAt)
 
             if generation.publication == .workspace {
                 applyReloadedResult(

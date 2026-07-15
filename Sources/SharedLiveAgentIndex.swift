@@ -12,6 +12,8 @@ final class SharedLiveAgentIndex {
 
     private(set) var index: RestorableAgentSessionIndex?
     private var loadedAt: Date?
+    private var eventReloadBackpressureCompletedAt: Date?
+    private var eventReloadBackpressureEntryCount = 0
     var latestCompletedLoadResult: LoadResult?
     var latestCompletedAt: Date?
     private var liveAgentProcessFingerprint: Set<String> = []
@@ -394,6 +396,7 @@ final class SharedLiveAgentIndex {
         validatedMissingForkPanels.removeAll()
         self.liveAgentProcessFingerprint = liveAgentProcessFingerprint
         self.processScopeFingerprint = processScopeFingerprint
+        recordEventReloadBackpressure(for: newIndex, completedAt: loadedAt)
 #if DEBUG
         ProcessPerformanceMetrics.shared.operationCompleted(
             applyMetricsToken,
@@ -431,6 +434,14 @@ final class SharedLiveAgentIndex {
         return dateProvider().timeIntervalSince(completedAt) < Self.forkAvailabilityProbeTTL
     }
 
+    func recordEventReloadBackpressure(
+        for loadedIndex: RestorableAgentSessionIndex,
+        completedAt: Date
+    ) {
+        eventReloadBackpressureCompletedAt = completedAt
+        eventReloadBackpressureEntryCount = loadedIndex.entryCount
+    }
+
     private func validatedForkPanelKey(
         for panelKey: PanelKey
     ) -> PanelKey? {
@@ -453,9 +464,10 @@ final class SharedLiveAgentIndex {
     func scheduleHookStoreRefresh() {
         let reloadInterval = Self.hookEventReloadInterval(
             liveAgentCount: liveAgentProcessFingerprint.count,
-            indexedSessionCount: index?.entryCount ?? 0
+            indexedSessionCount: max(index?.entryCount ?? 0, eventReloadBackpressureEntryCount)
         )
-        let elapsed = loadedAt.map { dateProvider().timeIntervalSince($0) } ?? .infinity
+        let completedAt = eventReloadBackpressureCompletedAt ?? loadedAt
+        let elapsed = completedAt.map { dateProvider().timeIntervalSince($0) } ?? .infinity
         if elapsed >= reloadInterval {
             startBackgroundRefresh()
         } else if deferredReloadTimer == nil {
