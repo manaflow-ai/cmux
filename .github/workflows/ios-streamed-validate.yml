@@ -1,6 +1,6 @@
 name: iOS streamed-screenshot CI validation
 
-# Validates the REAL Mac-streamed screenshot pipeline headless on a Blacksmith
+# Validates the REAL Mac-streamed screenshot pipeline headless on a WarpBuild
 # macOS runner: stand up the dev web backend (local Postgres + Next.js), build +
 # run the desktop cmux Mac app, pair an iOS simulator to it, and capture the live
 # streamed terminal. Proves the pipeline works in CI before wiring it into the
@@ -12,21 +12,17 @@ name: iOS streamed-screenshot CI validation
 # test account) is provided as CMUXTERM_DEV_ENV_B64.
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths: [".github/workflows/ios-streamed-validate.yml"]
 
 permissions:
   contents: read
 
 jobs:
   validate:
-    # Blacksmith macOS-26 (Xcode 26 / iOS 26 sims). Pinned directly rather than
-    # via vars.MACOS_RUNNER_IOS: that repo var currently routes the iOS lane to a
-    # Depot macOS image whose default Xcode is 16.4, under which cmux's iOS
-    # targets fail to compile (Swift 6 actor-isolation + interpolation errors)
-    # and the iPhone 17 sim does not exist. Blacksmith macos-26 ships Xcode 26.
-    runs-on: blacksmith-6vcpu-macos-26
+    # This end-to-end validation is expensive and is run only on explicit
+    # dispatch. Default to the isolated WarpBuild ARM lane; the selector below
+    # chooses its installed Xcode 26 toolchain and simulator runtime. Keep an
+    # override for a future isolated runner migration.
+    runs-on: ${{ vars.MACOS_RUNNER_STREAMED_VALIDATION || 'warp-macos-15-arm64-6x' }}
     timeout-minutes: 120
     env:
       CMUX_PORT: "3000"

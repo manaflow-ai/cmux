@@ -32,7 +32,7 @@ extension Notification.Name {
     static let reactGrabDidCopySelection = Notification.Name("cmux.reactGrabDidCopySelection")
 }
 
-nonisolated private struct SocketLineProcessingResult: Sendable {
+private struct SocketLineProcessingResult: Sendable {
     let response: String?
     let authenticated: Bool
 }
@@ -46,14 +46,14 @@ nonisolated private struct SocketLineProcessingResult: Sendable {
 /// instance per command, `v2MainSync` mutates it in place (no per-hop
 /// allocation), and the end-of-command debug log on the same thread reads the
 /// totals. It never crosses threads, so it is intentionally not Sendable.
-nonisolated private final class SocketCommandMainHopAccumulator {
+private final class SocketCommandMainHopAccumulator {
     var queueWaitNanos: UInt64 = 0
     var bodyNanos: UInt64 = 0
     var hopCount: Int = 0
 }
 #endif
 
-nonisolated private struct RemotePTYSocketTarget {
+private struct RemotePTYSocketTarget {
     let controller: RemoteSessionCoordinator?
     let windowId: UUID?
     let windowRef: Any
@@ -7230,7 +7230,7 @@ class TerminalController {
     /// mouse sequence (not just `click`) or need legacy KeyboardEvent fields (keyCode/which/code).
     /// These helpers reproduce a real user gesture so React, Vue, Svelte, Angular, Solid, and
     /// vanilla handlers all fire. Define them once at the top of an injected snippet, then call
-    /// `__cmuxClick(el)`, `__cmuxHover(el)`, `__cmuxSetChecked(el, desired)`, and `__cmuxKey(t,type,key)`.
+    /// `__cmuxClick(el)`, `__cmuxHover(el)`, or `__cmuxSetChecked(el, desired)`.
     private nonisolated static let browserInputHelpers = """
     function __cmuxCenter(el){const r=el.getBoundingClientRect();return {x:Math.floor(r.left+Math.min(r.width,r.width/2)),y:Math.floor(r.top+Math.min(r.height,r.height/2))};}
     function __cmuxPointer(el,type,c,buttons,bubbles){try{el.dispatchEvent(new PointerEvent(type,{bubbles:(bubbles===false?false:true),cancelable:true,composed:true,view:window,pointerId:1,pointerType:'mouse',isPrimary:true,button:0,buttons:buttons,clientX:c.x,clientY:c.y,screenX:c.x,screenY:c.y}));}catch(e){}}
@@ -7270,22 +7270,6 @@ class TerminalController {
       }
       if(typeof el.click==='function'){el.click();}
       else {const c=__cmuxCenter(el); __cmuxMouse(el,'click',c,0,1);}
-    }
-    function __cmuxKeyMeta(key){
-      const map={Enter:[13,'Enter'],Tab:[9,'Tab'],Backspace:[8,'Backspace'],Delete:[46,'Delete'],Escape:[27,'Escape'],' ':[32,'Space'],ArrowUp:[38,'ArrowUp'],ArrowDown:[40,'ArrowDown'],ArrowLeft:[37,'ArrowLeft'],ArrowRight:[39,'ArrowRight'],Home:[36,'Home'],End:[35,'End'],PageUp:[33,'PageUp'],PageDown:[34,'PageDown']};
-      if(map[key])return {keyCode:map[key][0],code:map[key][1]};
-      if(key&&key.length===1){const u=key.toUpperCase();
-        if(/[A-Z]/.test(u))return {keyCode:u.charCodeAt(0),code:'Key'+u};
-        if(/[0-9]/.test(u))return {keyCode:u.charCodeAt(0),code:'Digit'+u};
-        return {keyCode:key.charCodeAt(0),code:''};}
-      return {keyCode:0,code:key||''};
-    }
-    function __cmuxKey(target,type,key){
-      const meta=__cmuxKeyMeta(key);
-      const ev=new KeyboardEvent(type,{key:key,code:meta.code,location:0,repeat:false,isComposing:false,bubbles:true,cancelable:true,composed:true,view:window});
-      try{Object.defineProperty(ev,'keyCode',{get(){return meta.keyCode;}});}catch(e){}
-      try{Object.defineProperty(ev,'which',{get(){return meta.keyCode;}});}catch(e){}
-      return target.dispatchEvent(ev);
     }
     """
 
@@ -7368,109 +7352,27 @@ class TerminalController {
     }
 
     private nonisolated func v2BrowserPress(params: [String: Any]) -> V2CallResult {
-        guard let key = v2String(params, "key") else {
-            return .err(code: "invalid_params", message: "Missing key", data: nil)
-        }
-
-        return v2BrowserWithPanelContext(params: params) { ctx in
-            let surfaceId = ctx.surfaceId
-            let keyLiteral = v2JSONLiteral(key)
-            let script = """
-            (() => {
-              \(Self.browserInputHelpers)
-              const target = document.activeElement || document.body || document.documentElement;
-              if (!target) return { ok: false, error: 'not_found' };
-              const k = String(\(keyLiteral));
-              const kdNotPrevented = __cmuxKey(target, 'keydown', k);
-              // keypress historically fires for character-producing keys, which includes Enter and
-              // Space; many pages still bind submit/search to keypress for Enter.
-              let kpNotPrevented = true;
-              if (k.length === 1 || k === 'Enter') { kpNotPrevented = __cmuxKey(target, 'keypress', k); }
-              __cmuxKey(target, 'keyup', k);
-              // Synthetic key events do not run WebKit's native "Enter submits the form" default
-              // action. Mirror real-user behavior, but only when neither keydown nor keypress was
-              // canceled (pages cancel Enter to run their own handling) and the native HTML implicit
-              // submission rules would apply: focus is a single-line text-like field AND the form has
-              // a submit control or exactly one such field.
-              if (k === 'Enter' && kdNotPrevented && kpNotPrevented && target && target.tagName === 'INPUT' && target.form) {
-                const submitTypes = ['text','search','email','url','tel','password','number','date','datetime-local','month','week','time'];
-                if (submitTypes.indexOf((target.type || 'text').toLowerCase()) !== -1) {
-                  const hasSubmit = !!target.form.querySelector('input[type=submit],input[type=image],button[type=submit],button:not([type])');
-                  const textFields = target.form.querySelectorAll('input[type=text],input[type=search],input[type=email],input[type=url],input[type=tel],input[type=password],input[type=number],input[type=date],input[type=datetime-local],input[type=month],input[type=week],input[type=time],input:not([type])');
-                  if (hasSubmit || textFields.length === 1) {
-                    try { if (target.form.requestSubmit) { target.form.requestSubmit(); } else { target.form.submit(); } } catch (e) {}
-                  }
-                }
-              }
-              return { ok: true };
-            })()
-            """
-            switch v2RunBrowserJavaScript(ctx.webView, surfaceId: surfaceId, script: script) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
-            case .success:
-                var payload: [String: Any] = [
-                    "workspace_id": ctx.workspaceId.uuidString,
-                    "workspace_ref": v2Ref(kind: .workspace, uuid: ctx.workspaceId),
-                    "surface_id": surfaceId.uuidString,
-                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId)
-                ]
-                v2BrowserAppendPostSnapshot(params: params, surfaceId: surfaceId, payload: &payload)
-                return .ok(payload)
-            }
-        }
+        v2BrowserKeyboardAction(params: params, action: .press)
     }
 
     private nonisolated func v2BrowserKeyDown(params: [String: Any]) -> V2CallResult {
-        guard let key = v2String(params, "key") else {
-            return .err(code: "invalid_params", message: "Missing key", data: nil)
-        }
-        return v2BrowserWithPanelContext(params: params) { ctx in
-            let surfaceId = ctx.surfaceId
-            let keyLiteral = v2JSONLiteral(key)
-            let script = """
-            (() => {
-              \(Self.browserInputHelpers)
-              const target = document.activeElement || document.body || document.documentElement;
-              if (!target) return { ok: false, error: 'not_found' };
-              const k = String(\(keyLiteral));
-              __cmuxKey(target, 'keydown', k);
-              return { ok: true };
-            })()
-            """
-            switch v2RunBrowserJavaScript(ctx.webView, surfaceId: surfaceId, script: script) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
-            case .success:
-                var payload: [String: Any] = [
-                    "workspace_id": ctx.workspaceId.uuidString,
-                    "workspace_ref": v2Ref(kind: .workspace, uuid: ctx.workspaceId),
-                    "surface_id": surfaceId.uuidString,
-                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId)
-                ]
-                v2BrowserAppendPostSnapshot(params: params, surfaceId: surfaceId, payload: &payload)
-                return .ok(payload)
-            }
-        }
+        v2BrowserKeyboardAction(params: params, action: .keyDown)
     }
 
     private nonisolated func v2BrowserKeyUp(params: [String: Any]) -> V2CallResult {
-        guard let key = v2String(params, "key") else {
+        v2BrowserKeyboardAction(params: params, action: .keyUp)
+    }
+
+    private nonisolated func v2BrowserKeyboardAction(
+        params: [String: Any],
+        action: BrowserKeyboardAction
+    ) -> V2CallResult {
+        guard let event = BrowserKeyboardEvent(rawKey: v2RawString(params, "key")) else {
             return .err(code: "invalid_params", message: "Missing key", data: nil)
         }
+        let script = v2BrowserControl.keyboardScript(action: action, event: event)
         return v2BrowserWithPanelContext(params: params) { ctx in
             let surfaceId = ctx.surfaceId
-            let keyLiteral = v2JSONLiteral(key)
-            let script = """
-            (() => {
-              \(Self.browserInputHelpers)
-              const target = document.activeElement || document.body || document.documentElement;
-              if (!target) return { ok: false, error: 'not_found' };
-              const k = String(\(keyLiteral));
-              __cmuxKey(target, 'keyup', k);
-              return { ok: true };
-            })()
-            """
             switch v2RunBrowserJavaScript(ctx.webView, surfaceId: surfaceId, script: script) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
@@ -13893,7 +13795,7 @@ class TerminalController {
         let capabilities = MobileHostService.mobileHostCapabilities
         guard includePrivateMetadata else {
             return .ok(MobileHostService.publicStatusPayload(
-                routesPayload: status.routes.map(\.mobileHostJSONObject)
+                routes: status.routes
             ))
         }
 

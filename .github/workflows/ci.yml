@@ -310,6 +310,9 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Validate managed relay catalog
+        run: bun ../scripts/generate-managed-iroh-relay-catalog.ts --check
+
       - name: Typecheck
         run: bun run typecheck
 
@@ -959,6 +962,7 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omx_fallback_path.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omc_fallback_path.py
           python3 tests/test_issue_2448_shell_claude_wrapper_dispatch.py
+          python3 tests/test_issue_8093_ghostty_ssh_binary_path.py
           python3 tests/test_issue_6714_zsh_shim_noclobber.py
           python3 tests/test_shell_git_branch_stale_cwd.py
           python3 tests/test_shell_git_config_remote_url_parsing.py
@@ -1185,6 +1189,7 @@ jobs:
             CmuxRemoteSession
             CmuxAgentChat
             CmuxAuthRuntime
+            CmuxIrohTransport
             CmuxCommandPalette
             CmuxControlSocket
             CmuxFoundation
@@ -1216,21 +1221,8 @@ jobs:
             fi
             echo "::group::swift test $pkgdir"
             case "$pkg" in
-            CmuxAuthRuntime)
-              suite_list="$(
-                find "$pkgdir/Tests" -name '*.swift' -print0 \
-                  | xargs -0 perl -ne 'print "$1\n" if /^\s*@Suite(?:\([^)]*\))?\s+struct\s+([A-Za-z0-9_]+)/' \
-                  | sort -u
-              )"
-              if [ -z "$suite_list" ]; then
-                echo "::error::no Swift Testing suites found for $pkg"
-                exit 1
-              fi
-              while IFS= read -r suite; do
-                [ -n "$suite" ] || continue
-                echo "swift test $pkgdir --filter $suite"
-                swift test --package-path "$pkgdir" --filter "$suite"
-              done <<< "$suite_list"
+            CmuxAuthRuntime|CmuxIrohTransport)
+              ./scripts/ci/run-swift-testing-suites.sh "$pkgdir"
               ;;
             CmuxTerminal|CmuxTerminalCore)
               test_status=0
