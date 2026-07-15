@@ -231,10 +231,11 @@ struct CmxIrohRelayCredentialCoordinatorTests {
             endpointIdentity: fixture.identity
         )
 
-        #expect(
-            await clockEvents.next()
-                == .sleep(fixture.now.addingTimeInterval(600))
-        )
+        guard case let .sleep(deadline) = await clockEvents.next() else {
+            Issue.record("Expected the rate-limit retry sleep")
+            return
+        }
+        #expect(deadline == fixture.now.addingTimeInterval(600))
         #expect(await endpoint.observedRelayUpdates().isEmpty)
         await coordinator.deactivate()
     }
