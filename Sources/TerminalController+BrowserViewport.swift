@@ -109,7 +109,7 @@ extension TerminalController {
             code: "invalid_params",
             message: String(
                 localized: "browser.viewport.error.renderGeometryTooLarge",
-                defaultValue: "Viewport and page zoom exceed WKWebView render limits"
+                defaultValue: "Viewport and page zoom exceed browser render limits"
             ),
             data: [
                 "reason": "viewport_zoom_render_geometry_too_large",
