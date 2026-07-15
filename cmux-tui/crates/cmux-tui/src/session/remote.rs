@@ -17,7 +17,7 @@ use cmux_tui_core::{
     MuxEventReceiver, NotificationEvent, NotificationLevel, Rgb, SurfaceId, SurfaceKind,
     platform::transport,
 };
-use ghostty_vt::{Callbacks, RenderState, Terminal};
+use ghostty_vt::{Callbacks, MouseEncoders, MouseInput, RenderState, Terminal};
 use serde_json::{Value, json};
 
 use super::tree::{TreeView, parse_tree};
@@ -192,6 +192,7 @@ pub struct RemoteSurface {
     pub id: SurfaceId,
     pub kind: SurfaceKind,
     pub term: Mutex<Terminal>,
+    mouse_encoders: Mutex<MouseEncoders>,
     pub dirty: AtomicBool,
     server_size: Mutex<(u16, u16)>,
     asserted_size: Mutex<Option<(u16, u16)>>,
@@ -199,6 +200,60 @@ pub struct RemoteSurface {
 }
 
 impl RemoteSurface {
+    pub(super) fn sync_mouse_encoders(&self, terminal: &Terminal) {
+        self.mouse_encoders.lock().unwrap().sync_from_terminal(terminal);
+    }
+
+    pub(super) fn encode_mouse(
+        &self,
+        input: MouseInput,
+        output: &mut Vec<u8>,
+    ) -> Option<ghostty_vt::Result<()>> {
+        match self.mouse_encoders.try_lock() {
+            Ok(mut encoders) => Some(encoders.encode(input, output)),
+            Err(std::sync::TryLockError::Poisoned(error)) => {
+                Some(error.into_inner().encode(input, output))
+            }
+            Err(std::sync::TryLockError::WouldBlock) => None,
+        }
+    }
+
+    pub(super) fn encode_mouse_release(
+        &self,
+        input: MouseInput,
+        output: &mut Vec<u8>,
+    ) -> Option<ghostty_vt::Result<()>> {
+        match self.mouse_encoders.try_lock() {
+            Ok(mut encoders) => Some(encoders.encode_release(input, output)),
+            Err(std::sync::TryLockError::Poisoned(error)) => {
+                Some(error.into_inner().encode_release(input, output))
+            }
+            Err(std::sync::TryLockError::WouldBlock) => None,
+        }
+    }
+
+    pub(super) fn encode_mouse_press_pair(
+        &self,
+        press: MouseInput,
+        release: MouseInput,
+        press_output: &mut Vec<u8>,
+        release_output: &mut Vec<u8>,
+    ) -> Option<ghostty_vt::Result<()>> {
+        match self.mouse_encoders.try_lock() {
+            Ok(mut encoders) => {
+                Some(encoders.encode_press_pair(press, release, press_output, release_output))
+            }
+            Err(std::sync::TryLockError::Poisoned(error)) => Some(
+                error.into_inner().encode_press_pair(press, release, press_output, release_output),
+            ),
+            Err(std::sync::TryLockError::WouldBlock) => None,
+        }
+    }
+
+    pub(super) fn reset_mouse_motion_dedupe(&self) {
+        self.mouse_encoders.lock().unwrap().reset_motion_dedupe();
+    }
+
     pub(super) fn set_server_size(&self, cols: u16, rows: u16) {
         let (cols, rows) = (cols.max(1), rows.max(1));
         *self.server_size.lock().unwrap() = (cols, rows);
@@ -214,9 +269,11 @@ impl RemoteSurface {
         {
             fresh.vt_write(replay);
             *term = fresh;
+            self.sync_mouse_encoders(&term);
             return;
         }
         let _ = term.resize(cols, rows, 8, 16);
+        self.sync_mouse_encoders(&term);
     }
 
     pub(super) fn server_size(&self) -> (u16, u16) {
@@ -433,6 +490,7 @@ impl RemoteSession {
                     surface.apply_stream_resize(cols, rows, None);
                     let mut term = surface.term.lock().unwrap();
                     term.vt_write(&replay);
+                    surface.sync_mouse_encoders(&term);
                     drop(term);
                     surface.dirty.store(true, Ordering::Release);
                 }
@@ -480,7 +538,10 @@ impl RemoteSession {
                 };
                 self.log_frame(id, format!("output bytes={}", bytes.len()));
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
-                    surface.term.lock().unwrap().vt_write(&bytes);
+                    let mut term = surface.term.lock().unwrap();
+                    term.vt_write(&bytes);
+                    surface.sync_mouse_encoders(&term);
+                    drop(term);
                     if !surface.dirty.swap(true, Ordering::AcqRel) {
                         self.emit(MuxEvent::SurfaceOutput(id));
                     }
@@ -890,6 +951,7 @@ impl RemoteSession {
             id,
             kind,
             term: Mutex::new(term),
+            mouse_encoders: Mutex::new(MouseEncoders::new()?),
             dirty: AtomicBool::new(false),
             server_size: Mutex::new((cols, rows)),
             asserted_size: Mutex::new(None),
@@ -1372,6 +1434,7 @@ mod tests {
             id: 1,
             kind: SurfaceKind::Browser,
             term: Mutex::new(Terminal::new(10, 5, 100, Callbacks::default()).unwrap()),
+            mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
             server_size: Mutex::new((10, 5)),
             asserted_size: Mutex::new(None),
@@ -1413,6 +1476,7 @@ mod tests {
             id: 1,
             kind: SurfaceKind::Pty,
             term: Mutex::new(Terminal::new(20, 6, 100, Callbacks::default()).unwrap()),
+            mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
             server_size: Mutex::new((20, 6)),
             asserted_size: Mutex::new(None),
@@ -1446,6 +1510,7 @@ mod tests {
             id: 7,
             kind: SurfaceKind::Pty,
             term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
+            mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
             server_size: Mutex::new((12, 4)),
             asserted_size: Mutex::new(None),
@@ -1482,6 +1547,7 @@ mod tests {
             id: 7,
             kind: SurfaceKind::Browser,
             term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
+            mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
             server_size: Mutex::new((12, 4)),
             asserted_size: Mutex::new(Some((12, 4))),
@@ -1513,6 +1579,7 @@ mod tests {
             id: 7,
             kind: SurfaceKind::Browser,
             term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
+            mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
             server_size: Mutex::new((12, 4)),
             asserted_size: Mutex::new(Some((90, 31))),
@@ -1662,6 +1729,7 @@ mod tests {
                 id: 7,
                 kind: SurfaceKind::Pty,
                 term: Mutex::new(Terminal::new(80, 24, 100, Callbacks::default()).unwrap()),
+                mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
                 dirty: AtomicBool::new(false),
                 server_size: Mutex::new((80, 24)),
                 asserted_size: Mutex::new(None),
@@ -1700,6 +1768,7 @@ mod tests {
             id: 1,
             kind: SurfaceKind::Pty,
             term: Mutex::new(Terminal::new(12, 3, 100, Callbacks::default()).unwrap()),
+            mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
             server_size: Mutex::new((12, 3)),
             asserted_size: Mutex::new(None),

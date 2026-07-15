@@ -15,7 +15,7 @@ use std::sync::mpsc::{
 use std::sync::{Arc, Mutex, TryLockError, Weak};
 use std::time::Duration;
 
-use ghostty_vt::{Callbacks, CursorShape, RenderState, Rgb, Terminal};
+use ghostty_vt::{Callbacks, CursorShape, MouseEncoders, MouseInput, RenderState, Rgb, Terminal};
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 
 use crate::platform;
@@ -322,6 +322,7 @@ impl Deref for Surface {
 pub struct PtySurface {
     pub(crate) meta: SurfaceMeta,
     term: Mutex<Terminal>,
+    mouse_encoders: Mutex<MouseEncoders>,
     writer: Mutex<Box<dyn Write + Send>>,
     master: Mutex<Box<dyn MasterPty + Send>>,
     killer: Mutex<Box<dyn ChildKiller + Send>>,
@@ -421,9 +422,12 @@ impl Surface {
             term.set_default_colors(colors.fg, colors.bg);
             term.set_default_cursor(colors.cursor_style, colors.cursor_blink);
         }
+        let mut mouse_encoders = MouseEncoders::new()?;
+        mouse_encoders.sync_from_terminal(&term);
         let surface = Arc::new(Surface::Pty(PtySurface {
             meta: SurfaceMeta { id, name: Mutex::new(None), selection: Mutex::new(None) },
             term: Mutex::new(term),
+            mouse_encoders: Mutex::new(mouse_encoders),
             writer: Mutex::new(writer),
             master: Mutex::new(pty.master),
             killer: Mutex::new(killer),
@@ -455,6 +459,7 @@ impl Surface {
                         let mut term = pty.term.lock().unwrap();
                         let before = terminal_scroll_position(&term);
                         term.vt_write(&buf[..n]);
+                        pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
                         let after = terminal_scroll_position(&term);
                         pty.broadcast_attach_output(&buf[..n]);
                         if title_changed.swap(false, Ordering::Relaxed) {
@@ -534,10 +539,13 @@ impl Surface {
             term.set_default_colors(colors.fg, colors.bg);
             term.set_default_cursor(colors.cursor_style, colors.cursor_blink);
         }
+        let mut mouse_encoders = MouseEncoders::new()?;
+        mouse_encoders.sync_from_terminal(&term);
 
         Ok(Arc::new(Surface::Pty(PtySurface {
             meta: SurfaceMeta { id, name: Mutex::new(None), selection: Mutex::new(None) },
             term: Mutex::new(term),
+            mouse_encoders: Mutex::new(mouse_encoders),
             writer: Mutex::new(Box::new(std::io::sink())),
             master: Mutex::new(Box::new(TestMasterPty {
                 size: Mutex::new(PtySize {
@@ -601,19 +609,65 @@ impl Surface {
     /// method is kept for existing PTY call sites.
     pub fn with_terminal<R>(&self, f: impl FnOnce(&mut Terminal) -> R) -> Option<R> {
         let pty = self.as_pty()?;
-        Some(f(&mut pty.term.lock().unwrap()))
+        let mut term = pty.term.lock().unwrap();
+        let result = f(&mut term);
+        pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
+        Some(result)
     }
 
-    /// Run `f` only when the terminal state is immediately available.
-    /// High-frequency input paths use this to drop coalescible samples instead
-    /// of parking the UI loop behind PTY parsing or replay generation.
-    pub fn with_terminal_if_uncontended<R>(&self, f: impl FnOnce(&mut Terminal) -> R) -> Option<R> {
+    pub fn encode_mouse(
+        &self,
+        input: MouseInput,
+        output: &mut Vec<u8>,
+    ) -> Option<ghostty_vt::Result<()>> {
         let pty = self.as_pty()?;
-        match pty.term.try_lock() {
-            Ok(mut term) => Some(f(&mut term)),
-            Err(TryLockError::Poisoned(error)) => Some(f(&mut error.into_inner())),
+        match pty.mouse_encoders.try_lock() {
+            Ok(mut encoders) => Some(encoders.encode(input, output)),
+            Err(TryLockError::Poisoned(error)) => Some(error.into_inner().encode(input, output)),
             Err(TryLockError::WouldBlock) => None,
         }
+    }
+
+    pub fn encode_mouse_release(
+        &self,
+        input: MouseInput,
+        output: &mut Vec<u8>,
+    ) -> Option<ghostty_vt::Result<()>> {
+        let pty = self.as_pty()?;
+        match pty.mouse_encoders.try_lock() {
+            Ok(mut encoders) => Some(encoders.encode_release(input, output)),
+            Err(TryLockError::Poisoned(error)) => {
+                Some(error.into_inner().encode_release(input, output))
+            }
+            Err(TryLockError::WouldBlock) => None,
+        }
+    }
+
+    pub fn encode_mouse_press_pair(
+        &self,
+        press: MouseInput,
+        release: MouseInput,
+        press_output: &mut Vec<u8>,
+        release_output: &mut Vec<u8>,
+    ) -> Option<ghostty_vt::Result<()>> {
+        let pty = self.as_pty()?;
+        match pty.mouse_encoders.try_lock() {
+            Ok(mut encoders) => {
+                Some(encoders.encode_press_pair(press, release, press_output, release_output))
+            }
+            Err(TryLockError::Poisoned(error)) => Some(error.into_inner().encode_press_pair(
+                press,
+                release,
+                press_output,
+                release_output,
+            )),
+            Err(TryLockError::WouldBlock) => None,
+        }
+    }
+
+    pub fn reset_mouse_motion_dedupe(&self) {
+        let Some(pty) = self.as_pty() else { return };
+        pty.mouse_encoders.lock().unwrap().reset_motion_dedupe();
     }
 
     pub fn try_with_terminal<R>(&self, f: impl FnOnce(&mut Terminal) -> R) -> anyhow::Result<R> {

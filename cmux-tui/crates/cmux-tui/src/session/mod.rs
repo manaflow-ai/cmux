@@ -18,7 +18,7 @@ use cmux_tui_core::{
     SidebarPluginStatus, SplitDir, Surface, SurfaceId, SurfaceKind, SurfaceResizeReporter,
     WorkspaceId, ZoomMode,
 };
-use ghostty_vt::{RenderState, Terminal};
+use ghostty_vt::{MouseInput, RenderState, Terminal};
 use serde_json::json;
 
 pub use remote::{RemoteSession, RemoteSurface};
@@ -804,22 +804,68 @@ impl SurfaceHandle {
         match self {
             SurfaceHandle::Local(surface) => surface.with_terminal(f),
             SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
-                Some(f(&mut surface.term.lock().unwrap()))
+                let mut terminal = surface.term.lock().unwrap();
+                let result = f(&mut terminal);
+                surface.sync_mouse_encoders(&terminal);
+                Some(result)
             }
             SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
         }
     }
 
-    /// Run `f` only when the local or mirrored terminal lock is immediately
-    /// available. `None` also covers non-PTY surfaces.
-    pub fn with_terminal_if_uncontended<R>(&self, f: impl FnOnce(&mut Terminal) -> R) -> Option<R> {
+    pub fn encode_mouse(
+        &self,
+        input: MouseInput,
+        output: &mut Vec<u8>,
+    ) -> Option<ghostty_vt::Result<()>> {
         match self {
-            SurfaceHandle::Local(surface) => surface.with_terminal_if_uncontended(f),
+            SurfaceHandle::Local(surface) => surface.encode_mouse(input, output),
             SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
-                let mut term = surface.term.try_lock().ok()?;
-                Some(f(&mut term))
+                surface.encode_mouse(input, output)
             }
             SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
+        }
+    }
+
+    pub fn encode_mouse_release(
+        &self,
+        input: MouseInput,
+        output: &mut Vec<u8>,
+    ) -> Option<ghostty_vt::Result<()>> {
+        match self {
+            SurfaceHandle::Local(surface) => surface.encode_mouse_release(input, output),
+            SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
+                surface.encode_mouse_release(input, output)
+            }
+            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
+        }
+    }
+
+    pub fn encode_mouse_press_pair(
+        &self,
+        press: MouseInput,
+        release: MouseInput,
+        press_output: &mut Vec<u8>,
+        release_output: &mut Vec<u8>,
+    ) -> Option<ghostty_vt::Result<()>> {
+        match self {
+            SurfaceHandle::Local(surface) => {
+                surface.encode_mouse_press_pair(press, release, press_output, release_output)
+            }
+            SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
+                surface.encode_mouse_press_pair(press, release, press_output, release_output)
+            }
+            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => None,
+        }
+    }
+
+    pub fn reset_mouse_motion_dedupe(&self) {
+        match self {
+            SurfaceHandle::Local(surface) => surface.reset_mouse_motion_dedupe(),
+            SurfaceHandle::Remote(surface, _) if surface.kind == SurfaceKind::Pty => {
+                surface.reset_mouse_motion_dedupe();
+            }
+            SurfaceHandle::Remote(_, _) | SurfaceHandle::RemoteBrowserUnsupported => {}
         }
     }
 

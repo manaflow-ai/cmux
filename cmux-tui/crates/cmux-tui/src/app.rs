@@ -29,8 +29,8 @@ use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
 use ghostty_vt::{
-    KeyEncoder, Mods, MouseAction, MouseButton as GhosttyMouseButton, MouseEncoder, MouseInput,
-    RenderState, Screen,
+    KeyEncoder, Mods, MouseAction, MouseButton as GhosttyMouseButton, MouseInput, RenderState,
+    Screen,
 };
 use ratatui::Terminal as RatatuiTerminal;
 use ratatui::backend::CrosstermBackend;
@@ -1827,6 +1827,7 @@ enum PtyMousePressResult {
 
 #[derive(Debug, Clone, Copy)]
 struct PtyInputForwardResult {
+    owned: bool,
     accepted: bool,
     reservation_id: Option<u64>,
 }
@@ -1912,7 +1913,6 @@ pub struct App {
     drag: Option<Drag>,
     ignored_pty_mouse_buttons: HashSet<MouseButton>,
     encoder: KeyEncoder,
-    mouse_encoder: MouseEncoder,
     encode_buf: Vec<u8>,
     quit: bool,
 }
@@ -2062,7 +2062,6 @@ pub fn run(
     });
     session.ensure_initial(initial_size)?;
     let encoder = KeyEncoder::new()?;
-    let mouse_encoder = MouseEncoder::new()?;
     let (tx, rx) = sync_channel::<AppEvent>(APP_EVENT_CAPACITY);
     let browser_failure_tx = tx.clone();
     let browser_control_tx = tx.clone();
@@ -2221,7 +2220,6 @@ pub fn run(
         drag: None,
         ignored_pty_mouse_buttons: HashSet::new(),
         encoder,
-        mouse_encoder,
         encode_buf: Vec::with_capacity(64),
         quit: false,
     };
@@ -2451,8 +2449,9 @@ impl App {
         }
         if failure.kind == Some(PtyInputKind::Motion)
             && failure.delivery == PtyOperationDelivery::KnownNotDelivered
+            && let Some(surface) = failure.surface_id.and_then(|id| self.session.surface(id))
         {
-            self.mouse_encoder.reset_motion_dedupe();
+            surface.reset_mouse_motion_dedupe();
         }
         let failed_active_press = failure.kind == Some(PtyInputKind::Press)
             && failure.delivery == PtyOperationDelivery::KnownNotDelivered
@@ -5001,18 +5000,10 @@ impl App {
         let Some(area) = self.pane_area_at(x, y).copied() else {
             return PtyMousePressResult::NotOwned;
         };
-        if !area.content.contains(x, y)
-            || self.surface_kind(area.surface) != Some(SurfaceKind::Pty)
-            || !self.pty_mouse_tracking(area.surface)
+        if !area.content.contains(x, y) || self.surface_kind(area.surface) != Some(SurfaceKind::Pty)
         {
             return PtyMousePressResult::NotOwned;
         }
-
-        if self.active_pane() != Some(area.pane) {
-            self.focus_pane_after_input(area.pane);
-        }
-        self.sidebar_focused = false;
-        self.selection = None;
         let Some(handle) = self.session.surface(area.surface) else {
             return PtyMousePressResult::Consumed;
         };
@@ -5024,6 +5015,14 @@ impl App {
             button,
             modifiers,
         );
+        if !forwarded.owned {
+            return PtyMousePressResult::NotOwned;
+        }
+        if self.active_pane() != Some(area.pane) {
+            self.focus_pane_after_input(area.pane);
+        }
+        self.sidebar_focused = false;
+        self.selection = None;
         if matches!(release_capture, PtyMouseReleaseCapture::Failed) {
             return PtyMousePressResult::Consumed;
         }
@@ -5061,7 +5060,8 @@ impl App {
         modifiers: KeyModifiers,
     ) -> (PtyMouseReleaseCapture, PtyInputForwardResult) {
         let (surface_id, surface) = route;
-        let failed = || PtyInputForwardResult { accepted: false, reservation_id: None };
+        let failed =
+            || PtyInputForwardResult { owned: true, accepted: false, reservation_id: None };
         let cell_width = u32::from(self.cell_pixels.0.max(1));
         let cell_height = u32::from(self.cell_pixels.1.max(1));
         let position = (
@@ -5083,18 +5083,15 @@ impl App {
         };
         let release =
             MouseInput { action: MouseAction::Release, any_button_pressed: false, ..press };
-        let Ok(mut release_encoder) = MouseEncoder::new() else {
+        let mut release_output = Vec::new();
+        let mut press_output = Vec::new();
+        let Some(encoded) =
+            surface.encode_mouse_press_pair(press, release, &mut press_output, &mut release_output)
+        else {
             return (PtyMouseReleaseCapture::Failed, failed());
         };
-        let mut release_output = Vec::new();
-        self.encode_buf.clear();
-        let encoded = surface.with_terminal(|terminal| {
-            release_encoder.sync_from_terminal(terminal);
-            release_encoder.encode(release, &mut release_output)?;
-            self.mouse_encoder.sync_from_terminal(terminal);
-            self.mouse_encoder.encode(press, &mut self.encode_buf)
-        });
-        if !matches!(encoded, Some(Ok(()))) {
+        self.encode_buf = press_output;
+        if encoded.is_err() {
             return (PtyMouseReleaseCapture::Failed, failed());
         }
         let release_capture = if release_output.is_empty() {
@@ -5105,7 +5102,7 @@ impl App {
         if self.encode_buf.is_empty() {
             return (
                 release_capture,
-                PtyInputForwardResult { accepted: true, reservation_id: None },
+                PtyInputForwardResult { owned: false, accepted: true, reservation_id: None },
             );
         }
         let kind = if matches!(release_capture, PtyMouseReleaseCapture::Bytes(_)) {
@@ -5226,18 +5223,14 @@ impl App {
             cell_size: (cell_width, cell_height),
             any_button_pressed: false,
         };
-        let Ok(mut encoder) = MouseEncoder::new() else {
+        let mut output = Vec::new();
+        let Some(encoded) = surface.encode_mouse_release(input, &mut output) else {
             return PtyMouseReleaseCapture::Failed;
         };
-        let mut output = Vec::new();
-        let encoded = surface.with_terminal(|terminal| {
-            encoder.sync_from_terminal(terminal);
-            encoder.encode(input, &mut output)
-        });
         match encoded {
-            Some(Ok(())) if output.is_empty() => PtyMouseReleaseCapture::NotReported,
-            Some(Ok(())) => PtyMouseReleaseCapture::Bytes(PtyInputBytes::from_slice(&output)),
-            Some(Err(_)) | None => PtyMouseReleaseCapture::Failed,
+            Ok(()) if output.is_empty() => PtyMouseReleaseCapture::NotReported,
+            Ok(()) => PtyMouseReleaseCapture::Bytes(PtyInputBytes::from_slice(&output)),
+            Err(_) => PtyMouseReleaseCapture::Failed,
         }
     }
 
@@ -5335,10 +5328,7 @@ impl App {
                 any_button_pressed,
             );
         }
-        if !self.pty_mouse_tracking(area.surface) {
-            return false;
-        }
-        let _ = self.forward_pty_mouse_to_surface(
+        self.forward_pty_mouse_to_surface(
             area.surface,
             area.content,
             x,
@@ -5347,8 +5337,8 @@ impl App {
             button,
             modifiers,
             any_button_pressed,
-        );
-        true
+        )
+        .owned
     }
 
     fn forward_pty_mouse_motion_if_uncontended(
@@ -5380,21 +5370,18 @@ impl App {
             any_button_pressed,
         };
 
-        self.encode_buf.clear();
-        let Some(encoded) = surface.with_terminal_if_uncontended(|terminal| {
-            if !terminal.mouse_tracking() {
-                return None;
-            }
-            self.mouse_encoder.sync_from_terminal(terminal);
-            Some(self.mouse_encoder.encode(input, &mut self.encode_buf))
-        }) else {
-            // Motion is coalescible. Drop a sample that races terminal
-            // parsing while the normal cmux hover bookkeeping continues.
+        let mut output = Vec::new();
+        let Some(encoded) = surface.encode_mouse(input, &mut output) else {
+            // The first sample can race terminal initialization. Motion is
+            // coalescible, so consume it without parking the UI loop.
             return true;
         };
-        let Some(encoded) = encoded else { return false };
-        if encoded.is_err() || self.encode_buf.is_empty() {
+        self.encode_buf = output;
+        if encoded.is_err() {
             return true;
+        }
+        if self.encode_buf.is_empty() {
+            return false;
         }
         let _ = self.write_encoded_pty_bytes(surface_id, surface, PtyInputKind::Motion);
         true
@@ -5413,7 +5400,7 @@ impl App {
         any_button_pressed: bool,
     ) -> PtyInputForwardResult {
         let Some(surface) = self.session.surface(surface_id) else {
-            return PtyInputForwardResult { accepted: false, reservation_id: None };
+            return PtyInputForwardResult { owned: false, accepted: false, reservation_id: None };
         };
         let cell_width = u32::from(self.cell_pixels.0.max(1));
         let cell_height = u32::from(self.cell_pixels.1.max(1));
@@ -5434,21 +5421,19 @@ impl App {
             any_button_pressed,
         };
 
-        self.encode_buf.clear();
-        let Some(encoded) = surface.with_terminal(|terminal| {
-            self.mouse_encoder.sync_from_terminal(terminal);
-            self.mouse_encoder.encode(input, &mut self.encode_buf)
-        }) else {
-            return PtyInputForwardResult { accepted: false, reservation_id: None };
+        let mut output = Vec::new();
+        let Some(encoded) = surface.encode_mouse(input, &mut output) else {
+            return PtyInputForwardResult { owned: true, accepted: false, reservation_id: None };
         };
+        self.encode_buf = output;
         if encoded.is_err() {
-            return PtyInputForwardResult { accepted: false, reservation_id: None };
+            return PtyInputForwardResult { owned: true, accepted: false, reservation_id: None };
         }
         if self.encode_buf.is_empty() {
             if action == MouseAction::Release {
                 self.cancel_pty_release_reservation();
             }
-            return PtyInputForwardResult { accepted: true, reservation_id: None };
+            return PtyInputForwardResult { owned: false, accepted: true, reservation_id: None };
         }
         let kind = match action {
             MouseAction::Press
@@ -5467,7 +5452,9 @@ impl App {
             MouseAction::Release => PtyInputKind::Release,
             MouseAction::Motion => PtyInputKind::Motion,
         };
-        self.write_encoded_pty_bytes(surface_id, surface, kind)
+        let mut forwarded = self.write_encoded_pty_bytes(surface_id, surface, kind);
+        forwarded.owned = true;
+        forwarded
     }
 
     fn write_encoded_pty_bytes(
@@ -5500,19 +5487,25 @@ impl App {
         let (result, reservation_id) = self
             .pty_input
             .enqueue_with_reservation(PtyInputEvent::input(surface_id, surface, bytes, kind));
-        self.rollback_mouse_motion_for_enqueue_failure(kind, result);
-        PtyInputForwardResult { accepted: self.handle_pty_enqueue_result(result), reservation_id }
+        self.rollback_mouse_motion_for_enqueue_failure(surface_id, kind, result);
+        PtyInputForwardResult {
+            owned: true,
+            accepted: self.handle_pty_enqueue_result(result),
+            reservation_id,
+        }
     }
 
     fn rollback_mouse_motion_for_enqueue_failure(
         &mut self,
+        surface_id: SurfaceId,
         kind: PtyInputKind,
         result: PtyInputEnqueueResult,
     ) {
         if kind == PtyInputKind::Motion
             && matches!(result, PtyInputEnqueueResult::Saturated | PtyInputEnqueueResult::Failed)
+            && let Some(surface) = self.session.surface(surface_id)
         {
-            self.mouse_encoder.reset_motion_dedupe();
+            surface.reset_mouse_motion_dedupe();
         }
     }
 
@@ -5555,13 +5548,6 @@ impl App {
         if let Some(Drag::PtyMouse { reservation_id, .. }) = &self.drag {
             self.pty_input.cancel_release_reservation(*reservation_id);
         }
-    }
-
-    fn pty_mouse_tracking(&self, surface_id: SurfaceId) -> bool {
-        self.session
-            .surface(surface_id)
-            .and_then(|surface| surface.with_terminal(|terminal| terminal.mouse_tracking()))
-            .unwrap_or(false)
     }
 
     fn ghostty_mouse_button(button: MouseButton) -> GhosttyMouseButton {
@@ -6594,11 +6580,12 @@ mod tests {
     use super::{
         App, AppEvent, BACKGROUND_REFRESH_RETRIES, DeferredInput, Drag, ForwardMuxOutcome,
         MuxTitleIngress, OrderedSession, PaneArea, PendingSessionMutation,
-        PendingSessionMutationState, PtyFailureIngress, RenderAction, Selection, SessionCompletion,
-        SessionCompletionAction, SidebarPluginSyncClaim, SidebarPluginSyncState,
-        SurfaceResizeDecision, SurfaceResizeOwnership, browser_content_size_for_rect,
-        browser_hover_forward_allowed, forward_mux_event, forward_mux_events, pane_parts_for_rect,
-        record_surface_resize_dispatch_result, sidebar_plugin_status_settles_passive_claim,
+        PendingSessionMutationState, PtyFailureIngress, PtyMousePressResult, RenderAction,
+        Selection, SessionCompletion, SessionCompletionAction, SidebarPluginSyncClaim,
+        SidebarPluginSyncState, SurfaceResizeDecision, SurfaceResizeOwnership,
+        browser_content_size_for_rect, browser_hover_forward_allowed, forward_mux_event,
+        forward_mux_events, pane_parts_for_rect, record_surface_resize_dispatch_result,
+        sidebar_plugin_status_settles_passive_claim,
     };
     use std::collections::{HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
@@ -6614,8 +6601,7 @@ mod tests {
         Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
     };
     use ghostty_vt::{
-        Callbacks, KeyEncoder, Mods, MouseAction, MouseButton as GhosttyMouseButton, MouseEncoder,
-        MouseInput, RenderState,
+        KeyEncoder, Mods, MouseAction, MouseButton as GhosttyMouseButton, MouseInput, RenderState,
     };
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
@@ -6825,6 +6811,7 @@ mod tests {
             },
         );
         let surface = mux.new_workspace(None, Some((20, 8))).unwrap();
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1003h\x1b[?1006h"));
         let held_surface = surface.clone();
         let (locked_tx, locked_rx) = std::sync::mpsc::channel();
         let (release_tx, release_rx) = std::sync::mpsc::channel();
@@ -6856,6 +6843,100 @@ mod tests {
 
         release_tx.send(()).unwrap();
         holder.join().unwrap();
+        mux.close_surface(surface.id);
+    }
+
+    #[test]
+    fn pty_mouse_press_does_not_wait_for_terminal_parsing() {
+        let mux = Mux::new(
+            "mouse-press-lock-test",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    "sleep 30".to_string(),
+                ]),
+                ..Default::default()
+            },
+        );
+        let surface = mux.new_workspace(None, Some((20, 8))).unwrap();
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002h\x1b[?1006h"));
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        let pane = app.tree.active_screen().unwrap().active_pane;
+        let content = Rect { x: 2, y: 3, width: 20, height: 8 };
+        app.pane_areas.push(PaneArea {
+            pane,
+            surface: surface.id,
+            rect: Rect { x: 1, y: 2, width: 23, height: 10 },
+            bar: Some(Rect { x: 1, y: 2, width: 23, height: 1 }),
+            omnibar: None,
+            content,
+            track: None,
+        });
+
+        let held_surface = surface.clone();
+        let (locked_tx, locked_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let holder = std::thread::spawn(move || {
+            held_surface.with_terminal(|_| {
+                locked_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
+            });
+        });
+        locked_rx.recv().unwrap();
+
+        let (result_tx, result_rx) = std::sync::mpsc::channel();
+        let input = std::thread::spawn(move || {
+            result_tx
+                .send(app.begin_pty_mouse_drag(
+                    content.x + 4,
+                    content.y + 2,
+                    MouseButton::Left,
+                    KeyModifiers::NONE,
+                ))
+                .unwrap();
+        });
+        let result = result_rx.recv_timeout(Duration::from_millis(250));
+        release_tx.send(()).unwrap();
+        holder.join().unwrap();
+        input.join().unwrap();
+
+        assert_eq!(result.unwrap(), PtyMousePressResult::Started);
+        mux.close_surface(surface.id);
+    }
+
+    #[test]
+    fn disabled_mouse_snapshot_does_not_consume_press() {
+        let mux = Mux::new("disabled-mouse-press-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(None, Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        let pane = app.tree.active_screen().unwrap().active_pane;
+        let content = Rect { x: 2, y: 3, width: 20, height: 8 };
+        app.pane_areas.push(PaneArea {
+            pane,
+            surface: surface.id,
+            rect: Rect { x: 1, y: 2, width: 23, height: 10 },
+            bar: Some(Rect { x: 1, y: 2, width: 23, height: 1 }),
+            omnibar: None,
+            content,
+            track: None,
+        });
+        app.sidebar_focused = true;
+
+        assert_eq!(
+            app.begin_pty_mouse_drag(
+                content.x + 4,
+                content.y + 2,
+                MouseButton::Left,
+                KeyModifiers::NONE,
+            ),
+            PtyMousePressResult::NotOwned
+        );
+        assert!(app.sidebar_focused);
+        assert!(app.drag.is_none());
+        assert!(app.encode_buf.is_empty());
         mux.close_surface(surface.id);
     }
 
@@ -6961,40 +7042,45 @@ mod tests {
     #[test]
     fn rejected_motion_enqueue_rolls_back_mouse_encoder_dedupe() {
         let mux = Mux::new("motion-enqueue-rollback-test", SurfaceOptions::default());
-        let mut app = test_app(Session::Local(mux));
-        let mut terminal = ghostty_vt::Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
-        terminal.vt_write(b"\x1b[?1003h\x1b[?1006h");
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1003h\x1b[?1006h"));
+        let handle = SurfaceHandle::Local(surface.clone());
+        let mut app = test_app(Session::Local(mux.clone()));
         let input = test_mouse_motion();
 
-        assert!(!encode_test_mouse_motion(&mut app, &terminal, input).is_empty());
-        assert!(encode_test_mouse_motion(&mut app, &terminal, input).is_empty());
+        assert!(!encode_test_mouse_motion(&handle, input).is_empty());
+        assert!(encode_test_mouse_motion(&handle, input).is_empty());
 
         app.rollback_mouse_motion_for_enqueue_failure(
+            surface.id,
             PtyInputKind::Motion,
             PtyInputEnqueueResult::Saturated,
         );
-        assert!(!encode_test_mouse_motion(&mut app, &terminal, input).is_empty());
-        assert!(encode_test_mouse_motion(&mut app, &terminal, input).is_empty());
+        assert!(!encode_test_mouse_motion(&handle, input).is_empty());
+        assert!(encode_test_mouse_motion(&handle, input).is_empty());
 
         app.rollback_mouse_motion_for_enqueue_failure(
+            surface.id,
             PtyInputKind::Motion,
             PtyInputEnqueueResult::Failed,
         );
-        assert!(!encode_test_mouse_motion(&mut app, &terminal, input).is_empty());
+        assert!(!encode_test_mouse_motion(&handle, input).is_empty());
+        mux.close_surface(surface.id);
     }
 
     #[test]
     fn evicted_known_undelivered_motion_allows_same_cell_retry() {
         let mux = Mux::new("motion-cancel-rollback-test", SurfaceOptions::default());
-        let mut app = test_app(Session::Local(mux));
-        let mut terminal = ghostty_vt::Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
-        terminal.vt_write(b"\x1b[?1003h\x1b[?1006h");
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1003h\x1b[?1006h"));
+        let handle = SurfaceHandle::Local(surface.clone());
+        let mut app = test_app(Session::Local(mux.clone()));
         let input = test_mouse_motion();
 
-        assert!(!encode_test_mouse_motion(&mut app, &terminal, input).is_empty());
-        assert!(encode_test_mouse_motion(&mut app, &terminal, input).is_empty());
+        assert!(!encode_test_mouse_motion(&handle, input).is_empty());
+        assert!(encode_test_mouse_motion(&handle, input).is_empty());
         app.handle(AppEvent::PtyOperationFailed(PtyOperationFailure {
-            surface_id: Some(42),
+            surface_id: Some(surface.id),
             kind: Some(PtyInputKind::Motion),
             reservation_id: None,
             label: "PTY input",
@@ -7003,10 +7089,10 @@ mod tests {
             delivery: PtyOperationDelivery::Ambiguous,
         }))
         .unwrap();
-        assert!(encode_test_mouse_motion(&mut app, &terminal, input).is_empty());
+        assert!(encode_test_mouse_motion(&handle, input).is_empty());
 
         app.handle(AppEvent::PtyOperationFailed(PtyOperationFailure {
-            surface_id: Some(42),
+            surface_id: Some(surface.id),
             kind: Some(PtyInputKind::Motion),
             reservation_id: None,
             label: "PTY input",
@@ -7015,7 +7101,8 @@ mod tests {
             delivery: PtyOperationDelivery::KnownNotDelivered,
         }))
         .unwrap();
-        assert!(!encode_test_mouse_motion(&mut app, &terminal, input).is_empty());
+        assert!(!encode_test_mouse_motion(&handle, input).is_empty());
+        mux.close_surface(surface.id);
     }
 
     #[test]
@@ -9054,14 +9141,9 @@ mod tests {
         }
     }
 
-    fn encode_test_mouse_motion(
-        app: &mut App,
-        terminal: &ghostty_vt::Terminal,
-        input: MouseInput,
-    ) -> Vec<u8> {
+    fn encode_test_mouse_motion(surface: &SurfaceHandle, input: MouseInput) -> Vec<u8> {
         let mut output = Vec::new();
-        app.mouse_encoder.sync_from_terminal(terminal);
-        app.mouse_encoder.encode(input, &mut output).unwrap();
+        surface.encode_mouse(input, &mut output).unwrap().unwrap();
         output
     }
 
@@ -9272,7 +9354,6 @@ mod tests {
             drag: None,
             ignored_pty_mouse_buttons: HashSet::new(),
             encoder: KeyEncoder::new().unwrap(),
-            mouse_encoder: MouseEncoder::new().unwrap(),
             encode_buf: Vec::new(),
             quit: false,
         };

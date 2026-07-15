@@ -48,6 +48,53 @@ pub struct MouseEncoder {
     size: Option<((u32, u32), (u32, u32))>,
 }
 
+// The opaque Ghostty encoder and event have no thread affinity. MouseEncoder
+// owns both pointers and requires &mut self for every operation, so moving the
+// pair between threads is safe. Shared access remains guarded by the caller.
+unsafe impl Send for MouseEncoder {}
+
+/// Per-surface encoders synchronized when terminal mouse modes change.
+/// Keeping both encoders behind the surface avoids taking the terminal lock
+/// on UI pointer paths while preserving a press/release protocol snapshot.
+pub struct MouseEncoders {
+    primary: MouseEncoder,
+    release: MouseEncoder,
+}
+
+impl MouseEncoders {
+    pub fn new() -> Result<Self> {
+        Ok(Self { primary: MouseEncoder::new()?, release: MouseEncoder::new()? })
+    }
+
+    pub fn sync_from_terminal(&mut self, terminal: &Terminal) {
+        self.primary.sync_from_terminal(terminal);
+        self.release.sync_from_terminal(terminal);
+    }
+
+    pub fn encode(&mut self, input: MouseInput, out: &mut Vec<u8>) -> Result<()> {
+        self.primary.encode(input, out)
+    }
+
+    pub fn encode_release(&mut self, input: MouseInput, out: &mut Vec<u8>) -> Result<()> {
+        self.release.encode(input, out)
+    }
+
+    pub fn encode_press_pair(
+        &mut self,
+        press: MouseInput,
+        release: MouseInput,
+        press_out: &mut Vec<u8>,
+        release_out: &mut Vec<u8>,
+    ) -> Result<()> {
+        self.release.encode(release, release_out)?;
+        self.primary.encode(press, press_out)
+    }
+
+    pub fn reset_motion_dedupe(&mut self) {
+        self.primary.reset_motion_dedupe();
+    }
+}
+
 impl MouseEncoder {
     pub fn new() -> Result<Self> {
         let mut encoder: sys::GhosttyMouseEncoder = ptr::null_mut();
