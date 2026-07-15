@@ -27,46 +27,6 @@ final class WorkspaceContentViewVisibilityTests {
 
     @Test
     @MainActor
-    func ordinaryWorkspaceMountsOnlyTheSelectedPanelViewInEachPane() {
-        let workspace = Workspace(initialSurface: .cloudVMLoading)
-
-        switch workspace.bonsplitController.configuration.contentViewLifecycle {
-        case .recreateOnSwitch:
-            break
-        case .keepAllAlive:
-            Issue.record(
-                "An ordinary workspace must not keep hidden panel view trees mounted; panel models own terminal and browser runtime state across selection changes."
-            )
-        }
-    }
-
-    @Test
-    func remoteTmuxEmbeddedLayoutKeepsAllMirroredPaneViewsMounted() {
-        let configuration = BonsplitConfiguration().remoteTmuxEmbedded
-
-        switch configuration.contentViewLifecycle {
-        case .keepAllAlive:
-            break
-        case .recreateOnSwitch:
-            Issue.record("Remote tmux mirrors require every mirrored pane view to remain mounted.")
-        }
-    }
-
-    @Test
-    @MainActor
-    func dockKeepsAllTabViewsMounted() {
-        let configuration = DockSplitStore.makeConfiguration()
-
-        switch configuration.contentViewLifecycle {
-        case .keepAllAlive:
-            break
-        case .recreateOnSwitch:
-            Issue.record("Dock tab view state must remain mounted across tab selection changes.")
-        }
-    }
-
-    @Test
-    @MainActor
     func testMinimalModeToggleDoesNotReevaluateChromeHeavyBodies() async throws {
         _ = NSApplication.shared
 

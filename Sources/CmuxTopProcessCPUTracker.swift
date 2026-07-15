@@ -30,8 +30,7 @@ private final class CmuxTopProcessCPUTracker: @unchecked Sendable {
         for currentSamples: [CmuxTopProcessScopeCacheKey: CmuxTopProcessCPUSample],
         activeKeys: Set<CmuxTopProcessScopeCacheKey>,
         parentKeysByKey: [CmuxTopProcessScopeCacheKey: CmuxTopProcessScopeCacheKey],
-        sampledAtNanoseconds: UInt64,
-        allowsPruning: Bool
+        sampledAtNanoseconds: UInt64
     ) -> [CmuxTopProcessScopeCacheKey: Double] {
         state.withLock { state in
             var percentages: [CmuxTopProcessScopeCacheKey: Double] = [:]
@@ -76,22 +75,19 @@ private final class CmuxTopProcessCPUTracker: @unchecked Sendable {
                 )
             }
 
-            if allowsPruning {
-                for (key, entry) in state.entries where entry.cpuPercent > 0 {
-                    guard let parentKey = entry.parentKey,
-                          !activeKeys.contains(key),
-                          activeKeys.contains(parentKey),
-                          !heldKeys.contains(parentKey) else {
-                        continue
-                    }
-                    percentages[parentKey, default: 0] += entry.cpuPercent
+            for (key, entry) in state.entries where entry.cpuPercent > 0 {
+                guard let parentKey = entry.parentKey,
+                      !activeKeys.contains(key),
+                      activeKeys.contains(parentKey),
+                      !heldKeys.contains(parentKey) else {
+                    continue
                 }
+                percentages[parentKey, default: 0] += entry.cpuPercent
             }
 
             // Overlapping captures can finish out of sample-time order; only
             // the newest completed capture is allowed to evict inactive keys.
-            if allowsPruning,
-               sampledAtNanoseconds >= state.latestPrunedAtNanoseconds {
+            if sampledAtNanoseconds >= state.latestPrunedAtNanoseconds {
                 state.latestPrunedAtNanoseconds = sampledAtNanoseconds
                 state.entries = state.entries.filter { entry in
                     activeKeys.contains(entry.key)
@@ -121,15 +117,13 @@ extension CmuxTopProcessSnapshot {
         for samples: [CmuxTopProcessScopeCacheKey: CmuxTopProcessCPUSample],
         activeKeys: Set<CmuxTopProcessScopeCacheKey>,
         parentKeysByKey: [CmuxTopProcessScopeCacheKey: CmuxTopProcessScopeCacheKey] = [:],
-        sampledAtNanoseconds: UInt64,
-        allowsPruning: Bool = true
+        sampledAtNanoseconds: UInt64
     ) -> [CmuxTopProcessScopeCacheKey: Double] {
         cmuxTopProcessCPUTracker.cpuPercentages(
             for: samples,
             activeKeys: activeKeys,
             parentKeysByKey: parentKeysByKey,
-            sampledAtNanoseconds: sampledAtNanoseconds,
-            allowsPruning: allowsPruning
+            sampledAtNanoseconds: sampledAtNanoseconds
         )
     }
 
