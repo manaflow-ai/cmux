@@ -16,9 +16,13 @@ on:
 
 jobs:
   deploy:
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      contents: read
+    runs-on: ${{ vars.LINUX_RUNNER }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
       - uses: oven-sh/setup-bun@735343b667d3e6f658f2770b6acb544c95b55c72 # v2.0.0
       - run: bun install --frozen-lockfile
         working-directory: web
@@ -26,10 +30,11 @@ jobs:
           mkdir -p .vercel
           printf '{"orgId":"%s","projectId":"%s"}' "$VERCEL_ORG_ID" "$VERCEL_PROJECT_ID" > .vercel/project.json
           bunx vercel deploy --prod --yes --token "$VERCEL_TOKEN" \
-            --build-env "CMUX_DOCS_CHANNEL=${{ inputs.channel }}" \
-            --env "CMUX_DOCS_CHANNEL=${{ inputs.channel }}"
+            --build-env "CMUX_DOCS_CHANNEL=$DOCS_CHANNEL" \
+            --env "CMUX_DOCS_CHANNEL=$DOCS_CHANNEL"
         working-directory: web
         env:
+          DOCS_CHANNEL: ${{ inputs.channel }}
           VERCEL_ORG_ID: ${{ secrets.vercel_org_id }}
           VERCEL_PROJECT_ID: ${{ secrets.vercel_project_id }}
           VERCEL_TOKEN: ${{ secrets.vercel_token }}
