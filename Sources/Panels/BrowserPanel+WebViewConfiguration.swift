@@ -5,7 +5,8 @@ import WebKit
 extension BrowserPanel {
     static func configureWebViewConfiguration(
         _ configuration: WKWebViewConfiguration,
-        websiteDataStore: WKWebsiteDataStore
+        websiteDataStore: WKWebsiteDataStore,
+        browserServices: BrowserServices? = nil
     ) {
         configuration.mediaTypesRequiringUserActionForPlayback = []
         // Ensure browser cookies/storage persist across navigations and launches.
@@ -13,7 +14,7 @@ extension BrowserPanel {
         configuration.websiteDataStore = websiteDataStore
         // Safari Web Extensions installed under ~/.config/cmux/browser-extensions
         // (macOS 15.4+; no-op when the directory is empty).
-        if #available(macOS 15.4, *), let extensionsManager = BrowserWebExtensionsManager.shared {
+        if #available(macOS 15.4, *), let extensionsManager = browserServices?.webExtensionsManager {
             configuration.webExtensionController = extensionsManager.controller
         }
         if configuration.urlSchemeHandler(forURLScheme: CmuxDiffViewerURLSchemeHandler.scheme) == nil {

@@ -37,15 +37,16 @@ final class BrowserPrewarmedWebViewPool: NSObject {
 
     private var entry: Entry?
     private var expiryTask: Task<Void, Never>?
+    private var browserServices: BrowserServices?
     private let timeToLive: Duration
-    private let makeWebView: @MainActor (UUID) -> CmuxWebView
+    private let makeWebView: @MainActor (UUID, BrowserServices?) -> CmuxWebView
     private let startLoad: @MainActor (CmuxWebView, URLRequest) -> Void
     private let expirySleep: @Sendable (Duration) async throws -> Void
 
     init(
         timeToLive: Duration = .seconds(180),
-        makeWebView: @escaping @MainActor (UUID) -> CmuxWebView = { profileID in
-            BrowserPanel.makeWebView(profileID: profileID)
+        makeWebView: @escaping @MainActor (UUID, BrowserServices?) -> CmuxWebView = { profileID, browserServices in
+            BrowserPanel.makeWebView(profileID: profileID, browserServices: browserServices)
         },
         startLoad: @escaping @MainActor (CmuxWebView, URLRequest) -> Void = { webView, request in
             webView.load(request)
@@ -58,6 +59,12 @@ final class BrowserPrewarmedWebViewPool: NSObject {
         self.makeWebView = makeWebView
         self.startLoad = startLoad
         self.expirySleep = expirySleep
+    }
+
+    func configure(browserServices: BrowserServices) {
+        guard self.browserServices !== browserServices else { return }
+        discard(reason: "browser-services-changed")
+        self.browserServices = browserServices
     }
 
     /// Whether a live entry exists for the URL + profile, regardless of load
@@ -86,7 +93,7 @@ final class BrowserPrewarmedWebViewPool: NSObject {
         }
         discard(reason: "replaced")
 
-        let webView = makeWebView(profileID)
+        let webView = makeWebView(profileID, browserServices)
         webView.navigationDelegate = self
         let hostWindow = Self.makeHiddenHostWindow(for: webView)
         entry = Entry(

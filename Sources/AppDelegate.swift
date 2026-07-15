@@ -512,6 +512,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var aboutTitlebarDebugStore: AboutTitlebarDebugStore { debugWindowsCoordinator.aboutTitlebarStore }
     /// Coordinates remote tmux (`ssh … tmux -CC`) mirroring; composition-root owned.
     let remoteTmuxController = RemoteTmuxController()
+    /// Process-wide browser services, injected into every window and browser panel.
+    private let browserServices = BrowserServices()
     private let systemAppearanceObserver = SystemAppearanceObserver()
     private static let reloadConfigurationMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.cmux.reloadConfiguration")
     private static let cachedIsRunningUnderXCTest = detectRunningUnderXCTest(ProcessInfo.processInfo.environment)
@@ -1268,7 +1270,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         AppIconLaunchState.markDidFinishLaunching()
         AppearanceSettingsUserDefaultsObserver.shared.startObserving()
         systemAppearanceObserver.startObserving()
-        BrowserLaunchServices.start()
+        browserServices.start()
         if isRunningUnderXCTest {
             NSApp.setActivationPolicy(.regular)
         } else {
@@ -8621,7 +8623,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             initialWorkspaceTitle: initialWorkspaceTitle,
             initialWorkingDirectory: initialWorkingDirectory,
             initialTerminalInput: initialTerminalInput,
-            autoWelcomeIfNeeded: initialTerminalInput == nil
+            autoWelcomeIfNeeded: initialTerminalInput == nil,
+            browserServices: browserServices
         )
         tabManager.windowId = windowId
         if let sessionWindowSnapshot {

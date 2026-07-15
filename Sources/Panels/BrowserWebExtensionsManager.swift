@@ -1,19 +1,6 @@
 import Foundation
 import WebKit
 
-/// Starts browser-wide services before restored browser panels are created.
-/// Keeping this entrypoint browser-owned prevents AppDelegate from accumulating
-/// one launch hook for every browser subsystem.
-@MainActor
-enum BrowserLaunchServices {
-    static func start() {
-        BrowserSystemProxyWatcher.shared.startObserving()
-        if #available(macOS 15.4, *) {
-            _ = BrowserWebExtensionsManager.shared
-        }
-    }
-}
-
 /// Loads Safari Web Extensions (WebExtension `manifest.json` bundles, the same
 /// format Safari and Chrome use) into every cmux browser webview.
 ///
@@ -38,30 +25,10 @@ final class BrowserWebExtensionsManager: NSObject {
     /// declarativeNetRequest state) persists across launches.
     private static let controllerIdentifier = UUID(uuidString: "3B7D2A9E-5C41-4F8A-B6D0-9E2C7A51F3D8")!
 
-    /// `CMUX_BROWSER_EXTENSIONS_DIR` overrides the default location so tagged
-    /// dev builds can dogfood against an isolated directory.
-    static var defaultDirectory: URL {
-        if let override = ProcessInfo.processInfo.environment["CMUX_BROWSER_EXTENSIONS_DIR"],
-           !override.isEmpty {
-            return URL(fileURLWithPath: (override as NSString).expandingTildeInPath, isDirectory: true)
-        }
-        return FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".config/cmux/browser-extensions", isDirectory: true)
-    }
-
-    /// Non-nil only when the extensions directory contains at least one
-    /// candidate at launch, so installs without extensions pay no cost.
-    static let shared: BrowserWebExtensionsManager? = {
-        let directory = defaultDirectory
-        guard !candidateURLs(in: directory).isEmpty else { return nil }
-        let manager = BrowserWebExtensionsManager(directory: directory)
-        manager.startLoading()
-        return manager
-    }()
-
     let controller: WKWebExtensionController
     let directory: URL
     var loadTask: Task<Void, Never>?
+    private let directoryRepository = BrowserWebExtensionDirectoryRepository()
     private(set) var isLoaded = false
     private var loadWaiters: [UUID: LoadWaiter] = [:]
     private(set) var loadedContexts: [WKWebExtensionContext] = []
@@ -154,7 +121,10 @@ final class BrowserWebExtensionsManager: NSObject {
             isLoaded = true
             resumeLoadWaiters()
         }
-        for url in Self.candidateURLs(in: directory) {
+        let candidates = await directoryRepository.candidateURLs(in: directory)
+        guard !Task.isCancelled else { return }
+        for url in candidates {
+            guard !Task.isCancelled else { return }
             do {
                 let webExtension = try await WKWebExtension(resourceBaseURL: url)
                 let context = WKWebExtensionContext(for: webExtension)

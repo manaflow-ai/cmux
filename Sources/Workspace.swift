@@ -2010,6 +2010,7 @@ final class Workspace: Identifiable, ObservableObject {
     @Published private(set) var surfaceTabBarDirectory: String?
     private(set) var preferredBrowserProfileID: UUID?
     let closeTabWarningDefaults, agentSessionAutoResumeDefaults: UserDefaults
+    let browserServices: BrowserServices?
 
     /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
     var portOrdinal: Int = 0
@@ -2029,6 +2030,7 @@ final class Workspace: Identifiable, ObservableObject {
         if let existing = _dockSplit { return existing }
         let store = DockSplitStore(
             workspaceId: id,
+            browserServices: browserServices,
             baseDirectoryProvider: { [weak self] in self?.currentDirectory },
             remoteBrowserSettingsProvider: { [weak self] in
                 guard let self else { return .local }
@@ -2892,13 +2894,15 @@ final class Workspace: Identifiable, ObservableObject {
         agentSessionAutoResumeDefaults: UserDefaults = .standard,
         initialDetachedSurface: DetachedSurfaceTransfer? = nil,
         sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>? = nil,
-        sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel? = nil
+        sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel? = nil,
+        browserServices: BrowserServices? = nil
     ) {
         self.id = UUID()
         self.sessionRestorePolicy = sessionRestorePolicy ?? Self.makeSessionRestorePolicyService()
         self.sidebarProcessTitleObservation = sidebarProcessTitleObservation ?? WorkspaceSidebarProcessTitleObservationModel()
         self.closeTabWarningDefaults = closeTabWarningDefaults
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
+        self.browserServices = browserServices
         let sanitizedWorkspaceEnvironment = Self.sanitizedWorkspaceEnvironment(workspaceEnvironment)
         self.workspaceEnvironment = sanitizedWorkspaceEnvironment
         self.portOrdinal = portOrdinal
@@ -2971,7 +2975,8 @@ final class Workspace: Identifiable, ObservableObject {
                 profileID: resolvedNewBrowserProfileID(),
                 initialURL: initialBrowserURL,
                 omnibarVisible: initialBrowserOmnibarVisible,
-                transparentBackground: initialBrowserTransparentBackground
+                transparentBackground: initialBrowserTransparentBackground,
+                browserServices: browserServices
             )
             configureBrowserPanel(browserPanel)
             panels[browserPanel.id] = browserPanel
@@ -7927,7 +7932,8 @@ final class Workspace: Identifiable, ObservableObject {
             proxyEndpoint: remoteProxyEndpoint,
             bypassRemoteProxy: bypassRemoteProxy,
             isRemoteWorkspace: isRemoteWorkspace,
-            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil
+            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil,
+            browserServices: browserServices
         )
         configureBrowserPanel(browserPanel)
         panels[browserPanel.id] = browserPanel
@@ -8036,7 +8042,8 @@ final class Workspace: Identifiable, ObservableObject {
             proxyEndpoint: remoteProxyEndpoint,
             bypassRemoteProxy: bypassRemoteProxy,
             isRemoteWorkspace: isRemoteWorkspace,
-            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil
+            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil,
+            browserServices: browserServices
         )
         configureBrowserPanel(browserPanel)
         panels[browserPanel.id] = browserPanel

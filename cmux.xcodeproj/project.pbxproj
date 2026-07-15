@@ -310,6 +310,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		4472A0034472A0034472A003 /* BrowserScreenshotSnapshotter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4472B0034472B0034472B003 /* BrowserScreenshotSnapshotter.swift */; };
 		A5008371 /* BrowserSearchOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5008370 /* BrowserSearchOverlay.swift */; };
 		C2035A050000000000000001 /* BrowserServerTrustFingerprint.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A050000000000000002 /* BrowserServerTrustFingerprint.swift */; };
+		44E7A20144E7A20144E7A201 /* BrowserServices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44E7A30144E7A30144E7A301 /* BrowserServices.swift */; };
 		C67540050000000000000001 /* BrowserSessionDownloadSaver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C67540050000000000000002 /* BrowserSessionDownloadSaver.swift */; };
 		C2035A0B000000000000001 /* BrowserSSLTrustBypassMessageHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A0B000000000000002 /* BrowserSSLTrustBypassMessageHandler.swift */; };
 		C2035A030000000000000001 /* BrowserSSLTrustBypassState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A030000000000000002 /* BrowserSSLTrustBypassState.swift */; };
@@ -343,6 +344,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A50100000000000000000020 /* BrowserWebAuthnTransportSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5010000000000000000001F /* BrowserWebAuthnTransportSummary.swift */; };
 		A50100000000000000000022 /* BrowserWebAuthnUserDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50100000000000000000021 /* BrowserWebAuthnUserDescriptor.swift */; };
 		C0DE49870000000000000001 /* BrowserWebContentProcessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE49870000000000000002 /* BrowserWebContentProcessTests.swift */; };
+		44E7A40144E7A40144E7A401 /* BrowserWebExtensionDirectoryRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44E7A50144E7A50144E7A501 /* BrowserWebExtensionDirectoryRepository.swift */; };
 		44E7A10144E7A10144E7A101 /* BrowserWebExtensionsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44E7B10144E7B10144E7B101 /* BrowserWebExtensionsManager.swift */; };
 		44E7C10144E7C10144E7C101 /* BrowserWebExtensionsManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44E7D10144E7D10144E7D101 /* BrowserWebExtensionsManagerTests.swift */; };
 		C0DE58990000000000000003 /* BrowserWebKitKeyDownDispatch.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE58990000000000000001 /* BrowserWebKitKeyDownDispatch.swift */; };
@@ -2278,6 +2280,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		4472B0034472B0034472B003 /* BrowserScreenshotSnapshotter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserScreenshotSnapshotter.swift; sourceTree = "<group>"; };
 		A5008370 /* BrowserSearchOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/BrowserSearchOverlay.swift; sourceTree = "<group>"; };
 		C2035A050000000000000002 /* BrowserServerTrustFingerprint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserServerTrustFingerprint.swift; sourceTree = "<group>"; };
+		44E7A30144E7A30144E7A301 /* BrowserServices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserServices.swift; sourceTree = "<group>"; };
 		C67540050000000000000002 /* BrowserSessionDownloadSaver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserSessionDownloadSaver.swift; sourceTree = "<group>"; };
 		C2035A0B000000000000002 /* BrowserSSLTrustBypassMessageHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserSSLTrustBypassMessageHandler.swift; sourceTree = "<group>"; };
 		C2035A030000000000000002 /* BrowserSSLTrustBypassState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserSSLTrustBypassState.swift; sourceTree = "<group>"; };
@@ -2310,6 +2313,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A5010000000000000000001F /* BrowserWebAuthnTransportSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnTransportSummary.swift; sourceTree = "<group>"; };
 		A50100000000000000000021 /* BrowserWebAuthnUserDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebAuthnUserDescriptor.swift; sourceTree = "<group>"; };
 		C0DE49870000000000000002 /* BrowserWebContentProcessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWebContentProcessTests.swift; sourceTree = "<group>"; };
+		44E7A50144E7A50144E7A501 /* BrowserWebExtensionDirectoryRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionDirectoryRepository.swift; sourceTree = "<group>"; };
 		44E7B10144E7B10144E7B101 /* BrowserWebExtensionsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebExtensionsManager.swift; sourceTree = "<group>"; };
 		44E7D10144E7D10144E7D101 /* BrowserWebExtensionsManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWebExtensionsManagerTests.swift; sourceTree = "<group>"; };
 		C0DE58990000000000000001 /* BrowserWebKitKeyDownDispatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserWebKitKeyDownDispatch.swift; sourceTree = "<group>"; };
@@ -4835,6 +4839,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B3770BA00000000000000002 /* BrowserAutomation.swift */,
 				4472B0014472B0014472B001 /* BrowserScreenshot.swift */,
 				44E7F10144E7F10144E7F101 /* BrowserPanel+WebViewConfiguration.swift */,
+				44E7A30144E7A30144E7A301 /* BrowserServices.swift */,
+				44E7A50144E7A50144E7A501 /* BrowserWebExtensionDirectoryRepository.swift */,
 				44E7B10144E7B10144E7B101 /* BrowserWebExtensionsManager.swift */,
 				4472B0024472B0024472B002 /* BrowserScreenshotPipeline.swift */,
 				4472B0034472B0034472B003 /* BrowserScreenshotSnapshotter.swift */,
@@ -6463,6 +6469,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				4472A0034472A0034472A003 /* BrowserScreenshotSnapshotter.swift in Sources */,
 				A5008371 /* BrowserSearchOverlay.swift in Sources */,
 				C2035A050000000000000001 /* BrowserServerTrustFingerprint.swift in Sources */,
+				44E7A20144E7A20144E7A201 /* BrowserServices.swift in Sources */,
 				C67540050000000000000001 /* BrowserSessionDownloadSaver.swift in Sources */,
 				C2035A0B000000000000001 /* BrowserSSLTrustBypassMessageHandler.swift in Sources */,
 				C2035A030000000000000001 /* BrowserSSLTrustBypassState.swift in Sources */,
@@ -6491,6 +6498,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5010000000000000000001E /* BrowserWebAuthnTransport.swift in Sources */,
 				A50100000000000000000020 /* BrowserWebAuthnTransportSummary.swift in Sources */,
 				A50100000000000000000022 /* BrowserWebAuthnUserDescriptor.swift in Sources */,
+				44E7A40144E7A40144E7A401 /* BrowserWebExtensionDirectoryRepository.swift in Sources */,
 				44E7A10144E7A10144E7A101 /* BrowserWebExtensionsManager.swift in Sources */,
 				C0DE58990000000000000003 /* BrowserWebKitKeyDownDispatch.swift in Sources */,
 				A5001534 /* BrowserWindowPortal.swift in Sources */,

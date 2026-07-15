@@ -390,6 +390,7 @@ class TabManager: ObservableObject {
     /// Typed synchronous settings access (CmuxSettings).
     private let settings: any SettingsWriting
     private let settingsCatalog = SettingCatalog()
+    let browserServices: BrowserServices?
 
     @Published private(set) var focusHistoryRevision: UInt64 = 0 {
         didSet {
@@ -473,12 +474,14 @@ class TabManager: ObservableObject {
         gitFallbackCoordinator: WorkspaceGitFallbackCoordinator? = nil,
         panelTitleUpdateCoalescer: NotificationBurstCoalescer? = nil,
         settings: any SettingsWriting = UserDefaultsSettingsClient(defaults: .standard),
-        closeTabWarningDefaults: UserDefaults = .standard
+        closeTabWarningDefaults: UserDefaults = .standard,
+        browserServices: BrowserServices? = nil
     ) {
         let gitMetadataService = gitMetadataService ?? GitMetadataService(
             trackedChangesSnapshotScope: Self.sharedGitTrackedChangesSnapshotScope
         )
         self.settings = settings
+        self.browserServices = browserServices
         self.panelTitleUpdateCoalescer = panelTitleUpdateCoalescer ?? NotificationBurstCoalescer()
         self.closeTabWarningDefaults = closeTabWarningDefaults
         workspaceReordering = WorkspaceReorderCoordinator(model: workspaces)
@@ -959,7 +962,8 @@ class TabManager: ObservableObject {
             initialBrowserTransparentBackground: initialBrowserTransparentBackground,
             workspaceEnvironment: workspaceEnvironment,
             allowTextBoxFocusDefault: allowTextBoxFocusDefault,
-            closeTabWarningDefaults: closeTabWarningDefaults
+            closeTabWarningDefaults: closeTabWarningDefaults,
+            browserServices: browserServices
         )
     }
 
@@ -5968,7 +5972,8 @@ extension TabManager {
                 title: workspaceSnapshot.processTitle,
                 workingDirectory: workspaceSnapshot.currentDirectory,
                 portOrdinal: ordinal,
-                closeTabWarningDefaults: closeTabWarningDefaults
+                closeTabWarningDefaults: closeTabWarningDefaults,
+                browserServices: browserServices
             )
             workspace.owningTabManager = self
             let restoredPanelIds = workspace.restoreSessionSnapshot(workspaceSnapshot, excludingStableIdentities: excludingStableIdentities)
@@ -5981,7 +5986,12 @@ extension TabManager {
         if newTabs.isEmpty {
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
-            let fallback = Workspace(title: "Terminal 1", portOrdinal: ordinal, closeTabWarningDefaults: closeTabWarningDefaults)
+            let fallback = Workspace(
+                title: "Terminal 1",
+                portOrdinal: ordinal,
+                closeTabWarningDefaults: closeTabWarningDefaults,
+                browserServices: browserServices
+            )
             fallback.owningTabManager = self
             wireClosedBrowserTracking(for: fallback)
             newTabs.append(fallback)

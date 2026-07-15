@@ -25,7 +25,7 @@ private final class PrewarmPoolHarness {
         var recordRequest: (@MainActor (URLRequest) -> Void)!
         let dataStore = dataStore
         pool = BrowserPrewarmedWebViewPool(
-            makeWebView: { _ in
+            makeWebView: { _, _ in
                 let configuration = WKWebViewConfiguration()
                 configuration.websiteDataStore = dataStore
                 let webView = CmuxWebView(frame: .zero, configuration: configuration)

@@ -2739,6 +2739,7 @@ final class BrowserPanel: Panel, ObservableObject {
     /// The underlying web view
     private(set) var webView: WKWebView
     private var websiteDataStore: WKWebsiteDataStore
+    let browserServices: BrowserServices?
     var webViewDidRequestClose: (() -> Void)?
 
     /// Monotonic identity for the current WKWebView instance.
@@ -3328,7 +3329,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
         let replacement = Self.makeWebView(
             profileID: profileID,
-            websiteDataStore: websiteDataStore
+            websiteDataStore: websiteDataStore,
+            browserServices: browserServices
         )
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
@@ -3543,12 +3545,14 @@ final class BrowserPanel: Panel, ObservableObject {
     // identical configuration, making adoption a drop-in swap.
     static func makeWebView(
         profileID: UUID,
-        websiteDataStore: WKWebsiteDataStore? = nil
+        websiteDataStore: WKWebsiteDataStore? = nil,
+        browserServices: BrowserServices? = nil
     ) -> CmuxWebView {
         let config = WKWebViewConfiguration()
         configureWebViewConfiguration(
             config,
-            websiteDataStore: websiteDataStore ?? BrowserProfileStore.shared.websiteDataStore(for: profileID)
+            websiteDataStore: websiteDataStore ?? BrowserProfileStore.shared.websiteDataStore(for: profileID),
+            browserServices: browserServices
         )
 
         let webView = CmuxWebView(frame: .zero, configuration: config)
@@ -3857,13 +3861,15 @@ final class BrowserPanel: Panel, ObservableObject {
         proxyEndpoint: BrowserProxyEndpoint? = nil,
         bypassRemoteProxy: Bool = false,
         isRemoteWorkspace: Bool = false,
-        remoteWebsiteDataStoreIdentifier: UUID? = nil
+        remoteWebsiteDataStoreIdentifier: UUID? = nil,
+        browserServices: BrowserServices? = nil
     ) {
         // Register fallback defaults and normalize legacy/out-of-range settings once
         // per process, before any setting is read below or by the SwiftUI view.
         Self.bootstrapBrowserDefaultsIfNeeded()
         self.id = UUID()
         self.workspaceId = workspaceId
+        self.browserServices = browserServices
         let resolvedProfileID = Self.resolvedProfileID(requested: profileID)
         self.profileID = resolvedProfileID
         self.historyStore = BrowserProfileStore.shared.historyStore(for: resolvedProfileID)
@@ -3894,7 +3900,8 @@ final class BrowserPanel: Panel, ObservableObject {
         } else {
             webView = Self.makeWebView(
                 profileID: resolvedProfileID,
-                websiteDataStore: websiteDataStore
+                websiteDataStore: websiteDataStore,
+                browserServices: browserServices
             )
         }
         self.webView = webView
@@ -4141,7 +4148,7 @@ final class BrowserPanel: Panel, ObservableObject {
     func runWhenWebExtensionsLoaded(_ navigation: @escaping @MainActor () -> Void) {
         pendingWebExtensionNavigationTask?.cancel()
         pendingWebExtensionNavigationTask = nil
-        if #available(macOS 15.4, *), let manager = BrowserWebExtensionsManager.shared, !manager.isLoaded {
+        if #available(macOS 15.4, *), let manager = browserServices?.webExtensionsManager, !manager.isLoaded {
             pendingWebExtensionNavigationTask = Task { @MainActor [weak self] in
                 await manager.waitUntilLoaded()
                 guard !Task.isCancelled, let self, !self.isClosingWebViewLifecycle else { return }
@@ -4559,7 +4566,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
         let replacement = Self.makeWebView(
             profileID: resolvedProfileID,
-            websiteDataStore: websiteDataStore
+            websiteDataStore: websiteDataStore,
+            browserServices: browserServices
         )
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
@@ -5068,7 +5076,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
         let replacement = Self.makeWebView(
             profileID: profileID,
-            websiteDataStore: websiteDataStore
+            websiteDataStore: websiteDataStore,
+            browserServices: browserServices
         )
         replacement.pageZoom = desiredZoom
         webViewInstanceID = UUID()
@@ -6081,7 +6090,8 @@ extension BrowserPanel {
 
         let replacement = Self.makeWebView(
             profileID: profileID,
-            websiteDataStore: websiteDataStore
+            websiteDataStore: websiteDataStore,
+            browserServices: browserServices
         )
         webViewInstanceID = UUID()
         hasCommittedDocumentSinceWebViewReplacement = false; userStoppedLoadSinceWebViewReplacement = false

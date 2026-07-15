@@ -109,7 +109,8 @@ extension DockSplitStore {
             proxyEndpoint: settings.proxyEndpoint,
             bypassRemoteProxy: settings.bypassRemoteProxy,
             isRemoteWorkspace: settings.isRemoteWorkspace,
-            remoteWebsiteDataStoreIdentifier: settings.remoteWebsiteDataStoreIdentifier
+            remoteWebsiteDataStoreIdentifier: settings.remoteWebsiteDataStoreIdentifier,
+            browserServices: browserServices
         )
         panel.setRemoteWorkspaceStatus(settings.remoteStatus)
         panel.webViewDidRequestClose = { [weak self, weak panel] in

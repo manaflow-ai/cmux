@@ -105,6 +105,22 @@ struct BrowserWebExtensionsManagerTests {
     }
 
     @available(macOS 15.4, *)
+    @Test func webViewConfigurationUsesInjectedController() throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let services = BrowserServices(extensionDirectory: root)
+        let configuration = WKWebViewConfiguration()
+
+        BrowserPanel.configureWebViewConfiguration(
+            configuration,
+            websiteDataStore: .nonPersistent(),
+            browserServices: services
+        )
+
+        #expect(configuration.webExtensionController === services.webExtensionsManager?.controller)
+    }
+
+    @available(macOS 15.4, *)
     @Test func waitUntilLoadedAwaitsStartedLoadTask() async throws {
         let root = try Self.makeExtensionsRoot()
         defer { try? FileManager.default.removeItem(at: root) }
