@@ -43,6 +43,16 @@ extension TerminalController {
             return await v2MobileChatInterrupt(params: params)
         case "mobile.chat.answer":
             return await v2MobileChatAnswer(params: params)
+        case "mobile.chat.artifact.stat":
+            return await v2MobileChatArtifactStat(params: params)
+        case "mobile.chat.artifact.fetch":
+            return await v2MobileChatArtifactFetch(params: params)
+        case "mobile.chat.artifact.thumbnail":
+            return await v2MobileChatArtifactThumbnail(params: params)
+        case "mobile.chat.artifact.list":
+            return await v2MobileChatArtifactList(params: params)
+        case "mobile.chat.artifact.gallery":
+            return await v2MobileChatArtifactGallery(params: params)
         default:
             return .err(code: "method_not_found", message: "Unknown mobile method", data: [
                 "method": method
@@ -465,18 +475,4 @@ extension TerminalController {
         return resolved.workspace.terminalPanel(for: surfaceId)
     }
 
-    private func mobileChatInputError(_ keyResult: TerminalSurface.NamedKeySendResult) -> V2CallResult {
-        switch keyResult {
-        case .inputQueueFull:
-            return .err(code: "input_queue_full", message: Self.terminalInputQueueFullMessage, data: nil)
-        case .surfaceUnavailable:
-            return .err(code: "surface_unavailable", message: Self.terminalSurfaceUnavailableMessage, data: nil)
-        case .processExited:
-            return .err(code: "process_exited", message: Self.terminalProcessExitedMessage, data: nil)
-        case .unknownKey:
-            return .err(code: "surface_unavailable", message: Self.terminalSurfaceUnavailableMessage, data: nil)
-        case .sent, .queued:
-            return .ok(["accepted": true])
-        }
-    }
 }

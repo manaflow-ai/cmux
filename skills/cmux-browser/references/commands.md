@@ -50,7 +50,7 @@ cmux browser <surface> eval '<js>'
 cmux browser <surface> click|dblclick|hover|focus <selector-or-ref>
 cmux browser <surface> fill <selector-or-ref> [text]   # empty text clears
 cmux browser <surface> type <selector-or-ref> <text>
-cmux browser <surface> press|keydown|keyup <key>
+cmux browser <surface> press|key|keydown|keyup [--key <key> | <key>]
 cmux browser <surface> select <selector-or-ref> <value>
 cmux browser <surface> check|uncheck <selector-or-ref>
 cmux browser <surface> scroll [--selector <css>] [--dx <n>] [--dy <n>]
@@ -64,7 +64,11 @@ cmux browser design-mode status --surface <surface> --json
 cmux browser design-mode disable --surface <surface>
 ```
 
-Design mode lets a user select and visually edit page elements, then explicitly send the accumulated DOM, style, and screenshot context to the coding agent in that workspace. CLI enable/disable never moves application focus or sends a prompt automatically.
+Design mode lets a user select page elements and copy their DOM, style, URL, and screenshot context for pasting into an agent. CLI enable/disable never moves application focus or copies context automatically.
+
+Keyboard names follow Playwright/W3C conventions, including `Enter`, `Tab`,
+`Escape`, `ArrowLeft`, and `Space`. `Space`, `Spacebar`, and `space` all emit
+DOM key `" "` with code `"Space"`; use `--key ' '` to pass the raw DOM key.
 
 ### Wait
 
