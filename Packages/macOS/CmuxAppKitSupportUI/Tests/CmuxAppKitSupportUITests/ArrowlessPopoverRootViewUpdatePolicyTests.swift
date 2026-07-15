@@ -54,6 +54,19 @@ import Testing
         await Task.yield()
         #expect(applied == false)
     }
+
+    @Test func cancelledTaskDoesNotClearRescheduledVisibleUpdate() async {
+        let scheduler = CmuxPopoverVisibleUpdateScheduler()
+        var applied: [String] = []
+
+        scheduler.schedule { applied.append("cancelled") }
+        scheduler.cancel()
+        scheduler.schedule { applied.append("rescheduled") }
+
+        await Task.yield()
+        await Task.yield()
+        #expect(applied == ["rescheduled"])
+    }
 }
 
 #endif
