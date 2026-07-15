@@ -285,7 +285,11 @@ extension SharedLiveAgentIndex {
             latestCompletedLoadResult = result
             let completedAt = dateProvider()
             latestCompletedAt = completedAt
-            recordEventReloadBackpressure(for: result.index, completedAt: completedAt)
+            recordEventReloadBackpressure(
+                indexedSessionCount: result.index.entryCount,
+                liveAgentCount: result.liveAgentProcessFingerprint.count,
+                completedAt: completedAt
+            )
 
             if generation.publication == .workspace {
                 applyReloadedResult(

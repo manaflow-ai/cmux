@@ -13,6 +13,50 @@ import Testing
 @Suite("Shared live-agent hook-store invalidation", .serialized)
 struct SharedLiveAgentIndexHookStoreInvalidationTests {
     @Test
+    func hookEventReloadCadenceUsesScopedLiveProcessWorkload() async {
+        let successorStarted = DispatchSemaphore(value: 0)
+        let loadCount = OSAllocatedUnfairLock(initialState: 0)
+        var now = Date(timeIntervalSince1970: 100)
+        let scopedResult: SharedLiveAgentIndex.LoadResult = (
+            index: .empty,
+            surfaceResumeBindingIndex: .empty,
+            liveAgentProcessFingerprint: Set((0..<64).map { "agent-\($0)" }),
+            processScopeFingerprint: [],
+            forkValidatedPanels: []
+        )
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                let invocation = loadCount.withLock { count in
+                    count += 1
+                    return count
+                }
+                if invocation > 1 {
+                    successorStarted.signal()
+                }
+                return scopedResult
+            },
+            hookStoreDirectoryProvider: {
+                FileManager.default.temporaryDirectory
+                    .appendingPathComponent("cmux-scoped-live-cadence-\(UUID().uuidString)").path
+            },
+            dateProvider: { now }
+        )
+
+        #expect(await sharedIndex.scopedIndexCapturedAfterRequest()?.entryCount == 0)
+        #expect(sharedIndex.index == nil)
+        #expect(sharedIndex.latestCompletedLoadResult?.liveAgentProcessFingerprint.count == 64)
+
+        now.addTimeInterval(10)
+        sharedIndex.handleHookStoreChange()
+
+        #expect(
+            !(await SharedLiveAgentIndexLoadCoalescingTests.wait(for: successorStarted, timeout: 0.5)),
+            "A scoped load with 64 live agents must retain 30-second backpressure."
+        )
+        #expect(loadCount.withLock { $0 } == 1)
+    }
+
+    @Test
     func hookEventReloadCadenceUsesScopedLoadWorkload() async {
         let successorStarted = DispatchSemaphore(value: 0)
         let loadCount = OSAllocatedUnfairLock(initialState: 0)
