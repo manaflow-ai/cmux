@@ -8,6 +8,7 @@ final class UsageTipsController {
     private enum State {
         case idle
         case waiting
+        case ready
         case presenting(UsageTipPresentation)
         case paused
         case finished
@@ -56,6 +57,10 @@ final class UsageTipsController {
     func windowDidBecomeKey(windowID: UUID) {
         guard registeredWindowIDs.contains(windowID) else { return }
         activeWindowID = windowID
+        if case .ready = state {
+            presentNextTip()
+            return
+        }
         scheduleInitialTipIfNeeded()
     }
 
@@ -66,7 +71,7 @@ final class UsageTipsController {
               presentation.windowID == windowID else { return }
         cancelAutoHide?()
         cancelAutoHide = nil
-        state = .idle
+        state = .ready
     }
 
     func unregister(windowID: UUID) {
@@ -80,7 +85,9 @@ final class UsageTipsController {
             cancelInitialTip = nil
             state = .idle
         case .presenting(let presentation) where presentation.windowID == windowID:
-            finishPresentation()
+            cancelAutoHide?()
+            cancelAutoHide = nil
+            state = .ready
         default:
             break
         }
@@ -94,7 +101,7 @@ final class UsageTipsController {
             cancelInitialTip = nil
             cancelAutoHide = nil
             switch state {
-            case .idle, .waiting, .paused:
+            case .idle, .waiting, .ready, .paused:
                 state = .paused
             case .presenting, .finished:
                 state = .finished
@@ -130,14 +137,19 @@ final class UsageTipsController {
 
     private func presentNextTip() {
         cancelInitialTip = nil
-        guard case .waiting = state else { return }
+        switch state {
+        case .waiting, .ready:
+            break
+        default:
+            return
+        }
         guard tipsEnabled else {
             state = .paused
             return
         }
         guard let windowID = activeWindowID,
               registeredWindowIDs.contains(windowID) else {
-            state = .idle
+            state = .ready
             return
         }
 
