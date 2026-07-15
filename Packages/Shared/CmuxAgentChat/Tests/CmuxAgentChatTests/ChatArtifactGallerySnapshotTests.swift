@@ -40,6 +40,38 @@ struct ChatArtifactGallerySnapshotTests {
         #expect(snapshot.attachedTotal == 2)
     }
 
+    @Test("stale response is ignored and fresh rebase preserves exact row order")
+    func staleRestartRebase() {
+        let oldA = item(path: "/old-a", provenance: .referenced)
+        let oldB = item(path: "/old-b", provenance: .referenced)
+        let current = ChatArtifactGallerySnapshot(page: ChatArtifactGalleryPage(
+            sessionID: "session",
+            referenced: [oldA, oldB],
+            referencedTotal: 4,
+            nextCursor: "stale",
+            generation: "old"
+        ))
+        let stale = ChatArtifactGalleryPage(
+            sessionID: "session",
+            generation: "new",
+            requiresPagingRestart: true
+        )
+        let fresh = ChatArtifactGallerySnapshot(page: ChatArtifactGalleryPage(
+            sessionID: "session",
+            referenced: [item(path: "/new", provenance: .referenced), oldA],
+            referencedTotal: 5,
+            nextCursor: "fresh",
+            generation: "new"
+        ))
+
+        #expect(current.appending(stale) == current)
+        let rebased = current.rebasingPaging(ontoFreshFirstPage: fresh)
+        #expect(rebased.referenced == current.referenced)
+        #expect(rebased.nextCursor == "fresh")
+        #expect(rebased.generation == "new")
+        #expect(rebased.referencedTotal == 5)
+    }
+
     private func item(
         path: String,
         provenance: ChatArtifactProvenance

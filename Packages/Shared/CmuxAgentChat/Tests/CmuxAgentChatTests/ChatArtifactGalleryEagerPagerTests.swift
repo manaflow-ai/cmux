@@ -78,6 +78,23 @@ struct ChatArtifactGalleryEagerPagerTests {
         #expect(await script.requestedCursors() == ["cursor-1"])
     }
 
+    @Test("surfaces a stale-generation restart without changing accumulated rows")
+    func staleGenerationRestart() async throws {
+        let initial = snapshot(paths: ["/one"], nextCursor: "cursor-1", total: 3)
+
+        let result = try await ChatArtifactGalleryEagerPager().loadRemaining(from: initial) { _ in
+            ChatArtifactGalleryPage(
+                sessionID: "session",
+                generation: "new",
+                requiresPagingRestart: true
+            )
+        }
+
+        #expect(result.requiresPagingRestart)
+        #expect(!result.reachedSafetyCap)
+        #expect(result.snapshot == initial)
+    }
+
     private func snapshot(
         paths: [String],
         nextCursor: String?,

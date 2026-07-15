@@ -277,11 +277,19 @@ struct TerminalArtifactFilesSheet: View {
                 guard query == searchQuery.trimmingCharacters(in: .whitespacesAndNewlines),
                       case .loaded(let current) = searchState,
                       current.nextCursor == cursor else { return }
+                if page.requiresPagingRestart {
+                    await restartPaging(after: cursor, query: query)
+                    return
+                }
                 searchState = .loaded(current.appending(page))
             } else {
                 guard searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                       case .loaded(let current) = sessionState,
                       current.nextCursor == cursor else { return }
+                if page.requiresPagingRestart {
+                    await restartPaging(after: cursor, query: nil)
+                    return
+                }
                 sessionState = .loaded(current.appending(page))
             }
             startThumbnailPrefetch(page.referenced)
@@ -324,6 +332,13 @@ struct TerminalArtifactFilesSheet: View {
                     query: expectedQuery
                 )
             }
+            if result.requiresPagingRestart {
+                await restartPaging(
+                    after: initialSnapshot.nextCursor,
+                    query: expectedQuery
+                )
+                return
+            }
             let currentQuery = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
             let queryIsCurrent = expectedQuery.map { $0 == currentQuery }
                 ?? currentQuery.isEmpty
@@ -358,6 +373,57 @@ struct TerminalArtifactFilesSheet: View {
             return
         } catch {
             guard !Task.isCancelled else { return }
+            eagerPagingState = .failed
+        }
+    }
+
+    private func restartPaging(after staleCursor: String?, query: String?) async {
+        guard let staleCursor, let source, let sessionID else { return }
+        let currentQuery = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard query.map({ $0 == currentQuery }) ?? currentQuery.isEmpty else { return }
+        let state = query == nil ? sessionState : searchState
+        guard case .loaded(let displayed) = state,
+              displayed.nextCursor == staleCursor else { return }
+        do {
+            let page = try await source.chatArtifactGallery(
+                sessionID: sessionID,
+                cursor: nil,
+                pageSize: Self.pageSize,
+                query: query
+            )
+            guard !Task.isCancelled else { return }
+            let currentState = query == nil ? sessionState : searchState
+            guard case .loaded(let current) = currentState,
+                  current.nextCursor == staleCursor else { return }
+            let fresh = SessionGallerySnapshot(page: page)
+            if query == nil {
+                if sessionViewportIsAtTopOrFits {
+                    liveRefreshState.reset()
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        sessionState = .loaded(current.reconciling(withFreshFirstPage: fresh))
+                    }
+                } else {
+                    _ = liveRefreshState.receive(
+                        fresh: fresh,
+                        displayed: current,
+                        isAtTopOrFits: false
+                    )
+                    sessionState = .loaded(current.rebasingPaging(ontoFreshFirstPage: fresh))
+                }
+            } else {
+                searchState = .loaded(current.restartingPaging(withFreshFirstPage: fresh))
+            }
+            eagerPagingState = .idle
+            eagerPagingRevision += 1
+            let currentPaths = Set((current.created + current.attached + current.referenced).map(\.path))
+            startThumbnailPrefetch(
+                (fresh.created + fresh.attached + fresh.referenced).filter {
+                    !currentPaths.contains($0.path)
+                }
+            )
+        } catch is CancellationError {
+            return
+        } catch {
             eagerPagingState = .failed
         }
     }

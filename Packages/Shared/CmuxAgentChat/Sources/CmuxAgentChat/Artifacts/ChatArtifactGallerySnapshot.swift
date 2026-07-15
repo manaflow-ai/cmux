@@ -43,6 +43,7 @@ public struct ChatArtifactGallerySnapshot: Sendable, Equatable {
     /// - Parameter page: The next sectioned gallery page.
     /// - Returns: A snapshot containing only path-unique appended rows.
     public func appending(_ page: ChatArtifactGalleryPage) -> ChatArtifactGallerySnapshot {
+        guard !page.requiresPagingRestart else { return self }
         var seenPaths = Set((created + attached + referenced).map(\.path))
         let uniqueCreated = page.created.filter { item in
             seenPaths.insert(item.path).inserted
@@ -62,6 +63,56 @@ public struct ChatArtifactGallerySnapshot: Sendable, Equatable {
             referencedTotal: page.referencedTotal,
             nextCursor: page.nextCursor,
             generation: page.generation
+        )
+    }
+
+    /// Rebinds paging to a fresh first page without moving already visible rows.
+    ///
+    /// Existing rows retain their exact section order. Newly discovered first-page
+    /// rows are appended, while the fresh generation and cursor become authoritative.
+    /// This is used for background stale-cursor recovery where leading insertions
+    /// could otherwise move the reader's scroll position.
+    ///
+    /// - Parameter fresh: First page from the current host generation.
+    /// - Returns: A stable-order snapshot ready to continue fresh paging.
+    public func restartingPaging(
+        withFreshFirstPage fresh: ChatArtifactGallerySnapshot
+    ) -> ChatArtifactGallerySnapshot {
+        var seenPaths = Set((created + attached + referenced).map(\.path))
+        let newCreated = fresh.created.filter { seenPaths.insert($0.path).inserted }
+        let newAttached = fresh.attached.filter { seenPaths.insert($0.path).inserted }
+        let newReferenced = fresh.referenced.filter { seenPaths.insert($0.path).inserted }
+        return ChatArtifactGallerySnapshot(
+            created: created + newCreated,
+            createdTotal: max(fresh.createdTotal, created.count + newCreated.count),
+            attached: attached + newAttached,
+            attachedTotal: max(fresh.attachedTotal, attached.count + newAttached.count),
+            referenced: referenced + newReferenced,
+            referencedTotal: max(fresh.referencedTotal, referenced.count + newReferenced.count),
+            nextCursor: fresh.nextCursor,
+            generation: fresh.generation
+        )
+    }
+
+    /// Adopts a fresh generation cursor without changing any visible row array.
+    ///
+    /// This supports a deferred live-refresh pill: paging can stop using the
+    /// rejected cursor immediately while every rendered row remains fixed.
+    ///
+    /// - Parameter fresh: First page from the current host generation.
+    /// - Returns: The unchanged rows with fresh totals and paging identity.
+    public func rebasingPaging(
+        ontoFreshFirstPage fresh: ChatArtifactGallerySnapshot
+    ) -> ChatArtifactGallerySnapshot {
+        ChatArtifactGallerySnapshot(
+            created: created,
+            createdTotal: max(fresh.createdTotal, created.count),
+            attached: attached,
+            attachedTotal: max(fresh.attachedTotal, attached.count),
+            referenced: referenced,
+            referencedTotal: max(fresh.referencedTotal, referenced.count),
+            nextCursor: fresh.nextCursor,
+            generation: fresh.generation
         )
     }
 

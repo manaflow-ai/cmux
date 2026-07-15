@@ -38,6 +38,13 @@ public struct ChatArtifactGalleryEagerPager: Sendable {
             try Task.checkCancellation()
             let page = try await fetchPage(cursor)
             try Task.checkCancellation()
+            if page.requiresPagingRestart {
+                return ChatArtifactGalleryEagerPagingResult(
+                    snapshot: initialSnapshot,
+                    reachedSafetyCap: false,
+                    requiresPagingRestart: true
+                )
+            }
             let appended = snapshot.appending(page)
             truncatedRows = truncatedRows || appended.referenced.count > maximumReferencedRows
             snapshot = appended.limitingReferenced(to: maximumReferencedRows)

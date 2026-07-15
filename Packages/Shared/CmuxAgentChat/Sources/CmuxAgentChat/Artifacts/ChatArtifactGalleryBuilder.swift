@@ -28,6 +28,13 @@ public struct ChatArtifactGalleryBuilder: Sendable {
         query: String?,
         includeDirectories: Bool = false
     ) -> ChatArtifactGalleryPage {
+        if let cursor, cursor.generation != generation {
+            return ChatArtifactGalleryPage(
+                sessionID: sessionID,
+                generation: generation,
+                requiresPagingRestart: true
+            )
+        }
         let ordering = ChatArtifactGalleryOrdering()
         let stableItems = orderedItems ?? ordering.sorted(items)
         let normalizedQuery = query?.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -18,6 +18,8 @@ public struct ChatArtifactGalleryPage: Sendable, Equatable, Codable {
     public let nextCursor: String?
     /// Snapshot generation that served this response.
     public let generation: String
+    /// Whether the request cursor belongs to an obsolete generation.
+    public let requiresPagingRestart: Bool
 
     /// Creates one gallery response page.
     public init(
@@ -29,7 +31,8 @@ public struct ChatArtifactGalleryPage: Sendable, Equatable, Codable {
         referenced: [ChatArtifactGalleryItem] = [],
         referencedTotal: Int = 0,
         nextCursor: String? = nil,
-        generation: String = ""
+        generation: String = "",
+        requiresPagingRestart: Bool = false
     ) {
         self.sessionID = sessionID
         self.created = created
@@ -40,6 +43,7 @@ public struct ChatArtifactGalleryPage: Sendable, Equatable, Codable {
         self.referencedTotal = referencedTotal
         self.nextCursor = nextCursor
         self.generation = generation
+        self.requiresPagingRestart = requiresPagingRestart
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -52,6 +56,7 @@ public struct ChatArtifactGalleryPage: Sendable, Equatable, Codable {
         case referencedTotal = "referenced_total"
         case nextCursor = "next_cursor"
         case generation
+        case requiresPagingRestart = "requires_paging_restart"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -65,6 +70,7 @@ public struct ChatArtifactGalleryPage: Sendable, Equatable, Codable {
         referencedTotal = (try? container.decode(Int.self, forKey: .referencedTotal)) ?? referenced.count
         nextCursor = try? container.decode(String.self, forKey: .nextCursor)
         generation = (try? container.decode(String.self, forKey: .generation)) ?? ""
+        requiresPagingRestart = (try? container.decode(Bool.self, forKey: .requiresPagingRestart)) ?? false
     }
 
     /// Returns a compatibility view with directory rows removed.
@@ -84,7 +90,8 @@ public struct ChatArtifactGalleryPage: Sendable, Equatable, Codable {
             referenced: filteredReferenced,
             referencedTotal: max(0, referencedTotal - (referenced.count - filteredReferenced.count)),
             nextCursor: nextCursor,
-            generation: generation
+            generation: generation,
+            requiresPagingRestart: requiresPagingRestart
         )
     }
 }

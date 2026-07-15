@@ -183,6 +183,35 @@ struct ChatArtifactGalleryTests {
         #expect(snapshot.referenced.count == 3)
     }
 
+    @Test("a cursor from another generation requests a fresh paging restart")
+    func staleGenerationCursor() throws {
+        let staleCursor = ChatArtifactGalleryCursor(
+            generation: "old",
+            seq: 10,
+            path: "/old"
+        )
+
+        let page = ChatArtifactGalleryBuilder().page(
+            sessionID: "session",
+            items: [ChatArtifactIndexedReference(
+                path: "/new",
+                provenance: .referenced,
+                lastReferencedSeq: 20
+            )],
+            generation: "new",
+            cursor: staleCursor,
+            pageSize: 10,
+            query: nil
+        )
+
+        #expect(page.requiresPagingRestart)
+        #expect(page.generation == "new")
+        #expect(page.created.isEmpty)
+        #expect(page.attached.isEmpty)
+        #expect(page.referenced.isEmpty)
+        #expect(page.nextCursor == nil)
+    }
+
     @Test("directory child counts stop at the listing cap")
     func directoryChildCountCap() throws {
         let root = FileManager.default.temporaryDirectory
