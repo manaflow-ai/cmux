@@ -157,7 +157,12 @@ import Testing
             pullRequestRows: [],
             listeningPorts: listeningPorts,
             finderDirectoryPath: finderDirectoryPath,
-            mediaActivity: mediaActivity
+            mediaActivity: mediaActivity,
+            taskStatus: nil,
+            checklistItems: [],
+            checklistCompletedCount: 0,
+            checklistTotalCount: 0,
+            checklistFirstUncheckedText: nil
         )
     }
 
