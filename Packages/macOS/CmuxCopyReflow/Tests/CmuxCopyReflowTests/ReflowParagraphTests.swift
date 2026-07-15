@@ -103,6 +103,13 @@ struct ReflowParagraphTests {
         #expect(reflow(input) == input)
     }
 
+    @Test func indentedCodeAfterLongAssignmentIsNotJoined() {
+        let input =
+            "result = someFunction(firstArgument, secondArgument, thirdArgument)\n"
+            + "    trailingClosure()\n"
+        #expect(reflow(input) == input)
+    }
+
     @Test func pythonTracebackFrameDoesNotJoinIndentedCode() {
         let input =
             "  File \"/Users/example/project/some/deep/module.py\", line 42, in run_all_tasks_now\n"

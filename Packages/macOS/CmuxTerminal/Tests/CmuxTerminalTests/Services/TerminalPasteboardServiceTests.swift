@@ -100,33 +100,43 @@ struct PasteboardTextContentsTests {
     @Test func rewritingTextKeepsRichRepresentationsConsistent() throws {
         let scratch = ScratchPasteboard()
         let service = TerminalPasteboardService()
-        let originalAttributed = NSAttributedString(string: "original")
+        let originalAttributed = NSMutableAttributedString(string: "hard\nwrapped")
+        originalAttributed.addAttribute(
+            .link,
+            value: try #require(URL(string: "https://example.com/reflow")),
+            range: NSRange(location: 0, length: 4)
+        )
+        let originalHTML = try originalAttributed.data(
+            from: NSRange(location: 0, length: originalAttributed.length),
+            documentAttributes: [.documentType: NSAttributedString.DocumentType.html]
+        )
         let originalRTF = try originalAttributed.data(
             from: NSRange(location: 0, length: originalAttributed.length),
             documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]
         )
         let item = NSPasteboardItem()
-        #expect(item.setString("original", forType: .string))
-        #expect(item.setString("<b>original</b>", forType: .html))
+        #expect(item.setString("hard\nwrapped", forType: .string))
+        #expect(item.setData(originalHTML, forType: .html))
         #expect(item.setData(originalRTF, forType: .rtf))
         #expect(scratch.pasteboard.writeObjects([item]))
 
-        #expect(service.rewriteTextRepresentations("reflowed", in: scratch.pasteboard))
+        #expect(service.rewriteTextRepresentations("hard wrapped", in: scratch.pasteboard))
 
-        #expect(scratch.pasteboard.string(forType: .string) == "reflowed")
-        let htmlText = service.attributedString(
+        #expect(scratch.pasteboard.string(forType: .string) == "hard wrapped")
+        let html = try #require(service.attributedString(
             from: scratch.pasteboard,
             type: .html,
             documentType: .html
-        )?.string.trimmingCharacters(in: .newlines)
-        #expect(htmlText == "reflowed")
-        #expect(
-            service.attributedString(
-                from: scratch.pasteboard,
-                type: .rtf,
-                documentType: .rtf
-            )?.string == "reflowed"
-        )
+        ))
+        let rtf = try #require(service.attributedString(
+            from: scratch.pasteboard,
+            type: .rtf,
+            documentType: .rtf
+        ))
+        #expect(html.string.trimmingCharacters(in: .newlines) == "hard wrapped")
+        #expect(rtf.string == "hard wrapped")
+        #expect(html.attribute(.link, at: 0, effectiveRange: nil) != nil)
+        #expect(rtf.attribute(.link, at: 0, effectiveRange: nil) != nil)
         let types = try #require(scratch.pasteboard.types)
         #expect(types.contains(.html))
         #expect(types.contains(.rtf))
