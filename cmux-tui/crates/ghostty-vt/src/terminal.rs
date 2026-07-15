@@ -8,6 +8,7 @@ use crate::render::CursorShape;
 use crate::{Result, check};
 
 static NEXT_TERMINAL_ID: AtomicU64 = AtomicU64::new(1);
+const VT_REPLAY_ESTIMATED_BYTES_PER_CELL: u64 = 32;
 
 /// RGB color triple.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -725,16 +726,12 @@ impl Terminal {
     /// VT replay bounded to `max_bytes`, retaining the newest complete rows.
     ///
     /// Full history is preserved when it fits. Oversized history is reduced
-    /// until the active screen and as much recent scrollback as possible fit.
+    /// to a recent row window derived from the budget before formatting, then
+    /// reduced further until the active screen fits.
     /// A pathological screen whose newest row alone exceeds the budget falls
     /// back to a terminal reset so callers can still attach and receive live
     /// output instead of entering a permanent overflow loop.
     pub fn vt_replay_bounded(&mut self, max_bytes: usize) -> Result<Vec<u8>> {
-        let full = self.vt_replay()?;
-        if full.len() <= max_bytes {
-            return Ok(full);
-        }
-
         let Some(scrollbar) = self.scrollbar() else {
             return Ok(minimal_vt_replay(max_bytes));
         };
@@ -743,10 +740,8 @@ impl Terminal {
         }
 
         let screen_rows = scrollbar.len.min(scrollbar.total).max(1);
-        let proportional_rows = ((u128::from(scrollbar.total) * max_bytes as u128)
-            / full.len() as u128)
-            .min(u128::from(scrollbar.total)) as u64;
-        let mut tail_rows = proportional_rows.max(screen_rows);
+        let mut tail_rows =
+            vt_replay_row_window(scrollbar.total, screen_rows, self.cols(), max_bytes);
 
         loop {
             if let Ok(replay) = self.vt_replay_screen_tail(tail_rows)
@@ -754,15 +749,14 @@ impl Terminal {
             {
                 return Ok(replay);
             }
-
-            let next = if tail_rows > screen_rows {
-                screen_rows + (tail_rows - screen_rows) / 2
-            } else if tail_rows > 1 {
-                tail_rows / 2
-            } else {
+            if tail_rows <= 1 {
                 break;
+            }
+            tail_rows = if tail_rows > screen_rows {
+                screen_rows.max(tail_rows / 2)
+            } else {
+                tail_rows / 2
             };
-            tail_rows = if next == tail_rows { screen_rows } else { next };
         }
 
         Ok(minimal_vt_replay(max_bytes))
@@ -871,6 +865,12 @@ fn minimal_vt_replay(max_bytes: usize) -> Vec<u8> {
     if max_bytes >= RESET.len() { RESET.to_vec() } else { Vec::new() }
 }
 
+fn vt_replay_row_window(total_rows: u64, screen_rows: u64, cols: u16, max_bytes: usize) -> u64 {
+    let estimated_row_bytes = u64::from(cols.max(1)) * VT_REPLAY_ESTIMATED_BYTES_PER_CELL;
+    let budget_rows = u64::try_from(max_bytes).unwrap_or(u64::MAX) / estimated_row_bytes;
+    budget_rows.max(screen_rows).min(total_rows)
+}
+
 impl Drop for Terminal {
     fn drop(&mut self) {
         unsafe {
@@ -890,7 +890,7 @@ impl Drop for Terminal {
 
 #[cfg(test)]
 mod tests {
-    use super::{Callbacks, MouseModeScan, Terminal};
+    use super::{Callbacks, MouseModeScan, Terminal, vt_replay_row_window};
 
     #[test]
     fn mouse_mode_scan_tracks_split_private_mode_sequences() {
@@ -931,5 +931,12 @@ mod tests {
         let mut restored = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
         restored.vt_write(&bounded);
         assert!(restored.viewport_text().unwrap().contains("LATEST-VISIBLE-CONTENT"));
+    }
+
+    #[test]
+    fn bounded_vt_replay_limits_rows_before_formatting_large_history() {
+        let rows = vt_replay_row_window(1_000_000, 24, 80, 8 * 1024 * 1024);
+
+        assert_eq!(rows, 3_276);
     }
 }

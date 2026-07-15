@@ -19,7 +19,7 @@
 //! ```
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -35,7 +35,7 @@ use serde_json::{Value, json};
 use tungstenite::protocol::CloseFrame;
 use tungstenite::protocol::Role;
 use tungstenite::protocol::frame::coding::CloseCode;
-use tungstenite::{Error as WebSocketError, Message, accept};
+use tungstenite::{Message, accept};
 
 use crate::model::{Screen, State};
 use crate::platform::{self, transport};
@@ -432,7 +432,6 @@ struct Response {
 }
 
 const STREAM_DISCONNECT_POLL: Duration = Duration::from_millis(100);
-const WEBSOCKET_READ_POLL: Duration = Duration::from_millis(10);
 const STREAM_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 #[cfg(not(test))]
 const WEBSOCKET_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -825,6 +824,55 @@ enum SinkControl {
     WebSocket(TcpStream),
 }
 
+/// Cloned TCP streams share one write boundary so independent Tungstenite
+/// reader and writer contexts cannot interleave frame bytes. Reads remain
+/// fully blocking and are interrupted by shutting down a clone.
+struct SynchronizedTcpStream {
+    stream: TcpStream,
+    write_lock: Arc<Mutex<()>>,
+}
+
+impl SynchronizedTcpStream {
+    fn new(stream: TcpStream) -> Self {
+        Self { stream, write_lock: Arc::new(Mutex::new(())) }
+    }
+
+    fn try_clone(&self) -> std::io::Result<Self> {
+        Ok(Self { stream: self.stream.try_clone()?, write_lock: self.write_lock.clone() })
+    }
+
+    fn try_clone_raw(&self) -> std::io::Result<TcpStream> {
+        self.stream.try_clone()
+    }
+
+    fn set_read_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        self.stream.set_read_timeout(timeout)
+    }
+
+    fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        self.stream.set_write_timeout(timeout)
+    }
+}
+
+impl Read for SynchronizedTcpStream {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        self.stream.read(buf)
+    }
+}
+
+impl Write for SynchronizedTcpStream {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let _guard = self.write_lock.lock().unwrap();
+        self.stream.write_all(buf)?;
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        let _guard = self.write_lock.lock().unwrap();
+        self.stream.flush()
+    }
+}
+
 impl SinkControl {
     fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
         match self {
@@ -1213,6 +1261,7 @@ fn handle_connection(mux: Arc<Mux>, stream: Box<dyn transport::Stream>) {
 }
 
 fn handle_websocket_connection(mux: Arc<Mux>, stream: TcpStream, token: Option<&str>) {
+    let stream = SynchronizedTcpStream::new(stream);
     if stream.set_read_timeout(Some(WEBSOCKET_HANDSHAKE_TIMEOUT)).is_err()
         || stream.set_write_timeout(Some(WEBSOCKET_HANDSHAKE_TIMEOUT)).is_err()
     {
@@ -1233,10 +1282,11 @@ fn handle_websocket_connection(mux: Arc<Mux>, stream: TcpStream, token: Option<&
             return;
         }
     }
-    let _ = websocket.get_mut().set_read_timeout(Some(WEBSOCKET_READ_POLL));
+    let _ = websocket.get_mut().set_read_timeout(None);
     let _ = websocket.get_mut().set_write_timeout(Some(STREAM_WRITE_TIMEOUT));
     let Ok(writer_stream) = websocket.get_ref().try_clone() else { return };
-    let Ok(control) = writer_stream.try_clone() else { return };
+    let Ok(writer_shutdown) = writer_stream.try_clone_raw() else { return };
+    let Ok(control) = writer_stream.try_clone_raw() else { return };
     let _ = writer_stream.set_write_timeout(Some(STREAM_WRITE_TIMEOUT));
     let outbound = Arc::new(BoundedOutbound::default());
     let writer = MessageWriter::new(QueuedSink {
@@ -1244,19 +1294,19 @@ fn handle_websocket_connection(mux: Arc<Mux>, stream: TcpStream, token: Option<&
         control: Some(SinkControl::WebSocket(control)),
     });
     let writer_outbound = outbound;
-    let write_lock = Arc::new(Mutex::new(()));
-    let writer_lock = write_lock.clone();
     let Ok(writer_thread) =
         std::thread::Builder::new().name("mux-ws-out".into()).spawn(move || {
             let mut websocket =
                 tungstenite::WebSocket::from_raw_socket(writer_stream, Role::Server, None);
             while let Some(text) = writer_outbound.recv() {
-                let _guard = writer_lock.lock().unwrap();
                 if websocket.send(Message::Text(text.into())).is_err() {
                     writer_outbound.close();
                     break;
                 }
             }
+            let _ = websocket.close(None);
+            let _ = websocket.flush();
+            let _ = writer_shutdown.shutdown(Shutdown::Both);
         })
     else {
         writer.close();
@@ -1269,10 +1319,7 @@ fn handle_websocket_connection(mux: Arc<Mux>, stream: TcpStream, token: Option<&
             break;
         }
 
-        let incoming = {
-            let _guard = write_lock.lock().unwrap();
-            websocket.read()
-        };
+        let incoming = websocket.read();
         match incoming {
             Ok(Message::Text(text)) => {
                 if !handle_message(&mux, client, &text, &writer) {
@@ -1280,22 +1327,15 @@ fn handle_websocket_connection(mux: Arc<Mux>, stream: TcpStream, token: Option<&
                 }
             }
             Ok(Message::Ping(_)) | Ok(Message::Pong(_)) => {
-                let _guard = write_lock.lock().unwrap();
                 let _ = websocket.flush();
             }
             Ok(Message::Close(_)) => break,
             Ok(_) => break,
-            Err(WebSocketError::Io(error))
-                if matches!(
-                    error.kind(),
-                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                ) => {}
             Err(_) => break,
         }
     }
     disconnect_client(&mux, client, false);
     let _ = writer_thread.join();
-    let _guard = write_lock.lock().unwrap();
     let _ = websocket.close(None);
 }
 
