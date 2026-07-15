@@ -1178,6 +1178,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		REE0CA0000000000000000A2 /* RemotesClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = REE0CA0000000000000000A1 /* RemotesClient.swift */; };
 		C1A070000000000000000007 /* RemotesClientError.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A070000000000000000017 /* RemotesClientError.swift */; };
 		REE0CA0000000000000000B2 /* RemotesClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = REE0CA0000000000000000B1 /* RemotesClientTests.swift */; };
+		806100020000000000000001 /* RemoteSessionCleanupLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 806100020000000000000002 /* RemoteSessionCleanupLifecycleTests.swift */; };
 		797800020000000000000001 /* RemoteSessionPowerObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 797800020000000000000002 /* RemoteSessionPowerObserver.swift */; };
 		EE30D6000000000000000006 /* RemoteSessionStrings+App.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE30D6000000000000000005 /* RemoteSessionStrings+App.swift */; };
 		C0F674600000000000000001 /* RemoteShellCWDRelayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0F674600000000000000002 /* RemoteShellCWDRelayTests.swift */; };
@@ -1832,6 +1833,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C3744E010000000000000001 /* Workspace+PanelLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3744E020000000000000001 /* Workspace+PanelLifecycle.swift */; };
 		797800030000000000000001 /* Workspace+PersistentRemotePTYReattach.swift in Sources */ = {isa = PBXBuildFile; fileRef = 797800030000000000000002 /* Workspace+PersistentRemotePTYReattach.swift */; };
 		791100010000000000000001 /* Workspace+RemoteDisconnectPlaceholder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 791100020000000000000001 /* Workspace+RemoteDisconnectPlaceholder.swift */; };
+		806100010000000000000001 /* Workspace+RemoteSessionLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 806100010000000000000002 /* Workspace+RemoteSessionLifecycle.swift */; };
 		7738C0037738C0037738C003 /* Workspace+RemoteTmuxControlTopology.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7738D0037738D0037738D003 /* Workspace+RemoteTmuxControlTopology.swift */; };
 		D77340010000000000000002 /* Workspace+RemoteTmuxTabOrder.swift in Sources */ = {isa = PBXBuildFile; fileRef = D77340010000000000000001 /* Workspace+RemoteTmuxTabOrder.swift */; };
 		C548600A000000000000001 /* Workspace+SessionRestoreIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C548600A000000000000002 /* Workspace+SessionRestoreIdentity.swift */; };
@@ -3096,6 +3098,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		REE0CA0000000000000000A1 /* RemotesClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RemotesClient.swift; sourceTree = "<group>"; };
 		C1A070000000000000000017 /* RemotesClientError.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RemotesClientError.swift; sourceTree = "<group>"; };
 		REE0CA0000000000000000B1 /* RemotesClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemotesClientTests.swift; sourceTree = "<group>"; };
+		806100020000000000000002 /* RemoteSessionCleanupLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteSessionCleanupLifecycleTests.swift; sourceTree = "<group>"; };
 		797800020000000000000002 /* RemoteSessionPowerObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/RemoteSessionPowerObserver.swift; sourceTree = "<group>"; };
 		EE30D6000000000000000005 /* RemoteSessionStrings+App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteSessionStrings+App.swift"; sourceTree = "<group>"; };
 		C0F674600000000000000002 /* RemoteShellCWDRelayTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteShellCWDRelayTests.swift; sourceTree = "<group>"; };
@@ -3738,6 +3741,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C3744E020000000000000001 /* Workspace+PanelLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+PanelLifecycle.swift"; sourceTree = "<group>"; };
 		797800030000000000000002 /* Workspace+PersistentRemotePTYReattach.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+PersistentRemotePTYReattach.swift"; sourceTree = "<group>"; };
 		791100020000000000000001 /* Workspace+RemoteDisconnectPlaceholder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+RemoteDisconnectPlaceholder.swift"; sourceTree = "<group>"; };
+		806100010000000000000002 /* Workspace+RemoteSessionLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+RemoteSessionLifecycle.swift"; sourceTree = "<group>"; };
 		7738D0037738D0037738D003 /* Workspace+RemoteTmuxControlTopology.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+RemoteTmuxControlTopology.swift"; sourceTree = "<group>"; };
 		D77340010000000000000001 /* Workspace+RemoteTmuxTabOrder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+RemoteTmuxTabOrder.swift"; sourceTree = "<group>"; };
 		C548600A000000000000002 /* Workspace+SessionRestoreIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SessionRestoreIdentity.swift"; sourceTree = "<group>"; };
@@ -4462,6 +4466,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5001416 /* Workspace.swift */,
 				791100020000000000000001 /* Workspace+RemoteDisconnectPlaceholder.swift */,
 				797800030000000000000002 /* Workspace+PersistentRemotePTYReattach.swift */,
+				806100010000000000000002 /* Workspace+RemoteSessionLifecycle.swift */,
 				791102020000000000000001 /* RemoteDisconnectPreparationService.swift */,
 				C0DE43000000000000000008 /* Workspace+AgentChat.swift */,
 				C3744E040000000000000001 /* AgentPIDProcessIdentity.swift */,
@@ -5378,6 +5383,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0F16C000000000000000002 /* ShellStartupMissingBundleTests.swift */,
 				C0F674600000000000000002 /* RemoteShellCWDRelayTests.swift */,
 				791100040000000000000001 /* RemoteDisconnectLifecycleTests.swift */,
+				806100020000000000000002 /* RemoteSessionCleanupLifecycleTests.swift */,
 				F4000001A1B2C3D4E5F60718 /* GhosttyConfigTests.swift */,
 				B8E9500A0000000000000002 /* PostHogAnalyticsPropertiesTests.swift */,
 				604100010000000000000002 /* GhosttyDrawableSizeRetryTests.swift */,
@@ -7439,6 +7445,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C3744E010000000000000001 /* Workspace+PanelLifecycle.swift in Sources */,
 				797800030000000000000001 /* Workspace+PersistentRemotePTYReattach.swift in Sources */,
 				791100010000000000000001 /* Workspace+RemoteDisconnectPlaceholder.swift in Sources */,
+				806100010000000000000001 /* Workspace+RemoteSessionLifecycle.swift in Sources */,
 				7738C0037738C0037738C003 /* Workspace+RemoteTmuxControlTopology.swift in Sources */,
 				D77340010000000000000002 /* Workspace+RemoteTmuxTabOrder.swift in Sources */,
 				C548600A000000000000001 /* Workspace+SessionRestoreIdentity.swift in Sources */,
@@ -7961,6 +7968,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A6D1F0400000000000000002 /* ReleasingWindowControllerTests.swift in Sources */,
 				791100030000000000000001 /* RemoteDisconnectLifecycleTests.swift in Sources */,
 				REE0CA0000000000000000B2 /* RemotesClientTests.swift in Sources */,
+				806100020000000000000001 /* RemoteSessionCleanupLifecycleTests.swift in Sources */,
 				C0F674600000000000000001 /* RemoteShellCWDRelayTests.swift in Sources */,
 				0A17C0DE0A17C0DE0A17C004 /* RemoteTmuxAuthTests.swift in Sources */,
 				5F5553CA5553CA5553CA0001 /* RemoteTmuxCapabilitiesTests.swift in Sources */,
