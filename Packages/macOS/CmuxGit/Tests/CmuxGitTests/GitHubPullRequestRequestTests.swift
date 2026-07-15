@@ -153,6 +153,42 @@ struct GitHubPullRequestRequestTests {
         #expect(try #require(requests.last).value(forHTTPHeaderField: "If-None-Match") == "\"issue-8175\"")
     }
 
+    @Test func changedCredentialDoesNotReuseETagOrCachedBody() async {
+        let firstBody = Data("[{\"number\":8175}]".utf8)
+        GitHubPullRequestStubURLProtocol.reset(stubs: [
+            .init(statusCode: 200, headers: ["ETag": "\"first-account\""], data: firstBody),
+            .init(statusCode: 304),
+            .init(statusCode: 304),
+        ])
+        let coordinator = GitHubPullRequestRequestCoordinator()
+        let session = makeSession()
+
+        _ = await coordinator.response(
+            endpoint: endpoint,
+            authHeader: "Bearer first-account-token",
+            sessionOverride: session
+        )
+        let changedAccountResponse = await coordinator.response(
+            endpoint: endpoint,
+            authHeader: "Bearer second-account-token",
+            sessionOverride: session
+        )
+        let originalAccountResponse = await coordinator.response(
+            endpoint: endpoint,
+            authHeader: "Bearer first-account-token",
+            sessionOverride: session
+        )
+
+        #expect(changedAccountResponse?.statusCode == 304)
+        #expect(changedAccountResponse?.data.isEmpty == true)
+        #expect(originalAccountResponse?.statusCode == 200)
+        #expect(originalAccountResponse?.data == firstBody)
+        let requests = GitHubPullRequestStubURLProtocol.capturedRequests()
+        #expect(requests.count == 3)
+        #expect(requests[1].value(forHTTPHeaderField: "If-None-Match") == nil)
+        #expect(requests[2].value(forHTTPHeaderField: "If-None-Match") == "\"first-account\"")
+    }
+
     @Test func responseCacheEvictsOldestEndpointAtCountLimit() async {
         let firstEndpoint = "repos/manaflow-ai/cmux/pulls?head=manaflow-ai:first"
         let secondEndpoint = "repos/manaflow-ai/cmux/pulls?head=manaflow-ai:second"
@@ -222,6 +258,45 @@ struct GitHubPullRequestRequestTests {
 
         #expect(suppressed == nil)
         #expect(GitHubPullRequestStubURLProtocol.capturedRequests().count == 1)
+    }
+
+    @Test func exhaustedCredentialDoesNotBackOffChangedCredential() async {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let reset = Int(now.addingTimeInterval(300).timeIntervalSince1970)
+        GitHubPullRequestStubURLProtocol.reset(stubs: [
+            .init(
+                statusCode: 403,
+                headers: [
+                    "X-RateLimit-Remaining": "0",
+                    "X-RateLimit-Reset": String(reset),
+                ]
+            ),
+            .init(statusCode: 200, data: Data("[]".utf8)),
+        ])
+        let coordinator = GitHubPullRequestRequestCoordinator(now: { now })
+        let session = makeSession()
+
+        _ = await coordinator.response(
+            endpoint: endpoint,
+            authHeader: "Bearer exhausted-token",
+            sessionOverride: session
+        )
+        let changedCredentialResponse = await coordinator.response(
+            endpoint: endpoint,
+            authHeader: "Bearer available-token",
+            sessionOverride: session
+        )
+        let changedCredentialRetryDate = await coordinator.retryDate()
+        let originalCredentialResponse = await coordinator.response(
+            endpoint: "repos/manaflow-ai/cmux/pulls?state=open",
+            authHeader: "Bearer exhausted-token",
+            sessionOverride: session
+        )
+
+        #expect(changedCredentialResponse?.statusCode == 200)
+        #expect(changedCredentialRetryDate == nil)
+        #expect(originalCredentialResponse == nil)
+        #expect(GitHubPullRequestStubURLProtocol.capturedRequests().count == 2)
     }
 
     @Test func permissionDeniedResponseDoesNotTriggerPrimaryRateLimitBackoff() async {
@@ -309,6 +384,33 @@ struct GitHubPullRequestRequestTests {
 
         #expect(responses.allSatisfy { $0?.statusCode == 200 && $0?.data == body })
         #expect(GitHubPullRequestStubURLProtocol.capturedRequests().count == 1)
+    }
+
+    @Test func changedCredentialDoesNotJoinInFlightEndpointRequest() async {
+        GitHubPullRequestStubURLProtocol.reset(stubs: [
+            .init(statusCode: 200, data: Data("[]".utf8), delay: 0.05),
+            .init(statusCode: 200, data: Data("[]".utf8)),
+        ])
+        let coordinator = GitHubPullRequestRequestCoordinator()
+        let session = makeSession()
+
+        async let first = coordinator.response(
+            endpoint: endpoint,
+            authHeader: "Bearer first-account-token",
+            sessionOverride: session
+        )
+        async let second = coordinator.response(
+            endpoint: endpoint,
+            authHeader: "Bearer second-account-token",
+            sessionOverride: session
+        )
+        _ = await [first, second]
+
+        let requests = GitHubPullRequestStubURLProtocol.capturedRequests()
+        #expect(requests.count == 2)
+        #expect(Set(requests.compactMap {
+            $0.value(forHTTPHeaderField: "Authorization")
+        }) == ["Bearer first-account-token", "Bearer second-account-token"])
     }
 
     @Test func serviceCopiesUseAtMostOneGitHubConnectionAtATime() async {

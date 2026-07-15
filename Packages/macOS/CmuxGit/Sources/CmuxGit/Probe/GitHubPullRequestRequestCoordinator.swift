@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// Process-scoped transport policy for GitHub pull-request probes.
@@ -8,6 +9,13 @@ import Foundation
 /// prevents per-window pollers from independently consuming the same GitHub
 /// rate-limit pool.
 actor GitHubPullRequestRequestCoordinator {
+    private static let maximumRateLimitIdentityCount = 32
+
+    private struct RequestKey: Hashable, Sendable {
+        let endpoint: String
+        let authorizationFingerprint: Data
+    }
+
     private struct CachedResponse: Sendable {
         let etag: String
         let data: Data
@@ -22,12 +30,14 @@ actor GitHubPullRequestRequestCoordinator {
     private let now: @Sendable () -> Date
     private let maximumCachedResponseCount: Int
     private let maximumCachedResponseBodyBytes: Int
-    private var cachedResponseByEndpoint: [String: CachedResponse] = [:]
-    private var cachedResponseEndpointsInInsertionOrder: [String] = []
+    private var cachedResponseByRequestKey: [RequestKey: CachedResponse] = [:]
+    private var cachedResponseKeysInInsertionOrder: [RequestKey] = []
     private var cachedResponseBodyByteCount = 0
-    private var inFlightRequestByEndpoint: [String: InFlightRequest] = [:]
+    private var inFlightRequestByRequestKey: [RequestKey: InFlightRequest] = [:]
     private var transportTail: Task<Void, Never>?
-    private var rateLimitRetryDate: Date?
+    private var rateLimitRetryDateByAuthorizationFingerprint: [Data: Date] = [:]
+    private var rateLimitAuthorizationFingerprintsInInsertionOrder: [Data] = []
+    private var mostRecentAuthorizationFingerprint: Data?
 
     init(
         session: URLSession? = nil,
@@ -57,9 +67,16 @@ actor GitHubPullRequestRequestCoordinator {
               !authHeader.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return nil
         }
-        guard activeRateLimitRetryDate() == nil else { return nil }
+        let requestKey = RequestKey(
+            endpoint: endpoint,
+            authorizationFingerprint: Data(SHA256.hash(data: Data(authHeader.utf8)))
+        )
+        mostRecentAuthorizationFingerprint = requestKey.authorizationFingerprint
+        guard activeRateLimitRetryDate(
+            for: requestKey.authorizationFingerprint
+        ) == nil else { return nil }
 
-        if let inFlight = inFlightRequestByEndpoint[endpoint] {
+        if let inFlight = inFlightRequestByRequestKey[requestKey] {
             return await inFlight.task.value
         }
 
@@ -70,32 +87,35 @@ actor GitHubPullRequestRequestCoordinator {
             _ = await predecessor?.value
             guard let self else { return nil }
             return await self.executeRequest(
-                endpoint: endpoint,
+                requestKey: requestKey,
                 authHeader: authHeader,
                 session: requestSession
             )
         }
-        inFlightRequestByEndpoint[endpoint] = InFlightRequest(id: requestID, task: task)
+        inFlightRequestByRequestKey[requestKey] = InFlightRequest(id: requestID, task: task)
         transportTail = Task { _ = await task.value }
 
         let response = await task.value
-        if inFlightRequestByEndpoint[endpoint]?.id == requestID {
-            inFlightRequestByEndpoint.removeValue(forKey: endpoint)
+        if inFlightRequestByRequestKey[requestKey]?.id == requestID {
+            inFlightRequestByRequestKey.removeValue(forKey: requestKey)
         }
         return response
     }
 
     func retryDate() -> Date? {
-        activeRateLimitRetryDate()
+        guard let mostRecentAuthorizationFingerprint else { return nil }
+        return activeRateLimitRetryDate(for: mostRecentAuthorizationFingerprint)
     }
 
     private func executeRequest(
-        endpoint: String,
+        requestKey: RequestKey,
         authHeader: String,
         session: URLSession
     ) async -> WorkspacePullRequestHTTPResponse? {
-        guard activeRateLimitRetryDate() == nil,
-              let url = URL(string: "https://api.github.com/\(endpoint)") else {
+        guard activeRateLimitRetryDate(
+            for: requestKey.authorizationFingerprint
+        ) == nil,
+              let url = URL(string: "https://api.github.com/\(requestKey.endpoint)") else {
             return nil
         }
 
@@ -104,7 +124,7 @@ actor GitHubPullRequestRequestCoordinator {
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue("cmux-workspace-pr-poller", forHTTPHeaderField: "User-Agent")
         request.setValue(authHeader, forHTTPHeaderField: "Authorization")
-        if let etag = cachedResponseByEndpoint[endpoint]?.etag {
+        if let etag = cachedResponseByRequestKey[requestKey]?.etag {
             request.setValue(etag, forHTTPHeaderField: "If-None-Match")
         }
 
@@ -113,18 +133,21 @@ actor GitHubPullRequestRequestCoordinator {
             guard let httpResponse = response as? HTTPURLResponse else {
                 return nil
             }
-            updateRateLimit(from: httpResponse)
+            updateRateLimit(
+                from: httpResponse,
+                authorizationFingerprint: requestKey.authorizationFingerprint
+            )
 
             if httpResponse.statusCode == 304,
-               let cachedResponse = cachedResponseByEndpoint[endpoint] {
+               let cachedResponse = cachedResponseByRequestKey[requestKey] {
                 return WorkspacePullRequestHTTPResponse(statusCode: 200, data: cachedResponse.data)
             }
 
             if httpResponse.statusCode == 200 {
                 if let etag = httpResponse.value(forHTTPHeaderField: "ETag"), !etag.isEmpty {
-                    storeCachedResponse(CachedResponse(etag: etag, data: data), for: endpoint)
+                    storeCachedResponse(CachedResponse(etag: etag, data: data), for: requestKey)
                 } else {
-                    removeCachedResponse(for: endpoint)
+                    removeCachedResponse(for: requestKey)
                 }
             }
             return WorkspacePullRequestHTTPResponse(statusCode: httpResponse.statusCode, data: data)
@@ -133,61 +156,91 @@ actor GitHubPullRequestRequestCoordinator {
         }
     }
 
-    private func updateRateLimit(from response: HTTPURLResponse) {
+    private func updateRateLimit(
+        from response: HTTPURLResponse,
+        authorizationFingerprint: Data
+    ) {
         if response.value(forHTTPHeaderField: "X-RateLimit-Remaining") == "0",
            let rawReset = response.value(forHTTPHeaderField: "X-RateLimit-Reset"),
            let resetSeconds = TimeInterval(rawReset) {
             // GitHub reports whole epoch seconds. Waiting through the following
             // second avoids racing the boundary and immediately receiving another
             // exhausted response.
-            extendRateLimitRetryDate(to: Date(timeIntervalSince1970: resetSeconds + 1))
+            extendRateLimitRetryDate(
+                to: Date(timeIntervalSince1970: resetSeconds + 1),
+                authorizationFingerprint: authorizationFingerprint
+            )
         }
 
         if response.statusCode == 403 || response.statusCode == 429,
            let rawRetryAfter = response.value(forHTTPHeaderField: "Retry-After"),
            let retryAfter = TimeInterval(rawRetryAfter),
            retryAfter > 0 {
-            extendRateLimitRetryDate(to: now().addingTimeInterval(retryAfter))
+            extendRateLimitRetryDate(
+                to: now().addingTimeInterval(retryAfter),
+                authorizationFingerprint: authorizationFingerprint
+            )
         }
     }
 
-    private func extendRateLimitRetryDate(to retryDate: Date) {
+    private func extendRateLimitRetryDate(
+        to retryDate: Date,
+        authorizationFingerprint: Data
+    ) {
         guard retryDate > now() else { return }
-        rateLimitRetryDate = max(rateLimitRetryDate ?? .distantPast, retryDate)
+        removeExpiredRateLimitRetryDates()
+        if rateLimitRetryDateByAuthorizationFingerprint[authorizationFingerprint] == nil {
+            rateLimitAuthorizationFingerprintsInInsertionOrder.append(authorizationFingerprint)
+        }
+        rateLimitRetryDateByAuthorizationFingerprint[authorizationFingerprint] = max(
+            rateLimitRetryDateByAuthorizationFingerprint[authorizationFingerprint] ?? .distantPast,
+            retryDate
+        )
+        while rateLimitRetryDateByAuthorizationFingerprint.count > Self.maximumRateLimitIdentityCount {
+            guard let oldestFingerprint = rateLimitAuthorizationFingerprintsInInsertionOrder.first else { break }
+            rateLimitAuthorizationFingerprintsInInsertionOrder.removeFirst()
+            rateLimitRetryDateByAuthorizationFingerprint.removeValue(forKey: oldestFingerprint)
+        }
     }
 
-    private func storeCachedResponse(_ response: CachedResponse, for endpoint: String) {
-        removeCachedResponse(for: endpoint)
+    private func storeCachedResponse(_ response: CachedResponse, for requestKey: RequestKey) {
+        removeCachedResponse(for: requestKey)
         guard maximumCachedResponseCount > 0,
               maximumCachedResponseBodyBytes > 0,
               response.data.count <= maximumCachedResponseBodyBytes else {
             return
         }
 
-        cachedResponseByEndpoint[endpoint] = response
-        cachedResponseEndpointsInInsertionOrder.append(endpoint)
+        cachedResponseByRequestKey[requestKey] = response
+        cachedResponseKeysInInsertionOrder.append(requestKey)
         cachedResponseBodyByteCount += response.data.count
 
-        while cachedResponseByEndpoint.count > maximumCachedResponseCount
+        while cachedResponseByRequestKey.count > maximumCachedResponseCount
             || cachedResponseBodyByteCount > maximumCachedResponseBodyBytes {
-            guard let oldestEndpoint = cachedResponseEndpointsInInsertionOrder.first else { break }
-            removeCachedResponse(for: oldestEndpoint)
+            guard let oldestRequestKey = cachedResponseKeysInInsertionOrder.first else { break }
+            removeCachedResponse(for: oldestRequestKey)
         }
     }
 
-    private func removeCachedResponse(for endpoint: String) {
-        if let removedResponse = cachedResponseByEndpoint.removeValue(forKey: endpoint) {
+    private func removeCachedResponse(for requestKey: RequestKey) {
+        if let removedResponse = cachedResponseByRequestKey.removeValue(forKey: requestKey) {
             cachedResponseBodyByteCount -= removedResponse.data.count
         }
-        cachedResponseEndpointsInInsertionOrder.removeAll { $0 == endpoint }
+        cachedResponseKeysInInsertionOrder.removeAll { $0 == requestKey }
     }
 
-    private func activeRateLimitRetryDate() -> Date? {
-        guard let rateLimitRetryDate else { return nil }
-        guard rateLimitRetryDate > now() else {
-            self.rateLimitRetryDate = nil
-            return nil
+    private func activeRateLimitRetryDate(for authorizationFingerprint: Data) -> Date? {
+        removeExpiredRateLimitRetryDates()
+        return rateLimitRetryDateByAuthorizationFingerprint[authorizationFingerprint]
+    }
+
+    private func removeExpiredRateLimitRetryDates() {
+        let currentDate = now()
+        rateLimitRetryDateByAuthorizationFingerprint = rateLimitRetryDateByAuthorizationFingerprint.filter {
+            $0.value > currentDate
         }
-        return rateLimitRetryDate
+        rateLimitAuthorizationFingerprintsInInsertionOrder.removeAll {
+            rateLimitRetryDateByAuthorizationFingerprint[$0] == nil
+        }
     }
 }
