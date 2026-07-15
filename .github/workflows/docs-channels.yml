@@ -3,7 +3,7 @@ name: Deploy docs channels
 on:
   push:
     branches: [main]
-    paths: ["web/**"]
+    paths: ["web/**", "CHANGELOG.md"]
     tags: ["v*"]
 
 permissions:

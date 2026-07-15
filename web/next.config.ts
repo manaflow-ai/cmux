@@ -27,6 +27,9 @@ const agentSlugMoves: [from: string, to: string][] = [
 
 const nextConfig: NextConfig = {
   poweredByHeader,
+  env: {
+    CMUX_DOCS_CHANNEL: docsChannel ?? "",
+  },
   assetPrefix: isDocsZone ? `/_docs-assets/${docsChannel}` : undefined,
   async rewrites() {
     if (isDocsZone) return [];
