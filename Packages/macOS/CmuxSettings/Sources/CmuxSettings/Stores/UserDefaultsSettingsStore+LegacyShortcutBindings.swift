@@ -6,10 +6,11 @@ extension UserDefaultsSettingsStore {
     /// Callers merge this snapshot below `cmux.json` bindings and above built-in defaults,
     /// matching the app's compatibility lookup order.
     public nonisolated func initialLegacyShortcutBindings() -> [String: StoredShortcut] {
-        Dictionary(uniqueKeysWithValues: ShortcutAction.allCases.compactMap { action in
+        let decoder = JSONDecoder()
+        return Dictionary(uniqueKeysWithValues: ShortcutAction.allCases.compactMap { action in
             let key = legacyShortcutKey(for: action)
             guard let data = storage.valueIfPresent(for: key),
-                  let payload = try? JSONDecoder().decode(LegacyStoredShortcutPayload.self, from: data) else {
+                  let payload = try? decoder.decode(LegacyStoredShortcutPayload.self, from: data) else {
                 return nil
             }
             return (action.rawValue, payload.storedShortcut)
@@ -25,15 +26,15 @@ extension UserDefaultsSettingsStore {
             )
             let observer = storage.addDidChangeObserver { _, _ in signalContinuation.yield() }
             let drainTask = Task { [weak self] in
-                guard let self else {
+                guard let initial = self?.initialLegacyShortcutBindings() else {
                     continuation.finish()
                     return
                 }
-                var lastYielded = initialLegacyShortcutBindings()
+                var lastYielded = initial
                 continuation.yield(lastYielded)
                 for await _ in signals {
                     if Task.isCancelled { break }
-                    let current = initialLegacyShortcutBindings()
+                    guard let current = self?.initialLegacyShortcutBindings() else { break }
                     guard current != lastYielded else { continue }
                     lastYielded = current
                     continuation.yield(current)
