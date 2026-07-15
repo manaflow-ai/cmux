@@ -4957,6 +4957,7 @@ final class WorkspaceSidebarExtensionBrowserSurfaceTests: XCTestCase {
         let terminal = workspace.replaceCloudVMLoadingSurfaceWithTerminal(
             workspaceId: workspace.id,
             initialCommand: command,
+            remotePTYSessionID: "cmux-team-window-v1",
             focus: true
         )
 
@@ -4966,6 +4967,9 @@ final class WorkspaceSidebarExtensionBrowserSurfaceTests: XCTestCase {
         XCTAssertEqual(terminal?.stableSurfaceId, stableSurfaceId)
         XCTAssertEqual(workspace.focusedTerminalPanel?.id, loadingPanelId)
         XCTAssertEqual(terminal?.surface.initialCommand, command)
+        let terminalSnapshot = workspace.sessionSnapshot(includeScrollback: false).panels.first?.terminal
+        XCTAssertEqual(terminalSnapshot?.isRemoteTerminal, true)
+        XCTAssertEqual(terminalSnapshot?.remotePTYSessionID, "cmux-team-window-v1")
     }
 
     func testCloudVMLoadingFailureSummarizesRetrySpam() {
