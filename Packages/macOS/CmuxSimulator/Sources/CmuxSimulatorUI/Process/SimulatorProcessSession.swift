@@ -14,6 +14,7 @@ final class SimulatorProcessSession {
     private let terminationContinuation: AsyncStream<Void>.Continuation
     private var outputTask: Task<Void, Never>?
     private var escalationTask: Task<Void, Never>?
+    private var terminationWaiters: [CheckedContinuation<Void, Never>] = []
 
     init(
         sleeper: any SimulatorProcessSleeper = ContinuousSimulatorProcessSleeper(),
@@ -72,17 +73,19 @@ final class SimulatorProcessSession {
                 await process?.setTerminationHandler { [weak self, weak process] _ in
                     Task { @MainActor [weak self, weak process] in
                         guard let self, self.process === process else { return }
-                        self.isRunning = false
                         self.process = nil
-                        self.escalationTask?.cancel()
-                        self.escalationTask = nil
-                        self.terminationContinuation.yield(())
-                        self.terminationContinuation.finish()
                         if let outputTask = self.outputTask {
                             await outputTask.value
                         }
                         self.outputTask = nil
                         onTermination()
+                        self.isRunning = false
+                        let waiters = self.terminationWaiters
+                        self.terminationWaiters.removeAll()
+                        waiters.forEach { $0.resume() }
+                        self.terminationContinuation.yield(())
+                        self.terminationContinuation.finish()
+                        self.escalationTask = nil
                     }
                 }
             }
@@ -107,6 +110,18 @@ final class SimulatorProcessSession {
         guard isRunning else { return }
         let task = startEscalationIfNeeded()
         await task.value
+        await waitUntilTerminationCallbackCompletes()
+    }
+
+    private func waitUntilTerminationCallbackCompletes() async {
+        guard isRunning else { return }
+        await withCheckedContinuation { continuation in
+            if isRunning {
+                terminationWaiters.append(continuation)
+            } else {
+                continuation.resume()
+            }
+        }
     }
 
     private func startEscalationIfNeeded() -> Task<Void, Never> {
@@ -174,6 +189,11 @@ private func performSimulatorProcessStopAndWait(
 
     guard await process.isRunning else { return }
     process.forceKill()
+    _ = await waitForSimulatorProcessTermination(
+        events: terminationEvents,
+        sleeper: ContinuousSimulatorProcessSleeper(),
+        for: .seconds(2)
+    )
 }
 
 func waitForSimulatorProcessTermination(

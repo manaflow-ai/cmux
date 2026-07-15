@@ -52,7 +52,7 @@ struct SimulatorProcessSessionTests {
         await eventuallyAsync { await output.snapshot() == "ready\n" }
 
         await session.stopAndWait()
-        await eventually { didTerminate }
+        #expect(didTerminate)
 
         #expect(await sleeper.callCount > 0)
         #expect(session.isRunning == false)
@@ -84,7 +84,7 @@ struct SimulatorProcessSessionTests {
         let descendant = try await requireMarkerPID(marker)
 
         await session.stopAndWait()
-        await eventually { didTerminate }
+        #expect(didTerminate)
 
         await expectProcessExited(descendant)
         #expect(session.isRunning == false)
@@ -123,7 +123,7 @@ struct SimulatorProcessSessionTests {
         await sleeper.waitForCallCount(2)
         await sleeper.advance()
         await stopTask.value
-        await eventually { didTerminate }
+        #expect(didTerminate)
 
         #expect(session.isRunning == false)
     }

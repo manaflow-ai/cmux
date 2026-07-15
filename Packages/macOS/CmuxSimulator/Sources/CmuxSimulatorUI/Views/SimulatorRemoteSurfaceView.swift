@@ -18,8 +18,6 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
             SimulatorFrameTransportDescriptor
         ) throws -> any SimulatorFrameSurfaceReading
     private var displayLink: CADisplayLink?
-    private var frameTickTask: Task<Void, Never>?
-    private var frameGeneration: UInt64 = 0
     private var screenObserver: NSObjectProtocol?
     private var lastFrameSequence: UInt64?
     private var isTornDown = false
@@ -354,29 +352,15 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     }
 
     func renderLatestFrame() {
-        guard frameTickTask == nil,
-              let pipeline = framePipeline else { return }
-        let generation = frameGeneration
-        frameTickTask = Task { @MainActor [weak self] in
-            let presentation = await pipeline.displayTick()
-            guard let self else { return }
-            defer {
-                if self.frameGeneration == generation {
-                    self.frameTickTask = nil
-                }
-            }
-            guard !Task.isCancelled,
-                  self.frameGeneration == generation,
-                  self.framePipeline === pipeline,
-                  let presentation,
-                  presentation.sequence != self.lastFrameSequence,
-                  let frameLayer = self.frameLayer else { return }
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            frameLayer.contents = presentation.image
-            CATransaction.commit()
-            self.lastFrameSequence = presentation.sequence
-        }
+        guard let pipeline = framePipeline,
+              let presentation = pipeline.displayTick(),
+              presentation.sequence != lastFrameSequence,
+              let frameLayer else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        frameLayer.contents = presentation.image
+        CATransaction.commit()
+        lastFrameSequence = presentation.sequence
     }
 
     private func startDisplayLink() {
@@ -405,15 +389,10 @@ final class SimulatorRemoteSurfaceView: NSView, SimulatorInputResponder {
     }
 
     private func retireFramePipeline() {
-        frameGeneration &+= 1
-        frameTickTask?.cancel()
-        frameTickTask = nil
         let pipeline = framePipeline
         framePipeline = nil
         frameLayer?.contents = nil
-        if let pipeline {
-            Task { await pipeline.invalidate() }
-        }
+        pipeline?.invalidate()
     }
 
     func normalizedPoint(for event: NSEvent, clamped: Bool = false) -> SimulatorPoint? {

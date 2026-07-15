@@ -77,6 +77,14 @@ final class SimulatorFrameSurfaceSource: SimulatorFrameSurfaceReading, @unchecke
         close(descriptorHandle)
     }
 
+    func hasPublishedFrame(after sequence: UInt64?) -> Bool {
+        let word = Int64(bitPattern: cmux_simulator_atomic_load_u64_acquire(
+            layout.publishedWordPointer(in: mapping)
+        ))
+        guard let published = layout.decodePublishedWord(word) else { return false }
+        return sequence.map { published.sequence > $0 } ?? true
+    }
+
     func copyLatestFrame(after sequence: UInt64?) async -> SimulatorFrameSnapshot? {
         let publicationPointer = layout.publishedWordPointer(in: mapping)
         let firstWord = Int64(bitPattern: cmux_simulator_atomic_load_u64_acquire(
