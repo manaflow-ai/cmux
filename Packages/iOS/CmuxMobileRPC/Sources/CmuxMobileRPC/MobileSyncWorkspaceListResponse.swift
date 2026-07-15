@@ -41,6 +41,8 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         public let hasUnread: Bool?
         /// Terminals belonging to this workspace.
         public let terminals: [Terminal]
+        /// The workspace's pane layout, or `nil` when absent or malformed.
+        public let layout: Layout?
 
         private enum CodingKeys: String, CodingKey {
             case id
@@ -55,6 +57,122 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             case lastActivityAt = "last_activity_at"
             case hasUnread = "has_unread"
             case terminals
+            case layout
+        }
+
+        /// Decodes a workspace while isolating optional layout decoding failures.
+        /// - Parameter decoder: The decoder for one workspace object.
+        /// - Throws: A decoding error when a required non-layout workspace field is malformed.
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            id = try container.decode(String.self, forKey: .id)
+            windowID = try container.decodeIfPresent(String.self, forKey: .windowID)
+            title = try container.decode(String.self, forKey: .title)
+            currentDirectory = try container.decodeIfPresent(String.self, forKey: .currentDirectory)
+            isSelected = try container.decode(Bool.self, forKey: .isSelected)
+            isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned)
+            groupID = try container.decodeIfPresent(String.self, forKey: .groupID)
+            preview = try container.decodeIfPresent(String.self, forKey: .preview)
+            previewAt = try container.decodeIfPresent(Double.self, forKey: .previewAt)
+            lastActivityAt = try container.decodeIfPresent(Double.self, forKey: .lastActivityAt)
+            hasUnread = try container.decodeIfPresent(Bool.self, forKey: .hasUnread)
+            terminals = try container.decode([Terminal].self, forKey: .terminals)
+            layout = try? container.decode(Layout.self, forKey: .layout)
+        }
+    }
+
+    /// A wire-level workspace pane layout snapshot.
+    public struct Layout: Decodable, Sendable {
+        /// A recursively decoded layout node.
+        public indirect enum Node: Decodable, Sendable {
+            /// A split branch with two child nodes.
+            case split(Split)
+            /// A leaf pane containing surface tabs.
+            case pane(Pane)
+
+            private enum CodingKeys: String, CodingKey {
+                case kind
+            }
+
+            private enum Kind: String, Decodable {
+                case split
+                case pane
+            }
+
+            /// Decodes a layout node based on its `kind` discriminator.
+            /// - Parameter decoder: The decoder for one layout node.
+            /// - Throws: A decoding error for unknown kinds or malformed node data.
+            public init(from decoder: any Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                let kind = try container.decode(Kind.self, forKey: .kind)
+                switch kind {
+                case .split:
+                    self = try .split(Split(from: decoder))
+                case .pane:
+                    self = try .pane(Pane(from: decoder))
+                }
+            }
+        }
+
+        /// A wire-level split branch.
+        public struct Split: Decodable, Sendable {
+            /// A split orientation emitted by bonsplit.
+            public enum Orientation: String, Decodable, Sendable {
+                /// Places children side by side.
+                case horizontal
+                /// Stacks children vertically.
+                case vertical
+            }
+
+            /// The stable split identifier.
+            public let id: String
+            /// The axis along which this split divides its rectangle.
+            public let orientation: Orientation
+            /// The first child's proportional share.
+            public let ratio: Double
+            /// The first child node.
+            public let first: Node
+            /// The second child node.
+            public let second: Node
+        }
+
+        /// A wire-level leaf pane.
+        public struct Pane: Decodable, Sendable {
+            /// The stable pane identifier.
+            public let id: String
+            /// The selected surface identifier, when one is selected.
+            public let selectedSurfaceID: String?
+            /// The pane's surfaces in tab order.
+            public let surfaces: [Surface]
+
+            private enum CodingKeys: String, CodingKey {
+                case id
+                case selectedSurfaceID = "selected_surface_id"
+                case surfaces
+            }
+        }
+
+        /// A wire-level surface tab.
+        public struct Surface: Decodable, Sendable {
+            /// The stable surface identifier.
+            public let id: String
+            /// The raw panel type emitted by the Mac.
+            public let type: String
+            /// The surface's display title.
+            public let title: String
+        }
+
+        /// The Mac-side pane layout version.
+        public let version: Int
+        /// The focused pane identifier, when one is focused.
+        public let focusedPaneID: String?
+        /// The root of the recursive layout tree.
+        public let root: Node
+
+        private enum CodingKeys: String, CodingKey {
+            case version
+            case focusedPaneID = "focused_pane_id"
+            case root
         }
     }
 
