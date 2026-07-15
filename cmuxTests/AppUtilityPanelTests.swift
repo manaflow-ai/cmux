@@ -267,7 +267,8 @@ struct AppUtilityPanelTests {
         appDelegate.presentAppUtilityHostWindow(window, activateApplication: false)
 
         #expect(window.deminiaturizeCallCount == 1)
-        #expect(window.orderFrontCallCount == 1)
+        #expect(window.orderFrontRegardlessCallCount == 1)
+        #expect(window.orderFrontCallCount == 0)
         #expect(window.makeKeyAndOrderFrontCallCount == 0)
         #expect(window.makeKeyCallCount == 0)
     }
@@ -340,6 +341,7 @@ private final class AppUtilityPresentationTestWindow: NSWindow {
     var simulatesMiniaturized = false
     private(set) var deminiaturizeCallCount = 0
     private(set) var orderFrontCallCount = 0
+    private(set) var orderFrontRegardlessCallCount = 0
     private(set) var makeKeyAndOrderFrontCallCount = 0
     private(set) var makeKeyCallCount = 0
 
@@ -361,6 +363,10 @@ private final class AppUtilityPresentationTestWindow: NSWindow {
 
     override func orderFront(_ sender: Any?) {
         orderFrontCallCount += 1
+    }
+
+    override func orderFrontRegardless() {
+        orderFrontRegardlessCallCount += 1
     }
 
     override func makeKeyAndOrderFront(_ sender: Any?) {

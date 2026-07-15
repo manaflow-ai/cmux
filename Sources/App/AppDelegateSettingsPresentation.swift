@@ -202,7 +202,7 @@ extension AppDelegate {
             NSRunningApplication.current.activate(options: [.activateAllWindows])
             window.makeKeyAndOrderFront(nil)
         } else {
-            window.orderFront(nil)
+            window.orderFrontRegardless()
         }
     }
 }
