@@ -26,13 +26,10 @@ struct ProcessDetectedResumeIndexes: Sendable {
         },
         processScopeFingerprintProvider: @escaping @Sendable (CmuxTopProcessSnapshot) -> Set<String> = {
             SharedLiveAgentIndexLoader.processScopeFingerprint(from: $0)
-        },
-        fullLoad: @escaping @Sendable () async -> ProcessDetectedResumeIndexes = {
-            await ProcessDetectedResumeIndexes.load()
         }
-    ) async -> ProcessDetectedResumeIndexes {
+    ) async -> ProcessDetectedResumeIndexes? {
         guard let cachedAgentIndex else {
-            return await fullLoad()
+            return nil
         }
         let cachedResult: ProcessDetectedResumeIndexes? = await Task.detached(priority: .utility) {
             let processSnapshot = processSnapshotProvider()
@@ -46,10 +43,7 @@ struct ProcessDetectedResumeIndexes: Sendable {
                 processSnapshot: processSnapshot
             )
         }.value
-        if let cachedResult {
-            return cachedResult
-        }
-        return await fullLoad()
+        return cachedResult
     }
 
     static func loadSynchronously(

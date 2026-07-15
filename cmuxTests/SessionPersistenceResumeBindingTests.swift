@@ -12,9 +12,8 @@ import Testing
 @Suite struct SessionPersistenceResumeBindingTests {
     @Test func autosaveResumeIndexesReuseCachedAgentIndex() async {
         let processSnapshotCalls = OSAllocatedUnfairLock(initialState: 0)
-        let fullLoadCalls = OSAllocatedUnfairLock(initialState: 0)
 
-        _ = await ProcessDetectedResumeIndexes.loadForAutosave(
+        let resumeIndexes = await ProcessDetectedResumeIndexes.loadForAutosave(
             cachedAgentIndex: ProcessDetectedResumeIndexes.AutosaveAgentIndexCache(
                 restorableAgentIndex: .empty,
                 processScopeFingerprint: []
@@ -27,23 +26,15 @@ import Testing
                     includesProcessDetails: true
                 )
             },
-            processScopeFingerprintProvider: { _ in [] },
-            fullLoad: {
-                fullLoadCalls.withLock { $0 += 1 }
-                return ProcessDetectedResumeIndexes(
-                    restorableAgentIndex: .empty,
-                    surfaceResumeBindingIndex: .empty
-                )
-            }
+            processScopeFingerprintProvider: { _ in [] }
         )
 
+        #expect(resumeIndexes != nil)
         #expect(processSnapshotCalls.withLock { $0 } == 1)
-        #expect(fullLoadCalls.withLock { $0 } == 0)
     }
 
     @Test func autosaveResumeIndexesSkipWhenAgentCacheIsCold() async {
         let processSnapshotCalls = OSAllocatedUnfairLock(initialState: 0)
-        let fullLoadCalls = OSAllocatedUnfairLock(initialState: 0)
 
         let resumeIndexes: ProcessDetectedResumeIndexes? = await ProcessDetectedResumeIndexes.loadForAutosave(
             cachedAgentIndex: nil,
@@ -54,25 +45,16 @@ import Testing
                     sampledAt: Date(timeIntervalSince1970: 1),
                     includesProcessDetails: true
                 )
-            },
-            fullLoad: {
-                fullLoadCalls.withLock { $0 += 1 }
-                return ProcessDetectedResumeIndexes(
-                    restorableAgentIndex: .empty,
-                    surfaceResumeBindingIndex: .empty
-                )
             }
         )
 
         #expect(resumeIndexes == nil)
         #expect(processSnapshotCalls.withLock { $0 } == 0)
-        #expect(fullLoadCalls.withLock { $0 } == 0)
     }
 
     @Test func autosaveResumeIndexesSkipWhenProcessDetectedAgentsChange() async {
         let processSnapshotCalls = OSAllocatedUnfairLock(initialState: 0)
         let fingerprintCalls = OSAllocatedUnfairLock(initialState: 0)
-        let fullLoadCalls = OSAllocatedUnfairLock(initialState: 0)
 
         let resumeIndexes: ProcessDetectedResumeIndexes? = await ProcessDetectedResumeIndexes.loadForAutosave(
             cachedAgentIndex: ProcessDetectedResumeIndexes.AutosaveAgentIndexCache(
@@ -90,20 +72,12 @@ import Testing
             processScopeFingerprintProvider: { _ in
                 fingerprintCalls.withLock { $0 += 1 }
                 return ["new-process-scope"]
-            },
-            fullLoad: {
-                fullLoadCalls.withLock { $0 += 1 }
-                return ProcessDetectedResumeIndexes(
-                    restorableAgentIndex: .empty,
-                    surfaceResumeBindingIndex: .empty
-                )
             }
         )
 
         #expect(resumeIndexes == nil)
         #expect(processSnapshotCalls.withLock { $0 } == 1)
         #expect(fingerprintCalls.withLock { $0 } == 1)
-        #expect(fullLoadCalls.withLock { $0 } == 0)
     }
 
     @Test func processScopeFingerprintTracksSamePIDExecutableChanges() {

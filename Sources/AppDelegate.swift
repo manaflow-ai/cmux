@@ -4188,6 +4188,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #if DEBUG
         loadMs = (ProcessInfo.processInfo.systemUptime - loadStart) * 1000.0
+#endif
+        guard let resumeIndexes else {
+#if DEBUG
+            cmuxDebugLog(
+                "session.save.skipped reason=agent_index_cache_unavailable includeScrollback=0 source=\(source)"
+            )
+#endif
+            return
+        }
+#if DEBUG
         let fingerprintStart = ProcessInfo.processInfo.systemUptime
 #endif
         guard !isTerminatingApp,
