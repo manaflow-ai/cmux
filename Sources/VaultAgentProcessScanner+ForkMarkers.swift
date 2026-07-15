@@ -15,16 +15,11 @@ extension CmuxVaultAgentRegistration {
         }
     }
 
-    private struct ForkParentMarker {
-        let token: String
-        let acceptsAttachedValue: Bool
-    }
-
-    private func forkParentMarkerTokens() -> [ForkParentMarker] {
+    private func forkParentMarkerTokens() -> [(token: String, acceptsAttachedValue: Bool)] {
         guard let forkCommand else { return [] }
         let resumeConstants = Set(Self.constantTemplateTokens(in: resumeCommand))
         let forkTokens = Self.splitShellWords(forkCommand)
-        let markers = forkTokens.enumerated().compactMap { index, token -> ForkParentMarker? in
+        let markers = forkTokens.enumerated().compactMap { index, token -> (String, Bool)? in
             guard !token.contains("{{"), !token.contains("}}"), !resumeConstants.contains(token) else {
                 return nil
             }
@@ -32,7 +27,7 @@ extension CmuxVaultAgentRegistration {
             let acceptsAttachedValue = token.hasPrefix("-")
                 && nextIndex < forkTokens.endIndex
                 && Self.isSessionPlaceholder(forkTokens[nextIndex])
-            return ForkParentMarker(token: token, acceptsAttachedValue: acceptsAttachedValue)
+            return (token, acceptsAttachedValue)
         }
         // If fork and resume differ only by placeholders, the live argv carries no
         // constant marker that proves this process is a fork of its parent.
