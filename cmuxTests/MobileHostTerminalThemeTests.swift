@@ -154,6 +154,19 @@ import Testing
         #expect(retained == cached)
         #expect(replaced == .monokai)
     }
+
+    @Test func rendererConfigThemeInheritsBoldColorForLiveAndReplayFrames() {
+        var candidate = TerminalTheme.monokai
+        candidate.boldColor = nil
+
+        let resolved = MobileTerminalThemeEmissionDecision.resolveConfigTheme(
+            candidate: candidate,
+            cached: nil,
+            fallbackBoldColor: "#4e2a84"
+        )
+
+        #expect(resolved?.boldColor == "#4e2a84")
+    }
 }
 
 private final class ThemeInvalidationTestClock: Clock, @unchecked Sendable {
