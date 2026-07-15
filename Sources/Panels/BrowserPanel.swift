@@ -2824,6 +2824,12 @@ final class BrowserPanel: Panel, ObservableObject {
     /// True after the Chromium browser process ended; reload restarts a fresh session.
     @Published private(set) var chromiumDisconnected: Bool = false
 
+#if DEBUG
+    /// Test-only stand-in for the chromium engine's content view so focus
+    /// behavior is exercisable without a live Content Shell session.
+    var chromiumWebContentViewOverrideForTesting: NSView?
+#endif
+
     /// Tracks whether the Chromium runtime's DevTools panel is currently open, so
     /// the shared Toggle Developer Tools action can drive open/close on `.chromium`.
     private var chromiumDevToolsVisible: Bool = false
@@ -5392,19 +5398,6 @@ final class BrowserPanel: Panel, ObservableObject {
             return
         }
         if window.makeFirstResponder(webView) {
-            noteWebViewFocused()
-        }
-    }
-
-    private func focusChromiumWebView() {
-        guard let chromiumView = chromium?.webView,
-              let window = chromiumView.window,
-              !chromiumView.isHiddenOrHasHiddenAncestor else { return }
-        if Self.responderChainContains(window.firstResponder, target: chromiumView) {
-            noteWebViewFocused()
-            return
-        }
-        if window.makeFirstResponder(chromiumView) {
             noteWebViewFocused()
         }
     }
@@ -8432,17 +8425,9 @@ extension BrowserPanel {
 }
 #endif
 
-private extension BrowserPanel {
-    @discardableResult
-    func applyPageZoom(_ candidate: CGFloat) -> Bool {
-        let clamped = max(minPageZoom, min(maxPageZoom, candidate))
-        if abs(webView.pageZoom - clamped) < 0.0001 {
-            return false
-        }
-        webView.pageZoom = clamped
-        return true
-    }
-
+extension BrowserPanel {
+    // Internal (not fileprivate): chromium focus routing in
+    // BrowserPanelChromiumFocus.swift walks the same responder chain.
     static func responderChainContains(_ start: NSResponder?, target: NSResponder) -> Bool {
         var r = start
         var hops = 0
@@ -8452,6 +8437,18 @@ private extension BrowserPanel {
             hops += 1
         }
         return false
+    }
+}
+
+private extension BrowserPanel {
+    @discardableResult
+    func applyPageZoom(_ candidate: CGFloat) -> Bool {
+        let clamped = max(minPageZoom, min(maxPageZoom, candidate))
+        if abs(webView.pageZoom - clamped) < 0.0001 {
+            return false
+        }
+        webView.pageZoom = clamped
+        return true
     }
 
     static func visibleDescendants(in root: NSView) -> [NSView] {
