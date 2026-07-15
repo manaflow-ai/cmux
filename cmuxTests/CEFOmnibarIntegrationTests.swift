@@ -147,6 +147,36 @@ struct CEFOmnibarIntegrationTests {
     }
 
     @Test
+    func replacementCEFHostRegistrationSurvivesOldCoordinatorCleanup() async {
+        let container = CEFBrowserContainerView(frame: .zero)
+        var oldCoordinator: CEFBrowserHostCoordinator? = CEFBrowserHostCoordinator(
+            containerView: container,
+            onRequestPanelFocus: {}
+        )
+        let replacement = CEFBrowserHostCoordinator(
+            containerView: container,
+            onRequestPanelFocus: {}
+        )
+
+        oldCoordinator = nil
+        await Task.yield()
+
+        #expect(CEFBrowserHostCoordinator.hasRegistrationForTesting(container))
+        _ = replacement
+    }
+
+    @Test
+    func extensionPopoverRetainsControllerUntilCloseCallback() {
+        let controller = CEFExtensionPopoverController()
+
+        controller.beginClosingForTesting(waitingForPopoverClose: true)
+
+        #expect(controller.isRetainedForClosingForTesting)
+        controller.completePopoverCloseForTesting()
+        #expect(!controller.isRetainedForClosingForTesting)
+    }
+
+    @Test
     func sessionSnapshotPreservesChromiumPanelURL() throws {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
