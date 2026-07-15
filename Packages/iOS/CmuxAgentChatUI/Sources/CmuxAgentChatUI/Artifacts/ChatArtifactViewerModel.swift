@@ -118,7 +118,8 @@ final class ChatArtifactViewerModel {
                     expectedSize: loadedStat.size,
                     modifiedAt: loadedStat.modifiedAt,
                     limit: limit,
-                    fallbackExtension: nil,
+                    fallbackExtension: ChatArtifactPreviewRouter()
+                        .preferredExtension(forMIMEType: loadedStat.mimeType),
                     loader: loader
                 ) {
                     state = .media(fileURL: fileURL)

@@ -46,4 +46,14 @@ struct ChatArtifactPreviewRouterTests {
             #expect(router.route(stat: stat, path: path) == expected, "Unexpected route for \(path)")
         }
     }
+
+    @Test
+    func mimeFallbackExtensionTypesExtensionlessTempFiles() {
+        let router = ChatArtifactPreviewRouter()
+
+        #expect(router.preferredExtension(forMIMEType: "video/mp4") == "mp4")
+        #expect(router.preferredExtension(forMIMEType: "application/pdf; charset=binary") == "pdf")
+        #expect(router.preferredExtension(forMIMEType: "not a mime") == nil)
+        #expect(router.preferredExtension(forMIMEType: nil) == nil)
+    }
 }

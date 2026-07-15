@@ -116,6 +116,27 @@ public struct ChatArtifactGalleryBuilder: Sendable {
         return (created.count, attached.count, referenced.count - remaining.count)
     }
 
+    /// Counts immediate children for a gallery directory row without sorting
+    /// or per-entry metadata, stopping at the shared listing limit so the cost
+    /// never scales past the cap for large folders.
+    private func directoryChildCount(path: String) -> (count: Int, isCapped: Bool)? {
+        guard let enumerator = FileManager.default.enumerator(
+            at: URL(fileURLWithPath: path, isDirectory: true),
+            includingPropertiesForKeys: [],
+            options: [.skipsSubdirectoryDescendants]
+        ) else {
+            return nil
+        }
+        var count = 0
+        while enumerator.nextObject() != nil {
+            count += 1
+            if count > ArtifactByteReader.maximumDirectoryEntryCount {
+                return (count: ArtifactByteReader.maximumDirectoryEntryCount, isCapped: true)
+            }
+        }
+        return (count: count, isCapped: false)
+    }
+
     private func statItems(
         _ references: [ChatArtifactIndexedReference],
         includeDirectories: Bool
@@ -125,7 +146,7 @@ public struct ChatArtifactGalleryBuilder: Sendable {
             do {
                 let stat = try reader.stat(path: reference.path)
                 guard includeDirectories || !stat.isDirectory else { return nil }
-                let listing = stat.isDirectory ? try? reader.list(path: reference.path) : nil
+                let children = stat.isDirectory ? directoryChildCount(path: reference.path) : nil
                 return ChatArtifactGalleryItem(
                     path: reference.path,
                     kind: stat.kind,
@@ -133,8 +154,8 @@ public struct ChatArtifactGalleryBuilder: Sendable {
                     size: stat.size,
                     modifiedAt: stat.modifiedAt,
                     exists: stat.exists,
-                    childCount: listing?.entries.count,
-                    childCountIsCapped: listing?.isTruncated ?? false,
+                    childCount: children?.count,
+                    childCountIsCapped: children?.isCapped ?? false,
                     provenance: reference.provenance
                 )
             } catch {

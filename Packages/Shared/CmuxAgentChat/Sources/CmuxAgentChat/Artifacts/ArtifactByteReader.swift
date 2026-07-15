@@ -102,25 +102,25 @@ public struct ArtifactByteReader: Sendable {
 
     /// Lists up to ``maximumDirectoryEntryCount`` immediate children for an
     /// already-authorized directory.
+    ///
+    /// One readdir pass collects child names; per-child filesystem metadata is
+    /// read only for the capped entries that the listing actually returns.
     public func list(path: String) throws -> ChatArtifactDirectoryListing {
         let stat = try stat(path: path)
         guard stat.isDirectory else { throw Error.fileNotFound }
-        let url = URL(fileURLWithPath: path, isDirectory: true)
-        let entries = try FileManager.default.contentsOfDirectory(
-            at: url,
-            includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey],
-            options: []
-        )
-        let sortedEntries = entries.sorted {
-            $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending
+        let names = try FileManager.default.contentsOfDirectory(atPath: path)
+        let sortedNames = names.sorted {
+            $0.localizedStandardCompare($1) == .orderedAscending
         }
-        let listed = try sortedEntries
+        let directoryURL = URL(fileURLWithPath: path, isDirectory: true)
+        let listed = try sortedNames
             .prefix(Self.maximumDirectoryEntryCount)
-            .map { entry -> ChatArtifactDirectoryEntry in
+            .map { name -> ChatArtifactDirectoryEntry in
+                let entry = directoryURL.appendingPathComponent(name)
                 let values = try entry.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey])
                 let isDirectory = values.isDirectory ?? false
                 return ChatArtifactDirectoryEntry(
-                    name: entry.lastPathComponent,
+                    name: name,
                     isDirectory: isDirectory,
                     size: Int64(values.fileSize ?? 0),
                     kind: kind(path: entry.path, isDirectory: isDirectory)
@@ -128,7 +128,7 @@ public struct ArtifactByteReader: Sendable {
             }
         return ChatArtifactDirectoryListing(
             entries: listed,
-            isTruncated: sortedEntries.count > Self.maximumDirectoryEntryCount
+            isTruncated: names.count > Self.maximumDirectoryEntryCount
         )
     }
 
