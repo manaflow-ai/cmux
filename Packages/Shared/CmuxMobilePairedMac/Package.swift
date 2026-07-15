@@ -3,23 +3,23 @@
 import PackageDescription
 
 let package = Package(
-    name: "CmuxMobileTerminalKit",
+    name: "CmuxMobilePairedMac",
     platforms: [
         .iOS(.v18),
         .macOS(.v14),
     ],
     products: [
         .library(
-            name: "CmuxMobileTerminalKit",
-            targets: ["CmuxMobileTerminalKit"]
+            name: "CmuxMobilePairedMac",
+            targets: ["CmuxMobilePairedMac"]
         ),
     ],
     dependencies: [
-        .package(path: "../../Shared/CMUXMobileCore"),
+        .package(path: "../CMUXMobileCore"),
     ],
     targets: [
         .target(
-            name: "CmuxMobileTerminalKit",
+            name: "CmuxMobilePairedMac",
             dependencies: [
                 "CMUXMobileCore",
             ],
@@ -30,8 +30,8 @@ let package = Package(
             ]
         ),
         .testTarget(
-            name: "CmuxMobileTerminalKitTests",
-            dependencies: ["CmuxMobileTerminalKit"],
+            name: "CmuxMobilePairedMacTests",
+            dependencies: ["CmuxMobilePairedMac"],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),

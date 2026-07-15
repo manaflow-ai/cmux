@@ -15,12 +15,12 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../../Shared/CMUXMobileCore"),
-        .package(path: "../../iOS/CmuxMobilePairedMac"),
-        .package(path: "../../iOS/CmuxMobileRPC"),
-        .package(path: "../../iOS/CmuxMobileShell"),
-        .package(path: "../../iOS/CmuxMobileShellModel"),
-        .package(path: "../../iOS/CmuxMobileTerminalKit"),
-        .package(path: "../../iOS/CmuxMobileTransport"),
+        .package(path: "../../Shared/CmuxMobilePairedMac"),
+        .package(path: "../../Shared/CmuxMobileRPC"),
+        .package(path: "../../Shared/CmuxMobileShell"),
+        .package(path: "../../Shared/CmuxMobileShellModel"),
+        .package(path: "../../Shared/CmuxMobileTerminalKit"),
+        .package(path: "../../Shared/CmuxMobileTransport"),
     ],
     targets: [
         .target(

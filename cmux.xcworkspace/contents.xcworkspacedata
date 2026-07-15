@@ -29,6 +29,30 @@
          location = "group:CMUXMobileCore">
       </FileRef>
       <FileRef
+         location = "group:CmuxMobileDiagnostics">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobilePairedMac">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileRPC">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileShell">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileShellModel">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileSupport">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileTerminalKit">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxMobileTransport">
+      </FileRef>
+      <FileRef
          location = "group:CmuxSyncStore">
       </FileRef>
    </Group>
@@ -54,34 +78,10 @@
          location = "group:CmuxMobileCrashReporting">
       </FileRef>
       <FileRef
-         location = "group:CmuxMobileDiagnostics">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxMobilePairedMac">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxMobileRPC">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxMobileShell">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxMobileShellModel">
-      </FileRef>
-      <FileRef
          location = "group:CmuxMobileShellUI">
       </FileRef>
       <FileRef
-         location = "group:CmuxMobileSupport">
-      </FileRef>
-      <FileRef
          location = "group:CmuxMobileTerminal">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxMobileTerminalKit">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxMobileTransport">
       </FileRef>
       <FileRef
          location = "group:CmuxMobileWorkspace">

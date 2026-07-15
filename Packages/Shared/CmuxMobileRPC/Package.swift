@@ -3,39 +3,29 @@
 import PackageDescription
 
 let package = Package(
-    name: "CmuxMobileShell",
+    name: "CmuxMobileRPC",
     platforms: [
         .iOS(.v18),
         .macOS(.v14),
     ],
     products: [
         .library(
-            name: "CmuxMobileShell",
-            targets: ["CmuxMobileShell"]
+            name: "CmuxMobileRPC",
+            targets: ["CmuxMobileRPC"]
         ),
     ],
     dependencies: [
-        .package(path: "../../Shared/CMUXMobileCore"),
-        .package(path: "../../Shared/CmuxAgentChat"),
-        .package(path: "../CmuxMobileDiagnostics"),
-        .package(path: "../CmuxMobilePairedMac"),
-        .package(path: "../CmuxMobileRPC"),
+        .package(path: "../CMUXMobileCore"),
         .package(path: "../CmuxMobileShellModel"),
         .package(path: "../CmuxMobileSupport"),
-        .package(path: "../CmuxMobileTransport"),
     ],
     targets: [
         .target(
-            name: "CmuxMobileShell",
+            name: "CmuxMobileRPC",
             dependencies: [
                 "CMUXMobileCore",
-                "CmuxAgentChat",
-                "CmuxMobileDiagnostics",
-                "CmuxMobilePairedMac",
-                "CmuxMobileRPC",
                 "CmuxMobileShellModel",
                 "CmuxMobileSupport",
-                "CmuxMobileTransport",
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
@@ -44,15 +34,11 @@ let package = Package(
             ]
         ),
         .testTarget(
-            name: "CmuxMobileShellTests",
+            name: "CmuxMobileRPCTests",
             dependencies: [
-                "CmuxMobileShell",
-                "CMUXMobileCore",
-                "CmuxAgentChat",
-                "CmuxMobilePairedMac",
                 "CmuxMobileRPC",
+                "CMUXMobileCore",
                 "CmuxMobileShellModel",
-                "CmuxMobileTransport",
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

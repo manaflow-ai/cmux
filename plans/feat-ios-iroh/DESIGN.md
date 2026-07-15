@@ -10,7 +10,7 @@ The codebase already reserved the seams for this:
 
 - `CmxAttachTransportKind.iroh` exists and validates against `.peer` endpoints (`Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/CmxTransport.swift`).
 - `CmxAttachEndpoint.peer(id:relayHint:directAddrs:relayURL:)` already carries exactly what an iroh dial needs.
-- `MobileShellRouteAuthPolicy` already classifies `(.iroh, .peer)` as an encrypted route that may carry Stack tokens (`Packages/iOS/CmuxMobileShellModel/Sources/CmuxMobileShellModel/MobileShellRouteAuthPolicy.swift`).
+- `MobileShellRouteAuthPolicy` already classifies `(.iroh, .peer)` as an encrypted route that may carry Stack tokens (`Packages/Shared/CmuxMobileShellModel/Sources/CmuxMobileShellModel/MobileShellRouteAuthPolicy.swift`).
 - The phone builds transports through `CmxRouteTransportFactory` keyed by route kind; adding a kind is one registration in `ios/cmux/cmuxApp.swift`.
 - The device registry (merged, https://github.com/manaflow-ai/cmux/pull/5626) stores `CmxAttachRoute` lists as opaque jsonb, so an `iroh` route needs zero schema change, and the phone's `DeviceRegistryService` already skips unknown route kinds on old builds (forward compatible).
 - Settings diagnostics already have a localized "Iroh" route label (`Sources/HostSettingsActions.swift`).
