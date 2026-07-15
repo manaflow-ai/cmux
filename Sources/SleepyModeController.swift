@@ -1,6 +1,8 @@
 import AppKit
 import CmuxSettingsUI
+import CmuxWorkspaces
 import IOKit.pwr_mgt
+import Observation
 import SwiftUI
 
 /// Owns "Sleepy Mode": a cute full-screen keep-awake screensaver. It holds
@@ -56,7 +58,15 @@ final class SleepyModeController {
     private var hasSystemAssertion = false
     private var hasDisplayAssertion = false
 
-    private init() {}
+    /// Drives Amphetamine Mode: periodically re-evaluates whether the Mac should
+    /// stay awake for a working agent. See `reconcilePowerAssertions()`.
+    private var reconcileTimer: Timer?
+    private let reconcileInterval: TimeInterval = 5
+
+    private init() {
+        startReconcileLoop()
+        observeKeepAwakeSetting()
+    }
 
     var isHoldingPowerAssertions: Bool { hasSystemAssertion || hasDisplayAssertion }
 
@@ -73,7 +83,7 @@ final class SleepyModeController {
     func activate() {
         guard !isActive else { return }
         isActive = true
-        beginPowerAssertions()
+        reconcilePowerAssertions()
         installScreenObserver()
         rebuildOverlayWindows()
         NSApp.unhide(nil)
@@ -91,7 +101,7 @@ final class SleepyModeController {
         guard isActive else { return }
         isActive = false
         removeScreenObserver()
-        endPowerAssertions()
+        reconcilePowerAssertions()
         tearDownOverlayWindows()
         onStateChange?()
     }
@@ -160,6 +170,89 @@ final class SleepyModeController {
             NotificationCenter.default.removeObserver(screenObserver)
             self.screenObserver = nil
         }
+    }
+
+    // MARK: - Keep-awake reconciliation
+
+    /// Pure keep-awake decision — the clobber-safe contract. The Mac stays awake
+    /// if the Sleepy Mode screensaver is active OR Amphetamine Mode wants it (the
+    /// setting is on AND an agent is working). The `||` guarantees neither
+    /// hold-reason can release an assertion the other still needs. `nonisolated`
+    /// and total so it is unit-testable without the app or the main actor.
+    nonisolated static func shouldKeepAwake(
+        screensaverActive: Bool,
+        keepAwakeSetting: Bool,
+        anyAgentWorking: Bool
+    ) -> Bool {
+        screensaverActive || (keepAwakeSetting && anyAgentWorking)
+    }
+
+    /// Whether any of the given per-workspace activity-state lists contains a
+    /// running command. Split from the live `anyAgentWorking()` reader so the
+    /// "which agent state counts as busy" rule is unit-testable with plain
+    /// values. An idle-but-open agent (`.promptIdle`) does NOT count.
+    nonisolated static func anyAgentWorking(in workspaceActivityStates: [[PanelShellActivityState]]) -> Bool {
+        workspaceActivityStates.contains { $0.contains(.commandRunning) }
+    }
+
+    /// Live reading of `anyAgentWorking(in:)` across every open workspace —
+    /// `.commandRunning` is the same busy signal the sidebar activity uses.
+    static func anyAgentWorking() -> Bool {
+        guard let app = AppDelegate.shared else { return false }
+        return anyAgentWorking(in: app.openWorkspacesForPetCensus().map { Array($0.panelShellActivityStates.values) })
+    }
+
+    /// Single source of truth for the IOKit power assertions: makes the held
+    /// assertion match `shouldKeepAwake(...)`. Idempotent — the begin/end helpers
+    /// no-op when already in the desired state — so it is safe to call on every
+    /// timer tick and on every state change.
+    func reconcilePowerAssertions() {
+        // Short-circuit the O(workspaces × panels) scan: `anyAgentWorking()` only
+        // affects the decision when the screensaver is off and the setting is on,
+        // so users who never enable the feature pay nothing per tick.
+        let agentWorking = (!isActive && store.keepAwakeWhileAgentsActive) ? Self.anyAgentWorking() : false
+        let desired = Self.shouldKeepAwake(
+            screensaverActive: isActive,
+            keepAwakeSetting: store.keepAwakeWhileAgentsActive,
+            anyAgentWorking: agentWorking
+        )
+        if desired {
+            beginPowerAssertions()
+        } else {
+            endPowerAssertions()
+        }
+    }
+
+    /// Reconcile the instant the setting is toggled, so enabling the feature
+    /// while an agent is already working takes effect immediately rather than on
+    /// the next poll. Re-arms after each change (the Observation callback fires
+    /// once per tracked mutation).
+    private func observeKeepAwakeSetting() {
+        withObservationTracking {
+            _ = store.keepAwakeWhileAgentsActive
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                self.reconcilePowerAssertions()
+                self.observeKeepAwakeSetting()
+            }
+        }
+    }
+
+    private func startReconcileLoop() {
+        // Safety-net poll. Primary reconciliation is event-driven — on the
+        // setting toggle (observeKeepAwakeSetting) and on agent activity changes
+        // (Workspace.updatePanelShellActivityState) — but the timer catches
+        // anything those miss (e.g. a workspace closing). 5s latency is trivial
+        // vs. OS idle-sleep timers (minutes).
+        reconcileTimer?.invalidate()
+        let timer = Timer(timeInterval: reconcileInterval, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.reconcilePowerAssertions()
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        reconcileTimer = timer
     }
 
     // MARK: - Power assertions
