@@ -80,6 +80,7 @@ struct BrowserViewportRuntimeTests {
         window.contentView?.layoutSubtreeIfNeeded()
         window.displayIfNeeded()
         #expect(!viewportHost.autoresizesSubviews)
+        #expect(webView.autoresizingMask.isEmpty)
         #expect(webView.frame.size == NSSize(width: 1_280, height: 720))
         #expect(webView.bounds.size == NSSize(width: 1_280, height: 720))
         let postPortalLayoutMetrics = try await runtimeMetrics(in: webView)
