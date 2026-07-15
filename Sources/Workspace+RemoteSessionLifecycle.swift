@@ -32,6 +32,7 @@ extension Workspace {
         shouldStartController: Bool,
         finalCleanup: Bool
     ) async {
+        guard remoteSessionTransitionID == id else { return }
         let cleanupOwners = remoteSessionCleanupControllers
         var sameIdentityCleanupFailed = false
         for (controllerID, owner) in cleanupOwners {

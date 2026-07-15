@@ -428,13 +428,28 @@ extension RemoteSessionCoordinator {
                 persistentDaemonSlot: configuration.persistentDaemonSlot
             )
         }
-        return runRemoteRelayCleanupScriptLocked(script, cleanupScope: cleanupScope, relayPort: relayPort)
+        let missingMetadataFallbackScript: String?
+        if case .persistentSlot = cleanupScope, let daemonRemotePath {
+            missingMetadataFallbackScript = Self.remotePersistentDaemonStopScript(
+                daemonRemotePath: daemonRemotePath,
+                persistentDaemonSlot: configuration.persistentDaemonSlot
+            )
+        } else {
+            missingMetadataFallbackScript = nil
+        }
+        return runRemoteRelayCleanupScriptLocked(
+            script,
+            cleanupScope: cleanupScope,
+            relayPort: relayPort,
+            status64FallbackScript: missingMetadataFallbackScript
+        )
     }
 
     private func runRemoteRelayCleanupScriptLocked(
         _ script: String,
         cleanupScope: RemoteRelayCleanupScope,
-        relayPort: Int?
+        relayPort: Int?,
+        status64FallbackScript: String? = nil
     ) -> Bool {
         let command = "sh -c \(script.shellSingleQuoted)"
         do {
@@ -442,6 +457,17 @@ extension RemoteSessionCoordinator {
                 arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command],
                 timeout: 8
             )
+            if result.status == 64, let status64FallbackScript {
+                debugLog(
+                    "remote.relay.cleanup.fallback reason=metadata-ownership-unavailable " +
+                        "relayPort=\(relayPort.map(String.init) ?? "nil") \(debugConfigSummary())"
+                )
+                return runRemoteRelayCleanupScriptLocked(
+                    status64FallbackScript,
+                    cleanupScope: cleanupScope,
+                    relayPort: nil
+                )
+            }
             guard result.status == 0 else {
                 let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout)
                     ?? "ssh exited \(result.status)"
