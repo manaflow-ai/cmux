@@ -89,10 +89,16 @@ extension SimulatorControlService {
     private func restoreLocationLifecycle(deviceID: String, state: ActiveLocationRoute?) {
         guard let state else { return }
         activeLocationRoutes[deviceID] = state
-        guard case let .running(route, _) = state else { return }
+        guard case let .running(route, startedAt) = state else { return }
         let token = UUID()
         locationRouteTokens[deviceID] = token
-        scheduleLocationLifecycle(deviceID: deviceID, route: route, token: token)
+        let elapsed = max(0, now().timeIntervalSince(startedAt))
+        let duration = routeDuration(route).map { total in
+            route.loops && total > 0
+                ? max(0, total - elapsed.truncatingRemainder(dividingBy: total))
+                : max(0, total - elapsed)
+        }
+        scheduleLocationLifecycle(deviceID: deviceID, route: route, token: token, durationOverride: duration)
     }
 
     private func runLocationRouteCommand(
@@ -159,6 +165,10 @@ extension SimulatorControlService {
             _ = try await output(arguments: ["simctl", "location", deviceID, "clear"])
         } catch {
             finishLocationOperation(deviceID: deviceID, token: token)
+            restoreLocationLifecycle(
+                deviceID: deviceID,
+                state: .running(route: route, startedAt: startedAt)
+            )
             throw error
         }
         activeLocationRoutes.removeValue(forKey: deviceID)
@@ -363,11 +373,12 @@ extension SimulatorControlService {
     private func scheduleLocationLifecycle(
         deviceID: String,
         route: SimulatorLocationRoute,
-        token: UUID
+        token: UUID,
+        durationOverride: TimeInterval? = nil
     ) {
         cancelLocationLifecycle(deviceID: deviceID)
         guard locationRouteTokens[deviceID] == token,
-              let duration = routeDuration(route) else { return }
+              let duration = durationOverride ?? routeDuration(route) else { return }
         let routeSleep = routeSleep
         locationLifecycleTasks[deviceID] = Task { [weak self] in
             do {
