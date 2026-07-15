@@ -194,7 +194,10 @@ await handlers.get("agent.end")({ thread, message: "hello amp", id: "msg-user-1"
         if "amp_api_key=secret-should-not-propagate" in env_log:
             print(f"FAIL: plugin propagated AMP_API_KEY into hook subprocess, got {env_log!r}")
             return 1
-        argv_line = next((line for line in env_log.splitlines() if line.startswith("argv=")), "")
+        argv_line = next(
+            (line for line in env_log.splitlines() if line.startswith("argv=") and line != "argv="),
+            "",
+        )
         try:
             argv_value = argv_line[len("argv="):] if argv_line.startswith("argv=") else argv_line
             decoded_argv = [

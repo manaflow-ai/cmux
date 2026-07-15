@@ -112,13 +112,21 @@ class MockCmuxSocket:
                     return
 
     def _response(self, line: str) -> str:
+        if line.startswith("_cmux_capability_v1 "):
+            line = line.split(" ", 2)[-1]
         try:
             payload = json.loads(line)
         except json.JSONDecodeError:
             return "OK"
         request_id = payload["id"] if "id" in payload else "unknown"
         method = payload.get("method")
-        if method == "surface.list":
+        if method == "system.capabilities":
+            result = {
+                "runtime_id": "33333333-3333-3333-3333-333333333333",
+                "socket_path": str(self.path),
+                "bundle_identifier": "com.cmuxterm.test.campfire",
+            }
+        elif method == "surface.list":
             result = {
                 "surfaces": [
                     {
@@ -140,6 +148,8 @@ class MockCmuxSocket:
 def json_rpc_messages(messages: list[str], method: str) -> list[dict[str, object]]:
     matches: list[dict[str, object]] = []
     for line in messages:
+        if line.startswith("_cmux_capability_v1 "):
+            line = line.split(" ", 2)[-1]
         try:
             payload = json.loads(line)
         except json.JSONDecodeError:

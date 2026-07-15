@@ -124,7 +124,7 @@ function sendHook(
     event: eventName(subcommand),
     ...extra,
   };
-  const cmux = process.env.CMUX_AMP_CMUX_BIN || "cmux";
+  const cmux = process.env.CMUX_AMP_CMUX_BIN || process.env.CMUX_BUNDLED_CLI_PATH || "cmux";
   try {
     const child = spawn(cmux, ["hooks", "amp", subcommand], {
       env: hookEnvironment(cwd),
@@ -259,7 +259,7 @@ function statusEnvironment(): NodeJS.ProcessEnv {
 function runCmux(args: string[]): void {
   if (process.env.CMUX_AMP_HOOKS_DISABLED === "1") return;
   if (!process.env.CMUX_SURFACE_ID) return;
-  const cmux = process.env.CMUX_AMP_CMUX_BIN || "cmux";
+  const cmux = process.env.CMUX_AMP_CMUX_BIN || process.env.CMUX_BUNDLED_CLI_PATH || "cmux";
   try {
     const child = spawn(cmux, args, {
       env: statusEnvironment(),

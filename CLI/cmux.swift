@@ -28221,7 +28221,7 @@ function sendHook(subcommand, ctx, event, extra = {}) {
   };
   const context = extra.context || contextForSession(sessionId);
   if (context) payload.context = context;
-  const cmux = process.env.CMUX_OPENCODE_CMUX_BIN || "cmux";
+  const cmux = process.env.CMUX_OPENCODE_CMUX_BIN || process.env.CMUX_BUNDLED_CLI_PATH || "cmux";
   try {
     spawnSync(cmux, ["hooks", "opencode", subcommand], {
       input: JSON.stringify(payload),
