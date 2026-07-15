@@ -262,9 +262,13 @@ extension SimulatorPaneCoordinator {
     private func startOutgoingDelivery() {
         guard outgoingTask == nil else { return }
         let stream = outgoingStream
-        outgoingTask = Task { [client] in
+        outgoingTask = Task { @MainActor [weak self, client] in
             for await message in stream {
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled, let self else { return }
+                if case let .typeText(requestID, _) = message,
+                   self.cancelledTextInputRequestIDs.remove(requestID) != nil {
+                    continue
+                }
                 await client.send(message)
             }
         }
@@ -289,6 +293,7 @@ extension SimulatorPaneCoordinator {
         outgoingStream = stream
         outgoingContinuation = continuation
         outgoingOverflowed = false
+        cancelledTextInputRequestIDs.removeAll()
         startOutgoingDelivery()
     }
 

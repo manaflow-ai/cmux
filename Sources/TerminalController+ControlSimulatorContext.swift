@@ -20,10 +20,16 @@ extension TerminalController: ControlSimulatorContext {
             return .failed(failure)
         case let .panel(panel):
             let receipt = ControlSimulatorCompletionReceipt()
-            switch panel.coordinator.beginTypeText(text, completion: { succeeded in
+            let coordinator = panel.coordinator
+            switch coordinator.beginTypeText(text, completion: { succeeded in
                 receipt.complete(succeeded ? .succeeded : .failed)
             }) {
             case let .success(submission):
+                receipt.installCancellation { [weak coordinator] in
+                    Task { @MainActor in
+                        coordinator?.cancelTextInput(requestID: submission.requestIdentifier)
+                    }
+                }
                 return .started(
                     surfaceID: panel.id,
                     characterCount: submission.characterCount,

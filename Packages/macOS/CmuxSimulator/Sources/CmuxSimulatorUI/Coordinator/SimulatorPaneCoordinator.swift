@@ -111,6 +111,7 @@ public final class SimulatorPaneCoordinator {
     @ObservationIgnored var chromeTask: Task<Void, Never>?
     @ObservationIgnored var webInspectorResponseBuffer = SimulatorWebInspectorResponseBuffer()
     @ObservationIgnored var textInputCompletions: [UUID: @MainActor @Sendable (Bool) -> Void] = [:]
+    @ObservationIgnored var cancelledTextInputRequestIDs: Set<UUID> = []
     @ObservationIgnored var pendingWebInspectorResponses: [
         SimulatorWebInspectorJSONRequestID: SimulatorPendingWebInspectorResponse
     ] = [:]

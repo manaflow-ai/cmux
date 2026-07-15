@@ -403,7 +403,7 @@ extension SimulatorWorkerClient {
                 bundleIdentifier: bundleIdentifier
             ),
             timeout: service == .all ? .seconds(120) : .seconds(30),
-            timeoutRecovery: .preserveWorker
+            timeoutRecovery: .restartWorker
         ) { message in
             guard case let .privatePrivacy(responseID, succeeded) = message,
                   responseID == requestID else { return nil }

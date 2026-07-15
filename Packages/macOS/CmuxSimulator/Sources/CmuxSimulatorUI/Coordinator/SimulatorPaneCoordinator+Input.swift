@@ -42,9 +42,22 @@ extension SimulatorPaneCoordinator {
         }
         controlFailure = nil
         return .success(SimulatorTextInputSubmission(
+            requestIdentifier: requestID,
             characterCount: sequence.characterCount,
             completionTimeoutSeconds: sequence.completionTimeoutSeconds
         ))
+    }
+
+    /// Cancels accepted text before it can outlive its socket request deadline.
+    public func cancelTextInput(requestID: UUID) {
+        guard let completion = textInputCompletions.removeValue(forKey: requestID) else { return }
+        cancelledTextInputRequestIDs.insert(requestID)
+        let previousRecoveryTask = outgoingRecoveryTask
+        outgoingRecoveryTask = Task { @MainActor [client] in
+            _ = await previousRecoveryTask?.value
+            await client.invalidateWorker()
+            completion(false)
+        }
     }
 
     func failPendingTextInputCompletions() {
