@@ -520,6 +520,8 @@ struct WorkspaceForkConversationContextMenuTests {
         ompWrappedSnapshot.launchCommand?.executablePath = oldOmp.path
         ompWrappedSnapshot.launchCommand?.arguments = [oldOmp.path, "--session", "pi-session"]
         #expect(!(await AgentForkSupport.supportsFork(snapshot: ompWrappedSnapshot)))
+        ompWrappedSnapshot.launchCommand?.launcher = nil
+        #expect(!(await AgentForkSupport.supportsFork(snapshot: ompWrappedSnapshot)))
     }
 
     @Test

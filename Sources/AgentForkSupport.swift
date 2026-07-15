@@ -56,6 +56,8 @@ enum AgentForkSupport {
     private static let commandOutputTimeoutNanoseconds: Int64 = 3_000_000_000
     private static let commandTerminateTimeoutNanoseconds: Int64 = 500_000_000
     private static let openCodeVersionProbeCache = OpenCodeVersionProbeCache()
+    private static let piFamilyVersionProbeCache = AgentForkCapabilityProbeCache()
+    private static let piFamilyVersionProbeCacheTTL: TimeInterval = 30
 
     private final class CommandOutputBuffer: @unchecked Sendable {
         private let lock = NSLock()
@@ -311,9 +313,21 @@ enum AgentForkSupport {
             let capturedLauncher = snapshot.launchCommand?.launcher?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased()
-            let agentID = capturedLauncher == "omp"
-                ? "omp"
-                : (snapshot.registration?.id ?? snapshot.kind.rawValue)
+            let capturedExecutable = [
+                snapshot.launchCommand?.executablePath,
+                snapshot.launchCommand?.arguments.first,
+            ]
+                .compactMap { value in
+                    value.map { ($0 as NSString).lastPathComponent.lowercased() }
+                }
+                .first { $0 == "pi" || $0 == "omp" }
+            let capturedLauncherID = capturedLauncher.flatMap {
+                ["pi", "omp"].contains($0) ? $0 : nil
+            }
+            let agentID = capturedExecutable
+                ?? capturedLauncherID
+                ?? snapshot.registration?.id
+                ?? snapshot.kind.rawValue
             let probe = AgentResumeCommandBuilder.piFamilyVersionProbe(
                 launchCommand: snapshot.launchCommand,
                 fallbackExecutable: fallbackExecutable
@@ -323,7 +337,7 @@ enum AgentForkSupport {
                 snapshot: snapshot,
                 cacheDiscriminator: "pi-family-version",
                 probeFromDefaultDirectoryWhenWorkingDirectoryIsMissing: true,
-                cacheResults: false,
+                boundedCacheTTL: piFamilyVersionProbeCacheTTL,
                 outputSupportsFork: { output in
                     piFamilyVersionSupportsFork(output, agentID: agentID)
                 }
@@ -388,7 +402,7 @@ enum AgentForkSupport {
         snapshot: SessionRestorableAgentSnapshot,
         cacheDiscriminator: String,
         probeFromDefaultDirectoryWhenWorkingDirectoryIsMissing: Bool = false,
-        cacheResults: Bool = true,
+        boundedCacheTTL: TimeInterval? = nil,
         outputSupportsFork: @Sendable (String) -> Bool
     ) async -> Bool {
         let requestedWorkingDirectory = probeWorkingDirectory(snapshot: snapshot)
@@ -410,8 +424,12 @@ enum AgentForkSupport {
             workingDirectory: workingDirectory,
             discriminator: cacheDiscriminator
         )
-        if cacheResults,
-           let cached = await openCodeVersionProbeCache.value(for: cacheKey) {
+        let probeStartedAt = Date().timeIntervalSinceReferenceDate
+        if let boundedCacheTTL {
+            if let cached = await piFamilyVersionProbeCache.value(for: cacheKey, now: probeStartedAt) {
+                return cached
+            }
+        } else if let cached = await openCodeVersionProbeCache.value(for: cacheKey) {
             return cached
         }
         guard let output = await commandOutput(
@@ -423,7 +441,13 @@ enum AgentForkSupport {
             return false
         }
         let supportsFork = outputSupportsFork(output)
-        if cacheResults {
+        if let boundedCacheTTL {
+            await piFamilyVersionProbeCache.store(
+                supportsFork,
+                for: cacheKey,
+                expiresAt: probeStartedAt + boundedCacheTTL
+            )
+        } else {
             await openCodeVersionProbeCache.store(supportsFork, for: cacheKey)
         }
         return supportsFork
