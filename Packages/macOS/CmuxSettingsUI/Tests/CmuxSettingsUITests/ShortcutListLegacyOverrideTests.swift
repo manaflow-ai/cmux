@@ -165,7 +165,7 @@ import Testing
     }
 
     @Test func successfulEditRetiresSupersededLegacyOverride() async throws {
-        let action = ShortcutAction.nextSidebarTab
+        let action = ShortcutAction.showHideAllWindows
         let legacyShortcut = StoredShortcut(first: ShortcutStroke(key: "]", command: true, shift: true))
         let replacement = StoredShortcut(first: ShortcutStroke(
             key: "j",
