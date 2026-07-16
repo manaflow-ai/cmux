@@ -419,8 +419,9 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
         func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
             switch commandSelector {
             case #selector(NSResponder.insertNewline(_:)):
-                Task { @MainActor [controller] in await controller.copySelection() }
-                return true
+                // Enter types a newline and the card grows downward;
+                // ⌘↩ (the copy button's shortcut) submits.
+                return false
             case #selector(NSResponder.cancelOperation(_:)):
                 // Escape in the field follows the shared chain: reset the
                 // prompt first, exit Design Mode on a clean slate.
