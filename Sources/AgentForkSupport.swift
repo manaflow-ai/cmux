@@ -501,17 +501,18 @@ enum AgentForkSupport {
                 options: .regularExpression
             ) != nil
             if (acceptsBareVersionOutput && isBareVersionLine)
-                || piFamilyVersionLineMentionsAgent(lowercasedLine, agentID: normalizedAgentID) {
+                || piFamilyVersionLineBindsAgent(lowercasedLine, agentID: normalizedAgentID) {
                 candidates.append(version)
             }
         }
         return candidates.count == 1 ? candidates[0] : nil
     }
 
-    private static func piFamilyVersionLineMentionsAgent(_ line: String, agentID: String) -> Bool {
-        line
-            .split { !$0.isLetter && !$0.isNumber }
-            .contains { $0 == agentID }
+    private static func piFamilyVersionLineBindsAgent(_ line: String, agentID: String) -> Bool {
+        let escapedAgentID = NSRegularExpression.escapedPattern(for: agentID)
+        let pattern = #"(^|[^a-z0-9])"# + escapedAgentID
+            + #"([/\s:_-]+)v?\d+\.\d+(?:\.\d+)?($|[^a-z0-9])"#
+        return line.range(of: pattern, options: .regularExpression) != nil
     }
 
     static func openCodeVersionSupportsFork(_ output: String) -> Bool {

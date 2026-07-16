@@ -5563,6 +5563,11 @@ struct ContentView: View {
     ) -> String {
         let launchCommand = snapshot.launchCommand
         let launchArguments = launchCommand?.arguments.joined(separator: "\u{1f}") ?? ""
+        let launchEnvironment = launchCommand?.environment.map { environment in
+            environment.keys.sorted().map { key in
+                "\(key)=\(environment[key] ?? "")"
+            }.joined(separator: "\u{1f}")
+        } ?? ""
         let parts: [String] = [
             snapshot.kind.rawValue,
             snapshot.sessionId,
@@ -5571,6 +5576,7 @@ struct ContentView: View {
             launchCommand?.executablePath ?? "",
             launchArguments,
             launchCommand?.workingDirectory ?? "",
+            launchEnvironment,
             launchCommand?.source ?? "",
             snapshot.forkCommand ?? ""
         ]

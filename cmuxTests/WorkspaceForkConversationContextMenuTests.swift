@@ -450,12 +450,40 @@ struct WorkspaceForkConversationContextMenuTests {
         #expect(AgentForkSupport.piFamilyVersionSupportsFork("0.60.0", agentID: "pi", acceptsBareVersionOutput: true))
         #expect(!AgentForkSupport.piFamilyVersionSupportsFork("0.59.9", agentID: "pi", acceptsBareVersionOutput: true))
         #expect(AgentForkSupport.piFamilyVersionSupportsFork("pi 0.60.0", agentID: "pi"))
+        #expect(AgentForkSupport.piFamilyVersionSupportsFork("pi:v0.60.0", agentID: "pi"))
         #expect(AgentForkSupport.piFamilyVersionSupportsFork("omp/13.15.0", agentID: "omp"))
         #expect(!AgentForkSupport.piFamilyVersionSupportsFork("omp/13.14.2", agentID: "omp"))
         #expect(!AgentForkSupport.piFamilyVersionSupportsFork("v22.1.0", agentID: "pi"))
+        #expect(!AgentForkSupport.piFamilyVersionSupportsFork("warning: pi requires node v22.1.0\n0.59.9", agentID: "pi"))
         #expect(!AgentForkSupport.piFamilyVersionSupportsFork("node v22.1.0\npi 0.59.9", agentID: "pi"))
         #expect(!AgentForkSupport.piFamilyVersionSupportsFork("node v22.1.0\nomp/13.14.2", agentID: "omp"))
         #expect(!AgentForkSupport.piFamilyVersionSupportsFork("16.5.2", agentID: "unknown"))
+    }
+
+    @Test
+    func commandPaletteForkSnapshotFingerprintChangesWithLaunchEnvironment() {
+        let launchCommand = AgentLaunchCommandSnapshot(
+            launcher: "pi",
+            executablePath: "/usr/local/bin/pi",
+            arguments: ["/usr/local/bin/pi", "--session", "pi-session"],
+            workingDirectory: "/tmp/repo",
+            environment: ["PI_CONFIG_DIR": "supported"],
+            capturedAt: 123,
+            source: "process"
+        )
+        let first = SessionRestorableAgentSnapshot(
+            kind: .pi,
+            sessionId: "pi-session",
+            workingDirectory: "/tmp/repo",
+            launchCommand: launchCommand
+        )
+        var second = first
+        second.launchCommand?.environment = ["PI_CONFIG_DIR": "unsupported"]
+
+        #expect(
+            ContentView.commandPaletteForkSnapshotFingerprint(first)
+                != ContentView.commandPaletteForkSnapshotFingerprint(second)
+        )
     }
 
     @Test
@@ -776,8 +804,21 @@ struct WorkspaceForkConversationContextMenuTests {
         sharedPiSnapshot.launchCommand?.executablePath = sharedWrapper.path
         sharedPiSnapshot.launchCommand?.arguments = [sharedWrapper.path]
         #expect(await AgentForkSupport.supportsFork(snapshot: sharedPiSnapshot))
-        var sharedOmpSnapshot = sharedPiSnapshot
-        sharedOmpSnapshot.launchCommand?.launcher = "omp"
+        let sharedOmpSnapshot = SessionRestorableAgentSnapshot(
+            kind: .custom("omp"),
+            sessionId: "omp-wrapper-session",
+            workingDirectory: root.path,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "omp",
+                executablePath: sharedWrapper.path,
+                arguments: [sharedWrapper.path, "--session", "omp-wrapper-session"],
+                workingDirectory: root.path,
+                environment: nil,
+                capturedAt: 124,
+                source: "process"
+            ),
+            registration: .builtInOmp
+        )
         #expect(!(await AgentForkSupport.supportsFork(snapshot: sharedOmpSnapshot)))
 
         let ompThroughPiNamedWrapper = SessionRestorableAgentSnapshot(
@@ -798,7 +839,7 @@ struct WorkspaceForkConversationContextMenuTests {
         #expect(!(await AgentForkSupport.supportsFork(snapshot: ompThroughPiNamedWrapper)))
 
         let environmentWrapper = root.appendingPathComponent("environment-wrapper", isDirectory: false)
-        try "#!/bin/sh\nif [ \"$PI_CONFIG_DIR\" = \"supported\" ]; then printf '%s\\n' '0.80.6'; else printf '%s\\n' '0.59.0'; fi\n"
+        try "#!/bin/sh\nif [ \"$PI_CONFIG_DIR\" = \"supported\" ]; then printf '%s\\n' 'pi 0.80.6'; else printf '%s\\n' 'pi 0.59.0'; fi\n"
             .write(to: environmentWrapper, atomically: true, encoding: .utf8)
         try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: environmentWrapper.path)
         var supportedEnvironmentSnapshot = snapshot
