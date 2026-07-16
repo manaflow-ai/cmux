@@ -161,17 +161,30 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         let source = sourceIndexPath.row - chromePrefixCount
         let destination = destinationIndexPath.row - chromePrefixCount
         let movableItemCount = configuration.items.count - chromePrefixCount
+        // destination == movableItemCount is UIKit's past-the-end insertion
+        // slot (dropping below the last row); it maps to an end-of-list move.
         guard
             source >= 0,
             source < movableItemCount,
             destination >= 0,
-            destination < movableItemCount
+            destination <= movableItemCount
         else { return }
 
-        let swiftUIDestination = destination > source ? destination + 1 : destination
+        let swiftUIDestination = destination > source
+            ? min(destination + 1, movableItemCount)
+            : destination
         dropJustCompleted = true
         moveRows(IndexSet(integer: source), swiftUIDestination)
-        coordinator.drop(dropItem.dragItem, toRowAt: destinationIndexPath)
+        // The drop animation needs a valid row; clamp the past-the-end slot to
+        // the last row of the section.
+        let animationRow = min(
+            destinationIndexPath.row,
+            max(configuration.items.count - 1, 0)
+        )
+        coordinator.drop(
+            dropItem.dragItem,
+            toRowAt: IndexPath(row: animationRow, section: destinationIndexPath.section)
+        )
     }
 
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
