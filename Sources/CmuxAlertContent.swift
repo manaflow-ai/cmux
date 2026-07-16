@@ -62,10 +62,7 @@ struct CmuxAlertContent: Equatable, Sendable {
             )
             if summaryMeasurement.contentHeight > visibleFrame.height * Self.maximumFixedTextHeightFraction {
                 alert.informativeText = ""
-                alert.accessoryView = CmuxAlertScrollableDetailsView(
-                    text: flattenedText,
-                    visibleFrame: visibleFrame
-                )
+                alert.accessoryView = flattenedMeasurement
                 return
             }
             alert.informativeText = informativeText
