@@ -82,8 +82,13 @@ final class BrowserStreamContentView: UIView, UIScrollViewDelegate, UIGestureRec
         fatalError("init(coder:) is not supported")
     }
 
-    deinit {
-        displayLink?.invalidate()
+    // No deinit: the display-link proxy self-invalidates once its weak target
+    // (this view) deallocates, and `didMoveToWindow` pauses the link while the
+    // view is detached, so nonisolated deinit never has to touch CADisplayLink.
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        displayLink?.isPaused = window == nil
     }
 
     override func layoutSubviews() {
@@ -190,10 +195,12 @@ final class BrowserStreamContentView: UIView, UIScrollViewDelegate, UIGestureRec
     }
 
     private func startDisplayLink() {
+        let proxy = BrowserStreamDisplayLinkProxy(target: self)
         let link = CADisplayLink(
-            target: BrowserStreamDisplayLinkProxy(target: self),
+            target: proxy,
             selector: #selector(BrowserStreamDisplayLinkProxy.fire)
         )
+        proxy.link = link
         link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 120, preferred: 120)
         link.add(to: .main, forMode: .common)
         displayLink = link
