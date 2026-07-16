@@ -78,7 +78,8 @@ button { color: inherit; touch-action: manipulation; }
 
 .app-shell { display: grid; grid-template: minmax(0, 1fr) var(--tui-cell-height) / var(--tui-sidebar-width) minmax(0, 1fr); width: 100%; height: 100%; background: var(--terminal-background); }
 .mobile-toolbar, .drawer-backdrop, .extra-keys { display: none; }
-.sidebar, .mobile-toolbar, .tab-bar, .status-bar, .extra-keys { user-select: none; -webkit-user-select: none; }
+.sidebar, .mobile-toolbar, .tab-bar, .status-bar, .extra-keys,
+.pane-side, .pane-bottom, .pane-corner, .pane-rule { user-select: none; -webkit-user-select: none; }
 
 .sidebar { grid-area: 1 / 1; min-width: 0; border-right: 1px solid #3a3a3a; background: var(--terminal-background); }
 .sidebar header { display: flex; height: var(--tui-cell-height); align-items: center; padding: 0 0 0 var(--tui-cell-width); color: var(--sidebar-dim); text-transform: lowercase; }
@@ -130,7 +131,7 @@ button { color: inherit; touch-action: manipulation; }
 .pane-side { position: relative; display: block; width: var(--tui-cell-width); height: 100%; color: currentColor; }
 .pane-side::after { position: absolute; top: 0; bottom: 0; left: calc(50% - .5px); width: 1px; background: currentColor; content: ""; }
 .pane-content { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
-.terminal-stage { position: relative; width: 100%; height: 100%; min-width: 0; min-height: 0; padding: 0; background: var(--surface-background, var(--terminal-background)); overflow: hidden; }
+.terminal-stage { position: relative; width: 100%; height: 100%; min-width: 0; min-height: 0; padding: 0; background: var(--surface-background, var(--terminal-background)); overflow: hidden; user-select: none; -webkit-user-select: none; }
 .terminal-host { width: 100%; height: 100%; }
 .terminal-host .xterm { height: 100%; }
 .terminal-host.foreign-sized .xterm-screen::after { position: absolute; z-index: 10; inset: 0; border: 1px dashed var(--border-inactive); pointer-events: none; content: ""; }
@@ -139,7 +140,7 @@ button { color: inherit; touch-action: manipulation; }
 .render-scroll { position: absolute; inset: 0; overscroll-behavior: contain; scrollbar-color: var(--status-dim) transparent; }
 .render-scroll.live { overflow: hidden; }
 .render-scroll.history { overflow: auto; }
-.render-grid { position: relative; min-width: 100%; color: var(--terminal-foreground); user-select: text; -webkit-user-select: text; }
+.render-grid { position: relative; min-width: 0; color: var(--terminal-foreground); user-select: text; -webkit-user-select: text; }
 .render-row { position: absolute; left: 0; width: 100%; height: var(--render-cell-height); overflow: hidden; white-space: pre; user-select: text; -webkit-user-select: text; }
 .render-row::selection, .render-row *::selection { background: var(--selection-bg); }
 .render-run { display: inline-block; height: var(--render-cell-height); overflow: hidden; white-space: pre; vertical-align: top; }
