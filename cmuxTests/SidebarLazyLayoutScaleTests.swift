@@ -427,6 +427,53 @@ final class SidebarLazyLayoutScaleTests {
         )
     }
 
+    /// A value change owned by one workspace must not rebuild presentation
+    /// inputs for every workspace. Viewport virtualization alone is
+    /// insufficient: projecting all 300 inputs before the lazy boundary still
+    /// makes each notification update O(total workspaces) on the main actor.
+    @Test
+    @MainActor
+    func testSingleUnreadChangeProjectsOnlyTheChangedWorkspace() async throws {
+        let harness = try await Self.mountSidebar(workspaceCount: Self.workspaceCount)
+        defer { harness.tearDown() }
+
+        await Self.drainMainRunLoop(for: harness.window)
+        harness.counter.reset()
+
+        let target = try #require(harness.tabManager.tabs.first?.id)
+        harness.unread.apply(
+            totalUnreadCount: 1,
+            summaries: [
+                target: SidebarWorkspaceUnreadSummary(
+                    unreadCount: 1,
+                    latestNotificationText: "one changed workspace"
+                )
+            ],
+            unreadSurfaceKeys: [],
+            focusedReadIndicatorByWorkspaceId: [:],
+            manualUnreadWorkspaceIds: []
+        )
+
+        let refreshDeadline = ProcessInfo.processInfo.systemUptime + 3
+        while harness.counter.workspaceRowInputProjections == 0,
+              ProcessInfo.processInfo.systemUptime < refreshDeadline {
+            Self.turnMainRunLoopOnce(layingOut: harness.window)
+            await Task.yield()
+        }
+        await Self.drainMainRunLoop(for: harness.window)
+
+        let projections = harness.counter.workspaceRowInputProjections
+        #expect(projections > 0, "The unread change never reached the sidebar projection owner.")
+        #expect(
+            projections <= 4,
+            """
+            One workspace unread change projected \(projections) workspace inputs at a scale of \
+            \(Self.workspaceCount). Non-structural changes must be keyed to the changed workspace; \
+            rebuilding the full list makes high-frequency sidebar updates O(total workspaces).
+            """
+        )
+    }
+
 
     /// Harness self-test: prove the drain loop + body counter actually detect
     /// a layout feedback loop. This fixture reproduces the historical
