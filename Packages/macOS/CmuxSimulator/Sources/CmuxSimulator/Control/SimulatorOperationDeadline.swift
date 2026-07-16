@@ -34,7 +34,7 @@ public struct SimulatorOperationDeadlines: Sendable {
         inspectionRead: TimeInterval = 35,
         permissionMutation: TimeInterval = 70,
         permissionResetAll: TimeInterval = 190,
-        textInputReadiness: TimeInterval = 35,
+        textInputReadiness: TimeInterval? = nil,
         clientReceiptMargin: TimeInterval = 10
     ) {
         self.selectDevice = selectDevice
@@ -45,7 +45,7 @@ public struct SimulatorOperationDeadlines: Sendable {
         self.inspectionRead = inspectionRead
         self.permissionMutation = permissionMutation
         self.permissionResetAll = permissionResetAll
-        self.textInputReadiness = textInputReadiness
+        self.textInputReadiness = textInputReadiness ?? selectDevice
         self.clientReceiptMargin = clientReceiptMargin
     }
 

@@ -295,13 +295,14 @@ extension SimulatorPaneCoordinator {
     /// Selects one discovered device and waits for its attachment to finish.
     public func selectDeviceAndWait(id: String) async throws {
         let previousDeviceID = selectedDeviceID
+        let discoveryGeneration = selectionGeneration
         await reloadDevices()
         do {
             try Task.checkCancellation()
         } catch {
             restoreSelectionAfterCancellation(
                 previousDeviceID: previousDeviceID,
-                generation: selectionGeneration
+                generation: discoveryGeneration
             )
             throw CancellationError()
         }
@@ -408,7 +409,17 @@ extension SimulatorPaneCoordinator {
             )
         }
         let generation = selectionGeneration
-        try await awaitActivationTask(activationTask, generation: generation)
+        do {
+            try await awaitActivationTask(activationTask, generation: generation)
+        } catch is CancellationError {
+            if !closed,
+               self.selectedDeviceID == selectedDeviceID,
+               selectionGeneration == generation,
+               status == .streaming {
+                return
+            }
+            throw CancellationError()
+        }
         guard !closed, self.selectedDeviceID == selectedDeviceID else {
             throw CancellationError()
         }

@@ -122,6 +122,48 @@ struct SimulatorPaneCoordinatorCancellationTests {
         await coordinator.close()
     }
 
+    @Test("Discovery cancellation preserves a newer device selection")
+    func discoveryCancellationPreservesNewerSelection() async {
+        let previous = SimulatorDevice(
+            id: "previous",
+            name: "Previous iPhone",
+            runtimeIdentifier: "runtime",
+            runtimeName: "iOS 26.5",
+            deviceTypeIdentifier: "phone-type",
+            family: .iPhone,
+            state: .booted,
+            isAvailable: true,
+            lastBootedAt: nil
+        )
+        let newer = SimulatorDevice(
+            id: "newer",
+            name: "Newer iPad",
+            runtimeIdentifier: "runtime",
+            runtimeName: "iOS 26.5",
+            deviceTypeIdentifier: "pad-type",
+            family: .iPad,
+            state: .booted,
+            isAvailable: true,
+            lastBootedAt: nil
+        )
+        let client = CancellableDiscoveryPaneClient(device: newer)
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        coordinator.devices = [previous, newer]
+        coordinator.selectedDeviceID = previous.id
+        coordinator.status = .streaming
+
+        let staleSelection = Task { @MainActor in
+            try await coordinator.selectDeviceAndWait(id: previous.id)
+        }
+        await client.waitForFirstDiscovery()
+        coordinator.selectDevice(id: newer.id)
+        staleSelection.cancel()
+        _ = await staleSelection.result
+
+        #expect(coordinator.selectedDeviceID == newer.id)
+        await coordinator.close()
+    }
+
     private func waitForActivation(
         _ deviceID: String,
         client: SimulatorPaneClientSpy
