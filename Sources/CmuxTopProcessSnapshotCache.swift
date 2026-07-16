@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private nonisolated struct CmuxTopProcessSnapshotCacheState {
+private struct CmuxTopProcessSnapshotCacheState {
     var snapshot: CmuxTopProcessSnapshot?
     var includeProcessDetails = false
     var includeCMUXScope = true
