@@ -86,7 +86,9 @@ struct AgentHookSessionLineageResolver: Sendable {
 
         let identity = pid.flatMap(processIdentity)
         let cmuxRuntime = AgentCmuxRuntimeIdentity(environment: environment)
-        let ancestorResolution = identity.map { agentAncestor(startingAt: $0.parentPID) } ?? .unknown
+        let ancestorResolution = identity.map {
+            agentAncestor(startingAt: $0.parentPID, descendant: $0, agentName: agentName)
+        } ?? .unknown
         let ancestor = ancestorResolution.identity
         let runId = explicitRunId
             ?? identity.map(Self.runId)
@@ -138,8 +140,13 @@ struct AgentHookSessionLineageResolver: Sendable {
         }
     }
 
-    private func agentAncestor(startingAt parentPID: Int) -> AgentAncestorResolution {
+    private func agentAncestor(
+        startingAt parentPID: Int,
+        descendant initialDescendant: AgentProcessIdentity,
+        agentName: String
+    ) -> AgentAncestorResolution {
         var candidate = parentPID
+        var descendant = initialDescendant
         var visited: Set<Int> = []
         var remaining = maximumAncestorDepth
         while candidate > 1, remaining > 0, visited.insert(candidate).inserted {
@@ -151,6 +158,18 @@ struct AgentHookSessionLineageResolver: Sendable {
                 processName: identity.executableName,
                 arguments: identity.arguments
             ) {
+                if AgentLaunchCaptureTrust.nativeProcessIsSameAgentLauncherRelay(
+                    parentProcessName: identity.executableName,
+                    parentArguments: identity.arguments,
+                    childProcessName: descendant.executableName,
+                    childArguments: descendant.arguments,
+                    kind: agentName
+                ) {
+                    descendant = identity
+                    candidate = identity.parentPID
+                    remaining -= 1
+                    continue
+                }
                 return .found(identity)
             }
             if AgentLaunchCaptureTrust.nativeProcessIsAmbiguousInterpreterHost(

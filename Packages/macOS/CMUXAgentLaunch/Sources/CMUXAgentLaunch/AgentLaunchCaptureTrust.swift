@@ -120,6 +120,45 @@ public enum AgentLaunchCaptureTrust {
         }
     }
 
+    /// True when `parent` is a thin interpreter launcher that immediately
+    /// relays into the real process for the same agent. Package-manager shims
+    /// commonly use `node <agent>` and then either exec a native binary or
+    /// re-exec Node with runtime options. That relay is one launch, not a
+    /// parent agent session.
+    public static func nativeProcessIsSameAgentLauncherRelay(
+        parentProcessName: String?,
+        parentArguments: [String],
+        childProcessName: String?,
+        childArguments: [String],
+        kind: String
+    ) -> Bool {
+        guard parentArguments.count == 2,
+              let parentExecutable = processBasename(parentArguments.first),
+              isInterpreterHost(parentExecutable),
+              nativeProcessDescribesKind(
+                  processName: parentProcessName,
+                  arguments: parentArguments,
+                  kind: kind
+              ),
+              nativeProcessDescribesKind(
+                  processName: childProcessName,
+                  arguments: childArguments,
+                  kind: kind
+              ) else {
+            return false
+        }
+
+        let entrypoint = parentArguments[1]
+        let childHosts = Set([
+            processBasename(childProcessName),
+            processBasename(childArguments.first),
+        ].compactMap { $0 })
+        if !childHosts.contains(where: isInterpreterHost) {
+            return true
+        }
+        return childArguments.dropFirst().contains(entrypoint)
+    }
+
     /// True when a process is running a script but its argv cannot identify a
     /// supported agent. Lineage callers treat this as uncertain ownership and
     /// fail closed, preventing future interpreter-hosted child agents from
