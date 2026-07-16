@@ -931,6 +931,8 @@
           "globalFontMagnification": "Skaliert cmux-eigene Terminals, Tab-Titel, Seitenleisten, Einstellungen, Overlays und App-Chrome um diesen Prozentsatz. Gerenderte Browserseiteninhalte sind ausgeschlossen."
         },
         "terminal": {
+          "sessionContentMaxWidth": "Optional maximum width, in points, for terminal and built-in agent chat content. Set false to use the full pane width.",
+          "sessionContentAlignment": "Horizontal placement for terminal and built-in agent chat content when sessionContentMaxWidth is enabled.",
           "copyOnSelect": "Bei true wird ausgewählter Terminaltext in die Systemzwischenablage kopiert, sobald die Auswahl bestätigt wird. Bei false gibt cmux keine Ghostty-copy-on-select-Überschreibung aus; Ghostty-Konfiguration und Standardwerte steuern das Verhalten der Auswahlzwischenablage.",
           "scrollSpeed": "Multiplikator für die Scroll-Werte von Mausrad und Trackpad im Terminal. Höhere Werte scrollen schneller, niedrigere Werte langsamer.",
           "showTextBoxOnNewTerminals": "Zeigt die Beta-TextBox-Eingabe standardmaessig fuer neu erstellte Workspaces, Terminal-Tabs und Terminal-Splits an.",

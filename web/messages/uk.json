@@ -931,6 +931,8 @@
           "globalFontMagnification": "Масштабує на цей відсоток термінали, заголовки вкладок, бічні панелі, налаштування, накладки та chrome застосунку, що належать cmux. Відрендерений вміст сторінок браузера не включено."
         },
         "terminal": {
+          "sessionContentMaxWidth": "Optional maximum width, in points, for terminal and built-in agent chat content. Set false to use the full pane width.",
+          "sessionContentAlignment": "Horizontal placement for terminal and built-in agent chat content when sessionContentMaxWidth is enabled.",
           "copyOnSelect": "Якщо значення true, вибраний текст термінала копіюється до системного буфера обміну після підтвердження виділення. Якщо значення false, cmux не виводить перевизначення Ghostty copy-on-select; конфігурація та стандартні значення Ghostty керують поведінкою буфера виділення.",
           "scrollSpeed": "Множник, що застосовується до величини прокручування коліщатком миші та трекпадом у терміналі. Вищі значення прокручують швидше, нижчі — повільніше.",
           "showTextBoxOnNewTerminals": "Типово показує бета-ввід TextBox для новостворених робочих просторів, вкладок термінала й розділень.",

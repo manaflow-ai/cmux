@@ -931,6 +931,8 @@
           "globalFontMagnification": "Ridimensiona di questa percentuale terminali, titoli delle schede, barre laterali, impostazioni, overlay e chrome dell'app gestiti da cmux. Il contenuto renderizzato delle pagine del browser è escluso."
         },
         "terminal": {
+          "sessionContentMaxWidth": "Optional maximum width, in points, for terminal and built-in agent chat content. Set false to use the full pane width.",
+          "sessionContentAlignment": "Horizontal placement for terminal and built-in agent chat content when sessionContentMaxWidth is enabled.",
           "copyOnSelect": "Quando è true, il testo selezionato nel terminale viene copiato negli appunti di sistema quando la selezione viene confermata. Quando è false, cmux non emette un override Ghostty copy-on-select; configurazione e valori predefiniti di Ghostty controllano il comportamento degli appunti di selezione.",
           "scrollSpeed": "Moltiplicatore applicato agli spostamenti della rotellina di scorrimento e del trackpad nel terminale. Valori più alti scorrono più velocemente, valori più bassi più lentamente.",
           "showTextBoxOnNewTerminals": "Mostra l'input TextBox beta per impostazione predefinita nei workspace, nelle schede e nelle divisioni del terminale appena creati.",
