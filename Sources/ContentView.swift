@@ -9892,7 +9892,7 @@ struct VerticalTabsSidebar: View {
     @State var modifierKeyMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @State var pointerInteractionMonitor = SidebarPointerInteractionMonitor()
     @StateObject var dragAutoScrollController = SidebarDragAutoScrollController()
-    @StateObject private var dragFailsafeMonitor = SidebarDragFailsafeMonitor()
+    @State private var dragFailsafeMonitor = SidebarDragFailsafeMonitor()
     @StateObject private var tabItemSettingsStore = SidebarTabItemSettingsStore(
         initialSidebarFontSize: GhosttyConfig.load().sidebarFontSize
     )
@@ -12980,7 +12980,7 @@ struct SidebarWorkspaceRowFramePreferenceKey: PreferenceKey {
 }
 
 @MainActor
-private final class SidebarDragFailsafeMonitor: ObservableObject {
+private final class SidebarDragFailsafeMonitor {
     private static let escapeKeyCode: UInt16 = 53
     // One-shot timer bridges synchronous AppKit event monitors to a cancellable drag-teardown deadline.
     private var pendingClearTimer: DispatchSourceTimer?
