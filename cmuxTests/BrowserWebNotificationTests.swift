@@ -396,6 +396,86 @@ struct BrowserWebNotificationTests {
         #expect(oldHandlerStillCallable == false)
     }
 
+    @Test func fallbackHandlerRejectsDirectPostsWithoutStoredPermission() async throws {
+        let setting = SettingCatalog().browser.forwardWebNotifications
+        let defaults = UserDefaults.standard
+        let previousSetting = defaults.object(forKey: setting.userDefaultsKey)
+        let profileID = BrowserProfileRepository.builtInDefaultProfileID
+        let origin = try #require(URL(string: "https://example.com"))
+        let repository = BrowserProfileStore.shared.notificationPermissions
+        let previousDecision = repository.decision(for: origin, profileID: profileID)
+        BrowserWebNotificationNativeAdapter.shared.forceForegroundFallbackForTesting = true
+        defer {
+            BrowserWebNotificationNativeAdapter.shared.forceForegroundFallbackForTesting = false
+            repository.setDecision(previousDecision, for: origin, profileID: profileID)
+            if let previousSetting { defaults.set(previousSetting, forKey: setting.userDefaultsKey) }
+            else { defaults.removeObject(forKey: setting.userDefaultsKey) }
+        }
+
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            profileID: profileID,
+            renderInitialNavigation: false
+        )
+        defer { panel.close() }
+        setting.set(true, in: defaults)
+        repository.setDecision(.denied, for: origin, profileID: profileID)
+        panel.replaceWebViewPreservingState(
+            from: panel.webView,
+            websiteDataStore: panel.webView.configuration.websiteDataStore,
+            reason: "test_web_notification_permission_gate"
+        )
+
+        var deliveredTitle: String?
+        panel.deliverWebNotification = { _, _, title, _, _ in deliveredTitle = title }
+        let webView = panel.webView
+        let loadProbe = BrowserWebNotificationLoadProbe()
+        webView.navigationDelegate = loadProbe
+        defer { webView.navigationDelegate = nil }
+        try await loadProbe.load(
+            "<!doctype html><html><body>fallback permission probe</body></html>",
+            in: webView,
+            baseURL: origin
+        )
+        let token = try #require(panel.webNotificationBridgeToken?.javaScriptStringLiteral)
+
+        do {
+            _ = try await webView.callAsyncJavaScript(
+                """
+                return await window.webkit.messageHandlers.\(BrowserWebNotificationMessageHandler.name).postMessage({
+                      type: "notification",
+                      token: \(token),
+                      title: "Denied replay",
+                      body: "Must not forward"
+                    });
+                """,
+                arguments: [:],
+                in: nil,
+                contentWorld: .page
+            )
+        } catch {
+            // A native permission rejection is the expected result.
+        }
+        #expect(deliveredTitle == nil)
+
+        repository.setDecision(.allowed, for: origin, profileID: profileID)
+        let reply = try await webView.callAsyncJavaScript(
+            """
+            return await window.webkit.messageHandlers.\(BrowserWebNotificationMessageHandler.name).postMessage({
+                  type: "notification",
+                  token: \(token),
+                  title: "Allowed replay",
+                  body: "Forward this"
+                });
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        ) as? String
+        #expect(reply == "ok")
+        #expect(deliveredTitle == "Allowed replay")
+    }
+
     @Test func backgroundWebsiteNotificationsUseTheGlobalSessionTarget() throws {
         let store = TerminalNotificationStore.shared
         store.replaceNotificationsForTesting([])
