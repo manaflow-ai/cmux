@@ -345,6 +345,19 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
         }
     }
 
+    @Test func titledSplitFailsClosedBeforeRemoteTmuxMutation() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let surfaceID = try activeSurfaceID(in: harness)
+
+        let result = TerminalController.shared.controlSurfaceSplit(
+            routing: harness.routing(),
+            inputs: splitInputs(surfaceID: surfaceID, title: "sub: runtime-semantics")
+        )
+
+        #expect(result == .mirrorUnsupportedOptions(["title"]))
+    }
+
     private func activeSurfaceID(in harness: Harness) throws -> UUID {
         let paneID = try #require(harness.mirror.activePaneId)
         return try #require(harness.mirror.panel(forPane: paneID)?.id)
@@ -362,7 +375,7 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
         )
     }
 
-    private func splitInputs(surfaceID: UUID) -> ControlSurfaceSplitInputs {
+    private func splitInputs(surfaceID: UUID, title: String? = nil) -> ControlSurfaceSplitInputs {
         ControlSurfaceSplitInputs(
             directionRaw: "right",
             typeRaw: nil,
@@ -372,6 +385,7 @@ extension RemoteTmuxMirrorCLIObservabilityTests {
             initialCommand: nil,
             tmuxStartCommand: nil,
             remotePTYSessionID: nil,
+            title: title,
             remoteContextRaw: nil,
             startupEnvironment: [:],
             clientUnsupportedRemoteTmuxOptions: [],

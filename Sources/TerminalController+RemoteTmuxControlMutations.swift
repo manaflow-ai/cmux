@@ -14,7 +14,8 @@ extension TerminalController {
         tmuxStartCommand: String?,
         startupEnvironment: [String: String],
         initialDividerPosition: Double? = nil,
-        remotePTYSessionID: String? = nil
+        remotePTYSessionID: String? = nil,
+        title: String? = nil
     ) -> [String] {
         var unsupported: [String] = []
         if insertFirst { unsupported.append("direction=left/up") }
@@ -24,6 +25,7 @@ extension TerminalController {
         if !startupEnvironment.isEmpty { unsupported.append("startup_environment") }
         if initialDividerPosition != nil { unsupported.append("initial_divider_position") }
         if remotePTYSessionID != nil { unsupported.append("remote_pty_session_id") }
+        if title != nil { unsupported.append("title") }
         return unsupported
     }
 
@@ -125,7 +127,8 @@ extension TerminalController {
             tmuxStartCommand: inputs.tmuxStartCommand,
             startupEnvironment: inputs.startupEnvironment,
             initialDividerPosition: inputs.initialDividerPosition,
-            remotePTYSessionID: inputs.remotePTYSessionID
+            remotePTYSessionID: inputs.remotePTYSessionID,
+            title: inputs.title
         ) + inputs.clientUnsupportedRemoteTmuxOptions
         guard unsupported.isEmpty else { return .mirrorUnsupportedOptions(unsupported) }
         guard location.requestSplit(vertical: direction.orientation == .vertical) else {

@@ -21023,6 +21023,7 @@ struct CMUXCLI {
                 "surface_id": targetSurfaceId,
                 "direction": direction,
                 "focus": false,
+                "title": CMUXCLI.codexTeamsTitle(thread: thread, spawn: spawn, depth: depth),
                 "initial_command": startupScript,
                 "tmux_start_command": commandText,
                 "startup_environment": [
@@ -21049,16 +21050,6 @@ struct CMUXCLI {
             }
             lastAgentSurfaceId = surfaceId
 
-            do {
-                _ = try socketClient.sendV2(method: "tab.action", params: [
-                    "workspace_id": workspaceId,
-                    "surface_id": surfaceId,
-                    "action": "rename",
-                    "title": CMUXCLI.codexTeamsTitle(thread: thread, spawn: spawn, depth: depth)
-                ])
-            } catch {
-                // The subagent pane already exists, so a rename failure should not stop watching.
-            }
             do {
                 _ = try socketClient.sendV2(method: "workspace.equalize_splits", params: [
                     "workspace_id": workspaceId,
@@ -21264,7 +21255,11 @@ struct CMUXCLI {
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .first { !$0.isEmpty }
             ?? String(thread.id.prefix(8))
-        return "Codex d\(depth): \(label)"
+        return codexTeamsPaneTitle(label: label, depth: depth)
+    }
+
+    static func codexTeamsPaneTitle(label: String, depth: Int) -> String {
+        "sub: d\(depth) \(label)"
     }
 
     private func runCodexTeams(
