@@ -241,6 +241,21 @@ describe("TerminalPane foreign-size indicator", () => {
 });
 
 describe("TerminalPane renderer selection", () => {
+  it("renders TUI cell chrome while keeping tabs as DOM buttons", () => {
+    const props = terminalPaneProps(vi.fn(async () => true));
+    props.client = { protocol: 7 } as CmuxClient;
+
+    const { container, getByRole } = render(<TerminalPane {...props} screen={terminalScreenView()} />);
+
+    expect(getByRole("button", { name: "1" })).toHaveClass("active");
+    expect(container.querySelector(".tab-rail")).toHaveTextContent("▎");
+    expect(container.querySelector(".tab-bar")?.textContent).toContain("┌");
+    expect(container.querySelector(".tab-bar")?.textContent).toContain("┐");
+    expect(container.querySelectorAll(".pane-side")).toHaveLength(2);
+    expect(container.querySelector(".pane-bottom")?.textContent).toBe("└┘");
+    expect(container.querySelector(".render-terminal-host")).toBeInTheDocument();
+  });
+
   it("uses render mode only for the identified protocol 7 client", () => {
     const props = terminalPaneProps(vi.fn(async () => true));
     props.client = { protocol: 7 } as CmuxClient;

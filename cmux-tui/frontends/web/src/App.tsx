@@ -90,13 +90,10 @@ export default function App() {
       <StatusBar
         workspace={activeWorkspace}
         session={connection.info?.session ?? null}
-        clients={connection.clients}
         onSelectScreen={connection.selectScreen}
         onNewScreen={connection.mutations.newScreen}
         onCloseScreen={connection.mutations.closeScreen}
         onRenameScreen={connection.mutations.renameScreen}
-        onRefreshClients={connection.refreshClients}
-        onDetachClient={connection.mutations.detachClient}
       />
       <Toasts toasts={connection.toasts} onDismiss={connection.dismissToast} />
     </main>

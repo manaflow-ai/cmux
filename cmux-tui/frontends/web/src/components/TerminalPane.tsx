@@ -43,7 +43,9 @@ function TabButton({ tab, index, pane, onSelect, onNewTab, onClose, onRename }: 
   const [menu, dispatchMenu] = useReducer(contextMenuReducer, { open: false });
   const [rename, dispatchRename] = useReducer(renameReducer, null);
   const trigger = useContextTrigger((point) => dispatchMenu({ type: "open", point }));
-  const label = tab.name || tab.title || t("tab", { number: index + 1 });
+  const titleWords = tab.title.toLowerCase().split(/[^a-z0-9_-]+/);
+  const agent = ["claude", "codex", "opencode", "pi"].find((candidate) => titleWords.includes(candidate));
+  const label = tab.name || `${index + 1}${agent ? ` ${agent}` : ""}`;
   const commit = () => {
     if (!renameCanCommit(rename)) return;
     onRename(tab.surface, rename.value.trim());
@@ -61,7 +63,8 @@ function TabButton({ tab, index, pane, onSelect, onNewTab, onClose, onRename }: 
         />
       ) : (
         <button className={pane.active_tab === index ? "active" : ""} onClick={onSelect} type="button">
-          <span aria-hidden="true">●</span>{label}
+          <span className="tab-rail" aria-hidden="true">{pane.active_tab === index ? "▎" : " "}</span>
+          <span className="tab-label">{label}</span>
         </button>
       )}
       {menu.open && (
@@ -142,6 +145,7 @@ function PaneLeaf({
       }}
     >
       <div className="tab-bar">
+        <span className="pane-corner" aria-hidden="true">┌</span>
         {rename?.kind === "pane" && rename.id === paneId && (
           <InlineRename
             value={rename.value}
@@ -162,31 +166,44 @@ function PaneLeaf({
             onRename={onRenameSurface}
           />
         ))}
-        <button className="new-tab" aria-label={t("newTab")} onClick={() => onNewTab(paneId)} type="button">+</button>
+        <button className="new-tab" aria-label={t("newTab")} onClick={() => onNewTab(paneId)} type="button"> + </button>
+        <span className="pane-rule" aria-hidden="true" />
+        <span className="pane-corner" aria-hidden="true">┐</span>
       </div>
-      {surface !== null && client !== null && (client.protocol ?? 0) >= 7 ? (
-        <RenderTerminal
-          client={client}
-          clients={clients}
-          surface={surface}
-          error={terminalError}
-          onError={reportError}
-        />
-      ) : surface !== null ? (
-        <ByteTerminal
-          client={client}
-          clients={clients}
-          surface={surface}
-          error={terminalError}
-          onError={reportError}
-        />
-      ) : (
-        <div className="terminal-stage">
-          {!tab && <div className="terminal-empty">{t("noSurface")}</div>}
-          {tab?.kind === "browser" && <div className="terminal-empty">{t("browserSurface")}</div>}
-          {terminalError && <div className="terminal-error" role="alert">{terminalError}</div>}
+      <div className="pane-body">
+        <span className="pane-side" aria-hidden="true" />
+        <div className="pane-content">
+          {surface !== null && client !== null && (client.protocol ?? 0) >= 7 ? (
+            <RenderTerminal
+              client={client}
+              clients={clients}
+              surface={surface}
+              error={terminalError}
+              onError={reportError}
+            />
+          ) : surface !== null ? (
+            <ByteTerminal
+              client={client}
+              clients={clients}
+              surface={surface}
+              error={terminalError}
+              onError={reportError}
+            />
+          ) : (
+            <div className="terminal-stage">
+              {!tab && <div className="terminal-empty">{t("noSurface")}</div>}
+              {tab?.kind === "browser" && <div className="terminal-empty">{t("browserSurface")}</div>}
+              {terminalError && <div className="terminal-error" role="alert">{terminalError}</div>}
+            </div>
+          )}
         </div>
-      )}
+        <span className="pane-side" aria-hidden="true" />
+      </div>
+      <div className="pane-bottom" aria-hidden="true">
+        <span className="pane-corner">└</span>
+        <span className="pane-rule" />
+        <span className="pane-corner">┘</span>
+      </div>
       {menu.open && (
         <ContextMenu
           point={menu.point}
