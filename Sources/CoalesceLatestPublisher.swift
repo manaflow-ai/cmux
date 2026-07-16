@@ -30,9 +30,15 @@ extension Publisher where Failure == Never {
     ///   is emitted when the window closes (on `scheduler`), which opens the
     ///   next window.
     ///
+    /// Downstream demand is honored: a value reaching an emission point while
+    /// the downstream has zero outstanding demand is conflated into a
+    /// latest-value slot and delivered from `request(_:)` when demand
+    /// arrives. Demand-driven subscribers such as `AsyncPublisher`
+    /// (`.values`) request one value at a time; forwarding past zero demand
+    /// trips Combine's "received an unexpected value" trap, which crashes in
+    /// every build configuration.
+    ///
     /// Not thread-safe: intended for main-thread streams with `RunLoop.main`.
-    /// Downstream demand is honored, including one-at-a-time demand from
-    /// `AsyncPublisher` iterators.
     func coalesceLatest<Context: Scheduler>(
         for interval: Context.SchedulerTimeType.Stride,
         scheduler: Context
@@ -72,11 +78,13 @@ private final class CoalesceLatestInner<Downstream: Subscriber, Context: Schedul
     private var hasReceivedReplay = false
     private var windowStart: Context.SchedulerTimeType?
     private var pendingValue: Input?
-    private var pendingDemandValue: Input?
-    private var pendingCompletion: Subscribers.Completion<Never>?
-    private var downstreamDemand: Subscribers.Demand = .none
     private var trailingScheduled = false
     private var isCancelled = false
+    private var demand: Subscribers.Demand = .none
+    /// Latest value that reached an emission point while downstream demand
+    /// was zero; conflated (newer emissions overwrite it) and delivered from
+    /// `request(_:)` when demand arrives.
+    private var undeliveredValue: Input?
 
     init(downstream: Downstream, interval: Context.SchedulerTimeType.Stride, scheduler: Context) {
         self.downstream = downstream
@@ -94,7 +102,7 @@ private final class CoalesceLatestInner<Downstream: Subscriber, Context: Schedul
         guard !isCancelled else { return .none }
         if !hasReceivedReplay {
             hasReceivedReplay = true
-            forward(input)
+            deliver(input)
             return .none
         }
         let now = scheduler.now
@@ -108,7 +116,7 @@ private final class CoalesceLatestInner<Downstream: Subscriber, Context: Schedul
             // callback cannot emit it out of order after this value.
             pendingValue = nil
             windowStart = now
-            forward(input)
+            deliver(input)
         }
         return .none
     }
@@ -117,14 +125,9 @@ private final class CoalesceLatestInner<Downstream: Subscriber, Context: Schedul
         guard !isCancelled else { return }
         if let value = pendingValue {
             pendingValue = nil
-            forward(value)
+            deliver(value)
         }
-        if pendingDemandValue == nil {
-            isCancelled = true
-            downstream.receive(completion: completion)
-        } else {
-            pendingCompletion = completion
-        }
+        downstream.receive(completion: completion)
     }
 
     private func scheduleTrailingEmission(at deadline: Context.SchedulerTimeType) {
@@ -150,43 +153,34 @@ private final class CoalesceLatestInner<Downstream: Subscriber, Context: Schedul
         }
         pendingValue = nil
         windowStart = scheduler.now
-        forward(value)
+        deliver(value)
     }
 
-    func request(_ demand: Subscribers.Demand) {
-        guard !isCancelled, demand > .none else { return }
-        downstreamDemand += demand
-        guard let value = pendingDemandValue else { return }
-        pendingDemandValue = nil
-        forward(value)
-
-        if pendingDemandValue == nil, let completion = pendingCompletion {
-            pendingCompletion = nil
-            isCancelled = true
-            downstream.receive(completion: completion)
+    /// Hands a value to the downstream only when it has outstanding demand;
+    /// otherwise conflates it into the latest-value slot for `request(_:)`.
+    private func deliver(_ value: Input) {
+        guard demand > .none else {
+            undeliveredValue = value
+            return
         }
+        demand -= 1
+        demand += downstream.receive(value)
+    }
+
+    func request(_ additionalDemand: Subscribers.Demand) {
+        guard !isCancelled else { return }
+        demand += additionalDemand
+        guard demand > .none, let value = undeliveredValue else { return }
+        undeliveredValue = nil
+        demand -= 1
+        demand += downstream.receive(value)
     }
 
     func cancel() {
         isCancelled = true
         pendingValue = nil
-        pendingDemandValue = nil
-        pendingCompletion = nil
+        undeliveredValue = nil
         upstreamSubscription?.cancel()
         upstreamSubscription = nil
-    }
-
-    private func forward(_ value: Input) {
-        guard downstreamDemand > .none else {
-            // Coalescing promises the latest value, so replacing an
-            // undeliverable value preserves the operator's contract while
-            // applying backpressure.
-            pendingDemandValue = value
-            return
-        }
-        if downstreamDemand != .unlimited {
-            downstreamDemand -= 1
-        }
-        downstreamDemand += downstream.receive(value)
     }
 }
