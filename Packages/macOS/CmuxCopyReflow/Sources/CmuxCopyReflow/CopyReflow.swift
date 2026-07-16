@@ -332,26 +332,38 @@ private extension ReflowOptions {
         ch == " " || ch == "\t" || ch == "\u{00A0}"
     }
 
-    /// Normalize a non-fence prose line: keep its leading indent (real spaces/tabs,
-    /// for list nesting), then collapse every run of space-like characters in the
-    /// remainder to a single normal space, dropping leading and trailing padding.
-    /// This turns seam padding (space or non-breaking-space runs) into clean prose.
+    /// Normalize a non-fence prose line: keep its leading indent and intentional
+    /// ordinary spaces/tabs, collapse padding runs containing non-breaking spaces
+    /// to one normal space, and drop trailing padding.
     func cleanProseWhitespace(_ s: Substring) -> String {
         // Leading indent is real spaces/tabs only; U+00A0 is never meaningful indent.
         var idx = s.startIndex
         while idx < s.endIndex, s[idx] == " " || s[idx] == "\t" { idx = s.index(after: idx) }
         var out = String(s[s.startIndex..<idx])
-        var pendingSpace = false
+        var pendingWhitespaceStart: Substring.Index?
+        var pendingContainsNonBreakingSpace = false
         var hasContent = false
-        for ch in s[idx...] {
+        var cursor = idx
+        while cursor < s.endIndex {
+            let ch = s[cursor]
             if isSpaceLike(ch) {
-                pendingSpace = true
+                pendingWhitespaceStart = pendingWhitespaceStart ?? cursor
+                pendingContainsNonBreakingSpace = pendingContainsNonBreakingSpace
+                    || ch == "\u{00A0}"
             } else {
-                if pendingSpace && hasContent { out.append(" ") }
+                if let pendingWhitespaceStart, hasContent {
+                    if pendingContainsNonBreakingSpace {
+                        out.append(" ")
+                    } else {
+                        out.append(contentsOf: s[pendingWhitespaceStart..<cursor])
+                    }
+                }
                 out.append(ch)
                 hasContent = true
-                pendingSpace = false
+                pendingWhitespaceStart = nil
+                pendingContainsNonBreakingSpace = false
             }
+            cursor = s.index(after: cursor)
         }
         return out
     }
