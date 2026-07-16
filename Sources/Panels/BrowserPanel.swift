@@ -3039,6 +3039,18 @@ final class BrowserPanel: Panel, ObservableObject {
     private var playingMediaFrameIDs: Set<String> = []
     private var audibleMediaFrameIDs: Set<String> = []
     var mediaPlaybackMessageHandler: BrowserMediaPlaybackMessageHandler?
+    var webNotificationMessageHandler: BrowserWebNotificationMessageHandler?
+    var webNotificationBridgeToken: String?
+    var deliverWebNotification: @MainActor (UUID, UUID, String, String, String) -> Void = {
+        workspaceId, surfaceId, title, subtitle, body in
+        TerminalNotificationStore.shared.addNotification(
+            tabId: workspaceId,
+            surfaceId: surfaceId,
+            title: title,
+            subtitle: subtitle,
+            body: body
+        )
+    }
 
     private func setMediaActivity(
         isPlayingAudio: Bool? = nil,
@@ -3688,6 +3700,7 @@ final class BrowserPanel: Panel, ObservableObject {
         setupReactGrabMessageHandler(for: webView)
         setupSSLTrustBypassMessageHandler(for: webView)
         setupMediaPlaybackMessageHandler(for: webView)
+        setupWebNotificationBridge(for: webView)
         webAuthnCoordinator.install(on: webView)
         applyMuteState(to: webView, reason: "bindWebView")
     }
@@ -3839,7 +3852,7 @@ final class BrowserPanel: Panel, ObservableObject {
         noteDiscardedWebViewRestoreNavigationCommitted(reason: "navigation_policy_cancelled")
     }
 
-    private func isCurrentWebView(_ candidate: WKWebView, instanceID: UUID? = nil) -> Bool {
+    func isCurrentWebView(_ candidate: WKWebView, instanceID: UUID? = nil) -> Bool {
         guard candidate === webView else { return false }
         guard let instanceID else { return true }
         return instanceID == webViewInstanceID
@@ -4847,6 +4860,7 @@ final class BrowserPanel: Panel, ObservableObject {
     /// speaker/mic/camera glyph; the next `setupObservers` re-seeds the flags
     /// from the fresh web view.
     private func detachWebViewObservers() {
+        tearDownWebNotificationBridge(from: webView)
         webViewObservers.removeAll()
         resetMediaPlaybackTracking()
         setMediaActivity(isUsingMicrophone: false, isUsingCamera: false, reason: "media_capture_changed")
@@ -5981,6 +5995,10 @@ final class BrowserPanel: Panel, ObservableObject {
         webViewCancellables.removeAll()
         let webView = webView
         Task { @MainActor in
+            webView.configuration.userContentController.removeScriptMessageHandler(
+                forName: BrowserWebNotificationMessageHandler.name,
+                contentWorld: .page
+            )
             BrowserWindowPortalRegistry.detach(webView: webView)
         }
     }

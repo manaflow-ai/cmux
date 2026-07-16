@@ -32,6 +32,13 @@ public struct BrowserCatalogSection: SettingCatalogSection {
         userDefaultsKey: "browserThemeMode"
     )
 
+    /// Forwards foreground website notifications into cmux's notification pipeline.
+    public let forwardWebNotifications = DefaultsKey<Bool>(
+        id: "browser.forwardWebNotifications",
+        defaultValue: true,
+        userDefaultsKey: "browserForwardWebNotifications"
+    )
+
     public let discardHiddenWebViews = DefaultsKey<Bool>(
         id: "browser.discardHiddenWebViews",
         defaultValue: true,

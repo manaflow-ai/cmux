@@ -68,6 +68,7 @@ struct SettingsRowAnchorResolutionTests {
         "automation.workspaceAutoNaming",
         "browser.defaultSearchEngine",
         "browser.discardHiddenWebViews",
+        "browser.forwardWebNotifications",
         "browser.hiddenWebViewDiscardDelaySeconds",
         "browser.askWhereToSaveDownloads",
         "browser.hostsToOpenInEmbeddedBrowser",
