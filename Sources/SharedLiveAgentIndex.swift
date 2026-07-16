@@ -957,14 +957,21 @@ final class SharedLiveAgentIndex {
             return
         }
         let probeKeys = record.probeKeys
+        let panelKeys = Set(probeKeys.map(\.panelKey))
         removeForkExecutableWatchRecord(for: watchKey)
         for probeKey in probeKeys {
             validatedForkSupport.removeValue(forKey: probeKey)
         }
-        NotificationCenter.default.post(
-            name: .sharedLiveAgentIndexDidChange,
-            object: self
-        )
+        for panelKey in panelKeys {
+            NotificationCenter.default.post(
+                name: .sharedLiveAgentIndexDidChange,
+                object: self,
+                userInfo: [
+                    "workspaceId": panelKey.workspaceId,
+                    "panelId": panelKey.panelId,
+                ]
+            )
+        }
     }
 
     private static func forkExecutableResolutionMatches(

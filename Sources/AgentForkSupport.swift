@@ -179,6 +179,11 @@ enum AgentForkSupport {
             }
             guard Darwin.pipe(&outputFDs) == 0 else { return nil }
             guard outputFDs.allSatisfy({ $0 > 2 }) else { return nil }
+            for fileDescriptor in outputFDs {
+                guard fcntl(fileDescriptor, F_SETFD, FD_CLOEXEC) == 0 else {
+                    return nil
+                }
+            }
             let outputPipeHandles = AgentForkSupport.probeOutputPipeHandles(
                 readFileDescriptor: outputFDs[0],
                 writeFileDescriptor: outputFDs[1]

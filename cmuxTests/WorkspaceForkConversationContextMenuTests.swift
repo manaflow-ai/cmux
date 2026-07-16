@@ -2258,6 +2258,23 @@ struct WorkspaceForkConversationContextMenuTests {
             workspaceRoot: root.path,
             executablePath: executable.path
         )
+        let notifiedPanelKeys = OSAllocatedUnfairLock(initialState: Set<String>())
+        let unscopedNotificationCount = OSAllocatedUnfairLock(initialState: 0)
+        let observer = NotificationCenter.default.addObserver(
+            forName: .sharedLiveAgentIndexDidChange,
+            object: sharedIndex,
+            queue: nil
+        ) { notification in
+            if let workspaceId = notification.userInfo?["workspaceId"] as? UUID,
+               let panelId = notification.userInfo?["panelId"] as? UUID {
+                notifiedPanelKeys.withLock {
+                    $0.insert("\(workspaceId.uuidString)|\(panelId.uuidString)")
+                }
+            } else {
+                unscopedNotificationCount.withLock { $0 += 1 }
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
 
         async let firstRefresh: Void = sharedIndex.refreshForkAvailabilityNow(
             workspaceId: firstWorkspaceId,
@@ -2318,6 +2335,14 @@ struct WorkspaceForkConversationContextMenuTests {
                 fallbackSnapshot: secondSnapshot
             ),
             "A concurrent shared executable watch install should keep the second panel attached to invalidation."
+        )
+        #expect(unscopedNotificationCount.withLock { $0 } == 0)
+        #expect(
+            notifiedPanelKeys.withLock { $0 } == Set([
+                "\(firstWorkspaceId.uuidString)|\(firstPanelId.uuidString)",
+                "\(secondWorkspaceId.uuidString)|\(secondPanelId.uuidString)",
+            ]),
+            "Shared executable watch invalidation should notify exactly the affected panel keys."
         )
     }
 
