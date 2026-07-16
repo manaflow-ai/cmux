@@ -708,18 +708,38 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         let taskID = ObjectIdentifier(NSObject())
         var callbackCount = 0
 
-        lifecycle.register(taskID)
-        XCTAssertTrue(lifecycle.deliver(taskID) {
+        let registration = lifecycle.register(taskID)
+        XCTAssertTrue(lifecycle.deliver(registration) {
             XCTAssertTrue(Thread.isMainThread)
             callbackCount += 1
         })
 
         lifecycle.stop(taskID)
 
-        XCTAssertFalse(lifecycle.deliver(taskID) {
+        XCTAssertFalse(lifecycle.deliver(registration) {
             callbackCount += 1
         })
         XCTAssertEqual(callbackCount, 1)
+    }
+
+    func testDiffViewerSchemeLifecycleRejectsStaleIdentifierGeneration() {
+        let lifecycle = DiffViewerSchemeTaskLifecycle()
+        let reusedTaskID = ObjectIdentifier(NSObject())
+        let staleRegistration = lifecycle.register(reusedTaskID)
+        let currentRegistration = lifecycle.register(reusedTaskID)
+        var delivered = 0
+
+        XCTAssertFalse(lifecycle.deliver(staleRegistration) {
+            delivered += 1
+        })
+        XCTAssertTrue(lifecycle.deliver(currentRegistration) {
+            delivered += 1
+        })
+        lifecycle.finish(staleRegistration)
+        XCTAssertTrue(lifecycle.deliver(currentRegistration) {
+            delivered += 1
+        })
+        XCTAssertEqual(delivered, 2)
     }
 
     func testDiffViewerSchemeLoadsSameOriginModuleFromAllowlist() throws {
