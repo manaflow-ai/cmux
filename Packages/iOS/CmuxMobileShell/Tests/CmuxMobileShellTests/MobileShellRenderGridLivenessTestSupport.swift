@@ -55,10 +55,22 @@ actor LivenessHostRouter {
     private var macInstanceTag: String? = "default"
     private var macDisplayName: String? = "Test Mac"
     private var workspaceListResponseHook: (@Sendable () -> Void)?
+    /// FIFO of scripted `mobile.sync.fetch` results (state sync v2 tests).
+    private var syncFetchResults: [[String: Any]] = []
     private var replayPayloads: [(text: String?, sequence: UInt64?, renderGrid: MobileTerminalRenderGridFrame?)] = []
     private var replayTexts: [String] = []
     private var replayFailuresRemaining = 0
     private var emptyReplayResponsesRemaining = 0; private var viewportEffectiveGridOverride: LivenessViewportReport?; private var emptyViewportResponsesRemaining = 0
+
+    /// Scripts the next `mobile.sync.fetch` answer (state sync v2 tests). The
+    /// payload crosses the actor boundary as encoded JSON so the test-side
+    /// builder can use `JSONSerialization` freely without Sendable friction.
+    func scriptSyncFetchResult(jsonData: Data) {
+        guard let object = (try? JSONSerialization.jsonObject(with: jsonData)) as? [String: Any] else {
+            return
+        }
+        syncFetchResults.append(object)
+    }
 
     func record(method: String?, topics: [String]?, workspaceID: String? = nil) {
         recorded.append(RecordedRequest(
@@ -371,6 +383,14 @@ actor LivenessHostRouter {
             ])
         case "mobile.events.unsubscribe":
             return try? Self.resultFrame(id: id, result: [:])
+        case "mobile.sync.fetch":
+            // Unscripted routers model a legacy Mac: the real host answers an
+            // unknown method with `method_not_found`, which the shell treats
+            // as "stay on the workspace.updated refetch loop".
+            guard !syncFetchResults.isEmpty else {
+                return try? Self.errorFrame(id: id, code: "method_not_found", message: "Unknown mobile method")
+            }
+            return try? Self.resultFrame(id: id, result: syncFetchResults.removeFirst())
         case "mobile.terminal.viewport":
             viewportRequestCount += 1
             if heldViewportRequestNumbers.contains(viewportRequestCount) {
@@ -407,11 +427,13 @@ actor LivenessHostRouter {
         return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
     }
 
-    private static func errorFrame(id: String?, message: String) throws -> Data {
+    private static func errorFrame(id: String?, code: String? = nil, message: String) throws -> Data {
+        var error: [String: Any] = ["message": message]
+        if let code { error["code"] = code }
         let envelope: [String: Any] = [
             "id": id ?? UUID().uuidString,
             "ok": false,
-            "error": ["message": message],
+            "error": error,
         ]
         return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
     }
