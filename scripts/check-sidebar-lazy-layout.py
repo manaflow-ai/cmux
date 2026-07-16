@@ -69,13 +69,13 @@ ROW_FORBIDDEN_PATTERNS = (
     (re.compile(r"\bGeometryReader\b"),
      "GeometryReader (a row measuring itself was the #2586/#6556 "
      "GeometryReader -> @State row-height livelock ingredient; row heights "
-     "are owned by the table controller's height cache)"),
+     "are owned by AppKit automatic row sizing)"),
     (re.compile(r"\bonGeometryChange\b"),
      "onGeometryChange (geometry-driven state writes in a row re-trigger "
      "layout the same way the #6556 GeometryReader probes did)"),
     (re.compile(r"\.sizeThatFits\s*\("),
-     "manual .sizeThatFits( call (row measurement belongs to "
-     "SidebarWorkspaceTableRowHeightCache, never the row body)"),
+     "manual .sizeThatFits( call (row measurement belongs to AppKit's live "
+     "automatic row sizing, never a separate row-body measurement path)"),
     (re.compile(r"\bProposedViewSize\s*\([^)]*\bnil\b"),
      "ProposedViewSize(..., nil) (natural-size measurement -- the #6210 "
      "force-measure shape)"),
@@ -307,7 +307,6 @@ def check_appkit_sources(sources_by_name, require_all_files=True):
         "SidebarWorkspaceTableCellView.swift": ("NSTableCellView", "NSHostingView", "rootView"),
         "SidebarWorkspaceTableViewImpl.swift": ("NSTableView", "updateTrackingAreas", "otherMouseDown"),
         "SidebarWorkspaceTableRowConfiguration.swift": ("hasEquivalentContent", "makeContent"),
-        "SidebarWorkspaceTableRowHeightCache.swift": ("prepareHostedRows",),
     }
     for filename, markers in required.items():
         source = sources_by_name.get(filename)

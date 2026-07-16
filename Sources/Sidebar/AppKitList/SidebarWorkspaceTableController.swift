@@ -18,7 +18,6 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var appKitDropIndicatorScope: SidebarWorkspaceReorderDropIndicatorScope = .raw
     private var appKitDropIndicatorIncludesRowTargets = false
     private var clipBoundsObserver: NSObjectProtocol?
-    private let rowHeightCache = SidebarWorkspaceTableRowHeightCache()
     private let dropTargetGeometry = SidebarWorkspaceTableDropTargetGeometryGate()
 
 #if DEBUG
@@ -55,7 +54,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         table.allowsMultipleSelection = false
         table.allowsTypeSelect = false
         table.intercellSpacing = NSSize(width: 0, height: 2)
-        table.usesAutomaticRowHeights = false
+        // The live hosted cell is the single source of truth for row height.
+        // A separate prototype cache cannot observe cell-local SwiftUI state
+        // (metadata expansion, inline controls), so it can leave AppKit's row
+        // rectangle shorter than the content and let rows paint over neighbors.
+        table.usesAutomaticRowHeights = true
         table.rowHeight = SidebarWorkspaceTableRowHeightCalculator().defaultWorkspaceHeight
         table.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
         table.setDraggingSourceOperationMask(.move, forLocal: true)
@@ -119,16 +122,12 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             previousRows.indices.contains(index)
                 && !previousRows[index].hasEquivalentContent(to: nextRows[index])
         })
-        let heightChanges = rowHeightCache.prepareHostedRows(nextRows, columnWidth: currentColumnWidth())
         rows = nextRows
 
         if hasStructuralChanges {
             containerView.tableView.reloadData()
         } else {
             reconfigureVisibleRows(contentChanges)
-            if !heightChanges.isEmpty {
-                containerView.tableView.noteHeightOfRows(withIndexesChanged: heightChanges)
-            }
         }
 
         let shouldScrollAfterWorkspaceChange = SidebarSelectedWorkspaceScrollPolicy
@@ -150,16 +149,6 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
     func numberOfRows(in tableView: NSTableView) -> Int {
         rows.count
-    }
-
-    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
-        guard rows.indices.contains(row) else { return tableView.rowHeight }
-        let configuration = rows[row]
-        let columnWidth = currentColumnWidth()
-        return rowHeightCache.height(
-            for: configuration,
-            columnWidth: columnWidth
-        ) ?? configuration.estimatedHeight
     }
 
     func tableView(
@@ -278,19 +267,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     func viewportDidChange() {
-        if let changed = rowHeightCache.prepareHostedRowsIfWidthChanged(
-            rows,
-            columnWidth: currentColumnWidth()
-        ), !changed.isEmpty {
-            containerView?.tableView.noteHeightOfRows(withIndexesChanged: changed)
-        }
         recomputeHoveredRow()
         updateDropTargets()
-    }
-
-    private func currentColumnWidth() -> CGFloat {
-        guard let containerView else { return 0 }
-        return containerView.clipView.bounds.width
     }
 
     private func setHoveredRowId(_ next: SidebarWorkspaceRenderItemID?) {

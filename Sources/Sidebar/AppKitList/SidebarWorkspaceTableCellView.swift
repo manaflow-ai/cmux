@@ -33,14 +33,10 @@ final class SidebarWorkspaceTableCellView: NSTableCellView {
         wantsLayer = true
         hostingView.wantsLayer = true
         hostingView.translatesAutoresizingMaskIntoConstraints = false
-        // Row heights are owned by the controller's explicit height cache, so
-        // this hosting view must never negotiate sizing with Auto Layout.
-        // Every window-wide layout pass (e.g. the terminal portal's
-        // synchronizeLayoutHierarchy) otherwise re-runs SwiftUI size
-        // negotiation in NSHostingView.layout() for every visible cell, which
-        // profiling showed dominating main-thread time during workspace
-        // switching at 200 rows.
-        hostingView.sizingOptions = []
+        // NSTableView uses this live hosting view's intrinsic size for automatic
+        // row heights. Keeping sizing enabled gives rendered content and AppKit
+        // row geometry one owner, including cell-local SwiftUI expansion state.
+        hostingView.sizingOptions = [.intrinsicContentSize]
         hostingView.setContentHuggingPriority(.required, for: .vertical)
         hostingView.setContentCompressionResistancePriority(.required, for: .vertical)
         addSubview(hostingView)
