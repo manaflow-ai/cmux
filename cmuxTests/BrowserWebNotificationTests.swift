@@ -240,7 +240,8 @@ struct BrowserWebNotificationTests {
         #expect(nativeError == ["name": "TypeError", "message": "native boom"])
     }
 
-    @Test func nativeProviderGrantsAndDeliversOnSupportedMacOS() async throws {
+    @Test(.timeLimit(.minutes(1)))
+    func nativeProviderGrantsAndDeliversOnSupportedMacOS() async throws {
         guard ProcessInfo.processInfo.operatingSystemVersion.majorVersion > 14 else { return }
         #expect(BrowserWebNotificationNativeAdapter.shared.shouldInstallForegroundFallback == false)
 
