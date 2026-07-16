@@ -256,6 +256,9 @@ actor MobileCoreRPCSession {
                 } catch is CancellationError {
                     throw CancellationError()
                 } catch {
+                    if Task.isCancelled {
+                        throw CancellationError()
+                    }
                     await transportConnectObserver?(
                         .failed(
                             error: error,
