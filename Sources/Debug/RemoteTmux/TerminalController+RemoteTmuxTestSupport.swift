@@ -495,7 +495,7 @@ extension TerminalController {
                 if onScreen, !mirror.isVisibleForSizing {
                     mismatches.append(
                         "on screen but not visible-for-sizing"
-                            + " container=\(mirror.containerSizePt.map { "\(Int($0.width))x\(Int($0.height))" } ?? "nil")"
+                            + " container=\(Self.sizeDescription(mirror.containerSizePt))"
                             + " claimed=\(claimed.map { "\($0.0)x\($0.1)" } ?? "none")"
                     )
                 }
@@ -672,30 +672,34 @@ extension TerminalController {
                     && nativeGeometryReady
                     && portalGeometryReady
                     && gridParityReady
-                // Derivation parity, visible mirror only (hidden mirrors
-                // hold their attach-time claim by design). Delivery parity —
-                // claim == tmux layout — cannot see a claim that tmux
-                // honored but that no longer matches what the CURRENT
-                // container derives: the class where a stale claim settles
-                // green while the region cannot render the columns it
-                // promised. A settled visible window must be able to
-                // re-derive its own claim.
+                // Derivation parity. Delivery parity — claim == tmux layout —
+                // cannot see a claim that tmux honored but that no longer matches
+                // what the CURRENT container derives: the class where a stale
+                // claim settles green while the region cannot render the columns
+                // it promised. A window on screen must be able to re-derive its
+                // own claim.
+                //
+                // Keyed off `onScreen`, an independent read of view state, and not
+                // off `isVisibleForSizing`: that flag is the thing under test, and
+                // a judge that consults it hands the defect a way to excuse itself.
+                // A mirror that is off screen holds its attach-time claim by
+                // design and has nothing to re-derive.
                 let derivable: (columns: Int, rows: Int)? = {
-                    guard mirror.isVisibleForSizing,
-                          let container = mirror.containerSizePt else { return nil }
+                    guard let container = mirror.containerSizePt else { return nil }
                     return mirror.clientGrid(contentSize: container)
                 }()
-                let derivationSettled = derivable.flatMap { grid in
-                    claimed.map { $0.0 == grid.columns && $0.1 == grid.rows }
-                } ?? true
-                let renderFrameDescription: String = {
-                    guard let size = mirror.renderFrameSize else { return "none" }
-                    return "\(Int(size.width))x\(Int(size.height))"
+                // Absence of evidence is not settledness. An on-screen mirror with
+                // no container, or one whose grid will not derive, cannot have
+                // re-derived anything — and every other term can sit true on a
+                // cached plan, so defaulting this one to true let exactly that
+                // window settle green. Off screen, there is nothing to prove.
+                let derivationSettled: Bool = {
+                    guard onScreen else { return true }
+                    guard let grid = derivable, let claimed else { return false }
+                    return claimed.0 == grid.columns && claimed.1 == grid.rows
                 }()
-                let containerDescription: String = {
-                    guard let size = mirror.containerSizePt else { return "none" }
-                    return "\(Int(size.width))x\(Int(size.height))"
-                }()
+                let renderFrameDescription = Self.sizeDescription(mirror.renderFrameSize)
+                let containerDescription = Self.sizeDescription(mirror.containerSizePt)
                 windows.append([
                     "window": windowId,
                     "claimed": claimed.map { "\($0.0)x\($0.1)" } ?? "none",
@@ -786,30 +790,16 @@ extension TerminalController {
         ]
     }
 
-    /// The hosted view's enclosing containers, innermost first, each with its own
-    /// size and — for a split — how many panes it still arranges.
+    /// `WxH` in whole points, or `none`.
     ///
-    /// A pane that misses its planned size says nothing about WHERE the size was
-    /// lost. If the enclosing split already holds the planned width, the pane
-    /// alone failed to fill it; if the split itself is short, the miss came from
-    /// above; and an arranged count that disagrees with the tree's child count
-    /// means the split never collapsed after a sibling closed, which no divider
-    /// imposition can correct because there is no longer a divider to move.
-    nonisolated static func ancestryDescription(of view: NSView, levels: Int = 3) -> String {
-        var parts: [String] = []
-        var next = view.superview
-        while let current = next, parts.count < levels {
-            let name = String(describing: type(of: current))
-                .replacingOccurrences(of: "Bonsplit.", with: "")
-            var term = "\(name)(\(Int(current.frame.width))x\(Int(current.frame.height))"
-            if let split = current as? NSSplitView {
-                term += ",arranged=\(split.arrangedSubviews.count)"
-                term += ",vertical=\(split.isVertical ? 1 : 0)"
-            }
-            parts.append(term + ")")
-            next = current.superview
-        }
-        return parts.isEmpty ? "no-superview" : parts.joined(separator: " < ")
+    /// Shared so the same size never reads `none` in one field and `nil` in
+    /// another for the same absent value. Named rather than inlined because the
+    /// payload literal below is already at the type-checker's limit: a handful of
+    /// inline `map { … } ?? "none"` closures in it push the whole expression past
+    /// the budget, and one concrete call each type-checks instantly.
+    nonisolated static func sizeDescription(_ size: CGSize?) -> String {
+        guard let size else { return "none" }
+        return "\(Int(size.width))x\(Int(size.height))"
     }
 }
 #endif
