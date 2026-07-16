@@ -20,11 +20,16 @@ Cases:
       lifecycle callback fails.
   (i) Comment/string neutralization: prose naming forbidden tokens passes.
   (j) --file mode does not report missing sibling files.
+  (k) The real --file CLI entrypoint (argparse, file read, basename scoping)
+      passes a clean file and fails a layout-callback mutation.
 """
 
+import contextlib
 import importlib.util
+import io
 import os
 import sys
+import tempfile
 
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -219,6 +224,30 @@ final class SidebarWorkspaceTableViewImpl: NSTableView {
         not any("missing required" in item for item in single_file),
         "--file mode does not report missing sibling files",
     )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        clean_path = os.path.join(tmpdir, "SidebarWorkspaceTableHoverResolver.swift")
+        with open(clean_path, "w", encoding="utf-8") as handle:
+            handle.write("struct SidebarWorkspaceTableHoverResolver {}\n")
+        violating_path = os.path.join(tmpdir, "SidebarWorkspaceTableClipView.swift")
+        with open(violating_path, "w", encoding="utf-8") as handle:
+            handle.write(
+                "final class SidebarWorkspaceTableClipView: NSClipView {\n"
+                "    override func layout() {\n"
+                "        super.layout()\n"
+                "        tableView.reloadData()\n"
+                "    }\n"
+                "}\n"
+            )
+        sink = io.StringIO()
+        with contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
+            clean_rc = guard.main(["--file", clean_path])
+            violating_rc = guard.main(["--file", violating_path])
+        failures += expect(clean_rc == 0, "--file CLI entrypoint passes a clean file")
+        failures += expect(
+            violating_rc == 1,
+            "--file CLI entrypoint fails a layout-callback mutation",
+        )
 
     if failures:
         print(f"test_ci_sidebar_lazy_layout_guard: {failures} case(s) failed", file=sys.stderr)

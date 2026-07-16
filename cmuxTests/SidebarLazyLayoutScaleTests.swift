@@ -445,9 +445,18 @@ final class SidebarLazyLayoutScaleTests {
             """
         )
 
+        let stormReconfigures = harness.counter.tableRootViewReconfigures
         #expect(
-            harness.counter.tableRootViewReconfigures < storms * 10,
-            "Unread storm reconfigured \(harness.counter.tableRootViewReconfigures) hosted roots; only changed visible rows may reconfigure."
+            stormReconfigures > 0,
+            """
+            The unread storm reconfigured no hosted roots at all; the \
+            tableRootViewReconfigure probe is disconnected, which would make the \
+            storm bound and the quiet-period zero-check below pass vacuously.
+            """
+        )
+        #expect(
+            stormReconfigures < storms * 10,
+            "Unread storm reconfigured \(stormReconfigures) hosted roots; only changed visible rows may reconfigure."
         )
 
         harness.counter.reset()
