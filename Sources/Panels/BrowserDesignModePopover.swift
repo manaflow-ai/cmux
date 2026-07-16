@@ -287,7 +287,12 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
             if identities != current {
                 textView.window?.makeFirstResponder(textView)
             }
-            reportHeight()
+            // sync() runs inside makeNSView/updateNSView; defer the height
+            // report so the @State write happens outside SwiftUI's update
+            // pass. textDidChange() reports synchronously (AppKit event).
+            DispatchQueue.main.async { [weak self] in
+                self?.reportHeight()
+            }
         }
 
         private var typingAttributes: [NSAttributedString.Key: Any] {
