@@ -148,7 +148,8 @@ extension SimulatorPaneCoordinator {
     }
 
     /// Refreshes the device picker from CoreSimulator discovery.
-    public func reloadDevices() async {
+    @discardableResult
+    public func reloadDevices() async -> Bool {
         let selectionGeneration = selectionGeneration
         deviceDiscoveryGeneration &+= 1
         let discoveryGeneration = deviceDiscoveryGeneration
@@ -161,46 +162,48 @@ extension SimulatorPaneCoordinator {
             guard !closed,
                   !Task.isCancelled,
                   self.selectionGeneration == selectionGeneration,
-                  deviceDiscoveryGeneration == discoveryGeneration else { return }
+                  deviceDiscoveryGeneration == discoveryGeneration else { return false }
             devices = discovered
                 .filter { $0.isAvailable && ($0.family == .iPhone || $0.family == .iPad) }
                 .sorted(by: simulatorDeviceOrdering)
             pruneActionHistory(keeping: Set(devices.map(\.id)))
-            if wasAwaitingExplicitSelection { return }
+            if wasAwaitingExplicitSelection { return true }
             failure = nil
 
             if let selectedDeviceID,
                devices.contains(where: { $0.id == selectedDeviceID }) {
-                return
+                return true
             }
             if previousDeviceID == nil,
                let preferredDeviceID,
                devices.contains(where: { $0.id == preferredDeviceID }) {
                 selectActionHistory(deviceID: preferredDeviceID)
                 selectedDeviceID = preferredDeviceID
-                return
+                return true
             }
             if requiresExplicitDeviceSelection || previousDeviceID != nil || preferredDeviceID != nil {
                 // Runtime and device type are descriptive, non-unique metadata. Never
                 // substitute them for a missing persisted UDID because automation could
                 // silently target a different Simulator without an explicit selection.
                 await failClosedForUnavailableDevice()
-                return
+                return true
             }
             let nextDeviceID = devices.first(where: { $0.state == .booted })?.id
                 ?? devices.first?.id
             selectActionHistory(deviceID: nextDeviceID)
             selectedDeviceID = nextDeviceID
+            return true
         } catch {
             guard !closed,
                   !Task.isCancelled,
                   self.selectionGeneration == selectionGeneration,
-                  deviceDiscoveryGeneration == discoveryGeneration else { return }
+                  deviceDiscoveryGeneration == discoveryGeneration else { return false }
             let simulatorFailure = simulatorPaneFailure(from: error, code: "device_discovery_failed")
             failure = simulatorFailure
             if status != .streaming {
                 status = .failed(simulatorFailure)
             }
+            return true
         }
     }
 
@@ -313,7 +316,13 @@ extension SimulatorPaneCoordinator {
         let initialSelectionGeneration = selectionGeneration
         explicitSelectionRequestGeneration &+= 1
         let requestGeneration = explicitSelectionRequestGeneration
-        await reloadDevices()
+        while !(await reloadDevices()) {
+            try Task.checkCancellation()
+            guard !closed,
+                  explicitSelectionRequestGeneration == requestGeneration else {
+                throw CancellationError()
+            }
+        }
         do {
             try Task.checkCancellation()
         } catch {

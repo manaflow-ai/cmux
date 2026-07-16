@@ -7,7 +7,7 @@ extension Workspace {
     /// Returns `nil` when the target panel is not a Simulator.
     func handleSimulatorExternalFileDrop(urls: [URL], panelId: UUID) -> Bool? {
         guard let panel = panels[panelId] as? SimulatorPanel else { return nil }
-        guard CmuxFeatureFlags.shared.isSimulatorEnabled else { return false }
+        guard CmuxFeatureFlags.shared.isSimulatorEnabled, panel.isFeatureReady else { return false }
         guard !urls.isEmpty else { return false }
         let coordinator = panel.coordinator
         guard coordinator.canImportDroppedFiles(urls) else { return false }

@@ -408,13 +408,17 @@ extension CMUXCLI {
         windowOverride: String?,
         responseTimeout: TimeInterval? = nil
     ) throws -> [String: Any] {
+        var params = simulatorRoutingParams(
+            surface: surface,
+            client: client,
+            windowOverride: windowOverride
+        )
+        if let responseTimeout {
+            params["operation_timeout_seconds"] = max(0.1, responseTimeout - 6)
+        }
         return try client.sendV2(
             method: "simulator.context",
-            params: simulatorRoutingParams(
-                surface: surface,
-                client: client,
-                windowOverride: windowOverride
-            ),
+            params: params,
             responseTimeout: responseTimeout ?? simulatorOperationDeadlines.clientTimeout(
                 for: simulatorOperationDeadlines.selectDevice
             )

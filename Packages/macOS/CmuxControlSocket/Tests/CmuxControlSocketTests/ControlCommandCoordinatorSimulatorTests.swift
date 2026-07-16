@@ -15,6 +15,28 @@ struct ControlCommandCoordinatorSimulatorTests {
         #expect(cancelled.isMarked)
     }
 
+    @Test("A caller deadline bounds and cancels server-side Simulator work")
+    func callerDeadlineBoundsOperation() {
+        let context = FakeSimulatorControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let receipt = ControlSimulatorOperationReceipt(cancellationJoinTimeout: 0)
+        let cancelled = SimulatorCancellationProbe()
+        receipt.installCancellation { cancelled.mark() }
+        context.operationResolution = .started(
+            surfaceID: UUID(), timeoutSeconds: 550, receipt: receipt
+        )
+
+        guard case let .err(code, _, _) = coordinator.handleSocketWorkerV2(
+            request("simulator.context", ["operation_timeout_seconds": .double(0.1)]),
+            context: context
+        ) else {
+            Issue.record("Expected the caller deadline to time out")
+            return
+        }
+        #expect(code == "timeout")
+        #expect(cancelled.isMarked)
+    }
+
     @Test("Text receipt cancels queued input when its deadline expires")
     func textReceiptCancelsTimedOutInput() {
         let receipt = ControlSimulatorCompletionReceipt(cancellationJoinTimeout: 0)

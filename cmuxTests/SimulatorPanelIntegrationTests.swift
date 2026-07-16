@@ -235,6 +235,11 @@ struct SimulatorPanelIntegrationTests {
         #expect(workspace.panels.count == originalPanelCount)
         #expect(workspace.handleSimulatorExternalFileDrop(urls: [], panelId: panel.id) == false)
 
+        panel.suspendForRemoteDisable()
+        #expect(workspace.handleSimulatorExternalFileDrop(
+            urls: [URL(fileURLWithPath: "/tmp/Fixture.app")], panelId: panel.id
+        ) == false)
+
         flags.setOverride(false, for: simulatorFlag)
         #expect(workspace.handleSimulatorExternalFileDrop(
             urls: [URL(fileURLWithPath: "/tmp/Fixture.txt")],

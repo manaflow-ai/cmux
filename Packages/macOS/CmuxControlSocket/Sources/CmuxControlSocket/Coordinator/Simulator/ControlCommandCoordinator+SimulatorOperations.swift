@@ -139,6 +139,13 @@ extension ControlCommandCoordinator {
         operation: ControlSimulatorOperation,
         context: (any ControlCommandContext)?
     ) -> ControlCallResult {
+        let requestedTimeout = simulatorDouble(params, "operation_timeout_seconds")
+        if let requestedTimeout,
+           (!requestedTimeout.isFinite || !(0.1...550).contains(requestedTimeout)) {
+            return invalidSimulatorOperation(
+                "operation_timeout_seconds must be between 0.1 and 550"
+            )
+        }
         guard let context else {
             return simulatorNoActiveWindow()
         }
@@ -157,7 +164,8 @@ extension ControlCommandCoordinator {
         }
         switch outcome.resolution {
         case let .started(surfaceID, timeout, receipt):
-            guard let completion = receipt.wait(timeout: timeout) else {
+            let effectiveTimeout = requestedTimeout.map { min(timeout, $0) } ?? timeout
+            guard let completion = receipt.wait(timeout: effectiveTimeout) else {
                 return .err(
                     code: "timeout",
                     message: String(

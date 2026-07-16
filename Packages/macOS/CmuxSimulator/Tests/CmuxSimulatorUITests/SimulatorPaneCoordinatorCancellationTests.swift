@@ -178,7 +178,7 @@ struct SimulatorPaneCoordinatorCancellationTests {
         await client.waitUntilDiscoveryIsPending()
         coordinator.selectDevice(id: newer.id)
         await client.resumeDiscovery(with: [previous])
-        await refresh.value
+        _ = await refresh.value
 
         #expect(coordinator.selectedDeviceID == newer.id)
         #expect(coordinator.devices.map(\.id) == [previous.id, newer.id])
