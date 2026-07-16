@@ -3,50 +3,6 @@ import Foundation
 import CMUXAgentLaunch
 import Darwin
 
-/// Coordinates cancellation with `Process.run()`: Foundation raises an
-/// Objective-C exception if termination APIs touch a task before launch.
-/// `@unchecked Sendable` is safe here because all mutable state is protected by `lock`.
-final class ProcessTerminationGate: @unchecked Sendable {
-    private let lock = NSLock()
-    private var didLaunch = false
-    private var didFinish = false
-    private var terminationRequested = false
-
-    func requestTermination() -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        guard !didFinish else { return false }
-        terminationRequested = true
-        return didLaunch
-    }
-
-    func markLaunched() -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        guard !didFinish else { return false }
-        didLaunch = true
-        return terminationRequested
-    }
-
-    func markFinished() {
-        lock.lock()
-        defer { lock.unlock() }
-        didFinish = true
-    }
-}
-
-private actor OpenCodeVersionProbeCache {
-    private var valuesByKey: [String: Bool] = [:]
-
-    func value(for key: String) -> Bool? {
-        valuesByKey[key]
-    }
-
-    func store(_ value: Bool, for key: String) {
-        valuesByKey[key] = value
-    }
-}
-
 enum AgentForkSupport {
     static let minimumOpenCodeForkVersion = SemanticVersion(major: 1, minor: 14, patch: 50)
     // Pi v0.60.0 and OMP v13.15.0 are the first releases containing the
@@ -60,41 +16,20 @@ enum AgentForkSupport {
     private static let piFamilyVersionProbeCache = AgentForkCapabilityProbeCache()
     private static let piFamilyVersionProbeCacheTTL: TimeInterval = 30
 
-    private final class CommandOutputBuffer: @unchecked Sendable {
-        private let lock = NSLock()
-        private var data = Data()
-
-        func append(_ chunk: Data) {
-            lock.lock()
-            defer { lock.unlock() }
-            let remainingCapacity = AgentForkSupport.commandOutputMaximumBytes - data.count
-            guard remainingCapacity > 0 else { return }
-            data.append(contentsOf: chunk.prefix(remainingCapacity))
-        }
-
-        func value() -> Data {
-            lock.lock()
-            let snapshot = data
-            lock.unlock()
-            return snapshot
-        }
-    }
-
-    private final class CommandOutputRunner: @unchecked Sendable {
+    private actor CommandOutputRunner {
         private let executable: String
         private let arguments: [String]
         private let environment: [String: String]?
         private let workingDirectory: String?
-        private let outputBuffer = CommandOutputBuffer()
-        private let lock = NSLock()
         private var process: Process?
         private var pipe: Pipe?
         private var timeoutTimer: DispatchSourceTimer?
         private var killTimer: DispatchSourceTimer?
         private var continuation: CheckedContinuation<String?, Never>?
-        private let terminationGate = ProcessTerminationGate()
         private var completed = false
         private var timedOut = false
+        private var didLaunch = false
+        private var terminationRequested = false
 
         init(
             executable: String,
@@ -108,6 +43,12 @@ enum AgentForkSupport {
             self.workingDirectory = workingDirectory
         }
 
+        func start() async -> String? {
+            await withCheckedContinuation { continuation in
+                start(continuation: continuation)
+            }
+        }
+
         func start(continuation: CheckedContinuation<String?, Never>) {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
@@ -119,56 +60,39 @@ enum AgentForkSupport {
             let pipe = Pipe()
             process.standardOutput = pipe
             process.standardError = pipe
-            pipe.fileHandleForReading.readabilityHandler = { [outputBuffer] handle in
-                switch handle.readAvailableDataOrEndOfFile() {
-                case .data(let data):
-                    outputBuffer.append(data)
-                case .wouldBlock:
-                    return
-                case .endOfFile:
-                    handle.readabilityHandler = nil
-                }
-            }
             process.environment = AgentForkSupport.processEnvironmentForOpenCodeProbe(environment: environment)
             process.terminationHandler = { [weak self] process in
-                self?.finish(exitStatus: process.terminationStatus)
+                Task {
+                    await self?.finish(exitStatus: process.terminationStatus)
+                }
             }
 
-            lock.lock()
             if completed || timedOut {
                 completed = true
-                lock.unlock()
-                terminationGate.markFinished()
-                pipe.fileHandleForReading.readabilityHandler = nil
                 process.terminationHandler = nil
                 continuation.resume(returning: nil)
                 return
             }
             self.continuation = continuation
             self.pipe = pipe
-            lock.unlock()
 
             startTimeoutTimer()
 
             do {
                 try process.run()
             } catch {
-                terminationGate.markFinished()
                 markFailedBeforeLaunch()
                 return
             }
 
-            lock.lock()
             if completed {
-                lock.unlock()
-                terminationGate.markFinished()
                 process.terminationHandler = nil
                 return
             }
             self.process = process
-            lock.unlock()
+            didLaunch = true
 
-            if terminationGate.markLaunched() {
+            if terminationRequested {
                 if process.isRunning {
                     process.terminate()
                     startKillTimer(processIdentifier: process.processIdentifier)
@@ -176,54 +100,37 @@ enum AgentForkSupport {
             }
         }
 
-        func cancel() {
-            markTimedOutAndTerminate()
+        nonisolated func cancel() {
+            Task {
+                await markTimedOutAndTerminate()
+            }
         }
 
         private func startTimeoutTimer() {
             let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
             timer.schedule(deadline: .now() + .nanoseconds(Int(AgentForkSupport.commandOutputTimeoutNanoseconds)))
-            timer.setEventHandler { [self] in
-                markTimedOutAndTerminate()
+            timer.setEventHandler { [weak self] in
+                self?.cancel()
             }
-            lock.lock()
             if completed {
-                lock.unlock()
                 timer.resume()
                 timer.cancel()
                 return
             }
             timeoutTimer = timer
-            lock.unlock()
             timer.resume()
         }
 
         private func markFailedBeforeLaunch() {
-            lock.lock()
             timedOut = true
-            lock.unlock()
             finish()
         }
 
         private func markTimedOutAndTerminate() {
-            lock.lock()
-            guard !completed else {
-                lock.unlock()
-                return
-            }
+            guard !completed else { return }
             timedOut = true
-            lock.unlock()
-
-            guard terminationGate.requestTermination() else {
-                return
-            }
-            let process: Process?
-            lock.lock()
-            process = self.process
-            lock.unlock()
-            guard let process else {
-                return
-            }
+            terminationRequested = true
+            guard didLaunch, let process else { return }
             guard process.isRunning else {
                 return
             }
@@ -234,25 +141,24 @@ enum AgentForkSupport {
         private func startKillTimer(processIdentifier: pid_t) {
             let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
             timer.schedule(deadline: .now() + .nanoseconds(Int(AgentForkSupport.commandTerminateTimeoutNanoseconds)))
-            timer.setEventHandler { [self] in
-                lock.lock()
-                let shouldKill = !completed && process?.isRunning == true
-                lock.unlock()
-                if shouldKill {
-                    kill(processIdentifier, SIGKILL)
+            timer.setEventHandler { [weak self] in
+                Task {
+                    await self?.killProcessIfStillRunning(processIdentifier: processIdentifier)
                 }
             }
-            lock.lock()
             if completed {
-                lock.unlock()
                 timer.resume()
                 timer.cancel()
                 return
             }
             killTimer?.cancel()
             killTimer = timer
-            lock.unlock()
             timer.resume()
+        }
+
+        private func killProcessIfStillRunning(processIdentifier: pid_t) {
+            guard !completed, process?.isRunning == true else { return }
+            kill(processIdentifier, SIGKILL)
         }
 
         private func finish(exitStatus: Int32? = nil) {
@@ -263,11 +169,7 @@ enum AgentForkSupport {
             let killTimer: DispatchSourceTimer?
             let timedOut: Bool
 
-            lock.lock()
-            guard !completed else {
-                lock.unlock()
-                return
-            }
+            guard !completed else { return }
             completed = true
             continuation = self.continuation
             self.continuation = nil
@@ -280,22 +182,19 @@ enum AgentForkSupport {
             killTimer = self.killTimer
             self.killTimer = nil
             timedOut = self.timedOut
-            lock.unlock()
 
-            terminationGate.markFinished()
             timeoutTimer?.cancel()
             killTimer?.cancel()
             process?.terminationHandler = nil
-            pipe?.fileHandleForReading.readabilityHandler = nil
+            var output = Data()
             if let readHandle = pipe?.fileHandleForReading {
-                let remainingData = readHandle.readDataToEndOfFileOrEmpty()
-                outputBuffer.append(remainingData)
+                output = Data(readHandle.readDataToEndOfFileOrEmpty().prefix(AgentForkSupport.commandOutputMaximumBytes))
             }
             guard !timedOut, exitStatus == 0 else {
                 continuation?.resume(returning: nil)
                 return
             }
-            continuation?.resume(returning: String(data: outputBuffer.value(), encoding: .utf8))
+            continuation?.resume(returning: String(data: output, encoding: .utf8))
         }
     }
 
@@ -479,7 +378,7 @@ enum AgentForkSupport {
             if let cached = await piFamilyVersionProbeCache.value(for: cacheKey, now: probeStartedAt) {
                 return cached
             }
-        } else if let cached = await openCodeVersionProbeCache.value(for: cacheKey) {
+        } else if let cached = await openCodeVersionProbeCache.value(for: cacheKey, now: probeStartedAt) {
             return cached
         }
         guard let output = await commandOutput(
@@ -499,7 +398,7 @@ enum AgentForkSupport {
                 expiresAt: probeStartedAt + boundedCacheTTL
             )
         } else {
-            await openCodeVersionProbeCache.store(supportsFork, for: cacheKey)
+            await openCodeVersionProbeCache.store(supportsFork, for: cacheKey, now: probeStartedAt)
         }
         return supportsFork
     }
@@ -565,9 +464,7 @@ enum AgentForkSupport {
             workingDirectory: workingDirectory
         )
         return await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
-                runner.start(continuation: continuation)
-            }
+            await runner.start()
         } onCancel: {
             runner.cancel()
         }
@@ -660,5 +557,23 @@ enum AgentForkSupport {
             return nil
         }
         return trimmed
+    }
+}
+
+private actor OpenCodeVersionProbeCache {
+    private let cache: AgentForkCapabilityProbeCache
+    private let ttl: TimeInterval
+
+    init(ttl: TimeInterval = 30, maxEntries: Int = 128) {
+        self.cache = AgentForkCapabilityProbeCache(maxEntries: maxEntries)
+        self.ttl = ttl
+    }
+
+    func value(for key: String, now: TimeInterval) async -> Bool? {
+        await cache.value(for: key, now: now)
+    }
+
+    func store(_ value: Bool, for key: String, now: TimeInterval) async {
+        await cache.store(value, for: key, now: now, expiresAt: now + ttl)
     }
 }
