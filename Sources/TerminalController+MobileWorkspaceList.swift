@@ -1,4 +1,6 @@
 import AppKit
+import Bonsplit
+import CMUXMobileCore
 import CmuxWorkspaces
 import Foundation
 
@@ -237,8 +239,83 @@ extension TerminalController {
             // unread + manual/panel-derived/restored indicators) so the phone can
             // show an iMessage-style unread dot.
             "has_unread": store?.workspaceIsUnread(forTabId: workspace.id) ?? false,
+            "layout": mobileWorkspaceLayoutObject(workspace: workspace),
             "terminals": terminals
         ]
+    }
+
+    /// Serializes bonsplit's tree through the shared mobile wire DTO.
+    private func mobileWorkspaceLayoutObject(workspace: Workspace) -> [String: Any] {
+        let layout = mobileWorkspaceLayoutNode(
+            workspace.bonsplitController.treeSnapshot(),
+            workspace: workspace
+        )
+        do {
+            let data = try JSONEncoder().encode(layout)
+            return try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        } catch {
+            assertionFailure("Failed to encode mobile workspace layout: \(error)")
+            return [:]
+        }
+    }
+
+    /// Converts bonsplit tab identities to the panel identities used elsewhere
+    /// in the mobile workspace payload.
+    private func mobileWorkspaceLayoutNode(
+        _ node: ExternalTreeNode,
+        workspace: Workspace
+    ) -> MobileWorkspaceLayoutNode {
+        switch node {
+        case let .split(split):
+            let orientation: MobileWorkspaceLayoutNode.Orientation =
+                split.orientation.lowercased() == "vertical" ? .vertical : .horizontal
+            return .split(
+                orientation: orientation,
+                ratio: split.dividerPosition,
+                first: mobileWorkspaceLayoutNode(split.first, workspace: workspace),
+                second: mobileWorkspaceLayoutNode(split.second, workspace: workspace)
+            )
+        case let .pane(pane):
+            let tabs = pane.tabs.map { tab in
+                mobileWorkspaceLayoutTab(tab, workspace: workspace)
+            }
+            return .pane(
+                paneID: pane.id,
+                tabs: tabs,
+                selectedTabID: pane.selectedTabId.map {
+                    mobileWorkspacePanelID(externalTabID: $0, workspace: workspace)?.uuidString ?? $0
+                }
+            )
+        }
+    }
+
+    private func mobileWorkspaceLayoutTab(
+        _ tab: ExternalTab,
+        workspace: Workspace
+    ) -> MobileWorkspaceLayoutTab {
+        let panelID = mobileWorkspacePanelID(externalTabID: tab.id, workspace: workspace)
+        let panel = panelID.flatMap { workspace.panels[$0] }
+        let kind: String
+        switch panel {
+        case is TerminalPanel:
+            kind = "terminal"
+        case is BrowserPanel:
+            kind = "browser"
+        default:
+            kind = "other"
+        }
+        return MobileWorkspaceLayoutTab(
+            id: panelID?.uuidString ?? tab.id,
+            kind: kind,
+            title: panelID.flatMap { workspace.panelTitle(panelId: $0) }
+                ?? panel?.displayTitle
+                ?? tab.title
+        )
+    }
+
+    private func mobileWorkspacePanelID(externalTabID: String, workspace: Workspace) -> UUID? {
+        guard let surfaceID = UUID(uuidString: externalTabID) else { return nil }
+        return workspace.panelIdFromSurfaceId(TabID(uuid: surfaceID))
     }
 
     /// Mobile-gated close of one explicit workspace. The Mac remains

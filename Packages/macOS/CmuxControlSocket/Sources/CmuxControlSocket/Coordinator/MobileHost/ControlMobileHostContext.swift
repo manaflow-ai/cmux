@@ -74,6 +74,13 @@ public protocol ControlMobileHostContext: AnyObject {
     /// - Returns: The fully-built command result.
     func controlMobileTerminalCreate(params: [String: JSONValue]) -> ControlCallResult
 
+    /// `mobile.terminal.close` / `terminal.close` — close an explicitly named
+    /// terminal unless it is the workspace's last terminal panel.
+    ///
+    /// - Parameter params: The decoded request params.
+    /// - Returns: The fully-built command result.
+    func controlMobileTerminalClose(params: [String: JSONValue]) -> ControlCallResult
+
     /// `mobile.terminal.input` / `terminal.input` — forward typed text to the
     /// resolved terminal surface, applying any piggybacked viewport report.
     ///
