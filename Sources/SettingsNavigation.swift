@@ -7,6 +7,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     case textBox
     case sleepyMode
     case mobile
+    case networking
     case sidebarAppearance
     case customSidebars
     case betaFeatures
@@ -35,6 +36,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return String(localized: "settings.section.sleepyMode", defaultValue: "Sleepy Mode")
         case .mobile:
             return String(localized: "settings.section.mobile", defaultValue: "Mobile")
+        case .networking:
+            return String(localized: "settings.section.networking", defaultValue: "Networking")
         case .workspaceColors:
             return String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors")
         case .sidebarAppearance:
@@ -74,6 +77,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "moon.zzz"
         case .mobile:
             return "iphone"
+        case .networking:
+            return "network"
         case .workspaceColors:
             return "paintpalette"
         case .sidebarAppearance:
@@ -113,6 +118,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "\(title) sleepy mode screensaver caffeinate keep awake lock touch id battery wifi clock mascot theme glow pixel"
         case .mobile:
             return "\(title) ios iphone ipad mobile pairing local network sync"
+        case .networking:
+            return "\(title) iroh relay server private network tailscale vpn direct peer custom provider region"
         case .workspaceColors:
             return "\(title) palette tabs"
         case .sidebarAppearance:
@@ -373,6 +380,8 @@ enum SettingsSearchIndex {
         setting(.app, "canvas-pane-gap", String(localized: "settings.app.canvasPaneGap", defaultValue: "Canvas Pane Gap"), "canvas.paneGap canvas pane gap spacing freeform layout panes snapping tidy distribute align"),
         setting(.app, "canvas-snapping", String(localized: "settings.app.canvasSnapping", defaultValue: "Canvas Snapping"), "canvas.snappingEnabled canvas snap snapping enabled edges drag resize align panes freeform layout"),
         setting(.terminal, "scrollbar", String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar"), "terminal shell scrollback"),
+        setting(.terminal, "session-content-width", String(localized: "settings.terminal.sessionContentWidth", defaultValue: "Session Content Width"), "terminal.sessionContentMaxWidth terminal agent chat max width readable line length narrow wide"),
+        setting(.terminal, "session-content-alignment", String(localized: "settings.terminal.sessionContentAlignment", defaultValue: "Session Content Alignment"), "terminal.sessionContentAlignment left center right align terminal agent chat"),
         setting(.terminal, "copy-on-select", String(localized: "settings.terminal.copyOnSelect", defaultValue: "Copy on Selection"), "terminal.copyOnSelect clipboard selection mouse double click triple click"),
         setting(.terminal, "tab-bar-font-size", String(localized: "settings.terminal.tabBarFontSize", defaultValue: "Tab Bar Font Size"), "font size text scale terminal browser pane tab title surface-tab-bar-font-size"),
         setting(.terminal, "agent-auto-resume", String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen"), "terminal.autoResumeAgentSessions auto resume restore reopen relaunch quit sessions agents claude code codex opencode rovo dev rovodev toggle"),
@@ -547,6 +556,8 @@ enum SettingsSearchIndex {
         "terminal.textBoxDefaultSubmitAction": settingID(for: .textBox, idSuffix: "default-submit-action"),
         "terminal.textBoxMaxLines": settingID(for: .textBox, idSuffix: "textbox-max-lines"),
         "terminal.copyOnSelect": settingID(for: .terminal, idSuffix: "copy-on-select"),
+        "terminal.sessionContentMaxWidth": settingID(for: .terminal, idSuffix: "session-content-width"),
+        "terminal.sessionContentAlignment": settingID(for: .terminal, idSuffix: "session-content-alignment"),
         "terminal.autoResumeAgentSessions": settingID(for: .terminal, idSuffix: "agent-auto-resume"),
         "terminal.agentHibernation.enabled": settingID(for: .terminal, idSuffix: "agent-hibernation"),
         "terminal.agentHibernation.idleSeconds": settingID(for: .terminal, idSuffix: "agent-hibernation"),

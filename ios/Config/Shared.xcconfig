@@ -47,6 +47,10 @@ CMUX_PRESENCE_BASE_URL =
 // with MobileAuthComposition.authEnvironmentInfoPlistKey.
 CMUX_IOS_AUTH_ENV =
 
+// Tagged reloads bake the matching macOS tag's isolated web origin here.
+// Empty normal builds retain AuthConfig's channel default.
+CMUX_API_BASE_URL =
+
 // Crash reporting stays enabled for development and TestFlight. The official
 // App Store lane overrides this to NO until its consent lifecycle is proven.
 CMUX_CRASH_REPORTING_ENABLED = YES
@@ -54,6 +58,11 @@ CMUX_CRASH_REPORTING_ENABLED = YES
 // ==========================================
 // Platform Configuration
 // ==========================================
+// Keep >= 18.0: every cmux iOS Swift package declares .iOS(.v18), so a lower
+// app target fails the build. The ITMS-90208 rejections that motivated the
+// brief 18.0/17.5 lowering were caused by an embedded static-archive
+// Iroh.framework (stripped in ios/scripts/upload-testflight.sh), not by this
+// value.
 IPHONEOS_DEPLOYMENT_TARGET = 18.4
 
 // (1 == iPhone, 2 == iPad)

@@ -415,6 +415,19 @@
         "p3": "Los mejores desarrolladores siempre han construido sus propias herramientas. Nadie ha descubierto la mejor forma de trabajar con agentes todavía, y los equipos que construyen productos cerrados definitivamente tampoco. Los desarrolladores más cercanos a sus propios repositorios lo descubrirán primero.",
         "p4": "Dele a un millón de desarrolladores primitivas componibles y colectivamente encontrarán los flujos de trabajo más eficientes más rápido de lo que cualquier equipo de producto podría diseñar desde arriba."
       },
+      "cmuxFork": {
+        "title": "Presentamos cmux Fork",
+        "summary": "Bifurca una conversación de un agente en una división, pestaña o espacio de trabajo nuevo sin perder su contexto.",
+        "date": "14 de julio de 2026",
+        "p1": "Las conversaciones con agentes de programación llegan a puntos donde conviene bifurcarlas. Puedes conservar un enfoque mientras otro agente prueba una implementación diferente, investiga una derivación o revisa el mismo problema desde otro ángulo.",
+        "p2": "Fork Conversation crea una sesión nueva a partir del hilo actual y conserva el historial de la conversación y el directorio de trabajo. Es compatible con Codex, Claude Code, OpenCode, Pi, Hermes y otros agentes con sesiones bifurcables.",
+        "destinationsTitle": "Bifurca donde quieras trabajar",
+        "destinationsP": "Haz clic derecho en un terminal o una pestaña y elige Fork Conversation, o pulsa <code>Cmd+Shift+P</code> y busca Fork Conversation. Envía la bifurcación a una división en cualquier lado, una pestaña nueva o un espacio de trabajo nuevo.",
+        "parallelTitle": "Explora varias direcciones a la vez",
+        "parallelP1": "Bifurca la misma conversación varias veces para comparar implementaciones o para que varios agentes se repartan un problema con el mismo contexto inicial. Cada bifurcación continúa de forma independiente y el hilo original sigue disponible.",
+        "parallelP2": "Las bifurcaciones pueden trabajar en el mismo directorio. Asígnales tareas o archivos separados cuando las ediciones simultáneas puedan solaparse.",
+        "release": "cmux Fork está disponible en v0.64.19."
+      },
       "showHnLaunch": {
         "title": "Lanzamiento de cmux en Show HN",
         "summary": "cmux alcanzó el puesto #2 en Hacker News, fue compartido por Mitchell Hashimoto y se hizo viral en Japón.",
@@ -582,6 +595,10 @@
     "zenOfCmux": {
       "metaTitle": "El Zen de cmux",
       "metaDescription": "cmux es una primitiva, no una solución. Te da piezas componibles y tu flujo de trabajo depende de ti."
+    },
+    "cmuxFork": {
+      "metaTitle": "Presentamos cmux Fork",
+      "metaDescription": "Bifurca una conversación de Codex, Claude Code, OpenCode, Pi, Hermes u otro agente compatible en una división, pestaña o espacio de trabajo nuevo sin perder su contexto."
     },
     "cmdShiftU": {
       "metaTitle": "Cmd+Shift+U",
@@ -914,6 +931,8 @@
           "globalFontMagnification": "Escala en este porcentaje las terminales, títulos de pestañas, barras laterales, ajustes, superposiciones y chrome de la app que pertenecen a cmux. Se excluye el contenido renderizado de las páginas del navegador."
         },
         "terminal": {
+          "sessionContentMaxWidth": "Ancho máximo opcional, en puntos, para el contenido del terminal y del chat de agente integrado. Establece false para usar todo el ancho del panel.",
+          "sessionContentAlignment": "Posición horizontal del contenido del terminal y del chat de agente integrado cuando sessionContentMaxWidth está activado.",
           "copyOnSelect": "Cuando es true, copia el texto seleccionado del terminal al portapapeles del sistema cuando se confirma la selección. Cuando es false, cmux no emite una anulación de copy-on-select de Ghostty; la configuración y los valores predeterminados de Ghostty controlan el comportamiento del portapapeles de selección.",
           "scrollSpeed": "Multiplicador aplicado a los desplazamientos de la rueda de desplazamiento y del panel táctil en el terminal. Los valores más altos desplazan más rápido y los más bajos, más lento.",
           "showTextBoxOnNewTerminals": "Muestra la entrada TextBox beta de forma predeterminada en espacios de trabajo, pestañas y divisiones de terminal recién creados.",

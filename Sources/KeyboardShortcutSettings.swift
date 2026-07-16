@@ -10,7 +10,7 @@ enum KeyboardShortcutSettings {
     static let didChangeNotification = Notification.Name("cmux.keyboardShortcutSettingsDidChange")
     static let actionUserInfoKey = "action"
     static let settingsFileDisplayPath = "~/.config/cmux/cmux.json"
-    static var settingsFileStore: KeyboardShortcutSettingsFileStore = .shared {
+    static var settingsFileStore: KeyboardShortcutSettingsFileStore = .appLive {
         didSet { notifySettingsFileDidChange() }
     }
     #if DEBUG
@@ -99,9 +99,11 @@ enum KeyboardShortcutSettings {
         // Navigation
         case nextSurface
         case prevSurface
+        case moveSurfaceLeft, moveSurfaceRight
         case selectSurfaceByNumber
         case nextSidebarTab
         case prevSidebarTab
+        case moveWorkspaceUp, moveWorkspaceDown
         case focusHistoryBack
         case focusHistoryForward
         case selectWorkspaceByNumber
@@ -228,9 +230,13 @@ enum KeyboardShortcutSettings {
             case .triggerFlash: return String(localized: "shortcut.flashFocusedPanel.label", defaultValue: "Flash Focused Panel")
             case .nextSurface: return String(localized: "shortcut.nextSurface.label", defaultValue: "Next Surface")
             case .prevSurface: return String(localized: "shortcut.previousSurface.label", defaultValue: "Previous Surface")
+            case .moveSurfaceLeft: return String(localized: "shortcut.moveSurfaceLeft.label", defaultValue: "Move Surface Left")
+            case .moveSurfaceRight: return String(localized: "shortcut.moveSurfaceRight.label", defaultValue: "Move Surface Right")
             case .selectSurfaceByNumber: return String(localized: "shortcut.selectSurfaceByNumber.label", defaultValue: "Select Surface 1…9")
             case .nextSidebarTab: return String(localized: "shortcut.nextWorkspace.label", defaultValue: "Next Workspace")
             case .prevSidebarTab: return String(localized: "shortcut.previousWorkspace.label", defaultValue: "Previous Workspace")
+            case .moveWorkspaceUp: return String(localized: "shortcut.moveWorkspaceUp.label", defaultValue: "Move Workspace Up")
+            case .moveWorkspaceDown: return String(localized: "shortcut.moveWorkspaceDown.label", defaultValue: "Move Workspace Down")
             case .focusHistoryBack: return String(localized: "shortcut.focusHistoryBack.label", defaultValue: "Focus Back")
             case .focusHistoryForward: return String(localized: "shortcut.focusHistoryForward.label", defaultValue: "Focus Forward")
             case .selectWorkspaceByNumber: return String(localized: "shortcut.selectWorkspaceByNumber.label", defaultValue: "Select Workspace 1…9")
@@ -321,19 +327,6 @@ enum KeyboardShortcutSettings {
         }
 
         var defaultsKey: String { "shortcut.\(rawValue)" }
-
-        var isPublicShortcutAction: Bool {
-            switch self {
-            case .switchRightSidebarToFiles,
-                 .switchRightSidebarToFind,
-                 .switchRightSidebarToSessions,
-                 .switchRightSidebarToFeed,
-                 .switchRightSidebarToDock:
-                return false
-            default:
-                return true
-            }
-        }
 
         var defaultShortcut: StoredShortcut {
             switch self {
@@ -492,6 +485,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "]", command: true, shift: true, option: false, control: false)
             case .prevSurface:
                 return StoredShortcut(key: "[", command: true, shift: true, option: false, control: false)
+            case .moveSurfaceLeft: return StoredShortcut(key: "[", command: true, shift: true, option: true, control: false)
+            case .moveSurfaceRight: return StoredShortcut(key: "]", command: true, shift: true, option: true, control: false)
             case .selectSurfaceByNumber:
                 return StoredShortcut(key: "1", command: false, shift: false, option: false, control: true)
             case .newSurface:
@@ -513,6 +508,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "k", command: true, shift: true, option: false, control: false)
             case .selectWorkspaceByNumber:
                 return StoredShortcut(key: "1", command: true, shift: false, option: false, control: false)
+            case .moveWorkspaceUp: return StoredShortcut(key: "[", command: true, shift: false, option: true, control: true)
+            case .moveWorkspaceDown: return StoredShortcut(key: "]", command: true, shift: false, option: true, control: true)
             case .toggleRightSidebar:
                 return StoredShortcut(key: "b", command: true, shift: false, option: true, control: false)
             case .fileExplorerOpenSelection:

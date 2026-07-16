@@ -1,3 +1,4 @@
+import CmuxControlSocket
 import Foundation
 
 extension TerminalController {
@@ -13,7 +14,6 @@ extension TerminalController {
             // (replaces the legacy main-queue asyncAfter); a stale fire is a
             // no-op via the pending-rearm generation guard in the claim.
             try? await self.socketServer.recoveryClock.sleep(forMilliseconds: delayMs)
-            guard let tabManager = self.tabManager else { return }
             guard let restartPath = self.socketServer.claimPendingRearm(
                 generation: generation,
                 errnoCode: errnoCode,
@@ -24,10 +24,12 @@ extension TerminalController {
             let restartMode = self.socketServer.accessMode
 
             self.stop()
-            self.start(
-                tabManager: tabManager,
+            self.startSocketTransport(
+                SocketControlServerConfiguration(
+                    accessMode: restartMode,
+                    preferredSocketPath: restartPath
+                ),
                 socketPath: restartPath,
-                accessMode: restartMode,
                 preserveAcceptFailureStreak: true
             )
         }
