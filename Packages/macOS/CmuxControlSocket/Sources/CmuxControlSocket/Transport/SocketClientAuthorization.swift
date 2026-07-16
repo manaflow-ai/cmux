@@ -1,6 +1,7 @@
 public import Darwin
+public import CmuxSettings
 
-/// Authorizes peer processes for cmux-only control socket requests.
+/// Authorizes peer processes for control socket requests.
 public struct SocketClientAuthorization {
     /// Creates an authorization helper with no retained process state.
     public init() {}
@@ -59,5 +60,38 @@ public struct SocketClientAuthorization {
             return nil
         }
         return envelope.command
+    }
+
+    /// Applies the current socket access mode to a received command.
+    ///
+    /// Owner-only modes verify the peer UID for every command instead of
+    /// relying solely on socket-file permissions. This keeps restrictive
+    /// modes fail-closed if a permission change cannot be applied to the
+    /// filesystem entry of an already running listener.
+    public func authorizedCommand(
+        _ command: String,
+        accessMode: SocketControlMode,
+        peerProcessID: pid_t?,
+        peerHasSameUID: Bool,
+        capabilityAuthority: SocketClientCapabilityAuthority,
+        isDescendant: (pid_t) -> Bool
+    ) -> String? {
+        switch accessMode {
+        case .off:
+            return nil
+        case .cmuxOnly:
+            return authorizedCommand(
+                command,
+                peerProcessID: peerProcessID,
+                peerHasSameUID: peerHasSameUID,
+                capabilityAuthority: capabilityAuthority,
+                isDescendant: isDescendant
+            )
+        case .automation, .password:
+            guard peerHasSameUID else { return nil }
+            return SocketClientCapabilityCommand(command)?.command ?? command
+        case .allowAll:
+            return SocketClientCapabilityCommand(command)?.command ?? command
+        }
     }
 }

@@ -457,6 +457,10 @@ class TabManager: ObservableObject {
     // entry points.
     let sidebarGitMetadataService: any SidebarGitMetadataServing
     let pullRequestProbing: any PullRequestProbing
+    /// Process-scoped GitHub transport state. AppDelegate passes this same
+    /// value to every subsequently-created window so their pollers share one
+    /// session, ETag cache, backoff deadline, and request queue.
+    let pullRequestProbeService: PullRequestProbeService
 
     init(
         initialWorkspaceTitle: String? = nil,
@@ -465,6 +469,7 @@ class TabManager: ObservableObject {
         autoWelcomeIfNeeded: Bool = true,
         commandRunner: any CommandRunning = CommandRunner(),
         gitMetadataService: GitMetadataService = GitMetadataService(),
+        pullRequestProbeService: PullRequestProbeService? = nil,
         workspaceGitMetadataReader: (any WorkspaceGitMetadataReading)? = nil,
         gitPollClock: any GitPollClock = SystemGitPollClock(),
         gitProbeLimiter: WorkspaceGitMetadataProbeLimiter? = nil,
@@ -495,10 +500,12 @@ class TabManager: ObservableObject {
 #else
         let sidebarGitDebugLog: @Sendable (String) -> Void = { _ in }
 #endif
-        let pullRequestProbeService = PullRequestProbeService(
-            commandRunner: commandRunner,
-            debugLog: sidebarGitDebugLog
-        )
+        let pullRequestProbeService = pullRequestProbeService
+            ?? PullRequestProbeService(
+                commandRunner: commandRunner,
+                debugLog: sidebarGitDebugLog
+            )
+        self.pullRequestProbeService = pullRequestProbeService
         let pullRequestPollService = PullRequestPollService(
             gitMetadataService: gitMetadataService,
             probeService: pullRequestProbeService,

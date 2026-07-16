@@ -58,7 +58,7 @@ CMUX_CRASH_REPORTING_ENABLED = YES
 // ==========================================
 // Platform Configuration
 // ==========================================
-IPHONEOS_DEPLOYMENT_TARGET = 18.4
+IPHONEOS_DEPLOYMENT_TARGET = 17.5
 
 // (1 == iPhone, 2 == iPad)
 TARGETED_DEVICE_FAMILY = 1,2

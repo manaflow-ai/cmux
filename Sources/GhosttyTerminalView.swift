@@ -2911,6 +2911,7 @@ class GhosttyApp {
         case GHOSTTY_ACTION_COLOR_CHANGE:
             let change = action.action.color_change
             let newColor = color(from: change)
+            if let surfaceID = surfaceView.terminalSurface?.id { NotificationCenter.default.post(name: .ghosttySurfaceThemeDidChange, object: surfaceID) }
             if action.action.color_change.kind == GHOSTTY_ACTION_COLOR_KIND_BACKGROUND {
                 if backgroundLogEnabled {
                     logBackground(
@@ -2932,6 +2933,7 @@ class GhosttyApp {
             }
             return true
         case GHOSTTY_ACTION_CONFIG_CHANGE:
+            let configChangeSurfaceID = surfaceView.terminalSurface?.id
             DispatchQueue.main.async { [self] in
                 if let staleOverride = surfaceView.backgroundColor {
                     surfaceView.backgroundColor = nil
@@ -2944,8 +2946,6 @@ class GhosttyApp {
                     surfaceView.applyWindowBackgroundIfActive()
                 }
             }
-            // Keep surface config-change handling scoped to the surface. The app-level
-            // default background is owned by reloadConfiguration's resolved GhosttyConfig.
             let effectiveConfigChangeColorScheme = effectiveTerminalColorSchemePreference
             synchronizeGhosttyRuntimeColorScheme(
                 effectiveConfigChangeColorScheme,
@@ -2956,6 +2956,7 @@ class GhosttyApp {
                     force: true,
                     preferredColorScheme: effectiveConfigChangeColorScheme
                 )
+                if let configChangeSurfaceID { NotificationCenter.default.post(name: .ghosttySurfaceThemeDidChange, object: configChangeSurfaceID) }
             }
             if backgroundLogEnabled {
                 logBackground(
@@ -4159,7 +4160,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             yScale: yScale,
             layerScale: layerScale,
             backingSize: backingSize,
-            coalescePixelOnlyResize: isWindowLiveResizeActive && !bypassLiveResizeCoalescing
+            coalescePixelOnlyResize: isWindowLiveResizeActive && !bypassLiveResizeCoalescing,
+            // Don't pin the surface to the tmux-assigned grid mid-drag: the pin
+            // would hold it at the pre-drag (larger) size and paint past the
+            // shrinking pane. Re-pins at rest when the interactive flag clears.
+            suppressAssignedGridPin: isWindowLiveResizeActive
+                || TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive
         )
         return didChange || surfaceSizeChanged
     }
@@ -7853,7 +7859,6 @@ private extension NSScreen {
         return nil
     }
 }
-
 extension Notification.Name {
     static let ghosttyDidTick = Notification.Name("ghosttyDidTick")
     static let ghosttyDidRenderFrame = Notification.Name("ghosttyDidRenderFrame")
@@ -7863,6 +7868,7 @@ extension Notification.Name {
     static let ghosttySearchFocus = Notification.Name("ghosttySearchFocus")
     static let ghosttyConfigDidReload = Notification.Name("ghosttyConfigDidReload")
     static let ghosttyDefaultBackgroundDidChange = Notification.Name("ghosttyDefaultBackgroundDidChange")
+    static let ghosttySurfaceThemeDidChange = Notification.Name("ghosttySurfaceThemeDidChange")
     static let browserSearchFocus = Notification.Name("browserSearchFocus")
     static let workspaceRemoteConnectionPresentationDidChange = Notification.Name(
         "cmux.workspaceRemoteConnectionPresentationDidChange"
@@ -8112,6 +8118,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let flashOverlayView: GhosttyFlashOverlayView
     private let flashLayer: CAShapeLayer
     private var cloudTerminalReconnectOverlayView: CloudTerminalReconnectOverlayView?
+    private var hasVisibilityRevealRefreshScheduled = false
     var isRightSidebarDockSurface: Bool {
         surfaceView.terminalSurface?.focusPlacement == .rightSidebarDock
     }
@@ -9882,12 +9889,27 @@ final class GhosttySurfaceScrollView: NSView {
             }
         } else if !wasVisible {
             // Workspace/sidebar selection can make an already-sized terminal visible again
-            // without a portal frame delta or a focus handoff. Reuse the portal refresh
-            // path so the Metal layer is nudged immediately on plain visibility restores.
-            refreshSurfaceNow(reason: "setVisibleInUI")
+            // without a portal frame delta or a focus handoff. Nudge the Metal layer with
+            // the portal refresh path — but on the next main-queue turn: reveals arrive
+            // from inside SwiftUI update/layout (updateNSView, viewDidMoveToWindow, the
+            // geometry-callback rebind), where a synchronous display can wedge the main
+            // thread in Metal against the still-open window transaction.
+            scheduleVisibilityRevealRefresh()
             scheduleAutomaticFirstResponderApply(reason: "setVisibleInUI")
         }
     }
+
+    private func scheduleVisibilityRevealRefresh() {
+        guard !hasVisibilityRevealRefreshScheduled else { return }
+        hasVisibilityRevealRefreshScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.hasVisibilityRevealRefreshScheduled = false
+            guard self.surfaceView.isVisibleInUI else { return }
+            self.refreshSurfaceNow(reason: "setVisibleInUI.deferred")
+        }
+    }
+
     var debugPortalVisibleInUI: Bool {
         surfaceView.isVisibleInUI
     }
@@ -11991,6 +12013,8 @@ struct GhosttyTerminalView: NSViewRepresentable {
     let paneId: PaneID
     var isActive: Bool = true
     var isVisibleInUI: Bool = true
+    var ownershipGeneration: UInt64 = 0
+    var isCurrentPaneOwner: @MainActor () -> Bool = { true }
     var portalZPriority: Int = 0
     var showsInactiveOverlay: Bool = false
     var showsUnreadNotificationRing: Bool = false
@@ -12183,22 +12207,26 @@ struct GhosttyTerminalView: NSViewRepresentable {
 #endif
 
         let hostContainer = nsView as? HostContainerView
+        let ownsCurrentPane = isCurrentPaneOwner()
         let hostOwnsPortalNow = hostContainer.map { host in
-            terminalSurface.claimPortalHost(
+            guard ownsCurrentPane else { return false }
+            return terminalSurface.claimPortalHost(
                 hostId: ObjectIdentifier(host),
                 paneId: paneId,
                 instanceSerial: host.instanceSerial,
+                ownershipGeneration: ownershipGeneration,
                 inWindow: host.window != nil,
                 bounds: host.bounds,
+                allowsAuthorityAcquisition: ownsCurrentPane,
                 reason: "update"
             )
-        } ?? true
+        } ?? ownsCurrentPane
 
         // Keep the surface lifecycle and handlers updated even if we defer re-parenting.
         hostedView.attachSurface(terminalSurface)
-        hostedView.setFocusHandler { onFocus?(terminalSurface.id) }
-        hostedView.setTriggerFlashHandler(onTriggerFlash)
         if hostOwnsPortalNow {
+            hostedView.setFocusHandler { onFocus?(terminalSurface.id) }
+            hostedView.setTriggerFlashHandler(onTriggerFlash)
             hostedView.setPaneDropContext(TerminalPaneDropContext(
                 workspaceId: terminalSurface.tabId,
                 panelId: terminalSurface.id,
@@ -12252,12 +12280,15 @@ struct GhosttyTerminalView: NSViewRepresentable {
             host.onDidMoveToWindow = { [weak host, weak hostedView, weak coordinator] in
                 guard let host, let hostedView, let coordinator else { return }
                 guard coordinator.attachGeneration == generation else { return }
+                guard isCurrentPaneOwner() else { return }
                 guard terminalSurface.claimPortalHost(
                     hostId: ObjectIdentifier(host),
                     paneId: paneId,
                     instanceSerial: host.instanceSerial,
+                    ownershipGeneration: ownershipGeneration,
                     inWindow: host.window != nil,
                     bounds: host.bounds,
+                    allowsAuthorityAcquisition: true,
                     reason: "didMoveToWindow"
                 ) else { return }
                 guard host.window != nil else { return }
@@ -12281,12 +12312,15 @@ struct GhosttyTerminalView: NSViewRepresentable {
             host.onGeometryChanged = { [weak host, weak hostedView, weak coordinator] in
                 guard let host, let hostedView, let coordinator else { return }
                 guard coordinator.attachGeneration == generation else { return }
+                guard isCurrentPaneOwner() else { return }
                 guard terminalSurface.claimPortalHost(
                     hostId: ObjectIdentifier(host),
                     paneId: paneId,
                     instanceSerial: host.instanceSerial,
+                    ownershipGeneration: ownershipGeneration,
                     inWindow: host.window != nil,
                     bounds: host.bounds,
+                    allowsAuthorityAcquisition: true,
                     reason: "geometryChanged"
                 ) else { return }
                 guard portalBindingStillLive() else { return }
