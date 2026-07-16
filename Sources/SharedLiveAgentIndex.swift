@@ -23,6 +23,8 @@ final class SharedLiveAgentIndex {
     private var refreshTask: Task<Void, Never>?
     private var forkAvailabilityRefreshTask: Task<Void, Never>?
     private var validatedForkSupport: [ForkProbeKey: ForkSupportValidation] = [:]
+    private var forkExecutableWatchSources: [ForkProbeKey: [DispatchSourceFileSystemObject]] = [:]
+    private var forkExecutableWatchGenerations: [ForkProbeKey: UUID] = [:]
     private var validatedForkPanels = Set<RestorableAgentSessionIndex.PanelKey>()
     private var validatedMissingForkPanels: [RestorableAgentSessionIndex.PanelKey: Date] = [:]
     private var pendingForkValidationPanels = Set<ForkProbeKey>()
@@ -33,6 +35,8 @@ final class SharedLiveAgentIndex {
 
     private static let cacheTTL: TimeInterval = 60.0
     private static let forkAvailabilityProbeTTL: TimeInterval = 15.0
+    nonisolated private static let maximumForkExecutableWatchPathCountPerValidation = 32
+    nonisolated private static let maximumForkExecutableWatchSourceCount = 256
     // Floor between event-driven reloads so chatty hook stores cannot keep the
     // measured ~350ms-1.8s loader running at near-continuous duty cycle.
     private static let minEventReloadInterval: TimeInterval = 5.0
@@ -78,6 +82,11 @@ final class SharedLiveAgentIndex {
         forkAvailabilityRefreshTask?.cancel()
         deferredReloadTimer?.cancel()
         directoryWatchSource?.cancel()
+        for sources in forkExecutableWatchSources.values {
+            for source in sources {
+                source.cancel()
+            }
+        }
     }
 
     /// Read the cached snapshot for stale-tolerant callers. Never blocks.
@@ -297,10 +306,17 @@ final class SharedLiveAgentIndex {
 
     private func reload(forcePublish: Bool) async {
         let indexLoader = self.indexLoader
+        let pendingProbeKeysAtStart = pendingForkValidationPanels
         let result = await Task.detached(priority: .utility) {
             indexLoader()
         }.value
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled else {
+            for probeKey in pendingProbeKeysAtStart {
+                pendingForkValidationPanels.remove(probeKey)
+                pendingForkFallbackSnapshots.removeValue(forKey: probeKey)
+            }
+            return
+        }
         let loadedAt = dateProvider()
         let hasPendingForkValidations = !pendingForkValidationPanels.isEmpty
         if forcePublish
@@ -366,17 +382,100 @@ final class SharedLiveAgentIndex {
                     snapshot: snapshot,
                     isRemoteContext: probeKey.isRemoteContext
                 ) {
+                    let requiresExecutableIdentity = AgentForkSupport.requiresForkValidationExecutableIdentity(
+                        snapshot: snapshot,
+                        isRemoteContext: probeKey.isRemoteContext
+                    )
+                    let executableResolutionBeforeProbe: (
+                        status: String,
+                        lookupPath: String?,
+                        realPath: String?,
+                        cachePart: String?,
+                        watchDirectories: [String]
+                    )
+                    if requiresExecutableIdentity {
+                        executableResolutionBeforeProbe = await Task.detached(priority: .utility) {
+                            AgentForkSupport.forkValidationExecutableResolution(
+                                snapshot: snapshot,
+                                isRemoteContext: probeKey.isRemoteContext
+                            )
+                        }.value
+                    } else {
+                        executableResolutionBeforeProbe = ("notRequired", nil, nil, nil, [])
+                    }
+                    let watchGeneration: UUID?
+                    switch executableResolutionBeforeProbe.status {
+                    case "notRequired":
+                        guard !requiresExecutableIdentity else {
+                            removeForkSupportValidation(for: resolvedProbeKey)
+                            continue
+                        }
+                        clearForkExecutableWatch(for: resolvedProbeKey)
+                        watchGeneration = nil
+                    case "skipRemoteLikeContext":
+                        clearForkExecutableWatch(for: resolvedProbeKey)
+                        watchGeneration = nil
+                    case "unresolved":
+                        storeRejectedForkSupportValidation(
+                            identity: identity,
+                            for: resolvedProbeKey
+                        )
+                        continue
+                    case "resolved":
+                        guard let lookupPath = executableResolutionBeforeProbe.lookupPath,
+                              let realPath = executableResolutionBeforeProbe.realPath else {
+                            removeForkSupportValidation(for: resolvedProbeKey)
+                            continue
+                        }
+                        watchGeneration = await updateForkExecutableWatch(
+                            for: resolvedProbeKey,
+                            lookupPath: lookupPath,
+                            realPath: realPath,
+                            watchDirectories: executableResolutionBeforeProbe.watchDirectories
+                        )
+                    default:
+                        removeForkSupportValidation(for: resolvedProbeKey)
+                        continue
+                    }
                     let isSupported = await forkSupportProvider(
                         snapshot,
                         probeKey.isRemoteContext
                     )
+                    if requiresExecutableIdentity, isSupported, watchGeneration == nil {
+                        storeRejectedForkSupportValidation(
+                            identity: identity,
+                            for: resolvedProbeKey
+                        )
+                        continue
+                    }
+                    if requiresExecutableIdentity {
+                        let executableResolutionAfterProbe = await Task.detached(priority: .utility) {
+                            AgentForkSupport.forkValidationExecutableResolution(
+                                snapshot: snapshot,
+                                isRemoteContext: probeKey.isRemoteContext
+                            )
+                        }.value
+                        guard Self.forkExecutableResolutionMatches(
+                            executableResolutionAfterProbe,
+                            executableResolutionBeforeProbe
+                        ) else {
+                            removeForkSupportValidation(for: resolvedProbeKey)
+                            continue
+                        }
+                    }
+                    if let watchGeneration {
+                        guard forkExecutableWatchGenerations[resolvedProbeKey] == watchGeneration else {
+                            removeForkSupportValidation(for: resolvedProbeKey)
+                            continue
+                        }
+                    }
                     validatedForkSupport[resolvedProbeKey] = ForkSupportValidation(
                         identity: identity,
                         isSupported: isSupported,
                         completedAt: dateProvider()
                     )
                 } else {
-                    validatedForkSupport.removeValue(forKey: resolvedProbeKey)
+                    removeForkSupportValidation(for: resolvedProbeKey)
                 }
             }
         }
@@ -386,23 +485,244 @@ final class SharedLiveAgentIndex {
         for probeKey: ForkProbeKey,
         snapshot: SessionRestorableAgentSnapshot
     ) -> Bool {
-        guard let validation = validatedForkSupport[probeKey],
-              validation.identity == AgentForkSupport.forkValidationIdentity(
-                snapshot: snapshot,
-                isRemoteContext: probeKey.isRemoteContext
-              ) else {
+        guard let validation = validatedForkSupport[probeKey] else {
             return false
         }
-        return dateProvider().timeIntervalSince(validation.completedAt) < Self.forkAvailabilityProbeTTL
+        guard validation.identity == AgentForkSupport.forkValidationIdentity(
+            snapshot: snapshot,
+            isRemoteContext: probeKey.isRemoteContext
+        ) else {
+            removeForkSupportValidation(for: probeKey)
+            return false
+        }
+        guard dateProvider().timeIntervalSince(validation.completedAt) < Self.forkAvailabilityProbeTTL else {
+            removeForkSupportValidation(for: probeKey)
+            return false
+        }
+        return true
     }
 
     private func pruneForkSupportValidations(
         validPanelKeys: Set<RestorableAgentSessionIndex.PanelKey>,
         now: Date
     ) {
-        validatedForkSupport = validatedForkSupport.filter { probeKey, validation in
-            validPanelKeys.contains(probeKey.panelKey)
-                && now.timeIntervalSince(validation.completedAt) < Self.forkAvailabilityProbeTTL
+        for (probeKey, validation) in validatedForkSupport {
+            if !validPanelKeys.contains(probeKey.panelKey)
+                || now.timeIntervalSince(validation.completedAt) >= Self.forkAvailabilityProbeTTL {
+                removeForkSupportValidation(for: probeKey)
+            }
+        }
+    }
+
+    private func removeForkSupportValidation(for probeKey: ForkProbeKey) {
+        validatedForkSupport.removeValue(forKey: probeKey)
+        clearForkExecutableWatch(for: probeKey)
+    }
+
+    private func storeRejectedForkSupportValidation(
+        identity: String,
+        for probeKey: ForkProbeKey
+    ) {
+        clearForkExecutableWatch(for: probeKey)
+        validatedForkSupport[probeKey] = ForkSupportValidation(
+            identity: identity,
+            isSupported: false,
+            completedAt: dateProvider()
+        )
+    }
+
+    private func clearForkExecutableWatch(for probeKey: ForkProbeKey) {
+        forkExecutableWatchGenerations.removeValue(forKey: probeKey)
+        forkExecutableWatchSources.removeValue(forKey: probeKey)?.forEach { $0.cancel() }
+    }
+
+    private static func forkExecutableResolutionMatches(
+        _ lhs: (
+            status: String,
+            lookupPath: String?,
+            realPath: String?,
+            cachePart: String?,
+            watchDirectories: [String]
+        ),
+        _ rhs: (
+            status: String,
+            lookupPath: String?,
+            realPath: String?,
+            cachePart: String?,
+            watchDirectories: [String]
+        )
+    ) -> Bool {
+        switch (lhs.status, rhs.status) {
+        case ("notRequired", "notRequired"),
+             ("skipRemoteLikeContext", "skipRemoteLikeContext"):
+            return true
+        case ("resolved", "resolved"):
+            return lhs.cachePart == rhs.cachePart
+        default:
+            return false
+        }
+    }
+
+    private func updateForkExecutableWatch(
+        for probeKey: ForkProbeKey,
+        lookupPath: String?,
+        realPath: String?,
+        watchDirectories: [String]
+    ) async -> UUID? {
+        forkExecutableWatchSources.removeValue(forKey: probeKey)?.forEach { $0.cancel() }
+        forkExecutableWatchGenerations.removeValue(forKey: probeKey)
+        guard let lookupPath, let realPath else { return nil }
+        let generation = UUID()
+        let openedFileDescriptors = await Task.detached(priority: .utility) {
+            Self.openForkExecutableWatchFileDescriptors(
+                lookupPath: lookupPath,
+                realPath: realPath,
+                watchDirectories: watchDirectories
+            )
+        }.value
+        guard let openedFileDescriptors else {
+            return nil
+        }
+        let activeWatchCount = forkExecutableWatchSources.reduce(0) { partial, item in
+            item.key == probeKey ? partial : partial + item.value.count
+        }
+        guard activeWatchCount + openedFileDescriptors.count <= Self.maximumForkExecutableWatchSourceCount else {
+            openedFileDescriptors.forEach { Darwin.close($0) }
+            return nil
+        }
+
+        var sources: [DispatchSourceFileSystemObject] = []
+        for fileDescriptor in openedFileDescriptors {
+            let source = DispatchSource.makeFileSystemObjectSource(
+                fileDescriptor: fileDescriptor,
+                eventMask: [.write, .delete, .rename, .revoke, .extend, .attrib, .link],
+                queue: watchQueue
+            )
+            source.setEventHandler { [weak self] in
+                Task { @MainActor [weak self] in
+                    guard let self,
+                          self.forkExecutableWatchGenerations[probeKey] == generation else {
+                        return
+                    }
+                    self.removeForkSupportValidation(for: probeKey)
+                    NotificationCenter.default.post(
+                        name: .sharedLiveAgentIndexDidChange,
+                        object: self,
+                        userInfo: [
+                            "workspaceId": probeKey.panelKey.workspaceId,
+                            "panelId": probeKey.panelKey.panelId,
+                        ]
+                    )
+                }
+            }
+            source.setCancelHandler {
+                Darwin.close(fileDescriptor)
+            }
+            sources.append(source)
+        }
+        forkExecutableWatchGenerations[probeKey] = generation
+        forkExecutableWatchSources[probeKey] = sources
+        for source in sources {
+            source.resume()
+        }
+        return generation
+    }
+
+    nonisolated private static func openForkExecutableWatchFileDescriptors(
+        lookupPath: String,
+        realPath: String,
+        watchDirectories: [String]
+    ) -> [Int32]? {
+        var watchPaths = Set<String>()
+        watchPaths.insert(realPath)
+        let lookupDirectory = URL(fileURLWithPath: lookupPath).deletingLastPathComponent().path
+        watchPaths.insert(lookupDirectory)
+        guard insertForkExecutableSymlinkRetargetWatchPaths(
+            forPath: lookupDirectory,
+            into: &watchPaths
+        ) else {
+            return nil
+        }
+        for watchDirectory in watchDirectories {
+            guard let watchPath = watchableDirectoryPath(forDirectoryPath: watchDirectory) else {
+                return nil
+            }
+            watchPaths.insert(watchPath)
+            guard insertForkExecutableSymlinkRetargetWatchPaths(
+                forPath: watchDirectory,
+                into: &watchPaths
+            ) else {
+                return nil
+            }
+        }
+        guard watchPaths.count <= maximumForkExecutableWatchPathCountPerValidation else {
+            return nil
+        }
+
+        var openedFileDescriptors: [Int32] = []
+        for watchPath in watchPaths {
+            let fileDescriptor = Darwin.open(watchPath, O_EVTONLY)
+            guard fileDescriptor >= 0 else {
+                openedFileDescriptors.forEach { Darwin.close($0) }
+                return nil
+            }
+            openedFileDescriptors.append(fileDescriptor)
+        }
+        return openedFileDescriptors
+    }
+
+    nonisolated private static func insertForkExecutableSymlinkRetargetWatchPaths(
+        forPath path: String,
+        into watchPaths: inout Set<String>
+    ) -> Bool {
+        guard let symlinkParentPaths = symlinkParentWatchPaths(forPath: path) else {
+            return false
+        }
+        for symlinkParentPath in symlinkParentPaths {
+            guard let watchPath = watchableDirectoryPath(forDirectoryPath: symlinkParentPath) else {
+                return false
+            }
+            watchPaths.insert(watchPath)
+        }
+        return true
+    }
+
+    nonisolated private static func symlinkParentWatchPaths(forPath path: String) -> Set<String>? {
+        let components = URL(fileURLWithPath: path).standardizedFileURL.pathComponents
+        guard components.first == "/" else { return [] }
+        var watchPaths = Set<String>()
+        var current = URL(fileURLWithPath: "/", isDirectory: true)
+        for component in components.dropFirst() {
+            let candidate = current.appendingPathComponent(component)
+            var status = stat()
+            let result = candidate.path.withCString { pointer in
+                Darwin.lstat(pointer, &status)
+            }
+            if result == 0,
+               (status.st_mode & mode_t(S_IFMT)) == mode_t(S_IFLNK) {
+                watchPaths.insert(current.path)
+            } else if result != 0,
+                      errno != ENOENT,
+                      errno != ENOTDIR {
+                return nil
+            }
+            current = candidate
+        }
+        return watchPaths
+    }
+
+    nonisolated private static func watchableDirectoryPath(forDirectoryPath path: String) -> String? {
+        let fileManager = FileManager.default
+        var url = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL
+        while true {
+            var isDirectory: ObjCBool = false
+            if fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory),
+               isDirectory.boolValue {
+                return url.path
+            }
+            let parent = url.deletingLastPathComponent()
+            guard parent.path != url.path else { return nil }
+            url = parent
         }
     }
 

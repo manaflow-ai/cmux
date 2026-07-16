@@ -394,6 +394,9 @@ extension CMUXCLI {
         if launcher == "pi" || launcher == "omp" {
             return launcher
         }
+        if !normalizedAgent.isEmpty || launcher != nil {
+            return nil
+        }
         let capturedExecutable = [
             launchCommand?.executablePath,
             launchCommand?.arguments.first,
