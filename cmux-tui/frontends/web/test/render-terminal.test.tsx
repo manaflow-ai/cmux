@@ -53,7 +53,7 @@ beforeEach(() => {
 describe("RenderTerminal DOM grid", () => {
   it("renders one absolute row per model row, authoritative run width, and server cursor geometry", () => {
     const { container } = render(
-      <RenderTerminal client={{ protocol: 7 } as CmuxClient} clients={[]} surface={7} error={null} onError={vi.fn()} />,
+      <RenderTerminal client={{ protocol: 7 } as CmuxClient} clients={[]} surface={7} active error={null} onError={vi.fn()} />,
     );
 
     expect(container.querySelectorAll(".render-row")).toHaveLength(2);
@@ -68,7 +68,7 @@ describe("RenderTerminal DOM grid", () => {
 
   it("routes mobile navigation through terminal-mode-aware named keys", () => {
     const { getByLabelText } = render(
-      <RenderTerminal client={{ protocol: 7 } as CmuxClient} clients={[]} surface={7} error={null} onError={vi.fn()} />,
+      <RenderTerminal client={{ protocol: 7 } as CmuxClient} clients={[]} surface={7} active error={null} onError={vi.fn()} />,
     );
 
     fireEvent.click(getByLabelText("Left arrow"));

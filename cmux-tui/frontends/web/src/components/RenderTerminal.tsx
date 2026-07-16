@@ -9,6 +9,7 @@ interface RenderTerminalProps {
   client: CmuxClient;
   clients: ClientInfo[];
   surface: Id;
+  active: boolean;
   error: string | null;
   onError(error: Error): void;
 }
@@ -39,7 +40,7 @@ const RenderRowView = memo(function RenderRowView({ row, index, defaultFg, defau
   );
 });
 
-export function RenderTerminal({ client, clients, surface, error, onError }: RenderTerminalProps) {
+export function RenderTerminal({ client, clients, surface, active, error, onError }: RenderTerminalProps) {
   const {
     terminalRef,
     focused,
@@ -49,7 +50,7 @@ export function RenderTerminal({ client, clients, surface, error, onError }: Ren
     backToLive,
     sendKey,
     sendText,
-  } = useRenderTerminal({ client, surface, onError });
+  } = useRenderTerminal({ client, surface, active, onError });
   const rows = history.active ? history.rows : (model?.rows ?? []);
   const defaultFg = model?.defaultFg ?? "var(--terminal-foreground)";
   const defaultBg = model?.defaultBg ?? "var(--terminal-background)";

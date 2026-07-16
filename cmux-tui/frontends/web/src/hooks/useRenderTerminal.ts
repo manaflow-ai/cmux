@@ -10,6 +10,7 @@ import {
   type RenderStateEvent,
 } from "cmux/browser";
 import { debounce } from "../lib/debounce";
+import { syncCanvasBackground } from "../lib/canvasTheme";
 import { isForeignSmaller, nextFitSize, type TerminalSize } from "../lib/fit";
 import { createFrameBatch } from "../lib/frameBatch";
 import { encodeTerminalKey } from "../lib/keyEncoding";
@@ -28,6 +29,7 @@ import {
 interface RenderTerminalOptions {
   client: CmuxClient | null;
   surface: Id | null;
+  active: boolean;
   onError(error: Error): void;
 }
 
@@ -105,11 +107,20 @@ interface RenderTerminalController {
   sendText(text: string, paste?: boolean): void;
 }
 
-export function useRenderTerminal({ client, surface, onError }: RenderTerminalOptions) {
+export function useRenderTerminal({ client, surface, active, onError }: RenderTerminalOptions) {
   const [host, setHost] = useState<HTMLDivElement | null>(null);
   const [state, dispatch] = useReducer(renderTerminalViewReducer, initialState);
   const controllerRef = useRef<RenderTerminalController | null>(null);
+  const activeRef = useRef(active);
+  activeRef.current = active;
   const terminalRef = useCallback((node: HTMLDivElement | null) => setHost(node), []);
+
+  useEffect(() => {
+    const stage = host?.closest<HTMLElement>(".terminal-stage");
+    const background = state.model?.defaultBg ?? stage?.style.getPropertyValue("--surface-background");
+    if (!host || !background) return;
+    syncCanvasBackground(host, background, active);
+  }, [active, host, state.model?.defaultBg]);
 
   useEffect(() => {
     if (!host || !client || surface === null) return;
@@ -132,6 +143,10 @@ export function useRenderTerminal({ client, surface, onError }: RenderTerminalOp
     const textarea = host.querySelector<HTMLTextAreaElement>("[data-render-input]");
     const probe = host.querySelector<HTMLElement>("[data-render-probe]");
     const metrics = { width: 0, height: 0 };
+    const applySurfaceBackground = (background: string) => {
+      stage?.style.setProperty("--surface-background", background);
+      syncCanvasBackground(host, background, activeRef.current);
+    };
 
     dispatch({ type: "bind", client, surface });
     const frameBatch = createFrameBatch<void>(() => {
@@ -447,7 +462,7 @@ export function useRenderTerminal({ client, surface, onError }: RenderTerminalOp
           if (event.event === "render-state") {
             currentModel = applySnapshot(event as RenderStateEvent);
             resetHistoryCache(currentModel.scrollbackRows, false);
-            stage?.style.setProperty("--surface-background", currentModel.defaultBg);
+            applySurfaceBackground(currentModel.defaultBg);
             updateForeignSize();
             applyFit();
             scheduleFrame();
@@ -471,7 +486,7 @@ export function useRenderTerminal({ client, surface, onError }: RenderTerminalOp
             } else if (reconciliation.window !== cache) {
               cache = reconciliation.window;
             }
-            stage?.style.setProperty("--surface-background", nextModel.defaultBg);
+            applySurfaceBackground(nextModel.defaultBg);
             updateForeignSize();
             if (renderDelta.size !== undefined) {
               pendingFit = null;
