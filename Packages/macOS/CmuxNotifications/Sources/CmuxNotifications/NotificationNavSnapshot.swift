@@ -27,6 +27,9 @@ public struct NotificationNavSnapshot: Sendable, Equatable, Identifiable {
     /// opens via ``NotificationClickRouting`` (a side effect such as revealing a
     /// path in Finder) rather than focusing a terminal surface.
     public let clickAction: NotificationNavClickAction?
+    /// Background website click target, when this notification belongs to a
+    /// service worker rather than a terminal surface.
+    public let websiteClickTarget: NotificationNavWebsiteClickTarget?
     /// Bottom-relative terminal scrollback row captured when the notification was recorded.
     public let scrollRow: Int?
     /// Total terminal scrollback rows visible to Ghostty when `scrollRow` was captured.
@@ -56,6 +59,7 @@ public struct NotificationNavSnapshot: Sendable, Equatable, Identifiable {
         retargetsToLiveSurfaceOwner: Bool = true,
         isRead: Bool,
         clickAction: NotificationNavClickAction?,
+        websiteClickTarget: NotificationNavWebsiteClickTarget? = nil,
         scrollRow: Int? = nil,
         scrollTotalRows: Int? = nil,
         scrollRowSpaceRevision: UInt64? = nil
@@ -67,6 +71,7 @@ public struct NotificationNavSnapshot: Sendable, Equatable, Identifiable {
         self.retargetsToLiveSurfaceOwner = retargetsToLiveSurfaceOwner
         self.isRead = isRead
         self.clickAction = clickAction
+        self.websiteClickTarget = websiteClickTarget
         self.scrollRow = scrollRow
         self.scrollTotalRows = scrollTotalRows
         self.scrollRowSpaceRevision = scrollRowSpaceRevision

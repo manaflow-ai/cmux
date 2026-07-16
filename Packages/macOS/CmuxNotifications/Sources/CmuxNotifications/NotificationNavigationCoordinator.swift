@@ -29,6 +29,7 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
     private let unreadTargeting: any UnreadWorkspaceTargeting
     private let openRouting: any NotificationOpenRouting
     private let clickRouting: any NotificationClickRouting
+    private let websiteClickRouting: (any NotificationWebsiteClickRouting)?
     private let focusedResolving: any FocusedNotificationResolving
     private let explicitFocusedJump: ((UUID?, UUID?) -> UUID?)?
     /// The focused-mark state machine. Lazy so its default jump closure can
@@ -67,6 +68,7 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
         unreadTargeting: any UnreadWorkspaceTargeting,
         openRouting: any NotificationOpenRouting,
         clickRouting: any NotificationClickRouting,
+        websiteClickRouting: (any NotificationWebsiteClickRouting)? = nil,
         focusedResolving: any FocusedNotificationResolving,
         focusedJump: ((_ excludingNotificationId: UUID?, _ excludingWorkspaceId: UUID?) -> UUID?)? = nil
     ) {
@@ -75,6 +77,7 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
         self.unreadTargeting = unreadTargeting
         self.openRouting = openRouting
         self.clickRouting = clickRouting
+        self.websiteClickRouting = websiteClickRouting
         self.focusedResolving = focusedResolving
         self.explicitFocusedJump = focusedJump
     }
@@ -216,6 +219,15 @@ public final class NotificationNavigationCoordinator: NotificationDeliveryTermin
             scrollTotalRows: notification.scrollTotalRows,
             scrollRowSpaceRevision: notification.scrollRowSpaceRevision
         )
+    }
+
+    /// Opens a website notification delivered by the OS when only its stable
+    /// id and serialized display-origin fallback are available.
+    @discardableResult
+    public func openWebsiteNotification(id: UUID, fallbackDisplayOrigin: URL) -> Bool {
+        _ = id
+        _ = fallbackDisplayOrigin
+        return false
     }
 
     /// Opens a notification response from the OS notification center by first

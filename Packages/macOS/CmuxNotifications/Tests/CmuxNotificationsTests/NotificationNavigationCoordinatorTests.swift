@@ -67,12 +67,24 @@ private final class FakeClickRouting: NotificationClickRouting {
 }
 
 @MainActor
+private final class FakeWebsiteClickRouting: NotificationWebsiteClickRouting {
+    var succeeds = true
+    private(set) var opens: [(id: UUID, fallbackDisplayOrigin: URL)] = []
+
+    func openWebsiteNotification(id: UUID, fallbackDisplayOrigin: URL) -> Bool {
+        opens.append((id, fallbackDisplayOrigin))
+        return succeeds
+    }
+}
+
+@MainActor
 private func makeCoordinator(
     store: FakeStore = FakeStore(),
     windows: FakeWindows = FakeWindows(),
     unreadTargeting: FakeUnreadTargeting = FakeUnreadTargeting(),
     openRouting: FakeOpenRouting = FakeOpenRouting(),
     clickRouting: FakeClickRouting = FakeClickRouting(),
+    websiteClickRouting: FakeWebsiteClickRouting = FakeWebsiteClickRouting(),
     focusedResolving: FakeFocusedResolving = FakeFocusedResolving()
 ) -> NotificationNavigationCoordinator {
     NotificationNavigationCoordinator(
@@ -81,6 +93,7 @@ private func makeCoordinator(
         unreadTargeting: unreadTargeting,
         openRouting: openRouting,
         clickRouting: clickRouting,
+        websiteClickRouting: websiteClickRouting,
         focusedResolving: focusedResolving
     )
 }
@@ -92,6 +105,7 @@ private func snapshot(
     retargetsToLiveSurfaceOwner: Bool = true,
     isRead: Bool = false,
     clickAction: NotificationNavClickAction? = nil,
+    websiteClickTarget: NotificationNavWebsiteClickTarget? = nil,
     scrollRow: Int? = nil,
     scrollTotalRows: Int? = nil,
     scrollRowSpaceRevision: UInt64? = nil,
@@ -105,6 +119,7 @@ private func snapshot(
         retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
         isRead: isRead,
         clickAction: clickAction,
+        websiteClickTarget: websiteClickTarget,
         scrollRow: scrollRow,
         scrollTotalRows: scrollTotalRows,
         scrollRowSpaceRevision: scrollRowSpaceRevision
@@ -116,6 +131,42 @@ private func snapshot(
 @Suite(.serialized)
 @MainActor
 struct NotificationNavigationCoordinatorTests {
+    @Test("accepted website route marks read through the shared coordinator path")
+    func acceptedWebsiteRouteMarksRead() {
+        let store = FakeStore()
+        let router = FakeWebsiteClickRouting()
+        let origin = URL(string: "http://localhost:4317")!
+        let notification = snapshot(
+            tabId: UUID(),
+            websiteClickTarget: NotificationNavWebsiteClickTarget(displayOrigin: origin)
+        )
+        store.orderedNotifications = [notification]
+        let coordinator = makeCoordinator(store: store, websiteClickRouting: router)
+
+        #expect(coordinator.openNotification(notification))
+        #expect(router.opens.map(\.id) == [notification.id])
+        #expect(router.opens.map(\.fallbackDisplayOrigin) == [origin])
+        #expect(store.markedReadIds == [notification.id])
+    }
+
+    @Test("rejected website route leaves the notification unread")
+    func rejectedWebsiteRouteLeavesUnread() {
+        let store = FakeStore()
+        let router = FakeWebsiteClickRouting()
+        router.succeeds = false
+        let notification = snapshot(
+            tabId: UUID(),
+            websiteClickTarget: NotificationNavWebsiteClickTarget(
+                displayOrigin: URL(string: "https://example.com")!
+            )
+        )
+        store.orderedNotifications = [notification]
+        let coordinator = makeCoordinator(store: store, websiteClickRouting: router)
+
+        #expect(!coordinator.openNotification(notification))
+        #expect(router.opens.map(\.id) == [notification.id])
+        #expect(store.markedReadIds.isEmpty)
+    }
     @Test("jumpToLatestUnread opens the first openable unread in store order")
     func picksLatestUnread() {
         let store = FakeStore()

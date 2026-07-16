@@ -35,6 +35,7 @@ private final class FakeTerminalNavigation: NotificationDeliveryTerminalNavigati
         fallbackRetargetsToLiveSurfaceOwner: Bool
     )] = []
     private(set) var performedClickActions: [NotificationNavClickAction] = []
+    private(set) var websiteOpens: [(id: UUID, fallbackDisplayOrigin: URL)] = []
     private(set) var markedReadIds: [UUID] = []
 
     func open(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
@@ -55,6 +56,11 @@ private final class FakeTerminalNavigation: NotificationDeliveryTerminalNavigati
     func performClickAction(_ action: NotificationNavClickAction) -> Bool {
         performedClickActions.append(action)
         return performSucceeds
+    }
+
+    func openWebsiteNotification(id: UUID, fallbackDisplayOrigin: URL) -> Bool {
+        websiteOpens.append((id, fallbackDisplayOrigin))
+        return openSucceeds
     }
 
     func markNotificationRead(id: UUID) {
@@ -95,6 +101,39 @@ private final class DummyNotificationDelegate: NSObject, UNUserNotificationCente
 @Suite(.serialized)
 @MainActor
 struct NotificationDeliveryCoordinatorTests {
+    @Test("website default action routes serialized display-origin fallback")
+    func websiteDefaultActionRoutesSerializedFallback() {
+        let terminal = FakeTerminalNavigation()
+        let notificationId = UUID()
+        let coordinator = makeCoordinator(terminalNavigation: terminal)
+
+        coordinator.handle(NotificationDeliveryResponse(
+            categoryIdentifier: "terminal.category",
+            actionIdentifier: UNNotificationDefaultActionIdentifier,
+            requestIdentifier: notificationId.uuidString,
+            userInfo: ["websiteDisplayOrigin": "http://localhost:4317"]
+        ))
+
+        #expect(terminal.websiteOpens.map(\.id) == [notificationId])
+        #expect(terminal.websiteOpens.map(\.fallbackDisplayOrigin.absoluteString) == ["http://localhost:4317"])
+        #expect(terminal.storedOpens.isEmpty)
+    }
+
+    @Test("website serialized fallback rejects non-HTTP origins")
+    func websiteFallbackRejectsNonHTTPOrigin() {
+        let terminal = FakeTerminalNavigation()
+        let coordinator = makeCoordinator(terminalNavigation: terminal)
+
+        coordinator.handle(NotificationDeliveryResponse(
+            categoryIdentifier: "terminal.category",
+            actionIdentifier: "terminal.show",
+            requestIdentifier: UUID().uuidString,
+            userInfo: ["websiteDisplayOrigin": "file:///tmp/not-an-origin"]
+        ))
+
+        #expect(terminal.websiteOpens.isEmpty)
+        #expect(terminal.storedOpens.isEmpty)
+    }
     @Test("configure installs terminal and Feed categories and delegate")
     func configureInstallsCategoriesAndDelegate() throws {
         let center = FakeNotificationCenter()
