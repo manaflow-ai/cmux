@@ -271,7 +271,6 @@ impl BrowserRuntime {
     ) -> anyhow::Result<Arc<Self>> {
         let (event_tx, event_rx) = sync_channel(CDP_EVENT_QUEUE_CAPACITY);
         let client = CdpClient::connect(web_socket_url, event_tx)?;
-        client.set_discover_targets(true)?;
         let stealth_user_agent = if source == BrowserSource::Launched {
             client.browser_version().ok().and_then(|ua| clean_headless_user_agent(&ua))
         } else {
@@ -285,7 +284,8 @@ impl BrowserRuntime {
             routes: Mutex::new(Routes::default()),
             closed: AtomicBool::new(false),
         });
-        start_router(runtime.clone(), event_rx)?;
+        start_router(Arc::downgrade(&runtime), event_rx)?;
+        runtime.client.set_discover_targets(true)?;
         Ok(runtime)
     }
 
@@ -383,6 +383,7 @@ impl BrowserRuntime {
 
     pub fn shutdown(&self) {
         self.closed.store(true, Ordering::Release);
+        let _ = self.client.flush_outbound(Duration::from_secs(1));
         if let Some(chrome) = &self.chrome {
             chrome.kill();
         }
@@ -598,9 +599,10 @@ fn sanitize_session_name(name: &str) -> String {
     if trimmed.is_empty() { "default".to_string() } else { trimmed.to_string() }
 }
 
-fn start_router(runtime: Arc<BrowserRuntime>, events: Receiver<CdpEvent>) -> anyhow::Result<()> {
+fn start_router(runtime: Weak<BrowserRuntime>, events: Receiver<CdpEvent>) -> anyhow::Result<()> {
     std::thread::Builder::new().name("browser-runtime-events".into()).spawn(move || {
         while let Ok(event) = events.recv() {
+            let Some(runtime) = runtime.upgrade() else { break };
             match event {
                 CdpEvent::ScreencastFrame(frame) => {
                     let tx = {

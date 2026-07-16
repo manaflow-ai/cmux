@@ -1146,6 +1146,12 @@ pub fn serve_websocket(
     let token = token.filter(|value| !value.trim().is_empty()).ok_or_else(|| {
         anyhow::anyhow!("WebSocket control requires --ws-token or server.ws_token")
     })?;
+    let auth_message_bytes = serde_json::to_vec(&json!({"auth": {"token": &token}}))?.len();
+    if auth_message_bytes > WEBSOCKET_AUTH_MAX_BYTES {
+        anyhow::bail!(
+            "WebSocket token produces a {auth_message_bytes}-byte auth message; maximum is {WEBSOCKET_AUTH_MAX_BYTES} bytes"
+        );
+    }
     let listener = TcpListener::bind(addr)?;
     let local_addr = listener.local_addr()?;
     let shutdown = Arc::new(AtomicBool::new(false));

@@ -83,12 +83,17 @@ pub struct CdpClient {
 }
 
 struct Inner {
-    outbound: Sender<String>,
+    outbound: Sender<Outbound>,
     pending: Mutex<HashMap<u64, Sender<Result<Value, String>>>>,
     events: SyncSender<CdpEvent>,
     next_id: AtomicU64,
     closed: AtomicBool,
     timeout: Duration,
+}
+
+enum Outbound {
+    Message(String),
+    Flush(Sender<()>),
 }
 
 impl CdpClient {
@@ -127,7 +132,7 @@ impl CdpClient {
     fn spawn_reader(
         &self,
         ws: WebSocket<TcpStream>,
-        outbound: Receiver<String>,
+        outbound: Receiver<Outbound>,
     ) -> anyhow::Result<()> {
         let weak = Arc::downgrade(&self.inner);
         std::thread::Builder::new().name("cmux-tui-cdp-reader".into()).spawn(move || {
@@ -219,6 +224,20 @@ impl CdpClient {
             "params": { "targetId": target_id },
         });
         self.send_value(&msg)
+    }
+
+    /// Wait until every command queued before this call has been written to
+    /// the socket. Responses remain asynchronous.
+    pub fn flush_outbound(&self, timeout: Duration) -> anyhow::Result<()> {
+        if self.inner.closed.load(Ordering::Acquire) {
+            anyhow::bail!("CDP connection is closed");
+        }
+        let (tx, rx) = channel();
+        self.inner
+            .outbound
+            .send(Outbound::Flush(tx))
+            .map_err(|_| anyhow::anyhow!("CDP connection is closed"))?;
+        rx.recv_timeout(timeout).map_err(|_| anyhow::anyhow!("timed out flushing CDP commands"))
     }
 
     pub fn page_enable(&self, session_id: &str) -> anyhow::Result<()> {
@@ -408,7 +427,10 @@ impl CdpClient {
         if cdp_debug() {
             eprintln!("cdp-> {text}");
         }
-        self.inner.outbound.send(text).map_err(|_| anyhow::anyhow!("CDP connection is closed"))?;
+        self.inner
+            .outbound
+            .send(Outbound::Message(text))
+            .map_err(|_| anyhow::anyhow!("CDP connection is closed"))?;
         Ok(())
     }
 }
@@ -429,7 +451,7 @@ pub fn discover_browser_ws_url(ports: &[u16]) -> Option<String> {
     ports.iter().find_map(|port| fetch_json_version("127.0.0.1", *port).ok())
 }
 
-fn reader_loop(weak: &Weak<Inner>, mut ws: WebSocket<TcpStream>, outbound: &Receiver<String>) {
+fn reader_loop(weak: &Weak<Inner>, mut ws: WebSocket<TcpStream>, outbound: &Receiver<Outbound>) {
     loop {
         let Some(inner) = weak.upgrade() else { break };
         if inner.closed.load(Ordering::Acquire) {
@@ -470,11 +492,14 @@ fn reader_loop(weak: &Weak<Inner>, mut ws: WebSocket<TcpStream>, outbound: &Rece
 
 fn drain_outbound(
     ws: &mut WebSocket<TcpStream>,
-    outbound: &Receiver<String>,
+    outbound: &Receiver<Outbound>,
 ) -> anyhow::Result<()> {
     loop {
         match outbound.try_recv() {
-            Ok(text) => ws.send(Message::Text(text.into()))?,
+            Ok(Outbound::Message(text)) => ws.send(Message::Text(text.into()))?,
+            Ok(Outbound::Flush(done)) => {
+                let _ = done.send(());
+            }
             Err(TryRecvError::Empty | TryRecvError::Disconnected) => return Ok(()),
         }
     }
@@ -537,7 +562,7 @@ fn ack_screencast_frame(inner: &Arc<Inner>, target_session: &str, frame_session:
         "params": { "sessionId": frame_session },
     });
     let Ok(text) = serde_json::to_string(&msg) else { return };
-    let _ = inner.outbound.send(text);
+    let _ = inner.outbound.send(Outbound::Message(text));
 }
 
 fn screencast_frame(params: &Value, session_id: &str) -> Option<ScreencastFrame> {
@@ -693,9 +718,12 @@ fn read_http_response_with_limits(
                 if matches!(
                     e.kind(),
                     std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                ) && Instant::now() >= deadline =>
+                ) =>
             {
-                anyhow::bail!("CDP discovery deadline exceeded")
+                if Instant::now() >= deadline {
+                    anyhow::bail!("CDP discovery deadline exceeded");
+                }
+                continue;
             }
             Err(e) => return Err(e.into()),
         }

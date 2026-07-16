@@ -113,7 +113,7 @@ The first WebSocket frame must be this transport-level preamble:
 {"auth":{"token":"replace-with-a-secret"}}
 ```
 
-The preamble is not a protocol command, has no `id`, and receives no success response. After sending it, the client may immediately send normal protocol requests. A missing, malformed, oversized, or incorrect preamble closes the connection before command dispatch. Listener startup fails when the token is missing or blank.
+The preamble is not a protocol command, has no `id`, and receives no success response. After sending it, the client may immediately send normal protocol requests. A missing, malformed, oversized, or incorrect preamble closes the connection before command dispatch. Listener startup fails when the token is missing, blank, or produces an authentication message larger than 4 KiB.
 
 ### Bind Security
 
