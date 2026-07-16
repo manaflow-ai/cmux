@@ -18,10 +18,13 @@ final class ZenModeController {
     private static let recoveryContentWidthWasPresentKey = "zenMode.recovery.contentWidthWasPresent"
     private static let recoveryContentWidthValueKey = "zenMode.recovery.contentWidthValue"
     private static let recoveryAppliedContentWidthKey = "zenMode.recovery.appliedContentWidth"
+    private static let recoverySidebarVisibilityChangedKey = "zenMode.recovery.sidebarVisibilityChanged"
+    private static let recoveryWindowIDKey = "zenMode.recovery.windowID"
 
     private let defaults: UserDefaults
     private let contentWidthSettings: SessionContentWidthSettings
     private(set) var activeSession: Session?
+    private var interruptedSidebarRecoveryWindowID: UUID?
 
     var isActive: Bool { activeSession != nil }
 
@@ -31,7 +34,7 @@ final class ZenModeController {
     ) {
         self.defaults = defaults
         self.contentWidthSettings = contentWidthSettings
-        restoreInterruptedGlobalSettingsIfNeeded()
+        restoreInterruptedSettingsIfNeeded(captureSidebarRecovery: true)
     }
 
     /// Begins Zen Mode and records only state that must be restored later.
@@ -49,8 +52,10 @@ final class ZenModeController {
         let contentWidthChanged = contentWidthSettings.configuredMaximumWidth(from: storedContentWidth) == nil
 
         recordGlobalSettingsRecovery(
+            windowID: windowID,
             presentationModeChanged: presentationModeChanged,
-            contentWidthChanged: contentWidthChanged
+            contentWidthChanged: contentWidthChanged,
+            sidebarVisibilityChanged: isSidebarVisible
         )
 
         if presentationModeChanged {
@@ -84,7 +89,7 @@ final class ZenModeController {
     /// Ends Zen Mode and restores global settings that still have Zen's values.
     func end() -> Session? {
         guard let activeSession else { return nil }
-        restoreInterruptedGlobalSettingsIfNeeded()
+        restoreInterruptedSettingsIfNeeded(captureSidebarRecovery: false)
         self.activeSession = nil
         return activeSession
     }
@@ -100,15 +105,28 @@ final class ZenModeController {
         end()
     }
 
+    /// Consumes crash recovery after session restoration has recreated the target window.
+    func consumeInterruptedSidebarVisibilityRecovery(windowID: UUID) -> Bool {
+        guard interruptedSidebarRecoveryWindowID == windowID else { return false }
+        interruptedSidebarRecoveryWindowID = nil
+        return true
+    }
+
     private func recordGlobalSettingsRecovery(
+        windowID: UUID,
         presentationModeChanged: Bool,
-        contentWidthChanged: Bool
+        contentWidthChanged: Bool,
+        sidebarVisibilityChanged: Bool
     ) {
-        guard presentationModeChanged || contentWidthChanged else { return }
+        guard presentationModeChanged || contentWidthChanged || sidebarVisibilityChanged else { return }
 
         defaults.set(true, forKey: Self.recoveryActiveKey)
         defaults.set(presentationModeChanged, forKey: Self.recoveryPresentationModeChangedKey)
         defaults.set(contentWidthChanged, forKey: Self.recoveryContentWidthChangedKey)
+        defaults.set(sidebarVisibilityChanged, forKey: Self.recoverySidebarVisibilityChangedKey)
+        if sidebarVisibilityChanged {
+            defaults.set(windowID.uuidString, forKey: Self.recoveryWindowIDKey)
+        }
 
         if presentationModeChanged {
             let previousValue = defaults.string(forKey: WorkspacePresentationModeSettings.modeKey)
@@ -128,8 +146,14 @@ final class ZenModeController {
         }
     }
 
-    private func restoreInterruptedGlobalSettingsIfNeeded() {
+    private func restoreInterruptedSettingsIfNeeded(captureSidebarRecovery: Bool) {
         guard defaults.bool(forKey: Self.recoveryActiveKey) else { return }
+
+        if captureSidebarRecovery,
+           defaults.bool(forKey: Self.recoverySidebarVisibilityChangedKey),
+           let rawWindowID = defaults.string(forKey: Self.recoveryWindowIDKey) {
+            interruptedSidebarRecoveryWindowID = UUID(uuidString: rawWindowID)
+        }
 
         if defaults.bool(forKey: Self.recoveryPresentationModeChangedKey),
            WorkspacePresentationModeSettings.isMinimal(defaults: defaults) {
@@ -175,6 +199,8 @@ final class ZenModeController {
             Self.recoveryContentWidthWasPresentKey,
             Self.recoveryContentWidthValueKey,
             Self.recoveryAppliedContentWidthKey,
+            Self.recoverySidebarVisibilityChangedKey,
+            Self.recoveryWindowIDKey,
         ].forEach(defaults.removeObject(forKey:))
     }
 }

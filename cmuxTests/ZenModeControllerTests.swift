@@ -8,12 +8,25 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite("ZenModeController")
+@Suite("ZenModeController", .serialized)
 @MainActor
-struct ZenModeControllerTests {
+final class ZenModeControllerTests {
+    private let defaultsSuiteName: String
+    private let defaults: UserDefaults
+
+    init() {
+        defaultsSuiteName = "ZenModeControllerTests.\(UUID().uuidString)"
+        defaults = UserDefaults(suiteName: defaultsSuiteName)!
+        defaults.removePersistentDomain(forName: defaultsSuiteName)
+    }
+
+    deinit {
+        defaults.removePersistentDomain(forName: defaultsSuiteName)
+    }
+
     @Test
     func entersAndRestoresOnlyStateItChanges() {
-        let defaults = makeDefaults()
+        let defaults = resetDefaults()
         defaults.set(1120.0, forKey: SessionContentWidthSettings.rememberedMaxWidthKey)
         let controller = ZenModeController(defaults: defaults)
         let windowID = UUID()
@@ -39,7 +52,7 @@ struct ZenModeControllerTests {
 
     @Test
     func preservesStateAlreadyMatchingZenMode() {
-        let defaults = makeDefaults()
+        let defaults = resetDefaults()
         defaults.set(
             WorkspacePresentationModeSettings.Mode.minimal.rawValue,
             forKey: WorkspacePresentationModeSettings.modeKey
@@ -62,7 +75,7 @@ struct ZenModeControllerTests {
 
     @Test
     func doesNotOverwriteSettingsChangedWhileZenModeIsActive() {
-        let defaults = makeDefaults()
+        let defaults = resetDefaults()
         let controller = ZenModeController(defaults: defaults)
         _ = controller.begin(windowID: UUID(), isSidebarVisible: true, isFullScreen: false)
 
@@ -79,7 +92,8 @@ struct ZenModeControllerTests {
 
     @Test
     func restoresTemporaryGlobalSettingsAfterInterruptedSession() {
-        let defaults = makeDefaults()
+        let defaults = resetDefaults()
+        let windowID = UUID()
         defaults.set(
             WorkspacePresentationModeSettings.Mode.standard.rawValue,
             forKey: WorkspacePresentationModeSettings.modeKey
@@ -89,9 +103,9 @@ struct ZenModeControllerTests {
             forKey: SessionContentWidthSettings.maxWidthKey
         )
         let interruptedController = ZenModeController(defaults: defaults)
-        _ = interruptedController.begin(windowID: UUID(), isSidebarVisible: true, isFullScreen: false)
+        _ = interruptedController.begin(windowID: windowID, isSidebarVisible: true, isFullScreen: false)
 
-        _ = ZenModeController(defaults: defaults)
+        let recoveredController = ZenModeController(defaults: defaults)
 
         #expect(
             defaults.string(forKey: WorkspacePresentationModeSettings.modeKey) ==
@@ -101,17 +115,21 @@ struct ZenModeControllerTests {
             defaults.double(forKey: SessionContentWidthSettings.maxWidthKey) ==
                 SessionContentWidthSettings.noMaximumWidth
         )
+        #expect(recoveredController.consumeInterruptedSidebarVisibilityRecovery(windowID: windowID))
+        #expect(!recoveredController.consumeInterruptedSidebarVisibilityRecovery(windowID: windowID))
     }
 
     @Test
     func terminationReturnsWindowStateLedgerForSynchronousRestoration() {
-        let defaults = makeDefaults()
+        let defaults = resetDefaults()
         let controller = ZenModeController(defaults: defaults)
-        let session = controller.begin(windowID: UUID(), isSidebarVisible: true, isFullScreen: false)
+        let windowID = UUID()
+        let session = controller.begin(windowID: windowID, isSidebarVisible: true, isFullScreen: false)
 
         #expect(controller.restoreForTermination() == session)
         #expect(defaults.object(forKey: WorkspacePresentationModeSettings.modeKey) == nil)
         #expect(defaults.object(forKey: SessionContentWidthSettings.maxWidthKey) == nil)
+        #expect(!ZenModeController(defaults: defaults).consumeInterruptedSidebarVisibilityRecovery(windowID: windowID))
     }
 
     @Test
@@ -137,10 +155,8 @@ struct ZenModeControllerTests {
         #expect(ShortcutAction.toggleZenMode.defaultShortcut == shortcut)
     }
 
-    private func makeDefaults() -> UserDefaults {
-        let suiteName = "ZenModeControllerTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defaults.removePersistentDomain(forName: suiteName)
+    private func resetDefaults() -> UserDefaults {
+        defaults.removePersistentDomain(forName: defaultsSuiteName)
         return defaults
     }
 }
