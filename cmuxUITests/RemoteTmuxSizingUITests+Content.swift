@@ -386,7 +386,7 @@ extension RemoteTmuxSizingUITests {
         XCTAssertTrue(selectTab(named: "split"), "could not select split tab")
         try assertSettles(selectedWindow: split, within: 10, context: "split front")
         mustRunTmux(["resize-window", "-t", "\(sessionName):@\(solo)", "-x", "80", "-y", "24"], "shrinking solo while hidden")
-        Thread.sleep(forTimeInterval: 1.0)
+        try waitWindowSizeStable(window: solo, within: 10, context: "solo hidden after shrink")
         mustRunTmux(["resize-window", "-t", "\(sessionName):@\(solo)", "-x", "150", "-y", "42"], "growing solo while hidden")
         // Reveal and require parity.
         XCTAssertTrue(selectTab(named: "solo"), "could not select solo tab")
