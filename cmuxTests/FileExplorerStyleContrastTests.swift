@@ -45,9 +45,11 @@ import Testing
         }
     }
 
-    @Test func iconTintsMeetContrastInEveryAppearance() throws {
+    @Test func declaredIconTintsMeetContrastInEveryAppearance() throws {
         try forEachAppearance { appearance, background in
             for style in FileExplorerStyle.allCases {
+                // Finder applies these colors as contrast-safe masks over AppKit's native icons;
+                // screenshot verification covers the rendered result.
                 for (kind, tint) in [
                     ("file", style.fileIconTint),
                     ("folder", style.folderIconTint),
