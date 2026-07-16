@@ -153,16 +153,24 @@ extension CMUXCLI {
         let activeConfigURL = URL(fileURLWithPath: configDir, isDirectory: true)
             .appendingPathComponent(def.configFile, isDirectory: false)
         let legacyConfigURL = Self.legacyKimiConfigURL(fileName: def.configFile)
-        let configURLs = [activeConfigURL, legacyConfigURL].reduce(into: [URL]()) { urls, url in
-            let canonicalURL = Self.canonicalKimiConfigURL(url)
-            guard !urls.contains(where: { Self.canonicalKimiConfigURL($0) == canonicalURL }) else { return }
-            urls.append(url)
+        let configURLs = [
+            (url: activeConfigURL, isLegacy: false),
+            (url: legacyConfigURL, isLegacy: true),
+        ].reduce(into: [(url: URL, isLegacy: Bool)]()) { configs, config in
+            let canonicalURL = Self.canonicalKimiConfigURL(config.url)
+            guard !configs.contains(where: { Self.canonicalKimiConfigURL($0.url) == canonicalURL }) else { return }
+            configs.append(config)
         }
 
         var foundConfig = false
-        for configURL in configURLs where FileManager.default.fileExists(atPath: configURL.path) {
+        for config in configURLs where FileManager.default.fileExists(atPath: config.url.path) {
             foundConfig = true
-            _ = try removeKimiHooks(at: configURL, def: def, reportNoChange: true)
+            do {
+                _ = try removeKimiHooks(at: config.url, def: def, reportNoChange: true)
+            } catch {
+                guard config.isLegacy else { throw error }
+                reportKimiLegacyUninstallWarning(legacyConfigURL: config.url)
+            }
         }
         guard !foundConfig else { return }
 
@@ -216,6 +224,17 @@ extension CMUXCLI {
                 defaultValue: "Warning: cmux hooks are active at %@, but cmux could not remove its legacy hook block from %@. Check that path and re-run `cmux hooks setup kimi` to finish cleanup."
             ),
             activeConfigURL.path,
+            legacyConfigURL.path
+        )
+        cliWriteStderr(warning + "\n")
+    }
+
+    private func reportKimiLegacyUninstallWarning(legacyConfigURL: URL) {
+        let warning = String.localizedStringWithFormat(
+            String(
+                localized: "cli.hooks.kimi.legacyUninstallWarning",
+                defaultValue: "Warning: cmux could not remove its legacy hook block from %@. Check that path and re-run `cmux hooks uninstall kimi` to finish cleanup."
+            ),
             legacyConfigURL.path
         )
         cliWriteStderr(warning + "\n")
