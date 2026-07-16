@@ -73,6 +73,7 @@ private final class CoalesceLatestInner<Downstream: Subscriber, Context: Schedul
     private var windowStart: Context.SchedulerTimeType?
     private var pendingValue: Input?
     private var readyValue: Input?
+    private var pendingCompletion: Subscribers.Completion<Never>?
     private var downstreamDemand: Subscribers.Demand = .none
     private var isDelivering = false
     private var trailingScheduled = false
@@ -119,17 +120,12 @@ private final class CoalesceLatestInner<Downstream: Subscriber, Context: Schedul
 
     func receive(completion: Subscribers.Completion<Never>) {
         guard !isCancelled else { return }
+        pendingCompletion = completion
         if let value = pendingValue {
             pendingValue = nil
             enqueueForDelivery(value)
         }
-        guard !isCancelled else { return }
-        // Combine completion is not demand-gated. If no demand remains, the
-        // buffered latest value cannot legally precede completion and drops.
-        readyValue = nil
-        isCancelled = true
-        downstream.receive(completion: completion)
-        upstreamSubscription = nil
+        drainReadyValue()
     }
 
     private func scheduleTrailingEmission(at deadline: Context.SchedulerTimeType) {
@@ -172,7 +168,10 @@ private final class CoalesceLatestInner<Downstream: Subscriber, Context: Schedul
     private func drainReadyValue() {
         guard !isDelivering else { return }
         isDelivering = true
-        defer { isDelivering = false }
+        defer {
+            isDelivering = false
+            finishPendingCompletionIfPossible()
+        }
 
         while !isCancelled,
               downstreamDemand > .none,
@@ -185,10 +184,28 @@ private final class CoalesceLatestInner<Downstream: Subscriber, Context: Schedul
         }
     }
 
+    private func finishPendingCompletionIfPossible() {
+        guard !isCancelled,
+              !isDelivering,
+              let completion = pendingCompletion
+        else { return }
+
+        pendingCompletion = nil
+        // Combine completion is not demand-gated. Values that reentered an
+        // active delivery drain first while demand remains; if demand is zero,
+        // the buffered latest value cannot legally precede completion and drops.
+        readyValue = nil
+        downstreamDemand = .none
+        isCancelled = true
+        downstream.receive(completion: completion)
+        upstreamSubscription = nil
+    }
+
     func cancel() {
         isCancelled = true
         pendingValue = nil
         readyValue = nil
+        pendingCompletion = nil
         downstreamDemand = .none
         upstreamSubscription?.cancel()
         upstreamSubscription = nil
