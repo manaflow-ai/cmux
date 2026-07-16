@@ -66,4 +66,60 @@ struct MobileWorkspacePanePayloadTests {
         #expect(workspace.bonsplitController.selectedTab(inPane: backgroundPaneID)?.id == selectedBackgroundTab)
         #expect(workspace.focusedPanelId == focusedPanelID)
     }
+
+    @Test func staleExpectedTerminalOrderRejectsBeforeMutatingRelativeDestination() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let previousAppDelegate = AppDelegate.shared
+            let appDelegate = AppDelegate()
+            let manager = TabManager()
+            let windowID = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+            AppDelegate.shared = appDelegate
+            defer {
+                appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
+                AppDelegate.shared = previousAppDelegate
+            }
+
+            let workspace = try #require(manager.selectedWorkspace)
+            let firstTerminalID = try #require(workspace.focusedPanelId)
+            let paneID = try #require(workspace.paneId(forPanelId: firstTerminalID))
+            let secondTerminalID = try #require(
+                workspace.newTerminalSurface(inPane: paneID, focus: false)?.id
+            )
+            let thirdTerminalID = try #require(
+                workspace.newTerminalSurface(inPane: paneID, focus: false)?.id
+            )
+            let hostOrder = [firstTerminalID, secondTerminalID, thirdTerminalID]
+            #expect(terminalOrder(in: workspace, paneID: paneID) == hostOrder)
+
+            // The client saw A,C,B and asks to move A after C. If the host applies
+            // index 1 to its newer A,B,C order, A lands after B instead.
+            let staleExpectedOrder = [firstTerminalID, thirdTerminalID, secondTerminalID]
+            let result = await TerminalController.shared.v2MobileTerminalReorder(params: [
+                "window_id": windowID.uuidString,
+                "workspace_id": workspace.id.uuidString,
+                "pane_id": paneID.id.uuidString,
+                "surface_id": firstTerminalID.uuidString,
+                "index": 1,
+                "expected_terminal_ids": staleExpectedOrder.map(\.uuidString),
+            ])
+
+            guard case let .err(code, _, _) = result else {
+                Issue.record("Expected stale terminal order to fail before mutation")
+                #expect(terminalOrder(in: workspace, paneID: paneID) == hostOrder)
+                return
+            }
+            #expect(code == "stale_state")
+            #expect(terminalOrder(in: workspace, paneID: paneID) == hostOrder)
+        }
+    }
+
+    private func terminalOrder(in workspace: Workspace, paneID: PaneID) -> [UUID] {
+        workspace.bonsplitController.tabs(inPane: paneID).compactMap {
+            guard let panelID = workspace.panelIdFromSurfaceId($0.id),
+                  workspace.terminalPanel(for: panelID) != nil else {
+                return nil
+            }
+            return panelID
+        }
+    }
 }
