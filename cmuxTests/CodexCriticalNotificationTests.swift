@@ -247,7 +247,7 @@ struct CodexCriticalNotificationTests {
                 "--transcript", transcriptURL.path,
             ] + additionalArguments,
             environment: environment,
-            timeout: 2
+            timeout: 4
         )
         _ = waitForCondition(timeout: 1) {
             !commands.snapshot().isEmpty || process.timedOut

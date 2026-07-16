@@ -26869,6 +26869,42 @@ struct CMUXCLI {
                 }
             }
 
+            // Stop hooks are fire-and-forget and can land just after the agent
+            // process exits. Give the authoritative transcript/lease signal a
+            // bounded chance to arrive before synthesizing a process-exit error.
+            _ = codexProcessExitedWhileWaitingForTranscriptChange(
+                path: transcriptPath,
+                leasePath: leasePath,
+                codexPID: nil,
+                codexPIDStartTime: nil,
+                timeout: min(2, max(0, deadline.timeIntervalSinceNow))
+            )
+            if isCodexMonitorLeaseRetired(path: leasePath) {
+                return
+            }
+            if let currentTranscriptPath = transcriptPath {
+                switch readCodexTranscriptFailure(
+                    path: currentTranscriptPath,
+                    turnId: turnId,
+                    requireTerminalCompletion: true
+                ) {
+                case .failure(let failure):
+                    publishCodexMonitorFailure(
+                        failure,
+                        sessionId: sessionId,
+                        turnId: turnId,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        client: client
+                    )
+                    return
+                case .healthy:
+                    return
+                case .pending, .unavailable:
+                    break
+                }
+            }
+
             publishCodexMonitorFailure(
                 CodexHookFailureCandidate(
                     message: String(
@@ -26961,9 +26997,9 @@ struct CMUXCLI {
             return true
         }
 
-        // Dispatch handlers communicate only by signaling. No mutable value is
+        // Dispatch handlers perform immutable work items. No mutable value is
         // shared across queues, and the waiting monitor owns both signals.
-        let semaphore = DispatchSemaphore(value: 0)
+        let wake = DispatchWorkItem {}
         let processExit = DispatchWorkItem {}
         var sources: [DispatchSourceFileSystemObject] = []
         var processSource: DispatchSourceProcess?
@@ -26979,7 +27015,7 @@ struct CMUXCLI {
                 queue: DispatchQueue.global(qos: .utility)
             )
             source.setEventHandler {
-                semaphore.signal()
+                wake.perform()
             }
             source.setCancelHandler {
                 close(fd)
@@ -26999,7 +27035,7 @@ struct CMUXCLI {
             )
             source.setEventHandler {
                 processExit.perform()
-                semaphore.signal()
+                wake.perform()
             }
             source.resume()
             processSource = source
@@ -27011,11 +27047,11 @@ struct CMUXCLI {
         }
 
         guard !sources.isEmpty || processSource != nil else {
-            _ = DispatchSemaphore(value: 0).wait(timeout: .now() + timeout)
+            _ = wake.wait(timeout: .now() + timeout)
             return false
         }
 
-        _ = semaphore.wait(timeout: .now() + timeout)
+        _ = wake.wait(timeout: .now() + timeout)
         sources.forEach { $0.cancel() }
         processSource?.cancel()
         return processExit.isFinished
@@ -31372,7 +31408,6 @@ export default CMUXSessionRestore;
             let codexCriticalTurnId = normalizedHookValue(input.turnId)
                 ?? mapped?.activePromptTurnIds?.compactMap({ normalizedHookValue($0) }).last
                 ?? normalizedHookValue(mapped?.activePromptTurnId)
-                ?? normalizedHookValue(mapped?.lastPromptTurnId)
             let codexCriticalFingerprint = def.name == "codex" && stopNotificationStatus == .error
                 ? AgentHookNotificationPolicy.codexCriticalFingerprint(
                     sessionId: sessionId,
