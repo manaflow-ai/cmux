@@ -75,7 +75,6 @@ export default function App() {
       />
       <TerminalPane
         client={connection.client}
-        clients={connection.clients}
         screen={connection.active}
         onSelectTab={connection.selectTab}
         onNewTab={connection.mutations.newTab}

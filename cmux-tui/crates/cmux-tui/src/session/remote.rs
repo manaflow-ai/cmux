@@ -198,8 +198,7 @@ pub struct RemoteSurface {
     pub term: Mutex<Terminal>,
     mouse_encoders: Mutex<MouseEncoders>,
     pub dirty: AtomicBool,
-    server_size: Mutex<(u16, u16)>,
-    asserted_size: Mutex<Option<(u16, u16)>>,
+    reported_size: Mutex<Option<(u16, u16)>>,
     browser: Mutex<RemoteBrowserState>,
 }
 
@@ -257,16 +256,9 @@ impl RemoteSurface {
     pub(super) fn reset_mouse_motion_dedupe(&self) {
         self.mouse_encoders.lock().unwrap().reset_motion_dedupe();
     }
-
-    pub(super) fn set_server_size(&self, cols: u16, rows: u16) {
-        let (cols, rows) = (cols.max(1), rows.max(1));
-        *self.server_size.lock().unwrap() = (cols, rows);
-    }
-
     /// Apply an ordered attach-stream resize marker to the mirror terminal.
     pub(super) fn apply_stream_resize(&self, cols: u16, rows: u16, replay: Option<&[u8]>) {
         let (cols, rows) = (cols.max(1), rows.max(1));
-        self.set_server_size(cols, rows);
         let mut term = self.term.lock().unwrap();
         if let Some(replay) = replay
             && let Ok(mut fresh) = Terminal::new(cols, rows, 10_000, Callbacks::default())
@@ -280,22 +272,18 @@ impl RemoteSurface {
         self.sync_mouse_encoders(&term);
     }
 
-    pub(super) fn server_size(&self) -> (u16, u16) {
-        *self.server_size.lock().unwrap()
+    pub(super) fn reported_size(&self) -> Option<(u16, u16)> {
+        *self.reported_size.lock().unwrap()
     }
 
-    pub(super) fn asserted_size(&self) -> Option<(u16, u16)> {
-        *self.asserted_size.lock().unwrap()
+    pub(super) fn set_reported_size(&self, size: (u16, u16)) {
+        *self.reported_size.lock().unwrap() = Some(size);
     }
 
-    pub(super) fn set_asserted_size(&self, size: (u16, u16)) {
-        *self.asserted_size.lock().unwrap() = Some(size);
-    }
-
-    pub(super) fn clear_asserted_size(&self, size: (u16, u16)) {
-        let mut asserted = self.asserted_size.lock().unwrap();
-        if *asserted == Some(size) {
-            *asserted = None;
+    pub(super) fn clear_reported_size(&self, size: (u16, u16)) {
+        let mut reported = self.reported_size.lock().unwrap();
+        if *reported == Some(size) {
+            *reported = None;
         }
     }
 
@@ -504,9 +492,6 @@ impl RemoteSession {
                 let Some(id) = surface_id() else { return };
                 let cols = value.get("cols").and_then(|v| v.as_u64()).unwrap_or(80) as u16;
                 let rows = value.get("rows").and_then(|v| v.as_u64()).unwrap_or(24) as u16;
-                if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
-                    surface.set_server_size(cols, rows);
-                }
                 self.emit(MuxEvent::SurfaceResized {
                     surface: id,
                     cols,
@@ -523,7 +508,7 @@ impl RemoteSession {
                 let retry_after_ms = value.get("retry_after_ms").and_then(Value::as_u64);
                 let reservation_id = value.get("reservation_id").and_then(Value::as_u64);
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
-                    surface.clear_asserted_size((cols.max(1), rows.max(1)));
+                    surface.clear_reported_size((cols.max(1), rows.max(1)));
                 }
                 self.emit(MuxEvent::SurfaceResizeFailed {
                     surface: id,
@@ -986,8 +971,7 @@ impl RemoteSession {
             term: Mutex::new(term),
             mouse_encoders: Mutex::new(MouseEncoders::new()?),
             dirty: AtomicBool::new(false),
-            server_size: Mutex::new((cols, rows)),
-            asserted_size: Mutex::new(None),
+            reported_size: Mutex::new(None),
             browser: Mutex::new(RemoteBrowserState::default()),
         });
         surface.update_browser_source(source);
@@ -1469,8 +1453,7 @@ mod tests {
             term: Mutex::new(Terminal::new(10, 5, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
-            server_size: Mutex::new((10, 5)),
-            asserted_size: Mutex::new(None),
+            reported_size: Mutex::new(None),
             browser: Mutex::new(RemoteBrowserState::default()),
         };
 
@@ -1511,8 +1494,7 @@ mod tests {
             term: Mutex::new(Terminal::new(20, 6, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
-            server_size: Mutex::new((20, 6)),
-            asserted_size: Mutex::new(None),
+            reported_size: Mutex::new(None),
             browser: Mutex::new(RemoteBrowserState::default()),
         };
         {
@@ -1545,8 +1527,7 @@ mod tests {
             term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
-            server_size: Mutex::new((12, 4)),
-            asserted_size: Mutex::new(None),
+            reported_size: Mutex::new(None),
             browser: Mutex::new(RemoteBrowserState::default()),
         });
         session.surfaces.lock().unwrap().insert(7, surface.clone());
@@ -1566,13 +1547,12 @@ mod tests {
             "replay": base64::engine::general_purpose::STANDARD.encode(replay),
         }));
 
-        assert_eq!(*surface.server_size.lock().unwrap(), (8, 4));
         assert_eq!(surface.term.lock().unwrap().plain_text().unwrap(), expected);
     }
 
     #[cfg(unix)]
     #[test]
-    fn surface_resized_event_reconciles_remote_browser_server_size() {
+    fn surface_resized_event_is_forwarded_without_changing_reported_size() {
         let (client, _server) = UnixStream::pair().unwrap();
         let session = socket_test_session(client);
         let events = session.subscribe();
@@ -1582,8 +1562,7 @@ mod tests {
             term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
-            server_size: Mutex::new((12, 4)),
-            asserted_size: Mutex::new(Some((12, 4))),
+            reported_size: Mutex::new(Some((12, 4))),
             browser: Mutex::new(RemoteBrowserState::default()),
         });
         session.surfaces.lock().unwrap().insert(7, surface.clone());
@@ -1595,7 +1574,7 @@ mod tests {
             "rows": 31,
         }));
 
-        assert_eq!(surface.server_size(), (90, 31));
+        assert_eq!(surface.reported_size(), Some((12, 4)));
         assert!(events.try_iter().any(|event| matches!(
             event,
             MuxEvent::SurfaceResized { surface: 7, cols: 90, rows: 31, .. }
@@ -1604,7 +1583,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn surface_resize_failure_releases_remote_browser_assertion() {
+    fn surface_resize_failure_releases_remote_browser_report() {
         let (client, _server) = UnixStream::pair().unwrap();
         let session = socket_test_session(client);
         let events = session.subscribe();
@@ -1614,8 +1593,7 @@ mod tests {
             term: Mutex::new(Terminal::new(12, 4, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
-            server_size: Mutex::new((12, 4)),
-            asserted_size: Mutex::new(Some((90, 31))),
+            reported_size: Mutex::new(Some((90, 31))),
             browser: Mutex::new(RemoteBrowserState::default()),
         });
         session.surfaces.lock().unwrap().insert(7, surface.clone());
@@ -1629,7 +1607,7 @@ mod tests {
             "retry_after_ms": 250,
         }));
 
-        assert_eq!(surface.asserted_size(), None);
+        assert_eq!(surface.reported_size(), None);
         assert!(events.try_iter().any(|event| matches!(
             event,
             MuxEvent::SurfaceResizeFailed {
@@ -1764,8 +1742,7 @@ mod tests {
                 term: Mutex::new(Terminal::new(80, 24, 100, Callbacks::default()).unwrap()),
                 mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
                 dirty: AtomicBool::new(false),
-                server_size: Mutex::new((80, 24)),
-                asserted_size: Mutex::new(None),
+                reported_size: Mutex::new(None),
                 browser: Mutex::new(RemoteBrowserState::default()),
             }),
         );
@@ -1803,8 +1780,7 @@ mod tests {
             term: Mutex::new(Terminal::new(12, 3, 100, Callbacks::default()).unwrap()),
             mouse_encoders: Mutex::new(MouseEncoders::new().unwrap()),
             dirty: AtomicBool::new(false),
-            server_size: Mutex::new((12, 3)),
-            asserted_size: Mutex::new(None),
+            reported_size: Mutex::new(None),
             browser: Mutex::new(RemoteBrowserState::default()),
         };
         surface.apply_stream_resize(12, 3, None);

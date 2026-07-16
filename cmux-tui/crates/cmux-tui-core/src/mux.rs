@@ -644,6 +644,14 @@ impl Mux {
         }
     }
 
+    pub fn client_surface_size(&self, id: SurfaceId, client: u64) -> Option<(u16, u16)> {
+        self.client_surface_sizes
+            .lock()
+            .unwrap()
+            .get(&id)
+            .and_then(|viewers| viewers.get(&client).copied())
+    }
+
     fn browser_runtime(&self) -> anyhow::Result<Arc<BrowserRuntime>> {
         let mut runtime = self.browser_runtime.lock().unwrap();
         if let Some(existing) = runtime.as_ref().filter(|existing| !existing.is_closed()) {

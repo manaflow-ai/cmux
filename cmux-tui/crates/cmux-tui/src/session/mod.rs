@@ -85,13 +85,8 @@ fn sidebar_status_to_surface(status: SidebarPluginStatus) -> SidebarPluginSurfac
     }
 }
 
-pub(crate) fn resize_action(
-    desired: (u16, u16),
-    asserted: Option<(u16, u16)>,
-    server: (u16, u16),
-    user_interaction: bool,
-) -> bool {
-    if user_interaction { desired != server } else { asserted != Some(desired) }
+pub(crate) fn resize_action(desired: (u16, u16), asserted: Option<(u16, u16)>) -> bool {
+    asserted != Some(desired)
 }
 
 #[derive(Clone)]
@@ -760,7 +755,7 @@ impl SurfaceHandle {
         &self,
         cols: u16,
         rows: u16,
-        reassert: bool,
+        _reassert: bool,
         report: Box<dyn FnOnce(Option<u64>) + Send>,
     ) -> anyhow::Result<bool> {
         let desired = (cols.max(1), rows.max(1));
@@ -773,8 +768,7 @@ impl SurfaceHandle {
                 return Ok(accepted);
             }
             SurfaceHandle::Remote(surface, session) => {
-                if !resize_action(desired, surface.asserted_size(), surface.server_size(), reassert)
-                {
+                if !resize_action(desired, surface.reported_size()) {
                     report(None);
                     return Ok(false);
                 }
@@ -792,11 +786,11 @@ impl SurfaceHandle {
                 };
                 let accepted =
                     response.get("accepted").and_then(serde_json::Value::as_bool).unwrap_or(true);
+                surface.set_reported_size(desired);
                 if !accepted {
                     report(None);
                     return Ok(false);
                 }
-                surface.set_asserted_size(desired);
                 response.get("reservation_id").and_then(serde_json::Value::as_u64).or(Some(0))
             }
             SurfaceHandle::RemoteBrowserUnsupported => {
@@ -808,16 +802,13 @@ impl SurfaceHandle {
         Ok(true)
     }
 
-    pub fn resize_needed(&self, cols: u16, rows: u16, user_interaction: bool) -> bool {
+    pub fn resize_needed(&self, cols: u16, rows: u16, _user_interaction: bool) -> bool {
         let desired = (cols.max(1), rows.max(1));
         match self {
-            SurfaceHandle::Local(surface, _) => surface.resize_needed(desired.0, desired.1),
-            SurfaceHandle::Remote(surface, _) => resize_action(
-                desired,
-                surface.asserted_size(),
-                surface.server_size(),
-                user_interaction,
-            ),
+            SurfaceHandle::Local(surface, mux) => {
+                resize_action(desired, mux.client_surface_size(surface.id, 0))
+            }
+            SurfaceHandle::Remote(surface, _) => resize_action(desired, surface.reported_size()),
             SurfaceHandle::RemoteBrowserUnsupported => false,
         }
     }
@@ -1197,34 +1188,24 @@ mod tests {
     #[test]
     fn first_layout_after_attach_sends_ordered_resize() {
         let desired = (123, 65);
-        let server = (80, 24);
-        assert!(resize_action(desired, None, server, false));
+        assert!(resize_action(desired, None));
     }
 
     #[test]
     fn already_sized_first_layout_does_not_send_redundant_resize() {
         let desired = (123, 65);
-        assert!(!resize_action(desired, Some(desired), desired, false));
+        assert!(!resize_action(desired, Some(desired)));
     }
 
     #[test]
-    fn remote_resize_with_no_local_change_does_not_send() {
+    fn shared_resize_does_not_reassert_unchanged_local_report() {
         let desired = (123, 65);
-        let server = (341, 92);
-        assert!(!resize_action(desired, Some(desired), server, false));
-    }
-
-    #[test]
-    fn remote_resize_followed_by_user_interaction_does_not_send() {
-        let desired = (123, 65);
-        let server = (341, 92);
-        assert!(!resize_action(desired, Some(desired), server, true));
+        assert!(!resize_action(desired, Some(desired)));
     }
 
     #[test]
     fn steady_state_does_not_send() {
         let desired = (123, 65);
-        assert!(!resize_action(desired, Some(desired), desired, false));
-        assert!(!resize_action(desired, Some(desired), desired, true));
+        assert!(!resize_action(desired, Some(desired)));
     }
 }

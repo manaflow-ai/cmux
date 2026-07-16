@@ -11,7 +11,7 @@ import {
 } from "cmux/browser";
 import { debounce } from "../lib/debounce";
 import { syncCanvasBackground } from "../lib/canvasTheme";
-import { isForeignSmaller, nextFitSize, type TerminalSize } from "../lib/fit";
+import { nextFitSize, type TerminalSize } from "../lib/fit";
 import { createFrameBatch } from "../lib/frameBatch";
 import { encodeTerminalKey } from "../lib/keyEncoding";
 import { beginTerminalSelection, clampTerminalSelection, releaseTerminalSelection } from "../lib/terminalSelection";
@@ -46,7 +46,6 @@ interface RenderTerminalViewState {
   surface: Id | null;
   model: RenderModel | null;
   focused: boolean;
-  foreignSize: TerminalSize | null;
   history: RenderHistoryView;
 }
 
@@ -58,11 +57,9 @@ type RenderTerminalViewAction =
     client: CmuxClient;
     surface: Id;
     model: RenderModel;
-    foreignSize: TerminalSize | null;
     history: RenderHistoryView;
   }
   | { type: "focus"; client: CmuxClient; surface: Id; focused: boolean }
-  | { type: "foreign-size"; client: CmuxClient; surface: Id; size: TerminalSize | null }
   | { type: "history"; client: CmuxClient; surface: Id; history: RenderHistoryView };
 
 const emptyHistory: RenderHistoryView = { active: false, loading: false, total: 0, rows: [] };
@@ -71,7 +68,6 @@ const initialState: RenderTerminalViewState = {
   surface: null,
   model: null,
   focused: false,
-  foreignSize: null,
   history: emptyHistory,
 };
 
@@ -90,13 +86,10 @@ function renderTerminalViewReducer(
       return {
         ...state,
         model: action.model,
-        foreignSize: action.foreignSize,
         history: action.history,
       };
     case "focus":
       return { ...state, focused: action.focused };
-    case "foreign-size":
-      return { ...state, foreignSize: action.size };
     case "history":
       return { ...state, history: action.history };
   }
@@ -136,7 +129,6 @@ export function useRenderTerminal({ client, surface, active, onError }: RenderTe
     let composing = false;
     let committedComposition: string | null = null;
     let touchStartY: number | null = null;
-    let publishedForeignSize: TerminalSize | null = null;
     const frames = new Set<number>();
     const stage = host.closest<HTMLElement>(".terminal-stage");
     const scroller = host.querySelector<HTMLElement>("[data-render-scroll]");
@@ -156,7 +148,6 @@ export function useRenderTerminal({ client, surface, active, onError }: RenderTe
         client,
         surface,
         model: currentModel,
-        foreignSize: publishedForeignSize,
         history: historyView(),
       });
     });
@@ -190,19 +181,6 @@ export function useRenderTerminal({ client, surface, active, onError }: RenderTe
       const cols = Math.floor(host.clientWidth / metrics.width);
       const rows = Math.floor(host.clientHeight / metrics.height);
       return cols >= 2 && rows >= 1 ? { cols, rows } : undefined;
-    };
-    const publishForeignSize = (size: TerminalSize | null) => {
-      if (
-        publishedForeignSize?.cols === size?.cols
-        && publishedForeignSize?.rows === size?.rows
-      ) return;
-      if (publishedForeignSize === null && size === null) return;
-      publishedForeignSize = size;
-      dispatch({ type: "foreign-size", client, surface, size });
-    };
-    const updateForeignSize = () => {
-      if (currentModel === null) return;
-      publishedForeignSize = isForeignSmaller(currentModel.size, proposedSize()) ? currentModel.size : null;
     };
     const applyFit = () => {
       if (cancelled || currentModel === null) return;
@@ -466,7 +444,6 @@ export function useRenderTerminal({ client, surface, active, onError }: RenderTe
             currentModel = applySnapshot(event as RenderStateEvent);
             resetHistoryCache(currentModel.scrollbackRows, false);
             applySurfaceBackground(currentModel.defaultBg);
-            updateForeignSize();
             applyFit();
             scheduleFrame();
           } else if (event.event === "render-delta" && currentModel !== null) {
@@ -490,7 +467,6 @@ export function useRenderTerminal({ client, surface, active, onError }: RenderTe
               cache = reconciliation.window;
             }
             applySurfaceBackground(nextModel.defaultBg);
-            updateForeignSize();
             if (!historyActive) {
               scheduleAfterRender(() => {
                 if (scroller !== null) scroller.scrollTop = scroller.scrollHeight;
@@ -545,7 +521,6 @@ export function useRenderTerminal({ client, surface, active, onError }: RenderTe
   return {
     terminalRef,
     focused: bound && state.focused,
-    foreignSize: bound ? state.foreignSize : null,
     model: bound ? state.model : null,
     history: bound ? state.history : emptyHistory,
     backToLive,

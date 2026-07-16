@@ -1,5 +1,5 @@
 import { memo, type CSSProperties } from "react";
-import type { ClientInfo, CmuxClient, Id, RenderRow } from "cmux/browser";
+import type { CmuxClient, Id, RenderRow } from "cmux/browser";
 import { useRenderTerminal } from "../hooks/useRenderTerminal";
 import { t } from "../i18n";
 import { runPresentation } from "../lib/renderStyles";
@@ -7,7 +7,6 @@ import { TerminalFrame } from "./TerminalFrame";
 
 interface RenderTerminalProps {
   client: CmuxClient;
-  clients: ClientInfo[];
   surface: Id;
   active: boolean;
   error: string | null;
@@ -40,11 +39,10 @@ const RenderRowView = memo(function RenderRowView({ row, index, defaultFg, defau
   );
 });
 
-export function RenderTerminal({ client, clients, surface, active, error, onError }: RenderTerminalProps) {
+export function RenderTerminal({ client, surface, active, error, onError }: RenderTerminalProps) {
   const {
     terminalRef,
     focused,
-    foreignSize,
     model,
     history,
     backToLive,
@@ -70,16 +68,13 @@ export function RenderTerminal({ client, clients, surface, active, error, onErro
   return (
     <TerminalFrame
       client={client}
-      clients={clients}
-      surface={surface}
       focused={focused}
-      foreignSize={foreignSize}
       error={error}
       onKey={sendKey}
       onSend={sendText}
     >
       <div
-        className={`terminal-host render-terminal-host${foreignSize === null ? "" : " foreign-sized"}`}
+        className="terminal-host render-terminal-host"
         ref={terminalRef}
       >
         <div
