@@ -20,7 +20,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
     private var isPanelFocused = false
     private var isClosed = false
     private var isProviderStartPending = false
-    private var processStore = AgentSessionProcessStore()
+    private let processStore: AgentSessionProcessStore
     nonisolated private static let imagePreviewMaxBytes = 512 * 1024
     nonisolated private static let imagePreviewTotalMaxBytes = 2 * 1024 * 1024
     var onHasActiveProviderChanged: ((Bool) -> Void)? {
@@ -29,6 +29,11 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         }
     }
     var onProviderIDChanged: ((AgentSessionProviderID) -> Void)?
+
+    init(openCodeServer: any OpenCodeServerServing) {
+        processStore = AgentSessionProcessStore(openCodeServer: openCodeServer)
+        super.init()
+    }
 
     func bind(
         panelId: UUID,
@@ -610,7 +615,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             )
             return ["sent": true]
         case "provider.stop":
-            try processStore.stop(sessionId: request.requiredString("sessionId"))
+            try await processStore.stop(sessionId: request.requiredString("sessionId"))
             return ["stopped": true]
         default:
             throw AgentSessionBridgeError.unsupportedMethod(request.method)

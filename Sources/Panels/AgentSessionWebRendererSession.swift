@@ -2,7 +2,11 @@ import Foundation
 
 @MainActor
 final class AgentSessionWebRendererSession {
-    private let ownedCoordinator = AgentSessionWebRendererCoordinator()
+    private let ownedCoordinator: AgentSessionWebRendererCoordinator
+
+    init(openCodeServer: any OpenCodeServerServing) {
+        ownedCoordinator = AgentSessionWebRendererCoordinator(openCodeServer: openCodeServer)
+    }
     var onHasActiveProviderChanged: ((Bool) -> Void)? {
         didSet {
             ownedCoordinator.onHasActiveProviderChanged = onHasActiveProviderChanged

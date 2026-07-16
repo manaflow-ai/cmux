@@ -8568,7 +8568,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             initialWorkingDirectory: initialWorkingDirectory,
             initialTerminalInput: initialTerminalInput,
             autoWelcomeIfNeeded: initialTerminalInput == nil,
-            pullRequestProbeService: self.tabManager?.pullRequestProbeService
+            pullRequestProbeService: self.tabManager?.pullRequestProbeService,
+            agentSessionOpenCodeServer: self.tabManager?.agentSessionOpenCodeServer ?? OpenCodeServerService()
         )
         tabManager.windowId = windowId
         if let sessionWindowSnapshot {

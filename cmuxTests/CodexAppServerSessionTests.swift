@@ -90,30 +90,68 @@ struct CodexAppServerSessionTests {
     }
 
     @Test
-    func testOpenCodeProcessStdoutLogsAreNotAssistantOutput() throws {
+    func testOpenCodeServerURLParserAcceptsOnlyLoopbackListenerOutput() throws {
         let serverURL = try #require(URL(string: "http://127.0.0.1:49211"))
 
         expectEqual(
-            AgentSessionProcessStore.openCodeProcessOutputDisposition(
-                text: "opencode server listening on http://127.0.0.1:49211\n",
-                stream: "stdout"
+            OpenCodeServerService.serverURL(
+                from: "opencode server listening on http://127.0.0.1:49211\n"
             ),
-            .serverURL(serverURL)
+            serverURL
         )
+        expectNil(OpenCodeServerService.serverURL(from: "INFO request completed\n"))
+        expectNil(OpenCodeServerService.serverURL(
+            from: "opencode server listening on http://192.0.2.1:49211\n"
+        ))
+    }
+
+    @Test
+    func testOpenCodeServerServiceSharesOneProcessAcrossConcurrentLeases() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-opencode-server-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            try? fileManager.removeItem(at: root)
+        }
+        let launchCountURL = root.appendingPathComponent("launch-count")
+        let scriptURL = root.appendingPathComponent("opencode-server-fixture.sh")
+        let script = """
+        #!/bin/sh
+        printf 'launch\\n' >> "$CMUX_TEST_OPENCODE_LAUNCH_COUNT"
+        printf 'opencode server listening on http://127.0.0.1:49211\\n'
+        exec /usr/bin/tail -f /dev/null
+        """
+        try script.write(to: scriptURL, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: scriptURL.path)
+
+        let plan = AgentSessionLaunchPlan(
+            provider: .opencode,
+            executableURL: scriptURL,
+            arguments: [],
+            environment: [
+                "CMUX_TEST_OPENCODE_LAUNCH_COUNT": launchCountURL.path,
+                "OPENCODE_SERVER_USERNAME": "cmux",
+                "OPENCODE_SERVER_PASSWORD": "secret",
+                "PATH": "/usr/bin:/bin",
+            ]
+        )
+        let service = OpenCodeServerService()
+
+        async let first = service.acquireConnection(plan: plan)
+        async let second = service.acquireConnection(plan: plan)
+        let (firstConnection, secondConnection) = try await (first, second)
+
+        expectEqual(firstConnection, secondConnection)
         expectEqual(
-            AgentSessionProcessStore.openCodeProcessOutputDisposition(
-                text: "INFO request completed\n",
-                stream: "stdout"
-            ),
-            .suppress
+            try String(contentsOf: launchCountURL, encoding: .utf8)
+                .split(separator: "\n")
+                .count,
+            1
         )
-        expectEqual(
-            AgentSessionProcessStore.openCodeProcessOutputDisposition(
-                text: "OpenCode session could not be created.\n",
-                stream: "stderr"
-            ),
-            .emit
-        )
+
+        await service.releaseConnection()
+        await service.releaseConnection()
     }
 
     @Test
@@ -121,19 +159,19 @@ struct CodexAppServerSessionTests {
         expectTrue(
             AgentSessionProcessStore.openCodeEventStreamEOFRequiresFailure(
                 isCancelled: false,
-                processIsRunning: true
+                sessionIsActive: true
             )
         )
         expectFalse(
             AgentSessionProcessStore.openCodeEventStreamEOFRequiresFailure(
                 isCancelled: true,
-                processIsRunning: true
+                sessionIsActive: true
             )
         )
         expectFalse(
             AgentSessionProcessStore.openCodeEventStreamEOFRequiresFailure(
                 isCancelled: false,
-                processIsRunning: false
+                sessionIsActive: false
             )
         )
     }

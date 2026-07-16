@@ -10,7 +10,7 @@ final class AgentSessionPanel: Panel {
     let rendererKind: AgentSessionRendererKind
     let initialProviderID: AgentSessionProviderID
     private(set) var workingDirectory: String?
-    let rendererSession = AgentSessionWebRendererSession()
+    let rendererSession: AgentSessionWebRendererSession
 
     private(set) var currentProviderID: AgentSessionProviderID
     private(set) var displayTitle: String
@@ -26,7 +26,8 @@ final class AgentSessionPanel: Panel {
         workspaceId: UUID,
         rendererKind: AgentSessionRendererKind,
         initialProviderID: AgentSessionProviderID = .codex,
-        workingDirectory: String? = nil
+        workingDirectory: String? = nil,
+        openCodeServer: any OpenCodeServerServing
     ) {
         self.id = UUID()
         self.workspaceId = workspaceId
@@ -34,6 +35,7 @@ final class AgentSessionPanel: Panel {
         self.initialProviderID = initialProviderID
         self.currentProviderID = initialProviderID
         self.workingDirectory = workingDirectory
+        self.rendererSession = AgentSessionWebRendererSession(openCodeServer: openCodeServer)
         self.displayTitle = Self.title(provider: initialProviderID, rendererKind: rendererKind)
         self.rendererSession.onHasActiveProviderChanged = { [weak self] hasActiveProvider in
             self?.setHasActiveProvider(hasActiveProvider)

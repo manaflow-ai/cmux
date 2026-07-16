@@ -14,11 +14,19 @@ final class AgentSessionProcessStore {
     }
     private var sessions: [String: AgentSessionRunningSession] = [:]
     private var lastEmittedHasActiveProviderSession: Bool?
+    private let openCodeServer: any OpenCodeServerServing
     private static let terminationEscalationInterval: DispatchTimeInterval = .seconds(3)
+
+    init(openCodeServer: any OpenCodeServerServing = OpenCodeServerService()) {
+        self.openCodeServer = openCodeServer
+    }
 
     func start(plan: AgentSessionLaunchPlan, workingDirectory: String?) async throws -> AgentSessionStartedSession {
         guard sessions.isEmpty else {
             throw AgentSessionBridgeError.sessionAlreadyRunning
+        }
+        if plan.provider == .opencode {
+            return try await startOpenCodeSession(plan: plan, workingDirectory: workingDirectory)
         }
         let sessionId = UUID().uuidString
         let process = Process()
@@ -37,7 +45,6 @@ final class AgentSessionProcessStore {
         let stdout = Pipe()
         let stderr = Pipe()
         let inputWriter = AgentSessionInputWriter(fileHandle: stdin.fileHandleForWriting)
-        let openCodeAuth = OpenCodeServerAuth(environment: launchEnvironment)
         process.standardInput = stdin
         process.standardOutput = stdout
         process.standardError = stderr
@@ -48,9 +55,8 @@ final class AgentSessionProcessStore {
             arguments: launchArguments,
             workingDirectory: workingDirectory,
             process: process,
-            stdin: stdin,
             inputWriter: inputWriter,
-            openCodeAuthorizationHeader: openCodeAuth?.authorizationHeader
+            openCodeAuthorizationHeader: nil
         )
         if plan.provider == .codex {
             running.codexAppServerSession = CodexAppServerSession(
@@ -113,9 +119,7 @@ final class AgentSessionProcessStore {
             throw error
         }
 
-        if plan.provider != .opencode {
-            emitStarted(session: running)
-        }
+        emitStarted(session: running)
         return AgentSessionStartedSession(sessionId: sessionId)
     }
 
@@ -135,22 +139,91 @@ final class AgentSessionProcessStore {
             }
             try await codexAppServerSession.submit(text, permissionMode: permissionMode)
         case .claude:
-            try await writeClaudeStreamJSON(text, to: session.inputWriter)
+            guard let inputWriter = session.inputWriter else {
+                throw AgentSessionBridgeError.providerNotReady(session.providerID.displayName)
+            }
+            try await writeClaudeStreamJSON(text, to: inputWriter)
         case .opencode:
             try await postOpenCodePrompt(text, session: session)
         }
     }
 
-    func stop(sessionId: String) throws {
+    func stop(sessionId: String) async throws {
         guard let session = sessions[sessionId] else {
             throw AgentSessionBridgeError.sessionNotFound(sessionId)
+        }
+        if session.providerID == .opencode {
+            await stopOpenCodeSession(session, status: 0)
+            return
         }
         requestTermination(for: session)
     }
 
     func closeAll() {
-        for session in sessions.values {
-            requestTermination(for: session)
+        for session in Array(sessions.values) {
+            if session.providerID == .opencode {
+                sessions.removeValue(forKey: session.sessionId)
+                cancelSessionTasks(session)
+                scheduleOpenCodeServerLeaseRelease(for: session)
+            } else {
+                requestTermination(for: session)
+            }
+        }
+        emitActiveProviderStateIfNeeded()
+    }
+
+    private func startOpenCodeSession(
+        plan: AgentSessionLaunchPlan,
+        workingDirectory: String?
+    ) async throws -> AgentSessionStartedSession {
+        let sessionId = UUID().uuidString
+        let connection = try await openCodeServer.acquireConnection(plan: plan)
+        let running = AgentSessionRunningSession(
+            sessionId: sessionId,
+            providerID: plan.provider,
+            executablePath: plan.executableURL.path,
+            arguments: plan.arguments,
+            workingDirectory: workingDirectory,
+            process: nil,
+            inputWriter: nil,
+            openCodeAuthorizationHeader: connection.authorizationHeader,
+            holdsOpenCodeServerLease: true
+        )
+        running.openCodeBaseURL = connection.baseURL
+        sessions[sessionId] = running
+
+        do {
+            let response = try await postJSON(
+                to: openCodeURL(
+                    baseURL: connection.baseURL,
+                    path: "session",
+                    workingDirectory: workingDirectory
+                ),
+                body: [
+                    "metadata": [
+                        "cmuxAgentSessionId": sessionId,
+                    ],
+                ],
+                authorizationHeader: connection.authorizationHeader
+            )
+            guard let openCodeSessionID = response["id"] as? String,
+                  !openCodeSessionID.isEmpty else {
+                throw AgentSessionBridgeError.providerNotReady(plan.provider.displayName)
+            }
+            guard sessions[sessionId] === running else {
+                throw AgentSessionBridgeError.sessionNotFound(sessionId)
+            }
+            running.openCodeSessionID = openCodeSessionID
+            startOpenCodeEventStream(running)
+            emitActiveProviderStateIfNeeded()
+            emitStarted(session: running)
+            return AgentSessionStartedSession(sessionId: sessionId)
+        } catch {
+            sessions.removeValue(forKey: sessionId)
+            cancelSessionTasks(running)
+            await releaseOpenCodeServerLease(for: running)
+            emitActiveProviderStateIfNeeded()
+            throw error
         }
     }
 
@@ -211,7 +284,11 @@ final class AgentSessionProcessStore {
         }
         emitActiveProviderStateIfNeeded()
         cancelSessionTasks(session)
-        requestTermination(for: session)
+        if session.providerID == .opencode {
+            scheduleOpenCodeServerLeaseRelease(for: session)
+        } else {
+            requestTermination(for: session)
+        }
         emitExit(
             sessionId: session.sessionId,
             providerID: session.providerID,
@@ -221,8 +298,9 @@ final class AgentSessionProcessStore {
 
     private func requestTermination(for session: AgentSessionRunningSession) {
         session.openCodeEventTask?.cancel()
-        if session.process.isRunning {
-            session.process.terminate()
+        guard let process = session.process else { return }
+        if process.isRunning {
+            process.terminate()
         }
         installTerminationEscalationTimer(for: session)
     }
@@ -238,8 +316,12 @@ final class AgentSessionProcessStore {
         )
         timer.setEventHandler { [weak self, session] in
             Task { @MainActor in
-                if session.process.isRunning {
-                    _ = kill(session.process.processIdentifier, SIGKILL)
+                guard let process = session.process else {
+                    timer.cancel()
+                    return
+                }
+                if process.isRunning {
+                    _ = kill(process.processIdentifier, SIGKILL)
                     return
                 }
                 guard let self,
@@ -265,29 +347,51 @@ final class AgentSessionProcessStore {
         session.stdoutReadTask = nil
         session.stderrReadTask?.cancel()
         session.stderrReadTask = nil
-        Task {
-            await session.inputWriter.close()
+        if let inputWriter = session.inputWriter {
+            Task {
+                await inputWriter.close()
+            }
         }
         session.openCodeEventTask?.cancel()
         session.openCodeEventTask = nil
     }
 
-    private func handleOutputLine(_ text: String, session: AgentSessionRunningSession, stream: String) {
-        if session.providerID == .opencode {
-            switch Self.openCodeProcessOutputDisposition(text: text, stream: stream) {
-            case .serverURL(let baseURL):
-                if session.openCodeBaseURL == nil {
-                    session.openCodeBaseURL = baseURL
-                    createOpenCodeSession(session)
-                }
-                return
-            case .suppress:
-                return
-            case .emit:
-                break
-            }
+    private func stopOpenCodeSession(_ session: AgentSessionRunningSession, status: Int32) async {
+        guard sessions.removeValue(forKey: session.sessionId) === session else { return }
+        cancelSessionTasks(session)
+        if let baseURL = session.openCodeBaseURL,
+           let openCodeSessionID = session.openCodeSessionID {
+            await deleteOpenCodeSession(
+                baseURL: baseURL,
+                openCodeSessionID: openCodeSessionID,
+                workingDirectory: session.workingDirectory,
+                authorizationHeader: session.openCodeAuthorizationHeader
+            )
         }
+        await releaseOpenCodeServerLease(for: session)
+        emitActiveProviderStateIfNeeded()
+        emitExit(
+            sessionId: session.sessionId,
+            providerID: session.providerID,
+            status: status
+        )
+    }
 
+    private func scheduleOpenCodeServerLeaseRelease(for session: AgentSessionRunningSession) {
+        guard session.holdsOpenCodeServerLease else { return }
+        session.holdsOpenCodeServerLease = false
+        Task {
+            await openCodeServer.releaseConnection()
+        }
+    }
+
+    private func releaseOpenCodeServerLease(for session: AgentSessionRunningSession) async {
+        guard session.holdsOpenCodeServerLease else { return }
+        session.holdsOpenCodeServerLease = false
+        await openCodeServer.releaseConnection()
+    }
+
+    private func handleOutputLine(_ text: String, session: AgentSessionRunningSession, stream: String) {
         if stream == "stdout",
            let codexAppServerSession = session.codexAppServerSession {
             codexAppServerSession.consumeStdout(text)
@@ -320,82 +424,6 @@ final class AgentSessionProcessStore {
             stream: stream,
             text: text
         )
-    }
-
-    static func openCodeProcessOutputDisposition(text: String, stream: String) -> OpenCodeProcessOutputDisposition {
-        if let baseURL = openCodeServerURL(from: text) {
-            return .serverURL(baseURL)
-        }
-        if stream == "stdout" {
-            return .suppress
-        }
-        return .emit
-    }
-
-    private static func openCodeServerURL(from text: String) -> URL? {
-        let marker = "opencode server listening on "
-        guard let range = text.range(of: marker) else { return nil }
-        let rawURL = text[range.upperBound...]
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .split(separator: " ")
-            .first
-            .map(String.init)
-        guard let url = rawURL.flatMap(URL.init(string:)),
-              agentSessionIsLoopbackURL(url) else {
-            return nil
-        }
-        return url
-    }
-
-    private func createOpenCodeSession(_ session: AgentSessionRunningSession) {
-        guard !session.isOpenCodeSessionCreateInFlight,
-              session.openCodeSessionID == nil,
-              let baseURL = session.openCodeBaseURL else {
-            return
-        }
-        session.isOpenCodeSessionCreateInFlight = true
-        Task { @MainActor in
-            do {
-                let response = try await self.postJSON(
-                    to: self.openCodeURL(baseURL: baseURL, path: "session", workingDirectory: session.workingDirectory),
-                    body: [:],
-                    authorizationHeader: session.openCodeAuthorizationHeader
-                )
-                guard let id = response["id"] as? String, !id.isEmpty else {
-                    throw AgentSessionBridgeError.providerNotReady(session.providerID.displayName)
-                }
-                guard self.sessions[session.sessionId] === session else { return }
-                session.openCodeSessionID = id
-                session.isOpenCodeSessionCreateInFlight = false
-                self.startOpenCodeEventStream(session)
-                self.emitStarted(session: session)
-            } catch {
-                session.isOpenCodeSessionCreateInFlight = false
-                guard let removedSession = self.sessions.removeValue(forKey: session.sessionId),
-                      removedSession === session else {
-                    return
-                }
-                self.emitActiveProviderStateIfNeeded()
-                self.cancelSessionTasks(session)
-                self.requestTermination(for: session)
-                let message = (error as? AgentSessionBridgeError)?.localizedDescription
-                    ?? String(
-                        localized: "agentSession.opencode.error.sessionCreateFailed",
-                        defaultValue: "OpenCode session could not be created."
-                    )
-                self.emitOutput(
-                    sessionId: session.sessionId,
-                    providerID: session.providerID,
-                    stream: "stderr",
-                    text: "\(message)\n"
-                )
-                self.emitExit(
-                    sessionId: session.sessionId,
-                    providerID: session.providerID,
-                    status: 1
-                )
-            }
-        }
     }
 
     private func postOpenCodePrompt(_ text: String, session: AgentSessionRunningSession) async throws {
@@ -507,12 +535,12 @@ final class AgentSessionProcessStore {
     private func openCodeEventStreamEOFRequiresFailure(sessionId: String) -> Bool {
         Self.openCodeEventStreamEOFRequiresFailure(
             isCancelled: false,
-            processIsRunning: sessions[sessionId]?.process.isRunning == true
+            sessionIsActive: sessions[sessionId] != nil
         )
     }
 
-    static func openCodeEventStreamEOFRequiresFailure(isCancelled: Bool, processIsRunning: Bool) -> Bool {
-        !isCancelled && processIsRunning
+    static func openCodeEventStreamEOFRequiresFailure(isCancelled: Bool, sessionIsActive: Bool) -> Bool {
+        !isCancelled && sessionIsActive
     }
 
     private func failOpenCodeEventStream(sessionId: String, openCodeSessionID: String) {
@@ -568,6 +596,26 @@ final class AgentSessionProcessStore {
             components?.queryItems = [URLQueryItem(name: "directory", value: workingDirectory)]
         }
         return components?.url ?? url
+    }
+
+    private func deleteOpenCodeSession(
+        baseURL: URL,
+        openCodeSessionID: String,
+        workingDirectory: String?,
+        authorizationHeader: String?
+    ) async {
+        let url = openCodeURL(
+            baseURL: baseURL,
+            path: "session/\(openCodeSessionID)",
+            workingDirectory: workingDirectory
+        )
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.timeoutInterval = 10
+        if let authorizationHeader {
+            request.setValue(authorizationHeader, forHTTPHeaderField: "Authorization")
+        }
+        _ = try? await URLSession.shared.data(for: request)
     }
 
     private func postJSON(
