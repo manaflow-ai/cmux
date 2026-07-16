@@ -148,7 +148,8 @@ struct TerminalPanelView: View {
                 )
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .sessionContentWidth()
+        .background(Color(nsColor: appearance.contentBackgroundColor))
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
             terminalFontSize = GhosttyConfig.load(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).fontSize
         }

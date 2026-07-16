@@ -25,7 +25,7 @@ struct AgentSessionPanelView: View {
                 Color.clear
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.clear)
+        .sessionContentWidth()
+        .background(Color(nsColor: appearance.contentBackgroundColor))
     }
 }
