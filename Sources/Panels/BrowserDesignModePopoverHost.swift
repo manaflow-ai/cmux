@@ -31,6 +31,9 @@ final class BrowserDesignModeComposerHostingView: NSHostingView<BrowserDesignMod
     private var cardTrackingArea: NSTrackingArea?
     private var cardDragStartInWindow: NSPoint?
     private var cardDragActive = false
+#if DEBUG
+    private static var lastHitTestRejectLogAt: CFTimeInterval = 0
+#endif
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -50,6 +53,15 @@ final class BrowserDesignModeComposerHostingView: NSHostingView<BrowserDesignMod
         let topLeftPoint = isFlipped
             ? localPoint
             : NSPoint(x: localPoint.x, y: bounds.height - localPoint.y)
+#if DEBUG
+        cmuxDebugLog(
+            "designMode.card.mouseDown local=\(Int(localPoint.x)),\(Int(localPoint.y)) " +
+            "topLeft=\(Int(topLeftPoint.x)),\(Int(topLeftPoint.y)) " +
+            "card=\(Int(cardFrameInTopLeftCoordinates.minX)),\(Int(cardFrameInTopLeftCoordinates.minY)) " +
+            "\(Int(cardFrameInTopLeftCoordinates.width))x\(Int(cardFrameInTopLeftCoordinates.height)) " +
+            "flipped=\(isFlipped ? 1 : 0) bounds=\(Int(bounds.width))x\(Int(bounds.height))"
+        )
+#endif
         if cardFrameInTopLeftCoordinates.contains(topLeftPoint), !pointIsInTextEditor(localPoint) {
             cardDragStartInWindow = event.locationInWindow
         }
@@ -113,7 +125,21 @@ final class BrowserDesignModeComposerHostingView: NSHostingView<BrowserDesignMod
         let topLeftPoint = isFlipped
             ? localPoint
             : NSPoint(x: localPoint.x, y: bounds.height - localPoint.y)
-        guard cardFrameInTopLeftCoordinates.contains(topLeftPoint) else { return nil }
+        guard cardFrameInTopLeftCoordinates.contains(topLeftPoint) else {
+#if DEBUG
+            let now = CACurrentMediaTime()
+            if now - Self.lastHitTestRejectLogAt > 1.0 {
+                Self.lastHitTestRejectLogAt = now
+                cmuxDebugLog(
+                    "designMode.card.hitTest.reject topLeft=\(Int(topLeftPoint.x)),\(Int(topLeftPoint.y)) " +
+                    "card=\(Int(cardFrameInTopLeftCoordinates.minX)),\(Int(cardFrameInTopLeftCoordinates.minY)) " +
+                    "\(Int(cardFrameInTopLeftCoordinates.width))x\(Int(cardFrameInTopLeftCoordinates.height)) " +
+                    "flipped=\(isFlipped ? 1 : 0) bounds=\(Int(bounds.width))x\(Int(bounds.height))"
+                )
+            }
+#endif
+            return nil
+        }
         // hitTest runs for every event over the card — the one place the
         // pointer provably sits on the composer — so the page-side hover
         // clear hooks here (tracking-area mouseMoved alone proved unreliable
