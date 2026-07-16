@@ -21,6 +21,7 @@ struct BrowserDesignModePopover: View {
             let field = BrowserDesignModeTokenField(
                 controller: controller,
                 selections: controller.snapshot?.selections ?? [],
+                resetGeneration: controller.promptResetGeneration,
                 onHeightChange: { height in
                     if abs(height - tokenFieldHeight) > 0.5 { tokenFieldHeight = height }
                 }
@@ -161,6 +162,7 @@ struct BrowserDesignModePopover: View {
 private struct BrowserDesignModeTokenField: NSViewRepresentable {
     let controller: BrowserDesignModeController
     let selections: [BrowserDesignModeSelection]
+    let resetGeneration: UInt
     let onHeightChange: (CGFloat) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -235,6 +237,7 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        context.coordinator.applyResetIfNeeded(generation: resetGeneration)
         context.coordinator.sync(selections: selections, requestedChange: controller.requestedChange)
     }
 
@@ -250,6 +253,7 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
         /// gone, or it would re-append every just-deleted pill and rapid
         /// backspaces would cascade into mass deletions.
         private var pendingRemovals: Set<String> = []
+        private var lastResetGeneration: UInt = 0
 
         deinit {
             if let frameObserver {
@@ -265,6 +269,22 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
 
         /// Rebuilds the token prefix when the selection stack changed,
         /// preserving the typed text and cursor position.
+        /// Wipes the storage when the controller signals a prompt reset
+        /// (Escape). requestedChange alone cannot express this because the
+        /// field writes storage text back into it after every sync.
+        func applyResetIfNeeded(generation: UInt) {
+            guard generation != lastResetGeneration else { return }
+            lastResetGeneration = generation
+            guard let textView, let storage = textView.textStorage, storage.length > 0 else { return }
+            syncing = true
+            storage.setAttributedString(NSAttributedString(string: "", attributes: typingAttributes))
+            syncing = false
+            lastIdentities = []
+            pendingRemovals.removeAll()
+            controller.requestedChange = ""
+            reportHeight()
+        }
+
         /// Reconciles the storage with the selection stack incrementally so
         /// tokens stay where the user left them in the prompt: vanished
         /// selections are deleted in place, new selections append at the END

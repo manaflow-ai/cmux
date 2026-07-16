@@ -24,6 +24,10 @@ final class BrowserDesignModeController {
     var isComposerPresented = false
     /// Exclusive interaction mode: element selection or freehand region draw.
     private(set) var interactionMode: BrowserDesignModeInteractionMode = .select
+    /// Bumped whenever the prompt must be wiped (Escape); the token field
+    /// clears its storage when it observes a new generation. requestedChange
+    /// alone cannot signal this: the field writes storage text back into it.
+    private(set) var promptResetGeneration: UInt = 0
     var requestedChange = "" {
         didSet {
             let bounded = String(requestedChange.prefix(Self.maximumRequestedChangeCharacters))
@@ -115,6 +119,7 @@ final class BrowserDesignModeController {
             onPromptReset: { [weak self] in
                 guard let self, self.isActive else { return }
                 self.requestedChange = ""
+                self.promptResetGeneration &+= 1
                 self.didCopy = false
                 self.errorMessage = nil
             }
@@ -282,6 +287,7 @@ final class BrowserDesignModeController {
         let hasContent = snapshot?.selections.isEmpty == false || !requestedChange.isEmpty
         if hasContent {
             requestedChange = ""
+            promptResetGeneration &+= 1
             didCopy = false
             errorMessage = nil
             guard let webView else { return }
