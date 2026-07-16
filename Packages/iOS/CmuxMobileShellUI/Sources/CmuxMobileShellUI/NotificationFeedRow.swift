@@ -74,19 +74,38 @@ struct NotificationFeedRow: View {
         .accessibilityIdentifier("MobileNotificationRow-\(item.id.uuidString.lowercased())")
         .accessibilityLabel(accessibilityLabel)
         .accessibilityAddTraits(.isButton)
-        .accessibilityAction(actions.open)
+        .accessibilityAction { actions.open() }
     }
 
     private var avatar: some View {
+        // Workspace-keyed color + initial letter: deliberately NOT the Mac
+        // avatar language (Mac color + symbol/emoji) used by WorkspaceAvatar,
+        // so the feed's per-workspace differentiation cannot be misread as
+        // machine identity.
         ZStack {
             Circle()
                 .fill(avatarGradient)
                 .frame(width: 36, height: 36)
-            Image(systemName: item.workspaceName == nil ? "bell.fill" : "terminal.fill")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(.white)
-                .accessibilityHidden(true)
+            if let initial = workspaceInitial {
+                Text(initial)
+                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .accessibilityHidden(true)
+            } else {
+                Image(systemName: "bell.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .accessibilityHidden(true)
+            }
         }
+    }
+
+    private var workspaceInitial: String? {
+        guard let name = item.workspaceName?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let first = name.first else {
+            return nil
+        }
+        return String(first).uppercased()
     }
 
     private var avatarGradient: LinearGradient {

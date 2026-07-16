@@ -105,7 +105,7 @@ struct WorkspaceListView: View {
     @State private var searchText = ""
     @State private var showingShortcutsSettings = false
     @State private var showingSettings = false
-    @State private var showingNotificationFeed = false
+    @State var showingNotificationFeed = false
     @State private var showingDeviceTree = false
     /// The active row filter (All / Unread), shared-model state behind the
     /// toolbar ``WorkspaceListFilterMenu``. Session-transient like a search.
