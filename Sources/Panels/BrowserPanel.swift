@@ -1843,21 +1843,38 @@ enum BrowserInsecureHTTPNavigationResolution {
 
 @MainActor
 final class DiffViewerSchemeTaskLifecycle {
-    private var activeTasks: Set<ObjectIdentifier> = []
+    struct Registration: Sendable {
+        fileprivate let taskID: ObjectIdentifier
+        fileprivate let generation: UUID
+    }
 
-    func register(_ taskID: ObjectIdentifier) {
-        activeTasks.insert(taskID)
+    private var registrationByTask: [ObjectIdentifier: Registration] = [:]
+
+    @discardableResult
+    func register(_ taskID: ObjectIdentifier) -> Registration {
+        let registration = Registration(taskID: taskID, generation: UUID())
+        registrationByTask[taskID] = registration
+        return registration
     }
 
     @discardableResult
-    func deliver(_ taskID: ObjectIdentifier, _ callback: () -> Void) -> Bool {
-        guard activeTasks.contains(taskID) else { return false }
+    func deliver(_ registration: Registration, _ callback: () -> Void) -> Bool {
+        guard registrationByTask[registration.taskID]?.generation == registration.generation else {
+            return false
+        }
         callback()
-        return activeTasks.contains(taskID)
+        return registrationByTask[registration.taskID]?.generation == registration.generation
+    }
+
+    func finish(_ registration: Registration) {
+        guard registrationByTask[registration.taskID]?.generation == registration.generation else {
+            return
+        }
+        registrationByTask.removeValue(forKey: registration.taskID)
     }
 
     func stop(_ taskID: ObjectIdentifier) {
-        activeTasks.remove(taskID)
+        registrationByTask.removeValue(forKey: taskID)
     }
 }
 
@@ -2144,13 +2161,13 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         // stopped and every later callback (failure or success) no-ops instead of
         // touching a torn-down WKURLSchemeTask.
         let taskID = ObjectIdentifier(urlSchemeTask as AnyObject)
-        taskLifecycle.register(taskID)
+        let registration = taskLifecycle.register(taskID)
 
         pickerQueue.async { [weak self] in
             guard let self else { return }
             let query = self.diffViewerQueryItems(from: requestURL)
             guard let repo = query["repo"], !repo.isEmpty else {
-                self.failSchemeTask(taskID, urlSchemeTask, code: NSURLErrorBadURL)
+                self.failSchemeTask(registration, urlSchemeTask, code: NSURLErrorBadURL)
                 return
             }
             // Thread the request token so the CLI binds refs enumeration to a
@@ -2160,10 +2177,11 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
                 args += ["--base", base]
             }
             guard let result = self.runBundledDiffViewerCommand(args), result.status == 0 else {
-                self.failSchemeTask(taskID, urlSchemeTask, code: NSURLErrorCannotConnectToHost)
+                self.failSchemeTask(registration, urlSchemeTask, code: NSURLErrorCannotConnectToHost)
                 return
             }
             self.respondScheme(
+                registration: registration,
                 urlSchemeTask: urlSchemeTask,
                 requestURL: requestURL,
                 statusCode: 200,
@@ -2188,7 +2206,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         // makes every later callback no-op instead of crashing on a torn-down
         // task.
         let taskID = ObjectIdentifier(urlSchemeTask as AnyObject)
-        taskLifecycle.register(taskID)
+        let registration = taskLifecycle.register(taskID)
 
         pickerQueue.async { [weak self] in
             guard let self else { return }
@@ -2196,7 +2214,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
             guard let group = query["group"], !group.isEmpty,
                   let repo = query["repo"], !repo.isEmpty,
                   let base = query["base"], !base.isEmpty else {
-                self.failSchemeTask(taskID, urlSchemeTask, code: NSURLErrorBadURL)
+                self.failSchemeTask(registration, urlSchemeTask, code: NSURLErrorBadURL)
                 return
             }
             // Thread the request token so the CLI binds regeneration to the
@@ -2206,7 +2224,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
                   let viewerURLString = String(data: result.stdout, encoding: .utf8)?
                       .trimmingCharacters(in: .whitespacesAndNewlines),
                   !viewerURLString.isEmpty else {
-                self.failSchemeTask(taskID, urlSchemeTask, code: NSURLErrorCannotConnectToHost)
+                self.failSchemeTask(registration, urlSchemeTask, code: NSURLErrorCannotConnectToHost)
                 return
             }
             // Defense in depth: the produced viewer URL must be a custom-scheme
@@ -2215,7 +2233,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
             guard let viewerURL = URL(string: viewerURLString),
                   viewerURL.scheme == Self.scheme,
                   viewerURL.host == token else {
-                self.failSchemeTask(taskID, urlSchemeTask, code: NSURLErrorBadServerResponse)
+                self.failSchemeTask(registration, urlSchemeTask, code: NSURLErrorBadServerResponse)
                 return
             }
             // WKURLSchemeTask cannot drive a top-level 302 the browser follows, so
@@ -2232,6 +2250,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
             <body><script>window.location.replace("\(jsEscaped)");</script></body></html>
             """
             self.respondScheme(
+                registration: registration,
                 urlSchemeTask: urlSchemeTask,
                 requestURL: requestURL,
                 statusCode: 200,
@@ -2250,14 +2269,13 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
     /// `taskLifecycle`. WebKit delivery is serialized on the main actor, so stop
     /// can synchronously remove the task without waiting for background work.
     private func respondScheme(
+        registration: DiffViewerSchemeTaskLifecycle.Registration,
         urlSchemeTask: WKURLSchemeTask,
         requestURL: URL,
         statusCode: Int,
         headers: [String: String],
         body: Data
     ) {
-        let taskID = ObjectIdentifier(urlSchemeTask as AnyObject)
-
         var responseHeaders = headers
         responseHeaders["Content-Length"] = "\(body.count)"
         let response = HTTPURLResponse(
@@ -2269,26 +2287,26 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
 
         Task { @MainActor [weak self] in
             guard let self else { return }
-            guard taskLifecycle.deliver(taskID, { urlSchemeTask.didReceive(response) }) else { return }
-            guard taskLifecycle.deliver(taskID, { urlSchemeTask.didReceive(body) }) else { return }
-            guard taskLifecycle.deliver(taskID, { urlSchemeTask.didFinish() }) else { return }
-            taskLifecycle.stop(taskID)
+            guard taskLifecycle.deliver(registration, { urlSchemeTask.didReceive(response) }) else { return }
+            guard taskLifecycle.deliver(registration, { urlSchemeTask.didReceive(body) }) else { return }
+            guard taskLifecycle.deliver(registration, { urlSchemeTask.didFinish() }) else { return }
+            taskLifecycle.finish(registration)
         }
     }
 
     /// Fails an already-registered task on the main actor. A stopped task has
     /// already been removed, so the late failure becomes a no-op.
     private func failSchemeTask(
-        _ taskID: ObjectIdentifier,
+        _ registration: DiffViewerSchemeTaskLifecycle.Registration,
         _ urlSchemeTask: WKURLSchemeTask,
         code: Int
     ) {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            _ = taskLifecycle.deliver(taskID, {
+            _ = taskLifecycle.deliver(registration, {
                 urlSchemeTask.didFailWithError(NSError(domain: NSURLErrorDomain, code: code))
             })
-            taskLifecycle.stop(taskID)
+            taskLifecycle.finish(registration)
         }
     }
 
@@ -2474,7 +2492,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         urlSchemeTask: WKURLSchemeTask
     ) {
         let taskID = ObjectIdentifier(urlSchemeTask as AnyObject)
-        taskLifecycle.register(taskID)
+        let registration = taskLifecycle.register(taskID)
         let lifecycle = taskLifecycle
         let response = HTTPURLResponse(
             url: requestURL,
@@ -2490,7 +2508,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
 
         Task.detached(priority: .userInitiated) {
             do {
-                guard await lifecycle.deliver(taskID, {
+                guard await lifecycle.deliver(registration, {
                     urlSchemeTask.didReceive(response)
                 }) else { return }
 
@@ -2504,20 +2522,20 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
                     if data.isEmpty {
                         break
                     }
-                    guard await lifecycle.deliver(taskID, {
+                    guard await lifecycle.deliver(registration, {
                         urlSchemeTask.didReceive(data)
                     }) else { return }
                 }
 
-                guard await lifecycle.deliver(taskID, {
+                guard await lifecycle.deliver(registration, {
                     urlSchemeTask.didFinish()
                 }) else { return }
-                await lifecycle.stop(taskID)
+                await lifecycle.finish(registration)
             } catch {
-                guard await lifecycle.deliver(taskID, {
+                guard await lifecycle.deliver(registration, {
                     urlSchemeTask.didFailWithError(error)
                 }) else { return }
-                await lifecycle.stop(taskID)
+                await lifecycle.finish(registration)
             }
         }
     }
