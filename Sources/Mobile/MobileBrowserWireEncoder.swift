@@ -15,7 +15,8 @@ struct MobileBrowserWireEncoder {
             pageHeight: max(0, Double(size.height)),
             canGoBack: panel.canGoBack,
             canGoForward: panel.canGoForward,
-            isLoading: panel.isLoading
+            isLoading: panel.isLoading,
+            pendingDialog: panel.mobileBrowserDialogBroker.currentDialog
         )
     }
 

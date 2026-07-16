@@ -18,6 +18,7 @@ extension MobileHostService {
     nonisolated static var mobileHostCapabilities: [String] {
         let capabilities = [
             MobileBrowserStreamCapability.identifier,
+            MobileBrowserStreamCapability.dialogIdentifier,
             "events.v1",
             "notification.badge.v1",
             "notification.dismiss.v1",

@@ -52,6 +52,22 @@ extension MobileCoreRPCClient {
         return try MobileBrowserCommandResponse.decode(data)
     }
 
+    /// Answers a mirrored native browser dialog.
+    ///
+    /// The response text can contain a password and is encoded directly into the RPC frame
+    /// without being copied into logs or diagnostics.
+    /// - Parameter response: Selected action and optional sensitive text.
+    /// - Returns: The Mac command acknowledgement.
+    /// - Throws: A transport, authorization, RPC, or response-decoding error.
+    public func respondToMobileBrowserDialog(
+        _ response: MobileBrowserDialogRespondParameters
+    ) async throws -> MobileBrowserCommandResponse {
+        try await sendBrowserCommand(
+            method: "mobile.browser.dialog.respond",
+            parameters: response
+        )
+    }
+
     /// Replays pointer input against a Mac browser panel.
     /// - Parameter input: Page-point pointer input.
     /// - Returns: The Mac command acknowledgement.

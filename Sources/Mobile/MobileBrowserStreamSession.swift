@@ -21,6 +21,7 @@ final class MobileBrowserStreamSession {
     private var driveTask: Task<Void, Never>?
     private var deadlineTask: Task<Void, Never>?
     private var stateTask: Task<Void, Never>?
+    private var dialogEventTask: Task<Void, Never>?
     private var isDriving = false
     private var needsDrive = false
     private var isStopped = false
@@ -65,6 +66,8 @@ final class MobileBrowserStreamSession {
         deadlineTask = nil
         stateTask?.cancel()
         stateTask = nil
+        dialogEventTask?.cancel()
+        dialogEventTask = nil
         driveTask?.cancel()
         driveTask = nil
         panel.removeMobileBrowserStreamSignalHandler(id: signalHandlerID)
@@ -90,6 +93,10 @@ final class MobileBrowserStreamSession {
             pacing.noteDirty(at: clock.now)
             emitStateImmediately()
             requestDrive()
+        case let .dialog(dialog):
+            emitDialog(dialog)
+        case let .dialogResolved(resolved):
+            emitDialogResolved(resolved)
         case .closed:
             Task { @MainActor [weak self] in
                 await self?.panelDidClose()
@@ -97,8 +104,28 @@ final class MobileBrowserStreamSession {
         }
     }
 
+    private func emitDialog(_ dialog: MobileBrowserDialogEvent) {
+        guard !isStopped, let payload = wireEncoder.object(dialog) else { return }
+        enqueueDialogEvent(topic: "browser.dialog", payload: payload)
+    }
+
+    private func emitDialogResolved(_ resolved: MobileBrowserDialogResolvedEvent) {
+        guard !isStopped, let payload = wireEncoder.object(resolved) else { return }
+        enqueueDialogEvent(topic: "browser.dialog.resolved", payload: payload)
+    }
+
+    private func enqueueDialogEvent(topic: String, payload: [String: Any]) {
+        let previous = dialogEventTask
+        dialogEventTask = Task { @MainActor [weak self] in
+            if let previous { await previous.value }
+            guard let self, !isStopped, !Task.isCancelled else { return }
+            _ = await connection.sendEvent(topic: topic, payload: payload)
+        }
+    }
+
     private func panelDidClose() async {
         guard !isStopped else { return }
+        await dialogEventTask?.value
         await stop(sendClosed: true)
         onEnded(id)
     }

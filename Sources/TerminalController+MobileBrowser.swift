@@ -53,6 +53,24 @@ extension TerminalController {
             return acknowledged
                 ? .ok(["acked": true, "panel_id": panelID.uuidString, "seq": sequence])
                 : .err(code: "not_found", message: "Browser stream not found", data: ["panel_id": panelID.uuidString])
+        case "mobile.browser.dialog.respond":
+            guard let response = mobileBrowserDecode(
+                MobileBrowserDialogRespondParameters.self,
+                params: params
+            ) else {
+                return .err(code: "invalid_params", message: "Invalid browser dialog response", data: nil)
+            }
+            guard let panel = mobileBrowserPanel(id: response.panelID) else {
+                return .err(code: "not_found", message: "Browser dialog not found", data: nil)
+            }
+            guard panel.mobileBrowserDialogBroker.respond(response) else {
+                return .err(code: "not_found", message: "Browser dialog not found", data: nil)
+            }
+            return .ok([
+                "ok": true,
+                "panel_id": response.panelID,
+                "dialog_id": response.dialogID,
+            ])
         case "mobile.browser.input.pointer":
             return v2MobileBrowserPointerInput(params: params)
         case "mobile.browser.input.scroll":

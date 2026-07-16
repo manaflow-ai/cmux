@@ -38,6 +38,26 @@ import Testing
         #expect(params["phase"] as? String == "momentum_changed")
     }
 
+    @Test func dialogResponseUsesWireKeysAndPreservesSensitiveText() throws {
+        let data = try MobileBrowserRPCRequestEncoder().requestData(
+            method: "mobile.browser.dialog.respond",
+            parameters: MobileBrowserDialogRespondParameters(
+                panelID: "panel-2",
+                dialogID: "dialog-7",
+                buttonID: "sign_in",
+                text: "octocat\u{0}secret"
+            )
+        )
+        let request = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(request["method"] as? String == "mobile.browser.dialog.respond")
+        #expect(params["panel_id"] as? String == "panel-2")
+        #expect(params["dialog_id"] as? String == "dialog-7")
+        #expect(params["button_id"] as? String == "sign_in")
+        #expect(params["text"] as? String == "octocat\u{0}secret")
+        #expect(params["panelID"] == nil)
+    }
+
     @Test func commandResponseDecodesMacVariants() throws {
         let ackData = try JSONSerialization.data(withJSONObject: [
             "acked": true,

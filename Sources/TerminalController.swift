@@ -2309,6 +2309,7 @@ class TerminalController {
             "mobile.browser.stream.start",
             "mobile.browser.stream.stop",
             "mobile.browser.frame.ack",
+            "mobile.browser.dialog.respond",
             "mobile.browser.input.pointer",
             "mobile.browser.input.scroll",
             "mobile.browser.input.key",

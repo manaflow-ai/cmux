@@ -408,6 +408,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             )
         case "mobile.browser.stream.start", "mobile.browser.stream.stop",
              "mobile.browser.frame.ack",
+             "mobile.browser.dialog.respond",
              "mobile.browser.input.pointer", "mobile.browser.input.scroll",
              "mobile.browser.input.key", "mobile.browser.input.text",
              "mobile.browser.navigate", "mobile.browser.back",

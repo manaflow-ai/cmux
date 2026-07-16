@@ -32,6 +32,7 @@ import WebKit
     private(set) var activeErrorPageDisplayURL: URL?
     private let basicAuthPromptCoordinator = BrowserHTTPBasicAuthPromptCoordinator()
     private let clientCertificateAuthenticationController = BrowserClientCertificateAuthenticationController()
+    weak var owner: BrowserPanel?
     private let sslBypassState = BrowserSSLTrustBypassState()
     private var lastAttemptedRequest: URLRequest?
     private var lastAttemptedRequestWasDiscardedForReplay = false
@@ -171,6 +172,7 @@ import WebKit
                     in: webView,
                     challenge: challenge,
                     presentAlert: presentAlert,
+                    browserPanel: owner,
                     registerCancelPrompt: registerCancelPrompt,
                     completionHandler: finishPrompt
                 )
@@ -183,7 +185,18 @@ import WebKit
         if clientCertificateAuthenticationController.handle(
             challenge: challenge,
             in: webView,
-            presentAlert: presentAlert,
+            presentAlert: { [weak owner, presentAlert] alert, webView, completion, cancel in
+                if let owner {
+                    owner.presentMobileClientCertificateAlert(
+                        alert,
+                        webView: webView,
+                        completion: completion,
+                        cancel: cancel
+                    )
+                } else {
+                    presentAlert(alert, webView, completion, cancel)
+                }
+            },
             completionHandler: completionHandler
         ) {
             return
