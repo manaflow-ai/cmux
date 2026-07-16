@@ -8,6 +8,14 @@ import Testing
 @testable import cmux
 #endif
 
+/// `@MainActor` is load-bearing: on a dev machine the unit-test host app runs
+/// its own live `CmuxSettingsFileStore` for the real `~/.config/cmux/cmux.json`,
+/// and that store reverts foreign managed keys asynchronously on the main
+/// queue whenever `UserDefaults` changes. Running each test as one
+/// uninterrupted main-thread section keeps the store-under-test's writes and
+/// the assertions atomic with respect to that revert (on CI the host store
+/// manages nothing, so the revert never fires).
+@MainActor
 @Suite("Sidebar state indicator colors settings file", .serialized)
 struct SidebarStateIndicatorColorsSettingsFileStoreTests {
     private let settingsFileBackupsDefaultsKey = "cmux.settingsFile.backups.v1"
