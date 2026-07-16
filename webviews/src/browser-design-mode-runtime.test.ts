@@ -820,38 +820,31 @@ describe("browser design-mode runtime", () => {
     expect(exitRequests()).toHaveLength(1);
   });
 
-  test("plain click replaces the selection; shift-click stacks", () => {
+  test("every click stacks the element as another prompt token", () => {
     const { dom, runtime } = fixture(`<main><button id="first">A</button><button id="second">B</button></main>`);
     const first = dom.window.document.querySelector("#first") as HTMLButtonElement;
     const second = dom.window.document.querySelector("#second") as HTMLButtonElement;
     let underPoint: HTMLElement = first;
     Object.defineProperty(dom.window.document, "elementFromPoint", { value: () => underPoint });
-    const pointerDown = (init: Record<string, unknown> = {}) => {
+    const click = () => {
       for (const name of ["pointerdown", "pointerup"]) {
         dom.window.document.dispatchEvent(
-          new dom.window.MouseEvent(name, { bubbles: true, cancelable: true, button: 0, clientX: 4, clientY: 4, ...init }),
+          new dom.window.MouseEvent(name, { bubbles: true, cancelable: true, button: 0, clientX: 4, clientY: 4 }),
         );
       }
     };
 
-    pointerDown();
+    click();
     underPoint = second;
-    pointerDown();
+    click();
     let state = runtime.composerState();
-    expect(state.selection_count).toBe(1);
-    expect(state.selectors).toEqual(["#second"]);
+    expect(state.selection_count).toBe(2);
+    expect(state.selectors).toEqual(["#first", "#second"]);
 
-    underPoint = first;
-    pointerDown({ shiftKey: true });
+    // Re-clicking an already stacked element does not duplicate it.
+    click();
     state = runtime.composerState();
     expect(state.selection_count).toBe(2);
-    expect(state.selectors).toEqual(["#second", "#first"]);
-
-    underPoint = second;
-    pointerDown();
-    state = runtime.composerState();
-    expect(state.selection_count).toBe(1);
-    expect(state.selectors).toEqual(["#second"]);
   });
 
   test("destroy restores every touched node and removes injected DOM state", () => {

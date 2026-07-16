@@ -1486,8 +1486,10 @@
     }
     // Draw mode never element-selects; a tap there is a no-op.
     if (interactionMode === "draw") return;
+    // Clicks always stack: every picked element becomes another prompt
+    // token; tokens are removed in the composer (backspace or click-out).
     const candidate = elementUnderPoint(armed.x, armed.y);
-    if (candidate) selectElement(candidate, armed.shift);
+    if (candidate) selectElement(candidate, true);
   };
 
   const finalizeRegion = (rect, stack = false) => {
@@ -1522,7 +1524,7 @@
     if ((globalThis.performance?.now?.() || 0) < suppressClicksUntil) return;
     if (interactionMode === "draw") return;
     const candidate = elementUnderPoint(event.clientX, event.clientY);
-    if (candidate) selectElement(candidate, event.shiftKey === true);
+    if (candidate) selectElement(candidate, true);
   };
 
   const blockPageGesture = (event) => {
