@@ -49,7 +49,6 @@ extension BrowserPanel {
             : (deniedOrigins.has(location.origin) ? "denied" : "default");
 
           function ForwardingNotification(title, options) {
-            if (NativeNotification.permission === "granted") managedPermission = "granted";
             const notification = Reflect.construct(
               NativeNotification,
               arguments,
@@ -214,6 +213,9 @@ extension BrowserPanel {
             isCurrentGeneration: { [weak self] candidate, instanceID in
                 self?.isCurrentWebView(candidate, instanceID: instanceID) == true
             },
+            isPermissionAllowed: { [weak self] origin in
+                self?.webNotificationPermissionDecision(for: origin) == .allowed
+            },
             onPayload: { [weak self] payload, instanceID in
                 self?.handleWebNotificationPayload(payload, fromWebViewInstanceID: instanceID)
             },
@@ -276,6 +278,16 @@ extension BrowserPanel {
                 reply(allowed)
             }
         }
+    }
+
+    private func webNotificationPermissionDecision(
+        for rawOrigin: URL
+    ) -> BrowserNotificationPermissionDecision {
+        let origin = Self.remoteProxyDisplayURL(for: rawOrigin) ?? rawOrigin
+        return BrowserProfileStore.shared.notificationPermissions.decision(
+            for: origin,
+            profileID: profileID
+        )
     }
 
     /// Routes validated page content through the workspace notification policy.

@@ -14,13 +14,14 @@ public enum BrowserNotificationPermissionDecision: String, Codable, Sendable {
 ///
 /// Origins are canonicalized to lowercased HTTP(S) origins without paths. The
 /// repository is deliberately independent of WebKit so both the native provider
-/// and compatibility shim share one permission source of truth.
-public final class BrowserNotificationPermissionRepository: @unchecked Sendable {
+/// and compatibility shim share one permission source of truth. It is main-actor
+/// isolated because WebKit permission delegates require synchronous replies.
+@MainActor
+public final class BrowserNotificationPermissionRepository {
     /// `UserDefaults` key for the encoded permission map.
     public static let defaultsKey = "browser.notificationPermissions.v1"
 
     private let defaults: UserDefaults
-    private let lock = NSLock()
 
     /// Creates a repository backed by `defaults`.
     public init(defaults: UserDefaults) {
@@ -30,7 +31,7 @@ public final class BrowserNotificationPermissionRepository: @unchecked Sendable 
     /// Returns the stored decision for a profile and origin.
     public func decision(for origin: URL, profileID: UUID) -> BrowserNotificationPermissionDecision {
         guard let origin = Self.canonicalOrigin(origin) else { return .denied }
-        return withMap { $0[profileID.uuidString]?[origin] ?? .prompt }
+        return loadMap()[profileID.uuidString]?[origin] ?? .prompt
     }
 
     /// Stores a decision for a profile and origin.
@@ -53,20 +54,16 @@ public final class BrowserNotificationPermissionRepository: @unchecked Sendable 
 
     /// Returns all allowed origins for a profile.
     public func allowedOrigins(for profileID: UUID) -> Set<String> {
-        withMap { map in
-            Set((map[profileID.uuidString] ?? [:]).compactMap { key, value in
-                value == .allowed ? key : nil
-            })
-        }
+        Set((loadMap()[profileID.uuidString] ?? [:]).compactMap { key, value in
+            value == .allowed ? key : nil
+        })
     }
 
     /// Returns all denied origins for a profile.
     public func deniedOrigins(for profileID: UUID) -> Set<String> {
-        withMap { map in
-            Set((map[profileID.uuidString] ?? [:]).compactMap { key, value in
-                value == .denied ? key : nil
-            })
-        }
+        Set((loadMap()[profileID.uuidString] ?? [:]).compactMap { key, value in
+            value == .denied ? key : nil
+        })
     }
 
     /// Removes every decision owned by a profile.
@@ -87,15 +84,7 @@ public final class BrowserNotificationPermissionRepository: @unchecked Sendable 
         return components.url?.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
     }
 
-    private func withMap<T>(_ body: ([String: [String: BrowserNotificationPermissionDecision]]) -> T) -> T {
-        lock.lock()
-        defer { lock.unlock() }
-        return body(loadMap())
-    }
-
     private func mutateMap(_ body: (inout [String: [String: BrowserNotificationPermissionDecision]]) -> Void) {
-        lock.lock()
-        defer { lock.unlock() }
         var map = loadMap()
         body(&map)
         if map.isEmpty {
