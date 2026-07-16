@@ -10,48 +10,41 @@ import SwiftUI
 /// selection overlays it accompanies.
 struct BrowserDesignModePopover: View {
     @Bindable var controller: BrowserDesignModeController
-    @State private var isCloseHovered = false
     @State private var tokenFieldHeight: CGFloat = 22
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if let selections = controller.snapshot?.selections, !selections.isEmpty {
-                // Single line: everything inline, vertically centered.
-                // Overflowing prompt: the field takes the full width and the
-                // controls drop to their own bottom row, like Cursor.
-                let field = BrowserDesignModeTokenField(
-                    controller: controller,
-                    selections: selections,
-                    onHeightChange: { height in
-                        if abs(height - tokenFieldHeight) > 0.5 { tokenFieldHeight = height }
-                    }
-                )
-                // The card grows downward with the prompt; the inner scroll
-                // viewport only engages past this generous ceiling.
-                .frame(height: min(max(tokenFieldHeight, 22), 340))
-                if tokenFieldHeight > 34 {
-                    VStack(alignment: .leading, spacing: 8) {
-                        field
-                        HStack(alignment: .center, spacing: 10) {
-                            modeToggle
-                            Spacer(minLength: 0)
-                            copyButton
-                        }
-                    }
-                } else {
+            // Single line: everything inline, vertically centered.
+            // Overflowing prompt: the field takes the full width and the
+            // controls drop to their own bottom row, like Cursor. The field
+            // is always present — an emptied prompt keeps the composer open.
+            let field = BrowserDesignModeTokenField(
+                controller: controller,
+                selections: controller.snapshot?.selections ?? [],
+                onHeightChange: { height in
+                    if abs(height - tokenFieldHeight) > 0.5 { tokenFieldHeight = height }
+                }
+            )
+            // The card grows downward with the prompt; the inner scroll
+            // viewport only engages past this generous ceiling.
+            .frame(height: min(max(tokenFieldHeight, 22), 340))
+            if tokenFieldHeight > 34 {
+                VStack(alignment: .leading, spacing: 8) {
+                    field
                     HStack(alignment: .center, spacing: 10) {
                         modeToggle
-                        field
+                        Spacer(minLength: 0)
                         copyButton
                     }
                 }
-                errorMessage
             } else {
                 HStack(alignment: .center, spacing: 10) {
                     modeToggle
-                    emptyState
+                    field
+                    copyButton
                 }
             }
+            errorMessage
         }
         .padding(.leading, 16)
         .padding(.trailing, 8)
@@ -158,45 +151,6 @@ struct BrowserDesignModePopover: View {
         .accessibilityIdentifier("BrowserDesignModeCopyButton")
     }
 
-    private var emptyState: some View {
-        HStack(alignment: .top, spacing: 6) {
-            Group {
-                if let message = controller.errorMessage {
-                    Label(message, systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.red)
-                } else {
-                    Text(
-                        String(
-                            localized: "browser.designMode.composer.pickElements",
-                            defaultValue: "Select one or more elements on the page."
-                        )
-                    )
-                    .foregroundStyle(.white.opacity(0.55))
-                }
-            }
-            .cmuxFont(size: 11)
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            closeButton
-        }
-    }
-
-    private var closeButton: some View {
-        Button {
-            controller.dismissComposer()
-        } label: {
-            Image(systemName: "xmark")
-                .font(.system(size: 8, weight: .bold))
-                .foregroundStyle(isCloseHovered ? AnyShapeStyle(.white) : AnyShapeStyle(.white.opacity(0.45)))
-                .frame(width: 18, height: 18)
-                .background(Circle().fill(isCloseHovered ? Color.white.opacity(0.12) : Color.clear))
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .onHover { isCloseHovered = $0 }
-        .safeHelp(String(localized: "common.close", defaultValue: "Close"))
-        .accessibilityLabel(String(localized: "common.close", defaultValue: "Close"))
-    }
 }
 
 // MARK: - Token field

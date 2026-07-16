@@ -183,6 +183,9 @@ final class BrowserDesignModeController {
                 let next = try BrowserDesignModeSupport.decodeSnapshot(value)
                 apply(next)
                 phase = .active
+                // The composer docks bottom-center from the moment Design
+                // Mode activates and stays until Escape or deactivation.
+                isComposerPresented = true
                 return true
             } catch let enableError {
                 guard operation == operationRevision else { return false }
@@ -317,10 +320,6 @@ final class BrowserDesignModeController {
             apply(next)
             didCopy = false
             errorMessage = nil
-            if next.selections.isEmpty {
-                requestedChange = ""
-                isComposerPresented = false
-            }
         } catch {
             BrowserDesignModeSupport.record(error, operation: "removeSelection")
             errorMessage = BrowserDesignModeSupport.productMessage(
@@ -493,7 +492,9 @@ final class BrowserDesignModeController {
         if next.selections.map(\.selector) != previousSelectors {
             errorMessage = nil
             didCopy = false
-            isComposerPresented = !next.selections.isEmpty
+            // Selection changes only ever OPEN the composer; emptying the
+            // prompt never closes it (Escape or deactivation do).
+            if !next.selections.isEmpty { isComposerPresented = true }
         }
     }
 
