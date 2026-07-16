@@ -182,8 +182,8 @@ describe("TerminalPane split dividers", () => {
   });
 });
 
-describe("TerminalPane foreign-size indicator", () => {
-  it("renders the true-size marker and names one matching foreign client", () => {
+describe("TerminalPane shared minimum size", () => {
+  it("does not present the shared size as foreign ownership", () => {
     attachedTerminal.foreignSize = { cols: 126, rows: 38 };
     const props = terminalPaneProps(vi.fn(async () => true));
     props.clients = [
@@ -209,10 +209,10 @@ describe("TerminalPane foreign-size indicator", () => {
       },
     ];
 
-    const { container, getByText, rerender } = render(<TerminalPane {...props} screen={terminalScreenView()} />);
+    const { container, queryByText, rerender } = render(<TerminalPane {...props} screen={terminalScreenView()} />);
 
-    expect(container.querySelector(".terminal-host.foreign-sized")).toBeInTheDocument();
-    expect(getByText("shared size 126x38, limited by office tmux")).toHaveClass("foreign-size-hint");
+    expect(container.querySelector(".terminal-host.foreign-sized")).not.toBeInTheDocument();
+    expect(queryByText("shared size 126x38, limited by office tmux")).not.toBeInTheDocument();
 
     attachedTerminal.foreignSize = null;
     rerender(<TerminalPane {...props} screen={terminalScreenView()} />);
@@ -220,7 +220,7 @@ describe("TerminalPane foreign-size indicator", () => {
     expect(container.querySelector(".foreign-size-hint")).not.toBeInTheDocument();
   });
 
-  it("uses the takeover hint when more than one foreign client matches", () => {
+  it("does not show an ownership hint for multiple limiting clients", () => {
     attachedTerminal.foreignSize = { cols: 126, rows: 38 };
     const props = terminalPaneProps(vi.fn(async () => true));
     props.clients = [2, 3].map((client) => ({
@@ -234,9 +234,9 @@ describe("TerminalPane foreign-size indicator", () => {
       self: false,
     }));
 
-    const { getByText } = render(<TerminalPane {...props} screen={terminalScreenView()} />);
+    const { queryByText } = render(<TerminalPane {...props} screen={terminalScreenView()} />);
 
-    expect(getByText("shared size 126x38 (smallest client)")).toBeInTheDocument();
+    expect(queryByText("shared size 126x38 (smallest client)")).not.toBeInTheDocument();
   });
 });
 
