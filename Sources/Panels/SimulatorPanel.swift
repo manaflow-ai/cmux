@@ -25,6 +25,7 @@ final class SimulatorPanel: Panel {
     @ObservationIgnored private var featureFlagsObserver: (any NSObjectProtocol)?
     @ObservationIgnored private var startupTask: Task<Void, Never>?
     @ObservationIgnored private var shutdownTask: Task<Void, Never>?
+    @ObservationIgnored private var featureEnableTask: Task<Void, Never>?
     @ObservationIgnored private weak var focusOwnershipView: NSView?
     @ObservationIgnored private var featureTransitionGeneration = 0
     private var isFeatureDisabled = false
@@ -106,9 +107,12 @@ final class SimulatorPanel: Panel {
     }
 
     func suspendForRemoteDisable() {
-        guard !isClosed, !isFeatureDisabled else { return }
-        isFeatureDisabled = true
+        guard !isClosed else { return }
         featureTransitionGeneration += 1
+        featureEnableTask?.cancel()
+        featureEnableTask = nil
+        guard !isFeatureDisabled else { return }
+        isFeatureDisabled = true
         rememberSelection()
         let coordinator = self.coordinator
         let startupTask = self.startupTask
@@ -123,17 +127,18 @@ final class SimulatorPanel: Panel {
     }
 
     func resumeAfterRemoteEnable() {
-        guard !isClosed, isFeatureDisabled else { return }
-        isFeatureDisabled = false
+        guard !isClosed, isFeatureDisabled, featureEnableTask == nil else { return }
         featureTransitionGeneration += 1
         let generation = featureTransitionGeneration
         let shutdownTask = self.shutdownTask
-        Task { @MainActor [weak self] in
+        featureEnableTask = Task { @MainActor [weak self] in
             await shutdownTask?.value
             guard let self,
                   !self.isClosed,
-                  !self.isFeatureDisabled,
+                  self.isFeatureDisabled,
+                  CmuxFeatureFlags.shared.isSimulatorEnabled,
                   self.featureTransitionGeneration == generation else { return }
+            self.featureEnableTask = nil
             self.shutdownTask = nil
             self.coordinator = SimulatorPaneCoordinator(
                 client: self.clientFactory(),
@@ -142,6 +147,7 @@ final class SimulatorPanel: Panel {
                 preferredDeviceTypeIdentifier: self.preferredDeviceTypeIdentifier,
                 requiresExplicitDeviceSelection: self.requiresExplicitDeviceSelection
             )
+            self.isFeatureDisabled = false
             self.applyEffectiveVisibility()
         }
     }
@@ -162,6 +168,8 @@ final class SimulatorPanel: Panel {
         guard !isClosed else { return }
         isClosed = true
         featureTransitionGeneration += 1
+        featureEnableTask?.cancel()
+        featureEnableTask = nil
         if let featureFlagsObserver {
             NotificationCenter.default.removeObserver(featureFlagsObserver)
             self.featureFlagsObserver = nil

@@ -4,13 +4,16 @@ import IOSurface
 final class SimulatorFramebufferPortFixtureDescriptor: NSObject {
     private var surface: IOSurface?
     private var frameCallback: (() -> Void)?
+    private let properties: SimulatorFramebufferPortFixtureScreenProperties
 
-    override init() {
-        surface = makeSimulatorFramebufferPortFixtureSurface(width: 8, height: 12)
+    init(screenID: UInt32 = 0, width: Int = 8, height: Int = 12) {
+        surface = makeSimulatorFramebufferPortFixtureSurface(width: width, height: height)
+        properties = SimulatorFramebufferPortFixtureScreenProperties(screenID: screenID)
         super.init()
     }
 
     @objc dynamic func framebufferSurface() -> AnyObject? { surface }
+    @objc dynamic func screenProperties() -> AnyObject { properties }
 
     @objc(registerScreenCallbacksWithUUID:callbackQueue:frameCallback:surfacesChangedCallback:propertiesChangedCallback:)
     dynamic func registerScreenCallbacks(
@@ -37,6 +40,17 @@ final class SimulatorFramebufferPortFixtureDescriptor: NSObject {
         surface = nil
         frameCallback?()
     }
+}
+
+final class SimulatorFramebufferPortFixtureScreenProperties: NSObject {
+    private let identifier: UInt32
+
+    init(screenID: UInt32) {
+        identifier = screenID
+    }
+
+    @objc dynamic func screenID() -> UInt32 { identifier }
+    @objc dynamic func uiOrientation() -> UInt32 { 1 }
 }
 
 private func makeSimulatorFramebufferPortFixtureSurface(width: Int, height: Int) -> IOSurface {

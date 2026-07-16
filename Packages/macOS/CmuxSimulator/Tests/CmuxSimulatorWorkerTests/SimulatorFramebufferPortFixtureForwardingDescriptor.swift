@@ -4,6 +4,7 @@ final class SimulatorFramebufferPortFixtureForwardingDescriptor: NSObject {
     private let target: SimulatorFramebufferPortFixtureDescriptor
     private let forwardedSelectors = [
         NSSelectorFromString("framebufferSurface"),
+        NSSelectorFromString("screenProperties"),
         NSSelectorFromString(
             "registerScreenCallbacksWithUUID:callbackQueue:frameCallback:" +
                 "surfacesChangedCallback:propertiesChangedCallback:"

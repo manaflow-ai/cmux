@@ -4,6 +4,8 @@ import Foundation
 extension CMUXCLI {
     private static let simulatorTextLimit = 4_096
     private static let simulatorInspectorLimit = 1_024 * 1_024
+    private static let iosScreenshotBatchLimit = 8
+    private static let iosScreenshotBatchTimeout: TimeInterval = 600
 
     var simulatorCommandUsageLine: String {
         String(
@@ -81,7 +83,7 @@ extension CMUXCLI {
               list [--workspace <ref>]            List Simulator panes and device identifiers
               context [--udid]                    Print one selected Simulator identity
               select <device-udid>                Bind a pane to an iPhone or iPad Simulator
-              screenshot [--out <path>]           Capture one or many selected Simulators
+              screenshot [--out <path>]           Capture one or up to 8 selected Simulators
 
             Examples:
               cmux ios list --json
@@ -254,6 +256,18 @@ extension CMUXCLI {
                 defaultValue: "No matching iOS Simulator panes were found"
             ))
         }
+        if all, targets.count > Self.iosScreenshotBatchLimit {
+            throw CLIError(message: String.localizedStringWithFormat(
+                String(
+                    localized: "cli.ios.error.screenshotBatchLimit",
+                    defaultValue: "Found %lld iOS Simulator panes; screenshot --all supports at most 8"
+                ),
+                targets.count
+            ))
+        }
+        let batchDeadline = all
+            ? ProcessInfo.processInfo.systemUptime + Self.iosScreenshotBatchTimeout
+            : nil
         if targetsRequireContextResolution {
             var resolvedTargets: [[String: Any]] = []
             resolvedTargets.reserveCapacity(targets.count)
@@ -261,11 +275,21 @@ extension CMUXCLI {
                 guard let surfaceRef = target["surface_ref"] as? String else {
                     throw missingIOSSimulatorIdentifier()
                 }
+                if let batchDeadline,
+                   ProcessInfo.processInfo.systemUptime >= batchDeadline {
+                    var failedTarget = target
+                    failedTarget["error"] = iosScreenshotBatchTimeoutMessage()
+                    resolvedTargets.append(failedTarget)
+                    continue
+                }
                 do {
                     resolvedTargets.append(try iosContextPayload(
                         surface: surfaceRef,
                         client: client,
-                        windowOverride: windowOverride
+                        windowOverride: windowOverride,
+                        responseTimeout: batchDeadline.map {
+                            max(1, $0 - ProcessInfo.processInfo.systemUptime)
+                        }
                     ))
                 } catch {
                     guard all else { throw error }
@@ -327,10 +351,20 @@ extension CMUXCLI {
                 let safeRef = surfaceRef.replacingOccurrences(of: ":", with: "-")
                 destination = directory.appendingPathComponent("ios-\(safeRef).png")
             }
+            if let batchDeadline,
+               ProcessInfo.processInfo.systemUptime >= batchDeadline {
+                return [
+                    "simulator_id": simulatorID,
+                    "surface_ref": surfaceRef,
+                    "error": iosScreenshotBatchTimeoutMessage(),
+                ]
+            }
             let result = CLIProcessRunner.runProcess(
                 executablePath: "/usr/bin/xcrun",
                 arguments: ["simctl", "io", simulatorID, "screenshot", destination.path],
-                timeout: 30
+                timeout: batchDeadline.map {
+                    max(1, min(30, $0 - ProcessInfo.processInfo.systemUptime))
+                } ?? 30
             )
             guard result.status == 0 else {
                 if all {
@@ -369,7 +403,10 @@ extension CMUXCLI {
     }
 
     private func iosContextPayload(
-        surface: String?, client: SocketClient, windowOverride: String?
+        surface: String?,
+        client: SocketClient,
+        windowOverride: String?,
+        responseTimeout: TimeInterval? = nil
     ) throws -> [String: Any] {
         return try client.sendV2(
             method: "simulator.context",
@@ -378,9 +415,16 @@ extension CMUXCLI {
                 client: client,
                 windowOverride: windowOverride
             ),
-            responseTimeout: simulatorOperationDeadlines.clientTimeout(
+            responseTimeout: responseTimeout ?? simulatorOperationDeadlines.clientTimeout(
                 for: simulatorOperationDeadlines.selectDevice
             )
+        )
+    }
+
+    private func iosScreenshotBatchTimeoutMessage() -> String {
+        String(
+            localized: "cli.ios.error.screenshotBatchTimeout",
+            defaultValue: "The iOS Simulator screenshot batch exceeded its 10-minute deadline"
         )
     }
 

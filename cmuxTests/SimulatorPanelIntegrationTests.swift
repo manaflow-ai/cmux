@@ -182,17 +182,17 @@ struct SimulatorPanelIntegrationTests {
 
         #expect(await firstClient.stopCount == 1)
         flags.setOverride(true, for: simulatorFlag)
+        panel.setVisibleInUI(true)
         for _ in 0..<100 { await Task.yield() }
         #expect(panel.coordinator === firstCoordinator)
+        #expect(await secondClient.discoveryCount == 0)
 
         await firstClient.releaseStop()
         for _ in 0..<100 {
-            if panel.coordinator !== firstCoordinator { break }
+            if await secondClient.discoveryCount != 0 { break }
             await Task.yield()
         }
         #expect(panel.coordinator !== firstCoordinator)
-
-        await panel.coordinator.start()
         #expect(await secondClient.discoveryCount == 1)
     }
 

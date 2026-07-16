@@ -302,31 +302,38 @@ final class SimulatorFramebuffer {
     private func bestDisplay(
         readNativeOrientation: Bool
     ) -> (surface: IOSurface, orientationRawValue: UInt32?)? {
-        var best: IOSurface?
-        var bestOrientationRawValue: UInt32?
-        var bestArea = 0
+        var candidates: [(surface: IOSurface, screenID: UInt32, properties: NSObject)] = []
         for descriptor in descriptors {
             guard let rawSurface = simulatorFramebufferSurface(descriptor) else {
                 continue
             }
             guard let surface = rawSurface as? IOSurface else { continue }
-            let area = IOSurfaceGetWidth(surface) * IOSurfaceGetHeight(surface)
-            if area > bestArea {
-                best = surface
-                if readNativeOrientation {
-                    let properties =
-                        objectProperty(
-                            descriptor,
-                            selectorName: "screenProperties"
-                        ) as? NSObject
-                    bestOrientationRawValue = properties.flatMap {
-                        simulatorUnsignedIntegerProperty($0, selectorName: "uiOrientation")
-                    }
-                }
-                bestArea = area
+            guard let properties = objectProperty(
+                descriptor,
+                selectorName: "screenProperties"
+            ) as? NSObject,
+                let screenID = simulatorUnsignedIntegerProperty(
+                    properties,
+                    selectorName: "screenID"
+                )
+            else {
+                // HID events target the built-in display. Rendering an unidentified
+                // surface could show a different screen than the one receiving input.
+                return nil
             }
+            candidates.append((surface, screenID, properties))
         }
-        return best.map { ($0, bestOrientationRawValue) }
+        guard let primaryScreenID = candidates.map(\.screenID).min(),
+              let best = candidates
+                .filter({ $0.screenID == primaryScreenID })
+                .max(by: {
+                    IOSurfaceGetWidth($0.surface) * IOSurfaceGetHeight($0.surface)
+                        < IOSurfaceGetWidth($1.surface) * IOSurfaceGetHeight($1.surface)
+                }) else { return nil }
+        let orientationRawValue = readNativeOrientation
+            ? simulatorUnsignedIntegerProperty(best.properties, selectorName: "uiOrientation")
+            : nil
+        return (best.surface, orientationRawValue)
     }
 
 }
