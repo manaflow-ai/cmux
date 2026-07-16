@@ -107,22 +107,50 @@ extension DockSplitStore {
         }
     }
 
-    func applyFocusedDockSelection() {
+    func dockOwnsKeyboardFocus() -> Bool {
+        guard let appDelegate = AppDelegate.shared,
+              let window = appDelegate.dockReferenceTabManager(for: self)?.window,
+              let responder = window.firstResponder,
+              appDelegate.keyboardFocusCoordinator(for: window)?.activeRightSidebarMode == .dock else {
+            return false
+        }
+        return appDelegate.isRightSidebarFocusResponder(responder, in: window)
+    }
+
+    func applyFocusedDockSelection(
+        shouldFocus: Bool = true,
+        shouldActivateWebExtension: Bool = true
+    ) {
         guard let paneId = bonsplitController.focusedPaneId,
               let tabId = bonsplitController.selectedTab(inPane: paneId)?.id else {
             applyVisibilityToAllPanels()
             scheduleDockPortalReconcile(reason: "dock.selection.empty")
             return
         }
-        applyDockSelection(tabId: tabId, inPane: paneId)
+        applyDockSelection(
+            tabId: tabId,
+            inPane: paneId,
+            shouldFocus: shouldFocus,
+            shouldActivateWebExtension: shouldActivateWebExtension
+        )
         scheduleDockPortalReconcile(reason: "dock.selection.focused")
     }
 
-    func applyDockSelection(tabId: TabID, inPane pane: PaneID) {
+    func applyDockSelection(
+        tabId: TabID,
+        inPane pane: PaneID,
+        shouldFocus: Bool = true,
+        shouldActivateWebExtension: Bool = true
+    ) {
         applyVisibilityToAllPanels()
         guard paneIsRenderedInVisibleDock(pane),
               bonsplitController.focusedPaneId == pane,
               let selectedPanel = panel(for: tabId) else { return }
+
+        if shouldActivateWebExtension {
+            noteBrowserWebExtensionSelection(selectedPanel)
+        }
+        guard shouldFocus else { return }
 
         focusHistoryNavigation.recordFocusInHistory(
             workspaceId: workspaceId,

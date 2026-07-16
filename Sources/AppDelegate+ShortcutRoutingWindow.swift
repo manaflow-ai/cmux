@@ -9,7 +9,7 @@ extension AppDelegate {
             }
             if contextForMainWindow(window) != nil
                 || isMainTerminalWindow(window)
-                || cmuxWindowShouldOwnCloseShortcut(window) {
+                || window.cmuxShouldOwnCloseShortcut {
                 return window
             }
             debugShortcutRoutingFocusedWindowOverrideForTesting.window = nil
