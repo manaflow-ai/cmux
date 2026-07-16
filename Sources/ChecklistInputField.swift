@@ -1,245 +1,127 @@
 import AppKit
 import SwiftUI
 
-/// Native checklist text input used by every checklist add/edit surface.
+/// A single-line AppKit text field for adding and editing checklist items
+/// inside the checklist popover.
 ///
-/// Inactive rows stay plain SwiftUI `Text`; only the active add/edit control
-/// mounts this AppKit `NSTextView`. That keeps large checklists cheap while
-/// preserving normal text-editor behavior for selection, IME, undo, wrapping,
-/// and vertical caret movement.
+/// It exists because a SwiftUI `TextField` does not reliably become first
+/// responder inside an `NSPopover` window while cmux's terminal is the focused
+/// pane behind it: the terminal keeps AppKit first responder unless the
+/// popover window becomes key. This field, like the sidebar rename field,
+/// calls `window.makeFirstResponder(self)` the moment it enters its window.
+///
+/// Behavior is checklist-specific (NOT rename): Return commits, Escape cancels,
+/// and losing focus commits any non-empty text (so clicking a checkbox mid-type
+/// keeps what you wrote). For editing, the caret is placed at the end rather
+/// than selecting all. Inputs are value + closures only (snapshot-boundary).
 struct ChecklistInputField: NSViewRepresentable {
-    @Binding var text: String
+    let initialText: String
     let placeholder: String
     let fontSize: CGFloat
+    /// Return, or focus loss with non-empty text.
     let onCommit: (String) -> Void
+    /// Escape.
     let onCancel: () -> Void
-    var textColor: NSColor = .labelColor
-    var maxVisibleLines: Int = 8
-    var commitsOnFocusLoss: Bool = true
+    /// Whether to place the caret at the end (edit) vs leave it empty (add).
     var selectsAllOnFocus: Bool = false
-    var onMoveHighlightWhenEmpty: ((Int) -> Bool)?
-    var onToggleHighlightWhenEmpty: (() -> Bool)?
-    var onDeleteHighlightWhenEmpty: (() -> Bool)?
-
-    static func visibleLineCount(for text: String, maxLines: Int = 8) -> Int {
-        min(max(text.split(separator: "\n", omittingEmptySubsequences: false).count, 1), maxLines)
-    }
-
-    static func height(for text: String, fontSize: CGFloat, maxVisibleLines: Int = 8) -> CGFloat {
-        let font = NSFont.systemFont(ofSize: fontSize)
-        let lineHeight = ceil(font.ascender - font.descender + font.leading)
-        return CGFloat(visibleLineCount(for: text, maxLines: maxVisibleLines)) * lineHeight + 2
-    }
+    /// Typed-text/caret color (so the field reads on a selected sidebar row).
+    var textColor: NSColor = .labelColor
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(
-            text: $text,
-            onCommit: onCommit,
-            onCancel: onCancel,
-            commitsOnFocusLoss: commitsOnFocusLoss,
-            onMoveHighlightWhenEmpty: onMoveHighlightWhenEmpty,
-            onToggleHighlightWhenEmpty: onToggleHighlightWhenEmpty,
-            onDeleteHighlightWhenEmpty: onDeleteHighlightWhenEmpty
-        )
+        Coordinator(onCommit: onCommit, onCancel: onCancel)
     }
 
-    func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSScrollView()
-        scrollView.drawsBackground = false
-        scrollView.borderType = .noBorder
-        scrollView.hasVerticalScroller = true
-        scrollView.autohidesScrollers = true
-
-        let textView = ChecklistInputTextView()
-        textView.isRichText = false
-        textView.importsGraphics = false
-        textView.allowsUndo = true
-        textView.isEditable = true
-        textView.isSelectable = true
-        textView.drawsBackground = false
-        textView.backgroundColor = .clear
-        textView.textColor = textColor
-        textView.insertionPointColor = textColor
-        textView.font = .systemFont(ofSize: fontSize)
-        textView.textContainerInset = .zero
-        textView.textContainer?.lineFragmentPadding = 0
-        textView.textContainer?.widthTracksTextView = true
-        textView.textContainer?.containerSize = NSSize(
-            width: scrollView.contentSize.width,
-            height: CGFloat.greatestFiniteMagnitude
-        )
-        textView.autoresizingMask = [.width]
-        textView.isVerticallyResizable = true
-        textView.isHorizontallyResizable = false
-        textView.minSize = NSSize(width: 0, height: 0)
-        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        textView.string = text
-        textView.setAccessibilityLabel(placeholder)
-        textView.delegate = context.coordinator
-        textView.coordinator = context.coordinator
-        textView.selectsAllOnFocus = selectsAllOnFocus
-
-        context.coordinator.textView = textView
-        scrollView.documentView = textView
-        return scrollView
+    func makeNSView(context: Context) -> FocusGrabbingTextField {
+        let field = FocusGrabbingTextField(string: initialText)
+        field.isBordered = false
+        field.drawsBackground = false
+        field.focusRingType = .none
+        field.usesSingleLineMode = true
+        field.cell?.usesSingleLineMode = true
+        field.lineBreakMode = .byTruncatingTail
+        field.font = .systemFont(ofSize: fontSize)
+        field.textColor = textColor
+        field.caretColor = textColor
+        field.placeholderString = placeholder
+        field.selectsAllOnFocus = selectsAllOnFocus
+        field.setAccessibilityLabel(placeholder)
+        field.delegate = context.coordinator
+        return field
     }
 
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        context.coordinator.text = $text
+    func updateNSView(_ nsView: FocusGrabbingTextField, context: Context) {
         context.coordinator.onCommit = onCommit
         context.coordinator.onCancel = onCancel
-        context.coordinator.commitsOnFocusLoss = commitsOnFocusLoss
-        context.coordinator.onMoveHighlightWhenEmpty = onMoveHighlightWhenEmpty
-        context.coordinator.onToggleHighlightWhenEmpty = onToggleHighlightWhenEmpty
-        context.coordinator.onDeleteHighlightWhenEmpty = onDeleteHighlightWhenEmpty
-        context.coordinator.resetIfReusableEmptyField()
-
-        guard let textView = scrollView.documentView as? ChecklistInputTextView else { return }
-        textView.font = .systemFont(ofSize: fontSize)
-        textView.textColor = textColor
-        textView.insertionPointColor = textColor
-        textView.setAccessibilityLabel(placeholder)
-        textView.selectsAllOnFocus = selectsAllOnFocus
-        if textView.string != text {
-            textView.string = text
-        }
+        nsView.font = .systemFont(ofSize: fontSize)
+        nsView.textColor = textColor
+        nsView.caretColor = textColor
+        nsView.placeholderString = placeholder
     }
 
-    final class Coordinator: NSObject, NSTextViewDelegate {
-        var text: Binding<String>
+    /// Bridges Return/Escape and focus-loss to the commit / cancel closures.
+    final class Coordinator: NSObject, NSTextFieldDelegate {
         var onCommit: (String) -> Void
         var onCancel: () -> Void
-        var commitsOnFocusLoss: Bool
-        var onMoveHighlightWhenEmpty: ((Int) -> Bool)?
-        var onToggleHighlightWhenEmpty: (() -> Bool)?
-        var onDeleteHighlightWhenEmpty: (() -> Bool)?
-        weak var textView: NSTextView?
-        private var finished = false
+        private var committed = false
 
-        init(
-            text: Binding<String>,
-            onCommit: @escaping (String) -> Void,
-            onCancel: @escaping () -> Void,
-            commitsOnFocusLoss: Bool,
-            onMoveHighlightWhenEmpty: ((Int) -> Bool)?,
-            onToggleHighlightWhenEmpty: (() -> Bool)?,
-            onDeleteHighlightWhenEmpty: (() -> Bool)?
-        ) {
-            self.text = text
+        init(onCommit: @escaping (String) -> Void, onCancel: @escaping () -> Void) {
             self.onCommit = onCommit
             self.onCancel = onCancel
-            self.commitsOnFocusLoss = commitsOnFocusLoss
-            self.onMoveHighlightWhenEmpty = onMoveHighlightWhenEmpty
-            self.onToggleHighlightWhenEmpty = onToggleHighlightWhenEmpty
-            self.onDeleteHighlightWhenEmpty = onDeleteHighlightWhenEmpty
         }
 
-        var currentText: String {
-            textView?.string ?? text.wrappedValue
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+            if selector == #selector(NSResponder.insertNewline(_:)) {
+                committed = true
+                onCommit(control.stringValue)
+                return true
+            }
+            if selector == #selector(NSResponder.cancelOperation(_:)) {
+                committed = true
+                onCancel()
+                return true
+            }
+            return false
         }
 
-        var isEmpty: Bool {
-            currentText.isEmpty
-        }
-
-        func textDidChange(_ notification: Notification) {
-            guard let textView = notification.object as? NSTextView else { return }
-            text.wrappedValue = textView.string
-        }
-
-        func textDidEndEditing(_ notification: Notification) {
-            guard !finished, commitsOnFocusLoss else { return }
-            commit()
-        }
-
-        func resetIfReusableEmptyField() {
-            guard finished, currentText.isEmpty, text.wrappedValue.isEmpty else { return }
-            finished = false
-        }
-
-        func commit() {
-            guard !finished else { return }
-            finished = true
-            let value = currentText
-            text.wrappedValue = value
-            onCommit(value)
-        }
-
-        func cancel() {
-            guard !finished else { return }
-            finished = true
-            onCancel()
+        func controlTextDidEndEditing(_ obj: Notification) {
+            guard !committed else { return }
+            committed = true
+            let text = (obj.object as? NSTextField)?.stringValue ?? ""
+            if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                onCancel()
+            } else {
+                onCommit(text)
+            }
         }
     }
 }
 
-final class ChecklistInputTextView: NSTextView {
-    weak var coordinator: ChecklistInputField.Coordinator?
+/// The `NSTextField` that grabs first responder on appear. The `selectsAllOnFocus`
+/// flag chooses select-all (edit) vs caret-at-end (add) once the field editor exists.
+final class FocusGrabbingTextField: NSTextField {
     var selectsAllOnFocus = false
+    var caretColor: NSColor = .labelColor {
+        didSet { (currentEditor() as? NSTextView)?.insertionPointColor = caretColor }
+    }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         guard let window else { return }
+#if DEBUG
+        let windowKind = String(describing: type(of: window))
+        let makeFirstResponderResult = window.makeFirstResponder(self)
+        cmuxDebugLog(
+            "focus.todoPopover.textField windowKind=\(windowKind) "
+                + "isKeyWindow=\(window.isKeyWindow) "
+                + "makeFirstResponder=\(makeFirstResponderResult)"
+        )
+#else
         window.makeFirstResponder(self)
+#endif
         if selectsAllOnFocus {
-            selectAll(nil)
-        } else {
-            selectedRange = NSRange(location: string.count, length: 0)
+            currentEditor()?.selectAll(nil)
+        } else if let editor = currentEditor() {
+            editor.selectedRange = NSRange(location: stringValue.count, length: 0)
         }
-    }
-
-    override func keyDown(with event: NSEvent) {
-        let flags = event.modifierFlags
-            .intersection(.deviceIndependentFlagsMask)
-            .subtracting([.capsLock, .function, .numericPad])
-
-        switch event.keyCode {
-        case 36, 76:
-            if flags == [.shift] {
-                insertNewline(nil)
-                return
-            }
-            if flags.isEmpty {
-                if coordinator?.isEmpty == true,
-                   coordinator?.onToggleHighlightWhenEmpty?() == true {
-                    return
-                }
-                coordinator?.commit()
-                return
-            }
-            if flags == [.command] {
-                coordinator?.commit()
-                return
-            }
-        case 53:
-            coordinator?.cancel()
-            return
-        case 51:
-            if flags.isEmpty,
-               coordinator?.isEmpty == true,
-               coordinator?.onDeleteHighlightWhenEmpty?() == true {
-                return
-            }
-        case 126:
-            if flags.isEmpty,
-               coordinator?.isEmpty == true,
-               coordinator?.onMoveHighlightWhenEmpty?(-1) == true {
-                return
-            }
-        case 125:
-            if flags.isEmpty,
-               coordinator?.isEmpty == true,
-               coordinator?.onMoveHighlightWhenEmpty?(1) == true {
-                return
-            }
-        default:
-            break
-        }
-
-        super.keyDown(with: event)
-    }
-
-    override func cancelOperation(_ sender: Any?) {
-        coordinator?.cancel()
     }
 }
