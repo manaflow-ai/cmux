@@ -157,7 +157,9 @@ extension TerminalController: ControlSurfaceContext {
                 resumeBinding: nil,
                 simulatorDeviceID: simulatorPanel?.selectedDeviceID,
                 simulatorRuntimeIdentifier: simulatorPanel?.selectedRuntimeIdentifier,
-                simulatorDeviceTypeIdentifier: simulatorPanel?.selectedDeviceTypeIdentifier
+                simulatorDeviceTypeIdentifier: simulatorPanel?.selectedDeviceTypeIdentifier,
+                simulatorDeviceName: simulatorPanel?.selectedDeviceName,
+                simulatorDeviceState: simulatorPanel?.selectedDeviceState
             )
         }
 

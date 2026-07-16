@@ -46,6 +46,10 @@ public struct ControlSurfaceSummary: Sendable, Equatable {
     public let simulatorRuntimeIdentifier: String?
     /// Persisted Simulator device-type identity, available without discovery.
     public let simulatorDeviceTypeIdentifier: String?
+    /// Live Simulator device name, when discovery has completed.
+    public let simulatorDeviceName: String?
+    /// Live CoreSimulator state, or booted when the pane is streaming.
+    public let simulatorDeviceState: String?
 
     /// Creates a surface summary.
     ///
@@ -79,7 +83,9 @@ public struct ControlSurfaceSummary: Sendable, Equatable {
         resumeBinding: ControlSurfaceResumeBinding?,
         simulatorDeviceID: String? = nil,
         simulatorRuntimeIdentifier: String? = nil,
-        simulatorDeviceTypeIdentifier: String? = nil
+        simulatorDeviceTypeIdentifier: String? = nil,
+        simulatorDeviceName: String? = nil,
+        simulatorDeviceState: String? = nil
     ) {
         self.surfaceID = surfaceID
         self.typeRawValue = typeRawValue
@@ -97,5 +103,7 @@ public struct ControlSurfaceSummary: Sendable, Equatable {
         self.simulatorDeviceID = simulatorDeviceID
         self.simulatorRuntimeIdentifier = simulatorRuntimeIdentifier
         self.simulatorDeviceTypeIdentifier = simulatorDeviceTypeIdentifier
+        self.simulatorDeviceName = simulatorDeviceName
+        self.simulatorDeviceState = simulatorDeviceState
     }
 }

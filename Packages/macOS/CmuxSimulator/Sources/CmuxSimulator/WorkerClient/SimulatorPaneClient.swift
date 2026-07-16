@@ -20,6 +20,11 @@ public protocol SimulatorPaneClient: Sendable {
     /// - Parameter message: The command to enqueue.
     func send(_ message: SimulatorWorkerInbound) async
 
+    /// Establishes and confirms a known display orientation before input begins.
+    func synchronizeOrientation(
+        _ orientation: SimulatorOrientation
+    ) async throws -> SimulatorDisplayMetadata?
+
     /// Performs one native Simulator tools action.
     /// - Parameter action: The typed action to perform.
     func perform(_ action: SimulatorControlAction) async throws -> SimulatorControlResult

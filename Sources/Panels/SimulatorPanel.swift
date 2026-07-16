@@ -44,6 +44,11 @@ final class SimulatorPanel: Panel {
     var selectedDeviceTypeIdentifier: String? {
         coordinator.selectedDevice?.deviceTypeIdentifier ?? preferredDeviceTypeIdentifier
     }
+    var selectedDeviceName: String? { coordinator.selectedDevice?.name }
+    var selectedDeviceState: String? {
+        if coordinator.status == .streaming { return SimulatorDeviceState.booted.rawValue }
+        return coordinator.selectedDevice?.state.rawValue
+    }
 
     init(
         preferredDeviceID: String? = nil,

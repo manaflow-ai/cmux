@@ -49,6 +49,7 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
     var lastAttachment: SimulatorWorkerInbound?
     var lastGeometry: SimulatorSurfaceGeometry?
     var lastDisplayOrientation: SimulatorOrientation?
+    var currentDisplayMetadata: SimulatorDisplayMetadata?
     var cameraReplayConfigurations: [SimulatorCameraConfiguration] = []
     var cameraRequestConfigurations: [UUID: SimulatorCameraConfiguration] = [:]
     var cameraSourceSwitchRequests: [UUID: SimulatorCameraConfiguration] = [:]

@@ -120,6 +120,7 @@ extension SimulatorWorkerClient {
         switch message {
         case let .display(display):
             lastDisplayOrientation = display.orientation
+            currentDisplayMetadata = display
         case let .frameTransport(frameTransport):
             let previousSharedMemoryName = currentFrameTransport?.sharedMemoryName
             currentFrameTransport = frameTransport
@@ -137,6 +138,7 @@ extension SimulatorWorkerClient {
             clearFrameTransportState()
             currentCapabilities = []
             lastDisplayOrientation = nil
+            currentDisplayMetadata = nil
             await failOutstandingRequests(with: SimulatorFailure(
                 code: "simulator_device_unavailable",
                 message: String(
@@ -150,6 +152,7 @@ extension SimulatorWorkerClient {
             clearFrameTransportState()
             currentCapabilities = []
             lastDisplayOrientation = nil
+            currentDisplayMetadata = nil
             await failOutstandingRequests(with: failure)
             cancelReplayWait()
         case .status(.streaming):
@@ -381,6 +384,7 @@ extension SimulatorWorkerClient {
             lastAttachment = nil
             lastGeometry = nil
             lastDisplayOrientation = nil
+            currentDisplayMetadata = nil
             cameraReplayConfigurations.removeAll()
             cameraCleanupBundleIdentifiers.removeAll()
             lastCameraMirrorMode = nil

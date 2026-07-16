@@ -6,6 +6,23 @@ private struct SimulatorCameraConfigurationConfirmation: Sendable {
 }
 
 extension SimulatorWorkerClient {
+    public func synchronizeOrientation(
+        _ orientation: SimulatorOrientation
+    ) async throws -> SimulatorDisplayMetadata? {
+        _ = try await perform(.interactive(.rotate(orientation)))
+        guard currentDisplayMetadata?.orientation == orientation else {
+            throw SimulatorControlError(
+                code: "orientation_synchronization_failed",
+                arguments: [],
+                message: String(
+                    localized: "simulator.failure.orientationSynchronization",
+                    defaultValue: "The Simulator did not confirm its requested orientation."
+                )
+            )
+        }
+        return currentDisplayMetadata
+    }
+
     /// Performs one public Simulator action or routes camera configuration to
     /// the isolated worker.
     public func perform(_ action: SimulatorControlAction) async throws -> SimulatorControlResult {

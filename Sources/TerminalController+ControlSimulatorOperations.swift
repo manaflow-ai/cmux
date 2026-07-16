@@ -76,7 +76,7 @@ extension TerminalController {
                     "runtime_id": selectedDevice.map { .string($0.runtimeIdentifier) } ?? .null,
                     "device_type_id": selectedDevice.map { .string($0.deviceTypeIdentifier) } ?? .null,
                     "family": selectedDevice.map { .string($0.family.rawValue) } ?? .null,
-                    "state": selectedDevice.map { .string($0.state.rawValue) } ?? .null,
+                    "state": .string(SimulatorDeviceState.booted.rawValue),
                 ]
                 if let display = coordinator.display {
                     values["orientation"] = .string(display.orientation.rawValue)

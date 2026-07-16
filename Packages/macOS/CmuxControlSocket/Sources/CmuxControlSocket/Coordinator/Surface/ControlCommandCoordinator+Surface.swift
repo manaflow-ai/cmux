@@ -172,6 +172,8 @@ extension ControlCommandCoordinator {
                     item["simulator_id"] = orNull(surface.simulatorDeviceID)
                     item["runtime_id"] = orNull(surface.simulatorRuntimeIdentifier)
                     item["device_type_id"] = orNull(surface.simulatorDeviceTypeIdentifier)
+                    item["device_name"] = orNull(surface.simulatorDeviceName)
+                    item["state"] = orNull(surface.simulatorDeviceState)
                 }
                 return .object(item)
             }

@@ -31,6 +31,9 @@ actor RestartingEventClient: SimulatorPaneClient {
     }
 
     func send(_ message: SimulatorWorkerInbound) async {}
+    func synchronizeOrientation(
+        _ orientation: SimulatorOrientation
+    ) async throws -> SimulatorDisplayMetadata? { nil }
     func perform(_ action: SimulatorControlAction) async throws -> SimulatorControlResult { .none }
     func invalidateWorker() async {}
     func stop() async {}

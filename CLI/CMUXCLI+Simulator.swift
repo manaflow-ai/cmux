@@ -188,6 +188,8 @@ extension CMUXCLI {
                 "simulator_id": surface["simulator_id"] ?? NSNull(),
                 "runtime_id": surface["runtime_id"] ?? NSNull(),
                 "device_type_id": surface["device_type_id"] ?? NSNull(),
+                "device_name": surface["device_name"] ?? NSNull(),
+                "state": surface["state"] ?? NSNull(),
             ]
             target["workspace_id"] = listed["workspace_id"] ?? workspaceID
             target["workspace_ref"] = listed["workspace_ref"] ?? NSNull()

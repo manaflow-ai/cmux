@@ -301,6 +301,33 @@ struct SimulatorWorkerClientTests {
         await client.stop()
     }
 
+    @Test("Orientation synchronization waits for matching display metadata")
+    func synchronizesOrientationWithDisplayMetadata() async throws {
+        let launcher = TestWorkerLauncher()
+        let client = makeClient(launcher: launcher)
+        await client.send(.attach(udid: "DEVICE", geometry: nil))
+        let endpoint = try #require(launcher.endpoint(at: 0))
+        endpoint.emit(.status(.streaming))
+        endpoint.setResponder { message in
+            guard case let .interactiveAction(requestID, .rotate(orientation)) = message else {
+                return nil
+            }
+            endpoint.emit(.display(SimulatorDisplayMetadata(
+                width: 1_200,
+                height: 1_600,
+                orientation: orientation,
+                scale: 2
+            )))
+            return .interactiveAction(requestID: requestID, succeeded: true)
+        }
+
+        let display = try await client.synchronizeOrientation(.portrait)
+
+        #expect(display?.orientation == .portrait)
+        #expect(display?.width == 1_200)
+        await client.stop()
+    }
+
     @Test("Camera configuration is rejected before host-side private loading")
     func rejectsUnavailableCameraAdapter() async {
         let client = makeClient(launcher: TestWorkerLauncher())

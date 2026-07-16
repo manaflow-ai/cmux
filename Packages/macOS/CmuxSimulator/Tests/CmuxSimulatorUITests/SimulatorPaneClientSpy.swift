@@ -80,6 +80,13 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
         sentMessages.append(message)
     }
 
+    func synchronizeOrientation(
+        _ orientation: SimulatorOrientation
+    ) async throws -> SimulatorDisplayMetadata? {
+        sentMessages.append(.rotate(orientation))
+        return nil
+    }
+
     func perform(_ action: SimulatorControlAction) async throws -> SimulatorControlResult {
         actionValues.append(action)
         if case .sendWebInspectorMessage = action, delaysWebInspectorSend {

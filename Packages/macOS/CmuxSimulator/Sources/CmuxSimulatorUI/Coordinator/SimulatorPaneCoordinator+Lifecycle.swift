@@ -229,7 +229,9 @@ extension SimulatorPaneCoordinator {
                 // orientation instead of trusting stale SimulatorKit metadata left by
                 // the previous attachment. Worker-only recovery subsequently replays
                 // the latest display orientation tracked by SimulatorWorkerClient.
-                await client.send(.rotate(.portrait))
+                if let synchronizedDisplay = try await client.synchronizeOrientation(.portrait) {
+                    self.display = synchronizedDisplay
+                }
                 self.failure = nil
                 self.status = .streaming
             } catch is CancellationError {

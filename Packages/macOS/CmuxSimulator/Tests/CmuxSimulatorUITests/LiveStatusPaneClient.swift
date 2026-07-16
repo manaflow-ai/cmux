@@ -38,6 +38,9 @@ actor LiveStatusPaneClient: SimulatorPaneClient {
     func shutdownDevice(id: String) async throws {}
     func subscribe() async -> SimulatorWorkerEventStream { stream }
     func send(_ message: SimulatorWorkerInbound) async {}
+    func synchronizeOrientation(
+        _ orientation: SimulatorOrientation
+    ) async throws -> SimulatorDisplayMetadata? { nil }
     func invalidateWorker() async {}
     func stop() async { stops += 1; await continuation.finish() }
 
