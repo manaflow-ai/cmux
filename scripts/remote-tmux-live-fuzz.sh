@@ -131,6 +131,27 @@ settlement_has_schema() {
   ' >/dev/null 2>&1
 }
 
+# The reason a window is unsettled lives in its `why` terms, and the payload
+# arrives pretty-printed: keeping its first few hundred characters spends the
+# whole budget on indentation and stops inside the first window, which is how a
+# settle failure came to be reported with no usable cause. Compact it and keep
+# every window whole.
+settlement_digest() {
+  local digest
+  digest=$(printf '%s' "$1" | jq -c '{counters, windows}' 2>/dev/null)
+  if [ -z "$digest" ]; then
+    printf 'unparsable payload: %s' "$(printf '%s' "$1" | tr -d '\n' | cut -c1-300)"
+    return
+  fi
+  # A cap so one pathological window cannot dump megabytes into the log, and it
+  # says what it dropped rather than trailing off mid-token.
+  if [ "${#digest}" -gt 4000 ]; then
+    printf '%s [digest cut at 4000 of %d chars]' "$(printf '%s' "$digest" | cut -c1-4000)" "${#digest}"
+  else
+    printf '%s' "$digest"
+  fi
+}
+
 settlement_has_reported_windows() {
   printf '%s' "$1" | jq -e '.windows | length > 0' >/dev/null 2>&1
 }
@@ -320,11 +341,10 @@ check_screen_oracle() {
     missing=$(comm -23 <(printf '%s\n' "$tmux_panes") <(printf '%s\n' "$app_panes") | tr '\n' ' ')
     if [ -n "${missing// /}" ]; then
       # The app census came from the earlier pane_surfaces snapshot; a zoom
-      # toggle anywhere between that snapshot and here manufactures a
+      # toggle between that snapshot and the reads above manufactures a
       # mismatch out of two individually consistent states. Confirm against
-      # fresh state on BOTH sides before recording a defect: a stable zoom
-      # flag alone cannot clear a toggle that completed before its first
-      # read. Only a mismatch that survives the re-read is one.
+      # fresh state on BOTH sides before recording a defect; only a mismatch
+      # that survives the re-read is one.
       if ! refresh_pane_surfaces; then
         return
       fi
@@ -336,21 +356,26 @@ check_screen_oracle() {
       if [ "$window_still_on_screen" != "true" ]; then
         continue
       fi
-      zoom_recheck=$(t display-message -p -t "$window" '#{window_zoomed_flag}' 2>/dev/null)
-      if [ -z "$zoom_recheck" ]; then
-        continue
-      fi
-      if [ "$zoom_recheck" = 1 ]; then
-        tmux_panes=$(t list-panes -t "$window" -F '#{?pane_active,#{pane_id},}' 2>/dev/null | sed '/^$/d' | sort) || continue
+      window_panes=$(t list-panes -t "$window" \
+        -F '#{window_zoomed_flag} #{pane_active} #{pane_id}' 2>/dev/null) || continue
+      if printf '%s\n' "$window_panes" | grep -q '^1 '; then
+        tmux_panes=$(printf '%s\n' "$window_panes" | awk '$2 == 1 { print $3 }' | sort)
       else
-        tmux_panes=$(t list-panes -t "$window" -F '#{pane_id}' 2>/dev/null | sort) || continue
+        tmux_panes=$(printf '%s\n' "$window_panes" | awk '{ print $3 }' | sort)
       fi
       app_panes=$(printf '%s' "$PANE_SURFACES_JSON" | jq -r --arg w "$window" '
         .panes[]? | select(.window_id == $w and .on_screen == true) | .pane_id
       ' 2>/dev/null | sort)
       missing=$(comm -23 <(printf '%s\n' "$tmux_panes") <(printf '%s\n' "$app_panes") | tr '\n' ' ')
       if [ -n "${missing// /}" ]; then
-        note_fail "$iter" "visible $window: tmux panes [$missing] are not on screen in the app (coverage would silently drop them)"
+        # Report both sides and the zoom flag, not just the difference. Whether a
+        # pane is EXPECTED on screen turns entirely on zoom — a sibling of a zoomed
+        # pane is absent by design — so naming the missing pane alone accuses the
+        # app in a sentence that reads identically when the harness is the one that
+        # is wrong.
+        zoom_state=off
+        printf '%s\n' "$window_panes" | grep -q '^1 ' && zoom_state=on
+        note_fail "$iter" "visible $window: tmux panes [$missing] are not on screen in the app (coverage would silently drop them) zoom=$zoom_state expected=[$(printf '%s' "$tmux_panes" | tr '\n' ' ')] app_on_screen=[$(printf '%s' "$app_panes" | tr '\n' ' ')]"
       fi
     fi
   done
@@ -536,7 +561,7 @@ check_iter() {
   done
   echo "  settle $((SECONDS - settle_start))s (iter $iter)"
   if [ "$settled" != 1 ]; then
-    note_fail "$iter" "settle exceeded ${budget}s budget (healthy baseline ~0.4s): $(printf '%s' "$settled_json" | jq -ce '{counters, windows}' 2>/dev/null || printf '%s' "$settled_json" | tr -d '\n' | cut -c1-300)"
+    note_fail "$iter" "settle exceeded ${budget}s budget (healthy baseline ~0.4s): $(settlement_digest "$settled_json")"
   elif settlement_has_render_mismatch "$settled_json"; then
     # Mismatch WHILE settled: re-read twice before failing, so a probe that
     # raced the last frame of a transition cannot manufacture a defect.
@@ -693,6 +718,11 @@ do_op() {
   # remaps it to a benign op so a run can isolate steady-state sizing
   # correctness from reconnect-race robustness. Default keeps op 9.
   if [ "${CMUX_FUZZ_NO_RECONNECT:-0}" = 1 ] && [ "$R" = 9 ]; then R=1; fi
+  # Record the op behind each iteration. Without it a failure names an iteration
+  # and nothing else, and the first question about any fuzz failure — which
+  # operation produced this state — can only be answered by re-running the seed
+  # and counting by hand.
+  OPS_THIS_ITER="${OPS_THIS_ITER:+$OPS_THIS_ITER,}op$R"
   case $R in
     0) # pane resize, including starvation sizes down to 1 cell
       local pane; random_pane "$w"; pane="$RP"
@@ -823,8 +853,9 @@ for i in $(seq 1 "$ITERS"); do
   ops=1
   rand 3
   if [ "$R" = 0 ]; then rand 2; ops=$(( 2 + R )); fi
+  OPS_THIS_ITER=""
   for _ in $(seq 1 "$ops"); do do_op "$i"; done
-  echo "iter=$i/$ITERS ops=$ops panes=$(t list-panes -s -t $SESSION 2>/dev/null | wc -l | tr -d ' ') windows=$(t list-windows -t $SESSION 2>/dev/null | wc -l | tr -d ' ') fails=$fail"
+  echo "iter=$i/$ITERS ops=$ops [$OPS_THIS_ITER] panes=$(t list-panes -s -t $SESSION 2>/dev/null | wc -l | tr -d ' ') windows=$(t list-windows -t $SESSION 2>/dev/null | wc -l | tr -d ' ') fails=$fail"
   if [ "$DRY" = 1 ]; then
     t list-windows -t $SESSION -F "iter=$i win=#{window_name} #{window_width}x#{window_height} panes=#{window_panes} zoom=#{window_zoomed_flag} layout=#{window_layout}" 2>/dev/null
     continue
