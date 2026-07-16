@@ -3015,15 +3015,21 @@ final class BrowserPanel: Panel, ObservableObject {
             return pasteboard.setString(prompt, forType: .string)
         },
         onActivityChanged: { [weak self] in
-            guard let self else { return }
-            self.reevaluateHiddenWebViewDiscardScheduling(reason: "design_mode_changed")
-            // Design Mode needs the omnibar on screen (pen toggle, URL
-            // context); drop browser focus mode when it activates.
-            if self.designModeController.isActive, self.isBrowserFocusModeActive {
-                self.clearBrowserFocusMode(reason: "designMode.activated")
-            }
+            self?.handleDesignModeActivityChanged()
         }
     )
+
+    /// Reacts to design-mode phase changes. Kept out of the lazy
+    /// `designModeController` initializer: referencing the property inside
+    /// its own initializer is a circular reference.
+    private func handleDesignModeActivityChanged() {
+        reevaluateHiddenWebViewDiscardScheduling(reason: "design_mode_changed")
+        // Design Mode needs the omnibar on screen (pen toggle, URL context);
+        // drop browser focus mode when it activates.
+        if designModeController.isActive, isBrowserFocusModeActive {
+            clearBrowserFocusMode(reason: "designMode.activated")
+        }
+    }
     var reactGrabMessageHandler: ReactGrabMessageHandler?
     var sslTrustBypassMessageHandler: BrowserSSLTrustBypassMessageHandler?
     /// Whether the live page currently has any actively-playing `<video>` or

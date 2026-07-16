@@ -14,6 +14,35 @@ import SwiftUI
 /// `BrowserPortalOmnibarSuggestionsHostingView`.
 final class BrowserDesignModeComposerHostingView: NSHostingView<BrowserDesignModePopoverHost> {
     var cardFrameInTopLeftCoordinates: CGRect = .zero
+    /// Fired while the pointer moves within the card. SwiftUI's onHover does
+    /// not fire reliably over the embedded AppKit token text view, so the
+    /// page-side hover clear is driven from this tracking area instead.
+    var onPointerInsideCard: (() -> Void)?
+    private var cardTrackingArea: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let cardTrackingArea { removeTrackingArea(cardTrackingArea) }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        cardTrackingArea = area
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        let localPoint = convert(event.locationInWindow, from: nil)
+        let topLeftPoint = isFlipped
+            ? localPoint
+            : NSPoint(x: localPoint.x, y: bounds.height - localPoint.y)
+        if cardFrameInTopLeftCoordinates.contains(topLeftPoint) {
+            onPointerInsideCard?()
+        }
+        super.mouseMoved(with: event)
+    }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         // AppKit passes hit-test points in the superview's coordinate space.

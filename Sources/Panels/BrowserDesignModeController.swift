@@ -279,6 +279,17 @@ final class BrowserDesignModeController {
         )
     }
 
+    /// Mouse-move-rate entry point for hover clearing: coalesces the calls
+    /// the card's tracking area produces into at most a few evaluations per
+    /// second.
+    func clearPageHoverThrottled() {
+        let now = ContinuousClock.now
+        if let last = lastHoverClearAt, now - last < .milliseconds(200) { return }
+        lastHoverClearAt = now
+        Task { @MainActor in await self.clearPageHover() }
+    }
+    @ObservationIgnored private var lastHoverClearAt: ContinuousClock.Instant?
+
     /// Flashes the outline of the selection at `index` on the page.
     func revealSelection(at index: Int) async {
         guard phase == .active,

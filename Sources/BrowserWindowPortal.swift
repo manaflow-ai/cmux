@@ -1438,6 +1438,9 @@ final class WindowBrowserSlotView: NSView {
             configuration: configuration,
             overlay: overlay
         )
+        overlay.onPointerInsideCard = { [weak controller = configuration.controller] in
+            controller?.clearPageHoverThrottled()
+        }
         overlay.translatesAutoresizingMaskIntoConstraints = false
         addSubview(overlay)
         NSLayoutConstraint.activate([
