@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CmuxFoundation
+import Combine
 import SwiftUI
 import Testing
 
@@ -147,6 +148,49 @@ struct SidebarWorkspaceTableTests {
         }
 
         #expect(measurementCount == 1)
+    }
+
+    /// A hosted row can change height from cell-local SwiftUI state without a
+    /// new table snapshot. The table must follow the rendered cell instead of
+    /// leaving the old row rectangle in place while content paints over its
+    /// neighbors.
+    @Test
+    @MainActor
+    func liveCellHeightChangeUpdatesTheTableRowGeometry() throws {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let model = ExpandingTestRowModel()
+        let row = makeExpandingRowConfiguration(model: model)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 300),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        controller.apply(
+            rows: [row],
+            actions: makeTableActions(),
+            workspaceIds: [row.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+        _ = try #require(
+            container.tableView.view(atColumn: 0, row: 0, makeIfNecessary: true)
+                as? SidebarWorkspaceTableCellView
+        )
+        let collapsedHeight = container.tableView.rect(ofRow: 0).height
+
+        model.isExpanded = true
+        for _ in 0..<3 {
+            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02))
+            container.layoutSubtreeIfNeeded()
+            container.tableView.layoutSubtreeIfNeeded()
+        }
+
+        #expect(container.tableView.rect(ofRow: 0).height > collapsedHeight + 40)
     }
 
 #if DEBUG
@@ -417,6 +461,36 @@ struct SidebarWorkspaceTableTests {
         }
     }
 
+    @MainActor
+    private func makeExpandingRowConfiguration(
+        model: ExpandingTestRowModel
+    ) -> SidebarWorkspaceTableRowConfiguration {
+        let workspaceId = UUID()
+#if DEBUG
+        let environment = SidebarWorkspaceTableEnvironmentSnapshot(
+            colorScheme: .light,
+            globalFontMagnificationPercent: 100,
+            lazyContractProbe: SidebarLazyContractProbe()
+        )
+#else
+        let environment = SidebarWorkspaceTableEnvironmentSnapshot(
+            colorScheme: .light,
+            globalFontMagnificationPercent: 100
+        )
+#endif
+        return SidebarWorkspaceTableRowConfiguration(
+            id: .workspace(workspaceId),
+            workspaceId: workspaceId,
+            groupId: nil,
+            isGroupHeader: false,
+            isPinned: false,
+            environment: environment,
+            equivalenceValue: 0
+        ) { _, _ in
+            AnyView(ExpandingTestRow(model: model))
+        }
+    }
+
 #if DEBUG
     @MainActor
     private func configure(
@@ -466,6 +540,24 @@ struct SidebarWorkspaceTableTests {
 
         var body: some View {
             EmptyView()
+        }
+    }
+
+    @MainActor
+    private final class ExpandingTestRowModel: ObservableObject {
+        @Published var isExpanded = false
+    }
+
+    private struct ExpandingTestRow: View {
+        @ObservedObject var model: ExpandingTestRowModel
+
+        var body: some View {
+            VStack(spacing: 0) {
+                Color.clear.frame(height: 30)
+                if model.isExpanded {
+                    Color.clear.frame(height: 100)
+                }
+            }
         }
     }
 }
