@@ -507,8 +507,9 @@ enum AgentForkSupport {
                 if pollDescriptors[0].revents & Int16(POLLIN | POLLHUP | POLLERR) == 0 {
                     continue
                 }
+                let bufferCapacity = buffer.count
                 let bytesRead = buffer.withUnsafeMutableBytes { rawBuffer in
-                    Darwin.read(readFileDescriptor, rawBuffer.baseAddress, buffer.count)
+                    Darwin.read(readFileDescriptor, rawBuffer.baseAddress, bufferCapacity)
                 }
                 if bytesRead > 0 {
                     let remaining = maximumBytes - output.count
