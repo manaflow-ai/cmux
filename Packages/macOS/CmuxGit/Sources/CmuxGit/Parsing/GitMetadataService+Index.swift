@@ -9,7 +9,6 @@ extension GitMetadataService {
     /// file status and compares size, mode, and mtime. Gitlink entries are dirty
     /// when the submodule's checked-out commit differs from the index object ID.
     nonisolated func gitTrackedChangesSnapshot(repository: ResolvedGitRepository) -> GitTrackedChangesSnapshot {
-        runtimeMetricsRecorder.recordRawTrackedStatusScan()
         let indexURL = URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("index")
         guard let indexSnapshot = Self.gitIndexSnapshot(indexURL: indexURL) else {
             return GitTrackedChangesSnapshot(

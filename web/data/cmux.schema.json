@@ -572,6 +572,30 @@
           "descriptionKey": "schemaDescriptions.terminal.scrollSpeed",
           "description": "Multiplier applied to terminal scroll wheel and trackpad deltas. Higher values scroll faster; lower values scroll slower."
         },
+        "sessionContentMaxWidth": {
+          "oneOf": [
+            {
+              "type": "boolean",
+              "const": false
+            },
+            {
+              "type": "number",
+              "minimum": 320,
+              "maximum": 2400,
+              "multipleOf": 20
+            }
+          ],
+          "default": false,
+          "descriptionKey": "schemaDescriptions.terminal.sessionContentMaxWidth",
+          "description": "Optional maximum width, in points, for terminal and built-in agent chat content. Set false to use the full pane width."
+        },
+        "sessionContentAlignment": {
+          "type": "string",
+          "enum": ["left", "center", "right"],
+          "default": "center",
+          "descriptionKey": "schemaDescriptions.terminal.sessionContentAlignment",
+          "description": "Horizontal placement for terminal and built-in agent chat content when sessionContentMaxWidth is enabled."
+        },
         "copyOnSelect": {
           "type": "boolean",
           "default": false,

@@ -1,17 +1,8 @@
 name: cmux-tui
 
 on:
-  pull_request:
-    paths:
-      - "cmux-tui/**"
-      - "ghostty"
-      - ".github/workflows/cmux-tui.yml"
-  push:
-    branches: [main]
-    paths:
-      - "cmux-tui/**"
-      - "ghostty"
-      - ".github/workflows/cmux-tui.yml"
+  # Temporarily manual-only beginning 2026-07-13 to pause automatic CI.
+  workflow_dispatch:
 
 concurrency:
   group: cmux-tui-${{ github.workflow }}-${{ github.ref }}

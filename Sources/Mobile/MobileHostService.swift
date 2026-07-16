@@ -2,7 +2,6 @@ import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxIrohTransport
 import CmuxMobileTransport
-import CmuxFoundation
 import CmuxSettings
 import CmuxTerminalCore
 import CryptoKit
@@ -30,25 +29,13 @@ extension Notification.Name {
 }
 
 private enum MobileHostEventSubscriptionTracker {
-    private static let terminalOutputTopics: Set<String> = [
-        "terminal.bytes",
-        "terminal.render_grid",
-    ]
     private static let lock = NSLock()
     private nonisolated(unsafe) static var topicCounts: [String: Int] = [:]
-    /// Mirrors whether either terminal-output topic has subscribers so Ghostty's
-    /// per-chunk output callback never needs to acquire the tracker lock.
-    private static let terminalOutputDemand = AtomicBooleanGate(false)
 
     static func hasSubscribers(topic: String) -> Bool {
         lock.lock()
         defer { lock.unlock() }
         return (topicCounts[topic] ?? 0) > 0
-    }
-
-    @inline(__always)
-    static func hasTerminalOutputSubscribers() -> Bool {
-        terminalOutputDemand.loadAcquire()
     }
 
     static func replace(previousTopics: Set<String>?, nextTopics: Set<String>?) {
@@ -81,10 +68,6 @@ private enum MobileHostEventSubscriptionTracker {
             topicCounts[topic] = (topicCounts[topic] ?? 0) + 1
         }
 
-        terminalOutputDemand.storeRelease(
-            terminalOutputTopics.contains { (topicCounts[$0] ?? 0) > 0 }
-        )
-
         for topic in allTopics {
             let wasActive = (before[topic] ?? 0) > 0
             let isActive = (topicCounts[topic] ?? 0) > 0
@@ -98,7 +81,6 @@ private enum MobileHostEventSubscriptionTracker {
     static func reset() {
         lock.lock()
         topicCounts.removeAll()
-        terminalOutputDemand.storeRelease(false)
         lock.unlock()
         NotificationCenter.default.post(
             name: .mobileHostEventSubscriptionsDidChange,
@@ -234,7 +216,7 @@ enum MobileHostPortApplyOutcome: Equatable {
 final class MobileHostService {
     static let shared = MobileHostService()
     nonisolated private static let maximumActiveConnectionCount = 10
-
+    nonisolated private static let terminalThemeRevisionEpoch = UUID().uuidString
     /// The single shape every public `mobile.host.status` reply uses (the
     /// public-status cache, the network status gate, and
     /// `TerminalController`'s no-private-metadata branch), so the fields
@@ -257,7 +239,6 @@ final class MobileHostService {
             "theme": theme.mobileHostJSONObject,
         ]
     }
-
     /// `publicStatusPayload` plus the Mac's identity, for a caller that has
     /// proven same-account Stack ownership. The pairing QR no longer carries
     /// the display name or the device id, so this reply is where a freshly
@@ -266,6 +247,7 @@ final class MobileHostService {
     nonisolated static func identityStatusPayload(routes: [CmxAttachRoute], now: Date = Date()) -> [String: Any] {
         var payload = publicStatusPayload(routes: [], now: now)
         payload["routes"] = routes.mobileHostJSONObjects(for: .authenticated, at: now)
+        payload["terminal_theme_revision_epoch"] = terminalThemeRevisionEpoch
         payload["mac_device_id"] = MobileHostIdentity.deviceID()
         payload["mac_instance_tag"] = MobileHostIdentity.instanceTag()
         if let displayName = MobileHostIdentity.instanceDisplayName() {
@@ -431,13 +413,12 @@ final class MobileHostService {
         MobileHostEventSubscriptionTracker.hasSubscribers(topic: topic)
     }
 
-    /// Lock-free aggregate demand check for Ghostty's terminal-output hot path.
-    nonisolated static func hasTerminalOutputSubscribers() -> Bool {
-        MobileHostEventSubscriptionTracker.hasTerminalOutputSubscribers()
-    }
-
     /// User-default key for the opt-in Mac-side iOS pairing listener.
     nonisolated static let listeningEnabledDefaultsKey = SettingCatalog().mobile.iOSPairingHost.userDefaultsKey
+
+    /// Key written by released builds before the setting moved into the
+    /// canonical settings catalog. Read only as a migration fallback.
+    nonisolated private static let legacyListeningEnabledDefaultsKey = "cmuxMobilePairingHostEnabled"
 
     /// Whether the mobile pairing host should bind a network listener at all.
     ///
@@ -462,6 +443,9 @@ final class MobileHostService {
     nonisolated static func isListeningEnabled(defaults: UserDefaults) -> Bool {
         if let override = defaults.object(forKey: listeningEnabledDefaultsKey) as? Bool {
             return override
+        }
+        if let legacyOverride = defaults.object(forKey: legacyListeningEnabledDefaultsKey) as? Bool {
+            return legacyOverride
         }
         return SettingCatalog().mobile.iOSPairingHost.defaultValue
     }
@@ -717,6 +701,7 @@ final class MobileHostService {
     nonisolated private static func canPublishRoutesWithoutListenerForXCTest(defaults: UserDefaults) -> Bool {
         guard isRunningUnderXCTest else { return false }
         return defaults.object(forKey: listeningEnabledDefaultsKey) == nil
+            && defaults.object(forKey: legacyListeningEnabledDefaultsKey) == nil
     }
 
     private func publishRoutesWithoutListenerForXCTest() {
@@ -1589,10 +1574,6 @@ extension MobileHostService {
 
     nonisolated static func debugHasEventSubscribersForTesting(topic: String) -> Bool {
         MobileHostEventSubscriptionTracker.hasSubscribers(topic: topic)
-    }
-
-    nonisolated static func debugHasTerminalOutputSubscribersForTesting() -> Bool {
-        MobileHostEventSubscriptionTracker.hasTerminalOutputSubscribers()
     }
 
     nonisolated static func debugResetEventSubscriptionsForTesting() {

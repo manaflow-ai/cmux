@@ -29,7 +29,13 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     /// - Parameter method: The trimmed method name.
     public init(forMethod method: String) {
 #if DEBUG
-        if method == "remote.tmux.test_exec" || method == "remote.tmux.test_set_frame" { self = .socketWorker(mainThreadCallable: false); return }
+        if method == "remote.tmux.test_exec" || method == "remote.tmux.test_set_frame"
+            || method == "remote.tmux.test_perturb_divider"
+            || method == "remote.tmux.root_frames"
+            || method == "remote.tmux.window" {
+            self = .socketWorker(mainThreadCallable: false)
+            return
+        }
 #endif
         if method.hasPrefix("vm.") || method.hasPrefix("remotes.") || method.hasPrefix("aiAccounts.")
             || Self.socketWorkerMethods.contains(method) {
@@ -97,13 +103,6 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "mobile.terminal.set_font",
         "system.top",
         "system.memory",
-        // Owner attribution performs a fresh process + listener capture and
-        // awaits utility tasks. It never touches UI state, so running it on the
-        // main actor would contaminate the latency path it exists to prove.
-        "performance.metrics.exercise_process",
-        // Uses an isolated temporary Git repository and in-memory PR host. Git
-        // scanning stays off-main; only the PR state machine hops to MainActor.
-        "performance.metrics.exercise_git_pr",
         // `surface.read_text` reads a terminal's visible or full-scrollback
         // text and formats it (line tailing, candidate scoring, base64
         // encoding). On the main actor that formatting stalls the run loop
@@ -131,7 +130,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "remote.tmux.attach",
         "remote.tmux.detach",
         "remote.tmux.state",
-        "remote.tmux.mirror", "remote.tmux.window", "remote.tmux.pane_grids",
+        "remote.tmux.mirror", "remote.tmux.pane_grids", "remote.tmux.pane_surfaces",
         "sidebar.custom.validate",
         "sidebar.custom.reload",
         "sidebar.custom.select",
