@@ -716,6 +716,16 @@ extension TerminalController {
                         // already at the type-checker's limit.
                         "render_frame": renderFrameDescription,
                         "container": containerDescription,
+                        // Does bonsplit's own LOGICAL tree agree with the tmux
+                        // layout this plan was built from? Panes are portal-hosted
+                        // at the window level, so a pane's frame tracks an anchor
+                        // inside the split tree rather than the split tree itself:
+                        // when the logical tree agrees and the geometry is still
+                        // wrong, the stale thing is downstream of the tree, and the
+                        // reconcile that consults this same predicate had no reason
+                        // to rebuild. Without it, "the trees disagree" stays a
+                        // guess, and it is the guess this judge kept inviting.
+                        "tree_matches_layout": mirror.bonsplitTreeMatches(layout: tree),
                     ],
                     // The claim is a CLIENT size; `windowGrid` is the WINDOW tmux
                     // laid out. Columns agree exactly (tmux fits the window to the
