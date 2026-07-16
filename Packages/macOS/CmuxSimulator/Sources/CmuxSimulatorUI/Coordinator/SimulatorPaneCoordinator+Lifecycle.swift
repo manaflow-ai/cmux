@@ -149,12 +149,19 @@ extension SimulatorPaneCoordinator {
 
     /// Refreshes the device picker from CoreSimulator discovery.
     public func reloadDevices() async {
+        let selectionGeneration = selectionGeneration
+        deviceDiscoveryGeneration &+= 1
+        let discoveryGeneration = deviceDiscoveryGeneration
         do {
             let previousDeviceID = selectedDeviceID
             let wasAwaitingExplicitSelection = requiresExplicitDeviceSelection
                 && previousDeviceID == nil
                 && failure?.code == "simulator_saved_device_unavailable"
             let discovered = try await client.discoverDevices()
+            guard !closed,
+                  !Task.isCancelled,
+                  self.selectionGeneration == selectionGeneration,
+                  deviceDiscoveryGeneration == discoveryGeneration else { return }
             devices = discovered
                 .filter { $0.isAvailable && ($0.family == .iPhone || $0.family == .iPad) }
                 .sorted(by: simulatorDeviceOrdering)
@@ -185,7 +192,10 @@ extension SimulatorPaneCoordinator {
             selectActionHistory(deviceID: nextDeviceID)
             selectedDeviceID = nextDeviceID
         } catch {
-            guard !Task.isCancelled else { return }
+            guard !closed,
+                  !Task.isCancelled,
+                  self.selectionGeneration == selectionGeneration,
+                  deviceDiscoveryGeneration == discoveryGeneration else { return }
             let simulatorFailure = simulatorPaneFailure(from: error, code: "device_discovery_failed")
             failure = simulatorFailure
             if status != .streaming {

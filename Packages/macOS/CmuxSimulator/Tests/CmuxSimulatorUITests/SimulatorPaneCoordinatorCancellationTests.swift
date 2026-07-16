@@ -164,6 +164,44 @@ struct SimulatorPaneCoordinatorCancellationTests {
         await coordinator.close()
     }
 
+    @Test("A stale discovery snapshot cannot replace a newer device selection")
+    func staleDiscoveryCannotReplaceNewerSelection() async {
+        let previous = makeDevice(id: "previous", family: .iPhone)
+        let newer = makeDevice(id: "newer", family: .iPad)
+        let client = StaleDiscoveryPaneClient()
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        coordinator.devices = [previous, newer]
+        coordinator.selectedDeviceID = previous.id
+        coordinator.status = .streaming
+
+        let refresh = Task { @MainActor in await coordinator.reloadDevices() }
+        await client.waitUntilDiscoveryIsPending()
+        coordinator.selectDevice(id: newer.id)
+        await client.resumeDiscovery(with: [previous])
+        await refresh.value
+
+        #expect(coordinator.selectedDeviceID == newer.id)
+        #expect(coordinator.devices.map(\.id) == [previous.id, newer.id])
+        await coordinator.close()
+    }
+
+    private func makeDevice(
+        id: String,
+        family: SimulatorDeviceFamily
+    ) -> SimulatorDevice {
+        SimulatorDevice(
+            id: id,
+            name: id,
+            runtimeIdentifier: "runtime",
+            runtimeName: "iOS 26.5",
+            deviceTypeIdentifier: "\(id)-type",
+            family: family,
+            state: .booted,
+            isAvailable: true,
+            lastBootedAt: nil
+        )
+    }
+
     private func waitForActivation(
         _ deviceID: String,
         client: SimulatorPaneClientSpy
@@ -174,4 +212,49 @@ struct SimulatorPaneCoordinatorCancellationTests {
         }
         Issue.record("Expected activation for \(deviceID)")
     }
+}
+
+private actor StaleDiscoveryPaneClient: SimulatorPaneClient {
+    private let eventStream: SimulatorWorkerEventStream
+    private let eventContinuation: SimulatorWorkerEventStream.Continuation
+    private var discoveryContinuation: CheckedContinuation<[SimulatorDevice], Never>?
+    private var discoveryWaiters: [CheckedContinuation<Void, Never>] = []
+
+    init() {
+        let source = SimulatorWorkerEventStreamSource(
+            maximumBufferedBytes: 1_024,
+            maximumBufferedEvents: 8,
+            onTermination: {}
+        )
+        eventStream = source.stream
+        eventContinuation = source.continuation
+    }
+
+    func discoverDevices() async throws -> [SimulatorDevice] {
+        let waiters = discoveryWaiters
+        discoveryWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+        return await withCheckedContinuation { discoveryContinuation = $0 }
+    }
+
+    func waitUntilDiscoveryIsPending() async {
+        if discoveryContinuation != nil { return }
+        await withCheckedContinuation { discoveryWaiters.append($0) }
+    }
+
+    func resumeDiscovery(with devices: [SimulatorDevice]) {
+        discoveryContinuation?.resume(returning: devices)
+        discoveryContinuation = nil
+    }
+
+    func activateDevice(id: String, geometry: SimulatorSurfaceGeometry?) async throws {}
+    func shutdownDevice(id: String) async throws {}
+    func subscribe() async -> SimulatorWorkerEventStream { eventStream }
+    func send(_ message: SimulatorWorkerInbound) async {}
+    func synchronizeOrientation(
+        _ orientation: SimulatorOrientation
+    ) async throws -> SimulatorDisplayMetadata? { nil }
+    func perform(_ action: SimulatorControlAction) async throws -> SimulatorControlResult { .none }
+    func invalidateWorker() async {}
+    func stop() async { await eventContinuation.finish() }
 }
