@@ -5606,7 +5606,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         drainMainQueue()
         drainMainQueue()
 
-        XCTAssertLess(
+        XCTAssertLessThan(
             surface.debugCurrentPixelSize().width,
             initialPixelSize.width,
             "Ending the resize interaction should flush the final exact terminal width"
@@ -5705,7 +5705,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         drainMainQueue()
         drainMainQueue()
 
-        XCTAssertLess(
+        XCTAssertLessThan(
             firstSurface.debugCurrentPixelSize().width,
             initialFirstWidth,
             "Drag end should flush the owning window's final terminal width"
@@ -5722,7 +5722,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         )
         drainMainQueue()
         drainMainQueue()
-        XCTAssertLess(
+        XCTAssertLessThan(
             secondSurface.debugCurrentPixelSize().width,
             initialSecondWidth,
             "The unrelated window should still adopt its geometry when explicitly synchronized"
