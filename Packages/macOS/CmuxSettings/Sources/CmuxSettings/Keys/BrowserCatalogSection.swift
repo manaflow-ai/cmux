@@ -116,5 +116,12 @@ public struct BrowserCatalogSection: SettingCatalogSection {
         userDefaultsKey: "browserImportHintDismissed"
     )
 
+    /// Web extensions configured for the built-in browser (macOS 15.4+).
+    /// See ``BrowserWebExtensionEntry``; only `enabled` entries load.
+    public let webExtensions = JSONKey<[BrowserWebExtensionEntry]>(
+        id: "browser.webExtensions",
+        defaultValue: []
+    )
+
     public init() {}
 }

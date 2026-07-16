@@ -11,7 +11,8 @@ extension AppDelegate.MainWindowContext {
             workspaceId: windowId,
             scope: .global,
             baseDirectoryProvider: { nil },
-            remoteBrowserSettingsProvider: { .local }
+            remoteBrowserSettingsProvider: { .local },
+            browserWebExtensionHost: tabManager.browserWebExtensionHost
         )
         windowDock = store
         return store
@@ -19,6 +20,19 @@ extension AppDelegate.MainWindowContext {
 
     func existingWindowDock() -> DockSplitStore? {
         windowDock
+    }
+
+    func reconcileWindowDockBrowserExtensions(
+        in window: NSWindow,
+        restoringActivePanelID: UUID?
+    ) {
+        windowDock?.reconcileBrowserWebExtensionWindows(
+            in: window,
+            activateFocusedPanel: restoringActivePanelID == nil
+        )
+        if let restoringActivePanelID {
+            tabManager.browserWebExtensionHost?.noteActivated(panelID: restoringActivePanelID)
+        }
     }
 
     /// Tears down this context's Dock, closing any live terminals/browsers and

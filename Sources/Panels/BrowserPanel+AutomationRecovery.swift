@@ -30,7 +30,8 @@ extension BrowserPanel {
         let replacement = Self.makeWebView(
             profileID: profileID,
             websiteDataStore: websiteDataStore,
-            nativeCapabilities: nativeCapabilities
+            nativeCapabilities: nativeCapabilities,
+            browserWebExtensionHost: browserWebExtensionHost
         )
         for userScript in browserAutomationUserScripts {
             replacement.configuration.userContentController.addUserScript(userScript)
