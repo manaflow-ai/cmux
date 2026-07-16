@@ -306,6 +306,64 @@ struct CmxIrohClientSessionPoolTests {
     }
 
     @Test
+    func lateOldControlOwnerReleaseDoesNotCloseLaneReplacement() async throws {
+        let fixture = try PoolFixture()
+        let firstConnection = TestIrohConnection(
+            remoteIdentity: fixture.remoteIdentity,
+            bidirectionalStreams: [fixture.controlStream()],
+            reportsClosureToWaiters: false
+        )
+        let secondConnection = TestIrohConnection(
+            remoteIdentity: fixture.remoteIdentity,
+            bidirectionalStreams: [
+                fixture.controlStream(),
+                CmxIrohBidirectionalStream(
+                    receiveStream: TestIrohReceiveStream(buffer: Data()),
+                    sendStream: TestIrohSendStream()
+                ),
+                CmxIrohBidirectionalStream(
+                    receiveStream: TestIrohReceiveStream(buffer: Data()),
+                    sendStream: TestIrohSendStream()
+                ),
+            ]
+        )
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: fixture.localIdentity,
+            dialResults: [
+                .connection(firstConnection),
+                .connection(secondConnection),
+            ]
+        )
+        let pool = try await fixture.pool(endpoint: endpoint, generation: 1)
+        let oldControl = try CmxIrohByteTransportFactory(sessionPool: pool)
+            .makeTransport(for: fixture.request)
+        try await oldControl.connect()
+        await firstConnection.close(errorCode: 99, reason: "timed_out")
+
+        _ = try await pool.openBidirectionalLane(
+            for: fixture.request,
+            lane: .terminal(
+                resourceID: CmxIrohResourceID("terminal:first"),
+                cursor: nil
+            ),
+            priority: 0
+        )
+        await oldControl.close()
+        _ = try await pool.openBidirectionalLane(
+            for: fixture.request,
+            lane: .terminal(
+                resourceID: CmxIrohResourceID("terminal:second"),
+                cursor: nil
+            ),
+            priority: 0
+        )
+
+        #expect(await endpoint.observedDialedAddresses().count == 2)
+        #expect(await secondConnection.observedCloseCallCount() == 0)
+        await pool.deactivate()
+    }
+
+    @Test
     func endpointGenerationChangeClosesOldSessionBeforeRedial() async throws {
         let fixture = try PoolFixture()
         let firstConnection = TestIrohConnection(
