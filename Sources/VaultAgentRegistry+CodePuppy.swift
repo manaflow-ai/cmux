@@ -5,7 +5,7 @@ extension CmuxVaultAgentRegistration {
             name: "Code Puppy",
             iconAssetName: "AgentIcons/CodePuppy",
             detect: CmuxVaultAgentDetectRule(
-                processNames: ["code-puppy", "code_puppy", "pup"],
+                processNames: ["code-puppy", "code_puppy"],
                 alternateArgvContains: ["code_puppy"]
             ),
             sessionIdSource: .argvOption("--resume"),

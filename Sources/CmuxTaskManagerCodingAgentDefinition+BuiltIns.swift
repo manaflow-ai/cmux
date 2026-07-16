@@ -49,8 +49,8 @@ extension CmuxTaskManagerCodingAgentDefinition {
               launchKinds: ["qoder"], directBasenames: ["qoder", "qodercli"], argumentNeedles: ["qoder", "qodercli"]),
         .init(id: "code-puppy", displayName: "Code Puppy", assetName: "AgentIcons/CodePuppy",
               launchKinds: ["code-puppy"],
-              directBasenames: ["code-puppy", "code_puppy", "pup"],
-              argumentNeedles: ["code_puppy"]),
+              directBasenames: ["code-puppy", "code_puppy"],
+              argumentNeedles: ["code-puppy", "code_puppy"]),
         .init(
             id: "ollama",
             displayName: String(localized: "agent.ollama.displayName", defaultValue: "Ollama"),

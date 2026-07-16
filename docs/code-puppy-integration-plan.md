@@ -120,16 +120,18 @@ UI. **cmux-only, no Code Puppy changes.**
 
    ```swift
    .init(id: "code-puppy", displayName: "Code Puppy", assetName: "AgentIcons/CodePuppy",
-         launchKinds: ["code-puppy", "codepuppy"],
-         directBasenames: ["code-puppy", "code_puppy", "codepuppy"],
-         argumentNeedles: ["code-puppy", "code_puppy", "-m code_puppy"]),
+         launchKinds: ["code-puppy"],
+         directBasenames: ["code-puppy", "code_puppy"],
+         argumentNeedles: ["code-puppy", "code_puppy"]),
    ```
 
-   Note: Code Puppy is a Python entry point. It may run as `code-puppy` (console
-   script) or `python -m code_puppy`. Include `python`/`uv` as argument-host
-   basenames only if a needle uniquely identifies it (`code_puppy`), to avoid
-   matching unrelated Python processes. `python -m code_puppy` is handled by the
-   `argumentNeedles` path since `python` is already in `argumentHostBasenames`.
+   Note: Code Puppy is a Python entry point. It runs as `code-puppy` or
+   `code_puppy` (console scripts), `python -m code_puppy`, or a wrapper such as
+   `uvx code-puppy`. The `code_puppy` needle covers `python -m code_puppy`, and
+   the `code-puppy` needle covers `uvx`/`pipx` wrappers. The `pup` console
+   script is intentionally NOT a bare-process matcher: `ericchiang/pup` (a
+   popular HTML CLI) shares that name, so `pup` is only recognized as an
+   explicit config/hook alias or when cmux stamps `CMUX_AGENT_LAUNCH_KIND`.
 
 2. Add the brand icon asset (surface E) — `AgentIcons/CodePuppy.imageset` with
    `@1x/@2x/@3x` PNGs and an optional dark variant, mirroring `Codex.imageset`.
@@ -204,7 +206,7 @@ static var builtInCodePuppy: CmuxVaultAgentRegistration {
     CmuxVaultAgentRegistration(
         id: "code-puppy", name: "Code Puppy", iconAssetName: "AgentIcons/CodePuppy",
         detect: CmuxVaultAgentDetectRule(
-            processNames: ["code-puppy", "code_puppy", "pup"],
+            processNames: ["code-puppy", "code_puppy"],
             alternateArgvContains: ["code_puppy"]),
         sessionIdSource: .argvOption("--resume"),
         resumeCommand: "{{executable}} --resume {{sessionId}}",
@@ -252,7 +254,7 @@ same session.
 1. `Assets.xcassets/AgentIcons/CodePuppy.imageset/` — brand icon (or defer;
    `assetName: nil` falls back to an SF Symbol).
 2. `Sources/CmuxTaskManagerCodingAgentDefinition+BuiltIns.swift` — Tier 0 def
-   (basenames `code-puppy`/`code_puppy`/`pup`, needle `code_puppy`).
+   (basenames `code-puppy`/`code_puppy`, needles `code-puppy`/`code_puppy`).
 3. `cmuxTests/TaskManagerResourcesTests.swift` — detection regression test
    (two-commit: failing test, then the def — per repo test-commit policy).
 4. `Sources/CmuxConfig.swift` — `.codePuppy` kind, title, palette keywords.
@@ -275,8 +277,9 @@ cover everything. (Optional future nicety: a Code Puppy PR that ships a
 
 1. **Console-script name & module path.** `pyproject.toml` → `code-puppy` and
    `pup` console scripts; `code_puppy/__main__.py` → `python -m code_puppy`
-   works. Detection covers `code-puppy`, `code_puppy`, `pup`, and the
-   `code_puppy` argv needle for `python -m`.
+   works. Detection covers `code-puppy`, `code_puppy`, the `code-puppy` and
+   `code_puppy` argv needles (wrappers and `python -m`), and the `code-puppy`
+   launch kind. `pup` is an explicit alias only, not a bare-process matcher.
 2. **Session resume by id.** Native. `cli_runner.py` → `--resume/-r <path|name>`
    (lazily created via `resolve_or_create_resume_target`) and
    `--quick-resume/-qr [PATH]`. No Code Puppy change needed.

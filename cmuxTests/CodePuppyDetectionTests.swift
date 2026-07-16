@@ -42,14 +42,18 @@ struct CodePuppyDetectionTests {
         #expect(definition.id == "code-puppy")
     }
 
-    @Test("pup alias (second pyproject.toml console script) matches")
-    func pupAlias() throws {
+    @Test("pup launched by cmux (CMUX_AGENT_LAUNCH_KIND=code-puppy) matches")
+    func pupViaLaunchKind() throws {
+        // `pup` is the second console script, but the bare basename is NOT a
+        // detection matcher because ericchiang/pup (a popular HTML CLI) shares
+        // it. When cmux launches the alias it stamps the launch kind, so the
+        // agent is still identified without false-positiving the HTML tool.
         let definition = try #require(
             CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
                 processName: "pup",
                 processPath: "/Users/example/.venv/bin/pup",
                 arguments: ["/Users/example/.venv/bin/pup"],
-                environment: [:]
+                environment: ["CMUX_AGENT_LAUNCH_KIND": "code-puppy"]
             )
         )
         #expect(definition.id == "code-puppy")
@@ -59,7 +63,7 @@ struct CodePuppyDetectionTests {
 
     @Test("python -m code_puppy matches via argument needle")
     func pythonModuleInvocation() throws {
-        // python is an argumentHostBasename; code_puppy is the needle.
+        // code_puppy appears as an argv token, matched by the code_puppy needle.
         let definition = try #require(
             CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
                 processName: "python",
@@ -78,6 +82,23 @@ struct CodePuppyDetectionTests {
                 processName: "python3",
                 processPath: "/usr/bin/python3",
                 arguments: ["/usr/bin/python3", "-m", "code_puppy"],
+                environment: [:]
+            )
+        )
+        #expect(definition.id == "code-puppy")
+    }
+
+    // MARK: - Wrapper launchers
+
+    @Test("uvx code-puppy matches via code-puppy argument needle")
+    func uvxCodePuppyArgNeedle() throws {
+        // uvx / pipx run code-puppy: the wrapper is the process, code-puppy
+        // appears only as an argument token.
+        let definition = try #require(
+            CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+                processName: "uvx",
+                processPath: "/Users/example/.local/bin/uvx",
+                arguments: ["/Users/example/.local/bin/uvx", "code-puppy"],
                 environment: [:]
             )
         )
@@ -128,10 +149,25 @@ struct CodePuppyDetectionTests {
         #expect(definition == nil)
     }
 
-    @Test("pup does not match when CMUX_AGENT_LAUNCH_KIND is a different agent")
-    func pupWithOtherLaunchKindDoesNotFalseMatch() throws {
-        // pup is a directBasename for code-puppy, so it matches regardless of env.
-        // This test confirms the definition id is still code-puppy (not the env agent).
+    @Test("bare pup process is NOT detected as code-puppy (ericchiang/pup HTML CLI)")
+    func barePupIsNotFalseMatched() {
+        // github.com/ericchiang/pup is a widely-installed HTML processor. Its
+        // bare process must never be mistaken for Code Puppy, so `pup` is not a
+        // directBasename or argv needle. Only an explicit cmux launch kind or a
+        // real code-puppy/code_puppy token identifies the agent.
+        let definition = CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+            processName: "pup",
+            processPath: "/opt/homebrew/bin/pup",
+            arguments: ["/opt/homebrew/bin/pup", "div.title", "text{}"],
+            environment: [:]
+        )
+        #expect(definition == nil)
+    }
+
+    @Test("bare pup with a different launch kind resolves to that agent, not code-puppy")
+    func pupWithOtherLaunchKindIsNotCodePuppy() throws {
+        // Since `pup` is no longer a code-puppy basename, an unrelated launch
+        // kind is honored as-is.
         let definition = try #require(
             CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
                 processName: "pup",
@@ -140,7 +176,6 @@ struct CodePuppyDetectionTests {
                 environment: ["CMUX_AGENT_LAUNCH_KIND": "codex"]
             )
         )
-        // Direct basename wins over CMUX_AGENT_LAUNCH_KIND per matchingDefinition priority.
-        #expect(definition.id == "code-puppy")
+        #expect(definition.id == "codex")
     }
 }
