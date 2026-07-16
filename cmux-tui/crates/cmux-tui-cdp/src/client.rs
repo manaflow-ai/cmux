@@ -690,6 +690,7 @@ impl WsEndpoint {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Write;
     use std::net::TcpListener;
     use std::sync::{Arc, Barrier};
     use std::thread;
@@ -698,6 +699,33 @@ mod tests {
     use tungstenite::{Message, accept};
 
     use super::*;
+
+    #[test]
+    fn screencast_frame_rejects_terminal_control_bytes() {
+        let params = json!({
+            "data": "AAAA\u{1b}_Ga=T,f=100;AAAA\u{1b}\\",
+            "sessionId": 7,
+            "metadata": {"deviceWidth": 80, "deviceHeight": 24}
+        });
+
+        assert!(screencast_frame(&params, "session-1").is_none());
+    }
+
+    #[test]
+    fn http_discovery_rejects_response_over_limit() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream.write_all(b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n").unwrap();
+            stream.write_all(&vec![b'x'; 65 * 1024]).unwrap();
+        });
+        let mut stream = TcpStream::connect(addr).unwrap();
+
+        let error = read_http_response(&mut stream).unwrap_err();
+        assert!(error.to_string().contains("exceeds size limit"), "{error:#}");
+        server.join().unwrap();
+    }
 
     #[test]
     fn concurrent_calls_complete_while_reader_receives_events() {

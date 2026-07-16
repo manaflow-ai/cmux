@@ -65,6 +65,41 @@ fn read_json_line(reader: &mut impl BufRead) -> Value {
 }
 
 #[test]
+fn websocket_server_requires_a_nonempty_token() {
+    let mux = Mux::new("ws-token-required", SurfaceOptions::default());
+
+    for token in [None, Some(String::new()), Some("   ".to_string())] {
+        let result =
+            server::serve_websocket(mux.clone(), "127.0.0.1:0".parse().unwrap(), token, false);
+        assert!(result.is_err(), "WebSocket listener accepted a missing token");
+    }
+
+    mux.shutdown();
+}
+
+#[test]
+fn websocket_rejects_oversized_authentication_frames() {
+    let mux = Mux::new("ws-auth-frame-limit", SurfaceOptions::default());
+    let oversized_token = "x".repeat(8 * 1024);
+    let server = server::serve_websocket(
+        mux.clone(),
+        "127.0.0.1:0".parse().unwrap(),
+        Some(oversized_token.clone()),
+        false,
+    )
+    .unwrap();
+
+    let mut websocket = connect(server.local_addr());
+    send_json(&mut websocket, json!({"auth": {"token": oversized_token}}));
+    assert!(
+        matches!(websocket.read(), Ok(Message::Close(_)) | Err(_)),
+        "oversized pre-authentication frame remained accepted"
+    );
+
+    mux.shutdown();
+}
+
+#[test]
 fn websocket_auth_accepts_exact_preamble_and_rejects_missing_or_wrong_tokens() {
     let mux = Mux::new("ws-auth", SurfaceOptions::default());
     let server = server::serve_websocket(

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { CmuxClient } from "../src/client.js";
+import { CmuxClient, CmuxStream } from "../src/client.js";
 import type { Transport, Unsubscribe } from "../src/transport.js";
 
 class ScriptedTransport implements Transport {
@@ -18,6 +18,48 @@ class ScriptedTransport implements Transport {
     for (const handler of this.messageHandlers) handler(json);
   }
 }
+
+test("stream fails closed at the default buffered-event cap", async () => {
+  let cleanups = 0;
+  const stream = new CmuxStream<{ event: string }>(100, () => { cleanups += 1; });
+
+  for (let index = 0; index <= 256; index += 1) {
+    stream.push({ event: `event-${index}` });
+  }
+
+  await assert.rejects(() => stream.next(), /stream event buffer overflow/);
+  assert.equal(cleanups, 1);
+});
+
+test("attachSurface rejects oversized encoded data before decoding", async () => {
+  const main = new ScriptedTransport((request, transport) => {
+    transport.emit({
+      id: request.id,
+      ok: true,
+      data: { app: "cmux-tui", version: "0.1.2", protocol: 6, session: "main", pid: 1 },
+    });
+  });
+  const attach = new ScriptedTransport((request, transport) => {
+    transport.emit({ event: "vt-state", surface: 7, cols: 80, rows: 24, data: "A".repeat(9) });
+    transport.emit({ id: request.id, ok: true, data: {} });
+  });
+  const client = new CmuxClient({
+    transport: main,
+    streamTransportFactory: () => attach,
+    timeoutMs: 100,
+    maxAttachEncodedChars: 8,
+  } as CmuxClientOptionsWithSecurityLimits);
+
+  await assert.rejects(
+    () => client.attachSurface(7),
+    /vt-state data exceeds 8 encoded characters/,
+  );
+  await client.close();
+});
+
+type CmuxClientOptionsWithSecurityLimits = ConstructorParameters<typeof CmuxClient>[0] & {
+  maxAttachEncodedChars: number;
+};
 
 test("legacy resize response defaults to accepted", async () => {
   const transport = new ScriptedTransport((request, connection) => {
