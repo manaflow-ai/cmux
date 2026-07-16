@@ -57,7 +57,8 @@ extension MobileShellComposite {
         // Theme revisions are ordered independently from terminal byte content.
         // A delayed full frame may be stale for the VT replay while still carrying
         // the newest theme revision, and subsequent deltas intentionally omit it.
-        if recordTerminalTheme(renderGrid) {
+        let acceptedNewTheme = recordTerminalTheme(renderGrid)
+        if acceptedNewTheme {
             _ = deliverTerminalTheme(renderGrid, surfaceID: renderGrid.surfaceID)
         }
         // The stale floor is the delivered high-water mark, surviving a replay
@@ -166,6 +167,13 @@ extension MobileShellComposite {
             terminalOutputStreamTokensBySurfaceID[renderGrid.surfaceID] = UUID()
             terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: renderGrid.surfaceID)
             terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID.removeValue(forKey: renderGrid.surfaceID)
+            if acceptedNewTheme {
+                _ = deliverTerminalTheme(
+                    renderGrid,
+                    surfaceID: renderGrid.surfaceID,
+                    bypassReplayBarrier: true
+                )
+            }
         }
         guard deliverTerminalRenderGrid(
             renderGrid,
@@ -244,11 +252,13 @@ extension MobileShellComposite {
     @discardableResult
     func deliverTerminalTheme(
         _ frame: MobileTerminalRenderGridFrame,
-        surfaceID: String
+        surfaceID: String,
+        bypassReplayBarrier: Bool = false
     ) -> Bool {
         deliverTerminalOutput(
             TerminalOutputDelivery(theme: frame),
-            surfaceID: surfaceID
+            surfaceID: surfaceID,
+            bypassReplayBarrier: bypassReplayBarrier
         )
     }
 
