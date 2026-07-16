@@ -1369,6 +1369,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A9F200000000000000000008 /* SessionAgentSessionPanelSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000008 /* SessionAgentSessionPanelSnapshot.swift */; };
 		A74770010000000000000005 /* SessionConfigFrameEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A74770010000000000000006 /* SessionConfigFrameEntry.swift */; };
 		A74770010000000000000007 /* SessionConfigFrameRing.swift in Sources */ = {isa = PBXBuildFile; fileRef = A74770010000000000000008 /* SessionConfigFrameRing.swift */; };
+		C71500020000000000000001 /* SessionContentWidthModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71500010000000000000001 /* SessionContentWidthModifier.swift */; };
+		C71510010000000000000001 /* SessionContentWidthSettingsFileStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71510020000000000000001 /* SessionContentWidthSettingsFileStoreTests.swift */; };
 		A74770010000000000000003 /* SessionDisplaySnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A74770010000000000000004 /* SessionDisplaySnapshot.swift */; };
 		B3575000000000000000000C /* SessionIndexModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3575000000000000000000B /* SessionIndexModels.swift */; };
 		B35750000000000000000008 /* SessionIndexRegisteredAgents.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35750000000000000000007 /* SessionIndexRegisteredAgents.swift */; };
@@ -3326,6 +3328,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A9F100000000000000000008 /* SessionAgentSessionPanelSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionAgentSessionPanelSnapshot.swift; sourceTree = "<group>"; };
 		A74770010000000000000006 /* SessionConfigFrameEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionConfigFrameEntry.swift; sourceTree = "<group>"; };
 		A74770010000000000000008 /* SessionConfigFrameRing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionConfigFrameRing.swift; sourceTree = "<group>"; };
+		C71500010000000000000001 /* SessionContentWidthModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/SessionContentWidthModifier.swift; sourceTree = "<group>"; };
+		C71510020000000000000001 /* SessionContentWidthSettingsFileStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionContentWidthSettingsFileStoreTests.swift; sourceTree = "<group>"; };
 		A74770010000000000000004 /* SessionDisplaySnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDisplaySnapshot.swift; sourceTree = "<group>"; };
 		B3575000000000000000000B /* SessionIndexModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexModels.swift; sourceTree = "<group>"; };
 		B35750000000000000000007 /* SessionIndexRegisteredAgents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexRegisteredAgents.swift; sourceTree = "<group>"; };
@@ -5006,6 +5010,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D7632B14A1B2C3D4E5F60718 /* WKWebView+CmuxPrintOperation.swift */,
 				A500RG00 /* ReactGrab.swift */,
 				A5001413 /* TerminalPanelView.swift */,
+				C71500010000000000000001 /* SessionContentWidthModifier.swift */,
 				BCBC0A0E0000000000000C02 /* BrowserChromeMetrics.swift */,
 				048DACB3F8147BCBDD266297 /* BrowserSystemProxyMirror.swift */,
 				109D0E38E29A8779FA0BAE82 /* BrowserRemoteWorkspaceStatus.swift */,
@@ -5728,6 +5733,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F5996002A1B2C3D4E5F60002 /* FileExplorerShortcutSettingsTests.swift */,
 				6042B0026042B0026042B002 /* KeyboardShortcutModifierHoldHintsSettingsFileTests.swift */,
 				D5671102D5671102D5671102 /* TerminalScrollSpeedSettingsFileStoreTests.swift */,
+				C71510020000000000000001 /* SessionContentWidthSettingsFileStoreTests.swift */,
 				6042B0036042B0036042B003 /* ShortcutHintDebugSettingsBindingTests.swift */,
 				E3309A0C /* KeyboardShortcutSettingsEqualizeSplitsTests.swift */,
 				A17110000000000000000002 /* KeyboardShortcutSpaceKeyTests.swift */,
@@ -7268,6 +7274,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A9F200000000000000000008 /* SessionAgentSessionPanelSnapshot.swift in Sources */,
 				A74770010000000000000005 /* SessionConfigFrameEntry.swift in Sources */,
 				A74770010000000000000007 /* SessionConfigFrameRing.swift in Sources */,
+				C71500020000000000000001 /* SessionContentWidthModifier.swift in Sources */,
 				A74770010000000000000003 /* SessionDisplaySnapshot.swift in Sources */,
 				B3575000000000000000000C /* SessionIndexModels.swift in Sources */,
 				B35750000000000000000008 /* SessionIndexRegisteredAgents.swift in Sources */,
@@ -8221,6 +8228,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE1A070000000000000001 /* SavedLayoutStoreTests.swift in Sources */,
 				3865A0043865A0043865A004 /* SearchIndexTests.swift in Sources */,
 				5E2701030000000000000001 /* SentryEventScrubberTests.swift in Sources */,
+				C71510010000000000000001 /* SessionContentWidthSettingsFileStoreTests.swift in Sources */,
 				8A3392FE64E0605D942213D1 /* SessionIndexViewTests.swift in Sources */,
 				F6572002A1B2C3D4E5F60718 /* SessionPersistenceResumeBindingTests.swift in Sources */,
 				F5000000A1B2C3D4E5F60718 /* SessionPersistenceTests.swift in Sources */,
