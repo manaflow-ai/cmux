@@ -119,16 +119,24 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             previousRows.indices.contains(index)
                 && !previousRows[index].hasEquivalentContent(to: nextRows[index])
         })
-        let heightChanges = rowHeightCache.prepareHostedRows(nextRows, columnWidth: currentColumnWidth())
         rows = nextRows
 
         if hasStructuralChanges {
             containerView.tableView.reloadData()
         } else {
             reconfigureVisibleRows(contentChanges)
-            if !heightChanges.isEmpty {
-                containerView.tableView.noteHeightOfRows(withIndexesChanged: heightChanges)
-            }
+        }
+
+        // Measure after the table adopts the new rows so the near-viewport
+        // window reflects post-update geometry; estimates cover everything
+        // else until rows scroll toward the viewport.
+        let heightChanges = rowHeightCache.prepareHostedRows(
+            nextRows,
+            columnWidth: currentColumnWidth(),
+            measurableRange: measurableRowRange(rowCount: nextRows.count)
+        )
+        if !heightChanges.isEmpty {
+            containerView.tableView.noteHeightOfRows(withIndexesChanged: heightChanges)
         }
 
         let shouldScrollAfterWorkspaceChange = SidebarSelectedWorkspaceScrollPolicy
@@ -278,9 +286,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     func viewportDidChange() {
-        if let changed = rowHeightCache.prepareHostedRowsIfWidthChanged(
+        if let changed = rowHeightCache.prepareHostedRowsForViewportChange(
             rows,
-            columnWidth: currentColumnWidth()
+            columnWidth: currentColumnWidth(),
+            measurableRange: measurableRowRange(rowCount: rows.count),
+            visibleRange: visibleRowRange(rowCount: rows.count, overscanFactor: 0)
         ), !changed.isEmpty {
             containerView?.tableView.noteHeightOfRows(withIndexesChanged: changed)
         }
@@ -293,6 +303,28 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         return containerView.clipView.bounds.width
     }
 
+    /// Rows worth measuring exactly right now: the viewport plus half a
+    /// viewport of overscan on each side, so heights correct before rows
+    /// scroll on screen. Everything else keeps its estimate; measuring the
+    /// whole list on width or bulk-content changes is the all-rows-realized
+    /// livelock ingredient this table exists to remove.
+    private func measurableRowRange(rowCount: Int) -> Range<Int> {
+        visibleRowRange(rowCount: rowCount, overscanFactor: 0.5)
+    }
+
+    private func visibleRowRange(rowCount: Int, overscanFactor: CGFloat) -> Range<Int> {
+        guard rowCount > 0, let table = containerView?.tableView else { return 0..<0 }
+        let visible = table.visibleRect
+        guard visible.height > 0 else { return 0..<0 }
+        let expanded = visible.insetBy(dx: 0, dy: -visible.height * overscanFactor)
+        let range = table.rows(in: expanded)
+        guard range.location != NSNotFound, range.length > 0 else { return 0..<0 }
+        let lower = max(0, range.location)
+        let upper = min(rowCount, range.location + range.length)
+        guard lower < upper else { return 0..<0 }
+        return lower..<upper
+    }
+
     private func setHoveredRowId(_ next: SidebarWorkspaceRenderItemID?) {
         guard hoveredRowId != next else { return }
         let previous = hoveredRowId
@@ -300,14 +332,23 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         reconfigureRows(withIds: [previous, next].compactMap { $0 })
     }
 
-    private func contextMenuDidOpen(rowId: SidebarWorkspaceRenderItemID) {
+    func contextMenuDidOpen(rowId: SidebarWorkspaceRenderItemID) {
+        guard contextMenuRowId != rowId else { return }
+        let previous = contextMenuRowId
         contextMenuRowId = rowId
+        // The configured hover flag folds in the context-menu row, so both
+        // transitions must reconfigure or the cell keeps a stale flag until
+        // the next unrelated apply() touches it.
+        reconfigureRows(withIds: [previous, rowId].compactMap { $0 })
     }
 
-    private func contextMenuDidClose(rowId: SidebarWorkspaceRenderItemID) {
+    func contextMenuDidClose(rowId: SidebarWorkspaceRenderItemID) {
         guard contextMenuRowId == rowId else { return }
         contextMenuRowId = nil
         recomputeHoveredRow()
+        // recomputeHoveredRow() dedupes an unchanged hoveredRowId, so restore
+        // this row's hover flag explicitly for the pointer-didn't-move case.
+        reconfigureRows(withIds: [rowId])
     }
 
     private func reconfigureRows(withIds ids: [SidebarWorkspaceRenderItemID]) {
@@ -407,13 +448,29 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             actions.didMoveBonsplitToWorkspace(workspaceId)
             return true
         }
-        bonsplit.performNewWorkspaceMove = { insertionIndex, _, transfer in
+        bonsplit.performNewWorkspaceMove = { [weak self] _, indicator, transfer in
+            guard let self else { return false }
+            // The drop planner's insertion index is positional within the
+            // visible-row target subset the geometry gate supplies, while
+            // moveBonsplitToNewWorkspace expects an index into the full
+            // workspace ordering. Translate through the indicator's row
+            // identity so a scrolled sidebar inserts next to the hovered row
+            // instead of near the top of the list.
+            let insertionIndex = self.workspaceInsertionIndex(for: indicator)
             guard let workspaceId = actions.moveBonsplitToNewWorkspace(insertionIndex, transfer) else {
                 return false
             }
             actions.didMoveBonsplitToWorkspace(workspaceId)
             return true
         }
+    }
+
+    private func workspaceInsertionIndex(for indicator: SidebarDropIndicator) -> Int {
+        guard let tabId = indicator.tabId,
+              let index = workspaceIds.firstIndex(of: tabId) else {
+            return workspaceIds.count
+        }
+        return indicator.edge == .bottom ? index + 1 : index
     }
 
     private func updateDropTargets() {
