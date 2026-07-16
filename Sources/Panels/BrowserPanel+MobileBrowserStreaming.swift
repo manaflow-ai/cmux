@@ -28,6 +28,11 @@ extension BrowserPanel {
         existing.markDirty();
         return true;
       }
+      // The beacon's own ticks must use the unwrapped native rAF: the public
+      // requestAnimationFrame is wrapped below to detect page-driven painting
+      // (canvas/WebGL), and scheduling our tick through the wrapper would mark
+      // dirty forever and self-sustain the loop on an idle page.
+      const nativeRequestAnimationFrame = window.requestAnimationFrame.bind(window);
       const state = {
         enabled: true,
         scheduled: false,
@@ -38,7 +43,7 @@ extension BrowserPanel {
           this.pendingDirty = true;
           if (this.scheduled) return;
           this.scheduled = true;
-          requestAnimationFrame(this.tick);
+          nativeRequestAnimationFrame(this.tick);
         },
         tick: null
       };
@@ -65,10 +70,19 @@ extension BrowserPanel {
         }
         if (state.pendingDirty || paintsContinuously) {
           state.scheduled = true;
-          requestAnimationFrame(state.tick);
+          nativeRequestAnimationFrame(state.tick);
         }
       };
       window.__cmuxMobileBrowserStreamBeacon = state;
+      // Canvas/WebGL pages repaint via their own rAF without mutating the DOM,
+      // so DOM listeners and MutationObserver never see them. Wrapping the
+      // public rAF marks the stream dirty whenever page code schedules a frame.
+      // The wrapper stays installed after streaming stops; markDirty is a no-op
+      // while disabled. Frame ids pass through, so cancelAnimationFrame works.
+      window.requestAnimationFrame = (callback) => nativeRequestAnimationFrame((timestamp) => {
+        state.markDirty();
+        return callback(timestamp);
+      });
       for (const name of [
         'scroll', 'resize', 'input', 'focusin', 'focusout',
         'play', 'pause', 'animationstart', 'animationend', 'transitionrun', 'transitionend'
