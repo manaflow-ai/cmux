@@ -97,7 +97,19 @@ extension CMUXCLI {
         let activeConfigURL = URL(fileURLWithPath: filePath, isDirectory: false)
         let legacyConfigURL = Self.legacyKimiConfigURL(fileName: def.configFile)
         guard activeConfigURL.standardizedFileURL != legacyConfigURL.standardizedFileURL else { return }
-        _ = try removeKimiHooks(at: legacyConfigURL, def: def, reportNoChange: false)
+        do {
+            _ = try removeKimiHooks(at: legacyConfigURL, def: def, reportNoChange: false)
+        } catch {
+            let warning = String.localizedStringWithFormat(
+                String(
+                    localized: "cli.hooks.kimi.legacyCleanupWarning",
+                    defaultValue: "Warning: cmux hooks are active at %@, but cmux could not remove its legacy hook block from %@. Check that path and re-run `cmux hooks setup kimi` to finish cleanup."
+                ),
+                activeConfigURL.path,
+                legacyConfigURL.path
+            )
+            cliWriteStderr(warning + "\n")
+        }
     }
 
     func uninstallKimiHooks(_ def: AgentHookDef) throws {
