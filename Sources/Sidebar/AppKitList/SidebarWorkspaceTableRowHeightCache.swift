@@ -30,57 +30,24 @@ final class SidebarWorkspaceTableRowHeightCache {
 
     func prepareHostedRows(
         _ rows: [SidebarWorkspaceTableRowConfiguration],
-        columnWidth: CGFloat,
-        measurableRange: Range<Int>
+        columnWidth: CGFloat
     ) -> IndexSet {
-        prepare(
-            rows: rows,
-            columnWidth: columnWidth,
-            measurableRange: measurableRange,
-            measure: measureHostedRow
-        )
+        return prepare(rows: rows, columnWidth: columnWidth, measure: measureHostedRow)
     }
 
-    /// Cheap per-scroll entry point: prepares only when the column width
-    /// changed or a visible row lacks a valid measurement, so steady-state
-    /// scrolling inside measured territory costs O(visible) cache probes.
-    func prepareHostedRowsForViewportChange(
+    func prepareHostedRowsIfWidthChanged(
         _ rows: [SidebarWorkspaceTableRowConfiguration],
-        columnWidth: CGFloat,
-        measurableRange: Range<Int>,
-        visibleRange: Range<Int>
+        columnWidth: CGFloat
     ) -> IndexSet? {
-        guard columnWidth > 0 else { return nil }
-        if preparedColumnWidth == columnWidth {
-            let needsMeasurement = visibleRange.contains { index in
-                guard rows.indices.contains(index) else { return false }
-                let row = rows[index]
-                guard let entry = entries[row.id],
-                      entry.matches(row: row, columnWidth: columnWidth) else {
-                    return true
-                }
-                return false
-            }
-            guard needsMeasurement else { return nil }
-        }
-        return prepareHostedRows(
-            rows,
-            columnWidth: columnWidth,
-            measurableRange: measurableRange
-        )
+        guard columnWidth > 0, preparedColumnWidth != columnWidth else { return nil }
+        return prepareHostedRows(rows, columnWidth: columnWidth)
     }
 
-    /// Refreshes measurements for rows inside `measurableRange` and carries
-    /// forward still-valid measurements everywhere else. Rows outside the
-    /// range whose cached measurement went stale fall back to their estimated
-    /// height until they approach the viewport, so one width change or bulk
-    /// content update never measures the whole list (the historical
-    /// all-rows-realized livelock ingredient). Call from render updates or
-    /// viewport notifications, never from `heightOfRow`.
+    /// Measures only missing or invalid entries. Call from render updates or
+    /// viewport-width notifications, never from `heightOfRow`.
     func prepare(
         rows: [SidebarWorkspaceTableRowConfiguration],
         columnWidth: CGFloat,
-        measurableRange: Range<Int>,
         measure: Measurement
     ) -> IndexSet {
         guard columnWidth > 0 else {
@@ -101,26 +68,16 @@ final class SidebarWorkspaceTableRowHeightCache {
                 continue
             }
 
-            // The table currently displays the stale measurement if one
-            // exists, and the estimate otherwise.
-            let displayedHeight = previous?.height ?? row.estimatedHeight
-            if measurableRange.contains(index) {
-                let measuredHeight = Self.normalizedHeight(measure(row, columnWidth))
-                if displayedHeight != measuredHeight {
-                    changedHeights.insert(index)
-                }
-                nextEntries[row.id] = Entry(
-                    row: row,
-                    columnWidth: columnWidth,
-                    height: measuredHeight
-                )
-            } else {
-                // Stale and out of measurement range: drop the entry so
-                // `height(for:)` falls back to the estimate.
-                if displayedHeight != row.estimatedHeight {
-                    changedHeights.insert(index)
-                }
+            let measuredHeight = Self.normalizedHeight(measure(row, columnWidth))
+            let previousHeight = previous?.height ?? row.estimatedHeight
+            if previousHeight != measuredHeight {
+                changedHeights.insert(index)
             }
+            nextEntries[row.id] = Entry(
+                row: row,
+                columnWidth: columnWidth,
+                height: measuredHeight
+            )
         }
 
         entries = nextEntries

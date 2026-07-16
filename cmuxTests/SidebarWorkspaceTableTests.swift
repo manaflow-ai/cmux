@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import CmuxFoundation
 import SwiftUI
 import Testing
@@ -61,19 +62,11 @@ struct SidebarWorkspaceTableTests {
         let row = makeRowConfiguration()
         var measurementCount = 0
 
-        let initialChanges = cache.prepare(
-            rows: [row],
-            columnWidth: 200,
-            measurableRange: 0..<1
-        ) { _, _ in
+        let initialChanges = cache.prepare(rows: [row], columnWidth: 200) { _, _ in
             measurementCount += 1
             return 44
         }
-        let repeatedChanges = cache.prepare(
-            rows: [row],
-            columnWidth: 200,
-            measurableRange: 0..<1
-        ) { _, _ in
+        let repeatedChanges = cache.prepare(rows: [row], columnWidth: 200) { _, _ in
             measurementCount += 1
             return 99
         }
@@ -95,8 +88,8 @@ struct SidebarWorkspaceTableTests {
             return width / 4
         }
 
-        _ = cache.prepare(rows: [row], columnWidth: 200, measurableRange: 0..<1, measure: measure)
-        let changed = cache.prepare(rows: [row], columnWidth: 240, measurableRange: 0..<1, measure: measure)
+        _ = cache.prepare(rows: [row], columnWidth: 200, measure: measure)
+        let changed = cache.prepare(rows: [row], columnWidth: 240, measure: measure)
 
         #expect(measurementCount == 2)
         #expect(changed == IndexSet(integer: 0))
@@ -128,10 +121,10 @@ struct SidebarWorkspaceTableTests {
             colorScheme: .dark
         )
 
-        _ = cache.prepare(rows: [original], columnWidth: 200, measurableRange: 0..<1, measure: measure)
-        _ = cache.prepare(rows: [changedContent], columnWidth: 200, measurableRange: 0..<1, measure: measure)
-        _ = cache.prepare(rows: [changedFont], columnWidth: 200, measurableRange: 0..<1, measure: measure)
-        _ = cache.prepare(rows: [changedAppearance], columnWidth: 200, measurableRange: 0..<1, measure: measure)
+        _ = cache.prepare(rows: [original], columnWidth: 200, measure: measure)
+        _ = cache.prepare(rows: [changedContent], columnWidth: 200, measure: measure)
+        _ = cache.prepare(rows: [changedFont], columnWidth: 200, measure: measure)
+        _ = cache.prepare(rows: [changedAppearance], columnWidth: 200, measure: measure)
 
         #expect(measurementCount == 4)
         #expect(cache.height(for: changedAppearance, columnWidth: 200) == 44)
@@ -143,63 +136,17 @@ struct SidebarWorkspaceTableTests {
         let cache = SidebarWorkspaceTableRowHeightCache()
         let row = makeRowConfiguration()
         var measurementCount = 0
-        _ = cache.prepare(rows: [row], columnWidth: 200, measurableRange: 0..<1) { _, _ in
+        _ = cache.prepare(rows: [row], columnWidth: 200) { _, _ in
             measurementCount += 1
             return 44
         }
 
         for _ in 0..<500 {
-            #expect(
-                cache.prepareHostedRowsForViewportChange(
-                    [row],
-                    columnWidth: 200,
-                    measurableRange: 0..<1,
-                    visibleRange: 0..<1
-                ) == nil
-            )
+            #expect(cache.prepareHostedRowsIfWidthChanged([row], columnWidth: 200) == nil)
             #expect(cache.height(for: row, columnWidth: 200) == 44)
         }
 
         #expect(measurementCount == 1)
-    }
-
-    /// One width change or bulk content update must never measure the whole
-    /// list: rows outside the near-viewport window keep (or fall back to)
-    /// their estimates until they scroll in.
-    @Test
-    @MainActor
-    func rowHeightCacheMeasuresOnlyTheMeasurableRange() {
-        let cache = SidebarWorkspaceTableRowHeightCache()
-        let rows = (0..<10).map { _ in makeRowConfiguration() }
-        var measured = 0
-        let changed = cache.prepare(
-            rows: rows,
-            columnWidth: 200,
-            measurableRange: 2..<5
-        ) { _, _ in
-            measured += 1
-            return 44
-        }
-
-        #expect(measured == 3)
-        #expect(changed == IndexSet(integersIn: 2..<5))
-        #expect(cache.height(for: rows[2], columnWidth: 200) == 44)
-        #expect(cache.height(for: rows[0], columnWidth: 200) == nil)
-
-        // Scrolling the window forward measures the newly approaching rows
-        // and keeps the still-valid earlier measurements.
-        let scrolled = cache.prepare(
-            rows: rows,
-            columnWidth: 200,
-            measurableRange: 4..<7
-        ) { _, _ in
-            measured += 1
-            return 44
-        }
-        #expect(measured == 5)
-        #expect(scrolled == IndexSet(integersIn: 5..<7))
-        #expect(cache.height(for: rows[3], columnWidth: 200) == 44)
-        #expect(cache.height(for: rows[6], columnWidth: 200) == 44)
     }
 
 #if DEBUG
@@ -275,7 +222,6 @@ struct SidebarWorkspaceTableTests {
             selectedWorkspaceId: nil,
             selectedScrollTargetWorkspaceId: nil
         )
-        flushStagedApplies()
         container.layoutSubtreeIfNeeded()
         container.tableView.layoutSubtreeIfNeeded()
         var computations = 0
@@ -297,7 +243,6 @@ struct SidebarWorkspaceTableTests {
         controller.viewportDidChange()
         #expect(computations == 2)
     }
-
     @Test
     @MainActor
     func contextMenuTransitionsReconfigureTheHoveredRow() throws {
@@ -318,7 +263,6 @@ struct SidebarWorkspaceTableTests {
             selectedWorkspaceId: nil,
             selectedScrollTargetWorkspaceId: nil
         )
-        flushStagedApplies()
         container.layoutSubtreeIfNeeded()
         container.tableView.layoutSubtreeIfNeeded()
 
@@ -381,7 +325,6 @@ struct SidebarWorkspaceTableTests {
             selectedWorkspaceId: nil,
             selectedScrollTargetWorkspaceId: nil
         )
-        flushStagedApplies()
         // Transfer only has its Decodable initializer (the explicit
         // init(from:) suppresses the memberwise one), so build it the way
         // production does: from a pasteboard JSON payload.
@@ -475,14 +418,6 @@ struct SidebarWorkspaceTableTests {
     }
 
 #if DEBUG
-    /// apply() stages its input and flushes table mutations on the next
-    /// main-run-loop turn (outside SwiftUI render passes); pump one turn so
-    /// tests observe post-flush state through the production timing.
-    @MainActor
-    private func flushStagedApplies() {
-        _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02))
-    }
-
     @MainActor
     private func configure(
         _ cell: SidebarWorkspaceTableCellView,
