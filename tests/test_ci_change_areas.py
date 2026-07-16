@@ -252,6 +252,7 @@ def linux_preflight_needs(
         "remote-daemon-tests": "success",
         "web-typecheck": "success",
         "react-apps-check": "success",
+        "diff-sidecar-check": "success",
         "web-db-migrations": "success",
         "agent-session-web-resources": "success",
     }
@@ -565,6 +566,7 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
         "remote-daemon-tests",
         "web-typecheck",
         "react-apps-check",
+        "diff-sidecar-check",
         "web-db-migrations",
         "linux-preflight",
         "app-host-unit-tests",
@@ -627,6 +629,7 @@ def test_linux_preflight_blocks_macos_on_cheap_layer_failure() -> None:
     assert "      - remote-daemon-tests" in block
     assert "      - web-typecheck" in block
     assert "      - react-apps-check" in block
+    assert "      - diff-sidecar-check" in block
     assert "      - web-db-migrations" in block
     assert "      - agent-session-web-resources" in block
     assert "if: ${{ always() }}" in block
