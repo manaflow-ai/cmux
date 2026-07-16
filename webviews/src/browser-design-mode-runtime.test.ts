@@ -784,6 +784,26 @@ describe("browser design-mode runtime", () => {
     expect(runtime.flashSelection(0).selection?.selector).toBe(positional.selection?.selector);
   });
 
+  test("xpath never anchors on sensitive, quoted, or duplicate ids", () => {
+    const { runtime } = fixture(`<main>
+      <section><div id='q"uote'><button class="a">A</button></div></section>
+      <section><div id="user-password-field"><button class="b">B</button></div></section>
+      <section><div id="dup"><button class="c">C</button></div><div id="dup"></div></section>
+    </main>`);
+
+    const quoted = runtime.select(".a");
+    expect(quoted.selection?.xpath).not.toContain('q"uote');
+    expect(quoted.selection?.xpath?.startsWith("/html[1]")).toBe(true);
+
+    const sensitive = runtime.select(".b");
+    expect(sensitive.selection?.xpath).not.toContain("password");
+    expect(sensitive.selection?.xpath?.startsWith("/html[1]")).toBe(true);
+
+    const duplicate = runtime.select(".c");
+    expect(duplicate.selection?.xpath).not.toContain("dup");
+    expect(duplicate.selection?.xpath?.startsWith("/html[1]")).toBe(true);
+  });
+
   test("escape clears the selection first, then requests design-mode exit", () => {
     const { dom, messages, runtime } = fixture(`<main><button id="b">B</button></main>`);
     runtime.select("#b");

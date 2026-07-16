@@ -160,12 +160,31 @@
 
   // Absolute XPath (id-anchored when possible), the primary human-facing
   // element identity in badges, chips, and the copied payload.
+  //
+  // An id anchors the path only when it is plainly literal-safe (no quotes or
+  // exotic characters), non-sensitive, and unique in the document; anything
+  // else falls back to the positional path so badges and payloads never carry
+  // user-bearing or ambiguous identifiers.
+  const xpathAnchorId = (node) => {
+    const id = node.id;
+    if (!id || id.length > 64) return null;
+    if (!/^[A-Za-z0-9._:-]+$/.test(id)) return null;
+    if (hasSensitiveName(id)) return null;
+    try {
+      if (document.querySelectorAll(`[id="${cssEscape(id)}"]`).length !== 1) return null;
+    } catch (_) {
+      return null;
+    }
+    return id;
+  };
+
   const xpathFor = (element) => {
     const parts = [];
     let current = element;
     while (current && current.nodeType === 1) {
-      if (current.id && current.id.length <= maxSelectorValueCharacters) {
-        parts.unshift(`//*[@id="${current.id}"]`);
+      const anchor = xpathAnchorId(current);
+      if (anchor) {
+        parts.unshift(`//*[@id="${anchor}"]`);
         return parts.join("/");
       }
       let index = 1;

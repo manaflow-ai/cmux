@@ -202,7 +202,7 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
         Coordinator(controller: controller, onHeightChange: onHeightChange)
     }
 
-    func makeNSView(context: Context) -> BrowserDesignModeTokenTextView {
+    func makeNSView(context: Context) -> NSScrollView {
         let textView = BrowserDesignModeTokenTextView()
         textView.delegate = context.coordinator
         textView.drawsBackground = false
@@ -216,21 +216,31 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]
+        textView.textContainer?.widthTracksTextView = true
         textView.setAccessibilityLabel(
             String(
                 localized: "browser.designMode.composer.describeChange",
                 defaultValue: "Describe the change"
             )
         )
+        // The SwiftUI frame caps the field height; content beyond the cap
+        // stays reachable through this scroll viewport.
+        let scrollView = NSScrollView()
+        scrollView.drawsBackground = false
+        scrollView.borderType = .noBorder
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.verticalScrollElasticity = .none
+        scrollView.documentView = textView
         context.coordinator.textView = textView
         context.coordinator.sync(selections: selections, requestedChange: controller.requestedChange)
         DispatchQueue.main.async {
             textView.window?.makeFirstResponder(textView)
         }
-        return textView
+        return scrollView
     }
 
-    func updateNSView(_ textView: BrowserDesignModeTokenTextView, context: Context) {
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
         context.coordinator.sync(selections: selections, requestedChange: controller.requestedChange)
     }
 
@@ -259,6 +269,11 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
             }
             syncing = true
             defer { syncing = false }
+            // Preserve the caret relative to the end of the text: a rebuild
+            // only changes the token prefix, so distance-from-end keeps a
+            // mid-text caret in place when a new selection arrives.
+            let oldLength = textView.textStorage?.length ?? 0
+            let caretFromEnd = max(0, oldLength - textView.selectedRange().location)
             let composed = NSMutableAttributedString()
             for (index, selection) in selections.enumerated() {
                 composed.append(BrowserDesignModeTokenAttachment.attributedToken(for: selection, at: index))
@@ -267,7 +282,7 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
             composed.append(NSAttributedString(string: requestedChange, attributes: typingAttributes))
             textView.textStorage?.setAttributedString(composed)
             textView.typingAttributes = typingAttributes
-            textView.setSelectedRange(NSRange(location: composed.length, length: 0))
+            textView.setSelectedRange(NSRange(location: max(0, composed.length - caretFromEnd), length: 0))
             lastIdentities = identities
             if identities != current {
                 textView.window?.makeFirstResponder(textView)
@@ -339,8 +354,13 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
                   let layoutManager = textView.layoutManager,
                   let container = textView.textContainer else { return }
             layoutManager.ensureLayout(for: container)
-            let used = layoutManager.usedRect(for: container)
-            onHeightChange(used.height + textView.textContainerInset.height * 2)
+            var height = layoutManager.usedRect(for: container).height
+            // Include the trailing empty line fragment or the caret clips on
+            // the final line (same measurement rule as TextBoxInput).
+            if layoutManager.extraLineFragmentTextContainer === container {
+                height += layoutManager.extraLineFragmentRect.height
+            }
+            onHeightChange(height + textView.textContainerInset.height * 2)
         }
 
         private func attachmentIdentities(in storage: NSTextStorage?) -> [String] {
@@ -362,17 +382,38 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
     }
 }
 
-/// Text view that draws the placeholder and reports intrinsic height.
+/// Text view that draws the placeholder after the trailing token when no
+/// change text has been typed yet.
 final class BrowserDesignModeTokenTextView: NSTextView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        guard string.isEmpty, textStorage?.length == 0 else { return }
+        guard let storage = textStorage,
+              storage.string.replacingOccurrences(of: "\u{FFFC}", with: "")
+                  .trimmingCharacters(in: .whitespaces).isEmpty,
+              let layoutManager, let textContainer else { return }
         let placeholder = String(
             localized: "browser.designMode.composer.describeChange",
             defaultValue: "Describe the change"
         )
+        // Anchor after the last laid-out glyph (the trailing token/space) so
+        // the hint reads as the continuation of the prompt.
+        var origin = NSPoint(x: textContainerInset.width, y: textContainerInset.height)
+        let glyphCount = layoutManager.numberOfGlyphs
+        if glyphCount > 0 {
+            let lastGlyph = glyphCount - 1
+            let fragment = layoutManager.lineFragmentRect(forGlyphAt: lastGlyph, effectiveRange: nil)
+            let location = layoutManager.location(forGlyphAt: lastGlyph)
+            let advance = layoutManager.boundingRect(
+                forGlyphRange: NSRange(location: lastGlyph, length: 1),
+                in: textContainer
+            ).width
+            origin = NSPoint(
+                x: textContainerInset.width + location.x + advance + 2,
+                y: textContainerInset.height + fragment.minY + 1
+            )
+        }
         (placeholder as NSString).draw(
-            at: NSPoint(x: textContainerInset.width, y: textContainerInset.height),
+            at: origin,
             withAttributes: [
                 .font: BrowserDesignModeTokenStyle.font,
                 .foregroundColor: NSColor.white.withAlphaComponent(0.35),
@@ -419,11 +460,21 @@ final class BrowserDesignModeTokenCell: NSTextAttachmentCell {
         identity = selection.selector
         tagTitle = selection.tagName
         let configuration = NSImage.SymbolConfiguration(pointSize: 9, weight: .semibold)
-        icon = NSImage(
+        let symbol = NSImage(
             systemSymbolName: BrowserDesignModeTagSymbol.symbol(forTag: selection.tagName),
             accessibilityDescription: selection.tagName
         )?.withSymbolConfiguration(configuration)
+        // Tint once; draw(withFrame:in:) runs on every text-view redraw.
+        icon = symbol.map { base in
+            NSImage(size: base.size, flipped: false) { rect in
+                base.draw(in: rect)
+                BrowserDesignModeTokenStyle.blue.set()
+                rect.fill(using: .sourceAtop)
+                return true
+            }
+        }
         super.init(textCell: "")
+        setAccessibilityLabel(selection.tagName)
     }
 
     @available(*, unavailable)
@@ -455,13 +506,7 @@ final class BrowserDesignModeTokenCell: NSTextAttachmentCell {
                 width: icon.size.width,
                 height: icon.size.height
             )
-            let tinted = NSImage(size: icon.size, flipped: false) { rect in
-                icon.draw(in: rect)
-                BrowserDesignModeTokenStyle.blue.set()
-                rect.fill(using: .sourceAtop)
-                return true
-            }
-            tinted.draw(in: iconRect)
+            icon.draw(in: iconRect)
             textX = iconRect.maxX + 3
         }
         (tagTitle as NSString).draw(
