@@ -115,10 +115,36 @@ struct TerminalLayoutPreviewView: View {
     }
 }
 
-private struct TerminalLayoutPreviewSurface: UIViewRepresentable {
+struct TerminalLayoutPreviewSurface: UIViewRepresentable {
     let theme: TerminalTheme
+    let feedContent: Bool
+    let transcriptName: String
+    let targetColumns: Int?
 
-    func makeCoordinator() -> Coordinator { Coordinator() }
+    init(
+        theme: TerminalTheme,
+        feedContent: Bool? = nil,
+        transcriptName: String? = nil,
+        targetColumns: Int? = nil
+    ) {
+        let environment = ProcessInfo.processInfo.environment
+        self.theme = theme
+        self.feedContent = feedContent
+            ?? (environment["CMUX_UITEST_TERMINAL_PREVIEW_CONTENT"] == "1")
+        self.transcriptName = transcriptName
+            ?? environment["CMUX_UITEST_TERMINAL_TRANSCRIPT"]
+            ?? "claude"
+        self.targetColumns = targetColumns
+            ?? environment["CMUX_UITEST_TERMINAL_TARGET_COLS"].flatMap(Int.init)
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(
+            feedContent: feedContent,
+            transcriptName: transcriptName,
+            targetColumns: targetColumns
+        )
+    }
 
     func makeUIView(context: Context) -> UIView {
         let runtime: GhosttyRuntime
@@ -159,19 +185,22 @@ private struct TerminalLayoutPreviewSurface: UIViewRepresentable {
 
     /// Retained delegate (the surface holds it weakly). Auto-fits the font to the
     /// target column count (so one fixture fills any device's width), then feeds
-    /// the selected recorded agent session. Gated on
-    /// CMUX_UITEST_TERMINAL_PREVIEW_CONTENT=1.
+    /// the selected recorded agent session when content is enabled by the
+    /// preview environment or an explicit fixture configuration.
     final class Coordinator: GhosttySurfaceViewDelegate {
         var currentFont: Float32 = MobileTerminalFontPreference.defaultSize
         private var didFitFont = false
         private var didFeedContent = false
-        private let feedContent =
-            ProcessInfo.processInfo.environment["CMUX_UITEST_TERMINAL_PREVIEW_CONTENT"] == "1"
-        private let transcriptName =
-            ProcessInfo.processInfo.environment["CMUX_UITEST_TERMINAL_TRANSCRIPT"] ?? "claude"
-        private let targetCols =
-            ProcessInfo.processInfo.environment["CMUX_UITEST_TERMINAL_TARGET_COLS"].flatMap(Int.init)
+        private let feedContent: Bool
+        private let transcriptName: String
+        private let targetColumns: Int?
         private let transcripts = TerminalPreviewTranscripts()
+
+        init(feedContent: Bool, transcriptName: String, targetColumns: Int?) {
+            self.feedContent = feedContent
+            self.transcriptName = transcriptName
+            self.targetColumns = targetColumns
+        }
 
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didProduceInput data: Data) {}
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize, reportID: UInt64) {
@@ -180,7 +209,7 @@ private struct TerminalLayoutPreviewSurface: UIViewRepresentable {
             // Auto-fit the font so the terminal is exactly `targetCols` wide.
             // cols is inversely proportional to font size; one correction lands
             // within ~1 column. Re-applying the font triggers another didResize.
-            if let target = targetCols, !didFitFont, transcriptName != "probe" {
+            if let target = targetColumns, !didFitFont, transcriptName != "probe" {
                 didFitFont = true
                 let newFont = (currentFont * Float32(size.columns) / Float32(target))
                     .rounded()

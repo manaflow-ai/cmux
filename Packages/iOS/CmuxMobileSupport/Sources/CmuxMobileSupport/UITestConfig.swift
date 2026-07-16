@@ -79,6 +79,28 @@ public struct UITestConfig {
         #endif
     }
 
+    /// Whether the standalone Pane Rack fixture is enabled.
+    ///
+    /// When `CMUX_UITEST_SPLITS_PREVIEW=1`, the root view renders the real Pane
+    /// Rack against a fully local three-pane snapshot. DEBUG-only; the fixture
+    /// bypasses sign-in and Mac pairing.
+    public static var splitsPreviewEnabled: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_SPLITS_PREVIEW"] == "1"
+        #else
+        return false
+        #endif
+    }
+
+    /// Whether Pane Rack fixture tails should remain frozen after their first frame.
+    public static var splitsPreviewStaticEnabled: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_SPLITS_PREVIEW_STATIC"] == "1"
+        #else
+        return false
+        #endif
+    }
+
     /// Whether the standalone workspace-list layout preview is enabled.
     ///
     /// When `CMUX_UITEST_WORKSPACE_LIST_PREVIEW=1`, the root view renders a

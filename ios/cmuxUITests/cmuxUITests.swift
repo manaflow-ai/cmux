@@ -4014,6 +4014,126 @@ final class cmuxUITests: XCTestCase {
     }
 }
 
+final class PaneRackFixtureUITests: XCTestCase {
+    override func setUpWithError() throws {
+        continueAfterFailure = false
+    }
+
+    @MainActor
+    func testPaneRackFixtureInteractions() throws {
+        let app = launchFixture()
+        defer { app.terminate() }
+
+        let strips = elements(in: app, identifierPrefix: "PaneRackStrip-")
+        XCTAssertTrue(app.buttons["PaneRackStrip-pane-b"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["PaneRackStrip-pane-c"].exists)
+        XCTAssertEqual(strips.count, 2)
+
+        let header = app.buttons["PaneRackHeader"]
+        XCTAssertTrue(header.waitForExistence(timeout: 8))
+        assertHeaderTitle("claude", header: header)
+
+        app.buttons["PaneRackStrip-pane-c"].tap()
+        assertHeaderTitle("review", header: header)
+        XCTAssertEqual(strips.count, 2, "The old stage should become the second strip")
+
+        unfold(header)
+        let rows = elements(in: app, identifierPrefix: "PaneRackTabRow-")
+        assertCount(3, query: rows)
+
+        app.buttons["PaneRackTabRow-logs"].tap()
+        assertHeaderTitle("logs", header: header)
+
+        unfold(header)
+        assertCount(3, query: rows)
+        app.buttons["PaneRackTabClose-server"].tap()
+        assertCount(2, query: rows)
+
+        app.buttons["PaneRackTabClose-review"].tap()
+        let message = app.staticTexts["Close this tab? An agent is still running."]
+        XCTAssertTrue(message.waitForExistence(timeout: 3))
+        let cancel = app.buttons["Cancel"]
+        if cancel.waitForExistence(timeout: 1) {
+            cancel.tap()
+        } else {
+            // Compact-width confirmation dialogs are popovers on newer iOS and
+            // cancel by tapping outside rather than presenting a cancel button.
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.8)).tap()
+        }
+        XCTAssertTrue(message.waitForNonExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["PaneRackTabRow-review"].waitForExistence(timeout: 3))
+        XCTAssertEqual(rows.count, 2)
+    }
+
+    @MainActor
+    private func launchFixture() -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchEnvironment["CMUX_UITEST_MOCK_DATA"] = "1"
+        app.launchEnvironment["CMUX_UITEST_SPLITS_PREVIEW"] = "1"
+        app.launchEnvironment["CMUX_UITEST_SPLITS_PREVIEW_STATIC"] = "1"
+        app.launch()
+        return app
+    }
+
+    @MainActor
+    private func elements(
+        in app: XCUIApplication,
+        identifierPrefix: String
+    ) -> XCUIElementQuery {
+        app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", identifierPrefix)
+        )
+    }
+
+    @MainActor
+    private func unfold(_ header: XCUIElement) {
+        header.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
+    }
+
+    @MainActor
+    private func assertHeaderTitle(
+        _ title: String,
+        header: XCUIElement,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value == %@", title),
+            object: header
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [expectation], timeout: 3),
+            .completed,
+            "Expected Pane Rack header title \(title), got \(String(describing: header.value))",
+            file: file,
+            line: line
+        )
+    }
+
+    @MainActor
+    private func assertCount(
+        _ expectedCount: Int,
+        query: XCUIElementQuery,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { object, _ in
+                (object as? XCUIElementQuery)?.count == expectedCount
+            },
+            object: query
+        )
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [expectation], timeout: 3),
+            .completed,
+            "Expected \(expectedCount) elements, got \(query.count)",
+            file: file,
+            line: line
+        )
+    }
+}
+
 /// Shared definition of the deterministic color-band test pattern, used by
 /// both the mock host (to emit it) and the render test (to verify it).
 private enum MockColorBands {
