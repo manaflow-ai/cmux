@@ -109,6 +109,35 @@ struct KimiHookConfigLocationTests {
         #expect(result.output.contains(legacyConfig.path))
     }
 
+    @Test("Setup does not clean the active Kimi config through a legacy symlink")
+    func setupDoesNotCleanActiveConfigThroughLegacySymlink() throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let currentDirectory = fixture.root.appendingPathComponent("current-kimi", isDirectory: true)
+        let legacyDirectory = fixture.root.appendingPathComponent("legacy-kimi", isDirectory: true)
+        try FileManager.default.createDirectory(at: currentDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(
+            at: legacyDirectory,
+            withDestinationURL: currentDirectory
+        )
+
+        let currentConfig = currentDirectory.appendingPathComponent("config.toml", isDirectory: false)
+        let result = try runCLI(
+            arguments: ["hooks", "setup", "kimi", "--yes"],
+            fixture: fixture,
+            environmentOverrides: [
+                "KIMI_SHARE_DIR": currentDirectory.path,
+                "KIMI_CODE_HOME": legacyDirectory.path,
+            ]
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.output))
+        #expect(result.status == 0, Comment(rawValue: result.output))
+        let installed = try String(contentsOf: currentConfig, encoding: .utf8)
+        #expect(installed.contains("cmux hooks kimi stop"), Comment(rawValue: result.output))
+    }
+
     @Test("Uninstall removes cmux blocks from current and legacy Kimi configs")
     func uninstallRemovesCurrentAndLegacyBlocks() throws {
         let fixture = try makeFixture()
