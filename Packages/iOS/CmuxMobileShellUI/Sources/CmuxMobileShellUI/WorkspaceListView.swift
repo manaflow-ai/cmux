@@ -267,7 +267,7 @@ struct WorkspaceListView: View {
                                 "mobile.loading.timeout.message",
                                 defaultValue: "cmux could not finish restoring this session. Check that the selected cmux build is running, then retry or add this computer again."
                             )
-                            : nil,
+                            : disconnectedConnectionFailureDescription,
                         retry: initialConnectionTimedOut ? retryInitialConnection : nil,
                         addDevice: initialConnectionTimedOut ? showAddDevice : nil,
                         reconnect: reconnect
@@ -534,6 +534,17 @@ struct WorkspaceListView: View {
         )
     }
 
+    /// Prefer the classified migration/reconnect failure over the generic
+    /// unavailable description. Guidance stays attached to its headline so a
+    /// saved legacy pairing never looks like an account or QR failure.
+    private var disconnectedConnectionFailureDescription: String? {
+        guard connectionStatus == .unavailable else { return nil }
+        return MobileDisconnectedFailureCopy(
+            error: store?.connectionError,
+            guidance: store?.connectionErrorGuidance
+        ).combined
+    }
+
     private func updateMachineSnapshots(_ snapshots: WorkspaceMachineSnapshots) {
         if machineSnapshots != snapshots {
             machineSnapshots = snapshots
@@ -692,4 +703,20 @@ struct WorkspaceListView: View {
         #endif
     }
 
+}
+
+/// Keeps the classified headline and its recovery guidance together anywhere
+/// the disconnected shell presents a failure.
+struct MobileDisconnectedFailureCopy {
+    let error: String?
+    let guidance: String?
+
+    var combined: String? {
+        let parts = [error, guidance].compactMap { value -> String? in
+            guard let value else { return nil }
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
+    }
 }

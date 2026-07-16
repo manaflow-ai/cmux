@@ -14,6 +14,7 @@ struct SocketCapabilityRebindTests {
         let socketPath = directory.appendingPathComponent("cmux.sock").path
         let server = SocketControlServer(
             initialSocketPath: socketPath,
+            notificationCenter: NotificationCenter(),
             events: SocketControlServerEvents(
                 breadcrumb: { _, _ in },
                 failure: { _, _, _, _ in },

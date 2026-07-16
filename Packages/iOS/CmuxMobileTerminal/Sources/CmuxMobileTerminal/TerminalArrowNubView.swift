@@ -23,12 +23,18 @@ final class TerminalArrowNubView: UIView {
     private var lastDirection: TerminalArrowNubDirection?
     private let feedbackGenerator = UIImpactFeedbackGenerator(style: .light)
 
+    func applyTheme(background: UIColor, foreground: UIColor) {
+        backgroundColor = foreground.withAlphaComponent(0.16)
+        innerDot.backgroundColor = foreground.withAlphaComponent(0.9)
+        innerDot.layer.shadowColor = foreground.cgColor
+    }
+
     override init(frame: CGRect) {
         super.init(frame: frame)
-        backgroundColor = UIColor(white: 0.25, alpha: 0.85)
+        backgroundColor = UIColor.white.withAlphaComponent(0.16)
         layer.cornerRadius = nubSize / 2
 
-        innerDot.backgroundColor = UIColor(white: 0.85, alpha: 1)
+        innerDot.backgroundColor = UIColor.white.withAlphaComponent(0.9)
         innerDot.layer.cornerRadius = 6
         innerDot.frame = CGRect(x: 0, y: 0, width: 12, height: 12)
         innerDot.layer.shadowColor = UIColor.white.cgColor
