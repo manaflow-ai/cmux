@@ -351,6 +351,14 @@ struct ReflowParagraphTests {
         #expect(!result.contains("  "), "no padding-run gaps should survive")
     }
 
+    @Test func internalRepeatedSpacesSurviveWrapJoin() {
+        let first = "The quick  brown fox jumps over the lazy dog and keeps running across the whole field today"
+        let continuation = "and then it stops."
+        let input = "  \(first)\n  \(continuation)\n"
+
+        #expect(reflow(input) == "\(first) \(continuation)\n")
+    }
+
     @Test func nonBreakingSpacePaddingCollapsedAtWrapJoin() {
         // Real clipboard data: copied terminal text carries U+00A0 (non-breaking
         // space) runs as padding at soft-wrap seams. They render as wide gaps and
