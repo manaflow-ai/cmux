@@ -342,13 +342,35 @@ final class SidebarWorkspaceCellRowPool<Row: NSView> {
     }
 }
 
+/// Vertical stack whose arranged rows are pinned to the stack's full width
+/// (content inside each row stays leading-aligned). NSStackView's
+/// `alignment = .width` does NOT do this: the alignment constraint is
+/// dropped and rows land trailing-aligned at intrinsic size, which shipped
+/// as the "everything right-aligned" sidebar bug.
+@MainActor
+final class SidebarWorkspaceCellFillWidthStackView: NSStackView {
+    override func addArrangedSubview(_ view: NSView) {
+        super.addArrangedSubview(view)
+        view.widthAnchor.constraint(equalTo: widthAnchor).isActive = true
+    }
+
+    override func insertArrangedSubview(_ view: NSView, at index: Int) {
+        super.insertArrangedSubview(view, at: index)
+        view.widthAnchor.constraint(equalTo: widthAnchor).isActive = true
+    }
+}
+
 @MainActor
 enum SidebarWorkspaceCellStackFactory {
     static func vertical(spacing: CGFloat, alignment: NSLayoutConstraint.Attribute = .leading) -> NSStackView {
-        let stack = NSStackView()
+        // `.width` is the "rows fill the column" intent; NSStackView cannot
+        // express it via `alignment`, so it maps to the fill-width subclass.
+        let stack = alignment == .width
+            ? SidebarWorkspaceCellFillWidthStackView()
+            : NSStackView()
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.orientation = .vertical
-        stack.alignment = alignment
+        stack.alignment = alignment == .width ? .leading : alignment
         stack.spacing = spacing
         stack.detachesHiddenViews = true
         return stack

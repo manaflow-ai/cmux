@@ -62,7 +62,10 @@ final class SidebarWorkspaceCellTitleRow: NSView {
         stack.addArrangedSubview(cameraBox)
         stack.addArrangedSubview(titleLabel)
         stack.addArrangedSubview(renameContainer)
-        stack.addArrangedSubview(trailingSlotBox)
+        // Trailing gravity pins the status slot / close button to the row's
+        // trailing edge; leading-gravity views cluster left and the gap
+        // absorbs the slack (gravity areas do not stretch children).
+        stack.addView(trailingSlotBox, in: .trailing)
 
         addSubview(stack)
         NSLayoutConstraint.activate([

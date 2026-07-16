@@ -112,7 +112,9 @@ final class SidebarWorkspaceCellChecklistPopoverView: NSView {
         headerRow.edgeInsets = NSEdgeInsets(top: 10, left: 12, bottom: 6, right: 12)
         headerRow.addArrangedSubview(titleLabel)
         headerRow.addArrangedSubview(headerSpacer)
-        headerRow.addArrangedSubview(countLabel)
+        // Gravity areas never stretch the spacer; pin the count to the
+        // trailing edge explicitly.
+        headerRow.addView(countLabel, in: .trailing)
 
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.drawsBackground = false

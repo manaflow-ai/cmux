@@ -90,7 +90,9 @@ final class SidebarWorkspaceCellChecklistItemRowView: NSView {
 
         row.addArrangedSubview(checkboxBox)
         row.addArrangedSubview(textContainer)
-        row.addArrangedSubview(removeBox)
+        // Trailing gravity pins the hover-reveal delete to the row edge
+        // (SwiftUI had Spacer + button; gravity areas don't stretch spacers).
+        row.addView(removeBox, in: .trailing)
         addSubview(row)
         NSLayoutConstraint.activate([
             row.leadingAnchor.constraint(equalTo: leadingAnchor),
