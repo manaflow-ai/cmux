@@ -413,12 +413,15 @@ private struct WorkspaceTodoPaneContent: View {
                 .foregroundColor(.secondary)
             TextField(
                 String(localized: "sidebar.checklist.addItemPlaceholder", defaultValue: "New checklist item"),
-                text: $pendingItemText
+                text: $pendingItemText,
+                axis: .vertical
             )
             .font(.system(size: Self.itemFontSize))
             .textFieldStyle(.plain)
             .foregroundColor(.primary)
             .focused($addFieldFocused)
+            .lineLimit(1...8)
+            .fixedSize(horizontal: false, vertical: true)
             .backport.onKeyPress(.return) { modifiers in
                 if modifiers.contains(.shift), modifiers.subtracting(.shift).isEmpty {
                     pendingItemText.append("\n")

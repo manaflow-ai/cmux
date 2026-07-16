@@ -217,12 +217,15 @@ struct SidebarWorkspaceChecklistPopover: View {
             if editingItemId == item.id {
                 TextField(
                     String(localized: "sidebar.checklist.editItemPlaceholder", defaultValue: "Item text"),
-                    text: $editingText
+                    text: $editingText,
+                    axis: .vertical
                 )
                 .textFieldStyle(.plain)
                 .font(.system(size: Self.itemFontSize))
                 .foregroundColor(.primary)
                 .focused($editFieldFocused)
+                .lineLimit(1...8)
+                .fixedSize(horizontal: false, vertical: true)
                 .onKeyPress { press in
                     guard press.key == .return else { return .ignored }
                     if press.modifiers == EventModifiers.shift {
@@ -350,12 +353,15 @@ struct SidebarWorkspaceChecklistPopover: View {
                 .foregroundColor(.secondary)
             TextField(
                 placeholder,
-                text: $pendingItemText
+                text: $pendingItemText,
+                axis: .vertical
             )
             .font(.system(size: Self.itemFontSize))
             .textFieldStyle(.plain)
             .foregroundColor(.primary)
             .focused($addFieldFocused)
+            .lineLimit(1...8)
+            .fixedSize(horizontal: false, vertical: true)
             .onKeyPress(.upArrow) { moveHighlight(-1, in: visible) }
             .onKeyPress(.downArrow) { moveHighlight(1, in: visible) }
             .onKeyPress(.delete) { handleAddFieldDelete(visible: visible) }

@@ -276,6 +276,18 @@ struct WorkspaceTodoSidebarModelTests {
     }
 
     @Test
+    func checklistAddAndEditFieldsStayTextFieldsWithVerticalEntry() throws {
+        let pane = try Self.sourceText("Sources/Panels/WorkspaceTodoPanelView.swift")
+        let popover = try Self.sourceText("Sources/SidebarWorkspaceChecklistPopover.swift")
+
+        #expect(pane.contains("TextField("))
+        #expect(popover.contains("TextField("))
+        #expect(pane.contains("text: $pendingItemText,\n                axis: .vertical"))
+        #expect(popover.contains("text: $pendingItemText,\n                axis: .vertical"))
+        #expect(popover.contains("text: $editingText,\n                    axis: .vertical"))
+    }
+
+    @Test
     func checklistTextFieldsSupportShiftReturnLineBreaks() throws {
         let pane = try Self.sourceText("Sources/Panels/WorkspaceTodoPanelView.swift")
         let popover = try Self.sourceText("Sources/SidebarWorkspaceChecklistPopover.swift")
