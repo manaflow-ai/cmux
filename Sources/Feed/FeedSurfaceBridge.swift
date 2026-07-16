@@ -1,6 +1,7 @@
 import AppKit
 import CMUXAgentLaunch
 import CmuxFoundation
+import CmuxSettings
 import Foundation
 import Observation
 import WebKit
@@ -15,10 +16,14 @@ final class FeedSurfaceBridge: NSObject, WKScriptMessageHandlerWithReply {
     private static var handlerInstalledKey: UInt8 = 0
     private static var subscriptionGenerationKey: UInt8 = 0
     private let subscribedWebViews = NSHashTable<WKWebView>.weakObjects()
+    private var integrationReadiness: [FeedIntegrationReadiness] = []
+    private var integrationScanTask: Task<Void, Never>?
+    private var settingsObserver: NSObjectProtocol?
     private var themeObserver: NSObjectProtocol?
 
     override init() {
         super.init()
+        integrationReadiness = Self.integrationReadiness(installedSources: nil)
         themeObserver = NotificationCenter.default.addObserver(
             forName: .ghosttyDefaultBackgroundDidChange,
             object: nil,
@@ -28,9 +33,23 @@ final class FeedSurfaceBridge: NSObject, WKScriptMessageHandlerWithReply {
                 self?.publishSnapshotToSubscribers()
             }
         }
+        settingsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.refreshIntegrationReadiness()
+            }
+        }
+        refreshIntegrationReadiness()
     }
 
     deinit {
+        integrationScanTask?.cancel()
+        if let settingsObserver {
+            NotificationCenter.default.removeObserver(settingsObserver)
+        }
         if let themeObserver {
             NotificationCenter.default.removeObserver(themeObserver)
         }
@@ -197,7 +216,9 @@ final class FeedSurfaceBridge: NSObject, WKScriptMessageHandlerWithReply {
         let foreground = GhosttyApp.shared.defaultForegroundColor
         return [
             "items": (store?.items ?? []).map(itemDictionary),
+            "integrations": integrationReadiness.map(\.dictionary),
             "sourceIcons": Self.sourceIconDataURLs,
+            "sourceLabels": Self.sourceLabels,
             "theme": [
                 "background": background.hexString(),
                 "foreground": foreground.hexString(),
@@ -210,7 +231,16 @@ final class FeedSurfaceBridge: NSObject, WKScriptMessageHandlerWithReply {
                 "actionable": String(localized: "feed.filter.actionable", defaultValue: "Actionable"),
                 "activity": String(localized: "feed.filter.activity", defaultValue: "All Activity"),
                 "emptyActionable": String(localized: "feed.empty.actionable.title", defaultValue: "No pending decisions"),
+                "emptyActionableDescription": String(localized: "feed.empty.actionable.subtitle", defaultValue: "Permission, plan, and question requests from AI agents will appear here."),
                 "emptyActivity": String(localized: "feed.empty.activity.title", defaultValue: "No activity yet"),
+                "emptyActivityDescription": String(localized: "feed.empty.all.subtitle", defaultValue: "Tool use, messages, and session events will appear here."),
+                "integrationsTitle": String(localized: "feed.integrations.title", defaultValue: "Agent integrations"),
+                "integrationReady": String(localized: "feed.integrations.status.ready", defaultValue: "Ready"),
+                "integrationDisabled": String(localized: "feed.integrations.status.disabled", defaultValue: "Disabled in Settings"),
+                "integrationNeedsSetup": String(localized: "feed.integrations.status.needsSetup", defaultValue: "Setup needed"),
+                "integrationChecking": String(localized: "feed.integrations.status.checking", defaultValue: "Checking..."),
+                "integrationHint": String(localized: "feed.integrations.hint", defaultValue: "Claude Code and Codex use Settings. Other agents need `cmux hooks setup`."),
+                "keyboardHelp": String(localized: "feed.keyboard.help", defaultValue: "Navigate with ↑/↓, J/K, or Control-N/Control-P. Press Tab to reach actions."),
                 "loadOlder": String(localized: "feed.history.loadOlder", defaultValue: "Load older activity"),
                 "loadingOlder": String(localized: "feed.history.loadingOlder", defaultValue: "Loading older activity..."),
                 "deny": String(localized: "feed.permission.deny", defaultValue: "Deny"),
@@ -246,6 +276,160 @@ final class FeedSurfaceBridge: NSObject, WKScriptMessageHandlerWithReply {
             result[entry.key.rawValue] = "data:image/png;base64,\(pngData.base64EncodedString())"
         }
     }()
+
+    private static let sourceLabels: [String: String] = [
+        WorkstreamSource.claude.rawValue: String(localized: "feed.source.claude", defaultValue: "Claude Code"),
+        WorkstreamSource.codex.rawValue: String(localized: "feed.source.codex", defaultValue: "Codex"),
+        WorkstreamSource.pi.rawValue: String(localized: "feed.source.pi", defaultValue: "Pi"),
+        WorkstreamSource.amp.rawValue: String(localized: "feed.source.amp", defaultValue: "Amp"),
+        WorkstreamSource.cursor.rawValue: String(localized: "feed.source.cursor", defaultValue: "Cursor"),
+        WorkstreamSource.opencode.rawValue: String(localized: "feed.source.opencode", defaultValue: "OpenCode"),
+        WorkstreamSource.gemini.rawValue: String(localized: "feed.source.gemini", defaultValue: "Gemini"),
+        WorkstreamSource.hermesAgent.rawValue: String(localized: "feed.source.hermes", defaultValue: "Hermes Agent"),
+        WorkstreamSource.copilot.rawValue: String(localized: "feed.source.copilot", defaultValue: "Copilot"),
+        WorkstreamSource.codebuddy.rawValue: String(localized: "feed.source.codebuddy", defaultValue: "CodeBuddy"),
+        WorkstreamSource.factory.rawValue: String(localized: "feed.source.factory", defaultValue: "Factory"),
+        WorkstreamSource.qoder.rawValue: String(localized: "feed.source.qoder", defaultValue: "Qoder"),
+    ]
+
+    private static let integrationSources: [WorkstreamSource] = [
+        .claude,
+        .codex,
+        .cursor,
+        .gemini,
+        .opencode,
+        .pi,
+        .hermesAgent,
+        .copilot,
+        .codebuddy,
+        .factory,
+        .qoder,
+    ]
+
+    private static func integrationReadiness(installedSources: Set<String>?) -> [FeedIntegrationReadiness] {
+        let settings = AgentIntegrationSettingsStore(defaults: .standard)
+        return integrationSources.map { source in
+            let status: FeedIntegrationStatus
+            switch source {
+            case .claude:
+                status = settings.claudeCodeHooksEnabled ? .ready : .disabled
+            case .codex:
+                status = settings.codexHooksEnabled ? .ready : .disabled
+            case .cursor:
+                status = integrationStatus(
+                    settingEnabled: settings.cursorHooksEnabled,
+                    isInstalled: installedSources?.contains(source.rawValue)
+                )
+            case .gemini:
+                status = integrationStatus(
+                    settingEnabled: settings.geminiHooksEnabled,
+                    isInstalled: installedSources?.contains(source.rawValue)
+                )
+            default:
+                status = installedSources.map { $0.contains(source.rawValue) ? .ready : .needsSetup } ?? .checking
+            }
+            return FeedIntegrationReadiness(source: source.rawValue, status: status)
+        }
+    }
+
+    private static func integrationStatus(settingEnabled: Bool, isInstalled: Bool?) -> FeedIntegrationStatus {
+        guard settingEnabled else { return .disabled }
+        return isInstalled.map { $0 ? .ready : .needsSetup } ?? .checking
+    }
+
+    private func refreshIntegrationReadiness() {
+        integrationScanTask?.cancel()
+        integrationReadiness = Self.integrationReadiness(installedSources: nil)
+        publishSnapshotToSubscribers()
+        integrationScanTask = Task { @MainActor [weak self] in
+            let installedSources = await Task.detached(priority: .utility) {
+                Self.installedFeedHookSources()
+            }.value
+            guard !Task.isCancelled, let self else { return }
+            self.integrationReadiness = Self.integrationReadiness(installedSources: installedSources)
+            self.publishSnapshotToSubscribers()
+        }
+    }
+
+    nonisolated private static func installedFeedHookSources() -> Set<String> {
+        let probes = [
+            FeedHookProbe(
+                source: WorkstreamSource.cursor.rawValue,
+                url: configURL(directory: ".cursor", file: "hooks.json"),
+                marker: "cmux hooks feed --source"
+            ),
+            FeedHookProbe(
+                source: WorkstreamSource.gemini.rawValue,
+                url: configURL(directory: ".gemini", file: "settings.json"),
+                marker: "cmux hooks feed --source"
+            ),
+            FeedHookProbe(
+                source: WorkstreamSource.opencode.rawValue,
+                url: configURL(
+                    directory: ".config/opencode",
+                    file: "plugins/cmux-feed.js",
+                    environmentOverride: "OPENCODE_CONFIG_DIR"
+                ),
+                marker: "cmux-feed-plugin-marker"
+            ),
+            FeedHookProbe(
+                source: WorkstreamSource.pi.rawValue,
+                url: configURL(
+                    directory: ".pi/agent",
+                    file: "extensions/cmux-session.ts",
+                    environmentOverride: "PI_CODING_AGENT_DIR"
+                ),
+                marker: "cmux-pi-session-extension-marker v2"
+            ),
+            FeedHookProbe(
+                source: WorkstreamSource.hermesAgent.rawValue,
+                url: configURL(directory: ".hermes", file: "config.yaml", environmentOverride: "HERMES_HOME"),
+                marker: "cmux hooks feed --source"
+            ),
+            FeedHookProbe(
+                source: WorkstreamSource.copilot.rawValue,
+                url: configURL(directory: ".copilot", file: "config.json", environmentOverride: "COPILOT_HOME"),
+                marker: "cmux hooks feed --source"
+            ),
+            FeedHookProbe(
+                source: WorkstreamSource.codebuddy.rawValue,
+                url: configURL(directory: ".codebuddy", file: "settings.json", environmentOverride: "CODEBUDDY_CONFIG_DIR"),
+                marker: "cmux hooks feed --source"
+            ),
+            FeedHookProbe(
+                source: WorkstreamSource.factory.rawValue,
+                url: configURL(directory: ".factory", file: "settings.json"),
+                marker: "cmux hooks feed --source"
+            ),
+            FeedHookProbe(
+                source: WorkstreamSource.qoder.rawValue,
+                url: configURL(directory: ".qoder", file: "settings.json", environmentOverride: "QODER_CONFIG_DIR"),
+                marker: "cmux hooks feed --source"
+            ),
+        ]
+        return Set(probes.compactMap { probe in
+            guard let contents = try? String(contentsOf: probe.url, encoding: .utf8),
+                  contents.contains(probe.marker) else { return nil }
+            return probe.source
+        })
+    }
+
+    nonisolated private static func configURL(
+        directory: String,
+        file: String,
+        environmentOverride: String? = nil
+    ) -> URL {
+        if let environmentOverride,
+           let value = ProcessInfo.processInfo.environment[environmentOverride]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !value.isEmpty {
+            return URL(fileURLWithPath: NSString(string: value).expandingTildeInPath, isDirectory: true)
+                .appendingPathComponent(file, isDirectory: false)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(directory, isDirectory: true)
+            .appendingPathComponent(file, isDirectory: false)
+    }
 
     private func itemDictionary(_ item: WorkstreamItem) -> [String: Any] {
         var dictionary = FeedSocketEncoding.itemDict(item)
@@ -347,4 +531,26 @@ final class FeedSurfaceBridge: NSObject, WKScriptMessageHandlerWithReply {
 
 private enum FeedSurfaceBridgeError: Error {
     case invalidRequest
+}
+
+private enum FeedIntegrationStatus: String, Sendable {
+    case checking
+    case disabled
+    case needsSetup
+    case ready
+}
+
+private struct FeedIntegrationReadiness: Sendable {
+    let source: String
+    let status: FeedIntegrationStatus
+
+    var dictionary: [String: String] {
+        ["source": source, "status": status.rawValue]
+    }
+}
+
+private struct FeedHookProbe: Sendable {
+    let source: String
+    let url: URL
+    let marker: String
 }

@@ -77,6 +77,12 @@ button, input { font: inherit; }
   padding: 10px;
 }
 
+.feed-card:focus-visible {
+  border-color: var(--feed-foreground);
+  outline: 1px solid var(--feed-foreground);
+  outline-offset: 2px;
+}
+
 .feed-card-pending { border-color: var(--feed-border-strong); }
 
 .feed-card-heading {
@@ -212,8 +218,76 @@ button, input { font: inherit; }
 
 .feed-empty {
   color: var(--feed-muted);
-  padding: 44px 12px;
+  display: grid;
+  gap: 6px;
+  padding: 36px 0;
+}
+
+.feed-empty > h2 {
+  color: var(--feed-foreground);
+  font-size: 14px;
+  margin: 0;
   text-align: center;
+}
+
+.feed-empty > p {
+  margin: 0 auto;
+  max-width: 520px;
+  text-align: center;
+}
+
+.feed-integrations {
+  border: 1px solid var(--feed-border);
+  margin-top: 16px;
+  padding: 12px;
+}
+
+.feed-integrations h3 {
+  color: var(--feed-foreground);
+  font-size: inherit;
+  margin: 0 0 8px;
+}
+
+.feed-integration-grid {
+  display: grid;
+  gap: 1px 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.feed-integration {
+  align-items: center;
+  border-top: 1px solid var(--feed-border);
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  min-width: 0;
+  padding: 7px 0;
+}
+
+.feed-integration-status {
+  flex: none;
+  font-size: 11px;
+}
+
+.feed-integration[data-status="ready"] .feed-integration-status {
+  color: var(--feed-foreground);
+}
+
+.feed-integration[data-status="disabled"] .feed-integration-status,
+.feed-integration[data-status="needsSetup"] .feed-integration-status {
+  color: color-mix(in srgb, #ff9f0a 80%, var(--feed-foreground));
+}
+
+.feed-integration-hint {
+  border-top: 1px solid var(--feed-border);
+  margin: 1px 0 0;
+  padding-top: 9px;
+}
+
+.feed-empty > .feed-keyboard-help {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 11px;
+  margin-top: 10px;
 }
 
 .feed-error {
@@ -232,4 +306,5 @@ button:focus-visible,
   .feed-header { align-items: stretch; flex-direction: column; gap: 8px; }
   .feed-filter { align-self: flex-start; }
   .feed-card-title { align-items: flex-start; flex-direction: column; gap: 3px; }
+  .feed-integration-grid { grid-template-columns: 1fr; }
 }

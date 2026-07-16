@@ -1,11 +1,80 @@
-import { useState, useSyncExternalStore } from "react";
+import { useCallback, useRef, useState, useSyncExternalStore } from "react";
 import { callFeedNative, feedSnapshotStore } from "./bridge";
-import type { CSSProperties } from "react";
-import type { FeedItem, FeedQuestion } from "./types";
+import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from "react";
+import type { FeedIntegration, FeedItem, FeedQuestion } from "./types";
 import "./styles.css";
 
 type Filter = "actionable" | "activity";
 export const feedActivityPageSize = 40;
+
+function isEditable(target: EventTarget | null) {
+  return target instanceof HTMLElement
+    && (target.isContentEditable || ["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName));
+}
+
+export function handleFeedNavigation(event: KeyboardEvent, root: HTMLElement) {
+  if (event.key === "Tab" && !event.altKey && !event.ctrlKey && !event.metaKey) {
+    const controls = [...root.querySelectorAll<HTMLElement>(
+      'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]',
+    )].filter((control) => control !== root && control.tabIndex >= 0);
+    if (controls.length === 0) return;
+    const activeIndex = controls.indexOf(document.activeElement as HTMLElement);
+    const nextIndex = activeIndex < 0
+      ? (event.shiftKey ? controls.length - 1 : 0)
+      : (activeIndex + (event.shiftKey ? -1 : 1) + controls.length) % controls.length;
+    event.preventDefault();
+    controls[nextIndex]?.focus();
+    return;
+  }
+  if (isEditable(event.target) || event.altKey || event.metaKey) return;
+  const key = event.key.toLowerCase();
+  const direction = !event.ctrlKey && (key === "j" || key === "arrowdown")
+    ? 1
+    : !event.ctrlKey && (key === "k" || key === "arrowup")
+      ? -1
+      : event.ctrlKey && key === "n"
+        ? 1
+        : event.ctrlKey && key === "p"
+          ? -1
+          : 0;
+  const isBoundaryKey = !event.ctrlKey && (key === "home" || key === "end");
+  if (direction === 0 && !isBoundaryKey) return;
+  const cards = [...root.querySelectorAll<HTMLElement>(".feed-card")];
+  if (cards.length === 0) return;
+  const activeCard = document.activeElement?.closest<HTMLElement>(".feed-card");
+  const activeIndex = activeCard ? cards.indexOf(activeCard) : -1;
+  const nextIndex = key === "home"
+    ? 0
+    : key === "end"
+      ? cards.length - 1
+      : activeIndex < 0
+        ? (direction > 0 ? 0 : cards.length - 1)
+        : Math.max(0, Math.min(cards.length - 1, activeIndex + direction));
+  event.preventDefault();
+  cards[nextIndex]?.focus({ preventScroll: true });
+  cards[nextIndex]?.scrollIntoView?.({ block: "nearest" });
+}
+
+function handleTabNavigation(event: ReactKeyboardEvent<HTMLDivElement>) {
+  const tabs = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+  const currentIndex = tabs.indexOf(document.activeElement as HTMLButtonElement);
+  if (currentIndex < 0) return;
+  const key = event.key;
+  const nextIndex = key === "Home"
+    ? 0
+    : key === "End"
+      ? tabs.length - 1
+      : key === "ArrowLeft"
+        ? (currentIndex - 1 + tabs.length) % tabs.length
+        : key === "ArrowRight"
+          ? (currentIndex + 1) % tabs.length
+          : -1;
+  if (nextIndex < 0) return;
+  event.preventDefault();
+  event.stopPropagation();
+  tabs[nextIndex]?.focus();
+  tabs[nextIndex]?.click();
+}
 
 export function FeedApp() {
   const snapshot = useSyncExternalStore(
@@ -16,6 +85,16 @@ export function FeedApp() {
   const [filter, setFilter] = useState<Filter>("actionable");
   const [activityLimit, setActivityLimit] = useState(feedActivityPageSize);
   const [error, setError] = useState<string | null>(null);
+  const keyboardCleanup = useRef<() => void>(() => {});
+  const bindKeyboardRoot = useCallback((node: HTMLElement | null) => {
+    keyboardCleanup.current();
+    keyboardCleanup.current = () => {};
+    if (!node) return;
+    const onKeyDown = (event: KeyboardEvent) => handleFeedNavigation(event, node);
+    node.addEventListener("keydown", onKeyDown);
+    keyboardCleanup.current = () => node.removeEventListener("keydown", onKeyDown);
+    if (!document.activeElement || document.activeElement === document.body) node.focus();
+  }, []);
 
   if (!snapshot) return <main className="feed-shell feed-loading" aria-busy="true" />;
   const items = filter === "actionable"
@@ -39,14 +118,33 @@ export function FeedApp() {
   };
 
   return (
-    <main className="feed-shell" style={themeStyle}>
+    <main
+      className="feed-shell"
+      style={themeStyle}
+    >
+      <div
+        aria-label={snapshot.copy.feed}
+        className="feed-keyboard-root"
+        ref={bindKeyboardRoot}
+        tabIndex={-1}
+      >
       <header className="feed-header">
         <h1>{snapshot.copy.feed}</h1>
-        <div className="feed-filter" role="tablist">
-          <button aria-selected={filter === "actionable"} onClick={() => setFilter("actionable")} role="tab">
+        <div className="feed-filter" onKeyDown={handleTabNavigation} role="tablist" tabIndex={-1}>
+          <button
+            aria-selected={filter === "actionable"}
+            onClick={() => setFilter("actionable")}
+            role="tab"
+            tabIndex={filter === "actionable" ? 0 : -1}
+          >
             {snapshot.copy.actionable}
           </button>
-          <button aria-selected={filter === "activity"} onClick={() => setFilter("activity")} role="tab">
+          <button
+            aria-selected={filter === "activity"}
+            onClick={() => setFilter("activity")}
+            role="tab"
+            tabIndex={filter === "activity" ? 0 : -1}
+          >
             {snapshot.copy.activity}
           </button>
         </div>
@@ -54,9 +152,7 @@ export function FeedApp() {
       {error && <div className="feed-error" role="alert">{error}</div>}
       <section className="feed-list">
         {visibleItems.length === 0 ? (
-          <div className="feed-empty">
-            {filter === "actionable" ? snapshot.copy.emptyActionable : snapshot.copy.emptyActivity}
-          </div>
+          <FeedEmptyState filter={filter} snapshot={snapshot} />
         ) : visibleItems.map((item) => (
           <FeedCard
             key={item.id}
@@ -64,6 +160,7 @@ export function FeedApp() {
             copy={snapshot.copy}
             perform={perform}
             sourceIcon={snapshot.sourceIcons[item.source]}
+            sourceLabel={snapshot.sourceLabels[item.source]}
           />
         ))}
         {(hasBufferedActivity || snapshot.hasMore) && (
@@ -82,22 +179,63 @@ export function FeedApp() {
           </button>
         )}
       </section>
+      </div>
     </main>
   );
 }
 
-function FeedCard({ item, copy, perform, sourceIcon }: {
+function FeedEmptyState({ filter, snapshot }: {
+  filter: Filter;
+  snapshot: NonNullable<ReturnType<typeof feedSnapshotStore.getSnapshot>>;
+}) {
+  const title = filter === "actionable" ? snapshot.copy.emptyActionable : snapshot.copy.emptyActivity;
+  const description = filter === "actionable"
+    ? snapshot.copy.emptyActionableDescription
+    : snapshot.copy.emptyActivityDescription;
+  const statusLabel = (integration: FeedIntegration) => ({
+    checking: snapshot.copy.integrationChecking,
+    disabled: snapshot.copy.integrationDisabled,
+    needsSetup: snapshot.copy.integrationNeedsSetup,
+    ready: snapshot.copy.integrationReady,
+  })[integration.status];
+  return (
+    <div className="feed-empty">
+      <h2>{title}</h2>
+      <p>{description}</p>
+      <section aria-labelledby="feed-integrations-title" className="feed-integrations">
+        <h3 id="feed-integrations-title">{snapshot.copy.integrationsTitle}</h3>
+        <div className="feed-integration-grid">
+          {snapshot.integrations.map((integration) => (
+            <div className="feed-integration" data-status={integration.status} key={integration.source}>
+              <SourceIdentity
+                icon={snapshot.sourceIcons[integration.source]}
+                label={snapshot.sourceLabels[integration.source]}
+                source={integration.source}
+              />
+              <span className="feed-integration-status">{statusLabel(integration)}</span>
+            </div>
+          ))}
+        </div>
+        <p className="feed-integration-hint">{snapshot.copy.integrationHint}</p>
+      </section>
+      <p className="feed-keyboard-help">{snapshot.copy.keyboardHelp}</p>
+    </div>
+  );
+}
+
+function FeedCard({ item, copy, perform, sourceIcon, sourceLabel }: {
   item: FeedItem;
   copy: NonNullable<ReturnType<typeof feedSnapshotStore.getSnapshot>>["copy"];
   perform: (method: string, params: Record<string, unknown>) => Promise<void>;
   sourceIcon?: string;
+  sourceLabel?: string;
 }) {
   const title = item.title || item.tool_name || item.kind.replaceAll("_", " ");
   return (
-    <article className={`feed-card feed-card-${item.status}`}>
+    <article className={`feed-card feed-card-${item.status}`} tabIndex={-1}>
       <div className="feed-card-heading">
         <div className="feed-card-title">
-          <SourceIdentity icon={sourceIcon} source={item.source} />
+          <SourceIdentity icon={sourceIcon} label={sourceLabel} source={item.source} />
           <h2>{title}</h2>
         </div>
         <time>{new Date(item.created_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</time>
@@ -111,25 +249,17 @@ function FeedCard({ item, copy, perform, sourceIcon }: {
   );
 }
 
-const sourceLabels: Record<string, string> = {
-  claude: "Claude",
-  codex: "Codex",
-  "hermes-agent": "Hermes",
-  opencode: "OpenCode",
-  pi: "Pi",
-};
-
-function SourceIdentity({ icon, source }: { icon?: string; source: string }) {
-  const label = sourceLabels[source] ?? source;
+function SourceIdentity({ icon, label, source }: { icon?: string; label?: string; source: string }) {
+  const displayLabel = label ?? source;
   const style = icon
     ? ({ "--feed-source-icon": `url(${JSON.stringify(icon)})` } as CSSProperties)
     : undefined;
   return (
     <span className="feed-source" data-feed-source={source}>
       <span className="feed-source-logo" data-fallback={icon ? undefined : ""} style={style} aria-hidden="true">
-        {!icon && label.slice(0, 1).toUpperCase()}
+        {!icon && displayLabel.slice(0, 1).toUpperCase()}
       </span>
-      <span>{label}</span>
+      <span>{displayLabel}</span>
     </span>
   );
 }

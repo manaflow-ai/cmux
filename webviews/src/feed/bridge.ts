@@ -27,12 +27,12 @@ function publish(snapshot: FeedSnapshot) {
   for (const listener of listeners) listener();
 }
 
+export function receiveFeedNativeEvent(event: FeedNativeEvent) {
+  if (event.type === "feed.snapshot") publish(event.snapshot);
+}
+
 if (typeof window !== "undefined") {
-  window.cmuxFeedBridge = {
-    receive(event) {
-      if (event.type === "feed.snapshot") publish(event.snapshot);
-    },
-  };
+  window.cmuxFeedBridge = { receive: receiveFeedNativeEvent };
 }
 
 export async function callFeedNative<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {

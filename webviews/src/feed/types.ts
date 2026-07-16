@@ -43,8 +43,17 @@ export type FeedCopy = {
   allowOnce: string;
   deny: string;
   emptyActionable: string;
+  emptyActionableDescription: string;
   emptyActivity: string;
+  emptyActivityDescription: string;
   feed: string;
+  integrationChecking: string;
+  integrationDisabled: string;
+  integrationHint: string;
+  integrationNeedsSetup: string;
+  integrationReady: string;
+  integrationsTitle: string;
+  keyboardHelp: string;
   loadOlder: string;
   loadingOlder: string;
   planAuto: string;
@@ -55,12 +64,19 @@ export type FeedCopy = {
   requestFailed: string;
 };
 
+export type FeedIntegration = {
+  source: string;
+  status: "checking" | "disabled" | "needsSetup" | "ready";
+};
+
 export type FeedSnapshot = {
   copy: FeedCopy;
   hasMore: boolean;
   isLoadingOlder: boolean;
+  integrations: FeedIntegration[];
   items: FeedItem[];
   sourceIcons: Record<string, string>;
+  sourceLabels: Record<string, string>;
   theme: {
     background: string;
     foreground: string;
