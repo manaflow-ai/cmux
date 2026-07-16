@@ -25725,12 +25725,6 @@ struct CMUXCLI {
         case unknown
     }
 
-    private enum CodexMonitorWakeReason {
-        case changed
-        case processExited
-        case timedOut
-    }
-
     private func summarizeCodexHookFailure(
         parsedInput: ClaudeHookParsedInput,
         sessionId: String,
@@ -26833,14 +26827,14 @@ struct CMUXCLI {
 
             let remaining = deadline.timeIntervalSinceNow
             guard remaining > 0 else { return }
-            let wakeReason = waitForCodexTranscriptChange(
+            let processExited = codexProcessExitedWhileWaitingForTranscriptChange(
                 path: transcriptPath,
                 leasePath: leasePath,
                 codexPID: codexPID,
                 codexPIDStartTime: codexPIDStartTime,
                 timeout: min(30, remaining)
             )
-            guard wakeReason == .processExited else { continue }
+            guard processExited else { continue }
 
             if let currentTranscriptPath = transcriptPath {
                 switch readCodexTranscriptFailure(
@@ -26920,17 +26914,17 @@ struct CMUXCLI {
         )
     }
 
-    private func waitForCodexTranscriptChange(
+    private func codexProcessExitedWhileWaitingForTranscriptChange(
         path: String?,
         leasePath: String?,
         codexPID: Int?,
         codexPIDStartTime: TimeInterval?,
         timeout: TimeInterval
-    ) -> CodexMonitorWakeReason {
-        guard timeout > 0 else { return .timedOut }
+    ) -> Bool {
+        guard timeout > 0 else { return false }
         if let codexPID,
            !codexMonitorProcessMatches(pid: codexPID, startTime: codexPIDStartTime) {
-            return .processExited
+            return true
         }
 
         let semaphore = DispatchSemaphore(value: 0)
@@ -26975,17 +26969,17 @@ struct CMUXCLI {
 
         guard !sources.isEmpty || processSource != nil else {
             _ = DispatchSemaphore(value: 0).wait(timeout: .now() + timeout)
-            return .timedOut
+            return false
         }
 
-        let waitResult = semaphore.wait(timeout: .now() + timeout)
+        _ = semaphore.wait(timeout: .now() + timeout)
         sources.forEach { $0.cancel() }
         processSource?.cancel()
         if let codexPID,
            !codexMonitorProcessMatches(pid: codexPID, startTime: codexPIDStartTime) {
-            return .processExited
+            return true
         }
-        return waitResult == .success ? .changed : .timedOut
+        return false
     }
 
     private func codexMonitorProcessMatches(pid: Int, startTime: TimeInterval?) -> Bool {
