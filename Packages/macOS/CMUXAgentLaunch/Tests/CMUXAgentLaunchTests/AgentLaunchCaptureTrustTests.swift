@@ -213,12 +213,21 @@ struct AgentLaunchCaptureTrustTests {
         #expect(
             AgentLaunchCaptureTrust.nativeProcessIsSameAgentLauncherRelay(
                 parentProcessName: "node",
-                parentArguments: ["node", "/Users/alice/.bun/bin/gemini"],
+                parentArguments: [
+                    "node",
+                    "/Users/alice/.bun/bin/gemini",
+                    "--yolo",
+                    "--model",
+                    "gemini-3.1-pro-preview",
+                ],
                 childProcessName: "node",
                 childArguments: [
                     "/Users/alice/.hermes/node/bin/node",
                     "--max-old-space-size=65536",
                     "/Users/alice/.bun/bin/gemini",
+                    "--yolo",
+                    "--model",
+                    "gemini-3.1-pro-preview",
                 ],
                 kind: "gemini"
             )
