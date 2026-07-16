@@ -122,6 +122,101 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testWorkspaceSearchPreservesQueryAndPlacementAcrossRefresh() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        let list = app.descendants(matching: .any)["MobileWorkspaceList"]
+        XCTAssertTrue(list.waitForExistence(timeout: 8))
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileWorkspaceListRefreshGeneration-0"]
+                .waitForExistence(timeout: 3)
+        )
+
+        let searchField = app.searchFields.firstMatch
+        XCTAssertTrue(searchField.waitForExistence(timeout: 3))
+        XCTAssertTrue(focusTextInput(searchField, in: app))
+        searchField.typeText("Docs")
+
+        let docsRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-docs"]
+        let mainRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
+        XCTAssertTrue(docsRow.waitForExistence(timeout: 3))
+        XCTAssertTrue(mainRow.waitForNonExistence(timeout: 3))
+
+        let searchKey = app.keyboards.buttons["Search"]
+        XCTAssertTrue(searchKey.waitForExistence(timeout: 3))
+        searchKey.tap()
+        XCTAssertTrue(waitForKeyboardDismissal(in: app))
+
+        let beforeRefreshField = app.searchFields.firstMatch
+        XCTAssertEqual(beforeRefreshField.value as? String, "Docs")
+        guard let beforeRefreshFrame = waitForUsableFrame(of: beforeRefreshField, timeout: 3) else {
+            XCTFail("Search field had no usable frame before refresh")
+            return
+        }
+
+        let refreshStart = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2))
+        let refreshEnd = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85))
+        refreshStart.press(forDuration: 0.1, thenDragTo: refreshEnd)
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileWorkspaceListRefreshGeneration-1"]
+                .waitForExistence(timeout: 5),
+            "Pull-to-refresh did not replace the preview workspace snapshot"
+        )
+
+        let afterRefreshField = app.searchFields.firstMatch
+        XCTAssertTrue(afterRefreshField.waitForExistence(timeout: 3))
+        XCTAssertEqual(afterRefreshField.value as? String, "Docs")
+        XCTAssertTrue(docsRow.waitForExistence(timeout: 3))
+        XCTAssertTrue(mainRow.waitForNonExistence(timeout: 3))
+        guard let afterRefreshFrame = waitForUsableFrame(of: afterRefreshField, timeout: 3) else {
+            XCTFail("Search field had no usable frame after refresh")
+            return
+        }
+
+        XCTAssertEqual(afterRefreshFrame.minX, beforeRefreshFrame.minX, accuracy: 2)
+        XCTAssertEqual(afterRefreshFrame.minY, beforeRefreshFrame.minY, accuracy: 2)
+        XCTAssertEqual(afterRefreshFrame.width, beforeRefreshFrame.width, accuracy: 2)
+        XCTAssertEqual(afterRefreshFrame.height, beforeRefreshFrame.height, accuracy: 2)
+    }
+
+    @MainActor
+    func testNotificationTabPreservesSharedRootToolbar() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let url = try attachURL(port: port)
+        let app = launchApp(mockData: true, environment: [
+            "CMUX_UITEST_ATTACH_URL": url.absoluteString,
+        ])
+        defer { app.terminate() }
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileWorkspaceShell"]
+                .waitForExistence(timeout: 8)
+        )
+
+        let settings = app.buttons["MobileWorkspaceSettingsMenu"]
+        let computers = app.buttons["MobileWorkspaceDevicesButton"]
+        let picker = app.buttons["MobileWorkspaceMacPicker"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 3))
+        XCTAssertTrue(computers.waitForExistence(timeout: 3))
+        XCTAssertTrue(picker.waitForExistence(timeout: 3))
+
+        let notificationsTab = app.tabBars.buttons["Notifications"]
+        XCTAssertTrue(notificationsTab.waitForExistence(timeout: 3))
+        notificationsTab.tap()
+
+        XCTAssertTrue(app.descendants(matching: .any)["MobileNotificationFeed"].waitForExistence(timeout: 3))
+        XCTAssertTrue(settings.waitForExistence(timeout: 3))
+        XCTAssertTrue(computers.waitForExistence(timeout: 3))
+        XCTAssertTrue(picker.waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["All Computers"].exists)
+    }
+
+    @MainActor
     func testNotificationFeedPreviewSupportsTriageInteractions() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_NOTIFICATION_FEED_PREVIEW": "1",
@@ -154,11 +249,32 @@ final class cmuxUITests: XCTestCase {
         let completedRow = app.descendants(matching: .any)["MobileNotificationFeedRow-macbook-tests-passed"]
         XCTAssertTrue(completedRow.waitForExistence(timeout: 3))
         completedRow.tap()
-        XCTAssertTrue(
-            app.descendants(matching: .any)["MobileNotificationFeedPreviewOpenResponse"]
-                .waitForExistence(timeout: 3)
-        )
-        XCTAssertTrue(app.staticTexts["Opened Release"].exists)
+
+        let workspaceDestination = app.descendants(matching: .any)[
+            "MobileNotificationFeedPreviewWorkspaceDestination"
+        ]
+        XCTAssertTrue(workspaceDestination.waitForExistence(timeout: 3))
+        XCTAssertTrue(app.navigationBars["Release"].exists)
+
+        let systemBackButton = app.navigationBars.buttons.firstMatch
+        XCTAssertTrue(systemBackButton.waitForExistence(timeout: 3))
+        systemBackButton.tap()
+
+        let notificationsTab = app.tabBars.buttons["Notifications"]
+        XCTAssertTrue(feed.waitForExistence(timeout: 3))
+        XCTAssertTrue(notificationsTab.waitForExistence(timeout: 3))
+        XCTAssertTrue(notificationsTab.isSelected)
+        XCTAssertTrue(completedRow.waitForExistence(timeout: 3))
+
+        completedRow.tap()
+        XCTAssertTrue(workspaceDestination.waitForExistence(timeout: 3))
+        let swipeStart = app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
+        let swipeEnd = app.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5))
+        swipeStart.press(forDuration: 0.05, thenDragTo: swipeEnd)
+
+        XCTAssertTrue(feed.waitForExistence(timeout: 3))
+        XCTAssertTrue(notificationsTab.waitForExistence(timeout: 3))
+        XCTAssertTrue(notificationsTab.isSelected)
 
         let markAllRead = app.buttons["MobileNotificationFeedMarkAllRead"]
         XCTAssertTrue(markAllRead.waitForExistence(timeout: 3))
