@@ -1,7 +1,9 @@
 export type FileTreeRefreshSource = {
   pathCount?: number;
   paths?: readonly string[];
+  previousRevision?: number;
   previousSource?: FileTreeRefreshSource;
+  revision?: number;
 };
 
 export type FileTreeRefreshPlan =
@@ -43,7 +45,9 @@ export function planPierreFileTreeRefresh(
 
   const previousPathCount = previousSource.pathCount ?? previousSource.paths?.length ?? 0;
   const sourcePathCount = source.pathCount ?? paths.length;
-  const sourceFollowsPrevious = source.previousSource === previousSource;
+  const sourceFollowsPrevious = source.previousSource === previousSource || (
+    previousSource.revision != null && source.previousRevision === previousSource.revision
+  );
   const canAppend = sourceFollowsPrevious || isPathPrefix(previousSource, source);
 
   if (!canAppend || sourcePathCount < previousPathCount) {

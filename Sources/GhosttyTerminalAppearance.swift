@@ -92,6 +92,7 @@ enum GhosttyNotificationKey {
     static let surfaceId = "ghostty.surfaceId"
     static let explicitFocusIntent = "ghostty.explicitFocusIntent"
     static let title = "ghostty.title"
+    static let sourceSurfaceIdentifier = "ghostty.sourceSurfaceIdentifier"
     static let backgroundColor = "ghostty.backgroundColor"
     static let backgroundOpacity = "ghostty.backgroundOpacity"
     static let backgroundEventId = "ghostty.backgroundEventId"

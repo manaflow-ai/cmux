@@ -68,6 +68,10 @@ struct WorkspaceDetailView: View {
     @State var chatConversationStores: [String: ChatConversationStore] = [:]
     /// Per-session composer drafts, surviving toggles back to the terminal.
     @State var chatDrafts: [String: String] = [:]
+    @State var terminalArtifactFilesContext: TerminalArtifactContext?
+    @State var selectedTerminalArtifact: TerminalArtifactSelection?
+    @State var terminalArtifactThumbnailCache = ChatArtifactThumbnailCache()
+    @State var visibleArtifactCount = 0
     /// App lifecycle phase used to re-pull chat sessions on foreground.
     @Environment(\.scenePhase) var scenePhase
     #endif
@@ -91,13 +95,20 @@ struct WorkspaceDetailView: View {
         content
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
             .navigationTitle(systemNavigationTitle)
-            .mobileTerminalNavigationChrome()
+            .mobileTerminalNavigationChrome(theme: store.activeTerminalTheme)
             .toolbar { workspaceDetailToolbar }
             .task(id: chatRefreshKey) { await refreshChatSessions() }
             .task(id: chatConversationWarmKey) { await runWarmChatConversation() }
             .onChange(of: selectedTerminalID) { _, _ in
+                visibleArtifactCount = 0
                 refreshCachedChatToggleAnchor()
                 syncTerminalPickerRows(includeTitleChanges: true)
+            }
+            .onChange(of: store.supportsTerminalArtifacts) { _, supportsArtifacts in
+                visibleArtifactCount = 0
+            }
+            .onChange(of: store.supportsChatArtifactGallery) { _, _ in
+                visibleArtifactCount = 0
             }
             .closeWorkspaceConfirmation(
                 isPresented: $isConfirmingClose,
@@ -183,7 +194,7 @@ struct WorkspaceDetailView: View {
                 .font(.headline)
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .foregroundStyle(TerminalPalette.foreground)
+                .foregroundStyle(store.activeTerminalTheme.terminalChromeForegroundColor)
         } else {
             WorkspaceToolbarTitleView(title: workspace.name, subtitle: selectedToolbarSubtitle)
         }
@@ -196,54 +207,13 @@ struct WorkspaceDetailView: View {
         Group {
             #if os(iOS)
             if let terminalID = selectedTerminal?.id.rawValue {
-                let shouldAutoFocus = activeSurface == .terminal
-                    && store.shouldAutoFocusTerminalSurface(terminalID)
-                    && !store.isComposerPresented
-                GhosttySurfaceRepresentable(
-                    surfaceID: terminalID,
-                    store: store,
-                    fontSize: MobileTerminalFontPreference.defaultSize,
-                    // Do not let a terminal reattach steal focus while the
-                    // composer owns or intentionally withholds the keyboard.
-                    autoFocusOnWindowAttach: shouldAutoFocus,
-                    isComposerActive: store.isComposerPresented,
-                    // Drives the live recolor: when the synced theme changes the
-                    // shell bumps this, and the representable rebuilds the runtime
-                    // config + recolors the mounted surface in place (background,
-                    // letterbox, default cell colors) without a remount, so
-                    // scrollback survives a theme change.
-                    themeGeneration: store.terminalThemeGeneration
-                )
-                // Identity must track the selected terminal. The representable's
-                // coordinator binds its byte sink to the surfaceID at make time and
-                // `updateUIView` is a no-op, so without a per-terminal id SwiftUI
-                // reuses the first terminal's surface and the dropdown never switches.
-                // Keying on terminalID tears down the old surface (unregistering its
-                // sink via dismantleUIView) and builds the newly-selected one.
-                //
-                // The theme is NOT folded into the identity: a theme change recolors
-                // the live surface in place (config rebuild + view recolor driven by
-                // `themeGeneration`), so remounting would only throw away scrollback
-                // for no visual benefit.
-                .id(terminalID)
-                .onAppear {
-                    store.consumeTerminalAutoFocusSuppression(for: terminalID)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .background(TerminalPalette.background)
-                // The surface positions its grid + docked toolbar from
-                // `keyboardHeight` directly, so opt out of SwiftUI keyboard
-                // avoidance; otherwise the view ALSO shrinks for the keyboard
-                // and the reservation double-counts (extra gap when open).
-                .ignoresSafeArea(.keyboard, edges: .bottom)
-                // Keep the grid clear of the Dynamic Island and nav bar.
-                .padding(.top, terminalTopPadding)
+                terminalArtifactSurface(terminalID: terminalID)
             } else {
-                TerminalPalette.background
+                store.activeTerminalTheme.terminalBackgroundColor
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
             #else
-            TerminalPalette.background
+            store.activeTerminalTheme.terminalBackgroundColor
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             #endif
         }
@@ -256,7 +226,11 @@ struct WorkspaceDetailView: View {
         .overlay {
             // Show a reconnecting/offline state instead of a black terminal.
             if connectionStatus != .connected {
-                TerminalDisconnectedOverlay(status: connectionStatus, host: host) {
+                TerminalDisconnectedOverlay(
+                    status: connectionStatus,
+                    host: host,
+                    theme: store.activeTerminalTheme
+                ) {
                     Task {
                         if let macDeviceID = workspace.macDeviceID,
                            !macDeviceID.isEmpty,
@@ -287,15 +261,25 @@ struct WorkspaceDetailView: View {
         )
         .background {
             // Fill under translucent chrome with the terminal's own color.
-            TerminalPalette.background
+            store.activeTerminalTheme.terminalBackgroundColor
                 .ignoresSafeArea(.container, edges: [.horizontal, .top, .bottom])
         }
+        .sheet(item: $selectedTerminalArtifact) { selection in
+            ChatArtifactViewerSheet(path: selection.path, scope: .terminal)
+                .environment(
+                    \.chatArtifactLoader,
+                    terminalArtifactLoader(
+                        workspaceID: selection.workspaceID,
+                        surfaceID: selection.surfaceID
+                    )
+                )
+        }
         #else
-        .background(TerminalPalette.background)
+        .background(store.activeTerminalTheme.terminalBackgroundColor)
         #endif
         #if !os(iOS)
         .navigationTitle(systemNavigationTitle)
-        .mobileTerminalNavigationChrome()
+        .mobileTerminalNavigationChrome(theme: store.activeTerminalTheme)
         .toolbar {
             ToolbarItem {
                 terminalToolbarButtons
@@ -303,6 +287,43 @@ struct WorkspaceDetailView: View {
         }
         #endif
     }
+
+    #if os(iOS)
+    func terminalArtifactLoader(workspaceID: String, surfaceID: String) -> ChatArtifactLoader {
+        guard let source = store.makeChatEventSource() else {
+            return .unsupported(cache: terminalArtifactThumbnailCache)
+        }
+        return ChatArtifactLoader(
+            terminalWorkspaceID: workspaceID,
+            terminalSurfaceID: surfaceID,
+            supportsArtifacts: store.supportsTerminalArtifacts,
+            cache: terminalArtifactThumbnailCache,
+            stat: { path in
+                try await source.terminalArtifactStat(
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID,
+                    path: path
+                )
+            },
+            fetch: { path, progress in
+                try await source.terminalArtifactFetch(
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID,
+                    path: path,
+                    progress: progress
+                )
+            },
+            thumbnail: { path, maxDimension in
+                try await source.terminalArtifactThumbnail(
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID,
+                    path: path,
+                    maxDimension: maxDimension
+                )
+            }
+        )
+    }
+    #endif
 
     @ViewBuilder
     private var terminalToolbarButtons: some View {
@@ -342,7 +363,7 @@ struct WorkspaceDetailView: View {
             Label(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"), systemImage: "plus.square.on.square")
                 .labelStyle(.iconOnly)
         }
-        .foregroundStyle(TerminalPalette.foreground)
+        .foregroundStyle(store.activeTerminalTheme.terminalChromeForegroundColor)
         .disabled(!canCreateWorkspace)
         .accessibilityIdentifier("MobileTerminalNewWorkspaceButton")
     }
@@ -371,7 +392,8 @@ struct WorkspaceDetailView: View {
                     #endif
                 },
                 sendFeedback: openFeedbackComposerFromMenu
-            )
+            ),
+            terminalTheme: store.activeTerminalTheme
         )
         .equatable()
         .simultaneousGesture(TapGesture().onEnded { syncTerminalPickerRows(includeTitleChanges: true) })

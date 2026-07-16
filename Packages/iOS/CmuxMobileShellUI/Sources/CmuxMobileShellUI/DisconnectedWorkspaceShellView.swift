@@ -10,10 +10,8 @@ import AppKit
 #endif
 
 struct DisconnectedWorkspaceShellView: View {
-    /// Whether this install has ever paired a Mac. Gates the
-    /// Tailscale-inactive callout: its copy explains an unreachable Mac, which
-    /// is misleading for a signed-in user who has not added a device yet (that
-    /// user gets the pairing-flavored callout in the auto-presented sheet).
+    /// Whether this install has ever paired a Mac. Used to distinguish first
+    /// setup from reconnect guidance.
     let hasKnownPairedMac: Bool
     let showAddDevice: () -> Void
     let signOut: () -> Void
@@ -27,8 +25,6 @@ struct DisconnectedWorkspaceShellView: View {
     /// (this screen is the terminal not-connected state, reached after a stored
     /// Mac reconnect fails). `nil` in previews.
     var store: CMUXMobileShellStore?
-
-    @Environment(\.tailscaleStatusMonitor) private var tailscaleStatusMonitor
 
     @State private var showingSettings = false
 
@@ -105,7 +101,7 @@ struct DisconnectedWorkspaceShellView: View {
         }
         .sheet(isPresented: $showingSettings) {
             // Reuse the same Settings sheet the workspace list opens from its
-            // 3-dots menu so the no-devices screen's chrome matches. There is no
+            // Settings button so the no-devices screen's chrome matches. There is no
             // connected host or QR to rescan here, but the store is forwarded so
             // a user whose active Mac went offline can still switch to another
             // paired Mac; the sheet also surfaces the account + Sign Out.
@@ -125,10 +121,7 @@ struct DisconnectedWorkspaceShellView: View {
         ) {
             Button(L10n.string("mobile.common.ok", defaultValue: "OK"), role: .cancel) {}
         } message: {
-            Text(L10n.string(
-                "mobile.disconnected.connectFailedMessage",
-                defaultValue: "Make sure the computer is awake and online, then try again."
-            ))
+            Text(connectFailedMessage)
         }
         #endif
     }
@@ -156,14 +149,6 @@ struct DisconnectedWorkspaceShellView: View {
     /// ``MacComputerSnapshot`` values and closures only, never the store.
     private func savedComputersList(_ computers: [MacComputerSnapshot]) -> some View {
         List {
-            // When a paired Mac is unreachable and this device has no active
-            // tailnet, lead with that explanation instead of leaving the user
-            // to tap dead rows.
-            if hasKnownPairedMac, tailscaleStatusMonitor?.status == .inactiveOrNotInstalled {
-                Section {
-                    TailscaleInactiveCallout(context: .disconnected)
-                }
-            }
             Section {
                 ForEach(computers) { computer in
                     MacComputerRow(
@@ -227,11 +212,6 @@ struct DisconnectedWorkspaceShellView: View {
                 defaultValue: "Add a computer to start syncing terminal workspaces."
             ))
         } actions: {
-            if hasKnownPairedMac, tailscaleStatusMonitor?.status == .inactiveOrNotInstalled {
-                TailscaleInactiveCallout(context: .disconnected)
-                    .frame(maxWidth: 320, alignment: .leading)
-                    .padding(.bottom, 4)
-            }
             Button(action: showAddDevice) {
                 Text(L10n.string("mobile.addDevice.title", defaultValue: "Add Computer"))
             }
@@ -279,6 +259,21 @@ struct DisconnectedWorkspaceShellView: View {
         )
     }
 
+    /// The reconnect attempt owns the store's latest classified failure. Show
+    /// it with its guidance, falling back only when no specific reason exists.
+    private var connectFailedMessage: String {
+        if let failure = MobileDisconnectedFailureCopy(
+            error: store?.connectionError,
+            guidance: store?.connectionErrorGuidance
+        ).combined {
+            return failure
+        }
+        return L10n.string(
+            "mobile.disconnected.connectFailedMessage",
+            defaultValue: "Make sure the computer is awake and online, then try again."
+        )
+    }
+
     private func removalConfirmationBinding(for deviceID: String) -> Binding<Bool> {
         Binding(
             get: { computerPendingRemovalID == deviceID },
@@ -321,11 +316,6 @@ struct DisconnectedWorkspaceShellView: View {
                     : L10n.string("mobile.devices.savedDescription", defaultValue: "Tap a saved computer to reconnect, or add another.")
             )
         } actions: {
-            if hasKnownPairedMac, tailscaleStatusMonitor?.status == .inactiveOrNotInstalled {
-                TailscaleInactiveCallout(context: .disconnected)
-                    .frame(maxWidth: 320, alignment: .leading)
-                    .padding(.bottom, 4)
-            }
             if let store, !savedMacs.isEmpty {
                 VStack(spacing: 8) {
                     ForEach(savedMacs) { mac in
@@ -356,16 +346,17 @@ struct DisconnectedWorkspaceShellView: View {
     }
     #endif
 
-    /// The top-left 3-dots overflow, matching ``WorkspaceListView``'s
+    /// The top-left settings entrypoint, matching ``WorkspaceListView``'s
     /// `settingsMenu` so switching between the connected and no-devices screens
-    /// is not jarring. On iOS it opens the full Settings sheet (which holds Sign
-    /// Out); on macOS it is an inline menu with Sign Out as an item.
+    /// is not jarring. On iOS it is a Settings button that opens the full sheet
+    /// (which holds Sign Out); on macOS it is an inline overflow menu with Sign
+    /// Out as an item.
     private var settingsMenu: some View {
         #if os(iOS)
         Button {
             showingSettings = true
         } label: {
-            Image(systemName: "ellipsis.circle")
+            MobileWorkspaceSettingsIcon()
         }
         .accessibilityLabel(L10n.string("mobile.workspaces.settings", defaultValue: "Settings"))
         .accessibilityIdentifier("MobileWorkspaceSettingsMenu")

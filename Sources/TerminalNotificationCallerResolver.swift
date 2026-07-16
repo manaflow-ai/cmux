@@ -70,6 +70,14 @@ extension TerminalController {
             if let preferredSurfaceId, workspace.panels[preferredSurfaceId] != nil {
                 return TerminalCallerNotificationTarget(workspace: workspace, surfaceId: preferredSurfaceId)
             }
+            // Moved pane (issue #7939): the explicit surface identity outranks
+            // the stale spawn-time workspace claim — follow the surface to the
+            // workspace that owns it NOW instead of falling back to the old
+            // workspace's focused pane.
+            if let preferredSurfaceId,
+               let surfaceTarget = targetForSurface(preferredSurfaceId, tabManagers: managers) {
+                return surfaceTarget
+            }
             if let ttyTarget, ttyTarget.workspace.id == workspace.id { return ttyTarget }
             return TerminalCallerNotificationTarget(workspace: workspace, surfaceId: workspace.focusedPanelId)
         }

@@ -1,4 +1,6 @@
+import AppKit
 import Bonsplit
+import CmuxTerminal
 import Foundation
 import CmuxRemoteSession
 
@@ -27,6 +29,65 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         windowMirrorByWindowId.keys.sorted()
             .compactMap { windowMirrorByWindowId[$0]?.sizingSnapshot() }
     }
+
+    /// Every mirrored tmux pane paired with the cmux surface rendering it,
+    /// ordered by window then pane. Covers BOTH ownership paths — a multi-pane
+    /// window's mirror panes and a single-pane window's display panel — because
+    /// a content oracle must be able to name any pane's surface, and single-pane
+    /// windows have no mirror (so they never appear in ``sizingSnapshots()``).
+    /// Backs `remote.tmux.pane_surfaces`.
+    func paneSurfaceEntries() -> [[String: Any]] {
+        // `windowIdByPane` is the session's authoritative ownership (mirrored from
+        // the connection's published map, which drops a window's stale panes when
+        // that window republishes). Attribute every pane through it, and key the
+        // result BY PANE: a `join-pane`/`swap-pane` in flight can leave the source
+        // window still holding the pane in its own mirror until its reconcile runs,
+        // so scanning published trees would report the pane twice — or pick the
+        // stale window's frozen surface, whichever came first in dictionary order.
+        var byPane: [Int: (windowId: Int, surfaceId: UUID, onScreen: Bool)] = [:]
+        for (windowId, mirror) in windowMirrorByWindowId {
+            for (paneId, panel) in mirror.panelsByPaneId
+            where windowIdByPane[paneId] == windowId {
+                byPane[paneId] = (windowId, panel.id, Self.isOnScreen(panel))
+            }
+        }
+        // Single-pane windows: the window's display panel IS the pane's surface,
+        // and they have no mirror — so they appear in no other introspection verb.
+        for (paneId, panelId) in panelIdByPane {
+            guard let windowId = windowIdByPane[paneId],
+                  windowMirrorByWindowId[windowId] == nil,
+                  byPane[paneId] == nil else { continue }
+            let panel = workspace?.panels[panelId] as? TerminalPanel
+            byPane[paneId] = (windowId, panelId, panel.map(Self.isOnScreen) ?? false)
+        }
+        return byPane
+            .map { paneId, entry in
+                (windowId: entry.windowId, paneId: paneId,
+                 surfaceId: entry.surfaceId, onScreen: entry.onScreen)
+            }
+            .sorted { ($0.windowId, $0.paneId) < ($1.windowId, $1.paneId) }
+            .map { [
+                "window_id": "@\($0.windowId)",
+                "pane_id": "%\($0.paneId)",
+                "surface_id": $0.surfaceId.uuidString,
+                // Only an on-screen pane's content is required to match tmux:
+                // a hidden tab holds its last render by design and catches up
+                // when selected, so a content oracle must skip it rather than
+                // report a designed lag as a mismatch.
+                "on_screen": $0.onScreen,
+            ] }
+    }
+
+    /// Whether a pane's hosted view is actually presented — the same predicate
+    /// ``RemoteTmuxWindowMirror/isEffectivelyVisibleForSizing`` judges with.
+    private static func isOnScreen(_ panel: TerminalPanel) -> Bool {
+        let view = panel.hostedView
+        return view.isVisibleInUI
+            && !view.isHidden
+            && view.superview != nil
+            && view.window?.isVisible == true
+    }
+
 
     /// Re-titles the mirror's sidebar workspace to track a remote session rename
     /// (the reverse of the cmux→tmux `rename-session` push). Uses TabManager's
@@ -116,6 +177,9 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
             onTopologyChanged: { [weak self] in
                 self?.rebuild()
             },
+            onReconnectReady: { [weak self] in
+                self?.forceResizeAllVisibleMirrors()
+            },
             onExit: { [weak self] in
                 self?.handleConnectionExited()
             },
@@ -174,6 +238,10 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         if workspace?.remoteTmuxSessionMirror === self {
             workspace?.remoteTmuxSessionMirror = nil
         }
+        // Detach owns the whole mirror set, so prune the sizing ledger once.
+        // Each mirror's teardown then sees no claim and avoids rescanning the
+        // shrinking maxima table once per window.
+        connection.retainWindowSizeClaims(for: [])
         for mirror in windowMirrorByWindowId.values {
             workspace?.setRemoteTmuxWindowMirror(nil, forPanelId: mirror.panelId)
             mirror.teardown()
@@ -188,10 +256,6 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         windowIdByPane[paneId]
     }
 
-    /// Adds a tab for any window that doesn't yet have one, refreshes existing
-    /// tab titles after a tmux rename, activates/reconciles the in-tab multi-pane
-    /// renderer for multi-pane windows, then closes the workspace's original
-    /// local tab(s) once at least one remote tab exists.
     func rebuild() {
         guard let workspace else { return }
         workspace.performRemoteTmuxMirrorMutation {
@@ -227,8 +291,10 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
                     },
                     // A single-pane display drives this window from its rendered
                     // grid; multi-pane sizing transfers to the window mirror below.
-                    onResize: { [weak connection] columns, rows in
-                        connection?.setWindowSize(windowId: windowId, columns: columns, rows: rows)
+                    onResize: { [weak self] columns, rows in
+                        self?.claimSinglePaneDisplaySize(
+                            windowId: windowId, columns: columns, rows: rows, cellSizePt: nil
+                        )
                     }
                 ) else { continue }
                 panelIdByWindow[windowId] = panel.id
@@ -236,17 +302,23 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
                 panelIdByPane[firstPaneId] = panel.id
                 // Claim from either runtime readiness or a later manual resize;
                 // adoption below replaces both hooks at the ownership boundary.
+                // All three hooks route through claimSinglePaneDisplaySize, so
+                // the window bound applies no matter which one fires.
                 if let terminalPanel = workspace.panels[panel.id] as? TerminalPanel {
                     let surface = terminalPanel.surface
-                    surface.onRuntimeReady = { [weak connection, weak surface] in
-                        guard let grid = surface?.renderedGridCells() else { return }
-                        connection?.setWindowSize(
-                            windowId: windowId, columns: grid.columns, rows: grid.rows
+                    surface.onRuntimeReady = { [weak self, weak surface] in
+                        guard let surface, let grid = surface.renderedGridCells() else { return }
+                        self?.claimSinglePaneDisplaySize(
+                            windowId: windowId,
+                            columns: grid.columns, rows: grid.rows,
+                            cellSizePt: surface.cellSizePoints()
                         )
                     }
-                    surface.onManualSizeApplied = { [weak connection] sample in
-                        connection?.setWindowSize(
-                            windowId: windowId, columns: sample.columns, rows: sample.rows
+                    surface.onManualSizeApplied = { [weak self] sample in
+                        self?.claimSinglePaneDisplaySize(
+                            windowId: windowId,
+                            columns: sample.columns, rows: sample.rows,
+                            cellSizePt: Self.cellSizePoints(of: sample)
                         )
                     }
                 }
@@ -287,6 +359,22 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
             windowIdByPanel[panelId] = nil
             panelIdByPane = panelIdByPane.filter { $0.value != panelId }
         }
+        // Belt for a mirror that outlived its panel bookkeeping: a mirror
+        // whose window tmux no longer lists must die even if the
+        // panel-by-window entry was already gone (a server restart inside a
+        // reused workspace once left a corpse mirror claiming and being
+        // judged against a window id that no longer existed — it could
+        // never settle, and its tree kept replanning against live
+        // container sizes with no layouts ever arriving).
+        for (windowId, mirror) in windowMirrorByWindowId where !liveWindows.contains(windowId) {
+            mirror.teardown()
+            windowMirrorByWindowId[windowId] = nil
+        }
+        // A dead window's size claims die with the authoritative topology.
+        // Prune the whole ledger once: removing each dead window separately
+        // rescans the remaining claims for maxima and turns batch churn into
+        // quadratic work.
+        connection.retainWindowSizeClaims(for: liveWindows)
         // Drop cached directories for panes tmux no longer reports, so the cache
         // stays bounded across window/pane churn (tmux pane ids never recur).
         panelIdByPane = panelIdByPane.filter { livePanes.contains($0.key) }
@@ -454,6 +542,75 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
             return paneId
         }
         return nil
+    }
+
+    /// Pushes a single-pane display window's size claim, bounded by the
+    /// window hosting its surface (``boundedSinglePaneClaim``). The claim
+    /// hooks read the surface's RENDERED grid, and rendered content is
+    /// downstream of SwiftUI layout: a hosting ancestor that adopts the
+    /// content's ideal size inflates the surface, the wider grid claims a
+    /// wider tmux window, tmux's reflow grows the content ideal again, and
+    /// the loop amplifies without bound (observed live: claims growing ~1.5
+    /// columns per 100ms to 781 columns). This path has no independently
+    /// measured slot — every view between the window and the surface is laid
+    /// out by the same SwiftUI pass the feedback inflates — so the hosting
+    /// NSWindow, which layout cannot grow (``CmuxMainWindow`` clamps its
+    /// frame to the display), is the strongest honest bound available.
+    private func claimSinglePaneDisplaySize(
+        windowId: Int, columns: Int, rows: Int, cellSizePt: CGSize?
+    ) {
+        let surface = panelIdByWindow[windowId]
+            .flatMap { workspace?.panels[$0] as? TerminalPanel }?
+            .surface
+        let cell = cellSizePt ?? surface?.cellSizePoints()
+        let hostingWindow = surface?.hostedView.window
+        let bound = hostingWindow?.isVisible == true
+            ? hostingWindow?.contentLayoutRect.size
+            : nil
+        let claim = Self.boundedSinglePaneClaim(
+            columns: columns, rows: rows, cellSizePt: cell, windowContentPt: bound
+        )
+        connection.setWindowSize(windowId: windowId, columns: claim.columns, rows: claim.rows)
+    }
+
+    /// Caps a rendered-grid claim at what the hosting window's content area
+    /// divides to at the measured cell size. A surface renders inside that
+    /// area, so a grid beyond the cap is content-derived feedback (an
+    /// ancestor adopted a layout ideal), never a slot measurement; the cap
+    /// is the single-pane form of the window-mirror invariant that claims
+    /// derive from the container, not from rendered content. Passes the
+    /// claim through unchanged while the cell size or the bound is unknown
+    /// (no window yet, cell metrics not measured) — those states cannot
+    /// amplify, because the report hooks only fire from surfaces attached
+    /// to a window.
+    nonisolated static func boundedSinglePaneClaim(
+        columns: Int,
+        rows: Int,
+        cellSizePt: CGSize?,
+        windowContentPt: CGSize?
+    ) -> (columns: Int, rows: Int) {
+        guard let cell = cellSizePt, cell.width > 0.5, cell.height > 0.5,
+              let bound = windowContentPt, bound.width > 1, bound.height > 1
+        else { return (columns, rows) }
+        // A hair of tolerance so a bound that is an exact multiple of the
+        // cell size cannot lose its last column to float error.
+        let maxColumns = Int(((bound.width / cell.width) + 0.001).rounded(.down))
+        let maxRows = Int(((bound.height / cell.height) + 0.001).rounded(.down))
+        guard maxColumns >= 1, maxRows >= 1 else { return (columns, rows) }
+        return (columns: min(columns, maxColumns), rows: min(rows, maxRows))
+    }
+
+    /// The sample's cell size in points (its pixel cell size over its
+    /// backing scale), or nil for a degenerate sample.
+    nonisolated static func cellSizePoints(
+        of sample: TerminalSurfaceRawSizingSample
+    ) -> CGSize? {
+        guard sample.cellWidthPx > 0, sample.cellHeightPx > 0 else { return nil }
+        let scale = max(sample.backingScale ?? 1, 1)
+        return CGSize(
+            width: CGFloat(sample.cellWidthPx) / scale,
+            height: CGFloat(sample.cellHeightPx) / scale
+        )
     }
 
     /// The multi-pane renderer + tmux pane id for a focused mirror surface, used

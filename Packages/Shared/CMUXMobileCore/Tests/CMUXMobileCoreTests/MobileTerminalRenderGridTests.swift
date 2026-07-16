@@ -179,8 +179,8 @@ import Testing
     #expect(delta.clearedRows == [1])
     #expect(delta.styles == frame.styles)
     #expect(delta.rowSpans == [.init(row: 1, column: 0, styleID: 1, text: "green")])
-    #expect(try #require(String(data: delta.vtPatchBytes(), encoding: .utf8))
-        .contains("\u{1B}[0;38;2;0;255;0;48;2;0;0;0mgreen"))
+    let patch = try #require(String(data: delta.vtPatchBytes(), encoding: .utf8))
+    #expect(patch.contains("\u{1B}[0;38;2;0;255;0;48;2;0;0;0mgreen"))
 }
 
 @Test func renderGridFilteredDeltaKeepsOnlyReplayRestoredModeState() throws {
@@ -428,6 +428,24 @@ import Testing
     #expect(vt.contains("\u{1B}]12;rgb:ff/ee/dd\u{1B}\\"))
 }
 
+@Test func renderGridFullSnapshotPreservesV1RawDefaultsWithReverseMode() throws {
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 1,
+        columns: 4,
+        rows: 1,
+        rowSpans: [],
+        modes: [.init(code: 5, ansi: false, on: true)],
+        terminalForeground: "#111111",
+        terminalBackground: "#EEEEEE"
+    )
+
+    let vt = try #require(String(data: frame.vtPatchBytes(), encoding: .utf8))
+    #expect(vt.contains("\u{1B}]10;rgb:11/11/11\u{1B}\\"))
+    #expect(vt.contains("\u{1B}]11;rgb:ee/ee/ee\u{1B}\\"))
+    #expect(vt.contains("\u{1B}[?5h"))
+}
+
 @Test func renderGridFullSnapshotResetsDefaultDynamicColors() throws {
     let frame = try MobileTerminalRenderGridFrame(
         surfaceID: "terminal-a",
@@ -444,6 +462,9 @@ import Testing
 }
 
 @Test func renderGridEncodesFullStateFields() throws {
+    var terminalTheme = TerminalTheme.monokai
+    terminalTheme.background = "#f5f1e8"
+    terminalTheme.foreground = "#15202b"
     let frame = try MobileTerminalRenderGridFrame(
         surfaceID: "terminal-a",
         stateSeq: 7,
@@ -456,6 +477,8 @@ import Testing
             .init(code: 20, ansi: true, on: false),
         ],
         terminalForeground: "#010203",
+        terminalTheme: terminalTheme,
+        terminalConfigTheme: .monokai,
         scrollbackRows: 1,
         scrollbackSpans: [.init(row: 0, column: 0, text: "sb")]
     )
@@ -470,6 +493,7 @@ import Testing
     #expect(decoded.scrollbackRows == 1)
     #expect(decoded.scrollbackSpans == [.init(row: 0, column: 0, text: "sb")])
     #expect(decoded.terminalForeground == "#010203")
+    #expect(decoded.terminalTheme == terminalTheme)
 }
 
 @Test func renderGridDeltaDropsFullStateFields() throws {
@@ -483,15 +507,16 @@ import Testing
         rowSpans: [.init(row: 1, column: 0, text: "x")],
         activeScreen: .alternate,
         modes: [.init(code: 1000, ansi: false, on: true)],
+        terminalTheme: .monokai,
         scrollbackRows: 3,
         scrollbackSpans: [.init(row: 0, column: 0, text: "sb")]
     )
 
-    // A delta frame carries no scrollback and does not enter the alt screen or
-    // replay unrelated modes; it normalizes coordinates, then clears and
+    // A delta carries no scrollback or unrelated mode transitions; it normalizes coordinates, then clears and
     // repaints its changed rows.
     #expect(frame.scrollbackRows == 0)
     #expect(frame.scrollbackSpans.isEmpty)
+    #expect(frame.terminalTheme == nil)
     let vt = try #require(String(data: frame.vtPatchBytes(), encoding: .utf8))
     #expect(!vt.contains("\u{1B}c"))
     #expect(!vt.contains("\u{1B}[?1049h"))

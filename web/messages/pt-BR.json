@@ -415,6 +415,19 @@
         "p3": "Os melhores desenvolvedores sempre construíram suas próprias ferramentas. Ninguém descobriu a melhor forma de trabalhar com agentes ainda, e as equipes construindo produtos fechados definitivamente também não. Os desenvolvedores mais próximos de seus próprios codebases vão descobrir primeiro.",
         "p4": "Dê a um milhão de desenvolvedores primitivas combináveis e eles coletivamente encontrarão os fluxos de trabalho mais eficientes mais rápido do que qualquer equipe de produto poderia projetar de cima para baixo."
       },
+      "cmuxFork": {
+        "title": "Apresentando o cmux Fork",
+        "summary": "Bifurque uma conversa de agente em uma nova divisão, aba ou área de trabalho sem perder o contexto.",
+        "date": "14 de julho de 2026",
+        "p1": "Conversas com agentes de programação chegam a pontos em que uma bifurcação é útil. Você pode preservar uma abordagem enquanto outro agente testa uma implementação diferente, investiga uma ramificação ou analisa o mesmo problema por outro ângulo.",
+        "p2": "Fork Conversation cria uma nova sessão de agente a partir da conversa atual e preserva o histórico e o diretório de trabalho. O recurso oferece suporte a Codex, Claude Code, OpenCode, Pi, Hermes e outros agentes com sessões bifurcáveis.",
+        "destinationsTitle": "Bifurque para onde quiser trabalhar",
+        "destinationsP": "Clique com o botão direito em um terminal ou uma aba e escolha Fork Conversation, ou pressione <code>Cmd+Shift+P</code> e procure por Fork Conversation. Envie a bifurcação para uma divisão em qualquer lado, uma nova aba ou uma nova área de trabalho.",
+        "parallelTitle": "Explore várias direções ao mesmo tempo",
+        "parallelP1": "Bifurque a mesma conversa mais de uma vez para comparar implementações ou dividir um problema entre vários agentes com o mesmo contexto inicial. Cada bifurcação continua de forma independente e a conversa original permanece disponível.",
+        "parallelP2": "As bifurcações podem trabalhar no mesmo diretório. Dê a elas tarefas ou arquivos separados quando edições simultâneas puderem se sobrepor.",
+        "release": "cmux Fork está disponível na v0.64.19."
+      },
       "showHnLaunch": {
         "title": "Lançando o cmux no Show HN",
         "summary": "O cmux chegou ao #2 no Hacker News, foi compartilhado por Mitchell Hashimoto e viralizou no Japão.",
@@ -597,6 +610,10 @@
         "fluxo de terminal",
         "desenvolvimento agentic"
       ]
+    },
+    "cmuxFork": {
+      "metaTitle": "Apresentando o cmux Fork",
+      "metaDescription": "Bifurque uma conversa do Codex, Claude Code, OpenCode, Pi, Hermes ou outro agente compatível em uma nova divisão, aba ou área de trabalho sem perder o contexto."
     },
     "cmdShiftU": {
       "metaTitle": "Cmd+Shift+U",
@@ -914,6 +931,8 @@
           "globalFontMagnification": "Escala por esta porcentagem os terminais, títulos de abas, barras laterais, ajustes, sobreposições e chrome do app pertencentes ao cmux. O conteúdo renderizado das páginas do navegador fica excluído."
         },
         "terminal": {
+          "sessionContentMaxWidth": "Largura máxima opcional, em pontos, para o conteúdo do terminal e do chat integrado do agente. Defina como false para usar toda a largura do painel.",
+          "sessionContentAlignment": "Posicionamento horizontal do conteúdo do terminal e do chat integrado do agente quando sessionContentMaxWidth está ativado.",
           "copyOnSelect": "Quando true, copia o texto selecionado no terminal para a área de transferência do sistema quando a seleção é confirmada. Quando false, o cmux não emite uma substituição copy-on-select do Ghostty; a configuração e os padrões do Ghostty controlam o comportamento da área de transferência de seleção.",
           "scrollSpeed": "Multiplicador aplicado aos deslocamentos da roda de rolagem e do trackpad no terminal. Valores mais altos rolam mais rápido e os mais baixos, mais devagar.",
           "showTextBoxOnNewTerminals": "Mostra a entrada TextBox beta por padrão em áreas de trabalho, abas e divisões de terminal recém-criadas.",
@@ -939,6 +958,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "notificationMessageLineLimit": "Número máximo de linhas exibidas para a notificação mais recente abaixo do título de cada espaço de trabalho.",
           "rightMaxWidth": "Largura máxima em pontos para a barra lateral direita. Quando omitida, o limite dinâmico integrado se aplica."
         },
         "fileExplorer": {

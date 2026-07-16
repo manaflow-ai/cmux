@@ -70,6 +70,14 @@ describe("docs search index", () => {
     ).toBe(true);
   });
 
+  test("indexes Base only for the nightly channel", () => {
+    const releaseHrefs = docsSearchRoutes("release").map((route) => route.href);
+    const nightlyHrefs = docsSearchRoutes("nightly").map((route) => route.href);
+
+    expect(releaseHrefs).not.toContain("/docs/base");
+    expect(nightlyHrefs).toContain("/docs/base");
+  });
+
   test("uses the API page message namespace in every locale", async () => {
     const pages = await pagesPromise;
 
@@ -84,6 +92,25 @@ describe("docs search index", () => {
           section.texts.some((text) => text.includes("workspace.list")),
         ),
       ).toBe(true);
+    }
+  });
+
+  test("localizes the notification preview schema description in every locale", async () => {
+    for (const locale of routing.locales) {
+      const messages = (await import(`../messages/${locale}.json`)).default as {
+        docs: {
+          configuration: {
+            schemaDescriptions: {
+              sidebar: { notificationMessageLineLimit?: string };
+            };
+          };
+        };
+      };
+
+      expect(
+        messages.docs.configuration.schemaDescriptions.sidebar
+          .notificationMessageLineLimit,
+      ).toBeTruthy();
     }
   });
 });

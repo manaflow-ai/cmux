@@ -89,6 +89,17 @@ final class HostSettingsActions: SettingsHostActions {
     func resetAllSettingsSideEffects() {
         LanguageSettingsStore(defaults: .standard).applyLanguageOverride(.system)
         PaneChromeSettings.notifyDidChange()
+        AppDelegate.shared?.reconcileSocketListenerConfiguration(source: "settings.reset_all")
+    }
+
+    func notifyShortcutSettingsDidChange() {
+        // reload() already posts didChangeNotification when the file's
+        // contents changed; posting again here double-notified every
+        // listener. Only post when the reload saw no change, so callers
+        // still get exactly one notification either way.
+        if !KeyboardShortcutSettings.settingsFileStore.reload() {
+            KeyboardShortcutSettings.notifySettingsFileDidChange()
+        }
     }
 
     func applyLanguageOverride(_ language: AppLanguage) {
@@ -124,6 +135,12 @@ final class HostSettingsActions: SettingsHostActions {
         task.arguments = ["-n", bundlePath]
         try? task.run()
         NSApp.terminate(nil)
+    }
+
+    func socketControlConfigurationDidChange() {
+        AppDelegate.shared?.reconcileSocketListenerConfiguration(
+            source: "settings.automation.socketControlMode.commit"
+        )
     }
 
     func openBrowserImportFlow() {
@@ -288,6 +305,10 @@ final class HostSettingsActions: SettingsHostActions {
                 observer.remove()
             }
         }
+    }
+
+    func irohSettingsController() -> (any CmxIrohSettingsControlling)? {
+        MobileHostIrohRuntime.shared
     }
 
     /// Maps the host's ``MobileHostServiceStatus`` into the settings package's
