@@ -1,4 +1,5 @@
 import CmuxSettings
+import CmuxSidebar
 import Foundation
 
 typealias RightSidebarWidthSettings = CmuxSettings.RightSidebarWidthSettings
@@ -50,12 +51,43 @@ extension SidebarWorkspaceDetailDefaults {
         boolValue(defaults: defaults, key: showPullRequestsKey, defaultValue: showPullRequests)
     }
 
+    static func showBranchDirectoryValue(defaults: UserDefaults) -> Bool {
+        boolValue(defaults: defaults, key: showBranchDirectoryKey, defaultValue: showBranchDirectory)
+    }
+
     static func watchGitStatusValue(defaults: UserDefaults) -> Bool {
         boolValue(defaults: defaults, key: watchGitStatusKey, defaultValue: watchGitStatus)
     }
 
+    static func auxiliaryDetailVisibility(defaults: UserDefaults) -> SidebarWorkspaceAuxiliaryDetailVisibility {
+        let hideAllDetails = SidebarCatalogSection().hideAllDetails
+        return SidebarWorkspaceAuxiliaryDetailVisibility.resolved(
+            showMetadata: boolValue(
+                defaults: defaults,
+                key: showCustomMetadataKey,
+                defaultValue: showCustomMetadata
+            ),
+            showLog: boolValue(defaults: defaults, key: showLogKey, defaultValue: showLog),
+            showProgress: boolValue(defaults: defaults, key: showProgressKey, defaultValue: showProgress),
+            showBranchDirectory: showBranchDirectoryValue(defaults: defaults),
+            showPullRequests: showPullRequestsValue(defaults: defaults),
+            showPorts: boolValue(defaults: defaults, key: showPortsKey, defaultValue: showPorts),
+            hideAllDetails: boolValue(
+                defaults: defaults,
+                key: hideAllDetails.userDefaultsKey,
+                defaultValue: hideAllDetails.defaultValue
+            )
+        )
+    }
+
+    static func gitMetadataPollingEnabled(defaults: UserDefaults) -> Bool {
+        watchGitStatusValue(defaults: defaults)
+            && auxiliaryDetailVisibility(defaults: defaults).requiresGitMetadata
+    }
+
     static func pullRequestPollingEnabled(defaults: UserDefaults) -> Bool {
-        watchGitStatusValue(defaults: defaults) && showPullRequestsValue(defaults: defaults)
+        watchGitStatusValue(defaults: defaults)
+            && auxiliaryDetailVisibility(defaults: defaults).requiresPullRequestPolling
     }
 }
 
