@@ -16,10 +16,10 @@ if ! awk '
   in_universal && /COMPILER_INDEX_STORE_ENABLE=NO/ { saw_index_disabled=1 }
   in_universal && /-showBuildTimingSummary/ { saw_timing_summary=1 }
   END {
-    exit !(saw_universal_destination && saw_universal_archs && saw_universal_only_active_arch && saw_quiet && saw_compilation_cache && saw_index_disabled && saw_timing_summary)
+    exit !(saw_universal_destination && saw_universal_archs && saw_universal_only_active_arch && !saw_quiet && saw_compilation_cache && saw_index_disabled && saw_timing_summary)
   }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly workflow must build the universal app quietly with compilation caching, no index store, and timing output"
+  echo "FAIL: nightly workflow must build the universal app with visible timing output, compilation caching, and no index store"
   exit 1
 fi
 
@@ -66,9 +66,11 @@ if ! awk '
   in_refresh && /^      - name: Cache Xcode compilation results/ { saw_cache=1 }
   in_refresh && /^      - name: Refresh universal nightly compilation cache/ { saw_refresh=1 }
   in_refresh && /if: steps\.compilation-cache-lookup\.outputs\.cache-hit != '\''true'\''/ { saw_change_gate=1 }
-  END { exit !(saw_schedule_gate && saw_release_runner && saw_release_xcode && saw_xcode_selection && saw_lookup && saw_restore_action && saw_lookup_only && saw_cache && saw_refresh && saw_change_gate) }
+  in_refresh && /-showBuildTimingSummary/ { saw_timing_summary=1 }
+  in_refresh && /-quiet/ { saw_quiet=1 }
+  END { exit !(saw_schedule_gate && saw_release_runner && saw_release_xcode && saw_xcode_selection && saw_lookup && saw_restore_action && saw_lookup_only && saw_cache && saw_refresh && saw_change_gate && saw_timing_summary && !saw_quiet) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: the six-hour schedule must warm the PR Release cache with the matching runner and Xcode when main changes"
+  echo "FAIL: the six-hour schedule must warm the PR Release cache with the matching runner, Xcode, and visible timing output when main changes"
   exit 1
 fi
 
@@ -85,13 +87,16 @@ if [ -z "$R2_UPLOAD_LINE" ] || [ -z "$TAG_MOVE_LINE" ] || [ "$TAG_MOVE_LINE" -le
 fi
 
 if ! awk '
-  /^      - name: Bound Xcode compilation cache size/ { in_bound=1; next }
+  /^  refresh-compilation-cache:/ { job="refresh"; next }
+  /^  build-sign-notarize-nightly:/ { job="publish"; next }
+  /^  [a-zA-Z0-9_-]+:/ { job="" }
+  job && /^      - name: Bound Xcode compilation cache size/ { in_bound=1; next }
   in_bound && /^      - name:/ { in_bound=0 }
-  in_bound && /max_cache_kib=\$\(\(3 \* 1024 \* 1024\)\)/ { saw_limit=1 }
-  in_bound && /rm -rf "\$cache_path"/ { saw_skip_save=1 }
-  END { exit !(saw_limit && saw_skip_save) }
+  in_bound && /max_cache_kib=\$\(\(3 \* 1024 \* 1024\)\)/ { saw_limit[job]=1 }
+  in_bound && /rm -rf "\$cache_path"/ { saw_skip_save[job]=1 }
+  END { exit !(saw_limit["refresh"] && saw_skip_save["refresh"] && saw_limit["publish"] && saw_skip_save["publish"]) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly workflow must skip saving Xcode compilation caches larger than 3 GiB"
+  echo "FAIL: cache warming and publishing must each skip saving Xcode compilation caches larger than 3 GiB"
   exit 1
 fi
 
@@ -100,12 +105,16 @@ if ! awk '
   /^  release-build:/ { in_release=1; next }
   in_release && /^  [a-zA-Z0-9_-]+:/ { in_release=0 }
   in_release && /path: build-universal\/CompilationCache\.noindex/ { saw_path=1 }
+  in_release && /!build-universal\/CompilationCache\.noindex/ { saw_parent_exclusion=1 }
   in_release && /key: xcode-compilation-release-/ { saw_key=1 }
   in_release && /restore-keys:/ { saw_restore=1 }
   in_release && /COMPILATION_CACHE_ENABLE_CACHING=YES/ { saw_cache_flag=1 }
-  END { exit !(saw_path && saw_key && saw_restore && saw_cache_flag) }
+  in_release && /COMPILATION_CACHE_LIMIT_SIZE=3221225472/ { saw_runtime_limit=1 }
+  in_release && /max_cache_kib=\$\(\(3 \* 1024 \* 1024\)\)/ { saw_save_limit=1 }
+  in_release && /rm -rf "\$cache_path"/ { saw_skip_save=1 }
+  END { exit !(saw_path && saw_parent_exclusion && saw_key && saw_restore && saw_cache_flag && saw_runtime_limit && saw_save_limit && saw_skip_save) }
 ' "$CI_WORKFLOW_FILE"; then
-  echo "FAIL: PR release builds must restore and update the cache warmed from main"
+  echo "FAIL: PR release builds must restore and update the bounded cache warmed from main without archiving it twice"
   exit 1
 fi
 
