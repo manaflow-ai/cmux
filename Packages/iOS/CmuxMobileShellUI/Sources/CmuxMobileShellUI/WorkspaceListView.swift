@@ -21,6 +21,10 @@ struct WorkspaceListView: View {
     var dismissMacUpdateHint: (() -> Void)? = nil
     let navigationStyle: WorkspaceNavigationStyle
     var showsNavigationToolbar = true
+    /// The live shell owns the leading/center toolbar so both primary tabs share
+    /// one presentation and computer selection. Standalone previews keep the
+    /// self-contained toolbar by leaving this false.
+    var usesExternalSharedToolbar = false
     /// Whether workspace-row titles wrap (multi-line) instead of truncating to a
     /// single line. Passed in as a value snapshot so no `@Observable` store
     /// crosses the `List` boundary.
@@ -100,7 +104,9 @@ struct WorkspaceListView: View {
     var isInitialConnectionLoading = false
     var initialConnectionTimedOut = false
     var retryInitialConnection: (() -> Void)?
-    @State private var searchText = ""
+    /// The query is owned by ``WorkspaceListSearchHost`` so authoritative
+    /// workspace refreshes cannot recreate the native search presentation.
+    var searchText = ""
     @State private var showingShortcutsSettings = false
     @State private var showingSettings = false
     @State private var showingDeviceTree = false
@@ -304,7 +310,6 @@ struct WorkspaceListView: View {
         }
         .navigationTitle(L10n.string("mobile.workspaces.title", defaultValue: "Workspaces"))
         .mobileInlineNavigationTitle()
-        .searchable(text: $searchText)
 
         workspaceListWithToolbar(
             list,

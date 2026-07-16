@@ -121,40 +121,13 @@ extension WorkspaceListView {
     }
 
     func macTitlePicker(machineSnapshots: WorkspaceMachineSnapshots) -> some View {
-        Menu {
-            Picker(
-                L10n.string("mobile.workspaces.macPicker.title", defaultValue: "Choose Computer"),
-                selection: macTitlePickerSelection
-            ) {
-                Text(L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Computers"))
-                    .tag(WorkspaceMacSelection.all)
-                ForEach(machineSnapshots.macPickerMachines) { machine in
-                    Text(machine.name)
-                        .tag(WorkspaceMacSelection.machine(machine.id))
-                }
-            }
-            .labelsVisibility(.visible)
-            if let showAddDevice {
-                Divider()
-                Button {
-                    showAddDevice()
-                } label: {
-                    Label(
-                        L10n.string("mobile.computers.add", defaultValue: "Add Computer"),
-                        systemImage: "plus"
-                    )
-                }
-                .accessibilityIdentifier("MobileWorkspaceMacPickerAdd")
-            }
-        } label: {
-            WorkspaceMacTitlePickerLabel(
-                title: macTitlePickerTitle(machineSnapshots: machineSnapshots),
-                isLoading: macTitlePickerShowsProgress
-            )
-        }
-        .buttonStyle(.plain)
-        .tint(.white)
-        .accessibilityIdentifier("MobileWorkspaceMacPicker")
+        WorkspaceMacTitlePicker(
+            title: macTitlePickerTitle(machineSnapshots: machineSnapshots),
+            isLoading: macTitlePickerShowsProgress,
+            selection: macTitlePickerSelection,
+            machines: machineSnapshots.macPickerMachines,
+            showAddDevice: showAddDevice
+        )
     }
 
     var showsDevicesButton: Bool {
@@ -175,6 +148,46 @@ extension WorkspaceListView {
 }
 
 #if os(iOS)
+struct WorkspaceMacTitlePicker: View {
+    let title: String
+    let isLoading: Bool
+    @Binding var selection: WorkspaceMacSelection
+    let machines: [WorkspaceFilterMachine]
+    let showAddDevice: (() -> Void)?
+
+    var body: some View {
+        Menu {
+            Picker(
+                L10n.string("mobile.workspaces.macPicker.title", defaultValue: "Choose Computer"),
+                selection: $selection
+            ) {
+                Text(L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Computers"))
+                    .tag(WorkspaceMacSelection.all)
+                ForEach(machines) { machine in
+                    Text(machine.name)
+                        .tag(WorkspaceMacSelection.machine(machine.id))
+                }
+            }
+            .labelsVisibility(.visible)
+            if let showAddDevice {
+                Divider()
+                Button(action: showAddDevice) {
+                    Label(
+                        L10n.string("mobile.computers.add", defaultValue: "Add Computer"),
+                        systemImage: "plus"
+                    )
+                }
+                .accessibilityIdentifier("MobileWorkspaceMacPickerAdd")
+            }
+        } label: {
+            WorkspaceMacTitlePickerLabel(title: title, isLoading: isLoading)
+        }
+        .buttonStyle(.plain)
+        .tint(.white)
+        .accessibilityIdentifier("MobileWorkspaceMacPicker")
+    }
+}
+
 private struct WorkspaceMacTitlePickerLabel: View {
     private static let titleWidth: CGFloat = 155
 

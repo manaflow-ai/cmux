@@ -8,7 +8,7 @@ import SwiftUI
 public struct NotificationFeedPreviewView: View {
     @State private var selectedTab: MobilePrimaryTab = .notifications
     @State private var items: [MobileNotificationFeedItem]
-    @State private var openedWorkspaceName: String?
+    @State private var notificationNavigationPath: [MobileWorkspacePreview.ID] = []
 
     public init() {
         _items = State(initialValue: Self.makeFixtureItems(referenceDate: .now))
@@ -21,18 +21,17 @@ public struct NotificationFeedPreviewView: View {
         ) {
             NotificationFeedPreviewWorkspacesView()
         } notifications: {
-            NavigationStack {
+            NavigationStack(path: $notificationNavigationPath) {
                 NotificationFeedView(
                     items: items,
                     status: .ready,
                     actions: actions
                 )
-            }
-            .overlay(alignment: .bottom) {
-                if let openedWorkspaceName {
-                    NotificationFeedPreviewOpenResponse(workspaceName: openedWorkspaceName)
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 12)
+                .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
+                    NotificationFeedPreviewWorkspaceDestination(
+                        workspaceName: workspaceName(for: workspaceID)
+                    )
+                    .toolbarVisibility(.hidden, for: .tabBar)
                 }
             }
         }
@@ -41,8 +40,9 @@ public struct NotificationFeedPreviewView: View {
     private var actions: NotificationFeedActions {
         NotificationFeedActions(
             open: { item in
-                openedWorkspaceName = item.workspaceTitle
-                    ?? L10n.string("mobile.notificationFeed.workspaceFallback", defaultValue: "Workspace")
+                notificationNavigationPath.append(
+                    MobileWorkspacePreview.ID(rawValue: item.remoteWorkspaceID)
+                )
                 setRead(true, for: item.id)
             },
             markRead: { item in
@@ -53,6 +53,11 @@ public struct NotificationFeedPreviewView: View {
             },
             refresh: {}
         )
+    }
+
+    private func workspaceName(for workspaceID: MobileWorkspacePreview.ID) -> String {
+        items.first { $0.remoteWorkspaceID == workspaceID.rawValue }?.workspaceTitle
+            ?? L10n.string("mobile.notificationFeed.workspaceFallback", defaultValue: "Workspace")
     }
 
     private func setRead(_ isRead: Bool, for id: MobileNotificationFeedItemID) {
@@ -224,27 +229,21 @@ private struct NotificationFeedPreviewWorkspacesView: View {
     }
 }
 
-private struct NotificationFeedPreviewOpenResponse: View {
+private struct NotificationFeedPreviewWorkspaceDestination: View {
     let workspaceName: String
 
     var body: some View {
-        Label(
-            String(
-                format: L10n.string(
-                    "mobile.notificationFeed.preview.openedFormat",
-                    defaultValue: "Opened %@"
-                ),
-                workspaceName
-            ),
-            systemImage: "arrow.up.forward.app"
-        )
-        .font(.subheadline.weight(.semibold))
-        .foregroundStyle(.primary)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(.regularMaterial, in: Capsule())
-        .shadow(color: .black.opacity(0.12), radius: 10, y: 4)
-        .accessibilityIdentifier("MobileNotificationFeedPreviewOpenResponse")
+        VStack(spacing: 12) {
+            Image(systemName: "terminal")
+                .font(.largeTitle)
+                .foregroundStyle(.secondary)
+            Text(workspaceName)
+                .font(.title2.weight(.semibold))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .navigationTitle(workspaceName)
+        .navigationBarTitleDisplayMode(.inline)
+        .accessibilityIdentifier("MobileNotificationFeedPreviewWorkspaceDestination")
     }
 }
 #endif

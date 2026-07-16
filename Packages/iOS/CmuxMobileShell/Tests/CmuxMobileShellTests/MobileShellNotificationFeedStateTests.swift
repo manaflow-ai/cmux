@@ -144,6 +144,7 @@ struct MobileShellNotificationFeedStateTests {
 
         #expect(store.selectedWorkspaceID == "workspace-row")
         #expect(store.selectedTerminalID == "surface")
+        #expect(store.deeplinkWorkspaceNavigationRequest?.origin == .notificationFeed)
         #expect(store.consumeDeeplinkWorkspaceNavigationRequest() == "workspace-row")
     }
 

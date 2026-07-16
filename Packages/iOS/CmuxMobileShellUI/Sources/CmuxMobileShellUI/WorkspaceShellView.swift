@@ -1,6 +1,8 @@
+import CMUXMobileCore
 import Foundation
 import CmuxMobileShell
 import CmuxMobileShellModel
+import CmuxMobileSupport
 import CmuxMobileWorkspace
 import SwiftUI
 #if os(iOS)
@@ -24,6 +26,13 @@ struct WorkspaceShellView: View {
     @State var pendingCompactCreateNavigationWorkspaceIDs: Set<MobileWorkspacePreview.ID>?
     #if os(iOS)
     @State private var selectedPrimaryTab: MobilePrimaryTab = .workspaces
+    @State private var notificationNavigationPath: [MobileWorkspacePreview.ID] = []
+    @State private var showingRootSettings = false
+    @State private var showingRootDeviceTree = false
+    @State private var rootToolbarMachineSnapshots: WorkspaceMachineSnapshots?
+    @State private var rootToolbarPendingSelection: WorkspaceMacSelection?
+    @State private var rootToolbarSelectionTask: Task<Void, Never>?
+    @State private var rootToolbarSelectionGeneration: UInt64 = 0
     #endif
     @State private var hasPresentedSplitDetail = false
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .automatic
@@ -67,18 +76,53 @@ struct WorkspaceShellView: View {
         ) {
             workspaceTabContent
         } notifications: {
-            NotificationFeedStoreView(store: store)
+            NavigationStack(path: $notificationNavigationPath) {
+                NotificationFeedStoreView(
+                    store: store,
+                    items: visibleNotificationFeedItems
+                )
+                    .toolbar {
+                        if notificationNavigationPath.isEmpty {
+                            rootToolbarContent
+                        }
+                    }
+                    .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
+                        workspaceDestination(
+                            for: workspaceID,
+                            createWorkspace: createWorkspaceInCompactStack
+                        )
+                        .toolbarVisibility(.hidden, for: .tabBar)
+                    }
+            }
         }
         .onChange(of: store.deeplinkWorkspaceNavigationRequest) { _, request in
             guard request != nil else { return }
-            selectedPrimaryTab = .workspaces
             consumeDeeplinkNavigationRequestIfNeeded()
         }
         .onAppear {
-            if store.deeplinkWorkspaceNavigationRequest != nil {
-                selectedPrimaryTab = .workspaces
-            }
+            updateRootToolbarMachineSnapshots(liveRootToolbarMachineSnapshots)
             consumeDeeplinkNavigationRequestIfNeeded()
+        }
+        .onChange(of: liveRootToolbarMachineSnapshots) { _, snapshots in
+            updateRootToolbarMachineSnapshots(snapshots)
+        }
+        .sheet(isPresented: $showingRootSettings) {
+            MobileSettingsView(
+                connectedHostName: store.connectedHostName,
+                rescanQR: { store.disconnectAndForgetActiveMac() },
+                signOut: signOut,
+                store: store
+            )
+        }
+        .sheet(isPresented: $showingRootDeviceTree) {
+            DeviceTreeView(
+                store: store,
+                selectWorkspace: { id in
+                    selectedPrimaryTab = .workspaces
+                    selectWorkspace(id)
+                },
+                showAddDevice: showAddDevice
+            )
         }
         #else
         workspaceTabContent
@@ -124,52 +168,14 @@ struct WorkspaceShellView: View {
 
     private var stackLayout: some View {
         NavigationStack(path: $compactNavigationPath) {
-            WorkspaceListView(
-                workspaces: store.workspaces,
-                groups: store.workspaceGroups,
-                selectedWorkspaceID: store.selectedWorkspaceID,
-                host: store.connectedHostName,
-                connectionStatus: listConnectionStatus,
-                macUpdateHint: store.macUpdateHint,
-                macUpdateHintMacName: store.connectedHostName,
-                dismissMacUpdateHint: { store.dismissMacUpdateHint() },
-                navigationStyle: .push,
-                showsNavigationToolbar: compactNavigationPath.isEmpty,
-                wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
-                previewLineLimit: displaySettings.workspacePreviewLineCount,
-                unreadIndicatorLeftShift: displaySettings.unreadIndicatorLeftShift,
-                profilePictureLeftShift: displaySettings.profilePictureLeftShift,
-                profilePictureSize: displaySettings.profilePictureSize,
-                selectWorkspace: selectWorkspace,
-                createWorkspace: createWorkspaceInCompactStack,
-                createWorkspaceInGroup: createWorkspaceInGroupInCompactStackClosure,
-                createWorkspaceGroup: createWorkspaceGroupInCompactStackClosure,
-                canCreateWorkspace: canCreateWorkspaceForMacSelection,
-                macSelection: $macSelection,
-                switchMac: { macDeviceID in
-                    await switchMacFromWorkspacePicker(macDeviceID: macDeviceID)
-                },
-                cancelMacSwitch: cancelMacSwitchFromWorkspacePicker,
-                refresh: refreshWorkspacesClosure,
-                rescanQR: { store.disconnectAndForgetActiveMac() },
-                signOut: signOut,
-                reconnect: reconnectClosure,
-                showAddDevice: showAddDevice,
-                store: store,
-                renameWorkspace: renameWorkspaceClosure,
-                setPinned: setWorkspacePinnedClosure,
-                setUnread: setWorkspaceUnreadClosure,
-                closeWorkspace: closeWorkspaceClosure,
-                moveWorkspace: moveWorkspaceClosure,
-                renameWorkspaceGroup: renameWorkspaceGroupClosure,
-                setGroupPinned: setWorkspaceGroupPinnedClosure,
-                ungroupWorkspaceGroup: ungroupWorkspaceGroupClosure,
-                deleteWorkspaceGroup: deleteWorkspaceGroupClosure,
-                toggleGroupCollapsed: toggleGroupCollapsedClosure,
-                isInitialConnectionLoading: isInitialConnectionLoading,
-                initialConnectionTimedOut: initialConnectionTimedOut,
-                retryInitialConnection: retryInitialConnection
-            )
+            WorkspaceListSearchHost { searchText in
+                workspaceList(navigationStyle: .push, searchText: searchText)
+            }
+            .toolbar {
+                if compactNavigationPath.isEmpty {
+                    rootToolbarContent
+                }
+            }
             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                 workspaceDestination(
                     for: workspaceID,
@@ -235,51 +241,12 @@ struct WorkspaceShellView: View {
 
     private var splitLayout: some View {
         NavigationSplitView(columnVisibility: $splitColumnVisibility) {
-            WorkspaceListView(
-                workspaces: store.workspaces,
-                groups: store.workspaceGroups,
-                selectedWorkspaceID: store.selectedWorkspaceID,
-                host: store.connectedHostName,
-                connectionStatus: listConnectionStatus,
-                macUpdateHint: store.macUpdateHint,
-                macUpdateHintMacName: store.connectedHostName,
-                dismissMacUpdateHint: { store.dismissMacUpdateHint() },
-                navigationStyle: .sidebar,
-                wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
-                previewLineLimit: displaySettings.workspacePreviewLineCount,
-                unreadIndicatorLeftShift: displaySettings.unreadIndicatorLeftShift,
-                profilePictureLeftShift: displaySettings.profilePictureLeftShift,
-                profilePictureSize: displaySettings.profilePictureSize,
-                selectWorkspace: selectWorkspace,
-                createWorkspace: createWorkspaceIfConnected,
-                createWorkspaceInGroup: createWorkspaceInGroupIfConnectedClosure,
-                createWorkspaceGroup: createWorkspaceGroupIfConnectedClosure,
-                canCreateWorkspace: canCreateWorkspaceForMacSelection,
-                macSelection: $macSelection,
-                switchMac: { macDeviceID in
-                    await switchMacFromWorkspacePicker(macDeviceID: macDeviceID)
-                },
-                cancelMacSwitch: cancelMacSwitchFromWorkspacePicker,
-                refresh: refreshWorkspacesClosure,
-                rescanQR: { store.disconnectAndForgetActiveMac() },
-                signOut: signOut,
-                reconnect: reconnectClosure,
-                showAddDevice: showAddDevice,
-                store: store,
-                renameWorkspace: renameWorkspaceClosure,
-                setPinned: setWorkspacePinnedClosure,
-                setUnread: setWorkspaceUnreadClosure,
-                closeWorkspace: closeWorkspaceClosure,
-                moveWorkspace: moveWorkspaceClosure,
-                renameWorkspaceGroup: renameWorkspaceGroupClosure,
-                setGroupPinned: setWorkspaceGroupPinnedClosure,
-                ungroupWorkspaceGroup: ungroupWorkspaceGroupClosure,
-                deleteWorkspaceGroup: deleteWorkspaceGroupClosure,
-                toggleGroupCollapsed: toggleGroupCollapsedClosure,
-                isInitialConnectionLoading: isInitialConnectionLoading,
-                initialConnectionTimedOut: initialConnectionTimedOut,
-                retryInitialConnection: retryInitialConnection
-            )
+            WorkspaceListSearchHost { searchText in
+                workspaceList(navigationStyle: .sidebar, searchText: searchText)
+            }
+            .toolbar {
+                rootToolbarContent
+            }
             .navigationSplitViewColumnWidth(min: 320, ideal: 380, max: 440)
         } detail: {
             workspaceDestination(
@@ -297,13 +264,229 @@ struct WorkspaceShellView: View {
         }
     }
 
+    private func workspaceList(
+        navigationStyle: WorkspaceNavigationStyle,
+        searchText: String
+    ) -> some View {
+        WorkspaceListView(
+            workspaces: store.workspaces,
+            groups: store.workspaceGroups,
+            selectedWorkspaceID: store.selectedWorkspaceID,
+            host: store.connectedHostName,
+            connectionStatus: listConnectionStatus,
+            macUpdateHint: store.macUpdateHint,
+            macUpdateHintMacName: store.connectedHostName,
+            dismissMacUpdateHint: { store.dismissMacUpdateHint() },
+            navigationStyle: navigationStyle,
+            showsNavigationToolbar: navigationStyle != .push || compactNavigationPath.isEmpty,
+            usesExternalSharedToolbar: true,
+            wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
+            previewLineLimit: displaySettings.workspacePreviewLineCount,
+            unreadIndicatorLeftShift: displaySettings.unreadIndicatorLeftShift,
+            profilePictureLeftShift: displaySettings.profilePictureLeftShift,
+            profilePictureSize: displaySettings.profilePictureSize,
+            selectWorkspace: selectWorkspace,
+            createWorkspace: navigationStyle == .push
+                ? createWorkspaceInCompactStack
+                : createWorkspaceIfConnected,
+            createWorkspaceInGroup: navigationStyle == .push
+                ? createWorkspaceInGroupInCompactStackClosure
+                : createWorkspaceInGroupIfConnectedClosure,
+            createWorkspaceGroup: navigationStyle == .push
+                ? createWorkspaceGroupInCompactStackClosure
+                : createWorkspaceGroupIfConnectedClosure,
+            canCreateWorkspace: canCreateWorkspaceForMacSelection,
+            macSelection: $macSelection,
+            switchMac: { macDeviceID in
+                await switchMacFromWorkspacePicker(macDeviceID: macDeviceID)
+            },
+            cancelMacSwitch: cancelMacSwitchFromWorkspacePicker,
+            refresh: refreshWorkspacesClosure,
+            rescanQR: { store.disconnectAndForgetActiveMac() },
+            signOut: signOut,
+            reconnect: reconnectClosure,
+            showAddDevice: showAddDevice,
+            store: store,
+            renameWorkspace: renameWorkspaceClosure,
+            setPinned: setWorkspacePinnedClosure,
+            setUnread: setWorkspaceUnreadClosure,
+            closeWorkspace: closeWorkspaceClosure,
+            moveWorkspace: moveWorkspaceClosure,
+            renameWorkspaceGroup: renameWorkspaceGroupClosure,
+            setGroupPinned: setWorkspaceGroupPinnedClosure,
+            ungroupWorkspaceGroup: ungroupWorkspaceGroupClosure,
+            deleteWorkspaceGroup: deleteWorkspaceGroupClosure,
+            toggleGroupCollapsed: toggleGroupCollapsedClosure,
+            isInitialConnectionLoading: isInitialConnectionLoading,
+            initialConnectionTimedOut: initialConnectionTimedOut,
+            retryInitialConnection: retryInitialConnection,
+            searchText: searchText
+        )
+    }
+
+    #if os(iOS)
+    @ToolbarContentBuilder
+    private var rootToolbarContent: some ToolbarContent {
+        ToolbarItem(id: "workspace-list-settings", placement: .topBarLeading) {
+            Button {
+                showingRootSettings = true
+            } label: {
+                MobileWorkspaceSettingsIcon()
+            }
+            .accessibilityLabel(L10n.string("mobile.workspaces.settings", defaultValue: "Settings"))
+            .accessibilityIdentifier("MobileWorkspaceSettingsMenu")
+        }
+        ToolbarItem(id: "workspace-list-title", placement: .principal) {
+            WorkspaceMacTitlePicker(
+                title: rootToolbarTitle,
+                isLoading: rootToolbarPendingSelection != nil,
+                selection: rootToolbarSelection,
+                machines: displayedRootToolbarMachineSnapshots.macPickerMachines,
+                showAddDevice: showAddDevice
+            )
+        }
+        ToolbarItem(id: "workspace-list-devices", placement: .topBarLeading) {
+            Button {
+                showingRootDeviceTree = true
+            } label: {
+                Image(systemName: "desktopcomputer")
+            }
+            .accessibilityLabel(L10n.string("mobile.computers.title", defaultValue: "Computers"))
+            .accessibilityIdentifier("MobileWorkspaceDevicesButton")
+        }
+    }
+
+    private var displayedRootToolbarMachineSnapshots: WorkspaceMachineSnapshots {
+        rootToolbarMachineSnapshots ?? liveRootToolbarMachineSnapshots
+    }
+
+    private var visibleNotificationFeedItems: [MobileNotificationFeedItem] {
+        store.notificationFeedItems.filter { item in
+            macSelectionScope.includes(macDeviceID: item.macDeviceID)
+        }
+    }
+
+    private var liveRootToolbarMachineSnapshots: WorkspaceMachineSnapshots {
+        let scope = macSelectionScope
+        return WorkspaceMachineSnapshots(
+            workspaces: store.workspaces,
+            filterMachineIDFor: { scope.aliasIndex.representativeID(for: $0) },
+            macPickerMachineIDs: scope.machineIDs,
+            namesByID: rootToolbarMacDisplayNames,
+            fallbackName: L10n.string("mobile.workspaces.macPicker.label", defaultValue: "Computer")
+        )
+    }
+
+    private var rootToolbarMacDisplayNames: [String: String] {
+        var names: [String: String] = [:]
+        for workspace in store.workspaces {
+            if let id = workspace.macDeviceID,
+               let name = workspace.macDisplayName,
+               !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                names[id] = name
+            }
+        }
+        for device in store.deviceTreeDevices {
+            if let name = device.displayName, !name.isEmpty {
+                names[device.deviceId] = name
+            }
+        }
+        for mac in store.pairedMacs + store.displayPairedMacs {
+            names[mac.macDeviceID] = mac.resolvedName
+        }
+        guard let buildScope = MobileIOSBuildScope.current() else { return names }
+        return names.mapValues(buildScope.computerDisplayName)
+    }
+
+    private var rootToolbarVisibleSelection: WorkspaceMacSelection {
+        macSelectionScope.visibleSelection
+    }
+
+    private var rootToolbarTitle: String {
+        switch rootToolbarVisibleSelection {
+        case .all, .automatic:
+            L10n.string("mobile.workspaces.macPicker.allMacs", defaultValue: "All Computers")
+        case .machine(let id):
+            displayedRootToolbarMachineSnapshots.macPickerMachines.first { $0.id == id }?.name
+                ?? L10n.string("mobile.workspaces.macPicker.label", defaultValue: "Computer")
+        }
+    }
+
+    private var rootToolbarSelection: Binding<WorkspaceMacSelection> {
+        Binding(
+            get: { rootToolbarPendingSelection ?? rootToolbarVisibleSelection },
+            set: { selection in
+                handleRootToolbarSelection(selection)
+            }
+        )
+    }
+
+    private func handleRootToolbarSelection(_ selection: WorkspaceMacSelection) {
+        rootToolbarSelectionGeneration &+= 1
+        let generation = rootToolbarSelectionGeneration
+        let previousTask = rootToolbarSelectionTask
+        previousTask?.cancel()
+        let startsSwitch = rootToolbarSelectionNeedsMacSwitch(selection)
+        rootToolbarPendingSelection = startsSwitch ? selection : nil
+
+        let task = Task { @MainActor in
+            defer {
+                if rootToolbarSelectionGeneration == generation {
+                    rootToolbarPendingSelection = nil
+                    rootToolbarSelectionTask = nil
+                }
+            }
+            if previousTask != nil {
+                await cancelMacSwitchFromWorkspacePicker(restorePreviousOnCancel: true)
+            }
+            guard !Task.isCancelled, rootToolbarSelectionGeneration == generation else { return }
+            if case .machine(let id) = selection, startsSwitch {
+                let switched = await switchMacFromWorkspacePicker(macDeviceID: id)
+                guard !Task.isCancelled,
+                      rootToolbarSelectionGeneration == generation,
+                      switched else { return }
+            }
+            macSelection = selection
+        }
+        rootToolbarSelectionTask = task
+    }
+
+    private func rootToolbarSelectionNeedsMacSwitch(_ selection: WorkspaceMacSelection) -> Bool {
+        guard case .machine(let id) = selection else { return false }
+        let scope = macSelectionScope
+        let targetIDs = scope.aliasIndex.filterMachineIDs(for: id)
+        if !scope.foregroundMachineIDs.isDisjoint(with: targetIDs) {
+            return false
+        }
+        return store.displayPairedMacs.contains { mac in
+            !scope.aliasIndex.filterMachineIDs(for: mac.macDeviceID).isDisjoint(with: targetIDs)
+        }
+    }
+
+    private func updateRootToolbarMachineSnapshots(_ snapshots: WorkspaceMachineSnapshots) {
+        if rootToolbarMachineSnapshots != snapshots {
+            rootToolbarMachineSnapshots = snapshots
+        }
+    }
+    #endif
+
     /// Apply (and clear) a pending deep-link navigation intent. On the compact
     /// stack this pushes the workspace; on the split layout the store's
     /// selection already presents the detail column, so consuming just clears
     /// the request so a later size-class change cannot replay a stale push.
     private func consumeDeeplinkNavigationRequestIfNeeded() {
-        guard store.deeplinkWorkspaceNavigationRequest != nil else { return }
+        guard let request = store.deeplinkWorkspaceNavigationRequest else { return }
         guard let workspaceID = store.consumeDeeplinkWorkspaceNavigationRequest() else { return }
+        #if os(iOS)
+        if request.origin == .notificationFeed {
+            selectedPrimaryTab = .notifications
+            if notificationNavigationPath.last != workspaceID {
+                notificationNavigationPath = [workspaceID]
+            }
+            return
+        }
+        selectedPrimaryTab = .workspaces
+        #endif
         guard usesCompactStack else { return }
         if compactNavigationPath.last != workspaceID {
             compactNavigationPath = [workspaceID]

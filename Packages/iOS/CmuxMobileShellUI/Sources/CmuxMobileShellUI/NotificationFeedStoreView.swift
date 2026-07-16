@@ -1,20 +1,20 @@
 #if os(iOS)
 import CmuxMobileShell
+import CmuxMobileShellModel
 import SwiftUI
 
 /// Adapts the observable shell store to the store-free feed presentation.
 /// This is the only notification-feed view that retains a store reference.
 struct NotificationFeedStoreView: View {
     @Bindable var store: CMUXMobileShellStore
+    let items: [MobileNotificationFeedItem]
 
     var body: some View {
-        NavigationStack {
-            NotificationFeedView(
-                items: store.notificationFeedItems,
-                status: store.notificationFeedStatus,
-                actions: actions
-            )
-        }
+        NotificationFeedView(
+            items: items,
+            status: store.notificationFeedStatus,
+            actions: actions
+        )
     }
 
     private var actions: NotificationFeedActions {
@@ -27,7 +27,7 @@ struct NotificationFeedStoreView: View {
                 Task { await store.markNotificationFeedItemRead(item) }
             },
             markAllRead: {
-                Task { await store.markAllNotificationFeedItemsRead() }
+                Task { await store.markNotificationFeedItemsRead(items) }
             },
             refresh: {
                 await store.refreshNotificationFeed()

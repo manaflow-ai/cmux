@@ -77,6 +77,17 @@ struct WorkspaceMacSelectionScope {
         }
     }
 
+    /// Whether content owned by `macDeviceID` belongs to the computer scope
+    /// shown by the shared title picker.
+    func includes(macDeviceID: String) -> Bool {
+        switch visibleSelection {
+        case .machine(let id):
+            return aliasIndex.filterMachineIDs(for: id).contains(macDeviceID)
+        case .all, .automatic:
+            return true
+        }
+    }
+
     var canRenderGroupsForSelection: Bool {
         switch visibleSelection {
         case .machine(let id):

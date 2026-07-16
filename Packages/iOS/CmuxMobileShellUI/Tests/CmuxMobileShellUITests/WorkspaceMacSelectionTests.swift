@@ -677,6 +677,24 @@ import Testing
         #expect(scope.canCreateWorkspace(base: true))
     }
 
+    @Test func sharedSelectionScopeIncludesNotificationOwnersByAlias() {
+        let scope = WorkspaceMacSelectionScope(
+            selection: .machine("mac-fresh"),
+            workspaces: [],
+            displayPairedMacs: [
+                pairedMac(id: "mac-fresh", name: "Desk Mac", lastSeenAt: 20),
+            ],
+            foregroundMacDeviceID: "mac-old",
+            aliasesFor: { id in
+                id == "mac-fresh" ? ["mac-fresh", "mac-old"] : [id]
+            }
+        )
+
+        #expect(scope.includes(macDeviceID: "mac-fresh"))
+        #expect(scope.includes(macDeviceID: "mac-old"))
+        #expect(!scope.includes(macDeviceID: "mac-other"))
+    }
+
     @Test func sharedSelectionScopeDisablesCreateWhileMacSwitchPending() {
         let scope = WorkspaceMacSelectionScope(
             selection: .all,

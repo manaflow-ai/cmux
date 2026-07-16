@@ -11,15 +11,17 @@ extension WorkspaceListView {
             if showsNavigationToolbar {
                 content
                     .toolbar {
-                        ToolbarItem(id: "workspace-list-settings", placement: .topBarLeading) {
-                            settingsMenu
-                        }
-                        ToolbarItem(id: "workspace-list-title", placement: .principal) {
-                            macTitlePicker(machineSnapshots: machineSnapshots)
-                        }
-                        if showsDevicesButton {
-                            ToolbarItem(id: "workspace-list-devices", placement: .topBarLeading) {
-                                devicesButton
+                        if !usesExternalSharedToolbar {
+                            ToolbarItem(id: "workspace-list-settings", placement: .topBarLeading) {
+                                settingsMenu
+                            }
+                            ToolbarItem(id: "workspace-list-title", placement: .principal) {
+                                macTitlePicker(machineSnapshots: machineSnapshots)
+                            }
+                            if showsDevicesButton {
+                                ToolbarItem(id: "workspace-list-devices", placement: .topBarLeading) {
+                                    devicesButton
+                                }
                             }
                         }
                         ToolbarItemGroup(placement: .topBarTrailing) {

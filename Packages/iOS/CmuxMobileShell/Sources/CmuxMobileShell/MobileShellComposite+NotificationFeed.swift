@@ -70,8 +70,17 @@ extension MobileShellComposite {
 
     /// Marks every retained notification read on each currently connected capable Mac.
     public func markAllNotificationFeedItemsRead() async {
+        await markNotificationFeedItemsRead(notificationFeedItems)
+    }
+
+    /// Marks every retained notification read for the Macs represented by `items`.
+    /// This keeps a computer-scoped feed's bulk action within the scope visible to
+    /// the user while still using the host's atomic mark-all mutation per Mac.
+    public func markNotificationFeedItemsRead(_ items: [MobileNotificationFeedItem]) async {
+        let macDeviceIDs = Set(items.lazy.filter { !$0.isRead }.map(\.macDeviceID))
         let targets = notificationFeedTargets().filter { target in
-            notificationFeedSnapshotsByMac[target.macDeviceID]?.items.contains(where: { !$0.isRead }) == true
+            macDeviceIDs.contains(target.macDeviceID)
+                && notificationFeedSnapshotsByMac[target.macDeviceID]?.items.contains(where: { !$0.isRead }) == true
         }
         for target in targets {
             await markAllNotificationFeedItemsRead(on: target)
@@ -89,7 +98,7 @@ extension MobileShellComposite {
             macDeviceID: item.macDeviceID
         ) else { return }
 
-        navigateToWorkspaceForDeeplink(workspaceID)
+        navigateToWorkspaceForDeeplink(workspaceID, origin: .notificationFeed)
         if let surfaceID = item.remoteSurfaceID,
            workspace(workspaceID, containsSurfaceID: surfaceID) {
             selectTerminal(MobileTerminalPreview.ID(rawValue: surfaceID))

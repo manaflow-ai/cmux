@@ -13,6 +13,8 @@ import SwiftUI
 public struct WorkspaceListLayoutPreviewView: View {
     @State private var selectedWorkspaceID: MobileWorkspacePreview.ID?
     @State private var macSelection: WorkspaceMacSelection = .all
+    @State private var refreshGeneration = 0
+    @State private var workspaces: [MobileWorkspacePreview] = Self.previewWorkspaces
     // Safety: DEBUG screenshot-only presenter is owned by this preview view and
     // only mutates its fired flag from the SwiftUI task that requests the banner.
     private let notificationPresenter = ScreenshotNotificationPresenter()
@@ -20,7 +22,7 @@ public struct WorkspaceListLayoutPreviewView: View {
     /// Creates a static workspace-list preview for App Store screenshot capture.
     public init() {}
 
-    private let workspaces: [MobileWorkspacePreview] = [
+    private static let previewWorkspaces: [MobileWorkspacePreview] = [
         MobileWorkspacePreview(
             id: "workspace-main",
             macDeviceID: "preview-macbook-pro",
@@ -57,6 +59,8 @@ public struct WorkspaceListLayoutPreviewView: View {
     }
 
     public var body: some View {
+        let workspacesBinding = $workspaces
+        let refreshGenerationBinding = $refreshGeneration
         Group {
             if UITestConfig.workspaceDetailCreateDelayedTerminalPreviewEnabled {
                 WorkspaceDetailCreateDelayedTerminalPreviewView()
@@ -66,23 +70,39 @@ public struct WorkspaceListLayoutPreviewView: View {
                 WorkspaceDetailDelayedTerminalPreviewView()
             } else {
                 NavigationStack {
-                    WorkspaceListView(
-                        workspaces: workspaces,
-                        selectedWorkspaceID: selectedWorkspaceID,
-                        host: "Visual Mock Mac",
-                        connectionStatus: .connected,
-                        navigationStyle: .push,
-                        wrapWorkspaceTitles: false,
-                        previewLineLimit: MobileDisplaySettings.defaultWorkspacePreviewLineCount,
-                        unreadIndicatorLeftShift: MobileDisplaySettings.defaultUnreadIndicatorLeftShift,
-                        profilePictureLeftShift: MobileDisplaySettings.defaultProfilePictureLeftShift,
-                        profilePictureSize: MobileDisplaySettings.defaultProfilePictureSize,
-                        selectWorkspace: { selectedWorkspaceID = $0 },
-                        createWorkspace: {},
-                        macSelection: $macSelection
-                    )
+                    WorkspaceListSearchHost { searchText in
+                        WorkspaceListView(
+                            workspaces: workspaces,
+                            selectedWorkspaceID: selectedWorkspaceID,
+                            host: "Visual Mock Mac",
+                            connectionStatus: .connected,
+                            navigationStyle: .push,
+                            wrapWorkspaceTitles: false,
+                            previewLineLimit: MobileDisplaySettings.defaultWorkspacePreviewLineCount,
+                            unreadIndicatorLeftShift: MobileDisplaySettings.defaultUnreadIndicatorLeftShift,
+                            profilePictureLeftShift: MobileDisplaySettings.defaultProfilePictureLeftShift,
+                            profilePictureSize: MobileDisplaySettings.defaultProfilePictureSize,
+                            selectWorkspace: { selectedWorkspaceID = $0 },
+                            createWorkspace: {},
+                            macSelection: $macSelection,
+                            refresh: {
+                                await MainActor.run {
+                                    let current = workspacesBinding.wrappedValue
+                                    workspacesBinding.wrappedValue = Array(current.dropFirst()) + Array(current.prefix(1))
+                                    refreshGenerationBinding.wrappedValue += 1
+                                }
+                            },
+                            searchText: searchText
+                        )
+                    }
                 }
             }
+        }
+        .overlay(alignment: .topLeading) {
+            Color.clear
+                .frame(width: 1, height: 1)
+                .accessibilityElement()
+                .accessibilityIdentifier("MobileWorkspaceListRefreshGeneration-\(refreshGeneration)")
         }
         .task {
             // Fire a REAL local notification (not a drawn banner) so the system

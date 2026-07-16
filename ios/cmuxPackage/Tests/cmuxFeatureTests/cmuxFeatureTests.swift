@@ -4191,6 +4191,7 @@ struct InertPushRegistration: PushRegistering {
 
     let target = MobileWorkspacePreview.ID(rawValue: "workspace-docs")
     #expect(store.deeplinkWorkspaceNavigationRequest?.workspaceID == target)
+    #expect(store.deeplinkWorkspaceNavigationRequest?.origin == .external)
     #expect(store.consumeDeeplinkWorkspaceNavigationRequest() == target)
     // One-shot: a later layout remount cannot replay a stale push.
     #expect(store.deeplinkWorkspaceNavigationRequest == nil)
