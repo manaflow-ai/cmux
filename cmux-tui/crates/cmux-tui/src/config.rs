@@ -1036,20 +1036,19 @@ pub struct SidebarPluginConfig {
 pub fn load() -> Config {
     let mut config = Config::default();
 
-    if let Some(defaults) = ghostty_defaults() {
-        config.terminal_defaults = defaults;
-        if let Some(bg) = defaults.selection_bg {
-            config.theme.selection_bg = Color::Rgb(bg.r, bg.g, bg.b);
-            config.theme_overrides.selection = true;
-        }
-        if defaults.selection_fg.is_some() {
-            config.theme_overrides.selection = true;
-        }
-        config.theme.selection_fg =
-            defaults.selection_fg.map(|color| Color::Rgb(color.r, color.g, color.b));
-        config.cursor_style = defaults.cursor_style;
-        config.cursor_blink = defaults.cursor_blink;
+    let defaults = ghostty_defaults();
+    config.terminal_defaults = defaults;
+    if let Some(bg) = defaults.selection_bg {
+        config.theme.selection_bg = Color::Rgb(bg.r, bg.g, bg.b);
+        config.theme_overrides.selection = true;
     }
+    if defaults.selection_fg.is_some() {
+        config.theme_overrides.selection = true;
+    }
+    config.theme.selection_fg =
+        defaults.selection_fg.map(|color| Color::Rgb(color.r, color.g, color.b));
+    config.cursor_style = defaults.cursor_style;
+    config.cursor_blink = defaults.cursor_blink;
 
     let raw = load_raw_config();
     let t = &raw.theme;
@@ -1342,14 +1341,24 @@ fn parse_color(s: &str) -> Option<Color> {
     s.parse::<u8>().ok().map(Color::Indexed)
 }
 
-/// The user's relevant Ghostty defaults, if a Ghostty config exists.
-fn ghostty_defaults() -> Option<DefaultColors> {
-    resolved_ghostty_defaults().or_else(|| {
-        let text = platform::ghostty_config_paths()
-            .iter()
-            .find_map(|path| std::fs::read_to_string(path).ok())?;
-        Some(parse_ghostty_defaults(&text))
-    })
+/// The user's relevant Ghostty settings with Ghostty's application defaults
+/// resolved for values that the low-level terminal otherwise leaves unset.
+fn ghostty_defaults() -> DefaultColors {
+    let parsed = resolved_ghostty_defaults()
+        .or_else(|| {
+            let text = platform::ghostty_config_paths()
+                .iter()
+                .find_map(|path| std::fs::read_to_string(path).ok())?;
+            Some(parse_ghostty_defaults(&text))
+        })
+        .unwrap_or_default();
+    resolve_ghostty_application_defaults(parsed)
+}
+
+fn resolve_ghostty_application_defaults(mut defaults: DefaultColors) -> DefaultColors {
+    defaults.cursor_style.get_or_insert(CursorShape::Block);
+    defaults.cursor_blink.get_or_insert(true);
+    defaults
 }
 
 /// Ask Ghostty to resolve its configuration so cmux-tui inherits precisely the
@@ -1436,10 +1445,7 @@ fn parse_resolved_ghostty_defaults(text: &str) -> DefaultColors {
 }
 
 fn apply_ghostty_default(defaults: &mut DefaultColors, key: &str, value: &str) {
-    let value = value
-        .strip_prefix('"')
-        .and_then(|value| value.strip_suffix('"'))
-        .unwrap_or(value);
+    let value = value.strip_prefix('"').and_then(|value| value.strip_suffix('"')).unwrap_or(value);
     match key {
         "foreground" => {
             if let Some(color) = ghostty_vt::parse_color(value) {
@@ -1852,10 +1858,8 @@ mod tests {
         let _guard = CONFIG_ENV_LOCK.lock().unwrap();
         let old_mux_config = std::env::var_os("CMUX_MUX_CONFIG");
         let old_xdg_config_home = std::env::var_os("XDG_CONFIG_HOME");
-        let dir = std::env::temp_dir().join(format!(
-            "mux-ghostty-cursor-default-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("mux-ghostty-cursor-default-{}", std::process::id()));
         let ghostty_dir = dir.join("ghostty");
         std::fs::create_dir_all(&ghostty_dir).unwrap();
         std::fs::write(ghostty_dir.join("config"), "cursor-style = \"bar\"\n").unwrap();
