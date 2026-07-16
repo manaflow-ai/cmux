@@ -199,4 +199,38 @@ struct AgentLaunchCaptureTrustTests {
             )
         )
     }
+
+    @Test func thinSameAgentLaunchersAreNotSessionAncestors() {
+        #expect(
+            AgentLaunchCaptureTrust.nativeProcessIsSameAgentLauncherRelay(
+                parentProcessName: "node",
+                parentArguments: ["node", "/Users/alice/.bun/bin/codex"],
+                childProcessName: "codex",
+                childArguments: ["/Users/alice/.bun/lib/node_modules/@openai/codex/vendor/codex", "--yolo"],
+                kind: "codex"
+            )
+        )
+        #expect(
+            AgentLaunchCaptureTrust.nativeProcessIsSameAgentLauncherRelay(
+                parentProcessName: "node",
+                parentArguments: ["node", "/Users/alice/.bun/bin/gemini"],
+                childProcessName: "node",
+                childArguments: [
+                    "/Users/alice/.hermes/node/bin/node",
+                    "--max-old-space-size=65536",
+                    "/Users/alice/.bun/bin/gemini",
+                ],
+                kind: "gemini"
+            )
+        )
+        #expect(
+            !AgentLaunchCaptureTrust.nativeProcessIsSameAgentLauncherRelay(
+                parentProcessName: "codex",
+                parentArguments: ["/Users/alice/.local/bin/codex", "--yolo"],
+                childProcessName: "codex",
+                childArguments: ["/Users/alice/.local/bin/codex", "resume", "child-session"],
+                kind: "codex"
+            )
+        )
+    }
 }
