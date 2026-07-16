@@ -56,25 +56,28 @@ final class TerminalMutationBus: @unchecked Sendable {
     private var drainScheduled = false
     private var nextSequence: UInt64 = 0
     private var currentNotificationGeneration: UInt64 = 0
+    private var recentNotificationDedupeKeys: [String: TimeInterval] = [:]
     private let maxMutationsPerDrain = 16
 #if DEBUG
     private var drainsSuspendedForTesting = false
 #endif
 
+    @discardableResult
     nonisolated func enqueueNotification(
         tabId: UUID,
         surfaceId: UUID?,
         title: String,
         subtitle: String,
         body: String,
-        coalesces: Bool = true
-    ) {
+        coalesces: Bool = true,
+        dedupeKey: String? = nil
+    ) -> Bool {
         enqueueNotification(QueuedTerminalNotification(
             key: QueuedTerminalNotificationKey(tabId: tabId, surfaceId: surfaceId),
             title: title,
             subtitle: subtitle,
             body: body
-        ), coalesces: coalesces)
+        ), coalesces: coalesces, dedupeKey: dedupeKey)
     }
 
     nonisolated func enqueueClearAllNotifications() {
@@ -185,13 +188,39 @@ final class TerminalMutationBus: @unchecked Sendable {
         lock.unlock()
     }
 
-    private func enqueueNotification(_ notification: QueuedTerminalNotification, coalesces: Bool) {
+    private func enqueueNotification(
+        _ notification: QueuedTerminalNotification,
+        coalesces: Bool,
+        dedupeKey: String?
+    ) -> Bool {
         let shouldScheduleDrain: Bool
         let removedCount: Int
         let pendingCount: Int
         let sequence: UInt64
         let generation: UInt64
         lock.lock()
+        if let dedupeKey {
+            let now = Date().timeIntervalSince1970
+            recentNotificationDedupeKeys = recentNotificationDedupeKeys.filter { now - $0.value <= 30 }
+            let scopedKey = [
+                notification.key.tabId.uuidString,
+                notification.key.surfaceId?.uuidString ?? "",
+                dedupeKey,
+            ].joined(separator: "|")
+            guard recentNotificationDedupeKeys[scopedKey] == nil else {
+                lock.unlock()
+                return false
+            }
+            recentNotificationDedupeKeys[scopedKey] = now
+            if recentNotificationDedupeKeys.count > 128 {
+                let keep = recentNotificationDedupeKeys
+                    .sorted { lhs, rhs in lhs.value > rhs.value }
+                    .prefix(128)
+                recentNotificationDedupeKeys = Dictionary(
+                    uniqueKeysWithValues: keep.map { ($0.key, $0.value) }
+                )
+            }
+        }
         generation = currentNotificationGeneration
         let coalescingKey = coalesces
             ? TerminalNotificationCoalescingKey(
@@ -228,8 +257,9 @@ final class TerminalMutationBus: @unchecked Sendable {
         )
 #endif
 
-        guard shouldScheduleDrain else { return }
+        guard shouldScheduleDrain else { return true }
         scheduleDrain()
+        return true
     }
 
     private func enqueueClear(

@@ -95,6 +95,39 @@ final class TerminalNotificationQueueTests: XCTestCase {
         )
     }
 
+    func testCriticalDedupeIsScopedToDestination() {
+        let bus = TerminalMutationBus.shared
+        let firstWorkspace = UUID()
+        let secondWorkspace = UUID()
+        let surface = UUID()
+        let dedupeKey = "codex-critical:\(UUID().uuidString)"
+
+        XCTAssertTrue(bus.enqueueNotification(
+            tabId: firstWorkspace,
+            surfaceId: surface,
+            title: "Codex",
+            subtitle: "Error",
+            body: "Stopped",
+            dedupeKey: dedupeKey
+        ))
+        XCTAssertFalse(bus.enqueueNotification(
+            tabId: firstWorkspace,
+            surfaceId: surface,
+            title: "Codex",
+            subtitle: "Different rendering",
+            body: "Try again later",
+            dedupeKey: dedupeKey
+        ))
+        XCTAssertTrue(bus.enqueueNotification(
+            tabId: secondWorkspace,
+            surfaceId: surface,
+            title: "Codex",
+            subtitle: "Error",
+            body: "Stopped",
+            dedupeKey: dedupeKey
+        ))
+    }
+
     func testClearNotificationsDropsQueuedNotifyBeforeDrain() throws {
         let store = TerminalNotificationStore.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()
