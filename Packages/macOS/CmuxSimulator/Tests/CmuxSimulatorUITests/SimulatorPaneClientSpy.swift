@@ -4,7 +4,7 @@ import CmuxSimulator
 actor SimulatorPaneClientSpy: SimulatorPaneClient {
     typealias Activation = SimulatorPaneClientActivation
 
-    private let devicesValue: [SimulatorDevice]
+    private var devicesValue: [SimulatorDevice]
     private let applicationValues: [SimulatorInstalledApplication]
     private let delaysApplicationList: Bool
     private let delaysInvalidation: Bool
@@ -52,6 +52,10 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
 
     func discoverDevices() async throws -> [SimulatorDevice] {
         devicesValue
+    }
+
+    func setDevices(_ devices: [SimulatorDevice]) {
+        devicesValue = devices
     }
 
     func activateDevice(id: String, geometry: SimulatorSurfaceGeometry?) async throws {

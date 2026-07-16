@@ -170,6 +170,7 @@ final class SimulatorCameraAdapter {
 
         let previousConfiguration = activeConfiguration
         let hadSurfaceRing = surfaceRing != nil
+        var applicationMutationCommitted = false
         let ring: SimulatorCameraSurfaceRing
         if let surfaceRing {
             ring = surfaceRing
@@ -231,6 +232,7 @@ final class SimulatorCameraAdapter {
                 _ = try? await runSimctl([
                     "terminate", deviceIdentifier, bundleIdentifier,
                 ])
+                applicationMutationCommitted = true
                 try requireCurrentOperation()
                 return try await runSimctl(
                     ["launch", deviceIdentifier, bundleIdentifier],
@@ -291,7 +293,7 @@ final class SimulatorCameraAdapter {
                     activeTargetBundleIdentifier = nil
                     activeTargetProcessIdentifier = nil
                 }
-                if operationIsCurrent() {
+                if applicationMutationCommitted || operationIsCurrent() {
                     _ = try? await mutationGate.withLocks([
                         .application(
                             deviceIdentifier: deviceIdentifier,

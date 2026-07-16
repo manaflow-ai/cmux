@@ -285,6 +285,42 @@ struct SimulatorCameraAdapterTests {
         adapter.detachFromUnavailableDevice()
     }
 
+    @Test("Cancellation after an injected launch rolls the app back cleanly")
+    @MainActor
+    func committedInjectionCancellationRollsBack() async throws {
+        let suffix = UUID().uuidString
+        let bundleIdentifier = "com.example.CameraFixtureCommitted.\(suffix)"
+        let deviceIdentifier = "DEVICE"
+        let tokenKey = SimulatorCameraSharedMemory.tokenEnvironmentKey
+        setenv(tokenKey, "committed-\(suffix)", 1)
+        defer { unsetenv(tokenKey) }
+        var operationIsCurrent = true
+        let simctl = CameraReinjectionSimctlFake(
+            bundleIdentifier: bundleIdentifier,
+            processIdentifier: Int32(getpid()),
+            injectedLaunchDidComplete: { operationIsCurrent = false }
+        )
+        let adapter = SimulatorCameraAdapter(
+            cameraPermission: SimulatorCameraPermissionAdapter { _, _, _, _ in },
+            compiledLibrary: { URL(fileURLWithPath: "/tmp/cmux-camera-test.dylib") },
+            simctl: { arguments, environment in
+                await simctl.run(arguments: arguments, environment: environment)
+            }
+        )
+        adapter.attach(deviceIdentifier: deviceIdentifier)
+        await #expect(throws: CancellationError.self) {
+            try await adapter.configure(
+                .targeted(bundleIdentifier: bundleIdentifier, source: .placeholder),
+                inferredApplication: nil,
+                operationIsCurrent: { operationIsCurrent }
+            )
+        }
+        #expect(await simctl.injectedLaunchCount == 1)
+        #expect(await simctl.cleanLaunchCount == 1)
+        #expect(!adapter.status().injectedBundleIdentifiers.contains(bundleIdentifier))
+        adapter.detachFromUnavailableDevice()
+    }
+
     @Test("Intentional app termination suppresses automatic camera reinjection")
     @MainActor
     func intentionalTerminationSuppressesReinjection() async throws {

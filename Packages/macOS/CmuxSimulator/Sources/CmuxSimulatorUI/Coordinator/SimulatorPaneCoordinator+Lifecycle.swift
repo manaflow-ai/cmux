@@ -168,51 +168,15 @@ extension SimulatorPaneCoordinator {
                 selectedDeviceID = preferredDeviceID
                 return
             }
-            if requiresExplicitDeviceSelection, previousDeviceID == nil {
-                selectActionHistory(deviceID: nil)
-                selectedDeviceID = nil
-                let unavailable = SimulatorFailure(
-                    code: "simulator_saved_device_unavailable",
-                    message: String(
-                        localized: "simulator.failure.savedDeviceUnavailable",
-                        defaultValue: "The saved Simulator is no longer available. Choose another device."
-                    ),
-                    isRecoverable: true
-                )
-                failure = unavailable
-                status = .failed(unavailable)
-                return
-            }
-            if let preferredDeviceID,
-               previousDeviceID == nil || previousDeviceID == preferredDeviceID,
-               !devices.contains(where: { $0.id == preferredDeviceID }) {
+            if requiresExplicitDeviceSelection || previousDeviceID != nil || preferredDeviceID != nil {
                 // Runtime and device type are descriptive, non-unique metadata. Never
                 // substitute them for a missing persisted UDID because automation could
                 // silently target a different Simulator without an explicit selection.
-                if previousDeviceID != nil {
-                    _ = await beginLocationRouteTeardown()?.value
-                    guard selectedDeviceID == previousDeviceID else { return }
-                }
-                selectActionHistory(deviceID: nil)
-                selectedDeviceID = nil
-                let unavailable = SimulatorFailure(
-                    code: "simulator_saved_device_unavailable",
-                    message: String(
-                        localized: "simulator.failure.savedDeviceUnavailable",
-                        defaultValue: "The saved Simulator is no longer available. Choose another device."
-                    ),
-                    isRecoverable: true
-                )
-                failure = unavailable
-                status = .failed(unavailable)
+                await failClosedForUnavailableDevice()
                 return
             }
             let nextDeviceID = devices.first(where: { $0.state == .booted })?.id
                 ?? devices.first?.id
-            if previousDeviceID != nil, previousDeviceID != nextDeviceID {
-                _ = await beginLocationRouteTeardown()?.value
-                guard selectedDeviceID == previousDeviceID else { return }
-            }
             selectActionHistory(deviceID: nextDeviceID)
             selectedDeviceID = nextDeviceID
         } catch {
@@ -223,6 +187,46 @@ extension SimulatorPaneCoordinator {
                 status = .failed(simulatorFailure)
             }
         }
+    }
+
+    private func failClosedForUnavailableDevice() async {
+        let previousActivation = activationTask
+        previousActivation?.cancel()
+        activationTask = nil
+        let locationRouteTeardownTask = beginLocationRouteTeardown()
+        let sessions = detachLongRunningSessions()
+        let shouldDisableCamera = !cameraConfiguration.isDisabled
+        let deviceScopedTasks = clearDeviceScopedState()
+        selectionGeneration &+= 1
+        selectActionHistory(deviceID: nil)
+        selectedDeviceID = nil
+        chromeProfile = nil
+        let unavailable = SimulatorFailure(
+            code: "simulator_saved_device_unavailable",
+            message: String(
+                localized: "simulator.failure.savedDeviceUnavailable",
+                defaultValue: "The saved Simulator is no longer available. Choose another device."
+            ),
+            isRecoverable: true
+        )
+        failure = unavailable
+        status = .failed(unavailable)
+
+        let previousRecovery = outgoingRecoveryTask
+        let cleanup = Task { @MainActor [weak self, client] in
+            _ = await previousRecovery?.value
+            _ = await deviceScopedTasks.accessibility?.value
+            _ = await deviceScopedTasks.liveStatus?.value
+            _ = await locationRouteTeardownTask?.value
+            _ = await previousActivation?.value
+            if let self { await self.stopLongRunningSessions(sessions) }
+            if shouldDisableCamera {
+                _ = try? await client.perform(.configureCamera(.disabled))
+            }
+            await client.invalidateWorker()
+        }
+        outgoingRecoveryTask = cleanup
+        await cleanup.value
     }
 
     /// Selects, boots, and attaches one Simulator device.

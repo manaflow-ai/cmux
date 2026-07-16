@@ -211,6 +211,28 @@ struct SimulatorPaneCoordinatorTests {
         #expect(await client.activations().isEmpty)
     }
 
+    @Test("A selected UDID disappearing fails closed and invalidates its worker")
+    func selectedDeviceDisappearanceFailsClosed() async throws {
+        let client = SimulatorPaneClientSpy(devices: [
+            Self.device(id: "selected", family: .iPhone, state: .booted),
+            Self.device(id: "other", family: .iPhone, state: .booted),
+        ])
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        await coordinator.reloadDevices()
+        try await coordinator.selectDeviceAndWait(id: "selected")
+        await client.setDevices([
+            Self.device(id: "other", family: .iPhone, state: .booted),
+        ])
+
+        await coordinator.reloadDevices()
+
+        #expect(coordinator.selectedDeviceID == nil)
+        #expect(coordinator.failure?.code == "simulator_saved_device_unavailable")
+        #expect(coordinator.frameTransport == nil)
+        #expect(await client.invalidationCount() == 1)
+        #expect(await client.activations().map(\.id) == ["selected"])
+    }
+
     @Test("Explicit device selection waits for the requested iPad")
     func explicitDeviceSelection() async throws {
         let client = SimulatorPaneClientSpy(devices: [
