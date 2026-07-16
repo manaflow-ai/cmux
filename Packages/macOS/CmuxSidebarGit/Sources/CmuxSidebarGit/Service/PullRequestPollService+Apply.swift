@@ -15,6 +15,11 @@ extension PullRequestPollService {
         rateLimitRetryDate: Date? = nil
     ) {
         guard let host else { return }
+        let activity = sidebarPullRequestActivity
+        guard activity.performsActivePolling else {
+            stopWorkspacePullRequestPolling(activity: activity)
+            return
+        }
         guard !host.mobileHostHasRecentActivity(within: mobileHostDeferral.quietInterval) else {
             workspacePullRequestRefreshTask = nil
             for key in requestedKeys {
@@ -22,11 +27,6 @@ extension PullRequestPollService {
                 workspacePullRequestNextPollAtByKey[key] = now.addingTimeInterval(mobileHostDeferral.quietInterval)
             }
             deferWorkspacePullRequestRefreshForMobileHost()
-            return
-        }
-        let activity = sidebarPullRequestActivity
-        guard activity.performsActivePolling else {
-            stopWorkspacePullRequestPolling(activity: activity)
             return
         }
 

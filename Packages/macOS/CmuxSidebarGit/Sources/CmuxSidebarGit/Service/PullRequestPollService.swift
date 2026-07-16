@@ -163,13 +163,13 @@ public final class PullRequestPollService: PullRequestProbing {
         allowCachedResultsOverride: Bool?
     ) {
         guard let host else { return }
-        guard !host.mobileHostHasRecentActivity(within: mobileHostDeferral.quietInterval) else {
-            deferWorkspacePullRequestRefreshForMobileHost()
-            return
-        }
         let activity = sidebarPullRequestActivity
         guard activity.performsActivePolling else {
             stopWorkspacePullRequestPolling(activity: activity)
+            return
+        }
+        guard !host.mobileHostHasRecentActivity(within: mobileHostDeferral.quietInterval) else {
+            deferWorkspacePullRequestRefreshForMobileHost()
             return
         }
 
