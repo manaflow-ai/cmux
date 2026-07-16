@@ -30045,29 +30045,57 @@ export default CMUXSessionRestore;
         let explicitSurfaceFlag = optionValue(hookArgs, name: "--surface")
         let directSurfaceArg = explicitSurfaceFlag
             ?? (hookWsFlag == nil ? normalizedHookValue(env["CMUX_SURFACE_ID"]) : nil)
+        var surfaceListCache: [String: [[String: Any]]] = [:]
+        var failedSurfaceListWorkspaceIds = Set<String>()
+        func accessibleSurfaces(workspaceId: String) -> [[String: Any]]? {
+            if let cached = surfaceListCache[workspaceId] {
+                return cached
+            }
+            guard !failedSurfaceListWorkspaceIds.contains(workspaceId),
+                  let listed = try? client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId]) else {
+                failedSurfaceListWorkspaceIds.insert(workspaceId)
+                return nil
+            }
+            let items = listed["surfaces"] as? [[String: Any]] ?? []
+            surfaceListCache[workspaceId] = items
+            return items
+        }
         func resolveAccessibleWorkspaceId(_ raw: String?) -> String? {
             guard let raw = nonEmptyClaudeHookIdentifier(raw) else {
                 return nil
             }
             guard let candidate = try? resolveWorkspaceId(raw, client: client),
-                  (try? client.sendV2(method: "surface.list", params: ["workspace_id": candidate])) != nil else {
+                  accessibleSurfaces(workspaceId: candidate) != nil else {
                 return nil
             }
             return candidate
         }
         func resolveAccessibleSurfaceId(_ raw: String?, workspaceId: String) -> String? {
             guard let raw = nonEmptyClaudeHookIdentifier(raw),
-                  let candidate = try? resolveSurfaceId(raw, workspaceId: workspaceId, client: client),
-                  let listed = try? client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId]) else {
+                  let items = accessibleSurfaces(workspaceId: workspaceId) else {
                 return nil
             }
-            let items = listed["surfaces"] as? [[String: Any]] ?? []
+            let candidate: String?
+            if isUUID(raw) {
+                candidate = raw
+            } else if isHandleRef(raw) {
+                candidate = items.first(where: { ($0["ref"] as? String) == raw })?["id"] as? String
+            } else if let index = Int(raw) {
+                candidate = items.first(where: { intFromAny($0["index"]) == index })?["id"] as? String
+            } else {
+                candidate = nil
+            }
+            guard let candidate else { return nil }
             return items.contains(where: {
                 ($0["id"] as? String) == candidate || ($0["ref"] as? String) == candidate
             }) ? candidate : nil
         }
         func resolveDefaultSurfaceId(workspaceId: String) -> String? {
-            try? resolveSurfaceId(nil, workspaceId: workspaceId, client: client)
+            guard let items = accessibleSurfaces(workspaceId: workspaceId),
+                  let focused = items.first(where: { ($0["focused"] as? Bool) == true }) else {
+                return nil
+            }
+            return focused["id"] as? String
         }
         let resolvedDirectWorkspaceArg = resolveAccessibleWorkspaceId(directWorkspaceArg)
         // Only an EXPLICIT --workspace flag that fails to resolve is a hard, hook-dropping error. A
