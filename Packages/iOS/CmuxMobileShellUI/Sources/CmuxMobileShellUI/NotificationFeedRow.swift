@@ -109,67 +109,77 @@ private struct NotificationFeedRowLabel: View {
     let item: MobileNotificationFeedItem
 
     var body: some View {
-        HStack(alignment: .top, spacing: 11) {
+        HStack(alignment: .top, spacing: 8) {
             Circle()
                 .fill(item.isRead ? Color.clear : Color.accentColor)
-                .frame(width: 8, height: 8)
+                .frame(width: 6, height: 6)
                 .overlay {
                     if item.isRead {
                         Circle().stroke(Color.clear, lineWidth: 1)
                     }
                 }
-                .padding(.top, 7)
+                .padding(.top, 5)
                 .accessibilityHidden(true)
 
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(item.title)
-                        .font(.headline)
+                        .font(.subheadline)
                         .fontWeight(item.isRead ? .medium : .semibold)
                         .foregroundStyle(.primary)
                         .lineLimit(2)
-                    Spacer(minLength: 8)
+                    Spacer(minLength: 6)
                     Text(item.createdAt, format: .relative(presentation: .named, unitsStyle: .abbreviated))
-                        .font(.caption)
+                        .font(.caption2)
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
                 }
 
-                NotificationFeedWorkspaceLabel(workspaceTitle: item.workspaceTitle)
-
-                if let subtitle = item.subtitle, !subtitle.isEmpty {
-                    Text(subtitle)
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
+                NotificationFeedContextLine(
+                    workspaceTitle: item.workspaceTitle,
+                    subtitle: item.subtitle
+                )
 
                 if !item.body.isEmpty {
                     Text(item.body)
-                        .font(.subheadline)
+                        .font(.footnote)
                         .foregroundStyle(.secondary)
                         .lineLimit(3)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
                 NotificationFeedMetadata(item: item)
-                    .padding(.top, 2)
             }
         }
-        .padding(.vertical, 7)
+        .padding(.vertical, 5)
         .contentShape(Rectangle())
         .frame(minHeight: 44)
     }
 }
 
-private struct NotificationFeedWorkspaceLabel: View {
+private struct NotificationFeedContextLine: View {
     let workspaceTitle: String?
+    let subtitle: String?
 
     var body: some View {
-        Label(workspaceName, systemImage: "rectangle.stack")
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
+        HStack(alignment: .firstTextBaseline, spacing: 5) {
+            Text(workspaceName)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .layoutPriority(1)
+
+            if let subtitle, !subtitle.isEmpty {
+                Text(verbatim: "•")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .accessibilityHidden(true)
+                Text(subtitle)
+                    .font(.footnote)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+            }
+        }
     }
 
     private var workspaceName: String {
@@ -184,38 +194,26 @@ private struct NotificationFeedMetadata: View {
     let item: MobileNotificationFeedItem
 
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 7) {
-                if let surfaceName {
-                    surfaceLabel(surfaceName)
-                    separator
-                }
-                macLabel
+        HStack(alignment: .firstTextBaseline, spacing: 5) {
+            if let surfaceName {
+                Text(surfaceName)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                separator
             }
-            VStack(alignment: .leading, spacing: 3) {
-                if let surfaceName {
-                    surfaceLabel(surfaceName)
-                }
-                macLabel
-            }
+            Text(macStatusText)
+                .foregroundStyle(item.connectionStatus == .connected ? Color.secondary : Color.orange)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .font(.caption)
+        .font(.caption2)
         .foregroundStyle(.tertiary)
     }
 
-    private func surfaceLabel(_ surfaceName: String) -> some View {
-        Label(surfaceName, systemImage: "terminal")
-            .lineLimit(1)
-    }
-
-    private var macLabel: some View {
-        Label(macStatusText, systemImage: macStatusImage)
-            .foregroundStyle(item.connectionStatus == .connected ? Color.secondary : Color.orange)
-            .lineLimit(1)
-    }
-
     private var separator: some View {
-        Text(verbatim: "•").accessibilityHidden(true)
+        Text(verbatim: "•")
+            .foregroundStyle(.tertiary)
+            .accessibilityHidden(true)
     }
 
     private var surfaceName: String? {
@@ -245,14 +243,6 @@ private struct NotificationFeedMetadata: View {
                 ),
                 item.macDisplayName
             )
-        }
-    }
-
-    private var macStatusImage: String {
-        switch item.connectionStatus {
-        case .connected: "desktopcomputer"
-        case .reconnecting: "arrow.triangle.2.circlepath"
-        case .unavailable: "wifi.slash"
         }
     }
 }
