@@ -27,7 +27,7 @@ struct SimulatorCameraTools: View {
             }
             .onChange(of: mirrorMode) { _, mode in
                 guard coordinator.cameraStatus?.mirrorMode != mode else { return }
-                Task { await coordinator.setCameraMirror(mode) }
+                coordinator.scheduleControlAction("camera-mirror") { await $0.setCameraMirror(mode) }
             }
             if let status = coordinator.cameraStatus, !status.hostCameras.isEmpty {
                 Picker(simulatorStrings.hostCameraDevice, selection: $hostCameraID) {
@@ -65,32 +65,34 @@ struct SimulatorCameraTools: View {
     private var cameraButtons: some View {
         Group {
             Button(simulatorStrings.chooseCameraSource) {
-                Task {
-                    await coordinator.chooseCameraSource(
+                coordinator.scheduleControlAction("camera-source") {
+                    await $0.chooseCameraSource(
                         targetBundleIdentifier: targetBundleIdentifier
                     )
                 }
             }
             Button(simulatorStrings.cameraPlaceholder) {
-                Task {
-                    await coordinator.useCameraPlaceholder(
+                coordinator.scheduleControlAction("camera-source") {
+                    await $0.useCameraPlaceholder(
                         targetBundleIdentifier: targetBundleIdentifier
                     )
                 }
             }
             Button(simulatorStrings.hostCamera) {
-                Task {
-                    await coordinator.useHostCamera(
+                coordinator.scheduleControlAction("camera-source") {
+                    await $0.useHostCamera(
                         deviceID: hostCameraID.isEmpty ? nil : hostCameraID,
                         targetBundleIdentifier: targetBundleIdentifier
                     )
-                    await coordinator.setCameraMirror(mirrorMode)
+                    await $0.setCameraMirror(mirrorMode)
                 }
             }
             Button(simulatorStrings.disableCamera) {
-                Task { await coordinator.disableCamera() }
+                coordinator.scheduleControlAction("camera-source") { await $0.disableCamera() }
             }
-            Button(simulatorStrings.refresh) { Task { await coordinator.refreshCameraStatus() } }
+            Button(simulatorStrings.refresh) {
+                coordinator.scheduleControlAction("refresh-camera") { await $0.refreshCameraStatus() }
+            }
         }
     }
 

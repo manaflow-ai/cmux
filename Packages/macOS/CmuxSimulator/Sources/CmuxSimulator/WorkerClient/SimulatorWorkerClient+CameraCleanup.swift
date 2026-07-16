@@ -28,15 +28,13 @@ extension SimulatorWorkerClient {
         try? child.send(data)
     }
 
-    func enqueueCameraCleanup(_ snapshot: SimulatorCameraCleanupSnapshot) {
+    func enqueueCameraCleanup(_ snapshot: SimulatorCameraCleanupSnapshot) async {
         guard let deviceIdentifier = snapshot.deviceIdentifier,
               !snapshot.bundleIdentifiers.isEmpty else { return }
         cameraCleanupRevision &+= 1
-        let previous = cameraCleanupTask
         let simulatorControl = self.simulatorControl
         let permit = cameraCleanupPermit
-        cameraCleanupTask = Task {
-            await previous?.value
+        cameraCleanupTask = await cameraCleanupCoordinator.enqueue {
             guard !Task.isCancelled, await permit.allowsMutation() else { return }
             await cleanSimulatorCameraInjections(
                 deviceIdentifier: deviceIdentifier,
@@ -49,7 +47,14 @@ extension SimulatorWorkerClient {
 
     @discardableResult
     func waitForCameraCleanup() async -> Bool {
-        while let task = cameraCleanupTask {
+        while true {
+            let task: Task<Void, Never>?
+            if let localTask = cameraCleanupTask {
+                task = localTask
+            } else {
+                task = await cameraCleanupCoordinator.currentTask()
+            }
+            guard let task else { return true }
             let revision = cameraCleanupRevision
             let outcome = await SimulatorCameraCleanupWaitState().wait(
                 for: task,
@@ -68,7 +73,6 @@ extension SimulatorWorkerClient {
                 return false
             }
         }
-        return true
     }
 
 }

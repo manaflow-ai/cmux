@@ -112,6 +112,8 @@ public final class SimulatorPaneCoordinator {
     @ObservationIgnored var explicitSelectionRequestGeneration: UInt64 = 0
     @ObservationIgnored var deviceDiscoveryGeneration: UInt64 = 0
     @ObservationIgnored var activeControlActions = 0
+    @ObservationIgnored var controlActionTasks: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored var controlActionTaskTokens: [String: UUID] = [:]
     @ObservationIgnored var actionHistoryByDeviceID: [String: [SimulatorActionLogEntry]] = [:]
     @ObservationIgnored var videoSession: SimulatorProcessSession?
     @ObservationIgnored var logSession: SimulatorProcessSession?

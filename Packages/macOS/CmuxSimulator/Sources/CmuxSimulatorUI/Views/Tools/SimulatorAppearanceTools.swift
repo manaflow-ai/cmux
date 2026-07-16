@@ -30,7 +30,9 @@ struct SimulatorAppearanceTools: View {
             }
             .onChange(of: appearance) { _, value in
                 guard coordinator.interfaceStatus?.appearance != value else { return }
-                Task { await coordinator.setInterface(.appearance(value)) }
+                coordinator.scheduleControlAction("interface-appearance") {
+                    await $0.setInterface(.appearance(value))
+                }
             }
             Picker(simulatorStrings.contentSize, selection: $contentSize) {
                 ForEach(SimulatorInterfaceSetting.ContentSize.allCases, id: \.rawValue) { size in
@@ -39,12 +41,16 @@ struct SimulatorAppearanceTools: View {
             }
             .onChange(of: contentSize) { _, value in
                 guard coordinator.interfaceStatus?.contentSize != value else { return }
-                Task { await coordinator.setInterface(.contentSize(value)) }
+                coordinator.scheduleControlAction("interface-content-size") {
+                    await $0.setInterface(.contentSize(value))
+                }
             }
             Toggle(simulatorStrings.increaseContrast, isOn: $increaseContrast)
                 .onChange(of: increaseContrast) { _, value in
                     guard coordinator.interfaceStatus?.increaseContrast != value else { return }
-                    Task { await coordinator.setInterface(.increaseContrast(value)) }
+                    coordinator.scheduleControlAction("interface-contrast") {
+                        await $0.setInterface(.increaseContrast(value))
+                    }
                 }
             Picker(simulatorStrings.liquidGlass, selection: $liquidGlass) {
                 Text(simulatorStrings.clear).tag(SimulatorInterfaceSetting.LiquidGlass.clear)
@@ -52,7 +58,9 @@ struct SimulatorAppearanceTools: View {
             }
             .onChange(of: liquidGlass) { _, value in
                 guard coordinator.interfaceStatus?.liquidGlass != value else { return }
-                Task { await coordinator.setInterface(.liquidGlass(value)) }
+                coordinator.scheduleControlAction("interface-liquid-glass") {
+                    await $0.setInterface(.liquidGlass(value))
+                }
             }
             Picker(simulatorStrings.colorFilter, selection: $colorFilter) {
                 ForEach(SimulatorInterfaceSetting.ColorFilter.allCases, id: \.rawValue) { filter in
@@ -61,7 +69,9 @@ struct SimulatorAppearanceTools: View {
             }
             .onChange(of: colorFilter) { _, value in
                 guard coordinator.interfaceStatus?.colorFilter != value else { return }
-                Task { await coordinator.setInterface(.colorFilter(value)) }
+                coordinator.scheduleControlAction("interface-color-filter") {
+                    await $0.setInterface(.colorFilter(value))
+                }
             }
             interfaceToggle(
                 simulatorStrings.reduceMotion,
@@ -117,8 +127,8 @@ struct SimulatorAppearanceTools: View {
             }
             HStack {
                 Button(simulatorStrings.applyStatusBar) {
-                    Task {
-                        await coordinator.overrideStatusBar(SimulatorStatusBarOverride(
+                    coordinator.scheduleControlAction("status-bar") {
+                        await $0.overrideStatusBar(SimulatorStatusBarOverride(
                             time: time,
                             dataNetwork: dataNetwork,
                             wifiMode: wifiMode,
@@ -131,7 +141,9 @@ struct SimulatorAppearanceTools: View {
                         ))
                     }
                 }
-                Button(simulatorStrings.clearStatusBar) { Task { await coordinator.clearStatusBar() } }
+                Button(simulatorStrings.clearStatusBar) {
+                    coordinator.scheduleControlAction("status-bar") { await $0.clearStatusBar() }
+                }
             }
         }
         .task {
@@ -147,12 +159,14 @@ struct SimulatorAppearanceTools: View {
         _ title: LocalizedStringResource,
         value: Binding<Bool>,
         current: Bool? = nil,
-        setting: @escaping (Bool) -> SimulatorInterfaceSetting
+        setting: @escaping @Sendable (Bool) -> SimulatorInterfaceSetting
     ) -> some View {
         Toggle(title, isOn: value)
             .onChange(of: value.wrappedValue) { _, enabled in
                 guard current != enabled else { return }
-                Task { await coordinator.setInterface(setting(enabled)) }
+                coordinator.scheduleControlAction("interface-\(String(describing: title))") {
+                    await $0.setInterface(setting(enabled))
+                }
             }
     }
 

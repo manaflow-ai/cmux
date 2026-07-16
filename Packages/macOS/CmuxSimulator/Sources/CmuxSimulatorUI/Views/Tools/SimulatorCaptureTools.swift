@@ -15,7 +15,9 @@ struct SimulatorCaptureTools: View {
                     }
                 }
                 Button(simulatorStrings.screenshot) {
-                    Task { await coordinator.captureScreenshot(format: screenshotFormat) }
+                    coordinator.scheduleControlAction("capture-screenshot") {
+                        await $0.captureScreenshot(format: screenshotFormat)
+                    }
                 }
             }
             HStack {
@@ -25,7 +27,9 @@ struct SimulatorCaptureTools: View {
                     }
                 }
                 Button(coordinator.isVideoRecording ? simulatorStrings.stopRecording : simulatorStrings.startRecording) {
-                    Task { await coordinator.toggleVideoRecording(codec: videoCodec) }
+                    coordinator.scheduleControlAction("toggle-video-recording") {
+                        await $0.toggleVideoRecording(codec: videoCodec)
+                    }
                 }
                 .tint(coordinator.isVideoRecording ? Color.red : Color.accentColor)
             }

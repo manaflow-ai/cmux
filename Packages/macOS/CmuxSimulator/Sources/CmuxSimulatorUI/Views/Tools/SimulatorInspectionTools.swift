@@ -8,7 +8,9 @@ struct SimulatorInspectionTools: View {
     var body: some View {
         SimulatorToolSection(simulatorStrings.inspect) {
             Button(simulatorStrings.foregroundApp) {
-                Task { await coordinator.refreshForegroundApplication() }
+                coordinator.scheduleControlAction("refresh-foreground") {
+                    await $0.refreshForegroundApplication()
+                }
             }
                 .disabled(!coordinator.supports(.foregroundApplication))
             if let application = coordinator.foregroundApplication {
@@ -52,12 +54,16 @@ struct SimulatorInspectionTools: View {
                 )
                 if application.isReactNative {
                     Button(simulatorStrings.reloadReactNative) {
-                        Task { await coordinator.reloadReactNative() }
+                        coordinator.scheduleControlAction("reload-react-native") {
+                            await $0.reloadReactNative()
+                        }
                     }
                 }
             }
             Button(simulatorStrings.accessibility) {
-                Task { await coordinator.refreshAccessibility() }
+                coordinator.scheduleControlAction("refresh-accessibility") {
+                    await $0.refreshAccessibility()
+                }
             }
                 .disabled(!coordinator.supports(.accessibility))
             Toggle(
@@ -81,11 +87,15 @@ struct SimulatorInspectionTools: View {
                     rows: coordinator.accessibilityRows,
                     highlightedNodeID: coordinator.highlightedAccessibilityNodeID
                 ) { node in
-                    Task { await coordinator.highlightAccessibilityNode(node) }
+                    coordinator.scheduleControlAction("accessibility-highlight") {
+                        await $0.highlightAccessibilityNode(node)
+                    }
                 }
                 if coordinator.highlightedAccessibilityNodeID != nil {
                     Button(simulatorStrings.clearHighlight) {
-                        Task { await coordinator.clearAccessibilityHighlight() }
+                        coordinator.scheduleControlAction("accessibility-highlight") {
+                            await $0.clearAccessibilityHighlight()
+                        }
                     }
                 }
             }

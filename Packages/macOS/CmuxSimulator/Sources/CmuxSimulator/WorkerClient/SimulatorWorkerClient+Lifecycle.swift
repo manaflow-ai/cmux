@@ -294,7 +294,7 @@ extension SimulatorWorkerClient {
         let cleanup = cameraCleanupSnapshot()
         crashFuseTripped = true
         discardWorker(intentional: true, clearReplayState: false)
-        enqueueCameraCleanup(cleanup)
+        await enqueueCameraCleanup(cleanup)
         let failure = SimulatorFailure(
             code: "worker_crash_fuse",
             message: String.localizedStringWithFormat(

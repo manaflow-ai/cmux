@@ -18,6 +18,7 @@ final class SimulatorFramebuffer {
     private let afterFrameTransportChange: @Sendable () async -> Void
 
     private var descriptors: [NSObject] = []
+    private var integratedDisplay: (descriptor: NSObject, properties: NSObject)?
     private var callbackIdentifiers: [ObjectIdentifier: NSUUID] = [:]
     private var ioClient: NSObject?
     private var framePublisher: SimulatorFramebufferFramePublisher?
@@ -78,6 +79,7 @@ final class SimulatorFramebuffer {
         nativeOrientationRawValue = nil
         unregisterCallbacks()
         descriptors.removeAll()
+        integratedDisplay = nil
         callbackIdentifiers.removeAll()
         ioClient = nil
         framePublisher?.cancel()
@@ -172,6 +174,12 @@ final class SimulatorFramebuffer {
         unregisterCallbacks()
         callbackIdentifiers.removeAll()
         descriptors = candidates
+        guard refreshIntegratedDisplay() else {
+            descriptors.removeAll()
+            throw SimulatorWorkerFailure.framebufferUnavailable(
+                "SimulatorKit did not publish one identifiable integrated display."
+            )
+        }
         do {
             for descriptor in candidates {
                 try registerCallbacks(on: descriptor)
@@ -232,6 +240,7 @@ final class SimulatorFramebuffer {
     }
 
     private func handleSurfaceTopologyChange() {
+        _ = refreshIntegratedDisplay()
         if publishLatest(readNativeOrientation: true) { return }
         // A surface-change callback is the synchronization signal that the
         // old descriptor became stale. Re-enumerate once for that event.
@@ -240,15 +249,9 @@ final class SimulatorFramebuffer {
     }
 
     private func handleDisplayPropertiesChange(_ descriptor: NSObject) {
-        guard let properties = objectProperty(
-            descriptor,
-            selectorName: "screenProperties"
-        ) as? NSObject,
-            simulatorUnsignedLongLongProperty(
-                properties,
-                selectorName: "screenType"
-            ) == 0
-        else {
+        _ = refreshIntegratedDisplay()
+        guard integratedDisplay.map({ ObjectIdentifier($0.descriptor) })
+            == ObjectIdentifier(descriptor) else {
             // Auxiliary display callbacks may arrive while a requested
             // built-in rotation is still settling. They cannot make the
             // built-in display's cached orientation authoritative.
@@ -305,7 +308,22 @@ final class SimulatorFramebuffer {
     private func bestDisplay(
         readNativeOrientation: Bool
     ) -> (surface: IOSurface, orientationRawValue: UInt32?)? {
+        guard let integratedDisplay,
+              let surface = simulatorFramebufferSurface(integratedDisplay.descriptor) as? IOSurface
+        else { return nil }
+        let orientationRawValue = readNativeOrientation
+            ? simulatorUnsignedIntegerProperty(
+                integratedDisplay.properties,
+                selectorName: "uiOrientation"
+            )
+            : nil
+        return (surface, orientationRawValue)
+    }
+
+    @discardableResult
+    private func refreshIntegratedDisplay() -> Bool {
         var candidates: [(
+            descriptor: NSObject,
             surface: IOSurface,
             screenID: UInt32,
             screenType: UInt64,
@@ -331,9 +349,10 @@ final class SimulatorFramebuffer {
             else {
                 // HID events target the built-in display. Rendering an unidentified
                 // surface could show a different screen than the one receiving input.
-                return nil
+                integratedDisplay = nil
+                return false
             }
-            candidates.append((surface, screenID, screenType, properties))
+            candidates.append((descriptor, surface, screenID, screenType, properties))
         }
         // SimScreenType.integrated is raw value zero in SimulatorKit. Require
         // one integrated screen identity, then choose its largest plane.
@@ -347,11 +366,12 @@ final class SimulatorFramebuffer {
                 .max(by: {
                     IOSurfaceGetWidth($0.surface) * IOSurfaceGetHeight($0.surface)
                         < IOSurfaceGetWidth($1.surface) * IOSurfaceGetHeight($1.surface)
-                }) else { return nil }
-        let orientationRawValue = readNativeOrientation
-            ? simulatorUnsignedIntegerProperty(best.properties, selectorName: "uiOrientation")
-            : nil
-        return (best.surface, orientationRawValue)
+                }) else {
+            integratedDisplay = nil
+            return false
+        }
+        integratedDisplay = (best.descriptor, best.properties)
+        return true
     }
 
 }

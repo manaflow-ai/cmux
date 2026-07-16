@@ -8,6 +8,25 @@ private let simulatorDroppedMediaExtensions = Set([
 ])
 
 extension SimulatorPaneCoordinator {
+    /// Starts one pane-owned UI action. Repeated actions with the same key are
+    /// coalesced, and ``close()`` cancels and joins every admitted task.
+    public func scheduleControlAction(
+        _ key: String,
+        operation: @escaping @MainActor @Sendable (SimulatorPaneCoordinator) async -> Void
+    ) {
+        guard !closed, controlActionTasks[key] == nil,
+              controlActionTasks.count < 8 else { return }
+        let token = UUID()
+        controlActionTaskTokens[key] = token
+        controlActionTasks[key] = Task { @MainActor [weak self] in
+            guard let self else { return }
+            if !Task.isCancelled { await operation(self) }
+            guard self.controlActionTaskTokens[key] == token else { return }
+            self.controlActionTaskTokens.removeValue(forKey: key)
+            self.controlActionTasks.removeValue(forKey: key)
+        }
+    }
+
     /// Whether the current worker negotiated a capability.
     /// - Parameter capability: The capability to test.
     /// - Returns: `true` when the worker advertised support.
@@ -21,6 +40,8 @@ extension SimulatorPaneCoordinator {
     /// - Returns: The typed result returned by the control client.
     @discardableResult
     public func perform(_ action: SimulatorControlAction) async throws -> SimulatorControlResult {
+        try Task.checkCancellation()
+        guard !closed else { throw CancellationError() }
         let generation = selectionGeneration
         activeControlActions += 1
         isPerformingControlAction = true

@@ -12,10 +12,14 @@ struct SimulatorApplicationTools: View {
         SimulatorToolSection(simulatorStrings.applications) {
             HStack {
                 Button(simulatorStrings.installApplication) {
-                    Task { await coordinator.installApplication() }
+                    coordinator.scheduleControlAction("install-application") {
+                        await $0.installApplication()
+                    }
                 }
                 Button(simulatorStrings.refresh) {
-                    Task { await coordinator.refreshApplications() }
+                    coordinator.scheduleControlAction("refresh-applications") {
+                        await $0.refreshApplications()
+                    }
                 }
             }
             if !coordinator.installedApplications.isEmpty {
@@ -29,8 +33,8 @@ struct SimulatorApplicationTools: View {
                 Toggle(simulatorStrings.waitForDebugger, isOn: $waitForDebugger)
                 HStack {
                     Button(simulatorStrings.launch) {
-                        Task {
-                            await coordinator.launchApplication(
+                        coordinator.scheduleControlAction("launch-application") {
+                            await $0.launchApplication(
                                 bundleIdentifier: selectedBundleIdentifier,
                                 configuration: SimulatorLaunchConfiguration(
                                     arguments: arguments.split(whereSeparator: \.isWhitespace).map(String.init),
@@ -41,7 +45,9 @@ struct SimulatorApplicationTools: View {
                         }
                     }
                     Button(simulatorStrings.terminate) {
-                        Task { await coordinator.terminateApplication(bundleIdentifier: selectedBundleIdentifier) }
+                        coordinator.scheduleControlAction("terminate-application") {
+                            await $0.terminateApplication(bundleIdentifier: selectedBundleIdentifier)
+                        }
                     }
                 }
                 .disabled(selectedBundleIdentifier.isEmpty)

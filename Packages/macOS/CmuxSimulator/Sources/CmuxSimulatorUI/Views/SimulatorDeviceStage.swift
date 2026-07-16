@@ -21,7 +21,7 @@ struct SimulatorDeviceStage: View {
                     Text(simulatorStrings.noDevicesHelp)
                 } actions: {
                     Button(simulatorStrings.refresh) {
-                        Task { await coordinator.reloadDevices() }
+                        coordinator.scheduleControlAction("reload-devices") { _ = await $0.reloadDevices() }
                     }
                 }
             } else if let failure = coordinator.failure,
@@ -38,7 +38,9 @@ struct SimulatorDeviceStage: View {
         }
         .dropDestination(for: URL.self) { urls, _ in
             guard coordinator.canImportDroppedFiles(urls) else { return false }
-            Task { await coordinator.importDroppedFiles(urls) }
+            coordinator.scheduleControlAction("import-dropped-files") {
+                await $0.importDroppedFiles(urls)
+            }
             return true
         }
     }

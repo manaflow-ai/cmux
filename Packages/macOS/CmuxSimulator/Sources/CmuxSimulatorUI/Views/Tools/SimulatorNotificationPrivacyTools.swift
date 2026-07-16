@@ -10,7 +10,9 @@ struct SimulatorNotificationPrivacyTools: View {
         SimulatorToolSection(simulatorStrings.notificationsAndPrivacy) {
             TextField(String(localized: simulatorStrings.bundleIdentifier), text: $bundleIdentifier)
             Button(simulatorStrings.sendPush) {
-                Task { await coordinator.pushNotification(bundleIdentifier: bundleIdentifier) }
+                coordinator.scheduleControlAction("push-notification") {
+                    await $0.pushNotification(bundleIdentifier: bundleIdentifier)
+                }
             }
             .disabled(bundleIdentifier.isEmpty)
             Divider()
@@ -39,7 +41,9 @@ struct SimulatorNotificationPrivacyTools: View {
                         bundleIdentifier: bundleIdentifier
                     ))
                 Button(simulatorStrings.readPermissions) {
-                    Task { await coordinator.readPrivacy(bundleIdentifier: bundleIdentifier) }
+                    coordinator.scheduleControlAction("read-privacy") {
+                        await $0.readPrivacy(bundleIdentifier: bundleIdentifier)
+                    }
                 }
             }
             if let snapshot = coordinator.privacySnapshot {
@@ -74,8 +78,8 @@ struct SimulatorNotificationPrivacyTools: View {
             service: service,
             bundleIdentifier: target
         ) else { return }
-        Task {
-            await coordinator.setPrivacy(
+        coordinator.scheduleControlAction("set-privacy") {
+            await $0.setPrivacy(
                 action,
                 service: service,
                 bundleIdentifier: target

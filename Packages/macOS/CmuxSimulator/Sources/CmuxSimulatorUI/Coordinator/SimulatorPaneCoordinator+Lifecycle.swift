@@ -104,6 +104,11 @@ extension SimulatorPaneCoordinator {
     public func close() async {
         guard !closed else { return }
         closed = true
+        let controlActionTasks = Array(controlActionTasks.values)
+        self.controlActionTasks.removeAll()
+        controlActionTaskTokens.removeAll()
+        controlActionTasks.forEach { $0.cancel() }
+        for task in controlActionTasks { await task.value }
         let locationRouteTeardownTask = beginLocationRouteTeardown()
         let accessibilityRefreshTask = stopAccessibilityOverlayRefresh()
         let liveStatusTask = stopLiveStatusWatcher()

@@ -28,7 +28,7 @@ struct SimulatorPaneToolbar: View {
         Menu {
             if coordinator.devices.isEmpty {
                 Button(simulatorStrings.refresh) {
-                    Task { await coordinator.reloadDevices() }
+                    coordinator.scheduleControlAction("reload-devices") { _ = await $0.reloadDevices() }
                 }
             } else {
                 ForEach(coordinator.devices) { device in
@@ -49,7 +49,7 @@ struct SimulatorPaneToolbar: View {
                 }
                 Divider()
                 Button(simulatorStrings.refresh) {
-                    Task { await coordinator.reloadDevices() }
+                    coordinator.scheduleControlAction("reload-devices") { _ = await $0.reloadDevices() }
                 }
             }
         } label: {

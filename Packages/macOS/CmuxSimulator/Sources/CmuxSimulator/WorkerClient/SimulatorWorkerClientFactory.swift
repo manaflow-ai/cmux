@@ -2,6 +2,7 @@ import Foundation
 
 /// Constructs worker clients around an injected host executable.
 public struct SimulatorWorkerClientFactory: Sendable {
+    private static let cameraCleanupCoordinator = SimulatorCameraCleanupCoordinator()
     private let executableURL: URL
 
     /// Creates a factory, defaulting to the current app executable.
@@ -22,8 +23,13 @@ public struct SimulatorWorkerClientFactory: Sendable {
     ) -> SimulatorWorkerClient {
         SimulatorWorkerClient(
             executableURL: executableURL,
+            arguments: [SimulatorWorkerClient.workerModeArgument],
+            environment: [:],
             ackTimeout: ackTimeout,
-            simulatorControl: simulatorControl
+            simulatorControl: simulatorControl,
+            launcher: SimulatorProcessWorkerLauncher(),
+            sleeper: ContinuousSimulatorWorkerSleeper(),
+            cameraCleanupCoordinator: Self.cameraCleanupCoordinator
         )
     }
 }

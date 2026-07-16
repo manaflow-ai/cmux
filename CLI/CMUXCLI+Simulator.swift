@@ -359,9 +359,10 @@ extension CMUXCLI {
                     "error": iosScreenshotBatchTimeoutMessage(),
                 ]
             }
-            let result = CLIProcessRunner.runProcess(
-                executablePath: "/usr/bin/xcrun",
+            let result = SimulatorOwnedCommandRunner.run(
+                executable: "/usr/bin/xcrun",
                 arguments: ["simctl", "io", simulatorID, "screenshot", destination.path],
+                currentDirectory: FileManager.default.currentDirectoryPath,
                 timeout: batchDeadline.map {
                     max(1, min(30, $0 - ProcessInfo.processInfo.systemUptime))
                 } ?? 30
@@ -371,10 +372,10 @@ extension CMUXCLI {
                     return [
                         "simulator_id": simulatorID,
                         "surface_ref": surfaceRef,
-                        "error": result.stderr.trimmingCharacters(in: .whitespacesAndNewlines),
+                        "error": result.standardError.trimmingCharacters(in: .whitespacesAndNewlines),
                     ]
                 }
-                throw CLIError(message: result.stderr.trimmingCharacters(in: .whitespacesAndNewlines))
+                throw CLIError(message: result.standardError.trimmingCharacters(in: .whitespacesAndNewlines))
             }
             return [
                 "path": destination.path,

@@ -9,8 +9,12 @@ struct SimulatorURLMediaClipboardTools: View {
         SimulatorToolSection(simulatorStrings.urlAndMedia) {
             TextField(String(localized: simulatorStrings.url), text: $url)
             HStack {
-                Button(simulatorStrings.openURL) { Task { await coordinator.openURL(url) } }
-                Button(simulatorStrings.addMedia) { Task { await coordinator.addMedia() } }
+                Button(simulatorStrings.openURL) {
+                    coordinator.scheduleControlAction("open-url") { await $0.openURL(url) }
+                }
+                Button(simulatorStrings.addMedia) {
+                    coordinator.scheduleControlAction("add-media") { await $0.addMedia() }
+                }
             }
             Divider()
             Text(simulatorStrings.clipboard).font(.subheadline.weight(.semibold))
@@ -28,9 +32,15 @@ struct SimulatorURLMediaClipboardTools: View {
 
     private var clipboardButtons: some View {
         Group {
-            Button(simulatorStrings.readClipboard) { Task { await coordinator.readClipboard() } }
-            Button(simulatorStrings.writeClipboard) { Task { await coordinator.writeClipboard(clipboard) } }
-            Button(simulatorStrings.syncClipboard) { Task { await coordinator.syncClipboardFromHost() } }
+            Button(simulatorStrings.readClipboard) {
+                coordinator.scheduleControlAction("read-clipboard") { await $0.readClipboard() }
+            }
+            Button(simulatorStrings.writeClipboard) {
+                coordinator.scheduleControlAction("write-clipboard") { await $0.writeClipboard(clipboard) }
+            }
+            Button(simulatorStrings.syncClipboard) {
+                coordinator.scheduleControlAction("sync-clipboard") { await $0.syncClipboardFromHost() }
+            }
         }
     }
 }

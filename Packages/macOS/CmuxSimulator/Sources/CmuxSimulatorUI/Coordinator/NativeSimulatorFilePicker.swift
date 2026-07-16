@@ -55,9 +55,15 @@ public final class NativeSimulatorFilePicker: SimulatorFilePicking {
         panel.canChooseDirectories = types.contains(.applicationBundle)
         panel.allowsMultipleSelection = allowsMultipleSelection
         panel.allowedContentTypes = types
-        return await withCheckedContinuation { continuation in
-            panel.begin { response in
-                continuation.resume(returning: response == .OK ? panel.urls : [])
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                panel.begin { response in
+                    continuation.resume(returning: response == .OK ? panel.urls : [])
+                }
+            }
+        } onCancel: {
+            Task { @MainActor [weak panel] in
+                panel?.cancel(nil)
             }
         }
     }
@@ -66,9 +72,15 @@ public final class NativeSimulatorFilePicker: SimulatorFilePicking {
         let panel = NSSavePanel()
         panel.nameFieldStringValue = defaultName
         panel.canCreateDirectories = true
-        return await withCheckedContinuation { continuation in
-            panel.begin { response in
-                continuation.resume(returning: response == .OK ? panel.url : nil)
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                panel.begin { response in
+                    continuation.resume(returning: response == .OK ? panel.url : nil)
+                }
+            }
+        } onCancel: {
+            Task { @MainActor [weak panel] in
+                panel?.cancel(nil)
             }
         }
     }

@@ -22,6 +22,7 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
     let launcher: any SimulatorWorkerLaunching
     let sleeper: any SimulatorWorkerSleeping
     let simulatorControl: any SimulatorControlling
+    let cameraCleanupCoordinator: SimulatorCameraCleanupCoordinator
     let cameraSharedMemoryToken: String
 
     var child: SimulatorWorkerConnection?
@@ -112,6 +113,7 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
         self.launcher = SimulatorProcessWorkerLauncher()
         self.sleeper = ContinuousSimulatorWorkerSleeper()
         self.simulatorControl = simulatorControl
+        self.cameraCleanupCoordinator = SimulatorCameraCleanupCoordinator()
     }
 
     init(
@@ -122,7 +124,8 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
         replayTimeout: Duration = .seconds(120),
         simulatorControl: any SimulatorControlling,
         launcher: any SimulatorWorkerLaunching,
-        sleeper: any SimulatorWorkerSleeping = ContinuousSimulatorWorkerSleeper()
+        sleeper: any SimulatorWorkerSleeping = ContinuousSimulatorWorkerSleeper(),
+        cameraCleanupCoordinator: SimulatorCameraCleanupCoordinator = SimulatorCameraCleanupCoordinator()
     ) {
         let cameraSharedMemoryToken = environment[SimulatorCameraSharedMemory.tokenEnvironmentKey]
             ?? UUID().uuidString.lowercased()
@@ -135,6 +138,7 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
         self.ackTimeout = ackTimeout
         self.replayTimeout = replayTimeout
         self.simulatorControl = simulatorControl
+        self.cameraCleanupCoordinator = cameraCleanupCoordinator
         self.launcher = launcher
         self.sleeper = sleeper
     }
@@ -159,12 +163,15 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
             if let pendingCleanup {
                 Task { await pendingCleanup.value }
             } else {
+                let cleanupCoordinator = cameraCleanupCoordinator
                 Task {
-                    await cleanSimulatorCameraInjections(
-                        deviceIdentifier: deviceIdentifier,
-                        bundleIdentifiers: bundleIdentifiers,
-                        simulatorControl: simulatorControl
-                    )
+                    _ = await cleanupCoordinator.enqueue {
+                        await cleanSimulatorCameraInjections(
+                            deviceIdentifier: deviceIdentifier,
+                            bundleIdentifiers: bundleIdentifiers,
+                            simulatorControl: simulatorControl
+                        )
+                    }
                 }
             }
         }
@@ -344,7 +351,7 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
             clearReplayState: true,
             graceful: cleanup.bundleIdentifiers.isEmpty
         )
-        if !cleanupAlreadyQueued { enqueueCameraCleanup(cleanup) }
+        if !cleanupAlreadyQueued { await enqueueCameraCleanup(cleanup) }
         _ = await waitForCameraCleanup()
         await broadcast(.workerStopped)
     }
@@ -364,7 +371,7 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
         )
         isPermanentlyStopped = true
         isClosing = true
-        if !cleanupAlreadyQueued { enqueueCameraCleanup(cleanup) }
+        if !cleanupAlreadyQueued { await enqueueCameraCleanup(cleanup) }
         _ = await waitForCameraCleanup()
         for continuation in subscribers.values {
             await continuation.finish()

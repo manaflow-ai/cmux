@@ -70,7 +70,9 @@ struct SimulatorDeviceQuickControls: View {
       (
         "camera.viewfinder", simulatorStrings.screenshot, false, coordinator.status == .streaming,
         {
-          Task { await coordinator.captureScreenshot(format: .png) }
+          coordinator.scheduleControlAction("capture-screenshot") {
+            await $0.captureScreenshot(format: .png)
+          }
         }
       )
     case .rotate:
