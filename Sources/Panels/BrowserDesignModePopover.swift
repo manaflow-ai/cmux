@@ -16,20 +16,34 @@ struct BrowserDesignModePopover: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             if let selections = controller.snapshot?.selections, !selections.isEmpty {
-                HStack(alignment: .bottom, spacing: 10) {
-                    modeToggle
-                    BrowserDesignModeTokenField(
-                        controller: controller,
-                        selections: selections,
-                        onHeightChange: { height in
-                            if abs(height - tokenFieldHeight) > 0.5 { tokenFieldHeight = height }
+                // Single line: everything inline, vertically centered.
+                // Overflowing prompt: the field takes the full width and the
+                // controls drop to their own bottom row, like Cursor.
+                let field = BrowserDesignModeTokenField(
+                    controller: controller,
+                    selections: selections,
+                    onHeightChange: { height in
+                        if abs(height - tokenFieldHeight) > 0.5 { tokenFieldHeight = height }
+                    }
+                )
+                // The card grows downward with the prompt; the inner scroll
+                // viewport only engages past this generous ceiling.
+                .frame(height: min(max(tokenFieldHeight, 22), 340))
+                if tokenFieldHeight > 34 {
+                    VStack(alignment: .leading, spacing: 8) {
+                        field
+                        HStack(alignment: .center, spacing: 10) {
+                            modeToggle
+                            Spacer(minLength: 0)
+                            copyButton
                         }
-                    )
-                    // The card grows downward with the prompt, Cursor-style;
-                    // the inner scroll view only engages past this generous
-                    // ceiling so long prompts never become unreachable.
-                    .frame(height: min(max(tokenFieldHeight, 22), 340))
-                    copyButton
+                    }
+                } else {
+                    HStack(alignment: .center, spacing: 10) {
+                        modeToggle
+                        field
+                        copyButton
+                    }
                 }
                 errorMessage
             } else {
@@ -124,17 +138,14 @@ struct BrowserDesignModePopover: View {
         Button {
             Task { @MainActor in await controller.copySelection() }
         } label: {
-            Image(systemName: controller.didCopy ? "checkmark" : "doc.on.clipboard.fill")
-                .font(.system(size: 11.5, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: 30, height: 30)
-                .background(
-                    Circle().fill(
-                        controller.canCopy || controller.didCopy
-                            ? Color(red: 0.25, green: 0.47, blue: 0.96)
-                            : Color.white.opacity(0.12)
-                    )
+            Image(systemName: controller.didCopy ? "checkmark" : "doc.on.clipboard")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(
+                    controller.didCopy
+                        ? AnyShapeStyle(.green)
+                        : AnyShapeStyle(.white.opacity(controller.canCopy ? 0.85 : 0.3))
                 )
+                .frame(width: 24, height: 24)
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
@@ -231,7 +242,7 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
         let scrollView = NSScrollView()
         scrollView.drawsBackground = false
         scrollView.borderType = .noBorder
-        scrollView.hasVerticalScroller = true
+        scrollView.hasVerticalScroller = false
         scrollView.autohidesScrollers = true
         scrollView.verticalScrollElasticity = .none
         scrollView.documentView = textView
@@ -530,7 +541,7 @@ final class BrowserDesignModeTokenCell: NSTextAttachmentCell {
 
     override func cellSize() -> NSSize {
         let iconWidth: CGFloat = icon == nil ? 0 : 13
-        return NSSize(width: titleSize.width + iconWidth + 12, height: 18)
+        return NSSize(width: titleSize.width + iconWidth + 4, height: 18)
     }
 
     override func cellBaselineOffset() -> NSPoint {
@@ -538,11 +549,8 @@ final class BrowserDesignModeTokenCell: NSTextAttachmentCell {
     }
 
     override func draw(withFrame cellFrame: NSRect, in controlView: NSView?) {
-        let background = NSBezierPath(roundedRect: cellFrame, xRadius: 5, yRadius: 5)
-        NSColor.white.withAlphaComponent(0.08).setFill()
-        background.fill()
-
-        var textX = cellFrame.minX + 6
+        // Cursor-style: plain blue icon + tag name, no pill background.
+        var textX = cellFrame.minX + 2
         if let icon {
             let iconRect = NSRect(
                 x: textX,

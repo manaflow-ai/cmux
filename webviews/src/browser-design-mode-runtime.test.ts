@@ -688,21 +688,13 @@ describe("browser design-mode runtime", () => {
     at("click", 110, 140);
     expect(runtime.composerState().selection_count).toBe(1);
 
-    // A second plain draw replaces the region; Shift+draw stacks.
+    // Every draw stacks another region token; earlier captures persist.
     at("pointerdown", 300, 300);
     at("pointermove", 360, 360);
     at("pointerup", 360, 360);
-    let regions = runtime.snapshot().selections ?? [];
-    expect(regions).toHaveLength(1);
-    expect(regions[0]?.bounds?.x).toBe(300);
-
-    dom.window.document.dispatchEvent(
-      new dom.window.MouseEvent("pointerdown", { bubbles: true, cancelable: true, button: 0, clientX: 500, clientY: 500, shiftKey: true }),
-    );
-    at("pointermove", 560, 560);
-    at("pointerup", 560, 560);
-    regions = runtime.snapshot().selections ?? [];
+    const regions = runtime.snapshot().selections ?? [];
     expect(regions).toHaveLength(2);
+    expect(regions[1]?.bounds?.x).toBe(300);
 
     // Escape clears regions before exiting design mode.
     doc.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
@@ -725,9 +717,11 @@ describe("browser design-mode runtime", () => {
     expect(runtime.snapshot().selection?.selector).toBe("#b");
     expect(runtime.snapshot().selections?.every((entry) => entry.tag_name !== "region")).toBe(true);
 
-    // Draw mode: taps never pick elements; only strokes capture regions.
+    // Draw mode: taps never pick elements; strokes capture regions, and
+    // element pills selected earlier persist across the mode switch.
     runtime.setMode("draw");
     expect(runtime.composerState().mode).toBe("draw");
+    expect(runtime.composerState().selection_count).toBe(1);
     at("pointerdown", 30, 30);
     at("pointerup", 31, 31);
     expect(runtime.composerState().selection_count).toBe(1);
@@ -735,8 +729,9 @@ describe("browser design-mode runtime", () => {
     at("pointermove", 140, 140);
     at("pointerup", 140, 140);
     const selections = runtime.snapshot().selections ?? [];
-    expect(selections).toHaveLength(1);
-    expect(selections[0]?.tag_name).toBe("region");
+    expect(selections).toHaveLength(2);
+    expect(selections[0]?.selector).toBe("#b");
+    expect(selections[1]?.tag_name).toBe("region");
   });
 
   test("selection captures React component identity but never prop values", () => {

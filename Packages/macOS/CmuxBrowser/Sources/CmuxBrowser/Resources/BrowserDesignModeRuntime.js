@@ -1481,7 +1481,7 @@
       marqueePoints.push({ x: event.clientX, y: event.clientY });
       const bounds = marqueeBounds();
       marqueePoints = [];
-      finalizeRegion(bounds, armed.shift);
+      finalizeRegion(bounds);
       return;
     }
     // Draw mode never element-selects; a tap there is a no-op.
@@ -1492,16 +1492,10 @@
     if (candidate) selectElement(candidate, true);
   };
 
-  const finalizeRegion = (rect, stack = false) => {
+  const finalizeRegion = (rect) => {
     if (rect.width < 8 || rect.height < 8) return;
-    if (!stack) {
-      // Plain draws replace the whole selection set, matching plain clicks;
-      // Shift stacks the new region onto it.
-      if (edits.size) restoreAll();
-      selectedReferences.length = 0;
-      setActiveReference(null);
-      regionReferences.length = 0;
-    }
+    // Draws stack like clicks: every capture becomes another prompt token
+    // and existing element/region selections persist.
     if (regionReferences.length >= maxRegionReferences) return;
     regionReferences.push({
       pageX: rect.x + (globalThis.scrollX || 0),
