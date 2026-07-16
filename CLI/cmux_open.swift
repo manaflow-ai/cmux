@@ -29,12 +29,22 @@ private enum CMUXAgentTurnUntrackedSnapshotLimits {
 
 enum CMUXAgentTurnDiffBaselineFile {
     static func path(env: [String: String] = ProcessInfo.processInfo.environment) -> String {
+        stateDirectory(env: env)
+            .appendingPathComponent("agent-turn-diff-baselines.sqlite3", isDirectory: false)
+            .path
+    }
+
+    static func legacyJSONPath(env: [String: String] = ProcessInfo.processInfo.environment) -> String {
+        stateDirectory(env: env)
+            .appendingPathComponent("agent-turn-diff-baselines.json", isDirectory: false)
+            .path
+    }
+
+    private static func stateDirectory(env: [String: String]) -> URL {
         if let overrideDirectory = normalized(env["CMUX_AGENT_HOOK_STATE_DIR"]) {
             return URL(fileURLWithPath: homeExpandedPath(overrideDirectory, env: env), isDirectory: true)
-                .appendingPathComponent("agent-turn-diff-baselines.json", isDirectory: false)
-                .path
         }
-        return homeExpandedPath("~/.cmuxterm/agent-turn-diff-baselines.json", env: env)
+        return URL(fileURLWithPath: homeExpandedPath("~/.cmuxterm", env: env), isDirectory: true)
     }
 
     private static func normalized(_ value: String?) -> String? {
@@ -3184,53 +3194,25 @@ extension CMUXCLI {
             capturedAt: Date().timeIntervalSince1970
         )
         do {
-            var removedRecords: [CMUXAgentTurnDiffBaselineRecord] = []
             var shouldRemoveNewSnapshot = untrackedSnapshot.snapshotId != nil
-            try updateAgentTurnDiffBaselineStore(path: storePath, update: { store in
-                func matchesCurrentScope(_ existing: CMUXAgentTurnDiffBaselineRecord) -> Bool {
-                    standardizedDiffSourcePath(existing.repoRoot) == repoRoot &&
-                        diffScopeIdentifierEquals(existing.workspaceId, workspaceId) &&
-                        diffScopeIdentifierEquals(existing.surfaceId, surfaceId) &&
-                        existing.sessionId == record.sessionId
-                }
-
-                let previousRecords = store.records
-                if preserveExistingTurnBaseline,
-                   let turnId = record.turnId,
-                   store.records.contains(where: { matchesCurrentScope($0) && $0.turnId == turnId }) {
-                    pruneAgentTurnDiffBaselineStore(&store)
-                    removedRecords = previousRecords.filter { previous in
-                        !store.records.contains { agentTurnDiffBaselineRecordEquals($0, previous) }
-                    }
-                    removedRecords.append(record)
-                    return
-                }
-
+            let database = try CMUXAgentTurnDiffBaselineDatabase(
+                path: storePath,
+                legacyJSONPath: CMUXAgentTurnDiffBaselineFile.legacyJSONPath(env: env)
+            )
+            let update = try database.update(
+                with: record,
+                preserveExistingTurnBaseline: preserveExistingTurnBaseline
+            ) {
                 if let snapshotId = untrackedSnapshot.snapshotId {
                     try publishAgentTurnDiffBaselineSnapshot(snapshotId: snapshotId, storePath: storePath)
                     shouldRemoveNewSnapshot = false
                 }
-                store.records.removeAll { existing in
-                    guard matchesCurrentScope(existing) else {
-                        return false
-                    }
-                    if let turnId = record.turnId {
-                        return existing.turnId == turnId
-                    }
-                    return existing.turnId == nil
-                }
-                store.records.append(record)
-                pruneAgentTurnDiffBaselineStore(&store)
-                removedRecords = previousRecords.filter { previous in
-                    !store.records.contains { agentTurnDiffBaselineRecordEquals($0, previous) }
-                }
-            }, afterWrite: { store in
-                pruneAgentTurnDiffBaselineArtifacts(
-                    storePath: storePath,
-                    removedRecords: removedRecords,
-                    retainedRecords: store.records
-                )
-            })
+            }
+            pruneAgentTurnDiffBaselineArtifacts(
+                storePath: storePath,
+                removedRecords: update.removedRecords,
+                database: database
+            )
             if shouldRemoveNewSnapshot, let snapshotId = untrackedSnapshot.snapshotId {
                 removeAgentTurnDiffBaselineSnapshot(snapshotId: snapshotId, storePath: storePath)
             }
@@ -3283,93 +3265,43 @@ extension CMUXCLI {
         sessionId: String?,
         env: [String: String]
     ) throws -> CMUXAgentTurnDiffBaselineRecord? {
-        let store = try readAgentTurnDiffBaselineStore(path: CMUXAgentTurnDiffBaselineFile.path(env: env))
-        let repoRoot = standardizedDiffSourcePath(repoRoot)
-        let candidates = store.records.filter { record in
-            standardizedDiffSourcePath(record.repoRoot) == repoRoot
-                && diffScopeIdentifierEquals(record.workspaceId, workspaceId)
-                && diffScopeIdentifierEquals(record.surfaceId, surfaceId)
-                && (sessionId == nil || record.sessionId == sessionId)
-        }
-        return candidates.max(by: { $0.capturedAt < $1.capturedAt })
-    }
-
-    private func readAgentTurnDiffBaselineStore(path: String) throws -> CMUXAgentTurnDiffBaselineStore {
-        let url = URL(fileURLWithPath: path)
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            return CMUXAgentTurnDiffBaselineStore()
-        }
-        let data = try Data(contentsOf: url)
-        return try JSONDecoder().decode(CMUXAgentTurnDiffBaselineStore.self, from: data)
-    }
-
-    private func updateAgentTurnDiffBaselineStore(
-        path: String,
-        update: (inout CMUXAgentTurnDiffBaselineStore) throws -> Void,
-        afterWrite: ((CMUXAgentTurnDiffBaselineStore) -> Void)? = nil
-    ) throws {
-        let url = URL(fileURLWithPath: path)
-        try createPrivateDirectory(at: url.deletingLastPathComponent())
-        let lockPath = path + ".lock"
-        let fd = open(lockPath, O_CREAT | O_RDWR | O_NOFOLLOW, mode_t(S_IRUSR | S_IWUSR))
-        if fd < 0 {
-            throw CLIError(message: "Failed to open diff baseline lock: \(lockPath)")
-        }
-        defer { Darwin.close(fd) }
-
-        if flock(fd, LOCK_EX) != 0 {
-            throw CLIError(message: "Failed to lock diff baseline store: \(path)")
-        }
-        defer { _ = flock(fd, LOCK_UN) }
-        if Darwin.fchmod(fd, mode_t(S_IRUSR | S_IWUSR)) != 0 {
-            throw posixError(errno)
-        }
-
-        var store = (try? readAgentTurnDiffBaselineStore(path: path)) ?? CMUXAgentTurnDiffBaselineStore()
-        try update(&store)
-
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(store).write(to: url, options: .atomic)
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
-        afterWrite?(store)
-    }
-
-    private func pruneAgentTurnDiffBaselineStore(_ store: inout CMUXAgentTurnDiffBaselineStore) {
-        let cutoff = Date().timeIntervalSince1970 - 60 * 60 * 24 * 7
-        store.records = store.records
-            .filter { $0.capturedAt >= cutoff }
-            .sorted { $0.capturedAt > $1.capturedAt }
-        if store.records.count > 200 {
-            store.records.removeSubrange(200..<store.records.count)
-        }
+        let database = try CMUXAgentTurnDiffBaselineDatabase(
+            path: CMUXAgentTurnDiffBaselineFile.path(env: env),
+            legacyJSONPath: CMUXAgentTurnDiffBaselineFile.legacyJSONPath(env: env)
+        )
+        return try database.latestRecord(
+            repoRoot: repoRoot,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            sessionId: sessionId
+        )
     }
 
     private func pruneAgentTurnDiffBaselineArtifacts(
         storePath: String,
         removedRecords: [CMUXAgentTurnDiffBaselineRecord],
-        retainedRecords: [CMUXAgentTurnDiffBaselineRecord]
+        database: CMUXAgentTurnDiffBaselineDatabase
     ) {
         pruneAgentTurnDiffBaselineRefs(
             removedRecords: removedRecords,
-            retainedRecords: retainedRecords
+            database: database
         )
-        pruneAgentTurnDiffBaselineSnapshots(storePath: storePath, retainedRecords: retainedRecords)
+        pruneAgentTurnDiffBaselineSnapshots(storePath: storePath, database: database)
     }
 
     private func pruneAgentTurnDiffBaselineRefs(
         removedRecords: [CMUXAgentTurnDiffBaselineRecord],
-        retainedRecords: [CMUXAgentTurnDiffBaselineRecord]
+        database: CMUXAgentTurnDiffBaselineDatabase
     ) {
         var deletedKeys: Set<String> = []
         for record in removedRecords {
             let repoRoot = standardizedDiffSourcePath(record.repoRoot)
             let key = "\(repoRoot)\u{0}\(record.baseCommit)"
             guard deletedKeys.insert(key).inserted else { continue }
-            let stillRetained = retainedRecords.contains { retained in
-                standardizedDiffSourcePath(retained.repoRoot) == repoRoot
-                    && retained.baseCommit == record.baseCommit
-            }
+            let stillRetained = (try? database.containsBaseCommit(
+                repoRoot: repoRoot,
+                baseCommit: record.baseCommit
+            )) ?? true
             guard !stillRetained else { continue }
             _ = CLIProcessRunner.runProcess(
                 executablePath: "/usr/bin/env",
@@ -3378,17 +3310,23 @@ extension CMUXCLI {
             )
         }
         var deletedBlobKeys: Set<String> = []
+        var retainedHashesByRepo: [String: Set<String>] = [:]
         for record in removedRecords {
             let repoRoot = standardizedDiffSourcePath(record.repoRoot)
+            let retainedHashes: Set<String>
+            if let cached = retainedHashesByRepo[repoRoot] {
+                retainedHashes = cached
+            } else if let loaded = try? database.retainedUntrackedHashes(repoRoot: repoRoot) {
+                retainedHashes = loaded
+                retainedHashesByRepo[repoRoot] = loaded
+            } else {
+                continue
+            }
             let blobs = Set(record.untrackedPathHashes.map { Array($0.values) } ?? [])
             for blob in blobs {
                 let key = "\(repoRoot)\u{0}\(blob)"
                 guard deletedBlobKeys.insert(key).inserted else { continue }
-                let stillRetained = retainedRecords.contains { retained in
-                    standardizedDiffSourcePath(retained.repoRoot) == repoRoot
-                        && (retained.untrackedPathHashes?.values.contains(blob) ?? false)
-                }
-                guard !stillRetained else { continue }
+                guard !retainedHashes.contains(blob) else { continue }
                 _ = CLIProcessRunner.runProcess(
                     executablePath: "/usr/bin/env",
                     arguments: ["git", "-C", repoRoot, "update-ref", "-d", agentTurnDiffBaselineUntrackedRefName(for: blob)],
@@ -3400,10 +3338,12 @@ extension CMUXCLI {
 
     private func pruneAgentTurnDiffBaselineSnapshots(
         storePath: String,
-        retainedRecords: [CMUXAgentTurnDiffBaselineRecord]
+        database: CMUXAgentTurnDiffBaselineDatabase
     ) {
         let rootURL = agentTurnDiffBaselineSnapshotRootURL(storePath: storePath)
-        let retainedSnapshotIds = Set(retainedRecords.compactMap(\.untrackedSnapshotId))
+        guard let retainedSnapshotIds = try? database.retainedSnapshotIds() else {
+            return
+        }
         guard let entries = try? FileManager.default.contentsOfDirectory(
             at: rootURL,
             includingPropertiesForKeys: [.isDirectoryKey],
@@ -3417,23 +3357,6 @@ extension CMUXCLI {
             }
             try? FileManager.default.removeItem(at: entry)
         }
-    }
-
-    private func agentTurnDiffBaselineRecordEquals(
-        _ lhs: CMUXAgentTurnDiffBaselineRecord,
-        _ rhs: CMUXAgentTurnDiffBaselineRecord
-    ) -> Bool {
-        standardizedDiffSourcePath(lhs.repoRoot) == standardizedDiffSourcePath(rhs.repoRoot)
-            && diffScopeIdentifierEquals(lhs.workspaceId, rhs.workspaceId)
-            && diffScopeIdentifierEquals(lhs.surfaceId, rhs.surfaceId)
-            && lhs.sessionId == rhs.sessionId
-            && lhs.turnId == rhs.turnId
-            && lhs.agent == rhs.agent
-            && lhs.baseCommit == rhs.baseCommit
-            && lhs.untrackedPaths == rhs.untrackedPaths
-            && lhs.untrackedPathHashes == rhs.untrackedPathHashes
-            && lhs.untrackedSnapshotId == rhs.untrackedSnapshotId
-            && lhs.capturedAt == rhs.capturedAt
     }
 
     private func diffScopeIdentifierEquals(_ lhs: String, _ rhs: String) -> Bool {
@@ -5553,28 +5476,23 @@ extension CMUXCLI {
 
     private func agentTurnDiffBaselineRepoURLs(context: DiffSourceContext) -> [URL] {
         guard let workspaceId = normalizedDiffSourceValue(context.workspaceId),
-              let surfaceId = normalizedDiffSourceValue(context.surfaceId),
-              let store = try? readAgentTurnDiffBaselineStore(
-                path: CMUXAgentTurnDiffBaselineFile.path(env: ProcessInfo.processInfo.environment)
-              ) else {
+              let surfaceId = normalizedDiffSourceValue(context.surfaceId) else {
+            return []
+        }
+        let environment = ProcessInfo.processInfo.environment
+        guard let database = try? CMUXAgentTurnDiffBaselineDatabase(
+            path: CMUXAgentTurnDiffBaselineFile.path(env: environment),
+            legacyJSONPath: CMUXAgentTurnDiffBaselineFile.legacyJSONPath(env: environment)
+        ) else {
             return []
         }
         let sessionId = normalizedDiffSourceValue(context.sessionId)
-        let matchingRecords = store.records
-            .filter { record in
-                diffScopeIdentifierEquals(record.workspaceId, workspaceId) &&
-                    diffScopeIdentifierEquals(record.surfaceId, surfaceId) &&
-                    (sessionId == nil || record.sessionId == sessionId)
-            }
-            .sorted { $0.capturedAt > $1.capturedAt }
-        var seen: Set<String> = []
-        var urls: [URL] = []
-        for record in matchingRecords {
-            let repoRoot = standardizedDiffSourcePath(record.repoRoot)
-            guard seen.insert(repoRoot).inserted else { continue }
-            urls.append(URL(fileURLWithPath: repoRoot, isDirectory: true).standardizedFileURL)
-        }
-        return urls
+        let roots = (try? database.repoRoots(
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            sessionId: sessionId
+        )) ?? []
+        return roots.map { URL(fileURLWithPath: $0, isDirectory: true).standardizedFileURL }
     }
 
     private func gitChildRepoURLs(in directoryURL: URL) -> [URL] {
@@ -6417,8 +6335,7 @@ extension CMUXCLI {
         // Branch regeneration runs on concurrent connection queues, so two
         // concurrent base selections can race this read-modify-write: the later
         // write would drop the earlier page from the manifest and 404 it.
-        // Serialize the whole sequence under a per-manifest flock, matching the
-        // flock pattern used by updateAgentTurnDiffBaselineStore.
+        // Serialize the whole sequence under a per-manifest flock.
         let lockPath = url.path + ".lock"
         let fd = open(lockPath, O_CREAT | O_RDWR | O_NOFOLLOW, mode_t(S_IRUSR | S_IWUSR))
         if fd < 0 {

@@ -129,6 +129,21 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(waitForFile(doneFile, containing: "done", timeout: 6))
     }
 
+    @Test func codexHooksPublishVisibleStateBeforeSlowTurnDiffBaseline() throws {
+        try assertCodexHookPublishesVisibleStateBeforeSlowTurnDiffBaseline(
+            eventName: "SessionStart",
+            subcommand: "session-start",
+            payload: #"{"session_id":"codex-session","cwd":"REPO_ROOT","hook_event_name":"SessionStart"}"#,
+            expectedCommandPrefix: "set_agent_pid "
+        )
+        try assertCodexHookPublishesVisibleStateBeforeSlowTurnDiffBaseline(
+            eventName: "UserPromptSubmit",
+            subcommand: "prompt-submit",
+            payload: #"{"session_id":"codex-session","turn_id":"turn-1","cwd":"REPO_ROOT","hook_event_name":"UserPromptSubmit","prompt":"work"}"#,
+            expectedCommandPrefix: "set_status codex Running "
+        )
+    }
+
     @Test func codexInstalledStopHookReturnsBeforeSlowCmuxCommandFinishes() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -657,6 +672,115 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(session["agentLifecycle"] as? String == "idle")
         #expect(session["runtimeStatus"] as? String == "idle")
         #expect(session["terminalPromptTurnIds"] as? [String] == ["turn-done"])
+    }
+
+    private func assertCodexHookPublishesVisibleStateBeforeSlowTurnDiffBaseline(
+        eventName: String,
+        subcommand: String,
+        payload: String,
+        expectedCommandPrefix: String
+    ) throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-slow-baseline-\(subcommand)-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        let fakeBin = root.appendingPathComponent("bin", isDirectory: true)
+        let fakeGit = fakeBin.appendingPathComponent("git", isDirectory: false)
+        let slowGitStarted = root.appendingPathComponent("slow-git-started", isDirectory: false)
+        let slowGitGate = root.appendingPathComponent("slow-git-gate", isDirectory: false)
+        let slowGitDone = root.appendingPathComponent("slow-git-done", isDirectory: false)
+        let baselineStore = root.appendingPathComponent("agent-turn-diff-baselines.sqlite3", isDirectory: false)
+        let socketPath = makeCodexHookSocketPath("slow-diff")
+        let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
+        let commands = CodexHookCapturedSocketCommands()
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: fakeBin, withIntermediateDirectories: true)
+        guard Darwin.mkfifo(slowGitGate.path, mode_t(S_IRUSR | S_IWUSR)) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        try makeCodexHookExecutableShellFile(at: fakeGit, lines: [
+            "#!/bin/sh",
+            "case \" $* \" in",
+            "  *\" rev-parse --show-toplevel \"*) printf '%s\\n' \"$CMUX_TEST_REPO_ROOT\" ;;",
+            "  *\" stash create \"*) printf started > \"$CMUX_TEST_SLOW_GIT_STARTED\"; cat \"$CMUX_TEST_SLOW_GIT_GATE\" >/dev/null; printf done > \"$CMUX_TEST_SLOW_GIT_DONE\"; exit 1 ;;",
+            "  *\" rev-parse HEAD \"*) printf '%040d\\n' 0 ;;",
+            "  *) exit 0 ;;",
+            "esac",
+        ])
+
+        let install = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "install", "--yes"],
+            environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
+            timeout: 5
+        )
+        #expect(!install.timedOut, Comment(rawValue: install.stderr))
+        #expect(install.status == 0, Comment(rawValue: install.stderr))
+        startCodexHookMockSocketServerAccepting(
+            listenerFD: listenerFD,
+            commands: commands,
+            surfaceId: surfaceId,
+            connectionLimit: 24
+        )
+
+        let hookCommand = try #require(
+            codexHookEntries(in: codexHome).first { $0.eventName == eventName }?.command
+        )
+        let environment = [
+            "HOME": root.path,
+            "CODEX_HOME": codexHome.path,
+            "PATH": "\(fakeBin.path):/usr/bin:/bin:/usr/sbin:/sbin",
+            "PWD": root.path,
+            "TMPDIR": root.path,
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_WORKSPACE_ID": workspaceId,
+            "CMUX_SURFACE_ID": surfaceId,
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+            "CMUX_BUNDLED_CLI_PATH": cliPath,
+            "CMUX_CODEX_PID": "4242",
+            "CMUX_TEST_REPO_ROOT": root.path,
+            "CMUX_TEST_SLOW_GIT_STARTED": slowGitStarted.path,
+            "CMUX_TEST_SLOW_GIT_GATE": slowGitGate.path,
+            "CMUX_TEST_SLOW_GIT_DONE": slowGitDone.path,
+        ]
+        let run = runCodexHookProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", hookCommand],
+            environment: environment,
+            standardInput: payload.replacingOccurrences(of: "REPO_ROOT", with: root.path),
+            timeout: 2
+        )
+
+        #expect(!run.timedOut, Comment(rawValue: run.stderr))
+        #expect(run.status == 0, Comment(rawValue: run.stderr))
+        #expect(run.stdout == "{}\n")
+        #expect(waitForFile(slowGitStarted, containing: "started", timeout: 5))
+        #expect(
+            commands.snapshot().contains { $0.hasPrefix(expectedCommandPrefix) },
+            "\(subcommand) must publish its sidebar state before starting the blocked turn-diff baseline"
+        )
+        let gateDescriptor = Darwin.open(slowGitGate.path, O_WRONLY)
+        #expect(gateDescriptor >= 0)
+        if gateDescriptor >= 0 {
+            var byte: UInt8 = 1
+            _ = withUnsafeBytes(of: &byte) { buffer in
+                Darwin.write(gateDescriptor, buffer.baseAddress, buffer.count)
+            }
+            Darwin.close(gateDescriptor)
+        }
+        #expect(waitForFile(slowGitDone, containing: "done", timeout: 5))
+        #expect(waitForCondition(timeout: 2) {
+            FileManager.default.fileExists(atPath: baselineStore.path)
+        })
     }
 
     private func bundledCLIPath() throws -> String {
