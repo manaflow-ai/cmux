@@ -81,6 +81,27 @@ struct CodexCriticalNotificationTests {
         )
     }
 
+    @Test("Codex exit before monitor registration notifies")
+    func processGoneBeforeMonitorRegistrationNotifies() throws {
+        let result = try runMonitor(
+            transcript: """
+            {"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-gone"}}
+            """,
+            sessionID: "session-gone",
+            turnID: "turn-gone",
+            additionalArguments: ["--pid", "999999"]
+        )
+
+        #expect(!result.process.timedOut, result.process.stderr)
+        #expect(result.process.status == 0, result.process.stderr)
+        #expect(
+            result.commands.contains { command in
+                command.contains("notify_target_async \(workspaceID) \(surfaceID) Codex|Error|Codex exited before finishing the turn")
+            },
+            "Expected a pre-registration process-exit notification, saw \(result.commands)"
+        )
+    }
+
     @Test("A terminal stream disconnect notifies without a Stop hook")
     func streamDisconnectNotifiesFromMonitor() throws {
         let result = try runMonitor(
@@ -99,6 +120,27 @@ struct CodexCriticalNotificationTests {
                 command.contains("notify_target_async \(workspaceID) \(surfaceID) Codex|Network error|stream disconnected before completion: error sending request for url")
             },
             "Expected the terminal stream disconnect to notify, saw \(result.commands)"
+        )
+    }
+
+    @Test("A model-capacity failure notifies without a Stop hook")
+    func modelCapacityFailureNotifiesFromMonitor() throws {
+        let result = try runMonitor(
+            transcript: """
+            {"type":"event_msg","payload":{"type":"task_started","turn_id":"turn-capacity"}}
+            {"type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-capacity","last_agent_message":null,"error":{"message":"Selected model is at capacity. Please try a different model.","codex_error_info":"other"}}}
+            """,
+            sessionID: "session-capacity",
+            turnID: "turn-capacity"
+        )
+
+        #expect(!result.process.timedOut, result.process.stderr)
+        #expect(result.process.status == 0, result.process.stderr)
+        #expect(
+            result.commands.contains { command in
+                command.contains("notify_target_async \(workspaceID) \(surfaceID) Codex|Error|Selected model is at capacity. Please try a different model.")
+            },
+            "Expected the model-capacity failure to notify, saw \(result.commands)"
         )
     }
 

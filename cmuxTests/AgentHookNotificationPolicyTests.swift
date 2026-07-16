@@ -67,24 +67,20 @@ struct AgentHookNotificationPolicyTests {
         ) == nil)
         let firstCritical = AgentHookNotificationPolicy.codexCriticalFingerprint(
             sessionId: "session-1",
-            turnId: "turn-1",
-            body: "stream disconnected"
+            turnId: "turn-1"
         )
         #expect(firstCritical?.hasPrefix("codex-critical:") == true)
         #expect(firstCritical != AgentHookNotificationPolicy.codexCriticalFingerprint(
             sessionId: "session-2",
-            turnId: "turn-1",
-            body: "stream disconnected"
+            turnId: "turn-1"
         ))
         #expect(firstCritical != AgentHookNotificationPolicy.codexCriticalFingerprint(
             sessionId: "session-1",
-            turnId: "turn-2",
-            body: "stream disconnected"
+            turnId: "turn-2"
         ))
         #expect(AgentHookNotificationPolicy.codexCriticalFingerprint(
             sessionId: "",
-            turnId: "turn-1",
-            body: "stream disconnected"
+            turnId: "turn-1"
         ) == nil)
         #expect(AgentHookNotificationPolicy.dedupeFingerprint(
             agentName: "grok",

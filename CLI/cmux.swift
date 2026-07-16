@@ -26734,10 +26734,11 @@ struct CMUXCLI {
         if let leasePath, !leasePath.isEmpty {
             monitorArgs += ["--lease", leasePath]
         }
-        if let codexPID = agentPIDFromHookEnvironment(agentName: "codex", env: env),
-           let startTime = sessionsListProcessIdentity(for: codexPID)?.startTime {
+        if let codexPID = agentPIDFromHookEnvironment(agentName: "codex", env: env) {
             monitorArgs += ["--pid", String(codexPID)]
-            monitorArgs += ["--pid-start", String(startTime)]
+            if let startTime = sessionsListProcessIdentity(for: codexPID)?.startTime {
+                monitorArgs += ["--pid-start", String(startTime)]
+            }
         }
         process.arguments = monitorArgs
         process.environment = env.merging(
@@ -26770,7 +26771,7 @@ struct CMUXCLI {
         let codexPIDStartTime = optionValue(commandArgs, name: "--pid-start").flatMap(TimeInterval.init)
         let requestedCodexPID = optionValue(commandArgs, name: "--pid").flatMap(Int.init)
             ?? agentPIDFromHookEnvironment(agentName: "codex", env: env)
-        let codexPID = codexPIDStartTime == nil ? nil : requestedCodexPID
+        let codexPID = requestedCodexPID
 
         guard !workspaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -26931,8 +26932,7 @@ struct CMUXCLI {
         if let surfaceId, !surfaceId.isEmpty {
             guard let fingerprint = AgentHookNotificationPolicy.codexCriticalFingerprint(
                 sessionId: sessionId,
-                turnId: turnId,
-                body: summary.body
+                turnId: turnId
             ) else { return }
             let payload = "Codex|\(sanitizeNotificationField(summary.subtitle))|\(sanitizeNotificationField(summary.body))|d=\(fingerprint)"
             _ = try? sendV1Command(
@@ -26957,6 +26957,9 @@ struct CMUXCLI {
         if let codexPID, let codexPIDStartTime,
            let identity = sessionsListProcessIdentity(for: codexPID),
            abs(identity.startTime - codexPIDStartTime) >= 0.001 {
+            return true
+        }
+        if let codexPID, codexMonitorProcessIsGone(pid: codexPID) {
             return true
         }
 
@@ -27000,6 +27003,10 @@ struct CMUXCLI {
             }
             source.resume()
             processSource = source
+            if codexMonitorProcessIsGone(pid: codexPID) {
+                processExit.record()
+                semaphore.signal()
+            }
         }
 
         guard !sources.isEmpty || processSource != nil else {
@@ -27011,6 +27018,12 @@ struct CMUXCLI {
         sources.forEach { $0.cancel() }
         processSource?.cancel()
         return processExit.value
+    }
+
+    private func codexMonitorProcessIsGone(pid: Int) -> Bool {
+        guard pid > 0, pid <= Int(Int32.max) else { return false }
+        errno = 0
+        return kill(pid_t(pid), 0) != 0 && errno == ESRCH
     }
 
     private func extractMessageText(from message: [String: Any]) -> String? {
@@ -31355,11 +31368,14 @@ export default CMUXSessionRestore;
                 category: stopNotificationStatus == .idle ? .turnComplete : .other,
                 body: body
             )
+            let codexCriticalTurnId = normalizedHookValue(input.turnId)
+                ?? mapped?.activePromptTurnIds?.compactMap({ normalizedHookValue($0) }).last
+                ?? normalizedHookValue(mapped?.activePromptTurnId)
+                ?? normalizedHookValue(mapped?.lastPromptTurnId)
             let codexCriticalFingerprint = stopNotificationStatus == .error
                 ? AgentHookNotificationPolicy.codexCriticalFingerprint(
                     sessionId: sessionId,
-                    turnId: input.turnId,
-                    body: body
+                    turnId: codexCriticalTurnId
                 )
                 : nil
             let stopNotificationAlreadyRouted = (input.rawObject?["cmux_notification_routed"] as? Bool) == true
