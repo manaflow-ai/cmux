@@ -1739,7 +1739,7 @@
           "defaultSearchEngine": "Default search engine for non-URL browser address bar queries. Use custom with customSearchEngineURLTemplate for arbitrary providers.",
           "customSearchEngineName": "Display name used when defaultSearchEngine is custom.",
           "customSearchEngineURLTemplate": "Search URL used when defaultSearchEngine is custom. Include the query placeholder or %s for the encoded query. If omitted, cmux appends q= to the URL.",
-          "forwardWebNotifications": "Forward page-created website notifications through cmux after the website grants notification permission.",
+          "forwardWebNotifications": "Forward website notifications through cmux after the website grants per-profile origin permission. Native-capable runtimes also support service-worker notifications while cmux is running.",
           "askWhereToSaveDownloads": "Show a save panel for browser downloads instead of saving directly to Downloads."
         },
         "workspaceGroups": {

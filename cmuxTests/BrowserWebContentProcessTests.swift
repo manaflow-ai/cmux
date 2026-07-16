@@ -12,6 +12,7 @@ import WebKit
 @Suite(.serialized)
 struct BrowserWebContentProcessTests {
     private let recoveryURL = URL(string: "data:text/html,cmux-recovery")!
+    private let profileID = UUID(uuidString: "11111111-2222-3333-4444-555555555555")!
 
     @Test
     func browserPanelsShareDefaultWebsiteDataStore() {
@@ -32,7 +33,8 @@ struct BrowserWebContentProcessTests {
 
         BrowserPanel.configureWebViewConfiguration(
             configuration,
-            websiteDataStore: websiteDataStore
+            websiteDataStore: websiteDataStore,
+            profileID: profileID
         )
 
         #expect(configuration.websiteDataStore === websiteDataStore)
@@ -43,7 +45,8 @@ struct BrowserWebContentProcessTests {
         let configuration = WKWebViewConfiguration()
         BrowserPanel.configureWebViewConfiguration(
             configuration,
-            websiteDataStore: .nonPersistent()
+            websiteDataStore: .nonPersistent(),
+            profileID: profileID
         )
         let webAuthnScript = try #require(
             configuration.userContentController.userScripts.first {
@@ -122,7 +125,8 @@ struct BrowserWebContentProcessTests {
         let configuration = WKWebViewConfiguration()
         BrowserPanel.configureWebViewConfiguration(
             configuration,
-            websiteDataStore: .nonPersistent()
+            websiteDataStore: .nonPersistent(),
+            profileID: profileID
         )
         let probe = BrowserWebAuthnReplyProbe()
         configuration.userContentController.addScriptMessageHandler(

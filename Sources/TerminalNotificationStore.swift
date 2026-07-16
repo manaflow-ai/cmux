@@ -966,6 +966,39 @@ final class TerminalNotificationStore: ObservableObject {
         inFlightPolicyRequests.attach(task: task, to: policyRequestId)
     }
 
+    /// Records and delivers a session-only website notification without a
+    /// workspace policy, pane effect, workspace reorder, hook, or phone push.
+    @discardableResult
+    func addGlobalWebsiteNotification(
+        title: String,
+        subtitle: String,
+        body: String,
+        profileID: UUID,
+        origin: URL
+    ) -> UUID {
+        let notification = TerminalNotification(
+            id: UUID(),
+            tabId: TerminalNotification.globalTargetSentinel,
+            surfaceId: nil,
+            retargetsToLiveSurfaceOwner: false,
+            title: title,
+            subtitle: subtitle,
+            body: body,
+            createdAt: Date(),
+            isRead: false,
+            paneFlash: false,
+            source: .website(profileID: profileID, origin: origin, isBackground: true),
+            target: .global
+        )
+        notifications.insert(notification, at: 0)
+        var effects = TerminalNotificationPolicyEffects()
+        effects.reorderWorkspace = false
+        effects.command = false
+        effects.paneFlash = false
+        notificationDeliveryHandler(self, notification, effects)
+        return notification.id
+    }
+
     private func completePolicyRequest(_ policyRequestId: UUID, request: TerminalNotificationPolicyRequest, envelope: TerminalNotificationPolicyEnvelope, cooldownReservation: NotificationCooldownReservation?, scrollPosition: TerminalNotificationScrollPosition?, clickAction: TerminalNotificationClickAction?) {
         inFlightPolicyRequests.complete(policyRequestId) { [weak self] in
             self?.applyNotification(request: request, envelope: envelope, now: Date(), cooldownReservation: cooldownReservation, scrollPosition: scrollPosition, clickAction: clickAction, policyRequestId: nil)

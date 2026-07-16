@@ -46,7 +46,9 @@ struct NotificationsPage: View {
                 ForEach(notificationStore.notifications) { notification in
                     NotificationRow(
                         notification: notification,
-                        tabTitle: tabTitle(for: notification.tabId, in: tabTitles),
+                        tabTitle: notification.isGlobal
+                            ? notification.subtitle
+                            : tabTitle(for: notification.tabId, in: tabTitles),
                         isFocused: focusedNotificationId == notification.id,
                         onOpen: {
                             // SwiftUI action closures aren't guaranteed to be main-actor

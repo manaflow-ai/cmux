@@ -349,8 +349,10 @@ final class BrowserProfileStore: ObservableObject {
     @Published private(set) var lastUsedProfileID: UUID = BrowserProfileRepository.builtInDefaultProfileID
 
     private let repository: BrowserProfileRepository
+    let notificationPermissions: BrowserNotificationPermissionRepository
 
     init(defaults: UserDefaults = .standard) {
+        notificationPermissions = BrowserNotificationPermissionRepository(defaults: defaults)
         repository = BrowserProfileRepository(
             defaults: defaults,
             historyProvider: BrowserProfileHistoryAdapter(),
@@ -401,12 +403,14 @@ final class BrowserProfileStore: ObservableObject {
 
     func deleteProfile(id: UUID) -> BrowserProfileDefinition? {
         let result = repository.deleteProfile(id: id)
+        if result != nil { notificationPermissions.clear(profileID: id) }
         mirrorPublishedState()
         return result
     }
 
     func clearProfileData(id: UUID) async -> BrowserProfileClearOutcome? {
         let result = await repository.clearProfileData(id: id)
+        if result != nil { notificationPermissions.clear(profileID: id) }
         mirrorPublishedState()
         return result
     }
@@ -725,6 +729,7 @@ func browserNewTabNavigationSeed(
 /// Mirrors the opener's WebKit browsing context for popup windows.
 struct BrowserPopupBrowserContext {
     let websiteDataStore: WKWebsiteDataStore
+    let profileID: UUID
 }
 
 enum BrowserFileSystemAccessBridge {
@@ -3048,7 +3053,8 @@ final class BrowserPanel: Panel, ObservableObject {
             surfaceId: surfaceId,
             title: title,
             subtitle: subtitle,
-            body: body
+            body: body,
+            retargetsToLiveSurfaceOwner: false
         )
     }
 
@@ -3372,7 +3378,8 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Popups inherit this panel's exact WebKit storage context.
     var popupBrowserContext: BrowserPopupBrowserContext {
         BrowserPopupBrowserContext(
-            websiteDataStore: websiteDataStore
+            websiteDataStore: websiteDataStore,
+            profileID: profileID
         )
     }
 
@@ -3543,7 +3550,8 @@ final class BrowserPanel: Panel, ObservableObject {
         let config = WKWebViewConfiguration()
         configureWebViewConfiguration(
             config,
-            websiteDataStore: websiteDataStore ?? BrowserProfileStore.shared.websiteDataStore(for: profileID)
+            websiteDataStore: websiteDataStore ?? BrowserProfileStore.shared.websiteDataStore(for: profileID),
+            profileID: profileID
         )
 
         let webView = CmuxWebView(frame: .zero, configuration: config)
@@ -3562,7 +3570,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
     static func configureWebViewConfiguration(
         _ configuration: WKWebViewConfiguration,
-        websiteDataStore: WKWebsiteDataStore
+        websiteDataStore: WKWebsiteDataStore,
+        profileID: UUID
     ) {
         configuration.mediaTypesRequiringUserActionForPlayback = []
         // Ensure browser cookies/storage persist across navigations and launches.
@@ -3592,6 +3601,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 forMainFrameOnly: true
             )
         )
+        configureWebNotificationFallback(on: configuration, profileID: profileID)
         // Keep browser console/error/dialog telemetry active from document start on every navigation.
         // Main frame only — injecting into cross-origin iframes causes CAPTCHA providers
         // (reCAPTCHA, hCaptcha, Cloudflare Turnstile) to detect the overridden console.*
@@ -4168,6 +4178,21 @@ final class BrowserPanel: Panel, ObservableObject {
             cmuxDebugLog("browser.webViewDidClose panel=\(self.id.uuidString.prefix(5))")
 #endif
             self.webViewDidRequestClose?()
+        }
+        browserUIDelegate.requestNotificationPermission = { [weak self] webView, origin, decisionHandler in
+            guard let self else {
+                decisionHandler(false)
+                return
+            }
+            var components = URLComponents()
+            components.scheme = origin.protocol
+            components.host = origin.host
+            if origin.port != 0 { components.port = origin.port }
+            guard let originURL = components.url else {
+                decisionHandler(false)
+                return
+            }
+            self.resolveWebNotificationPermission(for: originURL, in: webView, reply: decisionHandler)
         }
         self.uiDelegate = browserUIDelegate
 
@@ -5995,10 +6020,6 @@ final class BrowserPanel: Panel, ObservableObject {
         webViewCancellables.removeAll()
         let webView = webView
         Task { @MainActor in
-            webView.configuration.userContentController.removeScriptMessageHandler(
-                forName: BrowserWebNotificationMessageHandler.name,
-                contentWorld: .page
-            )
             BrowserWindowPortalRegistry.detach(webView: webView)
         }
     }
@@ -8383,6 +8404,16 @@ private class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
     var presentAlert: BrowserAlertPresenter = browserPresentAlert
     var openPopup: ((WKWebViewConfiguration, WKWindowFeatures) -> WKWebView?)?
     var closeRequested: ((WKWebView) -> Void)?
+    var requestNotificationPermission: ((WKWebView, WKSecurityOrigin, @escaping (Bool) -> Void) -> Void)?
+
+    @objc(_webView:requestNotificationPermissionForSecurityOrigin:decisionHandler:)
+    func webView(
+        _ webView: WKWebView,
+        requestNotificationPermissionFor securityOrigin: WKSecurityOrigin,
+        decisionHandler: @escaping (Bool) -> Void
+    ) {
+        requestNotificationPermission?(webView, securityOrigin, decisionHandler) ?? decisionHandler(false)
+    }
 
     func webViewDidClose(_ webView: WKWebView) {
         closeRequested?(webView)

@@ -16357,7 +16357,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     @MainActor
     func openTerminalNotification(_ notification: TerminalNotification) -> Bool {
-        notificationNavigation.openNotification(
+        if case .website(_, let origin, true) = notification.source {
+            TerminalNotificationStore.shared.markRead(id: notification.id)
+            BrowserWebNotificationNativeAdapter.shared.handleGlobalNotificationClick(
+                notificationID: notification.id,
+                fallbackOrigin: origin
+            )
+            return true
+        }
+        return notificationNavigation.openNotification(
             notification.notificationNavigationSnapshot
         )
     }
