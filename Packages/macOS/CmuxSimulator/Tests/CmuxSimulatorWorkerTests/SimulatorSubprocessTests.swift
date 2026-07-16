@@ -188,13 +188,17 @@ struct SimulatorSubprocessTests {
             """#,
             marker.path,
         ]
-        let process = try SimulatorProcessGroupProcess(
+        let processIdentifier = try SimulatorPOSIXProcessLauncher().launch(
             executableURL: SimulatorParentLifetimeSupervisor.executableURL,
             arguments: SimulatorParentLifetimeSupervisor.arguments(
                 executableURL: target,
                 arguments: targetArguments
             ),
+            environment: [:],
+            currentDirectoryURL: nil,
             standardInputFD: parentLifetime.fileHandleForReading.fileDescriptor,
+            standardOutputFD: nil,
+            standardErrorFD: nil,
             fileDescriptorsToClose: [
                 parentLifetime.fileHandleForReading.fileDescriptor,
                 parentLifetime.fileHandleForWriting.fileDescriptor,
@@ -202,15 +206,17 @@ struct SimulatorSubprocessTests {
         )
         try? parentLifetime.fileHandleForReading.close()
         let identifiers = try await Self.requireSupervisorMarker(marker)
-        #expect(identifiers.group == process.processIdentifier)
+        #expect(identifiers.group == processIdentifier)
 
         try parentLifetime.fileHandleForWriting.close()
-        let deadline = ContinuousClock().now.advanced(by: .seconds(2))
-        while await process.isRunning, ContinuousClock().now < deadline {
-            try await ContinuousClock().sleep(for: .milliseconds(10))
-        }
+        var rawStatus: Int32 = 0
+        var waitResult: pid_t
+        repeat {
+            waitResult = waitpid(processIdentifier, &rawStatus, 0)
+        } while waitResult == -1 && errno == EINTR
 
-        #expect(await process.terminationStatus == SIGKILL)
+        #expect(waitResult == processIdentifier)
+        #expect(rawStatus & 0x7f == SIGKILL)
         await Self.expectProcessExited(identifiers.process)
     }
 

@@ -10,6 +10,7 @@ package actor SimulatorProcessGroupProcess {
     package nonisolated let processIdentifier: Int32
 
     private nonisolated let processGroup: SimulatorWorkerProcessGroup
+    private nonisolated let parentLifetime: Pipe
     private var processIsRunning = true
     private var completedTerminationStatus: Int32?
     private var terminationHandler: (@Sendable (Int32) -> Void)?
@@ -21,29 +22,44 @@ package actor SimulatorProcessGroupProcess {
         arguments: [String],
         environment: [String: String] = [:],
         currentDirectoryURL: URL? = nil,
-        standardInputFD: Int32? = nil,
         standardOutputFD: Int32? = nil,
         standardErrorFD: Int32? = nil,
         fileDescriptorsToClose: [Int32] = [],
         launcher: SimulatorPOSIXProcessLauncher = SimulatorPOSIXProcessLauncher()
     ) throws {
-        processIdentifier = try launcher.launch(
-            executableURL: executableURL,
-            arguments: arguments,
-            environment: environment,
-            currentDirectoryURL: currentDirectoryURL,
-            standardInputFD: standardInputFD,
-            standardOutputFD: standardOutputFD,
-            standardErrorFD: standardErrorFD,
-            fileDescriptorsToClose: fileDescriptorsToClose
-        )
+        let parentLifetime = Pipe()
+        self.parentLifetime = parentLifetime
         processGroup = SimulatorWorkerProcessGroup()
+        do {
+            processIdentifier = try launcher.launch(
+                executableURL: SimulatorParentLifetimeSupervisor.executableURL,
+                arguments: SimulatorParentLifetimeSupervisor.arguments(
+                    executableURL: executableURL,
+                    arguments: arguments
+                ),
+                environment: environment,
+                currentDirectoryURL: currentDirectoryURL,
+                standardInputFD: parentLifetime.fileHandleForReading.fileDescriptor,
+                standardOutputFD: standardOutputFD,
+                standardErrorFD: standardErrorFD,
+                fileDescriptorsToClose: fileDescriptorsToClose + [
+                    parentLifetime.fileHandleForReading.fileDescriptor,
+                    parentLifetime.fileHandleForWriting.fileDescriptor,
+                ]
+            )
+        } catch {
+            try? parentLifetime.fileHandleForReading.close()
+            try? parentLifetime.fileHandleForWriting.close()
+            throw error
+        }
+        try? parentLifetime.fileHandleForReading.close()
         startReaper()
     }
 
     deinit {
         guard processIsRunning else { return }
         _ = signalOwnedScope(SIGKILL)
+        try? parentLifetime.fileHandleForWriting.close()
     }
 
     package var isRunning: Bool {
@@ -103,6 +119,7 @@ package actor SimulatorProcessGroupProcess {
             // The leader is reaped, but descendants may still retain pipes or
             // ignore an earlier signal. This group is exclusively ours.
             _ = processGroup.signal(SIGKILL, groupIdentifier: processIdentifier)
+            try? self?.parentLifetime.fileHandleForWriting.close()
             Task {
                 await self?.recordTermination(status)
             }

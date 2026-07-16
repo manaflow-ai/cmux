@@ -26,6 +26,7 @@ public func runSimulatorWorker(
     let queue = SimulatorBoundedMessageQueue<SimulatorWorkerInbound>(
         limit: SimulatorLengthPrefixedMessageChannel.maximumBufferedFrameCount
     )
+    let gracefulExitAcknowledgement = DispatchSemaphore(value: 0)
 
     // A blocking read is the descriptor's wake-up primitive. It is confined
     // to this reader thread and yields into one ordered main-actor consumer.
@@ -47,6 +48,12 @@ public func runSimulatorWorker(
             }
         }
         queue.finish()
+        // EOF is the host-lifetime signal. Give ordered main-actor cleanup one
+        // bounded chance, then exit independently if private Simulator code has
+        // blocked that actor.
+        if gracefulExitAcknowledgement.wait(timeout: .now() + 1) == .timedOut {
+            _exit(0)
+        }
     }
     reader.name = "cmux-simulator-worker-reader"
     reader.stackSize = 1 << 20
@@ -59,10 +66,12 @@ public func runSimulatorWorker(
         Task { @MainActor in
             for await message in queue.stream {
                 guard await coordinator.handle(message) else {
+                    gracefulExitAcknowledgement.signal()
                     exit(0)
                 }
             }
             coordinator.prepareForProcessExit()
+            gracefulExitAcknowledgement.signal()
             exit(0)
         }
         application.run()

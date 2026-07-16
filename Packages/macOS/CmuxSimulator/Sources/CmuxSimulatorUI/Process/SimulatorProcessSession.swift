@@ -7,7 +7,6 @@ final class SimulatorProcessSession {
     private(set) var isRunning = false
     private var process: SimulatorProcessGroupProcess?
     private let outputPipe = Pipe()
-    private let parentLifetime = Pipe()
     private let sleeper: any SimulatorProcessSleeper
     private let interruptGracePeriod: Duration
     private let terminationGracePeriod: Duration
@@ -56,24 +55,16 @@ final class SimulatorProcessSession {
             let outputDescriptor = capturesOutput
                 ? outputPipe.fileHandleForWriting.fileDescriptor
                 : nil
-            var descriptorsToClose = [
-                parentLifetime.fileHandleForReading.fileDescriptor,
-                parentLifetime.fileHandleForWriting.fileDescriptor,
-            ]
+            var descriptorsToClose: [Int32] = []
             if capturesOutput {
                 descriptorsToClose += [
                     outputPipe.fileHandleForReading.fileDescriptor,
                     outputPipe.fileHandleForWriting.fileDescriptor,
                 ]
             }
-            let executableURL = URL(fileURLWithPath: descriptor.executable)
             let process = try SimulatorProcessGroupProcess(
-                executableURL: SimulatorParentLifetimeSupervisor.executableURL,
-                arguments: SimulatorParentLifetimeSupervisor.arguments(
-                    executableURL: executableURL,
-                    arguments: descriptor.arguments
-                ),
-                standardInputFD: parentLifetime.fileHandleForReading.fileDescriptor,
+                executableURL: URL(fileURLWithPath: descriptor.executable),
+                arguments: descriptor.arguments,
                 standardOutputFD: outputDescriptor,
                 standardErrorFD: outputDescriptor,
                 fileDescriptorsToClose: descriptorsToClose
@@ -95,13 +86,10 @@ final class SimulatorProcessSession {
                     }
                 }
             }
-            try? parentLifetime.fileHandleForReading.close()
             if capturesOutput {
                 try? outputPipe.fileHandleForWriting.close()
             }
         } catch {
-            try? parentLifetime.fileHandleForReading.close()
-            try? parentLifetime.fileHandleForWriting.close()
             try? outputPipe.fileHandleForWriting.close()
             outputTask?.cancel()
             outputTask = nil
@@ -139,7 +127,6 @@ final class SimulatorProcessSession {
 
     private func finishTermination() {
         guard isRunning else { return }
-        try? parentLifetime.fileHandleForWriting.close()
         let callback = onTermination
         onTermination = nil
         callback?()
@@ -186,7 +173,6 @@ final class SimulatorProcessSession {
         }
         outputTask?.cancel()
         outputReader?.cancel()
-        try? parentLifetime.fileHandleForWriting.close()
         terminationContinuation.finish()
     }
 }
