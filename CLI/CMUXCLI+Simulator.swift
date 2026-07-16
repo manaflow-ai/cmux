@@ -652,10 +652,15 @@ extension CMUXCLI {
         var params: [String: Any] = ["workspace_id": workspaceID]
         if let callerSurfaceID = environment["CMUX_SURFACE_ID"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
-           !callerSurfaceID.isEmpty,
-           let paneID = try simulatorPaneIDForCallerSurface(
-               workspaceID: workspaceID, surfaceID: callerSurfaceID, client: client
-           ) {
+           !callerSurfaceID.isEmpty {
+            guard let paneID = try simulatorPaneIDForCallerSurface(
+                workspaceID: workspaceID, surfaceID: callerSurfaceID, client: client
+            ) else {
+                throw CLIError(message: String(
+                    localized: "cli.simulator.error.callerSurfaceUnavailable",
+                    defaultValue: "The caller surface is no longer available. Pass --surface or --window to select a Simulator."
+                ))
+            }
             params["pane_id"] = paneID
         }
         return params

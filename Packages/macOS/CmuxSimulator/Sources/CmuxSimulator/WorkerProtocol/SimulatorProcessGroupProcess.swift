@@ -85,10 +85,7 @@ package actor SimulatorProcessGroupProcess {
     /// Signals the complete command group owned by this wrapper.
     @discardableResult
     package nonisolated func signalOwnedScope(_ signal: Int32) -> Bool {
-        if processGroup.signal(signal, groupIdentifier: processIdentifier) {
-            return true
-        }
-        return Darwin.kill(processIdentifier, signal) == 0
+        processGroup.signal(signal, groupIdentifier: processIdentifier)
     }
 
     package nonisolated func interrupt() {
