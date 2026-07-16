@@ -69,7 +69,37 @@ extension ContentView {
             snapshot,
             isRemoteTerminal: isRemoteContext
         ) == .requiresProbe {
-            let fallbackForValidation = selection.usedFallbackSnapshot ? snapshot : nil
+            let selectedSnapshotFingerprint = Self.commandPaletteForkSnapshotFingerprint(
+                snapshot,
+                isRemoteTerminal: isRemoteContext
+            )
+            let fallbackForValidation: SessionRestorableAgentSnapshot?
+            if selection.usedFallbackSnapshot {
+                guard let fallbackSnapshot,
+                      Self.commandPaletteForkSnapshotFingerprint(
+                        fallbackSnapshot,
+                        isRemoteTerminal: isRemoteContext
+                      ) == selectedSnapshotFingerprint else {
+                    clearCommandPaletteForkableAgentCache(panelKey: panelKey)
+                    NSSound.beep()
+                    return
+                }
+                fallbackForValidation = snapshot
+            } else {
+                guard let currentIndexSnapshot = SharedLiveAgentIndex.shared.index?.snapshot(
+                    workspaceId: workspaceId,
+                    panelId: panelId
+                ),
+                      Self.commandPaletteForkSnapshotFingerprint(
+                        currentIndexSnapshot,
+                        isRemoteTerminal: isRemoteContext
+                      ) == selectedSnapshotFingerprint else {
+                    clearCommandPaletteForkableAgentCache(panelKey: panelKey)
+                    NSSound.beep()
+                    return
+                }
+                fallbackForValidation = nil
+            }
             guard SharedLiveAgentIndex.shared.forkSupportProbeAccepted(
                 workspaceId: workspaceId,
                 panelId: panelId,
@@ -269,15 +299,22 @@ extension ContentView {
             ) == .requiresProbe else {
                 return true
             }
-            guard executableFingerprintsByPanelKey[panelKey] != nil
-                || !AgentForkSupport.requiresForkValidationExecutableIdentity(
-                    snapshot: snapshot,
-                    isRemoteContext: isRemoteTerminal
-                ) else {
-                return false
+            let validatedAt = validatedAtByPanelKey[panelKey]
+            let cachedExecutableFingerprint = executableFingerprintsByPanelKey[panelKey]
+            let hasProbeMetadata = validatedAt != nil || cachedExecutableFingerprint != nil
+            if AgentForkSupport.requiresForkValidationExecutableIdentity(
+                snapshot: snapshot,
+                isRemoteContext: isRemoteTerminal
+            ) {
+                guard !hasProbeMetadata || cachedExecutableFingerprint != nil else {
+                    return false
+                }
+            }
+            guard let validatedAt else {
+                return true
             }
             return commandPaletteForkableAgentProbeResultIsFresh(
-                validatedAt: validatedAtByPanelKey[panelKey],
+                validatedAt: validatedAt,
                 now: now
             )
         }

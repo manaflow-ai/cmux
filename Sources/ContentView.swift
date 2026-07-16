@@ -907,6 +907,7 @@ struct ContentView: View {
     @State var commandPaletteForkableAgentValidatedAtByPanelKey: [String: Date] = [:]
     @State private var commandPaletteForkableAgentAvailabilityTasksByPanelKey: [String: Task<Void, Never>] = [:]
     @State private var commandPaletteForkableAgentProbeFingerprintsByPanelKey: [String: String] = [:]
+    @State private var commandPaletteForkableAgentProbeResultExpiryTimer: DispatchSourceTimer?
     @State private var isCommandPaletteSearchPending = false
     @State private var commandPalettePendingActivation: CommandPalettePendingActivation?
     @State private var commandPaletteResultsRevision: UInt64 = 0
@@ -2600,6 +2601,10 @@ struct ContentView: View {
                 notificationPayloadHex: payloadHex
             )
         }.onReceive(NotificationCenter.default.publisher(for: .systemAppearanceDidChange)) { _ in scheduleTitlebarThemeRefresh(reason: "systemAppearanceChanged") })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .sharedLiveAgentIndexDidChange)) { notification in
+            refreshCommandPaletteForkableAgentAvailabilityAfterSharedIndexChange(notification)
+        })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusTab)) { _ in
             sidebarSelectionState.selection = .tabs
@@ -5641,6 +5646,16 @@ struct ContentView: View {
         return now.timeIntervalSince(validatedAt) < commandPaletteForkableAgentProbeResultTTL
     }
 
+    static func commandPaletteNextForkableAgentProbeResultExpiry(
+        validatedAtByPanelKey: [String: Date],
+        now: Date = Date()
+    ) -> Date? {
+        validatedAtByPanelKey.values
+            .map { $0.addingTimeInterval(commandPaletteForkableAgentProbeResultTTL) }
+            .filter { $0 > now }
+            .min()
+    }
+
     static func commandPaletteForkableAgentProbeResultMatches(
         panelKey: String,
         supportedPanelKeys: Set<String>,
@@ -5756,7 +5771,67 @@ struct ContentView: View {
         }
     }
 
+    private func scheduleCommandPaletteForkableAgentProbeResultExpiryRefresh(now: Date = Date()) {
+        commandPaletteForkableAgentProbeResultExpiryTimer?.cancel()
+        commandPaletteForkableAgentProbeResultExpiryTimer = nil
+        guard isCommandPalettePresented,
+              Self.commandPaletteListScope(for: commandPaletteQuery) == .commands,
+              let nextExpiry = Self.commandPaletteNextForkableAgentProbeResultExpiry(
+                validatedAtByPanelKey: commandPaletteForkableAgentValidatedAtByPanelKey,
+                now: now
+              ) else {
+            return
+        }
+        let delay = max(nextExpiry.timeIntervalSince(now), 0.001)
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + delay, leeway: .milliseconds(100))
+        timer.setEventHandler {
+            commandPaletteForkableAgentProbeResultExpiryTimer?.cancel()
+            commandPaletteForkableAgentProbeResultExpiryTimer = nil
+            guard isCommandPalettePresented else { return }
+            pruneCommandPaletteForkableAgentProbeResults()
+            scheduleCommandPaletteResultsRefresh(
+                query: commandPaletteQuery,
+                preservePendingActivation: true
+            )
+            scheduleCommandPaletteForkableAgentProbeResultExpiryRefresh()
+        }
+        commandPaletteForkableAgentProbeResultExpiryTimer = timer
+        timer.resume()
+    }
+
+    private func cancelCommandPaletteForkableAgentProbeResultExpiryRefresh() {
+        commandPaletteForkableAgentProbeResultExpiryTimer?.cancel()
+        commandPaletteForkableAgentProbeResultExpiryTimer = nil
+    }
+
+    private func refreshCommandPaletteForkableAgentAvailabilityAfterSharedIndexChange(_ notification: Notification) {
+        guard isCommandPalettePresented,
+              Self.commandPaletteListScope(for: commandPaletteQuery) == .commands else {
+            return
+        }
+        if let workspaceId = notification.userInfo?["workspaceId"] as? UUID,
+           let panelId = notification.userInfo?["panelId"] as? UUID {
+            let changedPanelKey = Self.commandPaletteForkableAgentPanelKey(
+                workspaceId: workspaceId,
+                panelId: panelId
+            )
+            guard commandPaletteForkableAgentActivePanelKey == changedPanelKey else {
+                return
+            }
+        }
+        pruneCommandPaletteForkableAgentProbeResults()
+        scheduleCommandPaletteResultsRefresh(
+            query: commandPaletteQuery,
+            preservePendingActivation: true
+        )
+        scheduleCommandPaletteForkableAgentProbeResultExpiryRefresh()
+    }
+
     private func refreshCommandPaletteForkableAgentAvailabilityIfNeeded(scope: CommandPaletteListScope) {
+        defer {
+            scheduleCommandPaletteForkableAgentProbeResultExpiryRefresh()
+        }
         guard scope == .commands,
               let panelContext = focusedPanelContext,
               panelContext.panel.panelType == .terminal else {
@@ -6000,12 +6075,25 @@ struct ContentView: View {
                 isRemoteContext: isRemoteTerminal,
                 fallbackSnapshot: fallbackSnapshot
             )
-            let index = SharedLiveAgentIndex.shared.index
+            var index = SharedLiveAgentIndex.shared.index
                 ?? await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
             guard !Task.isCancelled else { return }
-            let indexEntry = index.entry(workspaceId: workspaceId, panelId: panelId)
-            let indexSnapshot = indexEntry?.snapshot
-            let snapshot = fallbackSnapshot ?? indexSnapshot
+            var indexEntry = index.entry(workspaceId: workspaceId, panelId: panelId)
+            var indexSnapshot = indexEntry?.snapshot
+            if indexSnapshot != nil, fallbackSnapshot != nil {
+                await SharedLiveAgentIndex.shared.refreshForkAvailabilityNow(
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    isRemoteContext: isRemoteTerminal
+                )
+                if let refreshedIndex = SharedLiveAgentIndex.shared.index {
+                    index = refreshedIndex
+                    indexEntry = index.entry(workspaceId: workspaceId, panelId: panelId)
+                    indexSnapshot = indexEntry?.snapshot
+                }
+            }
+            let snapshot = indexSnapshot ?? fallbackSnapshot
+            let validationFallbackSnapshot = indexSnapshot == nil ? fallbackSnapshot : nil
             let executableFingerprintBefore = if let snapshot {
                 await Self.commandPaletteForkProbeExecutableFingerprint(
                     snapshot,
@@ -6030,7 +6118,7 @@ struct ContentView: View {
                     workspaceId: workspaceId,
                     panelId: panelId,
                     isRemoteContext: isRemoteTerminal,
-                    fallbackSnapshot: fallbackSnapshot
+                    fallbackSnapshot: validationFallbackSnapshot
                 )
             } else {
                 false
@@ -6052,7 +6140,7 @@ struct ContentView: View {
             await MainActor.run {
                 guard commandPaletteForkableAgentProbeIDsByPanelKey[panelKey] == probeID else { return }
                 guard commandPaletteForkableAgentProbeFingerprintsByPanelKey[panelKey] == probeFingerprint else { return }
-                var acceptedIndexSnapshot = fallbackSnapshot == nil ? indexSnapshot : nil
+                var acceptedIndexSnapshot = validationFallbackSnapshot == nil ? indexSnapshot : nil
                 var acceptedSnapshot = snapshot
                 if let currentContext = focusedPanelContext,
                    currentContext.workspace.id == workspaceId,
@@ -6068,7 +6156,8 @@ struct ContentView: View {
                         acceptedSnapshot = nil
                     }
                 }
-                if let fallbackFingerprint,
+                if validationFallbackSnapshot != nil,
+                   let fallbackFingerprint,
                    let currentContext = focusedPanelContext,
                    currentContext.workspace.id == workspaceId,
                    currentContext.panelId == panelId,
@@ -6135,12 +6224,12 @@ struct ContentView: View {
                 commandPaletteForkableAgentProbeIDsByPanelKey.removeValue(forKey: panelKey)
                 commandPaletteForkableAgentProbeFingerprintsByPanelKey.removeValue(forKey: panelKey)
                 commandPaletteForkableAgentAvailabilityTasksByPanelKey.removeValue(forKey: panelKey)
+                scheduleCommandPaletteForkableAgentProbeResultExpiryRefresh()
                 if shouldRefreshResults,
                    isCommandPalettePresented,
                    commandPaletteForkableAgentActivePanelKey == panelKey {
                     scheduleCommandPaletteResultsRefresh(
-                        query: commandPaletteQuery,
-                        forceSearchCorpusRefresh: true
+                        query: commandPaletteQuery
                     )
                 }
             }
@@ -8899,6 +8988,7 @@ struct ContentView: View {
         isCommandPalettePresented = true
         commandPaletteForkableAgentActivePanelKey = nil
         pruneCommandPaletteForkableAgentProbeResults()
+        scheduleCommandPaletteForkableAgentProbeResultExpiryRefresh()
         refreshCommandPaletteUsageHistory()
         resetCommandPaletteListState(initialQuery: initialQuery)
     }
@@ -9010,6 +9100,7 @@ struct ContentView: View {
         cancelCommandPaletteSearch()
         cancelCommandPaletteSearchIndexBuild()
         cancelCommandPaletteForkableAgentAvailabilityProbe()
+        cancelCommandPaletteForkableAgentProbeResultExpiryRefresh()
         commandPaletteForkableAgentActivePanelKey = nil
         pruneCommandPaletteForkableAgentProbeResults()
         commandPaletteSearchRequestID &+= 1
