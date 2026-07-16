@@ -154,6 +154,19 @@ struct BrowserWebNotificationTests {
         #expect(denied["onclickPreserved"] as? Bool == true)
         #expect(probe.bodies.isEmpty)
 
+        let identity = try #require(try await webView.evaluateJavaScript(
+            """
+            ({
+              name: Notification.name,
+              length: Notification.length,
+              constructorMatches: (new Notification("Identity")).constructor === Notification
+            })
+            """
+        ) as? [String: Any])
+        #expect(identity["name"] as? String == "NativeNotification")
+        #expect(identity["length"] as? Int == 1)
+        #expect(identity["constructorMatches"] as? Bool == true)
+
         _ = try await webView.evaluateJavaScript(
             "__setNotificationPermission('granted'); new Notification('Granted', { body: 'Forward me' });"
         )
@@ -199,7 +212,7 @@ struct BrowserWebNotificationTests {
         }
 
         defaults.removeObject(forKey: setting.userDefaultsKey)
-        #expect(setting.value(in: defaults))
+        #expect(setting.value(in: defaults) == false)
 
         let workspaceID = UUID()
         let panel = BrowserPanel(workspaceId: workspaceID, renderInitialNavigation: false)
@@ -315,8 +328,8 @@ struct BrowserWebNotificationTests {
         """.write(to: configURL, atomically: true, encoding: .utf8)
         fileStore.reload()
         #expect(setting.value(in: defaults))
-        #expect(CmuxSettingsFileStore.defaultTemplate().contains("\"forwardWebNotifications\" : true")
-            || CmuxSettingsFileStore.defaultTemplate().contains("\"forwardWebNotifications\": true"))
+        #expect(CmuxSettingsFileStore.defaultTemplate().contains("\"forwardWebNotifications\" : false")
+            || CmuxSettingsFileStore.defaultTemplate().contains("\"forwardWebNotifications\": false"))
     }
 
     private func encodedJavaScriptString(_ value: String) -> String {
