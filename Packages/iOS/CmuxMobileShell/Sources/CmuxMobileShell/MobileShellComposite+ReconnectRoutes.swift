@@ -238,6 +238,32 @@ extension MobileShellComposite {
         )
     }
 
+    /// Re-read one exact account/device/instance row immediately before
+    /// presenting legacy-Mac migration guidance. A registry snapshot can become
+    /// stale while Presence persists an Iroh route, so only the current paired
+    /// store may authorize that user-facing conclusion.
+    func isCurrentLegacyPrivateNetworkPairing(
+        _ captured: MobilePairedMac,
+        scope: MobileShellScopeSnapshot
+    ) async -> Bool {
+        guard await isScopeCurrent(scope),
+              let pairedMacStore,
+              let pairedMacs = try? await pairedMacStore.loadAll(
+                  stackUserID: scope.userID,
+                  teamID: scope.teamID
+              ),
+              await isScopeCurrent(scope),
+              let currentMac = ReconnectRefreshSnapshot(
+                  pairedMacs: pairedMacs,
+                  registryDevices: nil
+              ).currentMac(for: captured),
+              await !isForgottenMacDeviceID(captured.macDeviceID, scope: scope) else {
+            return false
+        }
+        return currentMac.routes.contains { $0.kind == .tailscale }
+            && !currentMac.routes.contains { $0.kind == .iroh }
+    }
+
     func freshReconnectRoutesAfterLocalFailure(
         for mac: MobilePairedMac,
         scope: MobileShellScopeSnapshot,
@@ -270,7 +296,9 @@ extension MobileShellComposite {
                 preferNonLoopback: Self.prefersNonLoopbackRoutes
             )
             if !reconnectRoutes.isEmpty,
-               !requiresIroh || reconnectRoutes.contains(where: { $0.kind == .iroh }) {
+               reconnectRoutes.contains(where: {
+                   $0.kind == .iroh || $0.kind == .debugLoopback
+               }) {
                 return .refreshedRoutes(reconnectRoutes)
             }
         }

@@ -1724,7 +1724,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return refreshSnapshot
         }
 
-        var firstCandidateNeedingMacUpdateID: String?
+        var firstCandidateNeedingMacUpdate: MobilePairedMac?
         // Try each candidate until one connects, so a single offline Mac never
         // blocks the others.
         for (candidateIndex, mac) in candidates.enumerated() {
@@ -1772,7 +1772,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 case .confirmedMissingIroh:
                     if isLegacyPrivateNetworkPairing,
                        candidateIndex == candidates.startIndex {
-                        firstCandidateNeedingMacUpdateID = mac.macDeviceID
+                        firstCandidateNeedingMacUpdate = mac
                     }
                 case .inconclusive:
                     break
@@ -1787,11 +1787,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         didFinishStoredMacReconnectAttempt = true
         if connectionState != .connected,
            !connectionRequiresReauth,
-           let firstCandidateNeedingMacUpdateID {
+           let firstCandidateNeedingMacUpdate {
+            let isStillLegacy = await isCurrentLegacyPrivateNetworkPairing(
+                firstCandidateNeedingMacUpdate,
+                scope: scope
+            )
             let latestForgottenIDs = await forgottenMacDeviceIDs(scope: scope)
             if generation == storedMacReconnectGeneration,
                await isScopeCurrent(scope),
-               !latestForgottenIDs.contains(firstCandidateNeedingMacUpdateID) {
+               connectionState != .connected,
+               !connectionRequiresReauth,
+               isStillLegacy,
+               !latestForgottenIDs.contains(firstCandidateNeedingMacUpdate.macDeviceID) {
                 applyStoredMacUpdateRequiredFailure(disconnect: true)
             }
         }
@@ -2279,9 +2286,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
            let scope,
            isCurrentMacSwitchAttempt(switchAttemptID),
            await isScopeCurrent(scope) {
+            let isStillLegacy = await isCurrentLegacyPrivateNetworkPairing(
+                refreshedTarget,
+                scope: scope
+            )
             let latestForgottenIDs = await forgottenMacDeviceIDs(scope: scope)
             if isCurrentMacSwitchAttempt(switchAttemptID),
                await isScopeCurrent(scope),
+               !connectionRequiresReauth,
+               !(connectionState == .connected
+                   && remoteClient != nil
+                   && foregroundMacDeviceID == macDeviceID),
+               isStillLegacy,
                !latestForgottenIDs.contains(macDeviceID) {
                 applyStoredMacUpdateRequiredFailure(disconnect: !hasActiveMacConnection)
             }
