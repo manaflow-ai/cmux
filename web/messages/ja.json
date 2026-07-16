@@ -1825,6 +1825,11 @@
       "absolutePath": "絶対パス",
       "cwdAbsolute": "そのまま使用",
       "fullExample": "完全な例",
+      "wsFieldParams": "ワークスペーステンプレート変数を有効にして既定値を指定",
+      "parameterizedLayouts": "パラメータ化されたワークスペースレイアウト",
+      "parameterizedLayoutsDesc": "<params>params</params> オブジェクトを追加してワークスペースパラメータを有効にすると、ワークスペースやサーフェスのタイトル、パス、環境変数値、セットアップコマンド、ターミナルコマンド、ブラウザ URL で <variable>{variableSyntax}</variable> または <defaultValue>{defaultSyntax}</defaultValue> を使えます。<params>params</params> の値は自動的に再利用されます。グローバルインラインアクションの値は、［新規ワークスペース］→［レイアウトを管理］→［レイアウトパラメータを編集］から変更できます。プレースホルダーを文字どおり残すには <escaped>{escapedSyntax}</escaped> を付けます。",
+      "parameterizedLayoutsPrecedence": "解決順序は <explicit>呼び出し時の明示値</explicit>、<params>params</params> の既定値、ワークスペースのリテラル <env>env</env>、<process>cmux プロセス環境</process>、<inline>インライン既定値</inline>です。必須値がない場合、ワークスペースを作成する前に起動全体が中止されます。",
+      "parameterizedLayoutsCLI": "<workspaceCreate>cmux workspace create</workspaceCreate> と <layoutOpen>cmux layout open</layoutOpen> では <paramValue>--param KEY=VALUE</paramValue> または <paramEnv>--param KEY</paramEnv> を使います。値なし形式は呼び出し元シェルでエクスポートされた環境変数を取り込みます。ソケットクライアントは template_params を送り、値がない場合は <missing>missing_parameters</missing> が返ります。",
       "restartNew": "新しいワークスペースを作成する (デフォルト)",
       "workspaceActionsDefaultTitle": "新規ワークスペースのデフォルト",
       "workspaceActionsDefaultDesc": "<defaultMenu>新規ワークスペースのデフォルト</defaultMenu> サブメニューで、通常の新規ワークスペース作成時に実行する保存済みワークスペースレイアウトを選べます。「なし」を選ぶと空のターミナルに戻ります。保存ダイアログにも <checkbox>新規ワークスペースのデフォルトとして使用</checkbox> チェックボックスがあります。設定キーは <action>ui.newWorkspace.action</action> です。プロジェクトローカルの <localConfig>.cmux/cmux.json</localConfig> の値は <globalConfig>~/.config/cmux/cmux.json</globalConfig> より優先されます。"

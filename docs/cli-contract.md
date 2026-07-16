@@ -100,10 +100,11 @@ Environment:
 | `reorder-workspaces` | Atomically reorder workspaces inside pinned and unpinned groups. |
 | `workspace-action` | Run workspace context-menu actions from the CLI. |
 | `workspace` | Namespace for workspace verbs: `list`, `create`, `env`, `close`, `rename`, `select`, `status`, `reconnect`, `disconnect`, `group`. `workspace status` prints the workspace's todo lifecycle status (effective, inferred, override); `workspace status set <todo\|working\|needs-attention\|review\|done\|auto>` pins a manual lane (`auto` clears it; a pinned lane auto-clears once the inferred lane changes). `workspace env` prints a workspace's configured environment variables (see [Workspace environment variables](#workspace-environment-variables)); pass `--mask` to redact the values. `workspace reconnect` manually reconnects a remote (SSH) workspace — including one whose automatic reconnect suspended because the host was unreachable — and `workspace disconnect` stops its remote connection. `env`, `reconnect`, and `disconnect` accept a positional workspace handle or `--workspace <id\|ref\|index>`, defaulting to the caller's workspace, then the selected one. |
+| `layout` | Save, list, inspect, open, and delete named workspace layouts. `layout open <name>` accepts repeatable `--param KEY=VALUE` or `--param KEY` template values and defaults to `--focus false`. |
 | `todo` | Per-workspace checklist namespace: `add "text" [--state <pending\|in-progress\|completed>] [--origin <user\|agent>]`, `list`, `check <index\|id>`, `uncheck <index\|id>`, `start <index\|id>` (in-progress), `edit <index\|id> "text"`, `rm <index\|id>`, `clear`, `set ['<json>']` (atomic replace from a JSON item array, inline or piped on stdin), `open` (open or focus the workspace's todo pane). Targets the caller's workspace by default with `--workspace <id\|ref\|index>` override; `<index>` is the 1-based number printed by `todo list`. Items cap at 50 per workspace. See [Workspace todos](#workspace-todos). |
 | `move-tab-to-new-workspace` | Move a tab or surface into a newly created workspace. |
 | `list-workspaces` | List workspaces. |
-| `new-workspace` | Create a workspace, optionally with cwd, command, description, layout, and per-workspace environment variables (`--env KEY=VALUE` repeatable, `--env-file <path>`). See [Workspace environment variables](#workspace-environment-variables). |
+| `new-workspace` | Create a workspace, optionally with cwd, command, description, layout, per-workspace environment variables (`--env KEY=VALUE` repeatable, `--env-file <path>`), and repeatable workspace template values (`--param KEY=VALUE` or `--param KEY`). See [Parameterized workspace layouts](#parameterized-workspace-layouts) and [Workspace environment variables](#workspace-environment-variables). |
 | `ssh` | Open an SSH-backed workspace. Preserves the caller's live `SSH_AUTH_SOCK` for app-launched OpenSSH processes so `ForwardAgent yes` from ssh_config works normally. Supports `-A` / `--forward-agent` to request forwarding and `-a` / `--no-forward-agent` to disable forwarding for a workspace. Agent forwarding remains opt-in because forwarded agents can be used by processes on the remote host while the SSH session is active. |
 | `remote-daemon-status` | Print bundled remote daemon version, asset, checksum, and cache status. |
 | `ssh-session-list` | List persisted SSH PTY sessions for one remote workspace or all remote workspaces. Supports `--json`. |
@@ -225,6 +226,104 @@ Workspace and tab action names:
 | --- | --- |
 | `workspace-action` | `pin`, `unpin`, `rename`, `clear-name`, `set-description`, `clear-description`, `move-up`, `move-down`, `move-top`, `close-others`, `close-above`, `close-below`, `mark-read`, `mark-unread`, `set-color`, `clear-color` |
 | `tab-action` | `rename`, `clear-name`, `close-left`, `close-right`, `close-others`, `new-terminal-right`, `new-browser-right`, `reload`, `duplicate`, `pin`, `unpin`, `mark-unread` |
+
+### Parameterized workspace layouts
+
+Workspace definitions in `cmux.json` and `~/.config/cmux/layouts.json`, plus
+layouts sent to `workspace.create`, may use `{{name}}` placeholders in launch
+strings. `{{name=default}}` supplies an inline fallback, and `\{{name}}` emits a
+literal `{{name}}`. Names use the same grammar as custom-command parameters:
+they start with a letter or `_` and continue with letters, digits, `_`, or `-`.
+
+File-backed workspace definitions opt into placeholder handling by declaring a
+`params` object. Values stored there are used automatically when the layout is
+opened from the cmux UI; choosing a layout never interrupts creation with a
+parameter prompt. For global inline workspace actions, edit those saved values
+from **New Workspace → Manage Layouts → Edit Layout Parameters**. Project-local
+actions, `workspaceCommand` definitions, and `~/.config/cmux/layouts.json`
+entries remain source-owned and can be edited in their configuration file.
+Definitions without `params` preserve existing `{{...}}` text literally. Socket
+`workspace.create` requests opt in by supplying at least one `template_params`
+value.
+
+Parameterization covers the workspace `name`, `cwd`, `setup`, and `env` values;
+surface `name`, `command`, `cwd`, `env` values, and `url`; and the corresponding
+title, description, initial command, and initial environment fields on
+`workspace.create`. Structural values (`type`, `direction`, numeric `split`,
+`focus`, and `color`) remain typed and are not templates. Substitution is
+literal because the same value can appear in a path, URL, title, environment
+value, or command fragment. Callers must quote or validate values as appropriate
+when inserting them into shell commands.
+
+Every launch uses one precedence order, highest first:
+
+1. Explicit invocation values (`--param` or socket `template_params`).
+2. The workspace definition's `params` defaults.
+3. Literal workspace-level `env` values with the same key.
+4. The launching cmux app process environment.
+5. The placeholder's inline `{{name=default}}` value.
+
+Values are not recursively expanded. Before creating any workspace, pane, or
+browser surface, cmux preflights the entire definition. If required values are
+still missing, the launch fails atomically with error code `missing_parameters`
+and a `missing_parameters` array listing every missing name in first-occurrence
+order.
+
+CLI invocation:
+
+```bash
+cmux workspace create \
+  --name 'Dev {{ticket}}' \
+  --cwd '~/code/app/wt/{{ticket}}' \
+  --param ticket=BERKS-87 \
+  --focus false
+
+cmux layout open 'Ticket Dev' \
+  --param ticket=BERKS-87 \
+  --param apiPort=8087 \
+  --param vitePort=5187 \
+  --focus false
+```
+
+`--param KEY=VALUE` is repeatable and the last occurrence wins. `--param KEY`
+copies that variable from the invoking shell environment into the explicit
+parameter map; it fails locally if the variable is unset. This explicit import
+keeps the CLI/App boundary predictable instead of forwarding the entire shell
+environment over the control socket.
+
+The v2 socket forms use an object of string values:
+
+```json
+{
+  "method": "workspace.create",
+  "params": {
+    "layout": { "pane": { "surfaces": [{ "type": "browser", "url": "http://localhost:{{vitePort}}" }] } },
+    "template_params": { "vitePort": "5187" },
+    "focus": false
+  }
+}
+```
+
+```json
+{
+  "method": "layout.open",
+  "params": {
+    "name": "Ticket Dev",
+    "template_params": {
+      "ticket": "BERKS-87",
+      "apiPort": "8087",
+      "vitePort": "5187"
+    },
+    "focus": false
+  }
+}
+```
+
+For example, one saved `Ticket Dev` layout can use
+`~/code/app/wt/{{ticket}}`, set `API_PORT={{apiPort}}` and
+`VITE_PORT={{vitePort}}`, run commands containing those ports, and open
+`http://localhost:{{vitePort}}`. The second command above launches a concrete
+per-ticket workspace without generating a replacement layout with `jq`.
 
 ### Workspace environment variables
 

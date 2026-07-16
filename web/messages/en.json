@@ -1902,6 +1902,11 @@
       "absolutePath": "Absolute path",
       "cwdAbsolute": "used as-is",
       "fullExample": "Full example",
+      "wsFieldParams": "Enable workspace template variables and provide their default values",
+      "parameterizedLayouts": "Parameterized workspace layouts",
+      "parameterizedLayoutsDesc": "Add a <params>params</params> object to enable workspace parameters, then use <variable>{variableSyntax}</variable> or <defaultValue>{defaultSyntax}</defaultValue> in workspace and surface titles, paths, environment values, setup commands, terminal commands, and browser URLs. Values in <params>params</params> are reused automatically. For global inline actions, edit them under New Workspace → Manage Layouts → Edit Layout Parameters. Prefix <escaped>{escapedSyntax}</escaped> to keep a placeholder literal.",
+      "parameterizedLayoutsPrecedence": "Resolution order is <explicit>explicit invocation values</explicit>, <params>params</params> defaults, literal workspace <env>env</env>, the <process>cmux process environment</process>, then the <inline>inline default</inline>. Missing required values abort the whole launch before any workspace is created.",
+      "parameterizedLayoutsCLI": "Use <paramValue>--param KEY=VALUE</paramValue> or <paramEnv>--param KEY</paramEnv> with <workspaceCreate>cmux workspace create</workspaceCreate> and <layoutOpen>cmux layout open</layoutOpen>. The value-less form imports an exported environment variable from the invoking shell. Socket clients send template_params; missing values return <missing>missing_parameters</missing>.",
       "restartNew": "Create a new workspace (default)",
       "workspaceActionsDefaultTitle": "Default for new workspaces",
       "workspaceActionsDefaultDesc": "Use the <defaultMenu>Default for New Workspace</defaultMenu> submenu to pick which saved workspace layout plain New Workspace should run, or choose None to return to a blank terminal. The save dialog also has a <checkbox>Use as default for new workspaces</checkbox> checkbox. The setting is <action>ui.newWorkspace.action</action>; a project-local <localConfig>.cmux/cmux.json</localConfig> value wins over <globalConfig>~/.config/cmux/cmux.json</globalConfig>."

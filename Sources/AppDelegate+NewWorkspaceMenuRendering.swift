@@ -134,6 +134,7 @@ extension AppDelegate {
 
                 if !management.defaultLayout.entries.isEmpty
                     || management.defaultLayout.hasDefault
+                    || !management.editableActions.isEmpty
                     || !management.deletableActions.isEmpty {
                     let parent = NSMenuItem(
                         title: String(
@@ -189,6 +190,38 @@ extension AppDelegate {
                             )
                         }
                         submenu.addItem(item)
+                    }
+                    if !management.editableActions.isEmpty {
+                        submenu.addItem(.separator())
+                        let editParametersItem = NSMenuItem(
+                            title: String(
+                                localized: "menu.newWorkspace.editLayoutParametersSubmenu",
+                                defaultValue: "Edit Layout Parameters"
+                            ),
+                            action: nil,
+                            keyEquivalent: ""
+                        )
+                        let editParametersSubmenu = NSMenu()
+                        for action in management.editableActions {
+                            let item = NSMenuItem(
+                                title: action.title + "…",
+                                action: #selector(editWorkspaceConfigActionParametersMenuItem(_:)),
+                                keyEquivalent: ""
+                            )
+                            item.target = self
+                            item.representedObject = WorkspaceActionParameterEditBox(
+                                windowId: context.windowId,
+                                actionID: action.id,
+                                actionTitle: action.title
+                            )
+                            item.image = action.icon?.contextMenuImage(
+                                configSourcePath: action.iconSourcePath,
+                                globalConfigPath: cmuxConfigStore.globalConfigPath
+                            )
+                            editParametersSubmenu.addItem(item)
+                        }
+                        editParametersItem.submenu = editParametersSubmenu
+                        submenu.addItem(editParametersItem)
                     }
                     if !management.deletableActions.isEmpty {
                         submenu.addItem(.separator())

@@ -1081,6 +1081,11 @@
       "absolutePath": "Mutlak yol",
       "cwdAbsolute": "olduğu gibi kullanılır",
       "fullExample": "Tam örnek",
+      "wsFieldParams": "Workspace şablon değişkenleri için varsayılan değerler",
+      "parameterizedLayouts": "Parametreli workspace düzenleri",
+      "parameterizedLayoutsDesc": "Çalışma alanı parametrelerini etkinleştirmek için bir <params>params</params> nesnesi ekleyin, ardından başlıklarda, yollarda, ortam değerlerinde, kurulum komutlarında, terminal komutlarında ve tarayıcı URL'lerinde <variable>{variableSyntax}</variable> veya <defaultValue>{defaultSyntax}</defaultValue> kullanın. Bir yer tutucuyu değişmeden bırakmak için önüne <escaped>{escapedSyntax}</escaped> ekleyin. <params>params</params> içindeki değerler otomatik olarak yeniden kullanılır. Genel satır içi eylemler için bunları Yeni Çalışma Alanı → Düzenleri Yönet → Düzen Parametrelerini Düzenle altında düzenleyin.",
+      "parameterizedLayoutsPrecedence": "Çözüm sırası <explicit>açık çağrı değerleri</explicit>, <params>params</params> varsayılanları, gerçek workspace <env>env</env> değerleri, <process>cmux süreç ortamı</process> ve son olarak <inline>satır içi varsayılan</inline> şeklindedir. Eksik zorunlu değerler workspace oluşturulmadan önce tüm başlatmayı iptal eder.",
+      "parameterizedLayoutsCLI": "<workspaceCreate>cmux workspace create</workspaceCreate> ve <layoutOpen>cmux layout open</layoutOpen> ile <paramValue>--param KEY=VALUE</paramValue> veya <paramEnv>--param KEY</paramEnv> kullanın. Değersiz biçim çağıran kabuk değişkenini içe aktarır. Socket istemcileri template_params gönderir; eksik değerler <missing>missing_parameters</missing> döndürür.",
       "restartNew": "Yeni bir workspace oluştur (varsayılan)"
     },
     "keyboardShortcuts": {

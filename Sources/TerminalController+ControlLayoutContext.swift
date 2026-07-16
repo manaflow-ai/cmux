@@ -1,4 +1,5 @@
 import CmuxControlSocket
+import CmuxFoundation
 import Foundation
 
 extension TerminalController: ControlLayoutContext {
@@ -81,6 +82,8 @@ extension TerminalController: ControlLayoutContext {
         routing: ControlRoutingSelectors,
         name: String,
         cwd: String?,
+        callerCwd: String?,
+        templateParameters: [String: String],
         focusRequested: Bool
     ) -> ControlLayoutOpenResolution {
         v2MainSync {
@@ -93,10 +96,16 @@ extension TerminalController: ControlLayoutContext {
                     return .tabManagerUnavailable
                 }
                 let focus = v2FocusAllowed(requested: focusRequested)
-                guard let workspace = tabManager.openWorkspace(fromSavedLayout: layout, cwdOverride: cwd, focus: focus) else {
-                    return .failed("Failed to open saved layout")
-                }
+                let workspace = try tabManager.openWorkspace(
+                    fromSavedLayout: layout,
+                    cwdOverride: cwd,
+                    templateParameters: templateParameters,
+                    baseCwd: callerCwd,
+                    focus: focus
+                )
                 return .opened(workspaceID: workspace.id)
+            } catch CmuxTemplateResolutionError.missingVariables(let names) {
+                return .missingParameters(names)
             } catch let error as SavedLayoutStoreError {
                 return controlLayoutOpenError(error)
             } catch {

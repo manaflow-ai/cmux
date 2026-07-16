@@ -1081,6 +1081,11 @@
       "absolutePath": "Caminho absoluto",
       "cwdAbsolute": "usado como está",
       "fullExample": "Exemplo completo",
+      "wsFieldParams": "Valores padrão para variáveis de modelo do workspace",
+      "parameterizedLayouts": "Layouts de workspace parametrizados",
+      "parameterizedLayoutsDesc": "Adicione um objeto <params>params</params> para habilitar parâmetros de área de trabalho e use <variable>{variableSyntax}</variable> ou <defaultValue>{defaultSyntax}</defaultValue> em títulos, caminhos, valores de ambiente, comandos de preparação, comandos do terminal e URLs do navegador. Prefixe com <escaped>{escapedSyntax}</escaped> para manter um marcador literal. Os valores de <params>params</params> são reutilizados automaticamente. Para ações inline globais, edite-os em Nova Área de Trabalho → Gerenciar layouts → Editar parâmetros de layout.",
+      "parameterizedLayoutsPrecedence": "A ordem de resolução é <explicit>valores explícitos da invocação</explicit>, padrões de <params>params</params>, <env>env</env> literal do workspace, o <process>ambiente do processo cmux</process> e o <inline>padrão embutido</inline>. Valores obrigatórios ausentes cancelam todo o lançamento antes da criação do workspace.",
+      "parameterizedLayoutsCLI": "Use <paramValue>--param KEY=VALUE</paramValue> ou <paramEnv>--param KEY</paramEnv> com <workspaceCreate>cmux workspace create</workspaceCreate> e <layoutOpen>cmux layout open</layoutOpen>. A forma sem valor importa a variável do shell chamador. Clientes de socket enviam template_params; valores ausentes retornam <missing>missing_parameters</missing>.",
       "restartNew": "Criar um novo workspace (padrão)"
     },
     "keyboardShortcuts": {

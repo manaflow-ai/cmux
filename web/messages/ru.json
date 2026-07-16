@@ -1081,6 +1081,11 @@
       "absolutePath": "Абсолютный путь",
       "cwdAbsolute": "используется как есть",
       "fullExample": "Полный пример",
+      "wsFieldParams": "Значения по умолчанию для переменных шаблона workspace",
+      "parameterizedLayouts": "Параметризованные макеты workspace",
+      "parameterizedLayoutsDesc": "Добавьте объект <params>params</params>, чтобы включить параметры рабочего пространства, затем используйте <variable>{variableSyntax}</variable> или <defaultValue>{defaultSyntax}</defaultValue> в заголовках, путях, значениях окружения, командах настройки, командах терминала и URL браузера. Префикс <escaped>{escapedSyntax}</escaped> сохраняет заполнитель буквально. Значения из <params>params</params> используются автоматически. Для глобальных встроенных действий измените их в меню Новое рабочее пространство → Управление макетами → Редактировать параметры макета.",
+      "parameterizedLayoutsPrecedence": "Порядок разрешения: <explicit>явные значения вызова</explicit>, значения <params>params</params>, буквальный <env>env</env> workspace, <process>окружение процесса cmux</process>, затем <inline>встроенное значение по умолчанию</inline>. Отсутствие обязательного значения отменяет весь запуск до создания workspace.",
+      "parameterizedLayoutsCLI": "Используйте <paramValue>--param KEY=VALUE</paramValue> или <paramEnv>--param KEY</paramEnv> с <workspaceCreate>cmux workspace create</workspaceCreate> и <layoutOpen>cmux layout open</layoutOpen>. Форма без значения импортирует переменную вызывающей оболочки. Клиенты сокета отправляют template_params; отсутствие значений возвращает <missing>missing_parameters</missing>.",
       "restartNew": "Создать новый workspace (по умолчанию)"
     },
     "keyboardShortcuts": {

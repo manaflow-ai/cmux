@@ -461,8 +461,81 @@ export default function CustomCommandsPage() {
         <li><code>color</code>: {t("wsFieldColor")}</li>
         <li><code>env</code>: {t("wsFieldEnv")}</li>
         <li><code>setup</code>: {t("wsFieldSetup")}</li>
+        <li><code>params</code>: {t("wsFieldParams")}</li>
         <li><code>layout</code>: {t("wsFieldLayout")}</li>
       </ul>
+
+      <DocsHeading level={3} id="parameterized-workspace-layouts">{t("parameterizedLayouts")}</DocsHeading>
+      <p>
+        {t.rich("parameterizedLayoutsDesc", {
+          variableSyntax: "{{name}}",
+          defaultSyntax: "{{name=default}}",
+          escapedSyntax: "\\{{name}}",
+          variable: (chunks) => <code>{chunks}</code>,
+          defaultValue: (chunks) => <code>{chunks}</code>,
+          escaped: (chunks) => <code>{chunks}</code>,
+          params: (chunks) => <code>{chunks}</code>,
+        })}
+      </p>
+      <p>
+        {t.rich("parameterizedLayoutsPrecedence", {
+          explicit: (chunks) => <strong>{chunks}</strong>,
+          params: (chunks) => <code>{chunks}</code>,
+          env: (chunks) => <code>{chunks}</code>,
+          process: (chunks) => <strong>{chunks}</strong>,
+          inline: (chunks) => <strong>{chunks}</strong>,
+        })}
+      </p>
+      <CodeBlock title="cmux.json" lang="json">{`{
+  "commands": [
+    {
+      "name": "Ticket Dev",
+      "workspace": {
+        "name": "{{ticket}} Dev",
+        "cwd": "~/code/app/wt/{{ticket}}",
+        "params": { "apiPort": "8080", "vitePort": "5173" },
+        "env": {
+          "TICKET": "{{ticket}}",
+          "API_PORT": "{{apiPort}}",
+          "VITE_PORT": "{{vitePort}}"
+        },
+        "layout": {
+          "direction": "horizontal",
+          "split": 0.5,
+          "children": [
+            {
+              "pane": {
+                "surfaces": [{
+                  "type": "terminal",
+                  "name": "API {{ticket}}",
+                  "command": "npm run api -- --port {{apiPort}}"
+                }]
+              }
+            },
+            {
+              "pane": {
+                "surfaces": [{
+                  "type": "browser",
+                  "name": "Vite {{ticket}}",
+                  "url": "http://localhost:{{vitePort}}"
+                }]
+              }
+            }
+          ]
+        }
+      }
+    }
+  ]
+}`}</CodeBlock>
+      <p>
+        {t.rich("parameterizedLayoutsCLI", {
+          paramValue: (chunks) => <code>{chunks}</code>,
+          paramEnv: (chunks) => <code>{chunks}</code>,
+          workspaceCreate: (chunks) => <code>{chunks}</code>,
+          layoutOpen: (chunks) => <code>{chunks}</code>,
+          missing: (chunks) => <code>{chunks}</code>,
+        })}
+      </p>
 
       <DocsHeading level={3} id="restart-behavior">{t("restartBehavior")}</DocsHeading>
       <p>{t("restartBehaviorDesc")}</p>

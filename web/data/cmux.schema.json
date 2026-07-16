@@ -32,9 +32,17 @@
     },
     "actions": {
       "title": "actions",
-      "description": "Action registry used by the surface tab bar, Command Palette, shortcuts, and plus-button menu. Each entry supports type \"builtin\", \"command\", \"agent\" (any CLI agent name, e.g. claude, codex, opencode, or a custom binary, with optional args), \"workspaceCommand\", or \"workspace\" (inline workspace with name/cwd/color/env/setup/layout, plus optional restart). Inline workspace entries are auto-offered in the new-workspace plus-button menu; set newWorkspaceMenu true/false on any action to override. \"Save Workspace as Layout\" in the plus-button menu writes entries here.",
+      "description": "Action registry used by the surface tab bar, Command Palette, shortcuts, and plus-button menu. Each entry supports type \"builtin\", \"command\", \"agent\" (any CLI agent name, e.g. claude, codex, opencode, or a custom binary, with optional args), \"workspaceCommand\", or \"workspace\" (inline workspace with name/cwd/color/env/setup/params/layout, plus optional restart). Inline workspace entries are auto-offered in the new-workspace plus-button menu; set newWorkspaceMenu true/false on any action to override. \"Save Workspace as Layout\" in the plus-button menu writes entries here.",
       "type": "object",
-      "additionalProperties": true
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "workspace": {
+            "$ref": "#/$defs/workspaceDefinition"
+          }
+        }
+      }
     },
     "ui": {
       "title": "ui",
@@ -58,11 +66,16 @@
     },
     "commands": {
       "title": "commands",
-      "description": "Custom shell commands and workspace layout definitions. Workspace definitions support name, cwd, color, env, layout, and setup (a bootstrap command sent to the first terminal before its own command).",
+      "description": "Custom shell commands and workspace layout definitions. Workspace definitions support name, cwd, color, env, layout, setup, and saved params values for launch-time {{variable}} placeholders.",
       "type": "array",
       "items": {
         "type": "object",
-        "additionalProperties": true
+        "additionalProperties": true,
+        "properties": {
+          "workspace": {
+            "$ref": "#/$defs/workspaceDefinition"
+          }
+        }
       }
     },
     "agentChat": {
@@ -1724,6 +1737,137 @@
     }
   },
   "$defs": {
+    "workspaceDefinition": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Workspace title. Supports {{name}} and {{name=default}} placeholders resolved at launch."
+        },
+        "cwd": {
+          "type": "string",
+          "description": "Workspace working directory. Supports {{name}} and {{name=default}} placeholders resolved at launch."
+        },
+        "color": {
+          "type": "string",
+          "description": "Workspace color name or 6-digit hex value. This structural value is not parameterized."
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "description": "Workspace environment value. Supports {{name}} and {{name=default}} placeholders resolved at launch."
+          },
+          "description": "Environment inherited by every shell in the workspace. Literal values can also supply same-named template variables."
+        },
+        "setup": {
+          "type": "string",
+          "description": "Bootstrap command sent to the first terminal. Supports {{name}} and {{name=default}} placeholders resolved literally at launch."
+        },
+        "params": {
+          "$ref": "#/$defs/workspaceTemplateParams"
+        },
+        "layout": {
+          "$ref": "#/$defs/workspaceLayoutNode"
+        }
+      }
+    },
+    "workspaceTemplateParams": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "Opts the workspace into {{variable}} placeholder handling and supplies values used automatically by UI launches. Global inline workspace actions can edit these under Manage Layouts > Edit Layout Parameters. Explicit invocation template_params/--param values take precedence."
+    },
+    "workspaceLayoutNode": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["pane"],
+          "properties": {
+            "pane": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["surfaces"],
+              "properties": {
+                "surfaces": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "$ref": "#/$defs/workspaceSurfaceDefinition"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["direction", "children"],
+          "properties": {
+            "direction": {
+              "type": "string",
+              "enum": ["horizontal", "vertical"]
+            },
+            "split": {
+              "type": "number",
+              "minimum": 0.1,
+              "maximum": 0.9,
+              "description": "Divider position. Structural numeric values are not parameterized."
+            },
+            "children": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "$ref": "#/$defs/workspaceLayoutNode"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "workspaceSurfaceDefinition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["terminal", "browser", "project"],
+          "description": "Structural surface kind; not parameterized."
+        },
+        "name": {
+          "type": "string",
+          "description": "Surface title. Supports {{name}} and {{name=default}} placeholders."
+        },
+        "command": {
+          "type": "string",
+          "description": "Terminal command. Supports literal {{name}} and {{name=default}} substitution at launch."
+        },
+        "cwd": {
+          "type": "string",
+          "description": "Surface working directory. Supports {{name}} and {{name=default}} placeholders."
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "description": "Surface environment value. Supports {{name}} and {{name=default}} placeholders."
+          }
+        },
+        "url": {
+          "type": "string",
+          "description": "Browser URL. Supports {{name}} and {{name=default}} placeholders."
+        },
+        "focus": {
+          "type": "boolean"
+        }
+      }
+    },
     "colorHex": {
       "type": "string",
       "pattern": "^#[0-9A-Fa-f]{6}$",

@@ -53,7 +53,7 @@ extension AppDelegate {
     @objc private func performSavedLayoutContextMenuItem(_ sender: NSMenuItem) {
         guard let box = sender.representedObject as? SavedLayoutContextMenuActionBox,
               let context = mainWindowContexts.values.first(where: { $0.windowId == box.windowId }),
-              resolvedWindow(for: context) != nil else {
+              let window = resolvedWindow(for: context) else {
             NSSound.beep()
             return
         }
@@ -63,9 +63,12 @@ extension AppDelegate {
                 NSSound.beep()
                 return
             }
-            if context.tabManager.openWorkspace(fromSavedLayout: layout, cwdOverride: nil, focus: true) == nil {
-                NSSound.beep()
-            }
+            _ = context.tabManager.openSavedLayout(
+                layout,
+                cwdOverride: nil,
+                focus: true,
+                presentingWindow: window
+            )
         } catch {
             NSSound.beep()
         }
