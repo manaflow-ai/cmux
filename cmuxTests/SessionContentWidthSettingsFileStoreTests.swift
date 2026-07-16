@@ -97,3 +97,43 @@ struct SessionContentWidthSettingsFileStoreTests {
         return url
     }
 }
+
+@Suite("Session content width presentation")
+struct SessionContentWidthPresentationTests {
+    private let bounds = CGRect(x: 10, y: 20, width: 1000, height: 600)
+
+    @Test
+    func disabledPresentationUsesFullPaneBounds() {
+        #expect(SessionContentWidthPresentation.disabled.contentFrame(in: bounds) == bounds)
+    }
+
+    @Test(arguments: [
+        (SessionContentAlignment.left, 10.0),
+        (SessionContentAlignment.center, 210.0),
+        (SessionContentAlignment.right, 410.0),
+    ])
+    func cappedPresentationAlignsInsidePane(
+        alignment: SessionContentAlignment,
+        expectedX: CGFloat
+    ) {
+        let presentation = SessionContentWidthPresentation(
+            storedMaximumWidth: 600,
+            storedAlignment: alignment.rawValue
+        )
+
+        #expect(
+            presentation.contentFrame(in: bounds) ==
+                CGRect(x: expectedX, y: 20, width: 600, height: 600)
+        )
+    }
+
+    @Test
+    func narrowPaneUsesFullPaneBounds() {
+        let presentation = SessionContentWidthPresentation(
+            storedMaximumWidth: 1200,
+            storedAlignment: SessionContentAlignment.right.rawValue
+        )
+
+        #expect(presentation.contentFrame(in: bounds) == bounds)
+    }
+}
