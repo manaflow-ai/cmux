@@ -30610,24 +30610,6 @@ export default CMUXSessionRestore;
                 return
             }
             sendAgentFeedTelemetryUnlessSuppressed(workspaceId: workspaceId, surfaceId: surfaceId)
-            if !suppressVisibleMutations {
-                if codexSessionStartWentStaleAfterAccept() {
-                    telemetry.breadcrumb("\(def.name)-hook.session-start.stale-after-turn")
-                    didSendFeedTelemetry = true
-                    print("{}")
-                    return
-                }
-                try? recordAgentTurnDiffBaseline(
-                    agent: def.name,
-                    sessionId: sessionId,
-                    turnId: input.turnId,
-                    cwd: hookCwd ?? mapped?.cwd,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    env: env,
-                    preserveExistingTurnBaseline: true
-                )
-            }
             if !sessionId.isEmpty {
                 if suppressVisibleMutations {
                     telemetry.breadcrumb("\(def.name)-hook.session-start.nested-suppressed")
@@ -30672,6 +30654,24 @@ export default CMUXSessionRestore;
                 workspaceId: workspaceId,
                 surfaceId: surfaceId
             )
+            if !suppressVisibleMutations {
+                if codexSessionStartWentStaleAfterAccept() {
+                    telemetry.breadcrumb("\(def.name)-hook.session-start.stale-after-turn")
+                    didSendFeedTelemetry = true
+                    print("{}")
+                    return
+                }
+                try? recordAgentTurnDiffBaseline(
+                    agent: def.name,
+                    sessionId: sessionId,
+                    turnId: input.turnId,
+                    cwd: hookCwd ?? mapped?.cwd,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    env: env,
+                    preserveExistingTurnBaseline: true
+                )
+            }
 
         case .promptSubmit:
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
@@ -30852,23 +30852,6 @@ export default CMUXSessionRestore;
                 nestedPromptEvent: nestedPromptSubmit,
                 env: env
             )
-            if !suppressVisibleMutations && !incomingCodexTurnIsTerminal {
-                if codexPromptTurnWentTerminal() {
-                    stopStaleCodexPromptSubmit()
-                    return
-                }
-                try? recordAgentTurnDiffBaseline(
-                    agent: def.name,
-                    sessionId: sessionId,
-                    turnId: input.turnId,
-                    cwd: hookCwd ?? mapped?.cwd,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    env: env,
-                    preserveExistingTurnBaseline: activePromptDepth > 0 &&
-                        (normalizedHookValue(input.turnId).map { $0 == activePromptTurnId } ?? false)
-                )
-            }
             if incomingCodexTurnIsTerminal || codexPromptTurnWentTerminal() {
                 stopStaleCodexPromptSubmit()
                 return
@@ -31003,6 +30986,23 @@ export default CMUXSessionRestore;
                     leasePath: leasePath,
                     env: env,
                     telemetry: telemetry
+                )
+            }
+            if !suppressVisibleMutations && !incomingCodexTurnIsTerminal {
+                if codexPromptTurnWentTerminal() {
+                    stopStaleCodexPromptSubmit(restoreVisibleState: true)
+                    return
+                }
+                try? recordAgentTurnDiffBaseline(
+                    agent: def.name,
+                    sessionId: sessionId,
+                    turnId: input.turnId,
+                    cwd: hookCwd ?? mapped?.cwd,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    env: env,
+                    preserveExistingTurnBaseline: activePromptDepth > 0 &&
+                        (normalizedHookValue(input.turnId).map { $0 == activePromptTurnId } ?? false)
                 )
             }
 
