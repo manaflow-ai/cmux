@@ -216,3 +216,69 @@ struct IntentRecordingTransportFactory: CmxByteTransportFactory {
         return transport
     }
 }
+
+/// Persistent test transport that records each request and immediately returns
+/// a successful response, allowing tests to inspect a complete RPC sequence.
+actor AutoRespondingRPCTransport: CmxByteTransport {
+    private var sentPayloads: [Data] = []
+    private var queuedResponses: [Data] = []
+    private var receiveWaiters: [CheckedContinuation<Data?, Never>] = []
+    private var isClosed = false
+
+    func connect() async throws {}
+
+    func receive() async throws -> Data? {
+        if isClosed {
+            return nil
+        }
+        if !queuedResponses.isEmpty {
+            return queuedResponses.removeFirst()
+        }
+        return await withCheckedContinuation { continuation in
+            receiveWaiters.append(continuation)
+        }
+    }
+
+    func send(_ data: Data) async throws {
+        var buffer = data
+        let payloads = try MobileSyncFrameCodec.decodeFrames(from: &buffer)
+        sentPayloads.append(contentsOf: payloads)
+        for payload in payloads {
+            let request = try recordedRPCRequest(from: payload)
+            let response: [String: Any] = [
+                "id": request.id ?? "",
+                "ok": true,
+                "result": [:],
+            ]
+            let responsePayload = try JSONSerialization.data(withJSONObject: response)
+            let responseFrame = try MobileSyncFrameCodec.encodeFrame(responsePayload)
+            if let waiter = receiveWaiters.first {
+                receiveWaiters.removeFirst()
+                waiter.resume(returning: responseFrame)
+            } else {
+                queuedResponses.append(responseFrame)
+            }
+        }
+    }
+
+    func close() async {
+        isClosed = true
+        let waiters = receiveWaiters
+        receiveWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume(returning: nil)
+        }
+    }
+
+    func sentRequests() throws -> [RecordedRPCRequest] {
+        try sentPayloads.map(recordedRPCRequest(from:))
+    }
+}
+
+struct AutoRespondingRPCTransportFactory: CmxByteTransportFactory {
+    let transport: AutoRespondingRPCTransport
+
+    func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
+        transport
+    }
+}
