@@ -9,6 +9,7 @@ final class BrowserWebNotificationMessageHandler: NSObject, WKScriptMessageHandl
     let token: String
     let webViewInstanceID: UUID
     private let isCurrentGeneration: @MainActor (WKWebView, UUID) -> Bool
+    private let isPermissionAllowed: @MainActor (URL) -> Bool
     private let onPayload: @MainActor (BrowserWebNotificationPayload, UUID) -> Void
     private let onPermissionRequest: @MainActor (URL, @escaping (Bool) -> Void) -> Void
 
@@ -17,6 +18,7 @@ final class BrowserWebNotificationMessageHandler: NSObject, WKScriptMessageHandl
         token: String,
         webViewInstanceID: UUID,
         isCurrentGeneration: @escaping @MainActor (WKWebView, UUID) -> Bool,
+        isPermissionAllowed: @escaping @MainActor (URL) -> Bool,
         onPayload: @escaping @MainActor (BrowserWebNotificationPayload, UUID) -> Void,
         onPermissionRequest: @escaping @MainActor (URL, @escaping (Bool) -> Void) -> Void
     ) {
@@ -24,6 +26,7 @@ final class BrowserWebNotificationMessageHandler: NSObject, WKScriptMessageHandl
         self.token = token
         self.webViewInstanceID = webViewInstanceID
         self.isCurrentGeneration = isCurrentGeneration
+        self.isPermissionAllowed = isPermissionAllowed
         self.onPayload = onPayload
         self.onPermissionRequest = onPermissionRequest
     }
@@ -56,6 +59,12 @@ final class BrowserWebNotificationMessageHandler: NSObject, WKScriptMessageHandl
                 onPermissionRequest(originURL) { allowed in
                     replyHandler(allowed ? "granted" : "denied", nil)
                 }
+                return
+            }
+
+            guard let originURL = Self.originURL(origin),
+                  isPermissionAllowed(originURL) else {
+                replyHandler(nil, "permission_denied")
                 return
             }
 

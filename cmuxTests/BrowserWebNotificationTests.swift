@@ -11,15 +11,24 @@ import WebKit
 @testable import cmux
 #endif
 
-private final class BrowserWebNotificationContractProbe: NSObject, WKScriptMessageHandler {
+private final class BrowserWebNotificationContractProbe: NSObject, WKScriptMessageHandlerWithReply {
     private(set) var bodies: [[String: String]] = []
 
     func userContentController(
         _ userContentController: WKUserContentController,
-        didReceive message: WKScriptMessage
+        didReceive message: WKScriptMessage,
+        replyHandler: @escaping (Any?, String?) -> Void
     ) {
-        guard let body = message.body as? [String: String] else { return }
+        guard let body = message.body as? [String: String] else {
+            replyHandler(nil, "invalid_message")
+            return
+        }
+        if body["type"] == "permission" {
+            replyHandler("granted", nil)
+            return
+        }
         bodies.append(body)
+        replyHandler("ok", nil)
     }
 }
 
@@ -123,7 +132,11 @@ struct BrowserWebNotificationTests {
     @Test func wrapperPreservesNativeContractAndPermissionGating() async throws {
         let controller = WKUserContentController()
         let probe = BrowserWebNotificationContractProbe()
-        controller.add(probe, contentWorld: .page, name: BrowserWebNotificationMessageHandler.name)
+        controller.addScriptMessageHandler(
+            probe,
+            contentWorld: .page,
+            name: BrowserWebNotificationMessageHandler.name
+        )
         let configuration = WKWebViewConfiguration()
         configuration.userContentController = controller
         let webView = WKWebView(frame: .zero, configuration: configuration)
@@ -195,8 +208,15 @@ struct BrowserWebNotificationTests {
         #expect(identity["length"] as? Int == 1)
         #expect(identity["constructorMatches"] as? Bool == true)
 
+        let grantedPermission = try await webView.callAsyncJavaScript(
+            "return await Notification.requestPermission()",
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        ) as? String
+        #expect(grantedPermission == "granted")
         _ = try await webView.evaluateJavaScript(
-            "__setNotificationPermission('granted'); new Notification('Granted', { body: 'Forward me' });"
+            "new Notification('Granted', { body: 'Forward me' });"
         )
         #expect(probe.bodies == [[
             "type": "notification",
@@ -251,9 +271,14 @@ struct BrowserWebNotificationTests {
             reason: "test_native_web_notification_provider_setup"
         )
 
-        var delivered: (title: String, subtitle: String, body: String)?
+        let (deliveries, deliveryContinuation) = AsyncStream<(
+            title: String,
+            subtitle: String,
+            body: String
+        )>.makeStream()
+        defer { deliveryContinuation.finish() }
         panel.deliverWebNotification = { _, _, title, subtitle, body in
-            delivered = (title, subtitle, body)
+            deliveryContinuation.yield((title, subtitle, body))
         }
         let webView = panel.webView
         let loadProbe = BrowserWebNotificationLoadProbe()
@@ -275,9 +300,8 @@ struct BrowserWebNotificationTests {
         _ = try await webView.evaluateJavaScript(
             "new Notification('Native probe', { body: 'Ready' }); true"
         )
-        for _ in 0..<100 where delivered == nil {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        var deliveryIterator = deliveries.makeAsyncIterator()
+        let delivered = await deliveryIterator.next()
         #expect(delivered?.title == "Native probe")
         #expect(delivered?.subtitle == "example.com")
         #expect(delivered?.body == "Ready")

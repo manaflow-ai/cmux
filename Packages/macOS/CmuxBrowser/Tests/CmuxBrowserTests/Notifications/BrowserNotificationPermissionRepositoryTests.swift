@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import CmuxBrowser
 
+@MainActor
 @Suite
 struct BrowserNotificationPermissionRepositoryTests {
     @Test func decisionsAreProfileScopedAndPersisted() throws {
