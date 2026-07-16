@@ -473,6 +473,18 @@ struct WorkspaceForkConversationContextMenuTests {
         #expect(ContentView.commandPaletteSnapshotForkAvailability(builtIn) == .requiresProbe)
         #expect(builtIn.forkCommand?.contains("'PATH=/custom/omp/bin:/usr/bin'") == true)
 
+        var metadataOverride = CmuxVaultAgentRegistration.builtInOmp
+        metadataOverride.name = "Project OMP"
+        metadataOverride.iconAssetName = "AgentIcons/ProjectOMP"
+        let metadataOverridden = SessionRestorableAgentSnapshot(
+            kind: .custom("omp"),
+            sessionId: "omp-session",
+            workingDirectory: nil,
+            launchCommand: builtIn.launchCommand,
+            registration: metadataOverride
+        )
+        #expect(ContentView.commandPaletteSnapshotForkAvailability(metadataOverridden) == .requiresProbe)
+
         var projectOverride = CmuxVaultAgentRegistration.builtInOmp
         projectOverride.name = "Project OMP"
         projectOverride.forkCommand = "{{executable}} --branch {{sessionId}}"
