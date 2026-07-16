@@ -1,6 +1,26 @@
 import CmuxSettings
 import Foundation
 
+private final class AgentNotificationDeduper: @unchecked Sendable {
+    static let shared = AgentNotificationDeduper()
+
+    private let lock = NSLock()
+    private var recent: [String: TimeInterval] = [:]
+
+    func claim(_ key: String, now: TimeInterval = Date().timeIntervalSince1970) -> Bool {
+        lock.withLock {
+            recent = recent.filter { now - $0.value <= 60 * 60 }
+            guard recent[key] == nil else { return false }
+            recent[key] = now
+            if recent.count > 128 {
+                let keep = recent.sorted { lhs, rhs in lhs.value > rhs.value }.prefix(128)
+                recent = Dictionary(uniqueKeysWithValues: keep.map { ($0.key, $0.value) })
+            }
+            return true
+        }
+    }
+}
+
 /// Applies agent notification policy and publishes accepted events through the shared mutation bus.
 struct AgentNotificationDelivery: Sendable {
     private let permissionEnabled: Bool
@@ -26,7 +46,8 @@ struct AgentNotificationDelivery: Sendable {
         body: String,
         category: AgentNotifyCategory?,
         pending: Bool,
-        coalesces: Bool = false
+        coalesces: Bool = false,
+        dedupeKey: String? = nil
     ) -> Bool {
         if let category,
            !agentNotificationShouldDeliver(
@@ -36,6 +57,9 @@ struct AgentNotificationDelivery: Sendable {
                turnMode: turnMode,
                idleEnabled: idleEnabled
            ) {
+            return false
+        }
+        if let dedupeKey, !AgentNotificationDeduper.shared.claim(dedupeKey) {
             return false
         }
         TerminalMutationBus.shared.enqueueNotification(

@@ -19,7 +19,7 @@ final class TerminalNotificationQueueTests: XCTestCase {
         super.tearDown()
     }
 
-    func testNotifyTargetAsyncQueuesNotificationForResolvedSurface() async throws {
+    func testNotifyTargetAsyncDeduplicatesCriticalNotificationForResolvedSurface() async throws {
         let socketPath = makeSocketPath("notify-async")
         let store = TerminalNotificationStore.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()
@@ -30,6 +30,7 @@ final class TerminalNotificationQueueTests: XCTestCase {
         let originalAppFocusOverride = AppFocusState.overrideIsFocused
 
         let notificationQueued = expectation(description: "notification queued")
+        notificationQueued.assertForOverFulfill = true
         store.replaceNotificationsForTesting([])
         store.configureNotificationDeliveryHandlerForTesting { _, _ in
             notificationQueued.fulfill()
@@ -66,19 +67,20 @@ final class TerminalNotificationQueueTests: XCTestCase {
         )
         try waitForSocket(at: socketPath)
 
-        let payload = "Async|Queued|Body"
+        let dedupeKey = "codex-critical:\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        let payload = "Async|Queued|Body|d=\(dedupeKey)"
         let command = "notify_target_async \(workspace.id.uuidString) \(focusedPanelId.uuidString) \(payload)"
         let responses = try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
-                    continuation.resume(returning: try self.sendCommands([command], to: socketPath))
+                    continuation.resume(returning: try self.sendCommands([command, command], to: socketPath))
                 } catch {
                     continuation.resume(throwing: error)
                 }
             }
         }
 
-        XCTAssertEqual(responses, ["OK"])
+        XCTAssertEqual(responses, ["OK", "OK"])
         await fulfillment(of: [notificationQueued], timeout: 1.0)
         XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: focusedPanelId))
     }

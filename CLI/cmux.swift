@@ -145,7 +145,6 @@ struct ClaudeHookSessionRecord: Codable {
     var lastEmittedNotificationFingerprint: String?
     var lastEmittedNotificationAt: TimeInterval?
     var recentEmittedNotificationFingerprints: [String: TimeInterval]?
-    var pendingNotificationEmissionClaims: [String: TimeInterval]?
     var runtimeStatus: AgentHookRuntimeStatus?
     var activePromptDepth: Int?
     var activePromptTurnId: String?
@@ -1172,7 +1171,6 @@ final class ClaudeHookSessionStore {
             record.lastEmittedNotificationFingerprint = nil
             record.lastEmittedNotificationAt = nil
             record.recentEmittedNotificationFingerprints = nil
-            record.pendingNotificationEmissionClaims = nil
             record.updatedAt = now
             state.sessions[normalized] = record
         }
@@ -1226,141 +1224,6 @@ final class ClaudeHookSessionStore {
             record.updatedAt = now
             state.sessions[normalized] = record
         }
-    }
-
-    /// Atomically reserves a notification fingerprint across hook processes.
-    /// The returned timestamp identifies this exact reservation so a failed
-    /// delivery can release it without clearing a newer publisher's claim.
-    func claimNotificationEmission(
-        sessionId: String,
-        fingerprint: String,
-        within interval: TimeInterval = 60 * 60
-    ) throws -> TimeInterval? {
-        let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else { return nil }
-        let normalizedFingerprint = fingerprint.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedFingerprint.isEmpty else { return nil }
-        return try withLockedState { state in
-            guard var record = state.sessions[normalized] else { return nil }
-            let now = Date().timeIntervalSince1970
-            if let emittedAt = record.recentEmittedNotificationFingerprints?[normalizedFingerprint],
-               now - emittedAt <= interval {
-                return nil
-            }
-            if record.lastEmittedNotificationFingerprint == normalizedFingerprint,
-               let emittedAt = record.lastEmittedNotificationAt,
-               now - emittedAt <= interval {
-                return nil
-            }
-            var pending = record.pendingNotificationEmissionClaims ?? [:]
-            pending = pending.filter { now - $0.value <= 30 }
-            guard pending[normalizedFingerprint] == nil else { return nil }
-            pending[normalizedFingerprint] = now
-            record.pendingNotificationEmissionClaims = pending
-            record.updatedAt = now
-            state.sessions[normalized] = record
-            return now
-        }
-    }
-
-    func claimNotificationEmissionAwaitingInFlight(
-        sessionId: String,
-        fingerprint: String,
-        timeout: TimeInterval = 1
-    ) throws -> TimeInterval? {
-        let deadline = Date().addingTimeInterval(max(0, timeout))
-        repeat {
-            if let claimedAt = try claimNotificationEmission(
-                sessionId: sessionId,
-                fingerprint: fingerprint
-            ) {
-                return claimedAt
-            }
-            if try recentlyEmittedNotification(sessionId: sessionId, fingerprint: fingerprint) {
-                return nil
-            }
-            let remaining = deadline.timeIntervalSinceNow
-            guard remaining > 0 else { break }
-            _ = waitForStateFileChange(timeout: remaining)
-        } while Date() < deadline
-        return try claimNotificationEmission(sessionId: sessionId, fingerprint: fingerprint)
-    }
-
-    func confirmNotificationEmissionClaim(
-        sessionId: String,
-        fingerprint: String,
-        claimedAt: TimeInterval
-    ) throws {
-        let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else { return }
-        let normalizedFingerprint = fingerprint.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedFingerprint.isEmpty else { return }
-        try withLockedState { state in
-            guard var record = state.sessions[normalized],
-                  record.pendingNotificationEmissionClaims?[normalizedFingerprint] == claimedAt else {
-                return
-            }
-            let now = Date().timeIntervalSince1970
-            var pending = record.pendingNotificationEmissionClaims ?? [:]
-            pending.removeValue(forKey: normalizedFingerprint)
-            record.pendingNotificationEmissionClaims = pending.isEmpty ? nil : pending
-            record.lastEmittedNotificationFingerprint = normalizedFingerprint
-            record.lastEmittedNotificationAt = now
-            var recent = record.recentEmittedNotificationFingerprints ?? [:]
-            recent[normalizedFingerprint] = now
-            recent = recent.filter { now - $0.value <= 60 * 60 }
-            if recent.count > 16 {
-                let keep = recent.sorted { lhs, rhs in
-                    if lhs.value == rhs.value { return lhs.key < rhs.key }
-                    return lhs.value > rhs.value
-                }.prefix(16)
-                recent = Dictionary(uniqueKeysWithValues: keep.map { ($0.key, $0.value) })
-            }
-            record.recentEmittedNotificationFingerprints = recent
-            record.updatedAt = now
-            state.sessions[normalized] = record
-        }
-    }
-
-    func releaseNotificationEmissionClaim(
-        sessionId: String,
-        fingerprint: String,
-        claimedAt: TimeInterval
-    ) throws {
-        let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else { return }
-        let normalizedFingerprint = fingerprint.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedFingerprint.isEmpty else { return }
-        try withLockedState { state in
-            guard var record = state.sessions[normalized],
-                  record.pendingNotificationEmissionClaims?[normalizedFingerprint] == claimedAt else {
-                return
-            }
-            var pending = record.pendingNotificationEmissionClaims ?? [:]
-            pending.removeValue(forKey: normalizedFingerprint)
-            record.pendingNotificationEmissionClaims = pending.isEmpty ? nil : pending
-            record.updatedAt = Date().timeIntervalSince1970
-            state.sessions[normalized] = record
-        }
-    }
-
-    private func waitForStateFileChange(timeout: TimeInterval) -> Bool {
-        guard timeout > 0 else { return false }
-        let directory = (statePath as NSString).deletingLastPathComponent
-        let fd = open(directory, O_EVTONLY)
-        guard fd >= 0 else { return false }
-        let semaphore = DispatchSemaphore(value: 0)
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: [.write, .delete, .rename],
-            queue: DispatchQueue.global(qos: .utility)
-        )
-        source.setEventHandler { semaphore.signal() }
-        source.setCancelHandler { close(fd) }
-        source.resume()
-        let result = semaphore.wait(timeout: .now() + timeout)
-        source.cancel()
-        return result == .success
     }
 
     func hasRunningSession(
@@ -25849,6 +25712,19 @@ struct CMUXCLI {
         var hasSubagentNotificationRelay = false
     }
 
+    private final class CodexProcessExitObservation: @unchecked Sendable {
+        private let lock = NSLock()
+        private var observed = false
+
+        func record() {
+            lock.withLock { observed = true }
+        }
+
+        var value: Bool {
+            lock.withLock { observed }
+        }
+    }
+
     private enum CodexTranscriptFailureReadResult {
         case unavailable
         case pending
@@ -26858,21 +26734,14 @@ struct CMUXCLI {
         if let leasePath, !leasePath.isEmpty {
             monitorArgs += ["--lease", leasePath]
         }
-        if let codexPID = agentPIDFromHookEnvironment(agentName: "codex", env: env) {
+        if let codexPID = agentPIDFromHookEnvironment(agentName: "codex", env: env),
+           let startTime = sessionsListProcessIdentity(for: codexPID)?.startTime {
             monitorArgs += ["--pid", String(codexPID)]
-            if let startTime = sessionsListProcessIdentity(for: codexPID)?.startTime {
-                monitorArgs += ["--pid-start", String(startTime)]
-            }
+            monitorArgs += ["--pid-start", String(startTime)]
         }
         process.arguments = monitorArgs
         process.environment = env.merging(
-            [
-                "CMUX_CLI_SENTRY_DISABLED": "1",
-                "CMUX_CLAUDE_HOOK_STATE_PATH": agentHookStatePath(
-                    sessionStoreSuffix: "codex",
-                    env: env
-                ),
-            ],
+            ["CMUX_CLI_SENTRY_DISABLED": "1"],
             uniquingKeysWith: { _, new in new }
         )
         process.standardInput = FileHandle.nullDevice
@@ -26898,9 +26767,10 @@ struct CMUXCLI {
         let turnId = optionValue(commandArgs, name: "--turn")
         var transcriptPath = optionValue(commandArgs, name: "--transcript")
         let leasePath = optionValue(commandArgs, name: "--lease")
-        let codexPID = optionValue(commandArgs, name: "--pid").flatMap(Int.init)
-            ?? agentPIDFromHookEnvironment(agentName: "codex", env: env)
         let codexPIDStartTime = optionValue(commandArgs, name: "--pid-start").flatMap(TimeInterval.init)
+        let requestedCodexPID = optionValue(commandArgs, name: "--pid").flatMap(Int.init)
+            ?? agentPIDFromHookEnvironment(agentName: "codex", env: env)
+        let codexPID = codexPIDStartTime == nil ? nil : requestedCodexPID
 
         guard !workspaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -27059,29 +26929,11 @@ struct CMUXCLI {
                 sessionId: sessionId,
                 body: summary.body
             ) else { return }
-            let store = ClaudeHookSessionStore()
-            guard let claimedAt = try? store.claimNotificationEmissionAwaitingInFlight(
-                sessionId: sessionId,
-                fingerprint: fingerprint
-            ) else {
-                return
-            }
-            let payload = "Codex|\(sanitizeNotificationField(summary.subtitle))|\(sanitizeNotificationField(summary.body))"
-            do {
-                _ = try sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
-                try? store.confirmNotificationEmissionClaim(
-                    sessionId: sessionId,
-                    fingerprint: fingerprint,
-                    claimedAt: claimedAt
-                )
-            } catch {
-                try? store.releaseNotificationEmissionClaim(
-                    sessionId: sessionId,
-                    fingerprint: fingerprint,
-                    claimedAt: claimedAt
-                )
-                return
-            }
+            let payload = "Codex|\(sanitizeNotificationField(summary.subtitle))|\(sanitizeNotificationField(summary.body))|d=\(fingerprint)"
+            _ = try? sendV1Command(
+                "notify_target_async \(workspaceId) \(surfaceId) \(payload)",
+                client: client
+            )
         }
         _ = try? sendV1Command(
             "set_status codex \(summary.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
@@ -27097,12 +26949,14 @@ struct CMUXCLI {
         timeout: TimeInterval
     ) -> Bool {
         guard timeout > 0 else { return false }
-        if let codexPID,
-           !codexMonitorProcessMatches(pid: codexPID, startTime: codexPIDStartTime) {
+        if let codexPID, let codexPIDStartTime,
+           let identity = sessionsListProcessIdentity(for: codexPID),
+           abs(identity.startTime - codexPIDStartTime) >= 0.001 {
             return true
         }
 
         let semaphore = DispatchSemaphore(value: 0)
+        let processExit = CodexProcessExitObservation()
         var sources: [DispatchSourceFileSystemObject] = []
         var processSource: DispatchSourceProcess?
 
@@ -27117,6 +26971,7 @@ struct CMUXCLI {
                 queue: DispatchQueue.global(qos: .utility)
             )
             source.setEventHandler {
+                processExit.record()
                 semaphore.signal()
             }
             source.setCancelHandler {
@@ -27150,17 +27005,7 @@ struct CMUXCLI {
         _ = semaphore.wait(timeout: .now() + timeout)
         sources.forEach { $0.cancel() }
         processSource?.cancel()
-        if let codexPID,
-           !codexMonitorProcessMatches(pid: codexPID, startTime: codexPIDStartTime) {
-            return true
-        }
-        return false
-    }
-
-    private func codexMonitorProcessMatches(pid: Int, startTime: TimeInterval?) -> Bool {
-        guard let identity = sessionsListProcessIdentity(for: pid) else { return false }
-        guard let startTime else { return true }
-        return abs(identity.startTime - startTime) < 0.001
+        return processExit.value
     }
 
     private func extractMessageText(from message: [String: Any]) -> String? {
@@ -31525,23 +31370,9 @@ export default CMUXSessionRestore;
             let shouldPublishStopAlert = (shouldPublishStopNotification || shouldPublishGrokStopFallbackNotification)
                 && !suppressCompletionNotification
             let isCodexCriticalAlert = def.name == "codex" && stopNotificationStatus == .error
-            let codexCriticalClaim: (fingerprint: String, claimedAt: TimeInterval)?
             let shouldSendStopAlertNotification: Bool
-            if shouldPublishStopAlert,
-               isCodexCriticalAlert,
-               let codexCriticalFingerprint,
-               let claimedAt = try? store.claimNotificationEmissionAwaitingInFlight(
-                   sessionId: sessionId,
-                   fingerprint: codexCriticalFingerprint
-               ) {
-                codexCriticalClaim = (codexCriticalFingerprint, claimedAt)
-                shouldSendStopAlertNotification = true
-            } else {
-                codexCriticalClaim = nil
-                shouldSendStopAlertNotification = shouldPublishStopAlert
-                    && !isCodexCriticalAlert
-                    && shouldSendNotification(fingerprint: notificationFingerprint)
-            }
+            shouldSendStopAlertNotification = shouldPublishStopAlert
+                && (isCodexCriticalAlert || shouldSendNotification(fingerprint: notificationFingerprint))
             if suppressVisibleMutations {
                 telemetry.breadcrumb(
                     staleIdleStopHasNewerRunningSession
@@ -31558,7 +31389,10 @@ export default CMUXSessionRestore;
                 let stopMeta: String? = stopNotificationStatus == .idle
                     ? AgentHookNotifyCategory.turnComplete.metaSegment(pending: antigravityHasActiveBackgroundWork)
                     : nil
-                let payload = notificationPayload(title: def.displayName, subtitle: subtitle, body: body, meta: stopMeta)
+                var payload = notificationPayload(title: def.displayName, subtitle: subtitle, body: body, meta: stopMeta)
+                if let codexCriticalFingerprint {
+                    payload += "|d=\(codexCriticalFingerprint)"
+                }
                 let notifyCommand = "notify_target_async \(workspaceId) \(surfaceId) \(payload)"
 #if DEBUG
                 agentHookDebugLog(
@@ -31576,23 +31410,8 @@ export default CMUXSessionRestore;
                         env: env
                     )
 #endif
-                    if codexCriticalClaim == nil {
-                        markNotificationSent(fingerprint: notificationFingerprint)
-                    } else if let codexCriticalClaim {
-                        try? store.confirmNotificationEmissionClaim(
-                            sessionId: sessionId,
-                            fingerprint: codexCriticalClaim.fingerprint,
-                            claimedAt: codexCriticalClaim.claimedAt
-                        )
-                    }
+                    markNotificationSent(fingerprint: notificationFingerprint)
                 } catch {
-                    if let codexCriticalClaim {
-                        try? store.releaseNotificationEmissionClaim(
-                            sessionId: sessionId,
-                            fingerprint: codexCriticalClaim.fingerprint,
-                            claimedAt: codexCriticalClaim.claimedAt
-                        )
-                    }
 #if DEBUG
                     agentHookDebugLog(
                         "agentHook.stop.notify.error agent=\(def.name) session=\(agentHookDebugShort(sessionId)) error=\(String(describing: error))",
