@@ -55,6 +55,12 @@ public struct UnifiedDiffParser: Sendable {
             }
             if rawLine == "\\ No newline at end of file" ||
                 rawLine == "\\ No newline at end of file\r" {
+                currentLines.append(DiffLine(
+                    kind: .noNewlineMarker,
+                    text: "",
+                    oldNumber: nil,
+                    newNumber: nil
+                ))
                 continue
             }
             guard let prefix = rawLine.first else {
@@ -103,7 +109,7 @@ public struct UnifiedDiffParser: Sendable {
         to hunks: inout [DiffHunk]
     ) {
         guard let header else { return }
-        let emphasized = IntraLineDiff().applying(to: lines)
+        let emphasized = applyingIntraLineEmphasis(to: lines)
         hunks.append(DiffHunk(
             header: DiffLine(
                 kind: .hunkHeader,
@@ -118,6 +124,18 @@ public struct UnifiedDiffParser: Sendable {
             sectionContext: header.sectionContext,
             lines: emphasized
         ))
+    }
+
+    /// Keeps Git metadata markers in display order without breaking the
+    /// adjacent removal/addition runs used for intra-line emphasis.
+    private func applyingIntraLineEmphasis(to lines: [DiffLine]) -> [DiffLine] {
+        let contentIndices = lines.indices.filter { lines[$0].kind != .noNewlineMarker }
+        let emphasizedContent = IntraLineDiff().applying(to: contentIndices.map { lines[$0] })
+        var result = lines
+        for (index, emphasizedLine) in zip(contentIndices, emphasizedContent) {
+            result[index] = emphasizedLine
+        }
+        return result
     }
 
     private func parseHeader(_ line: String) -> ParsedHeader? {

@@ -10,7 +10,22 @@ struct DiffLineRow: View {
 
     var body: some View {
         Group {
-            if line.kind == .hunkHeader {
+            if line.kind == .noNewlineMarker {
+                HStack(spacing: 5) {
+                    Image(systemName: "arrow.turn.down.right")
+                        .accessibilityHidden(true)
+                    Text(String(
+                        localized: "changes.diff.no_newline_marker",
+                        defaultValue: "No newline at end of file",
+                        bundle: .module
+                    ))
+                }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 2)
+            } else if line.kind == .hunkHeader {
                 Text(line.text)
                     .font(.system(size: fontSize, design: .monospaced))
                     .foregroundStyle(theme.hunkHeaderText)
@@ -39,11 +54,13 @@ struct DiffLineRow: View {
         }
         .contentShape(Rectangle())
         .contextMenu {
-            Button(String(localized: "changes.copy.line", defaultValue: "Copy Line", bundle: .module)) {
-                onCopy(line.text)
-            }
-            Button(String(localized: "changes.copy.hunk", defaultValue: "Copy Hunk", bundle: .module)) {
-                onCopy(hunkCopyText)
+            if line.kind != .noNewlineMarker {
+                Button(String(localized: "changes.copy.line", defaultValue: "Copy Line", bundle: .module)) {
+                    onCopy(line.text)
+                }
+                Button(String(localized: "changes.copy.hunk", defaultValue: "Copy Hunk", bundle: .module)) {
+                    onCopy(hunkCopyText)
+                }
             }
         }
     }
@@ -65,7 +82,7 @@ struct DiffLineRow: View {
         switch line.kind {
         case .addition: "+"
         case .removal: "−"
-        case .context, .hunkHeader: ""
+        case .context, .hunkHeader, .noNewlineMarker: ""
         }
     }
 
@@ -73,7 +90,7 @@ struct DiffLineRow: View {
         switch line.kind {
         case .addition: theme.addedStatus
         case .removal: theme.deletedStatus
-        case .context, .hunkHeader: .secondary
+        case .context, .hunkHeader, .noNewlineMarker: .secondary
         }
     }
 
@@ -81,7 +98,7 @@ struct DiffLineRow: View {
         switch line.kind {
         case .addition: theme.additionBackground
         case .removal: theme.removalBackground
-        case .context, .hunkHeader: .clear
+        case .context, .hunkHeader, .noNewlineMarker: .clear
         }
     }
 

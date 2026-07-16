@@ -12,7 +12,7 @@ public struct DiffHunk: Sendable, Equatable {
     public let newCount: Int
     /// Optional function or section context following the second `@@`.
     public let sectionContext: String?
-    /// Parsed context, addition, and removal lines in wire order.
+    /// Parsed context, changed, and no-newline marker lines in wire order.
     public let lines: [DiffLine]
 
     /// Creates a parsed hunk.

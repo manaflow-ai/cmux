@@ -340,6 +340,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Like ``workspaces``, this is a materialized immutable-value surface on the
     /// `@Observable` composite; list rows receive copied values, never the store.
     public private(set) var workspaceChangeChipsByWorkspaceID: [String: MobileWorkspaceChangesChip] = [:]
+    /// Device-local persistence for the one-time workspace-changes hint.
+    @ObservationIgnored var workspaceChangesHintDismissalStore: MobileWorkspaceChangesHintDismissalStore
 
     func setWorkspaceChangeChipsByWorkspaceID(
         _ chips: [String: MobileWorkspaceChangesChip]
@@ -941,11 +943,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         feedbackEmailSubmitter: (any MobileFeedbackEmailSubmitting)? = nil,
         feedbackStampProvider: @escaping @MainActor () -> MobileFeedbackStamp = { MobileShellComposite.emptyFeedbackStamp },
         draftStore: (any TerminalDraftStoring)? = nil,
-        groupCollapseStore: MobileWorkspaceGroupCollapseStore = MobileWorkspaceGroupCollapseStore()
+        groupCollapseStore: MobileWorkspaceGroupCollapseStore = MobileWorkspaceGroupCollapseStore(),
+        workspaceChangesHintDismissalStore: MobileWorkspaceChangesHintDismissalStore = MobileWorkspaceChangesHintDismissalStore()
     ) {
         self.runtime = runtime
         self.draftStore = draftStore
         self.groupCollapseStore = groupCollapseStore
+        self.workspaceChangesHintDismissalStore = workspaceChangesHintDismissalStore
         self.pairedMacStore = pairedMacStore
         self.pairedMacRestoreBoundary = pairedMacRestoreBoundary
         self.deviceRegistry = deviceRegistry

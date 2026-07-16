@@ -436,6 +436,41 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "閉じる" } }
       }
     },
+    "workspace.changes.chip.accessibility" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%1$lld additions, %2$lld deletions" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "追加%1$lld行、削除%2$lld行" } }
+      }
+    },
+    "workspace.changes.chip.row_accessibility" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%1$@, %2$lld additions, %3$lld deletions" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%1$@、追加%2$lld行、削除%3$lld行" } }
+      }
+    },
+    "workspace.changes.hint.body" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Tap the Changes button to see what the agent edited." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "変更ボタンをタップして、エージェントが編集した内容を確認できます。" } }
+      }
+    },
+    "workspace.changes.hint.dismiss" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Dismiss" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "閉じる" } }
+      }
+    },
+    "workspace.changes.hint.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Review this workspace's changes" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このワークスペースの変更を確認" } }
+      }
+    },
     "workspace.changes.preview.error" : {
       "extractionState" : "manual",
       "localizations" : {

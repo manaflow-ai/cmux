@@ -8,4 +8,6 @@ public enum DiffLineKind: Sendable, Equatable {
     case removal
     /// A unified-diff hunk boundary beginning with `@@`.
     case hunkHeader
+    /// Git's marker that the preceding changed line has no trailing newline.
+    case noNewlineMarker
 }

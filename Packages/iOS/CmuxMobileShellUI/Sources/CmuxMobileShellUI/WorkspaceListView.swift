@@ -16,6 +16,9 @@ struct WorkspaceListView: View {
     let selectedWorkspaceID: MobileWorkspacePreview.ID?
     let host: String
     let connectionStatus: MobileMacConnectionStatus
+    /// Capability and summary snapshots mapped into immutable row values above `List`.
+    var workspaceChangesCapable = false
+    var workspaceChangeChipsByWorkspaceID: [String: MobileWorkspaceChangesChip] = [:]
     var macUpdateHint: MobileMacUpdateHint? = nil
     var macUpdateHintMacName: String? = nil
     var dismissMacUpdateHint: (() -> Void)? = nil
@@ -566,8 +569,12 @@ struct WorkspaceListView: View {
     @ViewBuilder
     private func workspaceRow(_ workspace: MobileWorkspacePreview, indented: Bool, enablesReorder: Bool) -> some View {
         let capabilities = workspace.actionCapabilities
+        let changesChip = workspaceChangesCapable
+            ? workspaceChangeChipsByWorkspaceID[workspace.rpcWorkspaceID.rawValue]
+            : nil
         WorkspaceNavigationRow(
             workspace: workspace,
+            changesChip: changesChip,
             connectionStatus: workspace.macConnectionStatus ?? connectionStatus,
             isSelected: navigationStyle == .sidebar && selectedWorkspaceID == workspace.id,
             navigationStyle: navigationStyle,

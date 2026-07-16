@@ -94,21 +94,28 @@ import Testing
         #expect(document.lines.isEmpty)
     }
 
-    @Test func ignoresNoTrailingNewlineMarkerWithoutAdvancingNumbers() throws {
+    @Test func emitsNoTrailingNewlineMarkersAfterAffectedLinesWithoutAdvancingNumbers() throws {
         let diff = """
         @@ -8 +8 @@
-        -old
+        -let value = 1
         \\ No newline at end of file
-        +new
+        +let value = 2
         \\ No newline at end of file
         """
 
         let hunk = try #require(parser.parse(diff).hunks.first)
-        #expect(hunk.lines.count == 2)
+        #expect(hunk.lines.count == 4)
         #expect(hunk.lines[0].oldNumber == 8)
         #expect(hunk.lines[0].newNumber == nil)
+        #expect(hunk.lines[1].kind == .noNewlineMarker)
         #expect(hunk.lines[1].oldNumber == nil)
-        #expect(hunk.lines[1].newNumber == 8)
+        #expect(hunk.lines[1].newNumber == nil)
+        #expect(hunk.lines[2].oldNumber == nil)
+        #expect(hunk.lines[2].newNumber == 8)
+        #expect(hunk.lines[3].kind == .noNewlineMarker)
+        #expect(!hunk.lines[0].emphasisRanges.isEmpty)
+        #expect(!hunk.lines[2].emphasisRanges.isEmpty)
+        #expect(hunk.copyText == "@@ -8 +8 @@\n-let value = 1\n+let value = 2")
     }
 
     @Test func parsesHunkHeaderFunctionContext() throws {

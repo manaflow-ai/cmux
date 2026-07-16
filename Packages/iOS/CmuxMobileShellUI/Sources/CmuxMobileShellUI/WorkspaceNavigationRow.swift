@@ -1,9 +1,14 @@
+import CmuxMobileChanges
+import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 
 struct WorkspaceNavigationRow: View {
+    @Environment(\.colorScheme) private var colorScheme
     let workspace: MobileWorkspacePreview
+    /// Immutable changes summary projected by ``WorkspaceListView`` above `List`.
+    var changesChip: MobileWorkspaceChangesChip? = nil
     let connectionStatus: MobileMacConnectionStatus
     let isSelected: Bool
     let navigationStyle: WorkspaceNavigationStyle
@@ -65,7 +70,7 @@ struct WorkspaceNavigationRow: View {
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
         .accessibilityIdentifier("MobileWorkspaceRow-\(workspace.id.rawValue)")
-        .accessibilityLabel(workspace.name)
+        .accessibilityLabel(rowAccessibilityLabel)
         .accessibilityValue(workspace.accessibilitySummary(connectionStatus: connectionStatus))
         .sheet(isPresented: $isRenaming) {
             WorkspaceRenameSheet(currentName: workspace.name) { newName in
@@ -112,15 +117,64 @@ struct WorkspaceNavigationRow: View {
     }
 
     private var rowLabel: some View {
-        WorkspaceRow(
-            workspace: workspace,
-            connectionStatus: connectionStatus,
-            isSelected: navigationStyle == .sidebar && isSelected,
-            wrapWorkspaceTitles: wrapWorkspaceTitles,
-            previewLineLimit: previewLineLimit,
-            unreadIndicatorLeftShift: unreadIndicatorLeftShift,
-            profilePictureLeftShift: profilePictureLeftShift,
-            profilePictureSize: profilePictureSize
+        HStack(spacing: 8) {
+            WorkspaceRow(
+                workspace: workspace,
+                connectionStatus: connectionStatus,
+                isSelected: navigationStyle == .sidebar && isSelected,
+                wrapWorkspaceTitles: wrapWorkspaceTitles,
+                previewLineLimit: previewLineLimit,
+                unreadIndicatorLeftShift: unreadIndicatorLeftShift,
+                profilePictureLeftShift: profilePictureLeftShift,
+                profilePictureSize: profilePictureSize
+            )
+            if let changesChip, changesChip.filesChanged > 0 {
+                changesChipLabel(changesChip)
+            }
+        }
+    }
+
+    private func changesChipLabel(_ chip: MobileWorkspaceChangesChip) -> some View {
+        let theme = ChangesTheme(colorScheme: colorScheme)
+        return HStack(spacing: 3) {
+            Text("+\(chip.additions)")
+                .foregroundStyle(theme.addedStatus)
+            Text("−\(chip.deletions)")
+                .foregroundStyle(theme.deletedStatus)
+        }
+        .font(.caption2.weight(.semibold))
+        .monospacedDigit()
+        .lineLimit(1)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 3)
+        .background(Capsule().fill(Color.secondary.opacity(0.12)))
+        .accessibilityLabel(changesAccessibilitySummary(chip))
+        .accessibilityIdentifier("MobileChangesChip-\(workspace.rpcWorkspaceID.rawValue)")
+    }
+
+    private var rowAccessibilityLabel: String {
+        guard let changesChip, changesChip.filesChanged > 0 else { return workspace.name }
+        return String(
+            format: String(
+                localized: "workspace.changes.chip.row_accessibility",
+                defaultValue: "%1$@, %2$lld additions, %3$lld deletions",
+                bundle: .module
+            ),
+            workspace.name,
+            changesChip.additions,
+            changesChip.deletions
+        )
+    }
+
+    private func changesAccessibilitySummary(_ chip: MobileWorkspaceChangesChip) -> String {
+        String(
+            format: String(
+                localized: "workspace.changes.chip.accessibility",
+                defaultValue: "%1$lld additions, %2$lld deletions",
+                bundle: .module
+            ),
+            chip.additions,
+            chip.deletions
         )
     }
 

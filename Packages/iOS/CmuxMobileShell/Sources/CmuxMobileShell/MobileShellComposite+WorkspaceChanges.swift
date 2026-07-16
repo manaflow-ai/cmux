@@ -3,6 +3,24 @@ internal import CmuxMobileShellModel
 internal import Foundation
 
 extension MobileShellComposite {
+    /// Returns the unseen one-time hint for a changed workspace, when eligible.
+    /// - Parameter workspaceID: Mac-local workspace identifier.
+    /// - Returns: A value snapshot for UI presentation, or `nil` when hidden.
+    public func workspaceChangesHint(workspaceID: String) -> MobileWorkspaceChangesHint? {
+        MobileWorkspaceChangesHint(
+            workspaceID: workspaceID,
+            workspaceChangesCapable: workspaceChangesCapable,
+            chip: workspaceChangeChipsByWorkspaceID[workspaceID],
+            isDismissed: workspaceChangesHintDismissalStore.isDismissed(workspaceID: workspaceID)
+        )
+    }
+
+    /// Permanently marks the one-time changes hint as seen for a workspace.
+    /// - Parameter workspaceID: Mac-local workspace identifier.
+    public func dismissWorkspaceChangesHint(workspaceID: String) {
+        workspaceChangesHintDismissalStore.dismiss(workspaceID: workspaceID)
+    }
+
     /// Fetches summary chips in batches of at most 64 workspaces.
     ///
     /// A successful workspace fetch is reused for 15 seconds unless `force` is
