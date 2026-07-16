@@ -6684,6 +6684,7 @@ mod tests {
 
     use cmux_tui_core::{
         BrowserStatus, Mux, MuxEvent, Node, Rect, SplitDir, SurfaceId, SurfaceKind, SurfaceOptions,
+        layout_screen,
     };
     use crossterm::event::{
         Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
@@ -6730,6 +6731,49 @@ mod tests {
                 MenuItem::Action(MenuAction::CopyPaneId(pane)),
             ]
         );
+    }
+
+    #[test]
+    fn alt_n_uses_zellij_default_vertical_distribution() {
+        let (mux, _) = test_mux("alt-n-zellij-layout-test", None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+
+        for _ in 0..4 {
+            app.sync_layout((200, 40));
+            app.handle_key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::ALT)).unwrap();
+            while app.session.has_pending_mutations() {
+                let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+                app.handle(event).unwrap();
+            }
+        }
+
+        let screen = app.tree.active_screen().unwrap();
+        let mut panes = Vec::new();
+        screen.layout.pane_ids(&mut panes);
+        panes.sort_unstable();
+        assert_eq!(panes.len(), 5);
+
+        let layout = layout_screen(
+            &screen.layout,
+            Rect { x: 0, y: 0, width: 200, height: 40 },
+        );
+        assert_eq!(
+            layout.panes,
+            vec![
+                (panes[0], Rect { x: 0, y: 0, width: 100, height: 40 }),
+                (panes[1], Rect { x: 100, y: 0, width: 100, height: 10 }),
+                (panes[2], Rect { x: 100, y: 10, width: 100, height: 10 }),
+                (panes[3], Rect { x: 100, y: 20, width: 100, height: 10 }),
+                (panes[4], Rect { x: 100, y: 30, width: 100, height: 10 }),
+            ]
+        );
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface);
+        }
     }
 
     #[test]
