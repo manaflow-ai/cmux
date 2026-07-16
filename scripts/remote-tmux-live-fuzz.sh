@@ -136,18 +136,24 @@ settlement_has_schema() {
 # every window whole.
 settlement_digest() {
   local digest
-  digest=$(printf '%s' "$1" | jq -c '{counters, windows}' 2>/dev/null)
-  if [ -z "$digest" ]; then
-    printf 'unparsable payload: %s' "$(printf '%s' "$1" | tr -d '\n' | cut -c1-300)"
+  # Keep the UNSETTLED windows, whole. The failure is "nothing settled in 8s", so
+  # those windows are the entire cause, and bounding by window instead of by
+  # character is what keeps the output parsable — a character cap cuts mid-token,
+  # can drop the failing window's `why` outright depending on dictionary order,
+  # and leaves behind something that is no longer JSON.
+  # jq's status is honored: a payload of one valid value followed by garbage makes
+  # jq print and then exit non-zero, which a discarded status would report as a
+  # clean digest.
+  if digest=$(printf '%s' "$1" | jq -c '
+        {counters, windows: [.windows[]? | select(.settled != true)]}
+      ' 2>/dev/null) && [ -n "$digest" ]; then
+    printf '%s' "$digest"
     return
   fi
-  # A cap so one pathological window cannot dump megabytes into the log, and it
-  # says what it dropped rather than trailing off mid-token.
-  if [ "${#digest}" -gt 4000 ]; then
-    printf '%s [digest cut at 4000 of %d chars]' "$(printf '%s' "$digest" | cut -c1-4000)" "${#digest}"
-  else
-    printf '%s' "$digest"
-  fi
+  # Reachable and worth distinguishing: an RPC that times out at second 8 arrives
+  # here empty, and jq prints nothing for empty input. "The app stopped answering"
+  # is a different failure from "the app answered, unsettled".
+  printf 'unparsable or empty payload: %s' "$(printf '%s' "$1" | tr -d '\n' | cut -c1-300)"
 }
 
 settlement_has_reported_windows() {
@@ -304,8 +310,19 @@ check_screen_oracle() {
     [.panes[]? | select(.on_screen == true) | .window_id] | unique[]
   ' 2>/dev/null); do
     window_panes=$(t list-panes -t "$window" \
-      -F '#{window_zoomed_flag} #{pane_active} #{pane_id}' 2>/dev/null) || continue
+      -F '#{window_zoomed_flag} #{pane_active} #{pane_id}' 2>/dev/null)
+    if [ -z "$window_panes" ]; then
+      # The app says it is SHOWING this window and tmux does not have it. Skipping
+      # here was the quiet path: another visible window's successful comparison
+      # keeps `checked` non-zero, so the iteration passes while the window whose
+      # panes are stale on screen is compared against nothing at all. If the app
+      # shows a window tmux has closed, that is the finding.
+      note_fail "$iter" "visible $window: the app shows it but tmux has no panes for it (window gone, mirror still on screen)"
+      continue
+    fi
+    zoom_state=off
     if printf '%s\n' "$window_panes" | grep -q '^1 '; then
+      zoom_state=on
       tmux_panes=$(printf '%s\n' "$window_panes" | awk '$2 == 1 { print $3 }' | sort)
     else
       tmux_panes=$(printf '%s\n' "$window_panes" | awk '{ print $3 }' | sort)
@@ -624,13 +641,28 @@ switch_mirror_tab() {
   case " $mirrored " in *" $shown "*) : ;; *)
     echo "  (op10 skipped: shown window @$shown is not mirrored)"; return 0 ;;
   esac
-  target=$(printf '%s' "$PANE_SURFACES_JSON" | jq -r --arg shown "$shown" --arg m "$mirrored" '
-    ($m | split(" ")) as $mir
-    | [.panes[]
+  # Take the target's WINDOW beside its surface. "Some other mirrored window is
+  # shown now" is not proof this op switched to the one it asked for: with a third
+  # mirrored window in play, or any concurrent selection, the shown window can
+  # differ from where it started without the target ever being selected, and the
+  # counter would bank a switch that never landed — a coverage number reporting
+  # more than it delivered, which is the fault this op exists to remove.
+  # Exact membership, not `inside`: jq's `inside` compares strings by containment,
+  # so ["@3"] | inside(["@30","@1"]) is true — once tmux hands out @10 and up
+  # (routine across a marathon) @1 would pass as mirrored on the strength of @10,
+  # and the op would "switch" to a window it never verified was a mirror.
+  local target_window mirrored_json
+  mirrored_json=$(printf '%s' "$grids" | jq -c '[.windows[]?.window_id]' 2>/dev/null) || return 0
+  target=$(printf '%s' "$PANE_SURFACES_JSON" | jq -r \
+    --arg shown "$shown" --argjson mir "$mirrored_json" '
+    [.panes[]
        | select(.on_screen == false)
        | select((.window_id | tostring) != $shown)
-       | select(([.window_id | tostring] | inside($mir)))][0].surface_id // empty' 2>/dev/null)
-  if [ -z "$target" ]; then
+       | select(.window_id | IN($mir[]))][0]
+    | "\(.surface_id // "") \(.window_id // "")"' 2>/dev/null)
+  target_window=${target#* }
+  target=${target%% *}
+  if [ -z "$target" ] || [ -z "$target_window" ] || [ "$target" = "null" ]; then
     echo "  (op10 skipped: no second MIRRORED window to switch to)"
     return 0
   fi
@@ -638,20 +670,25 @@ switch_mirror_tab() {
     note_fail "$iter" "op10: surface.focus rejected $target (mirror->mirror switch never attempted)"
     return 0
   }
-  # Prove a DIFFERENT MIRRORED window is now shown. Bounded tightly: a wedged
-  # socket must reach the hang detector, not idle here for a minute.
+  # Prove the TARGET window is the one now shown. Bounded tightly: a wedged
+  # socket must reach the hang detector, not idle here for a minute. Probe before
+  # sleeping so an immediate switch costs nothing.
   local after
   for _ in 1 2 3 4 5 6; do
-    sleep 0.5
-    "$TIMEOUT_BIN" 3 "$CLI" rpc remote.tmux.pane_surfaces \
-      "{\"host\":\"$HOST\",\"session\":\"$SESSION\"}" > /tmp/.op10.$$ 2>/dev/null || continue
-    after=$(jq -r '[.panes[] | select(.on_screen == true)][0].window_id // empty' /tmp/.op10.$$ 2>/dev/null)
-    rm -f /tmp/.op10.$$
-    if [ -n "$after" ] && [ "$after" != "$shown" ]; then
-      case " $mirrored " in *" $after "*) OP10_SWITCHES=$((OP10_SWITCHES + 1)); return 0 ;; esac
+    if "$TIMEOUT_BIN" 3 "$CLI" rpc remote.tmux.pane_surfaces \
+      "{\"host\":\"$HOST\",\"session\":\"$SESSION\"}" > "$RUN_DIR/op10.json" 2>/dev/null; then
+      after=$(jq -r '[.panes[] | select(.on_screen == true)][0].window_id // empty' \
+        "$RUN_DIR/op10.json" 2>/dev/null)
+      if [ -n "$after" ] && [ "$after" = "$target_window" ]; then
+        OP10_SWITCHES=$((OP10_SWITCHES + 1))
+        rm -f "$RUN_DIR/op10.json"
+        return 0
+      fi
     fi
+    sleep 0.5
   done
-  note_fail "$iter" "op10: focused $target but @$shown is still the shown window — the mirror tab never switched"
+  rm -f "$RUN_DIR/op10.json"
+  note_fail "$iter" "op10: focused $target but the shown window is @${after:-none}, not the target @$target_window (was @$shown) — the mirror tab never switched to it"
 }
 
 do_op() {
@@ -824,13 +861,20 @@ for i in $(seq 1 "$ITERS"); do
 done
 
 # A seed that never switched a mirror tab did not exercise the reveal path, so its
-# green says nothing about the class this op exists for. Report it rather than
-# letting silent zero coverage read as a pass — that is precisely how a real mirror
-# bug survived 125 "clean" iterations.
+# green says nothing about the class this op exists for — and silent zero coverage
+# reading as a pass is exactly how a real mirror bug survived 125 "clean"
+# iterations. But whether a seed DRAWS op 10 is a property of the RNG, not of the
+# code under test: with one op in eleven and about 37 draws in a 25-iteration seed,
+# roughly one seed in thirty never draws it at all, and a shorter run far more
+# often. Counting that as a defect would file "the dice went another way" next to
+# real failures, and a gate that cries wolf gets ignored.
+#
+# So it is not a `fail`. It reports on its own line, and the marathon asserts the
+# floor across seeds, where the draw actually has room to even out.
+echo "FUZZ COVERAGE seed=$SEED op10_switches=${OP10_SWITCHES:-0}"
 if [ "${OP10_SWITCHES:-0}" -eq 0 ]; then
-  echo "FUZZ FAIL seed=$SEED: no mirror->mirror tab switch landed in $ITERS iterations" \
-    "(op10 never got two mirrored windows, or never ran) — the reveal path was not tested"
-  fail=$((fail + 1))
+  echo "FUZZ UNCOVERED seed=$SEED: no mirror->mirror tab switch landed in $ITERS iterations" \
+    "(op10 never drew, or never had two mirrored windows) — this seed says nothing about the reveal path"
 fi
 echo "FUZZ DONE seed=$SEED iters=$ITERS failures=$fail op10_switches=${OP10_SWITCHES:-0}"
 # Boolean exit: a raw count could wrap past 255 or collide with the
