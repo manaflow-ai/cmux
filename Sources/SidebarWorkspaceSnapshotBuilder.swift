@@ -44,9 +44,9 @@ struct SidebarWorkspaceSnapshotBuilder {
         let copyableSidebarSSHError: String?
         let latestConversationMessage: String?
         let metadataEntries: [SidebarStatusEntry]
-        // Per-entry-key hex colors from `sidebar.stateIndicatorColors`,
-        // resolved from each status key's agent lifecycle state. Overrides
-        // the producer-reported entry color, including on the active row.
+        /// Per-entry-key hex colors from `sidebar.stateIndicatorColors`,
+        /// resolved from each status key's agent lifecycle state. Overrides
+        /// the producer-reported entry color, including on the active row.
         let metadataEntryOverrideColors: [String: String]
         let metadataBlocks: [SidebarMetadataBlock]
         let latestLog: SidebarLogEntry?

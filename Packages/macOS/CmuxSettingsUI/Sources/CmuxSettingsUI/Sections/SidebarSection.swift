@@ -33,8 +33,11 @@ public struct SidebarSection: View {
     @State var loadingSpinnerPosition: DefaultsValueModel<SidebarIndicatorPosition>
     @State var notificationBadgePosition: DefaultsValueModel<SidebarIndicatorPosition>
     @State private var showMetadata: DefaultsValueModel<Bool>
+    /// `sidebar.stateIndicatorColors.running` hex override ("" = default).
     @State private var stateIndicatorRunningHex: DefaultsValueModel<String>
+    /// `sidebar.stateIndicatorColors.needsInput` hex override ("" = default).
     @State private var stateIndicatorNeedsInputHex: DefaultsValueModel<String>
+    /// `sidebar.stateIndicatorColors.idle` hex override ("" = default).
     @State private var stateIndicatorIdleHex: DefaultsValueModel<String>
     @State private var rightMaxWidth: DefaultsValueModel<Double>
     @State private var rememberedRightMaxWidth: DefaultsValueModel<Double>

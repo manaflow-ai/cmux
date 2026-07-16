@@ -138,6 +138,9 @@ struct SidebarWorkspaceSnapshotFactory {
         return colors.overrideColorsByKey(statesByKey: statesByKey)
     }
 
+    /// Maps an agent lifecycle state to the indicator state a color override
+    /// can target, or `nil` for `.unknown` (an unknown lifecycle never
+    /// recolors a status pill).
     private static func indicatorState(
         for lifecycle: AgentHibernationLifecycleState
     ) -> SidebarStateIndicatorState? {

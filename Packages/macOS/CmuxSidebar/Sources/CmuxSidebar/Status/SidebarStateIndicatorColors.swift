@@ -27,6 +27,7 @@ public enum SidebarStateIndicatorState: String, Sendable, Equatable, CaseIterabl
         precedenceRank <= other.precedenceRank ? self : other
     }
 
+    /// Sort rank backing `dominating(_:)`; lower ranks win.
     private var precedenceRank: Int {
         switch self {
         case .needsInput: 0
@@ -101,6 +102,7 @@ public struct SidebarStateIndicatorColors: Equatable, Sendable {
         return colors
     }
 
+    /// Collapses empty or whitespace-only hex strings to `nil`.
     private static func normalized(_ hex: String?) -> String? {
         guard let hex else { return nil }
         let trimmed = hex.trimmingCharacters(in: .whitespacesAndNewlines)

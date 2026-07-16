@@ -9440,6 +9440,8 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let notificationBadgePosition: SidebarIndicatorPosition
     let selectionColorHex: String?
     let notificationBadgeColorHex: String?
+    /// Per-state `sidebar.stateIndicatorColors` overrides for agent status
+    /// pills; empty when nothing is configured.
     let stateIndicatorColors: SidebarStateIndicatorColors
     let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
     let iMessageModeEnabled: Bool
@@ -14682,7 +14684,7 @@ private extension String {
 
 private struct SidebarMetadataRows: View {
     let entries: [SidebarStatusEntry]
-    // `sidebar.stateIndicatorColors` hex overrides keyed by entry key.
+    /// `sidebar.stateIndicatorColors` hex overrides keyed by entry key.
     let overrideColors: [String: String]
     let isActive: Bool
     let activeForegroundColor: Color
@@ -14742,8 +14744,8 @@ private struct SidebarMetadataRows: View {
 
 private struct SidebarMetadataEntryRow: View {
     let entry: SidebarStatusEntry
-    // Configured `sidebar.stateIndicatorColors` hex for this entry's current
-    // agent lifecycle state; nil when unconfigured or state is unknown.
+    /// Configured `sidebar.stateIndicatorColors` hex for this entry's current
+    /// agent lifecycle state; nil when unconfigured or state is unknown.
     let overrideColorHex: String?
     let isActive: Bool
     let activeForegroundColor: Color
