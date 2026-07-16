@@ -1,5 +1,6 @@
 import CmuxSettings
 import CmuxSidebar
+import CmuxSidebarGit
 import Foundation
 
 typealias RightSidebarWidthSettings = CmuxSettings.RightSidebarWidthSettings
@@ -81,8 +82,15 @@ extension SidebarWorkspaceDetailDefaults {
     }
 
     static func gitMetadataPollingEnabled(defaults: UserDefaults) -> Bool {
-        watchGitStatusValue(defaults: defaults)
-            && auxiliaryDetailVisibility(defaults: defaults).requiresGitMetadata
+        gitMetadataActivity(defaults: defaults).performsActivePolling
+    }
+
+    static func gitMetadataActivity(defaults: UserDefaults) -> SidebarGitMetadataActivity {
+        guard watchGitStatusValue(defaults: defaults),
+              auxiliaryDetailVisibility(defaults: defaults).requiresGitMetadata else {
+            return .disabled
+        }
+        return .activePolling
     }
 
     static func pullRequestPollingEnabled(defaults: UserDefaults) -> Bool {

@@ -120,7 +120,7 @@ extension PullRequestPollService {
                 // disabled the probe scheduler clears the panel's branch AND
                 // the badge this pass just applied (there is also no branch
                 // projection to heal).
-                if resolvedBranch != projectedBranch, host.isGitMetadataWatchEnabled {
+                if resolvedBranch != projectedBranch, host.gitMetadataActivity.performsActivePolling {
                     host.schedulePanelGitMetadataProbe(
                         workspaceId: result.workspaceId,
                         panelId: result.panelId,

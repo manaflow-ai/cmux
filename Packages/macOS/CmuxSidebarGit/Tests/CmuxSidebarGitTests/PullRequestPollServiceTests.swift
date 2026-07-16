@@ -306,7 +306,7 @@ import CmuxGit
     @Test func resolvedBadgeMismatchDoesNotScheduleProbeWhenWatchDisabled() throws {
         let host = RecordingSidebarGitHost()
         host.pollingEnabled = true
-        host.watchEnabled = false
+        host.gitMetadataActivity = .disabled
         let (workspaceId, panelId) = host.addWorkspace(panelDirectory: "/tmp/repo")
         let service = makeService(host: host, clock: ManualGitPollClock())
         let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)

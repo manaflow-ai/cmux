@@ -172,8 +172,8 @@ extension TabManager: SidebarGitHosting {
 
     // MARK: Environment
 
-    var isGitMetadataWatchEnabled: Bool {
-        SidebarWorkspaceDetailDefaults.gitMetadataPollingEnabled(defaults: .standard)
+    var gitMetadataActivity: SidebarGitMetadataActivity {
+        SidebarWorkspaceDetailDefaults.gitMetadataActivity(defaults: .standard)
     }
 
     var isPullRequestPollingEnabled: Bool {

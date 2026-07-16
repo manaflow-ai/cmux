@@ -89,8 +89,8 @@ public protocol SidebarGitHosting: AnyObject {
 
     // MARK: Environment
 
-    /// Whether the sidebar git status watch setting is enabled.
-    var isGitMetadataWatchEnabled: Bool { get }
+    /// The active/passive/disabled work level for sidebar git metadata.
+    var gitMetadataActivity: SidebarGitMetadataActivity { get }
     /// Whether sidebar pull-request polling is enabled.
     var isPullRequestPollingEnabled: Bool { get }
     /// Whether the paired mobile host served a request within `interval`

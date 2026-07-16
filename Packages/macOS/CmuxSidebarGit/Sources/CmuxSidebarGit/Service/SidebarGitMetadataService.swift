@@ -76,7 +76,7 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     var workspaceGitSnapshotTaskContextByDirectory: [String: WorkspaceGitSnapshotTaskContext] = [:]
     var workspaceGitSnapshotDirectoryByProbeKey: [WorkspaceGitProbeKey: String] = [:]
     var workspaceGitMetadataFallbackTask: Task<Void, Never>?
-    private var lastSidebarGitMetadataWatchEnabled = false
+    private var lastSidebarGitMetadataActivity: SidebarGitMetadataActivity = .disabled
 
     /// Creates the metadata service.
     ///
@@ -122,12 +122,12 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     /// entry point runs).
     public func attach(host: any SidebarGitHosting) {
         self.host = host
-        lastSidebarGitMetadataWatchEnabled = host.isGitMetadataWatchEnabled
+        lastSidebarGitMetadataActivity = host.gitMetadataActivity
         updateWorkspaceGitMetadataFallbackTimer()
     }
 
     var sidebarGitMetadataWatchEnabled: Bool {
-        host?.isGitMetadataWatchEnabled ?? false
+        host?.gitMetadataActivity.performsActivePolling ?? false
     }
 
     var sidebarPullRequestPollingEnabled: Bool {
@@ -186,13 +186,13 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     // MARK: Settings
 
     public func sidebarGitMetadataWatchSettingsDidChange() {
-        let isEnabled = sidebarGitMetadataWatchEnabled
-        guard isEnabled != lastSidebarGitMetadataWatchEnabled else {
+        let activity = host?.gitMetadataActivity ?? .disabled
+        guard activity != lastSidebarGitMetadataActivity else {
             return
         }
-        lastSidebarGitMetadataWatchEnabled = isEnabled
+        lastSidebarGitMetadataActivity = activity
 
-        guard isEnabled else {
+        guard activity.performsActivePolling else {
             stopAllWorkspaceGitMetadataWatchers()
             workspaceGitMetadataFallbackTask?.cancel()
             workspaceGitMetadataFallbackTask = nil
