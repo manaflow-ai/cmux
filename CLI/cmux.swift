@@ -145,6 +145,7 @@ struct ClaudeHookSessionRecord: Codable {
     var lastEmittedNotificationFingerprint: String?
     var lastEmittedNotificationAt: TimeInterval?
     var recentEmittedNotificationFingerprints: [String: TimeInterval]?
+    var pendingNotificationEmissionClaims: [String: TimeInterval]?
     var runtimeStatus: AgentHookRuntimeStatus?
     var activePromptDepth: Int?
     var activePromptTurnId: String?
@@ -1171,6 +1172,7 @@ final class ClaudeHookSessionStore {
             record.lastEmittedNotificationFingerprint = nil
             record.lastEmittedNotificationAt = nil
             record.recentEmittedNotificationFingerprints = nil
+            record.pendingNotificationEmissionClaims = nil
             record.updatedAt = now
             state.sessions[normalized] = record
         }
@@ -1250,6 +1252,58 @@ final class ClaudeHookSessionStore {
                now - emittedAt <= interval {
                 return nil
             }
+            var pending = record.pendingNotificationEmissionClaims ?? [:]
+            pending = pending.filter { now - $0.value <= 30 }
+            guard pending[normalizedFingerprint] == nil else { return nil }
+            pending[normalizedFingerprint] = now
+            record.pendingNotificationEmissionClaims = pending
+            record.updatedAt = now
+            state.sessions[normalized] = record
+            return now
+        }
+    }
+
+    func claimNotificationEmissionAwaitingInFlight(
+        sessionId: String,
+        fingerprint: String,
+        timeout: TimeInterval = 1
+    ) throws -> TimeInterval? {
+        let deadline = Date().addingTimeInterval(max(0, timeout))
+        repeat {
+            if let claimedAt = try claimNotificationEmission(
+                sessionId: sessionId,
+                fingerprint: fingerprint
+            ) {
+                return claimedAt
+            }
+            if try recentlyEmittedNotification(sessionId: sessionId, fingerprint: fingerprint) {
+                return nil
+            }
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else { break }
+            _ = waitForStateFileChange(timeout: remaining)
+        } while Date() < deadline
+        return try claimNotificationEmission(sessionId: sessionId, fingerprint: fingerprint)
+    }
+
+    func confirmNotificationEmissionClaim(
+        sessionId: String,
+        fingerprint: String,
+        claimedAt: TimeInterval
+    ) throws {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return }
+        let normalizedFingerprint = fingerprint.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedFingerprint.isEmpty else { return }
+        try withLockedState { state in
+            guard var record = state.sessions[normalized],
+                  record.pendingNotificationEmissionClaims?[normalizedFingerprint] == claimedAt else {
+                return
+            }
+            let now = Date().timeIntervalSince1970
+            var pending = record.pendingNotificationEmissionClaims ?? [:]
+            pending.removeValue(forKey: normalizedFingerprint)
+            record.pendingNotificationEmissionClaims = pending.isEmpty ? nil : pending
             record.lastEmittedNotificationFingerprint = normalizedFingerprint
             record.lastEmittedNotificationAt = now
             var recent = record.recentEmittedNotificationFingerprints ?? [:]
@@ -1265,7 +1319,6 @@ final class ClaudeHookSessionStore {
             record.recentEmittedNotificationFingerprints = recent
             record.updatedAt = now
             state.sessions[normalized] = record
-            return now
         }
     }
 
@@ -1280,21 +1333,34 @@ final class ClaudeHookSessionStore {
         guard !normalizedFingerprint.isEmpty else { return }
         try withLockedState { state in
             guard var record = state.sessions[normalized],
-                  record.recentEmittedNotificationFingerprints?[normalizedFingerprint] == claimedAt else {
+                  record.pendingNotificationEmissionClaims?[normalizedFingerprint] == claimedAt else {
                 return
             }
-            var recent = record.recentEmittedNotificationFingerprints ?? [:]
-            recent.removeValue(forKey: normalizedFingerprint)
-            record.recentEmittedNotificationFingerprints = recent.isEmpty ? nil : recent
-            if record.lastEmittedNotificationFingerprint == normalizedFingerprint,
-               record.lastEmittedNotificationAt == claimedAt {
-                let latest = recent.max { lhs, rhs in lhs.value < rhs.value }
-                record.lastEmittedNotificationFingerprint = latest?.key
-                record.lastEmittedNotificationAt = latest?.value
-            }
+            var pending = record.pendingNotificationEmissionClaims ?? [:]
+            pending.removeValue(forKey: normalizedFingerprint)
+            record.pendingNotificationEmissionClaims = pending.isEmpty ? nil : pending
             record.updatedAt = Date().timeIntervalSince1970
             state.sessions[normalized] = record
         }
+    }
+
+    private func waitForStateFileChange(timeout: TimeInterval) -> Bool {
+        guard timeout > 0 else { return false }
+        let directory = (statePath as NSString).deletingLastPathComponent
+        let fd = open(directory, O_EVTONLY)
+        guard fd >= 0 else { return false }
+        let semaphore = DispatchSemaphore(value: 0)
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: [.write, .delete, .rename],
+            queue: DispatchQueue.global(qos: .utility)
+        )
+        source.setEventHandler { semaphore.signal() }
+        source.setCancelHandler { close(fd) }
+        source.resume()
+        let result = semaphore.wait(timeout: .now() + timeout)
+        source.cancel()
+        return result == .success
     }
 
     func hasRunningSession(
@@ -26799,7 +26865,16 @@ struct CMUXCLI {
             }
         }
         process.arguments = monitorArgs
-        process.environment = env.merging(["CMUX_CLI_SENTRY_DISABLED": "1"], uniquingKeysWith: { _, new in new })
+        process.environment = env.merging(
+            [
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+                "CMUX_CLAUDE_HOOK_STATE_PATH": agentHookStatePath(
+                    sessionStoreSuffix: "codex",
+                    env: env
+                ),
+            ],
+            uniquingKeysWith: { _, new in new }
+        )
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
@@ -26985,7 +27060,7 @@ struct CMUXCLI {
                 body: summary.body
             ) else { return }
             let store = ClaudeHookSessionStore()
-            guard let claimedAt = try? store.claimNotificationEmission(
+            guard let claimedAt = try? store.claimNotificationEmissionAwaitingInFlight(
                 sessionId: sessionId,
                 fingerprint: fingerprint
             ) else {
@@ -26994,6 +27069,11 @@ struct CMUXCLI {
             let payload = "Codex|\(sanitizeNotificationField(summary.subtitle))|\(sanitizeNotificationField(summary.body))"
             do {
                 _ = try sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
+                try? store.confirmNotificationEmissionClaim(
+                    sessionId: sessionId,
+                    fingerprint: fingerprint,
+                    claimedAt: claimedAt
+                )
             } catch {
                 try? store.releaseNotificationEmissionClaim(
                     sessionId: sessionId,
@@ -31450,7 +31530,7 @@ export default CMUXSessionRestore;
             if shouldPublishStopAlert,
                isCodexCriticalAlert,
                let codexCriticalFingerprint,
-               let claimedAt = try? store.claimNotificationEmission(
+               let claimedAt = try? store.claimNotificationEmissionAwaitingInFlight(
                    sessionId: sessionId,
                    fingerprint: codexCriticalFingerprint
                ) {
@@ -31498,6 +31578,12 @@ export default CMUXSessionRestore;
 #endif
                     if codexCriticalClaim == nil {
                         markNotificationSent(fingerprint: notificationFingerprint)
+                    } else if let codexCriticalClaim {
+                        try? store.confirmNotificationEmissionClaim(
+                            sessionId: sessionId,
+                            fingerprint: codexCriticalClaim.fingerprint,
+                            claimedAt: codexCriticalClaim.claimedAt
+                        )
                     }
                 } catch {
                     if let codexCriticalClaim {

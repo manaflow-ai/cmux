@@ -131,6 +131,35 @@ struct CodexCriticalNotificationTests {
         }
 
         #expect(claims.count == 1)
+
+        let retryStore = ClaudeHookSessionStore(processEnv: claimEnvironment)
+        let releasedClaim = try #require(retryStore.claimNotificationEmission(
+            sessionId: "session-claim",
+            fingerprint: "released-fingerprint"
+        ))
+        try retryStore.releaseNotificationEmissionClaim(
+            sessionId: "session-claim",
+            fingerprint: "released-fingerprint",
+            claimedAt: releasedClaim
+        )
+        #expect(try retryStore.claimNotificationEmissionAwaitingInFlight(
+            sessionId: "session-claim",
+            fingerprint: "released-fingerprint"
+        ) != nil)
+
+        let deliveredClaim = try #require(retryStore.claimNotificationEmission(
+            sessionId: "session-claim",
+            fingerprint: "delivered-fingerprint"
+        ))
+        try retryStore.confirmNotificationEmissionClaim(
+            sessionId: "session-claim",
+            fingerprint: "delivered-fingerprint",
+            claimedAt: deliveredClaim
+        )
+        #expect(try retryStore.claimNotificationEmissionAwaitingInFlight(
+            sessionId: "session-claim",
+            fingerprint: "delivered-fingerprint"
+        ) == nil)
     }
 
     private func runMonitor(
@@ -162,6 +191,9 @@ struct CodexCriticalNotificationTests {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["CMUX_CLAUDE_HOOK_STATE_PATH"] = root
+            .appendingPathComponent("codex-hook-sessions.json", isDirectory: false)
+            .path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         _ = try ClaudeHookSessionStore(processEnv: environment).upsertCodexPromptRunningIfFresh(
             sessionId: sessionID,
