@@ -18,7 +18,7 @@ struct CmuxConfigExecutor {
         presentingWindow: NSWindow? = nil,
         onExecuted: (() -> Void)? = nil
     ) -> Bool {
-        if let workspace = command.workspace {
+        if command.workspace != nil {
             let processEnvironment = ProcessInfo.processInfo.environment
             let resolvedCommand: CmuxCommandDefinition
             do {
