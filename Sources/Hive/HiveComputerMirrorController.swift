@@ -42,6 +42,22 @@ final class HiveComputerMirrorController {
         var rows = 0
     }
 
+    /// Repaints a mirror workspace's terminals from their cached full frames
+    /// and re-requests replays. Called when the workspace is selected so a
+    /// surface that realized after its replay landed still paints.
+    func workspaceSelected(_ workspaceId: UUID) {
+        for mirror in mirrorsByDeviceID.values
+        where mirror.workspaceIdByRemoteID.values.contains(workspaceId) {
+            for (_, terminal) in mirror.terminalsByRemoteID {
+                if let cached = terminal.lastFullFrameBytes {
+                    terminal.frameBytesHandler?(cached)
+                }
+                terminal.refreshReplay()
+            }
+            return
+        }
+    }
+
     /// The device a mirror workspace belongs to, or `nil` for local
     /// workspaces. Drives the sidebar's computer scope filter.
     func deviceID(forWorkspace workspaceId: UUID) -> String? {
@@ -186,11 +202,16 @@ final class HiveComputerMirrorController {
                     guard !text.isEmpty else { return }
                     Task { @MainActor in terminalSession.send(text: text) }
                 },
-                onResize: { [weak terminalSession] _, _ in
-                    // A replay delivered to a zero-sized manual surface renders
-                    // nothing; re-request one whenever the surface (re)sizes so
-                    // the first visible layout always paints a full frame.
-                    terminalSession?.refreshReplay()
+                onResize: { [weak terminalSession, weak self] _, _ in
+                    // A replay delivered to an unrealized/zero-sized manual
+                    // surface renders nothing; repaint from the cached full
+                    // frame immediately and re-request a fresh replay.
+                    guard let terminalSession else { return }
+                    if let cached = terminalSession.lastFullFrameBytes {
+                        terminalSession.frameBytesHandler?(cached)
+                    }
+                    terminalSession.refreshReplay()
+                    _ = self
                 }
             ) else { continue }
             // The remote grid is authoritative for the mirror surface's cell
