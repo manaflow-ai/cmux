@@ -877,6 +877,73 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(result.stderr.contains("requires --agent and --session"), result.stderr)
     }
 
+    func testDiffCommandPopulatesExistingBrowserSurfaceWithoutOpeningAnotherSplit() throws {
+        let cliPath = try bundledCLIPath()
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let patchURL = rootURL.appendingPathComponent("changes.patch")
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        try """
+        diff --git a/story.txt b/story.txt
+        index 1111111..2222222 100644
+        --- a/story.txt
+        +++ b/story.txt
+        @@ -1 +1 @@
+        -before
+        +after
+        """.write(to: patchURL, atomically: true, encoding: .utf8)
+
+        let socketPath = makeSocketPath("diff-existing-surface")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let targetSurfaceID = UUID().uuidString
+        let expectedURL = "data:text/html,Loading%20diff"
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: rootURL)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String,
+                  method == "browser.navigate",
+                  let params = payload["params"] as? [String: Any],
+                  params["surface_id"] as? String == targetSurfaceID,
+                  params["expected_url"] as? String == expectedURL,
+                  let rawURL = params["url"] as? String,
+                  URL(string: rawURL)?.scheme == "cmux-diff-viewer",
+                  params["diff_viewer_token"] as? String != nil,
+                  (params["diff_viewer_files"] as? [[String: Any]])?.isEmpty == false else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+            return Self.v2Response(
+                id: id,
+                ok: true,
+                result: ["surface_id": targetSurfaceID, "pane_id": "pane-id", "url": rawURL]
+            )
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: [
+                "diff", patchURL.path,
+                "--target-surface", targetSurfaceID,
+                "--target-expected-url", expectedURL,
+            ]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(
+            state.commands.compactMap { Self.v2Payload(from: $0)?["method"] as? String },
+            ["browser.navigate"]
+        )
+    }
+
     func testDiffCommandSendsAgentAndSessionToRustForLastTurn() throws {
         let cliPath = try bundledCLIPath()
         let rootURL = FileManager.default.temporaryDirectory
