@@ -872,11 +872,20 @@ final class SharedLiveAgentIndex {
         validPanelKeys: Set<RestorableAgentSessionIndex.PanelKey>,
         now: Date
     ) {
+        pruneExpiredForkSupportValidations(now: now)
         for (probeKey, validation) in validatedForkSupport {
-            if (validation.requiresLiveIndexPanel && !validPanelKeys.contains(probeKey.panelKey))
-                || now.timeIntervalSince(validation.completedAt) >= Self.forkAvailabilityProbeTTL {
+            if validation.requiresLiveIndexPanel && !validPanelKeys.contains(probeKey.panelKey) {
                 removeForkSupportValidation(for: probeKey)
             }
+        }
+    }
+
+    private func pruneExpiredForkSupportValidations(now: Date) {
+        let expiredProbeKeys = validatedForkSupport.compactMap { probeKey, validation in
+            now.timeIntervalSince(validation.completedAt) >= Self.forkAvailabilityProbeTTL ? probeKey : nil
+        }
+        for probeKey in expiredProbeKeys {
+            removeForkSupportValidation(for: probeKey)
         }
     }
 
@@ -954,6 +963,7 @@ final class SharedLiveAgentIndex {
         guard let openedFileDescriptors else {
             return nil
         }
+        pruneExpiredForkSupportValidations(now: dateProvider())
         let activeWatchCount = forkExecutableWatchSources.reduce(0) { partial, item in
             item.key == probeKey ? partial : partial + item.value.count
         }

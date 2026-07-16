@@ -2119,6 +2119,87 @@ struct WorkspaceForkConversationContextMenuTests {
     }
 
     @Test
+    func sharedForkProbeEvictsExpiredExecutableWatchesBeforeBudgetCheck() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-fork-watch-budget-expiry-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        try fm.createDirectory(at: root.appendingPathComponent(".cmuxterm", isDirectory: true), withIntermediateDirectories: true)
+
+        let now = OSAllocatedUnfairLock(initialState: Date(timeIntervalSince1970: 0))
+        let probeCount = OSAllocatedUnfairLock(initialState: 0)
+        let sharedIndex = SharedLiveAgentIndex(
+            forkSupportProvider: { _, _ in
+                probeCount.withLock { $0 += 1 }
+                return true
+            },
+            hookStoreDirectoryProvider: {
+                root.appendingPathComponent(".cmuxterm", isDirectory: true).path
+            },
+            dateProvider: {
+                now.withLock { $0 }
+            }
+        )
+
+        for index in 0..<128 {
+            let executableDirectory = root.appendingPathComponent("expired-\(index)", isDirectory: true)
+            try fm.createDirectory(at: executableDirectory, withIntermediateDirectories: true)
+            let executable = executableDirectory.appendingPathComponent("pi", isDirectory: false)
+            try writeExecutableFixture(at: executable, output: "pi 0.80.6")
+            let workspaceId = UUID()
+            let panelId = UUID()
+            let snapshot = makePiFamilySnapshot(
+                launcher: "pi",
+                workspaceRoot: root.path,
+                executablePath: executable.path
+            )
+
+            await sharedIndex.refreshForkAvailabilityNow(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                fallbackSnapshot: snapshot
+            )
+            #expect(
+                sharedIndex.forkSupportProbeAccepted(
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    fallbackSnapshot: snapshot
+                )
+            )
+        }
+        #expect(probeCount.withLock { $0 } == 128)
+
+        now.withLock { $0 = Date(timeIntervalSince1970: 20) }
+        let executableDirectory = root.appendingPathComponent("current", isDirectory: true)
+        try fm.createDirectory(at: executableDirectory, withIntermediateDirectories: true)
+        let executable = executableDirectory.appendingPathComponent("pi", isDirectory: false)
+        try writeExecutableFixture(at: executable, output: "pi 0.80.6")
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let snapshot = makePiFamilySnapshot(
+            launcher: "pi",
+            workspaceRoot: root.path,
+            executablePath: executable.path
+        )
+
+        await sharedIndex.refreshForkAvailabilityNow(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            fallbackSnapshot: snapshot
+        )
+
+        #expect(probeCount.withLock { $0 } == 129)
+        #expect(
+            sharedIndex.forkSupportProbeAccepted(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                fallbackSnapshot: snapshot
+            ),
+            "Expired executable watches must be evicted before the watch-budget check rejects a new validation."
+        )
+    }
+
+    @Test
     func sharedForkProbeValidationInvalidatesWhenEarlierPathExecutableAppearsForPiAndOmp() async throws {
         struct Scenario {
             let launcher: String
