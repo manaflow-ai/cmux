@@ -141,7 +141,7 @@ export function FeedApp() {
   }, []);
 
   if (!snapshot) return <main className="feed-shell feed-loading" aria-busy="true" />;
-  const sourceItems = snapshot.items.length > 0 ? snapshot.items : demoItems;
+  const sourceItems = demoItems.length > 0 ? [...demoItems, ...snapshot.items] : snapshot.items;
   const items = filter === "actionable"
     ? sourceItems.filter((item) => item.status === "pending")
     : sourceItems;
@@ -205,7 +205,6 @@ export function FeedApp() {
       <section className="feed-list">
         {visibleItems.length === 0 ? (
           <FeedEmptyState
-            canLoadExamples={snapshot.items.length === 0}
             filter={filter}
             onLoadExamples={() => {
               setDemoItems(createDemoFeedItems(snapshot.copy));
@@ -244,8 +243,7 @@ export function FeedApp() {
   );
 }
 
-function FeedEmptyState({ canLoadExamples, filter, onLoadExamples, snapshot }: {
-  canLoadExamples: boolean;
+function FeedEmptyState({ filter, onLoadExamples, snapshot }: {
   filter: Filter;
   onLoadExamples: () => void;
   snapshot: NonNullable<ReturnType<typeof feedSnapshotStore.getSnapshot>>;
@@ -264,9 +262,7 @@ function FeedEmptyState({ canLoadExamples, filter, onLoadExamples, snapshot }: {
     <div className="feed-empty">
       <h2>{title}</h2>
       <p>{description}</p>
-      {canLoadExamples && (
-        <button className="feed-load-examples" onClick={onLoadExamples}>{snapshot.copy.loadExamples}</button>
-      )}
+      <button className="feed-load-examples" onClick={onLoadExamples}>{snapshot.copy.loadExamples}</button>
       <section aria-labelledby="feed-integrations-title" className="feed-integrations">
         <h3 id="feed-integrations-title">{snapshot.copy.integrationsTitle}</h3>
         <div className="feed-integration-grid">
