@@ -760,7 +760,7 @@ struct BrowserWebNotificationTests {
         #expect(store.notifications.isEmpty)
     }
 
-    @Test func nativeForegroundDeliveryUsesTheNotificationsSecurityOrigin() throws {
+    @Test func nativeForegroundDeliveryUsesOnlyTheNotificationsSecurityOrigin() async throws {
         let setting = SettingCatalog().browser.forwardWebNotifications
         let defaults = UserDefaults.standard
         let previousSetting = defaults.object(forKey: setting.userDefaultsKey)
@@ -775,6 +775,18 @@ struct BrowserWebNotificationTests {
         panel.deliverWebNotification = { _, _, _, deliveredSubtitle, _ in
             subtitle = deliveredSubtitle
         }
+
+        let loadProbe = BrowserWebNotificationLoadProbe()
+        panel.webView.navigationDelegate = loadProbe
+        defer { panel.webView.navigationDelegate = nil }
+        try await loadProbe.load(
+            "<!doctype html><html><body>unrelated active page</body></html>",
+            in: panel.webView,
+            baseURL: try #require(URL(string: "https://wrong.example"))
+        )
+
+        panel.handleNativeWebNotification(title: "No origin", body: "Ready")
+        #expect(subtitle == "")
 
         panel.handleNativeWebNotification(
             title: "Origin probe",

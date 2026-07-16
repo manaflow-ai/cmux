@@ -386,8 +386,10 @@ extension BrowserPanel {
     /// Handles a foreground notification delivered by WebKit's native provider.
     func handleNativeWebNotification(title: String, body: String, securityOrigin: URL? = nil) {
         guard SettingCatalog().browser.forwardWebNotifications.value(in: .standard) else { return }
-        _ = securityOrigin
-        let origin = Self.remoteProxyDisplayURL(for: webView.url) ?? webView.url
+        // The active page may have navigated since WebKit created the
+        // notification. Never substitute webView.url when the notification's
+        // own security origin is unavailable, because that misattributes it.
+        let origin = Self.remoteProxyDisplayURL(for: securityOrigin) ?? securityOrigin
         deliverWebNotification(
             workspaceId,
             id,

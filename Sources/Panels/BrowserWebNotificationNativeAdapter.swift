@@ -37,6 +37,8 @@ private typealias DidShowFunction = @convention(c) (UnsafeRawPointer?, UInt64) -
 private typealias GetNotificationIDFunction = @convention(c) (UnsafeRawPointer?) -> UInt64
 private typealias GetNotificationBooleanFunction = @convention(c) (UnsafeRawPointer?) -> Bool
 private typealias CopyNotificationStringFunction = @convention(c) (UnsafeRawPointer?) -> UnsafeRawPointer?
+private typealias GetNotificationSecurityOriginFunction = @convention(c) (UnsafeRawPointer?) -> UnsafeRawPointer?
+private typealias CopySecurityOriginStringFunction = @convention(c) (UnsafeRawPointer?) -> UnsafeRawPointer?
 private typealias StringMaximumSizeFunction = @convention(c) (UnsafeRawPointer?) -> Int
 private typealias StringGetUTF8Function = @convention(c) (UnsafeRawPointer?, UnsafeMutablePointer<CChar>?, Int) -> Int
 private typealias ReleaseFunction = @convention(c) (UnsafeRawPointer?) -> Void
@@ -76,12 +78,19 @@ final class BrowserWebNotificationNativeAdapter {
         let origin: URL
     }
 
+    private struct ManagerState {
+        let pointer: UnsafeRawPointer
+        var pageKeys: Set<UInt> = []
+    }
+
     private let setProvider: SetProviderFunction?
     private let didShow: DidShowFunction?
     private let notificationID: GetNotificationIDFunction?
     private let notificationIsPersistent: GetNotificationBooleanFunction?
     private let copyTitle: CopyNotificationStringFunction?
     private let copyBody: CopyNotificationStringFunction?
+    private let notificationSecurityOrigin: GetNotificationSecurityOriginFunction?
+    private let copySecurityOriginString: CopySecurityOriginStringFunction?
     private let stringMaximumSize: StringMaximumSizeFunction?
     private let stringGetUTF8: StringGetUTF8Function?
     private let release: ReleaseFunction?
@@ -89,7 +98,7 @@ final class BrowserWebNotificationNativeAdapter {
 
     private var registrations: [UInt: Registration] = [:]
     private var dataStoreProfiles: [ObjectIdentifier: UUID] = [:]
-    private var managers: Set<UInt> = []
+    private var managers: [UInt: ManagerState] = [:]
     private var persistentClicks: [UUID: PersistentClickRegistration] = [:]
 #if DEBUG
     var forceForegroundFallbackForTesting = false
@@ -104,6 +113,8 @@ final class BrowserWebNotificationNativeAdapter {
         notificationIsPersistent = Self.symbol("WKNotificationGetIsPersistent")
         copyTitle = Self.symbol("WKNotificationCopyTitle")
         copyBody = Self.symbol("WKNotificationCopyBody")
+        notificationSecurityOrigin = Self.symbol("WKNotificationGetSecurityOrigin")
+        copySecurityOriginString = Self.symbol("WKSecurityOriginCopyToString")
         stringMaximumSize = Self.symbol("WKStringGetMaximumUTF8CStringSize")
         stringGetUTF8 = Self.symbol("WKStringGetUTF8CString")
         release = Self.symbol("WKRelease")
@@ -136,6 +147,7 @@ final class BrowserWebNotificationNativeAdapter {
 
     func register(webView: WKWebView, profileID: UUID, panel: BrowserPanel) {
         guard SettingCatalog().browser.forwardWebNotifications.value(in: .standard) else { return }
+        compactDeadRegistrations()
         dataStoreProfiles[ObjectIdentifier(webView.configuration.websiteDataStore)] = profileID
         installDataStoreDelegate(on: webView.configuration.websiteDataStore)
 
@@ -147,18 +159,24 @@ final class BrowserWebNotificationNativeAdapter {
               ) else {
             return
         }
-        registrations[Self.key(page)] = Registration(
+        let pageKey = Self.key(page)
+        removeRegistration(forPageKey: pageKey)
+        registrations[pageKey] = Registration(
             webView: webView,
             panel: panel,
             profileID: profileID,
             manager: manager
         )
-        installProvider(on: manager)
+        let shouldInstallProvider = provisionManager(manager, pageKey: pageKey)
+        if shouldInstallProvider { installProvider(on: manager) }
     }
 
     func unregister(webView: WKWebView) {
-        guard let page = Self.objectPointer(from: webView, selector: "_pageForTesting") else { return }
-        registrations.removeValue(forKey: Self.key(page))
+        if let page = Self.objectPointer(from: webView, selector: "_pageForTesting") {
+            removeRegistration(forPageKey: Self.key(page))
+        } else if let pageKey = registrations.first(where: { $0.value.webView === webView })?.key {
+            removeRegistration(forPageKey: pageKey)
+        }
     }
 
     func notificationPermissions(for dataStore: WKWebsiteDataStore) -> [String: NSNumber] {
@@ -171,19 +189,21 @@ final class BrowserWebNotificationNativeAdapter {
     }
 
     func showPersistentNotification(_ notification: NSObject, from dataStore: WKWebsiteDataStore) {
-        guard let profileID = dataStoreProfiles[ObjectIdentifier(dataStore)],
+        guard SettingCatalog().browser.forwardWebNotifications.value(in: .standard),
+              let profileID = dataStoreProfiles[ObjectIdentifier(dataStore)],
               let title = Self.stringProperty("title", on: notification),
               let originString = Self.stringProperty("origin", on: notification),
               let origin = URL(string: originString) else {
             return
         }
         let body = Self.stringProperty("body", on: notification) ?? ""
-        let notificationID = deliverGlobal(title: title, body: body, origin: origin, profileID: profileID)
+        let displayOrigin = Self.displayOrigin(for: origin)
+        let notificationID = deliverGlobal(title: title, body: body, origin: displayOrigin, profileID: profileID)
         if let dictionary = Self.dictionaryProperty("dictionaryRepresentation", on: notification) {
             persistentClicks[notificationID] = PersistentClickRegistration(
                 dataStore: dataStore,
                 dictionary: dictionary,
-                origin: origin
+                origin: displayOrigin
             )
         }
     }
@@ -191,6 +211,7 @@ final class BrowserWebNotificationNativeAdapter {
     /// Runs a service worker's notification-click action when its in-memory
     /// registration is still live, otherwise opens the logical origin.
     func handleGlobalNotificationClick(notificationID: UUID, fallbackOrigin: URL) {
+        let displayFallbackOrigin = Self.displayOrigin(for: fallbackOrigin)
         guard let registration = persistentClicks.removeValue(forKey: notificationID),
               let dataStore = registration.dataStore,
               processPersistentClick(
@@ -200,7 +221,7 @@ final class BrowserWebNotificationNativeAdapter {
                       if !processed { _ = self.openExternalURL(registration.origin) }
                   }
               ) else {
-            _ = openExternalURL(fallbackOrigin)
+            _ = openExternalURL(displayFallbackOrigin)
             return
         }
     }
@@ -214,15 +235,15 @@ final class BrowserWebNotificationNativeAdapter {
 
     @discardableResult
     func provisionManagerForTesting(_ manager: UnsafeRawPointer) -> Bool {
-        managers.insert(Self.key(manager)).inserted
+        provisionManager(manager, pageKey: nil)
     }
 
     func simulateManagerRemovalForTesting(_ manager: UnsafeRawPointer) {
-        _ = manager
+        notificationManagerWasRemoved(manager)
     }
 
     func isManagerTrackedForTesting(_ manager: UnsafeRawPointer) -> Bool {
-        managers.contains(Self.key(manager))
+        managers[Self.key(manager)] != nil
     }
 
     func registerPersistentClickForTesting(
@@ -252,8 +273,7 @@ final class BrowserWebNotificationNativeAdapter {
     }
 
     private func installProvider(on manager: UnsafeRawPointer) {
-        let key = Self.key(manager)
-        guard managers.insert(key).inserted, let setProvider else { return }
+        guard let setProvider else { return }
         let clientInfo = Unmanaged.passUnretained(self).toOpaque()
         var provider = WKNotificationProviderV0Runtime(
             base: WKNotificationProviderBaseRuntime(version: 0, clientInfo: clientInfo),
@@ -268,8 +288,24 @@ final class BrowserWebNotificationNativeAdapter {
             },
             cancel: nil,
             didDestroyNotification: nil,
-            addNotificationManager: nil,
-            removeNotificationManager: nil,
+            addNotificationManager: { manager, clientInfo in
+                guard let manager, let clientInfo else { return }
+                let adapter = Unmanaged<BrowserWebNotificationNativeAdapter>
+                    .fromOpaque(clientInfo)
+                    .takeUnretainedValue()
+                MainActor.assumeIsolated {
+                    adapter.notificationManagerWasAdded(manager)
+                }
+            },
+            removeNotificationManager: { manager, clientInfo in
+                guard let manager, let clientInfo else { return }
+                let adapter = Unmanaged<BrowserWebNotificationNativeAdapter>
+                    .fromOpaque(clientInfo)
+                    .takeUnretainedValue()
+                MainActor.assumeIsolated {
+                    adapter.notificationManagerWasRemoved(manager)
+                }
+            },
             notificationPermissions: { _ in nil },
             clearNotifications: nil
         )
@@ -284,9 +320,12 @@ final class BrowserWebNotificationNativeAdapter {
         let body = copiedString(using: copyBody, notification: notification) ?? ""
         let id = notificationID?(notification) ?? 0
         let persistent = notificationIsPersistent?(notification) ?? false
+        let securityOrigin = notificationSecurityOrigin?(notification)
+            .flatMap { copiedSecurityOriginString(using: copySecurityOriginString, securityOrigin: $0) }
+            .flatMap(URL.init(string:))
 
         if let page, let registration = registrations[Self.key(page)], let panel = registration.panel {
-            panel.handleNativeWebNotification(title: title, body: body)
+            panel.handleNativeWebNotification(title: title, body: body, securityOrigin: securityOrigin)
             if id != 0, let didShow {
                 didShow(registration.manager, id)
             }
@@ -300,7 +339,7 @@ final class BrowserWebNotificationNativeAdapter {
 
     @discardableResult
     private func deliverGlobal(title: String, body: String, origin: URL, profileID: UUID) -> UUID {
-        let displayOrigin = BrowserPanel.remoteProxyDisplayURL(for: origin) ?? origin
+        let displayOrigin = Self.displayOrigin(for: origin)
         return TerminalNotificationStore.shared.addGlobalWebsiteNotification(
             title: title,
             subtitle: displayOrigin.host ?? origin.host ?? "",
@@ -325,6 +364,57 @@ final class BrowserWebNotificationNativeAdapter {
         var buffer = [CChar](repeating: 0, count: capacity)
         guard stringGetUTF8(stringRef, &buffer, capacity) > 0 else { return nil }
         return String(cString: buffer)
+    }
+
+    private func copiedSecurityOriginString(
+        using copy: CopySecurityOriginStringFunction?,
+        securityOrigin: UnsafeRawPointer
+    ) -> String? {
+        guard let stringRef = copy?(securityOrigin) else { return nil }
+        defer { release?(stringRef) }
+        guard let stringMaximumSize, let stringGetUTF8 else { return nil }
+        let capacity = stringMaximumSize(stringRef)
+        guard capacity > 0 else { return "" }
+        var buffer = [CChar](repeating: 0, count: capacity)
+        guard stringGetUTF8(stringRef, &buffer, capacity) > 0 else { return nil }
+        return String(cString: buffer)
+    }
+
+    private func provisionManager(_ manager: UnsafeRawPointer, pageKey: UInt?) -> Bool {
+        let managerKey = Self.key(manager)
+        let wasNew = managers[managerKey] == nil
+        if wasNew { managers[managerKey] = ManagerState(pointer: manager) }
+        if let pageKey { managers[managerKey]?.pageKeys.insert(pageKey) }
+        return wasNew
+    }
+
+    private func notificationManagerWasAdded(_ manager: UnsafeRawPointer) {
+        _ = provisionManager(manager, pageKey: nil)
+    }
+
+    private func notificationManagerWasRemoved(_ manager: UnsafeRawPointer) {
+        let managerKey = Self.key(manager)
+        let pageKeys = managers.removeValue(forKey: managerKey)?.pageKeys ?? []
+        for pageKey in pageKeys { registrations.removeValue(forKey: pageKey) }
+        // Defensive cleanup covers registrations created before WebKit invoked
+        // addNotificationManager, as well as any weak-registration drift.
+        registrations = registrations.filter { Self.key($0.value.manager) != managerKey }
+    }
+
+    private func removeRegistration(forPageKey pageKey: UInt) {
+        guard let registration = registrations.removeValue(forKey: pageKey) else { return }
+        managers[Self.key(registration.manager)]?.pageKeys.remove(pageKey)
+    }
+
+    private func compactDeadRegistrations() {
+        let deadPageKeys = registrations.compactMap { pageKey, registration in
+            registration.webView == nil || registration.panel == nil ? pageKey : nil
+        }
+        for pageKey in deadPageKeys { removeRegistration(forPageKey: pageKey) }
+    }
+
+    private static func displayOrigin(for origin: URL) -> URL {
+        BrowserPanel.remoteProxyDisplayURL(for: origin) ?? origin
     }
 
     private static func objectPointer(from object: NSObject, selector name: String) -> UnsafeRawPointer? {
