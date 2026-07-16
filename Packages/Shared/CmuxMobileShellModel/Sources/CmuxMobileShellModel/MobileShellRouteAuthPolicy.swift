@@ -114,7 +114,20 @@ public struct MobileShellRouteAuthPolicy {
 
     private static func isTailscaleHost(_ host: String) -> Bool {
         let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return isTailscaleDNSHost(normalizedHost) || isTailscaleIPv4Host(normalizedHost)
+        return isTailscaleDNSHost(normalizedHost)
+            || isTailscaleIPv4Host(normalizedHost)
+            || isTailscaleIPv6Host(normalizedHost)
+    }
+
+    /// Tailscale's IPv6 ULA range (`fd7a:115c:a1e0::/48`): every tailnet peer
+    /// also gets an address here, and hosts advertise it as a fallback route.
+    private static func isTailscaleIPv6Host(_ host: String) -> Bool {
+        let bare = host.hasPrefix("[") && host.hasSuffix("]")
+            ? String(host.dropFirst().dropLast())
+            : host
+        return bare.hasPrefix("fd7a:115c:a1e0:")
+            || bare == "fd7a:115c:a1e0::"
+            || bare.hasPrefix("fd7a:115c:a1e0::")
     }
 
     private static func isTailscaleIPv4Host(_ host: String) -> Bool {
