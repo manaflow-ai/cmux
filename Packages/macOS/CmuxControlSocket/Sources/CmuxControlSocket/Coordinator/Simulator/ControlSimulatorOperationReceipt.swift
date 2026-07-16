@@ -53,7 +53,12 @@ public final class ControlSimulatorOperationReceipt: @unchecked Sendable {
         while completion == nil {
             guard condition.wait(until: unwindDeadline) else { break }
         }
-        let joinedResult = completion
+        let joinedResult: ControlSimulatorOperationCompletion?
+        if case .success? = completion {
+            joinedResult = completion
+        } else {
+            joinedResult = nil
+        }
         condition.unlock()
         return joinedResult
     }

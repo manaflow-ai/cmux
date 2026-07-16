@@ -61,6 +61,25 @@ struct ControlCommandCoordinatorSimulatorTests {
         #expect(receipt.wait(timeout: 0) == .released)
     }
 
+    @Test("Receipt cancellation failures preserve deadline timeout semantics")
+    func receiptCancellationFailuresRemainTimeouts() {
+        let operation = ControlSimulatorOperationReceipt(cancellationJoinTimeout: 1)
+        operation.installCancellation {
+            operation.complete(.failed(code: "cancelled", message: "cancelled"))
+        }
+        #expect(operation.wait(timeout: 0) == nil)
+
+        let text = ControlSimulatorCompletionReceipt(cancellationJoinTimeout: 1)
+        text.installCancellation { text.complete(.failed) }
+        #expect(text.wait(timeout: 0) == nil)
+
+        let inspector = ControlSimulatorWebInspectorReceipt(cancellationJoinTimeout: 1)
+        inspector.installCancellation {
+            inspector.complete(.failed(code: "cancelled", message: "cancelled"))
+        }
+        #expect(inspector.wait(timeout: 0) == nil)
+    }
+
     @Test("Long Simulator waits have bounded admission")
     func operationAdmissionIsBounded() {
         let gate = ControlSimulatorOperationAdmissionGate(maximumConcurrentOperations: 2)

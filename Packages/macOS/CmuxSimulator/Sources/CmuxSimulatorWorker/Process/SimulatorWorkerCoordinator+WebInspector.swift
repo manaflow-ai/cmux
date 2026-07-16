@@ -49,7 +49,7 @@ extension SimulatorWorkerCoordinator {
     ) async {
         do {
             let status = try await webInspector.attach(targetIdentifier: targetIdentifier)
-            guard toolOperationIsCurrent(operationGeneration) else { return }
+            guard toolOperationDidCommit(operationGeneration) else { return }
             send(.webInspectorSession(requestID: requestIdentifier, status))
             emitAction("web_inspector_attach", summary: targetIdentifier, succeeded: true)
         } catch {
@@ -70,7 +70,7 @@ extension SimulatorWorkerCoordinator {
     ) async {
         do {
             try await webInspector.releaseSession()
-            guard toolOperationIsCurrent(operationGeneration) else { return }
+            guard toolOperationDidCommit(operationGeneration) else { return }
             send(.webInspectorSession(requestID: requestIdentifier, .detached))
             emitAction("web_inspector_release", summary: "detached", succeeded: true)
         } catch {
@@ -99,7 +99,7 @@ extension SimulatorWorkerCoordinator {
     ) async {
         do {
             try await webInspector.setHighlight(enabled: enabled)
-            guard toolOperationIsCurrent(operationGeneration) else { return }
+            guard toolOperationDidCommit(operationGeneration) else { return }
             send(.webInspectorHighlight(requestID: requestIdentifier, succeeded: true))
             emitAction(
                 "web_inspector_highlight",
@@ -125,7 +125,7 @@ extension SimulatorWorkerCoordinator {
     ) async {
         do {
             try await webInspector.sendMessage(json)
-            guard toolOperationIsCurrent(operationGeneration) else { return }
+            guard toolOperationDidCommit(operationGeneration) else { return }
             send(.webInspectorCommand(requestID: requestIdentifier, accepted: true))
             emitAction("web_inspector_command", summary: "json", succeeded: true)
         } catch {

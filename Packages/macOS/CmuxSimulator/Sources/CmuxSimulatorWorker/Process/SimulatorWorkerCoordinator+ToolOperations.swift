@@ -53,6 +53,12 @@ extension SimulatorWorkerCoordinator {
             && !Task.isCancelled
     }
 
+    func toolOperationDidCommit(_ generation: UUID) -> Bool {
+        guard toolOperationGenerations.values.contains(generation) else { return false }
+        committedToolOperationGenerations.insert(generation)
+        return true
+    }
+
     func cancelToolOperations() async {
         let activeLanes = Set(toolOperationTasks.keys)
         let tasks = Array(toolOperationTasks.values)
@@ -65,6 +71,7 @@ extension SimulatorWorkerCoordinator {
         toolOperationCancellationGraceTasks.values.forEach { $0.cancel() }
         toolOperationCancellationGraceTasks.removeAll()
         timedOutToolOperationGenerations.removeAll()
+        committedToolOperationGenerations.removeAll()
         cancelingToolOperationLanes.formUnion(activeLanes)
         tasks.forEach { $0.cancel() }
         guard await toolOperationsDrainBeforeCancellationGrace(tasks) else {
@@ -85,6 +92,7 @@ extension SimulatorWorkerCoordinator {
         toolOperationCancellationGraceTasks.values.forEach { $0.cancel() }
         toolOperationCancellationGraceTasks.removeAll()
         timedOutToolOperationGenerations.removeAll()
+        committedToolOperationGenerations.removeAll()
         cancelingToolOperationLanes.formUnion(toolOperationTasks.keys)
         toolOperationTasks.values.forEach { $0.cancel() }
     }
@@ -110,8 +118,7 @@ extension SimulatorWorkerCoordinator {
                 guard !Task.isCancelled, let self else { return }
                 self.toolOperationDeadlineExpired(
                     lane: lane,
-                    generation: generation,
-                    requestIdentifier: operation.requestIdentifier
+                    generation: generation
                 )
             }
             self.toolOperationDeadlineTasks[lane] = deadlineTask
@@ -120,16 +127,25 @@ extension SimulatorWorkerCoordinator {
             self.toolOperationDeadlineTasks.removeValue(forKey: lane)
             self.toolOperationCancellationGraceTasks.removeValue(forKey: lane)?.cancel()
             if self.cancelingToolOperationLanes.remove(lane) != nil {
+                self.timedOutToolOperationGenerations.remove(generation)
+                self.committedToolOperationGenerations.remove(generation)
                 self.toolOperationTasks.removeValue(forKey: lane)
                 self.startNextToolOperationIfNeeded(in: lane)
                 return
             }
             guard self.toolOperationGenerations[lane] == generation else {
+                self.timedOutToolOperationGenerations.remove(generation)
+                self.committedToolOperationGenerations.remove(generation)
                 self.toolOperationTasks.removeValue(forKey: lane)
                 self.toolOperationCurrentRequestIdentifiers.removeValue(forKey: lane)
                 return
             }
+            if self.timedOutToolOperationGenerations.contains(generation),
+               !self.committedToolOperationGenerations.contains(generation) {
+                self.sendToolOperationTimeout(requestIdentifier: operation.requestIdentifier)
+            }
             self.timedOutToolOperationGenerations.remove(generation)
+            self.committedToolOperationGenerations.remove(generation)
             self.toolOperationGenerations.removeValue(forKey: lane)
             self.toolOperationTasks.removeValue(forKey: lane)
             self.toolOperationCurrentRequestIdentifiers.removeValue(forKey: lane)
@@ -139,22 +155,10 @@ extension SimulatorWorkerCoordinator {
 
     private func toolOperationDeadlineExpired(
         lane: SimulatorToolOperationLane,
-        generation: UUID,
-        requestIdentifier: UUID
+        generation: UUID
     ) {
         guard toolOperationGenerations[lane] == generation else { return }
         timedOutToolOperationGenerations.insert(generation)
-        send(.requestFailure(
-            requestID: requestIdentifier,
-            SimulatorFailure(
-                code: "worker_operation_timed_out",
-                message: String(
-                    localized: "simulator.failure.workerOperationTimedOut",
-                    defaultValue: "The Simulator tool operation exceeded its bounded deadline."
-                ),
-                isRecoverable: true
-            )
-        ))
         toolOperationTasks[lane]?.cancel()
         let sleeper = toolOperationSleeper
         let containment = toolOperationContainment
@@ -172,6 +176,20 @@ extension SimulatorWorkerCoordinator {
             else { return }
             containment.terminate()
         }
+    }
+
+    private func sendToolOperationTimeout(requestIdentifier: UUID) {
+        send(.requestFailure(
+            requestID: requestIdentifier,
+            SimulatorFailure(
+                code: "worker_operation_timed_out",
+                message: String(
+                    localized: "simulator.failure.workerOperationTimedOut",
+                    defaultValue: "The Simulator tool operation exceeded its bounded deadline."
+                ),
+                isRecoverable: true
+            )
+        ))
     }
 
     private func failOutstandingToolOperations() {
@@ -250,7 +268,7 @@ extension SimulatorWorkerCoordinator {
                     self?.toolOperationIsCurrent(operationGeneration) == true
                 }
             )
-            guard toolOperationIsCurrent(operationGeneration) else { return }
+            guard toolOperationDidCommit(operationGeneration) else { return }
             succeeded = true
             let target = application?.bundleIdentifier
                 ?? configuration.targetBundleIdentifier
@@ -316,7 +334,7 @@ extension SimulatorWorkerCoordinator {
         var succeeded = false
         do {
             try await camera.switchSource(configuration)
-            guard toolOperationIsCurrent(operationGeneration) else { return }
+            guard toolOperationDidCommit(operationGeneration) else { return }
             succeeded = true
             emitAction("camera_source", summary: "switched", succeeded: true)
         } catch {
@@ -340,7 +358,7 @@ extension SimulatorWorkerCoordinator {
         await camera.prepareForIntentionalApplicationMutation(
             bundleIdentifier: bundleIdentifier
         )
-        guard toolOperationIsCurrent(operationGeneration) else { return }
+        guard toolOperationDidCommit(operationGeneration) else { return }
         send(.applicationMutationPrepared(requestID: requestIdentifier, succeeded: true))
         emitAction(
             "application_mutation",
@@ -370,7 +388,7 @@ extension SimulatorWorkerCoordinator {
                     setting: setting
                 )
             }
-            guard toolOperationIsCurrent(operationGeneration) else { return }
+            guard toolOperationDidCommit(operationGeneration) else { return }
             succeeded = true
             emitAction("private_interface", summary: String(describing: setting), succeeded: true)
         } catch {
@@ -432,7 +450,7 @@ extension SimulatorWorkerCoordinator {
                 service: service,
                 bundleIdentifier: bundleIdentifier
             )
-            guard toolOperationIsCurrent(operationGeneration) else { return }
+            guard toolOperationDidCommit(operationGeneration) else { return }
             succeeded = true
             emitAction(
                 "privacy",

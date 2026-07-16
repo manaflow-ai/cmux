@@ -17,9 +17,8 @@ struct CmuxFeatureFlagDefinition: Identifiable, Equatable {
 /// from the PostHog dashboard without shipping a build.
 ///
 /// Fallback semantics (flags must never break the app):
-/// - Until a payload arrives — including forever, when the SDK never starts
-///   because telemetry is off or a DEBUG build lacks CMUX_POSTHOG_ENABLE=1 —
-///   every flag keeps its safe default.
+/// - Until a payload arrives, the last remote value survives restarts. A flag
+///   that has never loaded keeps its safe default.
 /// - Once a payload has arrived, a false flag reads as off. An absent flag
 ///   still uses the explicit per-flag fallback below.
 ///
@@ -49,6 +48,7 @@ final class CmuxFeatureFlags {
     private static let simulatorDefault = true
 
     private static let overrideKeyPrefix = "cmux.flags.override."
+    private static let remoteCacheKeyPrefix = "cmux.flags.remote."
 
     // Order is load-bearing for the typed accessors below. A keyed lookup would
     // repeat flag-key literals and violate the feature-flag lint's single
@@ -200,11 +200,19 @@ final class CmuxFeatureFlags {
                 values[definition.key] = value
             }
         }
+        remoteValuesByKey = Self.allFlags.reduce(into: [:]) { values, definition in
+            if let value = Self.storedBoolValue(
+                forKey: Self.remoteCacheKey(for: definition.key),
+                defaults: defaults
+            ) {
+                values[definition.key] = value
+            }
+        }
         recomputeEffectiveValues()
     }
 
     /// Called once from AppDelegate after PostHog analytics starts. Safe when
-    /// the SDK never sets up — flags then keep their defaults.
+    /// the SDK never sets up, because cached remote values remain authoritative.
     func start() {
         guard flagsObserver == nil else { return }
         flagsObserver = NotificationCenter.default.addObserver(
@@ -263,6 +271,9 @@ final class CmuxFeatureFlags {
         remoteValuesByKey = Self.allFlags.reduce(into: [:]) { values, definition in
             if let value = Self.coerceBoolFlagValue(remoteFlagValueProvider(definition.key)) {
                 values[definition.key] = value
+                defaults.set(value, forKey: Self.remoteCacheKey(for: definition.key))
+            } else {
+                defaults.removeObject(forKey: Self.remoteCacheKey(for: definition.key))
             }
         }
         recomputeEffectiveValues()
@@ -289,8 +300,16 @@ final class CmuxFeatureFlags {
         overrideKeyPrefix + key
     }
 
+    private static func remoteCacheKey(for key: String) -> String {
+        remoteCacheKeyPrefix + key
+    }
+
     private static func storedOverrideValue(for key: String, defaults: UserDefaults) -> Bool? {
-        guard let value = defaults.object(forKey: overrideDefaultsKey(for: key)) else {
+        storedBoolValue(forKey: overrideDefaultsKey(for: key), defaults: defaults)
+    }
+
+    private static func storedBoolValue(forKey key: String, defaults: UserDefaults) -> Bool? {
+        guard let value = defaults.object(forKey: key) else {
             return nil
         }
         if let boolValue = value as? Bool {

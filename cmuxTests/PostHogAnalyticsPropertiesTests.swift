@@ -73,6 +73,12 @@ struct PostHogAnalyticsPropertiesTests {
 
         flags.applyLoadedFlags()
         #expect(!flags.isSimulatorEnabled)
+
+        let offlineRelaunch = CmuxFeatureFlags(defaults: defaults) { _ in nil }
+        #expect(!offlineRelaunch.isSimulatorEnabled)
+
+        offlineRelaunch.applyLoadedFlags()
+        #expect(offlineRelaunch.isSimulatorEnabled)
     }
 
     @MainActor

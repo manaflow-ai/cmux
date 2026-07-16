@@ -5,7 +5,7 @@ import Testing
 
 @Suite("Simulator tool operation scheduling")
 struct SimulatorToolOperationSchedulingTests {
-    @Test("A deadline fails promptly but keeps its lane occupied until cancellation unwinds")
+    @Test("A deadline joins cancellation before failing and keeps its lane occupied")
     @MainActor
     func deadlineWaitsForUnwind() async throws {
         let fixture = try ToolOutputFixture()
@@ -26,12 +26,10 @@ struct SimulatorToolOperationSchedulingTests {
             await gate.run()
         }
         await gate.waitUntilStarted()
-        guard case let .requestFailure(requestID, failure) = try await fixture.receiveAsync() else {
-            Issue.record("Expected the timed-out operation failure")
-            return
+        for _ in 0..<1_000 where coordinator.timedOutToolOperationGenerations.isEmpty {
+            await Task.yield()
         }
-        #expect(requestID == firstRequest)
-        #expect(failure.code == "worker_operation_timed_out")
+        #expect(!coordinator.timedOutToolOperationGenerations.isEmpty)
 
         coordinator.enqueueToolOperation(
             lane: .camera,
@@ -44,6 +42,12 @@ struct SimulatorToolOperationSchedulingTests {
         #expect(!(await queuedProbe.started))
 
         await gate.release()
+        guard case let .requestFailure(requestID, failure) = try await fixture.receiveAsync() else {
+            Issue.record("Expected the timed-out operation failure")
+            return
+        }
+        #expect(requestID == firstRequest)
+        #expect(failure.code == "worker_operation_timed_out")
         for _ in 0..<1_000 {
             if await queuedProbe.started { break }
             await Task.yield()
@@ -145,17 +149,52 @@ struct SimulatorToolOperationSchedulingTests {
             await gate.run()
         }
         await gate.waitUntilStarted()
+        for _ in 0..<1_000 where terminator.count == 0 { await Task.yield() }
+        #expect(terminator.count == 1)
 
+        await gate.release()
         guard case let .requestFailure(requestID, failure) = try await fixture.receiveAsync() else {
             Issue.record("Expected the timed-out operation failure")
             return
         }
         #expect(requestID == request)
         #expect(failure.code == "worker_operation_timed_out")
-        for _ in 0..<1_000 where terminator.count == 0 { await Task.yield() }
-        #expect(terminator.count == 1)
+        await coordinator.cancelToolOperations()
+    }
+
+    @Test("A mutation committed while deadline cancellation joins returns success")
+    @MainActor
+    func committedMutationWinsDeadlineJoin() async throws {
+        let fixture = try ToolOutputFixture()
+        let coordinator = SimulatorWorkerCoordinator(
+            channel: fixture.worker,
+            toolOperationSleeper: FirstImmediateToolSleeper()
+        )
+        let gate = ToolOperationGate()
+        let request = UUID()
+        coordinator.enqueueToolOperation(
+            lane: .maintenance,
+            requestIdentifier: request,
+            timeout: .seconds(1)
+        ) { coordinator, generation in
+            await gate.run()
+            guard coordinator.toolOperationDidCommit(generation) else { return }
+            coordinator.send(.privatePrivacy(requestID: request, succeeded: true))
+        }
+        await gate.waitUntilStarted()
+        for _ in 0..<1_000 where coordinator.timedOutToolOperationGenerations.isEmpty {
+            await Task.yield()
+        }
+        #expect(!coordinator.timedOutToolOperationGenerations.isEmpty)
 
         await gate.release()
+        guard case let .privatePrivacy(requestID, succeeded) = try await fixture.receiveAsync()
+        else {
+            Issue.record("Expected the committed mutation success")
+            return
+        }
+        #expect(requestID == request)
+        #expect(succeeded)
         await coordinator.cancelToolOperations()
     }
 

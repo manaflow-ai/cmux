@@ -52,6 +52,7 @@ final class SimulatorWorkerCoordinator {
     var toolOperationCurrentRequestIdentifiers: [SimulatorToolOperationLane: UUID] = [:]
     var cancelingToolOperationLanes: Set<SimulatorToolOperationLane> = []
     var timedOutToolOperationGenerations: Set<UUID> = []
+    var committedToolOperationGenerations: Set<UUID> = []
     var pendingCameraTargetAcknowledgements: [UUID: CheckedContinuation<Void, Error>] = [:]
 
     init(

@@ -319,6 +319,43 @@ struct SimulatorPanelIntegrationTests {
         second.close()
     }
 
+    @Test("Control routing honors an explicit pane over workspace focus")
+    func controlRoutingHonorsPane() throws {
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true, eagerLoadTerminal: false)
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            workspace.teardownAllPanels()
+            TerminalController.shared.setActiveTabManager(nil)
+        }
+        let terminalID = try #require(workspace.focusedPanelId)
+        let firstPane = try #require(workspace.paneId(forPanelId: terminalID))
+        let first = try #require(workspace.newSimulatorSurface(inPane: firstPane, focus: true))
+        let second = try #require(workspace.newSimulatorSplit(
+            from: first.id,
+            orientation: .horizontal,
+            focus: false
+        ))
+        let secondPane = try #require(workspace.paneId(forPanelId: second.id))
+        workspace.focusPanel(first.id)
+        let routing = ControlRoutingSelectors(
+            hasWindowIDParam: false,
+            windowID: nil,
+            groupID: nil,
+            workspaceID: workspace.id,
+            surfaceID: nil,
+            paneID: secondPane.id
+        )
+
+        guard case let .panel(resolved) = TerminalController.shared.resolveSimulatorPanel(
+            routing: routing
+        ) else {
+            Issue.record("The explicit pane should resolve its selected Simulator")
+            return
+        }
+        #expect(resolved === second)
+    }
+
     @Test("Control gestures map logical touches and edges through every orientation")
     func controlGestureOrientationMapping() throws {
         let touch = ControlSimulatorTouch(
