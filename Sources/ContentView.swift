@@ -6069,29 +6069,51 @@ struct ContentView: View {
         commandPaletteForkableAgentProbeFingerprintsByPanelKey[panelKey] = probeFingerprint
 
         commandPaletteForkableAgentAvailabilityTasksByPanelKey[panelKey] = Task {
-            await SharedLiveAgentIndex.shared.refreshForkAvailabilityNow(
-                workspaceId: workspaceId,
-                panelId: panelId,
-                isRemoteContext: isRemoteTerminal,
-                fallbackSnapshot: fallbackSnapshot
-            )
-            var index = SharedLiveAgentIndex.shared.index
-                ?? await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
-            guard !Task.isCancelled else { return }
-            var indexEntry = index.entry(workspaceId: workspaceId, panelId: panelId)
-            var indexSnapshot = indexEntry?.snapshot
-            if indexSnapshot != nil, fallbackSnapshot != nil {
-                await SharedLiveAgentIndex.shared.refreshForkAvailabilityNow(
+            let sharedIndex = SharedLiveAgentIndex.shared
+            if let fallbackSnapshot {
+                if let currentIndex = sharedIndex.index {
+                    if currentIndex.entry(workspaceId: workspaceId, panelId: panelId)?.snapshot != nil {
+                        await sharedIndex.refreshForkAvailabilityNow(
+                            workspaceId: workspaceId,
+                            panelId: panelId,
+                            isRemoteContext: isRemoteTerminal
+                        )
+                    } else {
+                        await sharedIndex.refreshForkAvailabilityNow(
+                            workspaceId: workspaceId,
+                            panelId: panelId,
+                            isRemoteContext: isRemoteTerminal,
+                            fallbackSnapshot: fallbackSnapshot
+                        )
+                    }
+                } else {
+                    await sharedIndex.refreshForkAvailabilityNow(
+                        workspaceId: workspaceId,
+                        panelId: panelId,
+                        isRemoteContext: isRemoteTerminal
+                    )
+                    guard !Task.isCancelled else { return }
+                    if sharedIndex.index?.entry(workspaceId: workspaceId, panelId: panelId)?.snapshot == nil {
+                        await sharedIndex.refreshForkAvailabilityNow(
+                            workspaceId: workspaceId,
+                            panelId: panelId,
+                            isRemoteContext: isRemoteTerminal,
+                            fallbackSnapshot: fallbackSnapshot
+                        )
+                    }
+                }
+            } else {
+                await sharedIndex.refreshForkAvailabilityNow(
                     workspaceId: workspaceId,
                     panelId: panelId,
                     isRemoteContext: isRemoteTerminal
                 )
-                if let refreshedIndex = SharedLiveAgentIndex.shared.index {
-                    index = refreshedIndex
-                    indexEntry = index.entry(workspaceId: workspaceId, panelId: panelId)
-                    indexSnapshot = indexEntry?.snapshot
-                }
             }
+            var index = sharedIndex.index
+                ?? await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
+            guard !Task.isCancelled else { return }
+            var indexEntry = index.entry(workspaceId: workspaceId, panelId: panelId)
+            var indexSnapshot = indexEntry?.snapshot
             let snapshot = indexSnapshot ?? fallbackSnapshot
             let validationFallbackSnapshot = indexSnapshot == nil ? fallbackSnapshot : nil
             let executableFingerprintBefore = if let snapshot {

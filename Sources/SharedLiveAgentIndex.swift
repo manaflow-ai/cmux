@@ -455,6 +455,7 @@ final class SharedLiveAgentIndex {
             guard let self else { return }
             _ = await self.reloadIfLiveAgentProcessFingerprintChanged()
             self.forkAvailabilityRefreshTask = nil
+            self.restartForkAvailabilityRefreshIfPending()
             NotificationCenter.default.post(name: .sharedLiveAgentIndexDidChange, object: self)
             if self.changePending {
                 self.changePending = false

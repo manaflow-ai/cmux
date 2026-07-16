@@ -1504,6 +1504,12 @@ struct WorkspaceForkConversationContextMenuTests {
             workspaceId: secondWorkspaceId,
             panelId: secondPanelId
         )
+        let thirdWorkspaceId = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000023"))
+        let thirdPanelId = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000033"))
+        let thirdPanelKey = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: thirdWorkspaceId,
+            panelId: thirdPanelId
+        )
         let firstSnapshot = makeProbeRequiredOpenCodeSnapshot(
             sessionId: "first-background",
             workingDirectory: root.path,
@@ -1514,8 +1520,14 @@ struct WorkspaceForkConversationContextMenuTests {
             workingDirectory: root.path,
             executablePath: executable.path
         )
+        let thirdSnapshot = makeProbeRequiredOpenCodeSnapshot(
+            sessionId: "third-background",
+            workingDirectory: root.path,
+            executablePath: executable.path
+        )
         let loaderCallCount = OSAllocatedUnfairLock(initialState: 0)
         let firstProviderRelease = OSAllocatedUnfairLock(initialState: false)
+        let secondProviderRelease = OSAllocatedUnfairLock(initialState: false)
         let probedSessionIds = OSAllocatedUnfairLock(initialState: [String]())
         let sharedIndex = SharedLiveAgentIndex(
             indexLoader: {
@@ -1539,19 +1551,30 @@ struct WorkspaceForkConversationContextMenuTests {
                             agentProcessIDs: [],
                             sessionIDSource: .explicit
                         ),
+                        thirdPanelKey: (
+                            snapshot: thirdSnapshot,
+                            updatedAt: 0,
+                            processIDs: [],
+                            agentProcessIDs: [],
+                            sessionIDSource: .explicit
+                        ),
                     ]
                 )
                 return (
                     index: index,
                     liveAgentProcessFingerprint: [],
                     processScopeFingerprint: [],
-                    forkValidatedPanels: [firstPanelKey, secondPanelKey]
+                    forkValidatedPanels: [firstPanelKey, secondPanelKey, thirdPanelKey]
                 )
             },
             forkSupportProvider: { snapshot, _ in
                 probedSessionIds.withLock { $0.append(snapshot.sessionId) }
                 if snapshot.sessionId == "first-background" {
                     while !Task.isCancelled && !firstProviderRelease.withLock({ $0 }) {
+                        await Task.yield()
+                    }
+                } else if snapshot.sessionId == "second-background" {
+                    while !Task.isCancelled && !secondProviderRelease.withLock({ $0 }) {
                         await Task.yield()
                     }
                 }
@@ -1580,13 +1603,25 @@ struct WorkspaceForkConversationContextMenuTests {
         }
 
         #expect(probedSessionIds.withLock { $0 } == ["first-background", "second-background"])
-        #expect(loaderCallCount.withLock { $0 } >= 2)
+        #expect(!sharedIndex.prepareForkAvailabilityProbe(workspaceId: thirdWorkspaceId, panelId: thirdPanelId))
+        for _ in 0..<1000 where probedSessionIds.withLock({ $0.count }) != 2 {
+            await Task.yield()
+        }
+        #expect(probedSessionIds.withLock { $0 } == ["first-background", "second-background"])
+
+        secondProviderRelease.withLock { $0 = true }
+        for _ in 0..<1000 where !probedSessionIds.withLock({ $0.contains("third-background") }) {
+            await Task.yield()
+        }
+
+        #expect(probedSessionIds.withLock { $0 } == ["first-background", "second-background", "third-background"])
+        #expect(loaderCallCount.withLock { $0 } >= 3)
         #expect(
             sharedIndex.snapshotForForkAvailability(
-                workspaceId: secondWorkspaceId,
-                panelId: secondPanelId
-            )?.sessionId == "second-background",
-            "A request queued while a background validation is active must restart after the active task clears."
+                workspaceId: thirdWorkspaceId,
+                panelId: thirdPanelId
+            )?.sessionId == "third-background",
+            "A request queued while a restarted background validation is active must restart after that task clears."
         )
     }
 
