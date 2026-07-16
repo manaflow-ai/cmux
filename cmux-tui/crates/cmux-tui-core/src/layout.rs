@@ -164,14 +164,15 @@ pub fn layout_screen(root: &Node, area: Rect) -> LayoutResult {
     result
 }
 
-/// Reproduce Zellij's default `vertical` auto-layout family for panes in
-/// creation order through twelve panes. The first pane keeps a full-height
-/// column while the second column fills from one through four rows. Later
-/// panes fill columns of four from right to left.
+/// Reproduce Zellij's default auto-layout sequence for panes in creation
+/// order. Through twelve panes, the `vertical` family fills columns of four.
+/// Above twelve panes, Zellij advances to `stacked`: every older pane keeps a
+/// one-row header and the newest pane receives the remaining height.
 pub fn zellij_default_pane_layout(panes: &[PaneId]) -> Option<Node> {
     match panes {
         [] => None,
         [pane] => Some(Node::Leaf(*pane)),
+        panes if panes.len() > 12 => Some(zellij_stacked_layout(panes)),
         _ => {
             let first_column_len = if panes.len() <= 5 {
                 1
@@ -186,6 +187,19 @@ pub fn zellij_default_pane_layout(panes: &[PaneId]) -> Option<Node> {
             }
             Some(equal_nodes(columns, SplitDir::Right))
         }
+    }
+}
+
+fn zellij_stacked_layout(panes: &[PaneId]) -> Node {
+    match panes {
+        [pane] => Node::Leaf(*pane),
+        [pane, rest @ ..] => Node::Split {
+            dir: SplitDir::Down,
+            ratio: 0.0,
+            a: Box::new(Node::Leaf(*pane)),
+            b: Box::new(zellij_stacked_layout(rest)),
+        },
+        [] => unreachable!("stack layout requires at least one pane"),
     }
 }
 
@@ -372,6 +386,19 @@ mod tests {
             assert_eq!(layout.panes.iter().map(|(pane, _)| *pane).collect::<Vec<_>>(), panes);
             assert!(layout.panes.iter().all(|(_, rect)| rect.width == 40 && rect.height == 10));
         }
+    }
+
+    #[test]
+    fn zellij_default_layout_stacks_above_twelve_panes() {
+        let panes = (1..=13).collect::<Vec<_>>();
+        let root = zellij_default_pane_layout(&panes).unwrap();
+        let layout = layout_screen(&root, Rect { x: 0, y: 0, width: 120, height: 40 });
+
+        assert_eq!(layout.panes.iter().map(|(pane, _)| *pane).collect::<Vec<_>>(), panes);
+        for (index, (_, rect)) in layout.panes[..12].iter().enumerate() {
+            assert_eq!(*rect, Rect { x: 0, y: index as u16, width: 120, height: 1 });
+        }
+        assert_eq!(layout.panes[12].1, Rect { x: 0, y: 12, width: 120, height: 28 });
     }
 
     #[test]

@@ -874,7 +874,7 @@ Example:
 | status | implemented |
 | since | protocol 7 |
 
-Creates a PTY pane after the current panes in creation order, focuses it, and reapplies Zellij's default vertical auto-layout. Panes one through five use one full-height left column and up to four equal right-side rows. Later panes fill balanced columns of four. The new surface inherits the active surface working directory of `pane` when available.
+Creates a PTY pane after the current panes in creation order, focuses it, and reapplies Zellij's default auto-layout. Panes one through five use one full-height left column and up to four equal right-side rows. Panes six through twelve fill balanced columns of four. Above twelve panes, older panes collapse to one-row headers and the newest pane expands in the remaining stacked area. The new surface inherits the active surface working directory of `pane` when available.
 
 Params:
 

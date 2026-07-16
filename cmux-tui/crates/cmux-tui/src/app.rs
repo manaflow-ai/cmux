@@ -6738,6 +6738,28 @@ mod tests {
             ]
         );
 
+        for _ in 0..8 {
+            app.sync_layout((200, 40));
+            app.handle_key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::ALT)).unwrap();
+            while app.session.has_pending_mutations() {
+                let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+                app.handle(event).unwrap();
+            }
+        }
+
+        let screen = app.tree.active_screen().unwrap();
+        let mut panes = Vec::new();
+        screen.layout.pane_ids(&mut panes);
+        panes.sort_unstable();
+        assert_eq!(panes.len(), 13);
+
+        let layout = layout_screen(&screen.layout, Rect { x: 0, y: 0, width: 200, height: 40 });
+        for (index, (pane, rect)) in layout.panes[..12].iter().enumerate() {
+            assert_eq!(*pane, panes[index]);
+            assert_eq!(*rect, Rect { x: 0, y: index as u16, width: 200, height: 1 });
+        }
+        assert_eq!(layout.panes[12], (panes[12], Rect { x: 0, y: 12, width: 200, height: 28 }));
+
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
             mux.close_surface(surface);
