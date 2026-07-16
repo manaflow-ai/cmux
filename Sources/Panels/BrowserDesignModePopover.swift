@@ -220,6 +220,11 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
         private let onHeightChange: (CGFloat) -> Void
         weak var textView: BrowserDesignModeTokenTextView?
         private var syncing = false
+        /// Identities the user deleted locally whose page-side removal has
+        /// not been confirmed by a snapshot yet. sync() must treat these as
+        /// gone, or it would re-append every just-deleted pill and rapid
+        /// backspaces would cascade into mass deletions.
+        private var pendingRemovals: Set<String> = []
         private var lastIdentities: [String] = []
 
         init(controller: BrowserDesignModeController, onHeightChange: @escaping (CGFloat) -> Void) {
@@ -236,7 +241,11 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
         /// lands after a newly appended token to continue typing.
         func sync(selections: [BrowserDesignModeSelection], requestedChange: String) {
             guard let textView, let storage = textView.textStorage else { return }
-            let identities = selections.map(\.selector)
+            // Snapshots confirm removals by dropping the identity; anything
+            // still pending stays masked out of the reconciliation.
+            pendingRemovals.formIntersection(selections.map(\.selector))
+            let effective = selections.filter { !pendingRemovals.contains($0.selector) }
+            let identities = effective.map(\.selector)
             let current = attachmentIdentities(in: storage)
             guard identities.sorted() != current.sorted()
                 || plainText(of: storage) != requestedChange else {
@@ -270,7 +279,7 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
             // user already has.
             let present = Set(attachmentIdentities(in: storage))
             var appended = false
-            for selection in selections where !present.contains(selection.selector) {
+            for selection in effective where !present.contains(selection.selector) {
                 let insertion = NSMutableAttributedString()
                 if storage.length > 0, !storage.string.hasSuffix(" ") {
                     insertion.append(NSAttributedString(string: " ", attributes: typingAttributes))
@@ -298,9 +307,15 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
         }
 
         private var typingAttributes: [NSAttributedString.Key: Any] {
-            [
+            // Fixed line metrics tall enough for the 18pt token cells keep
+            // wrapped pill rows evenly spaced instead of jumping per line.
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.minimumLineHeight = 20
+            paragraph.lineSpacing = 3
+            return [
                 .font: BrowserDesignModeTokenStyle.font,
                 .foregroundColor: NSColor.white.withAlphaComponent(0.96),
+                .paragraphStyle: paragraph,
             ]
         }
 
@@ -348,11 +363,14 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
                     }
                 }
                 lastIdentities = identities
-                let indexes = removedIdentities.compactMap { identity in
-                    controller.snapshot?.selections.firstIndex(where: { $0.selector == identity })
-                }.sorted(by: >)
+                pendingRemovals.formUnion(removedIdentities)
+                let toRemove = removedIdentities
                 Task { @MainActor [controller] in
-                    for index in indexes {
+                    // Resolve each index at removal time: every removal
+                    // shifts the indices of the remaining selections.
+                    for identity in toRemove {
+                        guard let index = controller.snapshot?.selections
+                            .firstIndex(where: { $0.selector == identity }) else { continue }
                         await controller.removeSelection(at: index)
                     }
                 }
@@ -512,6 +530,16 @@ final class BrowserDesignModeTokenAttachment: NSTextAttachment {
         token.addAttribute(
             .toolTip,
             value: truncated,
+            range: NSRange(location: 0, length: token.length)
+        )
+        // Match the field's line metrics so rows containing pills keep the
+        // same fragment height as plain text rows.
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.minimumLineHeight = 20
+        paragraph.lineSpacing = 3
+        token.addAttribute(
+            .paragraphStyle,
+            value: paragraph,
             range: NSRange(location: 0, length: token.length)
         )
         return token
