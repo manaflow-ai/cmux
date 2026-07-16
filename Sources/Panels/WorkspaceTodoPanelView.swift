@@ -86,6 +86,18 @@ enum WorkspaceTodoPaneKeyboardNavigationPolicy {
     }
 }
 
+enum WorkspaceTodoPaneMultilineEditSizing {
+    nonisolated static func visibleLineCount(for text: String, maxLines: Int = 8) -> Int {
+        min(max(text.split(separator: "\n", omittingEmptySubsequences: false).count, 1), maxLines)
+    }
+
+    nonisolated static func height(for text: String, fontSize: CGFloat) -> CGFloat {
+        let font = NSFont.systemFont(ofSize: fontSize)
+        let lineHeight = ceil(font.ascender - font.descender + font.leading)
+        return CGFloat(visibleLineCount(for: text)) * lineHeight + 2
+    }
+}
+
 private struct WorkspaceTodoPanelOpaqueBackground: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         WorkspaceTodoPanelOpaqueBackgroundView()
@@ -121,7 +133,7 @@ private struct WorkspaceTodoPaneContent: View {
     @FocusState private var addFieldFocused: Bool
     @State private var editingItemId: UUID?
     @State private var editingText = ""
-    @FocusState private var editFieldFocused: Bool
+    @State private var editFieldFocused = false
     /// The keyboard-highlighted item (Up/Down arrows); Return or Cmd+Return
     /// toggles it.
     @State private var highlightedItemId: UUID?
@@ -494,7 +506,7 @@ private struct WorkspaceTodoPaneItemRow: View {
     let isEditing: Bool
     let isHighlighted: Bool
     @Binding var editingText: String
-    let editFieldFocused: FocusState<Bool>.Binding
+    @Binding var editFieldFocused: Bool
     let itemFontSize: CGFloat
     let checkboxPointSize: CGFloat
     let actions: WorkspaceTodoPaneItemRowActions
@@ -531,25 +543,18 @@ private struct WorkspaceTodoPaneItemRow: View {
                     : String(localized: "sidebar.checklist.checkTooltip", defaultValue: "Mark as completed")
             )
             if isEditing {
-                TextField(
-                    String(localized: "sidebar.checklist.editItemPlaceholder", defaultValue: "Item text"),
+                WorkspaceTodoPaneMultilineEditField(
                     text: $editingText,
-                    axis: .vertical
+                    isFocused: $editFieldFocused,
+                    fontSize: itemFontSize,
+                    placeholder: String(localized: "sidebar.checklist.editItemPlaceholder", defaultValue: "Item text"),
+                    commit: actions.commitEdit,
+                    cancel: actions.cancelEdit
                 )
-                .textFieldStyle(.plain)
-                .font(.system(size: itemFontSize))
-                .foregroundColor(.primary)
-                .focused(editFieldFocused)
-                .lineLimit(1...8)
-                .fixedSize(horizontal: false, vertical: true)
-                .backport.onKeyPress(.return) { modifiers in
-                    if modifiers.contains(.command) {
-                        actions.commitEdit()
-                        return .handled
-                    }
-                    return .ignored
-                }
-                .onExitCommand(perform: actions.cancelEdit)
+                .frame(height: WorkspaceTodoPaneMultilineEditSizing.height(
+                    for: editingText,
+                    fontSize: itemFontSize
+                ))
                 .accessibilityIdentifier("WorkspaceTodoPaneEditItemField")
             } else {
                 // No `lineLimit` — items wrap across multiple lines. Without
@@ -629,5 +634,152 @@ private struct WorkspaceTodoPaneItemRow: View {
         case .inProgress: return "minus.square"
         case .completed: return "checkmark.square.fill"
         }
+    }
+}
+
+private struct WorkspaceTodoPaneMultilineEditField: NSViewRepresentable {
+    @Binding var text: String
+    @Binding var isFocused: Bool
+    let fontSize: CGFloat
+    let placeholder: String
+    let commit: () -> Void
+    let cancel: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text, isFocused: $isFocused, commit: commit, cancel: cancel)
+    }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSScrollView()
+        scrollView.drawsBackground = false
+        scrollView.borderType = .noBorder
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+
+        let textView = WorkspaceTodoPaneMultilineTextView()
+        textView.isRichText = false
+        textView.importsGraphics = false
+        textView.allowsUndo = true
+        textView.isEditable = true
+        textView.isSelectable = true
+        textView.drawsBackground = false
+        textView.backgroundColor = .clear
+        textView.textColor = .labelColor
+        textView.insertionPointColor = .labelColor
+        textView.font = .systemFont(ofSize: fontSize)
+        textView.textContainerInset = .zero
+        textView.textContainer?.lineFragmentPadding = 0
+        textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.containerSize = NSSize(
+            width: scrollView.contentSize.width,
+            height: .greatestFiniteMagnitude
+        )
+        textView.autoresizingMask = [.width]
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.minSize = NSSize(width: 0, height: 0)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.string = text
+        textView.setAccessibilityLabel(placeholder)
+        textView.delegate = context.coordinator
+        textView.commit = { context.coordinator.commitCurrentText() }
+        textView.cancel = { context.coordinator.cancel() }
+
+        context.coordinator.textView = textView
+        scrollView.documentView = textView
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        context.coordinator.text = $text
+        context.coordinator.isFocused = $isFocused
+        context.coordinator.commit = commit
+        context.coordinator.cancel = cancel
+
+        guard let textView = scrollView.documentView as? WorkspaceTodoPaneMultilineTextView else { return }
+        textView.font = .systemFont(ofSize: fontSize)
+        textView.setAccessibilityLabel(placeholder)
+        textView.commit = { context.coordinator.commitCurrentText() }
+        textView.cancel = { context.coordinator.cancel() }
+
+        if textView.string != text {
+            textView.string = text
+        }
+
+        guard isFocused else { return }
+        if textView.window?.firstResponder !== textView {
+            DispatchQueue.main.async {
+                guard self.isFocused, let window = textView.window else { return }
+                window.makeFirstResponder(textView)
+                textView.selectedRange = NSRange(location: textView.string.count, length: 0)
+            }
+        }
+    }
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        var text: Binding<String>
+        var isFocused: Binding<Bool>
+        var commit: () -> Void
+        var cancel: () -> Void
+        weak var textView: NSTextView?
+
+        init(
+            text: Binding<String>,
+            isFocused: Binding<Bool>,
+            commit: @escaping () -> Void,
+            cancel: @escaping () -> Void
+        ) {
+            self.text = text
+            self.isFocused = isFocused
+            self.commit = commit
+            self.cancel = cancel
+        }
+
+        func textDidBeginEditing(_ notification: Notification) {
+            isFocused.wrappedValue = true
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            text.wrappedValue = textView.string
+        }
+
+        func textDidEndEditing(_ notification: Notification) {
+            isFocused.wrappedValue = false
+        }
+
+        func commitCurrentText() {
+            if let textView {
+                text.wrappedValue = textView.string
+            }
+            commit()
+        }
+    }
+}
+
+private final class WorkspaceTodoPaneMultilineTextView: NSTextView {
+    var commit: (() -> Void)?
+    var cancel: (() -> Void)?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard let window else { return }
+        window.makeFirstResponder(self)
+        selectedRange = NSRange(location: string.count, length: 0)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        let flags = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.capsLock, .function, .numericPad])
+        if (event.keyCode == 36 || event.keyCode == 76), flags == [.command] {
+            commit?()
+            return
+        }
+        super.keyDown(with: event)
+    }
+
+    override func cancelOperation(_ sender: Any?) {
+        cancel?()
     }
 }

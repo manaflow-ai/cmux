@@ -267,12 +267,23 @@ struct WorkspaceTodoSidebarModelTests {
     }
 
     @Test
-    func todoPaneEditFieldUsesVerticalTextEntry() throws {
+    func todoPaneEditFieldUsesStandaloneTextViewForNativeLineNavigation() throws {
         let source = try Self.sourceText("Sources/Panels/WorkspaceTodoPanelView.swift")
 
-        #expect(source.contains("axis: .vertical"))
-        #expect(source.contains(".lineLimit(1...8)"))
+        #expect(source.contains("WorkspaceTodoPaneMultilineEditField("))
+        #expect(source.contains("WorkspaceTodoPaneMultilineTextView: NSTextView"))
+        #expect(!source.contains("axis: .vertical"))
         #expect(!source.contains(".onSubmit { actions.commitEdit() }"))
+    }
+
+    @Test
+    func todoPaneMultilineEditSizingClampsVisibleLines() {
+        #expect(WorkspaceTodoPaneMultilineEditSizing.visibleLineCount(for: "") == 1)
+        #expect(WorkspaceTodoPaneMultilineEditSizing.visibleLineCount(for: "one") == 1)
+        #expect(WorkspaceTodoPaneMultilineEditSizing.visibleLineCount(for: "one\ntwo") == 2)
+        #expect(WorkspaceTodoPaneMultilineEditSizing.visibleLineCount(
+            for: (0..<12).map { "line \($0)" }.joined(separator: "\n")
+        ) == 8)
     }
 
     // MARK: - Checklist display policy
