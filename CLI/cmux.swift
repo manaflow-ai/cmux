@@ -31260,11 +31260,9 @@ export default CMUXSessionRestore;
         case .stop:
             if def.name == "codex", !sessionId.isEmpty {
                 let stopTurnId = input.turnId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                retireCodexMonitorLeases(
-                    sessionId: sessionId,
-                    turnId: stopTurnId.isEmpty ? nil : stopTurnId,
-                    env: env
-                )
+                if !stopTurnId.isEmpty {
+                    retireCodexMonitorLeases(sessionId: sessionId, turnId: stopTurnId, env: env)
+                }
             }
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
             guard let target = resolveAgentHookTarget(mapped: mapped) else {
@@ -31419,6 +31417,14 @@ export default CMUXSessionRestore;
                 transcriptSubagentSession: codexSubagentSignals.isSubagentSession,
                 env: env
             ) || staleIdleStopHasNewerRunningSession
+            if def.name == "codex",
+               !sessionId.isEmpty,
+               normalizedHookValue(input.turnId) == nil,
+               !suppressVisibleMutations {
+                // An unscoped top-level Stop is authoritative for the session.
+                // Nested unscoped Stops must leave the parent monitor alive.
+                retireCodexMonitorLeases(sessionId: sessionId, turnId: nil, env: env)
+            }
             let suppressCompletionNotification = suppressVisibleMutations
                 || codexSubagentSignals.hasSubagentNotificationRelay
 
