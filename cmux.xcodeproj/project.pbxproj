@@ -1032,6 +1032,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C7A50B000000000000000020 /* MobileHostTerminalTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50B000000000000000021 /* MobileHostTerminalTheme.swift */; };
 		C1A070000000000000000005 /* MobileHostTransportAuthorization.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A070000000000000000015 /* MobileHostTransportAuthorization.swift */; };
 		C0DE73840000000000000001 /* MobileHostWorkspaceTicketAuthorizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE73840000000000000002 /* MobileHostWorkspaceTicketAuthorizationTests.swift */; };
+		A15A00000000000000000004 /* MobileNotificationFeedVerbTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A15A00000000000000000003 /* MobileNotificationFeedVerbTests.swift */; };
 		9B08F916D7FF7626C6820727 /* MobilePairingConnectionTransitionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4880BD05924400E5279D632 /* MobilePairingConnectionTransitionTests.swift */; };
 		0099C2865D9D468747D14593 /* MobilePairingModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04CE82AE8B39EA0C1395F696 /* MobilePairingModel.swift */; };
 		325AF8814443BDA97AC3CC98 /* MobilePairingQRImageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B76EC5E03C345BEAC25828A7 /* MobilePairingQRImageView.swift */; };
@@ -1631,6 +1632,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A7C0F0020000000000000002 /* TerminalController+MobileAttachTicket.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7C0F0020000000000000001 /* TerminalController+MobileAttachTicket.swift */; };
 		ACA7C4A7000000000000000D /* TerminalController+MobileChat.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A7000000000000000E /* TerminalController+MobileChat.swift */; };
 		C7AF10000000000000000003 /* TerminalController+MobileChatArtifacts.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7AF10000000000000000004 /* TerminalController+MobileChatArtifacts.swift */; };
+		A15A00000000000000000002 /* TerminalController+MobileNotificationFeed.swift in Sources */ = {isa = PBXBuildFile; fileRef = A15A00000000000000000001 /* TerminalController+MobileNotificationFeed.swift */; };
 		D7AB00000000000000B001 /* TerminalController+MobileNotificationSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000B000 /* TerminalController+MobileNotificationSync.swift */; };
 		D7AB00000000000000B011 /* TerminalController+MobileScrollPrefetch.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000B010 /* TerminalController+MobileScrollPrefetch.swift */; };
 		C7AF20000000000000000001 /* TerminalController+MobileTerminalArtifacts.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7AF20000000000000000002 /* TerminalController+MobileTerminalArtifacts.swift */; };
@@ -2953,6 +2955,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C7A50B000000000000000021 /* MobileHostTerminalTheme.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostTerminalTheme.swift; sourceTree = "<group>"; };
 		C1A070000000000000000015 /* MobileHostTransportAuthorization.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostTransportAuthorization.swift; sourceTree = "<group>"; };
 		C0DE73840000000000000002 /* MobileHostWorkspaceTicketAuthorizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileHostWorkspaceTicketAuthorizationTests.swift; sourceTree = "<group>"; };
+		A15A00000000000000000003 /* MobileNotificationFeedVerbTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileNotificationFeedVerbTests.swift; sourceTree = "<group>"; };
 		A4880BD05924400E5279D632 /* MobilePairingConnectionTransitionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobilePairingConnectionTransitionTests.swift; sourceTree = "<group>"; };
 		04CE82AE8B39EA0C1395F696 /* MobilePairingModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Pairing/MobilePairingModel.swift"; sourceTree = "<group>"; };
 		B76EC5E03C345BEAC25828A7 /* MobilePairingQRImageView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Pairing/MobilePairingQRImageView.swift"; sourceTree = "<group>"; };
@@ -3537,6 +3540,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A7C0F0020000000000000001 /* TerminalController+MobileAttachTicket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileAttachTicket.swift"; sourceTree = "<group>"; };
 		ACA7C4A7000000000000000E /* TerminalController+MobileChat.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileChat.swift"; sourceTree = "<group>"; };
 		C7AF10000000000000000004 /* TerminalController+MobileChatArtifacts.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileChatArtifacts.swift"; sourceTree = "<group>"; };
+		A15A00000000000000000001 /* TerminalController+MobileNotificationFeed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileNotificationFeed.swift"; sourceTree = "<group>"; };
 		D7AB00000000000000B000 /* TerminalController+MobileNotificationSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileNotificationSync.swift"; sourceTree = "<group>"; };
 		D7AB00000000000000B010 /* TerminalController+MobileScrollPrefetch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileScrollPrefetch.swift"; sourceTree = "<group>"; };
 		C7AF20000000000000000002 /* TerminalController+MobileTerminalArtifacts.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileTerminalArtifacts.swift"; sourceTree = "<group>"; };
@@ -4626,6 +4630,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE00000000000000000C61 /* TerminalController+ControlWorkspaceContext.swift */,
 				7371B0010000000000000002 /* TerminalController+ControlWorkspaceStrings.swift */,
 				D7AB00000000000000B000 /* TerminalController+MobileNotificationSync.swift */,
+				A15A00000000000000000001 /* TerminalController+MobileNotificationFeed.swift */,
 				D7AB00000000000000B010 /* TerminalController+MobileScrollPrefetch.swift */,
 				C0DE00000000000000000C81 /* TerminalController+ControlBrowserPanelContext.swift */,
 				C0DE00000000000000000C6D /* TerminalController+ControlDebugContext.swift */,
@@ -5681,6 +5686,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					596100000000000000000002 /* NativeNotificationFallbackCommandTests.swift */,
 				596100000000000000000006 /* TerminalNotificationStore+NativeNotificationDeliveryTesting.swift */,
 				D7AB00000000000000B020 /* NotificationDismissSyncTests.swift */,
+				A15A00000000000000000003 /* MobileNotificationFeedVerbTests.swift */,
 				4E5F60720000000000000002 /* NotificationSoundSettingsTests.swift */,
 				C0DE64160000000000000002 /* TabManagerNotificationFocusRegressionTests.swift */,
 				C06552030000000000000002 /* TabManagerTitleUpdateStalenessTests.swift */,
@@ -7281,6 +7287,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A7C0F0020000000000000002 /* TerminalController+MobileAttachTicket.swift in Sources */,
 				ACA7C4A7000000000000000D /* TerminalController+MobileChat.swift in Sources */,
 				C7AF10000000000000000003 /* TerminalController+MobileChatArtifacts.swift in Sources */,
+				A15A00000000000000000002 /* TerminalController+MobileNotificationFeed.swift in Sources */,
 				D7AB00000000000000B001 /* TerminalController+MobileNotificationSync.swift in Sources */,
 				D7AB00000000000000B011 /* TerminalController+MobileScrollPrefetch.swift in Sources */,
 				C7AF20000000000000000001 /* TerminalController+MobileTerminalArtifacts.swift in Sources */,
@@ -7924,6 +7931,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE10510000000000000001 /* MobileHostServiceSettingsTests.swift in Sources */,
 				4C1A7E10B2D34F56A8C90013 /* MobileHostStatusVerificationLimiterTests.swift in Sources */,
 				C0DE73840000000000000001 /* MobileHostWorkspaceTicketAuthorizationTests.swift in Sources */,
+				A15A00000000000000000004 /* MobileNotificationFeedVerbTests.swift in Sources */,
 				9B08F916D7FF7626C6820727 /* MobilePairingConnectionTransitionTests.swift in Sources */,
 				F6448F377504F33956E7E03B /* MobileWorkspaceListFidelityTests.swift in Sources */,
 				13AB1A2E5DA6AD02DCAE971D /* MockBridgeInputCapture.swift in Sources */,

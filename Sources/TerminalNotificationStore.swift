@@ -172,6 +172,11 @@ final class TerminalNotificationStore: ObservableObject {
     /// so dismiss-sync is safe even with phone-forward hideContent on.
     static let dismissedEventTopic = "notification.dismissed"
 
+    /// Mobile-host event topic emitted after the notification feed changes. The
+    /// phone coalesces these signals into an authoritative `notification.list`
+    /// refetch instead of applying list mutations from event payloads.
+    static let feedChangedEventTopic = "notification.feed.changed"
+
     /// Mobile-host event topic carrying the authoritative unread-notification
     /// count (`["unread_count": Int]`) whenever it changes. The phone SETS its
     /// app-icon badge to this absolute total (never local ±1 arithmetic), so any

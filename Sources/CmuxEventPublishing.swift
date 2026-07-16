@@ -290,6 +290,7 @@ extension CmuxEventBus {
         )
     }
 
+    @MainActor
     func publishNotificationChanges(oldValue: [TerminalNotification], newValue: [TerminalNotification]) {
         var oldById: [UUID: TerminalNotification] = [:]
         for notification in oldValue {
@@ -310,6 +311,7 @@ extension CmuxEventBus {
             guard !newIds.contains(notification.id) else { return false }
             return removedIds.insert(notification.id).inserted
         }
+        var feedChanged = !removed.isEmpty
         for notification in removed {
             publishNotificationRemoved(notification)
         }
@@ -317,6 +319,9 @@ extension CmuxEventBus {
         for notification in newValue {
             guard seenNewIds.insert(notification.id).inserted else { continue }
             if let old = oldById[notification.id] {
+                if old.isRead != notification.isRead {
+                    feedChanged = true
+                }
                 if !old.isRead, notification.isRead {
                     publishNotificationRead(
                         ids: [notification.id.uuidString],
@@ -325,11 +330,18 @@ extension CmuxEventBus {
                     )
                 }
             } else {
+                feedChanged = true
                 let replacedIds = removed
                     .filter { $0.tabId == notification.tabId && $0.surfaceId == notification.surfaceId }
                     .map { $0.id.uuidString }
                 publishNotificationCreated(notification, delivery: "store", replacedNotificationIds: replacedIds)
             }
+        }
+        if feedChanged {
+            MobileHostService.emitEvent(
+                topic: TerminalNotificationStore.feedChangedEventTopic,
+                payload: ["unread_count": TerminalNotificationStore.shared.unreadNotificationCount]
+            )
         }
     }
 
