@@ -420,6 +420,77 @@ import Testing
         #expect(store.terminalReorderGate.canMutate(workspaceID: replacementRowID))
     }
 
+    @Test func forgettingActiveAnonymousMacEvictsOnlyCapturedHierarchyOwner() async throws {
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-a": [
+                    try Self.pairedMac(
+                        id: "mac-a",
+                        displayName: "Desk Mac",
+                        host: "100.82.214.112",
+                        lastSeenAt: Date(timeIntervalSince1970: 10),
+                        isActive: true
+                    ),
+                    try Self.pairedMac(
+                        id: "mac-b",
+                        displayName: "Laptop Mac",
+                        host: "100.82.214.113",
+                        lastSeenAt: Date(timeIntervalSince1970: 20),
+                        isActive: false
+                    ),
+                ],
+            ],
+            blockedTeams: []
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" }
+        )
+        await store.loadPairedMacs()
+        let anonymousWorkspace = MobileWorkspacePreview(
+            id: "workspace-shared",
+            name: "Anonymous foreground",
+            terminals: []
+        )
+        let unrelatedWorkspace = MobileWorkspacePreview(
+            id: "workspace-shared",
+            macDeviceID: "mac-b",
+            name: "Unrelated secondary",
+            terminals: []
+        )
+        store.setWorkspaceStatesForTesting(
+            [
+                MobileShellComposite.foregroundAnonymousKey: MacWorkspaceState(
+                    macDeviceID: MobileShellComposite.foregroundAnonymousKey,
+                    workspaces: [anonymousWorkspace]
+                ),
+                "mac-b": MacWorkspaceState(
+                    macDeviceID: "mac-b",
+                    workspaces: [unrelatedWorkspace]
+                ),
+            ],
+            foregroundMacDeviceID: nil
+        )
+        let anonymousRowID = try #require(
+            store.workspaces.first(where: { $0.macDeviceID == nil })?.id
+        )
+        let unrelatedRowID = try #require(
+            store.workspaces.first(where: { $0.macDeviceID == "mac-b" })?.id
+        )
+        #expect(anonymousRowID != unrelatedRowID)
+        store.terminalReorderGate.requireRefresh(workspaceID: anonymousRowID)
+        store.terminalReorderGate.requireRefresh(workspaceID: unrelatedRowID)
+
+        await store.forgetMac(macDeviceID: "mac-a")
+
+        #expect(!store.terminalReorderGate.requiresRefresh(workspaceID: anonymousRowID))
+        #expect(store.terminalReorderGate.canMutate(workspaceID: anonymousRowID))
+        #expect(store.terminalReorderGate.requiresRefresh(workspaceID: unrelatedRowID))
+        #expect(!store.terminalReorderGate.canMutate(workspaceID: unrelatedRowID))
+    }
+
     @Test func failedForgetRestoresMacVisibilityAndForgottenTombstone() async throws {
         let pairedStore = DelayedTeamPairedMacStore(
             recordsByTeam: [
@@ -466,6 +537,8 @@ import Testing
                 status: .connected
             ),
         ], foregroundMacDeviceID: nil)
+        let failedRowID = try #require(store.workspaces.first?.id)
+        store.terminalReorderGate.requireRefresh(workspaceID: failedRowID)
 
         await store.forgetMac(macDeviceID: "mac-a")
         await store.loadPairedMacs()
@@ -473,6 +546,8 @@ import Testing
         #expect(store.pairedMacs.map(\.macDeviceID) == ["mac-a", "mac-b"])
         #expect(store.displayPairedMacs.map(\.macDeviceID) == ["mac-a", "mac-b"])
         #expect(store.workspaces.map(\.rpcWorkspaceID.rawValue) == ["mac-a-workspace"])
+        #expect(store.terminalReorderGate.requiresRefresh(workspaceID: failedRowID))
+        #expect(!store.terminalReorderGate.canMutate(workspaceID: failedRowID))
     }
 
     @Test func failedForgetAfterTeamSwitchDoesNotRestoreOldWorkspaceSnapshot() async throws {

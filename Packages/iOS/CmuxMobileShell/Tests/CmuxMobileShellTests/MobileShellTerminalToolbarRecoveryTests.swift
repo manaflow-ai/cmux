@@ -177,6 +177,57 @@ import Testing
         #expect(completions.count == 1)
     }
 
+    @Test func rescanQRCancelsActiveCreateBeforeEvictingHierarchyOwner() async throws {
+        let router = RoutingHostRouter()
+        await router.setHoldFirstTerminalCreate(true)
+        let store = try await makeRoutingConnectedStore(
+            router: router,
+            connectionState: .connected
+        )
+        let workspace = try #require(store.workspaces.first)
+        let ownerMacID = try #require(workspace.macDeviceID)
+        let paneID = try #require(workspace.resolvedPanes.first?.id)
+        let route = try CmxAttachRoute(
+            id: "rescan-qr-loopback",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: 56587)
+        )
+        store.activeTicket = try CmxAttachTicket(
+            workspaceID: workspace.rpcWorkspaceID.rawValue,
+            terminalID: nil,
+            macDeviceID: ownerMacID,
+            macDisplayName: "Test Mac",
+            routes: [route]
+        )
+        var completions: [Result<Void, MobileWorkspaceMutationFailure>] = []
+
+        store.createTerminal(in: workspace.id, paneID: paneID) { result in
+            completions.append(result)
+        }
+        await router.awaitFirstTerminalCreateReached()
+        #expect(store.terminalCreationRequestOwner.isActive)
+
+        store.disconnectAndForgetActiveMac()
+
+        #expect(!store.terminalCreationRequestOwner.isActive)
+        #expect(completions.count == 1)
+        guard completions.count == 1 else {
+            await router.releaseFirstTerminalCreate()
+            return
+        }
+        guard case .failure(.resultUnknownNeedsRefresh) = completions[0] else {
+            await router.releaseFirstTerminalCreate()
+            Issue.record("Rescan QR cancellation should report an unknown create result")
+            return
+        }
+        #expect(store.terminalReorderGate.refreshRequiredWorkspaceIDs.isEmpty)
+        #expect(store.terminalReorderGate.canMutate(workspaceID: workspace.id))
+
+        await router.releaseFirstTerminalCreate()
+        await Task { @MainActor in }.value
+        #expect(completions.count == 1)
+    }
+
     @Test func toolbarCompletionWaitsForSuccessfulHierarchyRecovery() async throws {
         let router = RoutingHostRouter()
         await router.workspaceListGate.setHoldFirst(true)
