@@ -569,6 +569,9 @@ final class TaskManagerResourcesTests: XCTestCase {
             ("droid", "factory"),
             ("factory", "factory"),
             ("qodercli", "qoder"),
+            ("code-puppy", "code-puppy"),
+            ("code_puppy", "code-puppy"),
+            ("pup", "code-puppy"),
         ]
 
         for testCase in cases {
