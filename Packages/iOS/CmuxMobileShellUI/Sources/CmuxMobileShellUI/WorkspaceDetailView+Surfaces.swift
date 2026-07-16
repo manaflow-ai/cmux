@@ -24,10 +24,10 @@ extension WorkspaceDetailView {
                 .accessibilityHidden(surface != .terminal)
             if surface == .chat, let session = chosenChatSession {
                 chatContent(session)
-                    .background(TerminalPalette.background)
+                    .background(store.activeTerminalTheme.terminalBackgroundColor)
             } else if surface == .browser, let browser = activeBrowser {
                 browserContent(browser)
-                    .background(TerminalPalette.background)
+                    .background(store.activeTerminalTheme.terminalBackgroundColor)
             }
         }
         .onChange(of: surface) { _, newSurface in
