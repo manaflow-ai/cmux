@@ -2,6 +2,7 @@ import AppKit
 import CmuxSidebar
 import CoreGraphics
 import OSLog
+import SwiftUI
 import Testing
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -278,6 +279,439 @@ final class SidebarOverflowingScrollStatusChurnTests {
             \(quietEvals) row bodies evaluated after scrolling and status churn ended. The sidebar \
             did not converge and is still feeding lazy layout back into view state.
             """
+        )
+    }
+}
+
+/// Guards the two ownership boundaries that keep AppKit-hosted SwiftUI layout
+/// from publishing state while `LazyVStack` is placing `ForEach` children.
+/// These are deterministic causal checks, not another attempt to win the
+/// timing race that made the reporter-shaped #6707 stress test pass pre-fix.
+@Suite(.serialized)
+final class SidebarHierarchyOwnershipTests {
+    private struct ObservationTopology: Equatable {
+        let agentObserverIDsByWorkspace: [UUID: Set<UUID>]
+        let processTitleObserverIDsByWorkspace: [UUID: Set<UUID>]
+    }
+
+    @MainActor
+    private static func observationTopology(
+        for harness: SidebarLazyLayoutScaleTests.Harness
+    ) -> ObservationTopology {
+        ObservationTopology(
+            agentObserverIDsByWorkspace: Dictionary(
+                uniqueKeysWithValues: harness.tabManager.tabs.map {
+                    ($0.id, Set($0.sidebarAgentRuntimeObservation.changeObservers.keys))
+                }
+            ),
+            processTitleObserverIDsByWorkspace: Dictionary(
+                uniqueKeysWithValues: harness.tabManager.tabs.map {
+                    ($0.id, Set($0.sidebarProcessTitleObservation.changeObservers.keys))
+                }
+            )
+        )
+    }
+
+    @MainActor
+    private static func waitForInitialParentObservations(
+        in harness: SidebarLazyLayoutScaleTests.Harness
+    ) async {
+        let deadline = ProcessInfo.processInfo.systemUptime + 5
+        while ProcessInfo.processInfo.systemUptime < deadline {
+            let topology = observationTopology(for: harness)
+            let agentReady = topology.agentObserverIDsByWorkspace.values.allSatisfy { $0.count == 1 }
+            let processTitleReady = topology.processTitleObserverIDsByWorkspace.values.allSatisfy { $0.count == 1 }
+            if agentReady, processTitleReady {
+                break
+            }
+            SidebarLazyLayoutScaleTests.turnMainRunLoopOnce(layingOut: harness.window)
+            await Task.yield()
+        }
+
+        let settledTopology = observationTopology(for: harness)
+        #expect(
+            settledTopology.agentObserverIDsByWorkspace.values.allSatisfy { $0.count == 1 },
+            "Every workspace must settle with one parent-owned agent observer."
+        )
+        #expect(
+            settledTopology.processTitleObserverIDsByWorkspace.values.allSatisfy { $0.count == 1 },
+            "Every workspace must settle with one parent-owned process-title observer."
+        )
+    }
+
+    /// Viewport size is a downward-only input to the hosted scroll hierarchy.
+    /// The pre-fix `.onGeometryChange` wrote it into owner `@State`, causing a
+    /// second `VerticalTabsSidebar.body` pass from inside the same graph that
+    /// was laying out `LazyVStack`. Direct GeometryReader input must not do so.
+    @Test
+    @MainActor
+    func testViewportResizeDoesNotPublishBackIntoSidebarOwner() async throws {
+        let harness = try await SidebarLazyLayoutScaleTests.mountSidebar(workspaceCount: 120)
+        defer { harness.tearDown() }
+
+        await Self.waitForInitialParentObservations(in: harness)
+        harness.counter.reset()
+
+        for height in [560, 680, 520, 640, 580, 700, 540, 660] {
+            harness.counter.isViewportResizeActive = true
+            harness.window.setContentSize(NSSize(width: 280, height: height))
+            SidebarLazyLayoutScaleTests.turnMainRunLoopOnce(layingOut: harness.window)
+            await Task.yield()
+            SidebarLazyLayoutScaleTests.turnMainRunLoopOnce(layingOut: harness.window)
+            harness.counter.isViewportResizeActive = false
+        }
+        await SidebarLazyLayoutScaleTests.drainMainRunLoop(
+            for: harness.window,
+            iterations: 20
+        )
+
+        #expect(
+            harness.counter.verticalSidebarBodiesDuringViewportResize == 0,
+            """
+            Viewport-only resizing re-evaluated VerticalTabsSidebar.body \
+            \(harness.counter.verticalSidebarBodiesDuringViewportResize) times inside the \
+            resize transaction. Geometry must flow directly \
+            down into scroll content; publishing it through owner state re-enters the \
+            NSHostingView → LazyVStack placement graph.
+            """
+        )
+    }
+
+    /// Crossing lazy-realization boundaries must be presentation-only. Before
+    /// #8211, each newly mounted TabItemView started model observers and called
+    /// `refreshWorkspaceSnapshot(force: true)`, publishing row `@State` while
+    /// SwiftUI was placing that row. Parent-owned observers and immutable
+    /// snapshots must remain unchanged throughout pure scrolling.
+    @Test
+    @MainActor
+    func testPureScrollDoesNotPublishFromLazyRowLifecycle() async throws {
+        let harness = try await SidebarLazyLayoutScaleTests.mountSidebar(
+            workspaceCount: SidebarLazyLayoutScaleTests.workspaceCount
+        )
+        defer { harness.tearDown() }
+
+        await Self.waitForInitialParentObservations(in: harness)
+        let topologyBeforeScroll = Self.observationTopology(for: harness)
+        let initiallyRealizedWorkspaceIds = harness.counter.realizedWorkspaceIds
+        #expect(
+            topologyBeforeScroll.agentObserverIDsByWorkspace.values.allSatisfy { $0.count == 1 },
+            "Every workspace must have one parent-owned agent observer before scrolling."
+        )
+        #expect(
+            topologyBeforeScroll.processTitleObserverIDsByWorkspace.values.allSatisfy { $0.count == 1 },
+            "Every workspace must have one parent-owned process-title observer before scrolling."
+        )
+
+        let rootView = try #require(harness.window.contentView)
+        let scrollView = try #require(SidebarLazyLayoutScaleTests.firstScrollView(in: rootView))
+        let documentHeight = try #require(scrollView.documentView?.bounds.height)
+        let viewportHeight = scrollView.contentView.bounds.height
+        let maximumOffset = max(0, documentHeight - viewportHeight)
+        try #require(
+            maximumOffset > viewportHeight,
+            "The production sidebar fixture must overflow by more than one viewport."
+        )
+
+        harness.counter.reset()
+        for offset in [maximumOffset, 0, maximumOffset / 2, maximumOffset, 0] {
+            scrollView.contentView.scroll(to: NSPoint(x: 0, y: offset))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+            await SidebarLazyLayoutScaleTests.drainMainRunLoop(
+                for: harness.window,
+                iterations: 6
+            )
+            #expect(
+                Self.observationTopology(for: harness) == topologyBeforeScroll,
+                """
+                Pure scrolling changed workspace observer identities. Model observation must \
+                be owned above the lazy renderer, independent of row appearance and disappearance.
+                """
+            )
+        }
+
+        let newlyRealizedWorkspaceIds = harness.counter.realizedWorkspaceIds
+            .subtracting(initiallyRealizedWorkspaceIds)
+        #expect(
+            !newlyRealizedWorkspaceIds.isEmpty,
+            """
+            Scrolling did not realize any workspace outside the initial viewport; the \
+            lazy-row lifecycle assertion is vacuous.
+            """
+        )
+    }
+}
+
+/// Renderer-neutral scale fixture for the production immutable row boundary.
+/// It reaches the same NSHostingView/LazyVStack/ForEach/TabItemView chain as
+/// the live sidebar without constructing 1,000 Workspace terminal graphs.
+/// An AppKit renderer can reuse these exact row values and operation bounds.
+@Suite(.serialized)
+final class SidebarImmutableRowScaleTests {
+    private static let realizedRowCeiling = 150
+
+    @MainActor
+    private struct Harness {
+        let window: NSWindow
+        let counter: SidebarLazyLayoutScaleTests.RowBodyCounter
+        let defaults: UserDefaults
+        let defaultsSuiteName: String
+
+        func tearDown() {
+            window.contentView = nil
+            window.close()
+            defaults.removePersistentDomain(forName: defaultsSuiteName)
+        }
+    }
+
+    @Test
+    @MainActor
+    func testProductionRowsStayViewportBoundedFromOneToOneThousand() async throws {
+        for workspaceCount in [1, 10, 100, 1_000] {
+            let harness = try Self.mountRows(workspaceCount: workspaceCount)
+            defer { harness.tearDown() }
+
+            await SidebarLazyLayoutScaleTests.drainMainRunLoop(for: harness.window)
+            let initialRowBodies = harness.counter.workspaceRowBodies
+            #expect(
+                initialRowBodies > 0,
+                "The production row hierarchy did not render at scale \(workspaceCount)."
+            )
+            #expect(
+                initialRowBodies < Self.realizedRowCeiling,
+                """
+                Initial layout evaluated \(initialRowBodies) row bodies for \
+                \(workspaceCount) immutable rows. Work must remain bounded by the \
+                viewport, not grow with the total row count.
+                """
+            )
+
+            let rootView = try #require(harness.window.contentView)
+            let scrollView = try #require(SidebarLazyLayoutScaleTests.firstScrollView(in: rootView))
+            let documentHeight = try #require(scrollView.documentView?.bounds.height)
+            let maximumOffset = max(0, documentHeight - scrollView.contentView.bounds.height)
+            var maximumJumpRowBodies = 0
+            if maximumOffset > 0 {
+                for offset in [maximumOffset, 0, maximumOffset / 2, maximumOffset, 0] {
+                    harness.counter.reset()
+                    scrollView.contentView.scroll(to: NSPoint(x: 0, y: offset))
+                    scrollView.reflectScrolledClipView(scrollView.contentView)
+                    await SidebarLazyLayoutScaleTests.drainMainRunLoop(
+                        for: harness.window,
+                        iterations: 6
+                    )
+                    maximumJumpRowBodies = max(
+                        maximumJumpRowBodies,
+                        harness.counter.workspaceRowBodies
+                    )
+                    #expect(
+                        harness.counter.workspaceRowBodies < Self.realizedRowCeiling,
+                        """
+                        One scroll jump evaluated \(harness.counter.workspaceRowBodies) \
+                        row bodies at scale \(workspaceCount). Lazy realization must remain \
+                        viewport-bounded at every position.
+                        """
+                    )
+                    #expect(
+                        harness.counter.workspaceSnapshotBuilds == 0,
+                        "Immutable row realization must never rebuild workspace snapshots."
+                    )
+                }
+            }
+
+            harness.counter.reset()
+            await SidebarLazyLayoutScaleTests.drainMainRunLoop(
+                for: harness.window,
+                iterations: 30
+            )
+            let quietRowBodies = harness.counter.workspaceRowBodies
+            #expect(
+                quietRowBodies < 20,
+                """
+                The immutable row hierarchy evaluated \(quietRowBodies) bodies after \
+                inputs stopped at scale \(workspaceCount); layout did not converge.
+                """
+            )
+            print(
+                "SIDEBAR_SCALE_BASELINE " +
+                "{\"workspaceCount\":\(workspaceCount)," +
+                "\"initialRowBodies\":\(initialRowBodies)," +
+                "\"maximumJumpRowBodies\":\(maximumJumpRowBodies)," +
+                "\"quietRowBodies\":\(quietRowBodies)}"
+            )
+        }
+    }
+
+    @MainActor
+    private static func mountRows(workspaceCount: Int) throws -> Harness {
+        _ = NSApplication.shared
+        let defaultsSuiteName = "SidebarImmutableRowScaleTests.\(workspaceCount).\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsSuiteName))
+        defaults.removePersistentDomain(forName: defaultsSuiteName)
+        let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        let workspace = SidebarWorkspaceSnapshotRefreshPolicyTests.snapshot(
+            title: "Scale workspace"
+        )
+        let contextMenu = SidebarWorkspaceContextMenuSnapshot(
+            targetWorkspaceIds: [],
+            remoteTargetWorkspaceIds: [],
+            allRemoteTargetsConnecting: false,
+            allRemoteTargetsDisconnected: false,
+            pinState: nil,
+            groupMenuSnapshot: WorkspaceGroupMenuSnapshot(items: []),
+            canCreateEmptyGroup: true,
+            eligibleGroupTargetIds: [],
+            allEligibleTargetsGroupId: nil,
+            hasGroupedEligibleTarget: false,
+            todoStatusLanes: [],
+            canMarkRead: false,
+            canMarkUnread: false,
+            hasLatestNotification: false,
+            notifications: []
+        )
+        let snapshots = (0..<workspaceCount).map { index in
+            SidebarWorkspaceRowSnapshot(
+                workspaceId: deterministicWorkspaceID(index: index),
+                groupId: nil,
+                index: index,
+                workspaceCount: workspaceCount,
+                workspace: workspace,
+                isActive: index == 0,
+                isMultiSelected: false,
+                hasUserCustomTitle: false,
+                hasCustomTitle: false,
+                hasCustomDescription: false,
+                customTitle: nil,
+                workspaceShortcutDigit: index < 9 ? index + 1 : nil,
+                workspaceShortcutModifierSymbol: "⌘",
+                canCloseWorkspace: workspaceCount > 1,
+                unreadCount: 0,
+                latestNotificationText: nil,
+                showsAgentActivity: false,
+                rowSpacing: 0,
+                showsModifierShortcutHints: false,
+                isPointerHovering: false,
+                isBeingDragged: false,
+                topDropIndicatorVisible: false,
+                bottomDropIndicatorVisible: false,
+                isBonsplitWorkspaceDropActive: false,
+                settings: settings,
+                isChecklistExpanded: false,
+                checklistAddFieldActivationToken: 0,
+                isChecklistPopoverPresented: false,
+                contextMenu: contextMenu
+            )
+        }
+        #expect(Set(snapshots.map(\.workspaceId)).count == workspaceCount)
+
+        let counter = SidebarLazyLayoutScaleTests.RowBodyCounter()
+        let actions = Self.noOpActions()
+        let root = ScrollView(.vertical) {
+            LazyVStack(spacing: 0) {
+                ForEach(snapshots, id: \.workspaceId) { snapshot in
+                    SidebarWorkspaceRowView(
+                        snapshot: snapshot,
+                        actions: actions,
+                        shouldCollectWorkspaceDropTargets: false
+                    )
+                }
+            }
+        }
+        .frame(width: 280)
+        .environment(
+            \.sidebarLazyContractProbe,
+            SidebarLazyContractProbe(
+                workspaceRowBody: { workspaceId in
+                    counter.workspaceRowBodies += 1
+                    counter.realizedWorkspaceIds.insert(workspaceId)
+                    counter.insideWorkspaceRowBody = true
+                },
+                workspaceRowBodyEnd: {
+                    counter.insideWorkspaceRowBody = false
+                },
+                workspaceSnapshotBuild: {
+                    counter.workspaceSnapshotBuilds += 1
+                }
+            )
+        )
+        .defaultAppStorage(defaults)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 280, height: 640),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = NSHostingView(rootView: root)
+        return Harness(
+            window: window,
+            counter: counter,
+            defaults: defaults,
+            defaultsSuiteName: defaultsSuiteName
+        )
+    }
+
+    private static func deterministicWorkspaceID(index: Int) -> UUID {
+        let suffix = String(format: "%012X", index + 1)
+        return UUID(uuidString: "00000000-0000-0000-0000-\(suffix)")!
+    }
+
+    @MainActor
+    private static func noOpActions() -> SidebarWorkspaceRowActions {
+        SidebarWorkspaceRowActions(
+            select: { _ in },
+            setCustomTitle: { _ in },
+            clearCustomTitle: {},
+            clearCustomDescription: {},
+            editDescription: {},
+            closeWorkspace: {},
+            moveBy: { _ in },
+            moveTargetsToTop: { _ in },
+            currentWindowMoveTargets: { [] },
+            moveTargetsToWindow: { _, _ in },
+            moveTargetsToNewWindow: { _ in },
+            closeTargets: { _, _ in },
+            closeOtherTargets: { _ in },
+            closeTargetsBelow: {},
+            closeTargetsAbove: {},
+            performPin: {},
+            createEmptyGroup: {},
+            createGroup: { _ in },
+            addTargetsToGroup: { _, _ in },
+            removeTargetsFromGroup: { _ in },
+            reconnectTargets: { _ in },
+            disconnectTargets: { _ in },
+            applyColor: { _, _ in },
+            applyTodoStatus: { _, _ in },
+            hideTodoStatus: { _ in },
+            requestChecklistAdd: {},
+            markRead: { _ in },
+            markUnread: { _ in },
+            clearLatestNotifications: { _ in },
+            openNotification: { _ in },
+            copyWorkspaceLinks: { _ in },
+            openPullRequest: { _ in },
+            openPort: { _ in },
+            checklist: SidebarWorkspaceChecklistActions(
+                setItemState: { _, _ in },
+                removeItem: { _ in },
+                addItem: { _ in },
+                editItem: { _, _ in },
+                moveItem: { _, _ in },
+                openPane: {}
+            ),
+            onDragStart: { NSItemProvider() },
+            bonsplitSourceWorkspaceId: { _ in nil },
+            moveBonsplitTabToWorkspace: { _, _ in false },
+            syncAfterBonsplitDrop: {},
+            selectAfterBonsplitDrop: {},
+            onToggleChecklistExpansion: {},
+            onConsumeChecklistAddFieldActivation: {},
+            onChecklistPopoverPresentedChange: { _ in },
+            onContextMenuAppear: {},
+            onContextMenuDisappear: {},
+            onPointerFrameChange: { _ in },
+            onPointerFrameDisappear: {}
         )
     }
 }

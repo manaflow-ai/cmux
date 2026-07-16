@@ -50,6 +50,9 @@ final class SidebarLazyLayoutScaleTests {
         var groupHeaderBodies = 0
         var workspaceSnapshotBuilds = 0
         var workspaceRowInputProjections = 0
+        var verticalSidebarBodiesDuringViewportResize = 0
+        var isViewportResizeActive = false
+        var realizedWorkspaceIds: Set<UUID> = []
         // Snapshot builds bracketed by workspaceRowBody/workspaceRowBodyEnd,
         // i.e. synchronous work inside a single TabItemView.body evaluation.
         // Builds outside the bracket (onAppear refresh, observation publishers)
@@ -62,6 +65,9 @@ final class SidebarLazyLayoutScaleTests {
             groupHeaderBodies = 0
             workspaceSnapshotBuilds = 0
             workspaceRowInputProjections = 0
+            verticalSidebarBodiesDuringViewportResize = 0
+            isViewportResizeActive = false
+            realizedWorkspaceIds.removeAll(keepingCapacity: true)
             insideWorkspaceRowBody = false
             snapshotBuildsInCurrentRowBody = 0
             maxSnapshotBuildsInOneRowBody = 0
@@ -166,8 +172,9 @@ final class SidebarLazyLayoutScaleTests {
         .environment(
             \.sidebarLazyContractProbe,
             SidebarLazyContractProbe(
-                workspaceRowBody: {
+                workspaceRowBody: { workspaceId in
                     counter.workspaceRowBodies += 1
+                    counter.realizedWorkspaceIds.insert(workspaceId)
                     counter.insideWorkspaceRowBody = true
                     counter.snapshotBuildsInCurrentRowBody = 0
                 },
@@ -186,6 +193,15 @@ final class SidebarLazyLayoutScaleTests {
                 },
                 workspaceRowInputProjection: {
                     counter.workspaceRowInputProjections += 1
+                }
+            )
+        )
+        .environment(
+            \.minimalModeInvalidationProbe,
+            MinimalModeInvalidationProbe(
+                verticalTabsSidebarBody: {
+                    guard counter.isViewportResizeActive else { return }
+                    counter.verticalSidebarBodiesDuringViewportResize += 1
                 }
             )
         )
@@ -430,7 +446,7 @@ final class SidebarLazyLayoutScaleTests {
 
     /// Harness self-test: prove the drain loop + body counter actually detect
     /// a layout feedback loop. This fixture reproduces the historical
-    /// GeometryReader → @State row-height shape (#6556) in divergent form; if
+    /// GeometryReader → @State row-height shape (#6556) in bounded form; if
     /// the harness cannot flag THIS, the two tests above are vacuous.
     @Test
     @MainActor
@@ -438,13 +454,17 @@ final class SidebarLazyLayoutScaleTests {
         _ = NSApplication.shared
 
         let counter = RowBodyCounter()
-        let rows = 8
-        let root = VStack(spacing: 2) {
-            ForEach(0..<rows, id: \.self) { _ in
-                DivergentGeometryFeedbackRowFixture(onBody: { counter.workspaceRowBodies += 1 })
+        let rows = 80
+        let root = ScrollView(.vertical) {
+            LazyVStack(spacing: 2) {
+                ForEach(0..<rows, id: \.self) { _ in
+                    BoundedGeometryFeedbackRowFixture(
+                        onBody: { counter.workspaceRowBodies += 1 }
+                    )
+                }
             }
         }
-        .frame(width: 200)
+        .frame(width: 200, height: 200)
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 200, height: 400),
@@ -462,9 +482,9 @@ final class SidebarLazyLayoutScaleTests {
         await Self.drainMainRunLoop(for: window, iterations: 40)
 
         #expect(
-            counter.workspaceRowBodies > rows * 3,
+            counter.workspaceRowBodies > 30,
             """
-            The divergent GeometryReader → @State fixture only produced \
+            The bounded GeometryReader → @State fixture only produced \
             \(counter.workspaceRowBodies) body evaluations for \(rows) rows; the harness \
             can no longer observe layout feedback loops, so the lazy-contract tests above \
             are not protecting anything. Fix the harness before trusting them.
@@ -473,14 +493,16 @@ final class SidebarLazyLayoutScaleTests {
     }
 }
 
-/// Reproduces the #6556 anti-pattern in deliberately divergent form: a
+/// Reproduces the #6556 anti-pattern in bounded form: a
 /// GeometryReader writes measured height back into `@State` that feeds the
-/// row's own frame, so every layout pass invalidates the next. Test fixture
-/// only — this shape is banned in real sidebar rows by
+/// row's own frame, so each layout pass invalidates the next. The cap keeps
+/// this canary from trapping the test host in a permanent layout loop. Test
+/// fixture only — this shape is banned in real sidebar rows by
 /// `scripts/check-sidebar-lazy-layout.py`.
-private struct DivergentGeometryFeedbackRowFixture: View {
+private struct BoundedGeometryFeedbackRowFixture: View {
     let onBody: () -> Void
     @State private var rowHeight: CGFloat = 20
+    @State private var feedbackCount = 0
 
     var body: some View {
         let _ = { onBody() }()
@@ -489,11 +511,17 @@ private struct DivergentGeometryFeedbackRowFixture: View {
             .background {
                 GeometryReader { proxy in
                     Color.clear
-                        .onAppear { rowHeight = proxy.size.height + 1 }
+                        .onAppear { publishMeasuredHeight(proxy.size.height) }
                         .onChange(of: proxy.size.height) { _, newHeight in
-                            rowHeight = newHeight + 1
+                            publishMeasuredHeight(newHeight)
                         }
                 }
             }
+    }
+
+    private func publishMeasuredHeight(_ measuredHeight: CGFloat) {
+        guard feedbackCount < 5 else { return }
+        feedbackCount += 1
+        rowHeight = measuredHeight + 1
     }
 }
