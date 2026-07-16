@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobileShellModel
 import Foundation
 import Testing
 
@@ -211,5 +212,69 @@ import Testing
         """
         let event = try MobileTerminalRenderGridEvent.decode(Data(json.utf8))
         #expect(event.frame == nil)
+    }
+
+    @Test func workspaceListDecodesPanesAndTerminalPaneID() throws {
+        let json = """
+        {
+          "workspaces": [{
+            "id": "workspace-1",
+            "title": "Agents",
+            "is_selected": true,
+            "terminals": [{
+              "id": "surface-1",
+              "title": "claude",
+              "is_focused": true,
+              "pane_id": "pane-a"
+            }],
+            "panes": [{
+              "id": "pane-a",
+              "tab_ids": ["surface-1"],
+              "selected_tab_id": "surface-1",
+              "is_focused": true,
+              "rect": {"x": 0.1, "y": 0.2, "w": 0.6, "h": 0.8}
+            }]
+          }]
+        }
+        """
+        let response = try MobileSyncWorkspaceListResponse.decode(Data(json.utf8))
+        let workspace = try #require(response.workspaces.first)
+        let terminal = try #require(workspace.terminals.first)
+        let pane = try #require(workspace.panes.first)
+        #expect(terminal.paneID == "pane-a")
+        #expect(pane.id == "pane-a")
+        #expect(pane.tabIDs == ["surface-1"])
+        #expect(pane.selectedTabID == "surface-1")
+        #expect(pane.isFocused)
+        #expect(pane.rect.x == 0.1)
+        #expect(pane.rect.y == 0.2)
+        #expect(pane.rect.w == 0.6)
+        #expect(pane.rect.h == 0.8)
+        let preview = MobileWorkspacePreview(remote: workspace)
+        #expect(preview.terminals.first?.paneID == "pane-a")
+        #expect(preview.panes.first?.id == "pane-a")
+        #expect(preview.panes.first?.tabIDs == ["surface-1"])
+        #expect(preview.panes.first?.rect == MobilePaneNormalizedRect(x: 0.1, y: 0.2, w: 0.6, h: 0.8))
+    }
+
+    @Test func workspaceListDefaultsAbsentPaneFieldsForOldMac() throws {
+        let json = """
+        {
+          "workspaces": [{
+            "id": "workspace-1",
+            "title": "Legacy",
+            "is_selected": true,
+            "terminals": [{
+              "id": "surface-1",
+              "title": "shell",
+              "is_focused": false
+            }]
+          }]
+        }
+        """
+        let response = try MobileSyncWorkspaceListResponse.decode(Data(json.utf8))
+        let workspace = try #require(response.workspaces.first)
+        #expect(workspace.panes.isEmpty)
+        #expect(workspace.terminals.first?.paneID == nil)
     }
 }

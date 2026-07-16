@@ -17,6 +17,20 @@ extension MobileWorkspacePreview {
             hasUnread: remote.hasUnread ?? false,
             terminals: remote.terminals.map { terminal in
                 MobileTerminalPreview(remote: terminal)
+            },
+            panes: remote.panes.map { pane in
+                MobilePanePreview(
+                    id: pane.id,
+                    tabIDs: pane.tabIDs,
+                    selectedTabID: pane.selectedTabID,
+                    isFocused: pane.isFocused,
+                    rect: MobilePaneNormalizedRect(
+                        x: pane.rect.x,
+                        y: pane.rect.y,
+                        w: pane.rect.w,
+                        h: pane.rect.h
+                    )
+                )
             }
         )
     }
@@ -44,7 +58,8 @@ extension MobileTerminalPreview {
             id: ID(rawValue: remote.id),
             name: remote.title,
             isReady: remote.isReady ?? true,
-            isFocused: remote.isFocused
+            isFocused: remote.isFocused,
+            paneID: remote.paneID
         )
     }
 }

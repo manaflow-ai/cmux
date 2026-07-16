@@ -41,6 +41,9 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         public let hasUnread: Bool?
         /// Terminals belonging to this workspace.
         public let terminals: [Terminal]
+        /// Spatially ordered panes belonging to this workspace. Empty when the
+        /// connected Mac predates `workspace.panes.v1`.
+        public let panes: [Pane]
 
         private enum CodingKeys: String, CodingKey {
             case id
@@ -55,6 +58,62 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             case lastActivityAt = "last_activity_at"
             case hasUnread = "has_unread"
             case terminals
+            case panes
+        }
+
+        /// Decodes one workspace while defaulting additive pane metadata for
+        /// older Macs.
+        /// - Parameter decoder: The workspace entry decoder.
+        /// - Throws: A decoding error when a required legacy field is malformed.
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            id = try container.decode(String.self, forKey: .id)
+            windowID = try container.decodeIfPresent(String.self, forKey: .windowID)
+            title = try container.decode(String.self, forKey: .title)
+            currentDirectory = try container.decodeIfPresent(String.self, forKey: .currentDirectory)
+            isSelected = try container.decode(Bool.self, forKey: .isSelected)
+            isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned)
+            groupID = try container.decodeIfPresent(String.self, forKey: .groupID)
+            preview = try container.decodeIfPresent(String.self, forKey: .preview)
+            previewAt = try container.decodeIfPresent(Double.self, forKey: .previewAt)
+            lastActivityAt = try container.decodeIfPresent(Double.self, forKey: .lastActivityAt)
+            hasUnread = try container.decodeIfPresent(Bool.self, forKey: .hasUnread)
+            terminals = try container.decode([Terminal].self, forKey: .terminals)
+            panes = try container.decodeIfPresent([Pane].self, forKey: .panes) ?? []
+        }
+    }
+
+    /// A normalized pane rectangle in workspace coordinates.
+    public struct PaneRect: Decodable, Sendable {
+        /// Horizontal origin in the normalized workspace.
+        public let x: Double
+        /// Vertical origin in the normalized workspace.
+        public let y: Double
+        /// Normalized pane width.
+        public let w: Double
+        /// Normalized pane height.
+        public let h: Double
+    }
+
+    /// A pane entry within a workspace.
+    public struct Pane: Decodable, Sendable {
+        /// Stable pane identifier.
+        public let id: String
+        /// Terminal surface identifiers in Mac tab order.
+        public let tabIDs: [String]
+        /// The Mac-selected terminal tab, when the selected tab is a terminal.
+        public let selectedTabID: String?
+        /// Whether the pane currently holds Mac focus.
+        public let isFocused: Bool
+        /// Pane geometry normalized to the workspace container.
+        public let rect: PaneRect
+
+        private enum CodingKeys: String, CodingKey {
+            case id
+            case tabIDs = "tab_ids"
+            case selectedTabID = "selected_tab_id"
+            case isFocused = "is_focused"
+            case rect
         }
     }
 
@@ -100,6 +159,8 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         public let isFocused: Bool
         /// Whether the terminal surface is ready, if reported.
         public let isReady: Bool?
+        /// Owning pane identifier, when reported by a pane-capable Mac.
+        public let paneID: String?
 
         private enum CodingKeys: String, CodingKey {
             case id
@@ -107,6 +168,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             case currentDirectory = "current_directory"
             case isFocused = "is_focused"
             case isReady = "is_ready"
+            case paneID = "pane_id"
         }
     }
 

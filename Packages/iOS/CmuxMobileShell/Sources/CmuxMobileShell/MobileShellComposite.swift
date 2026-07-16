@@ -322,7 +322,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// The connected Mac's `mobile.host.status` capabilities. Feature gates are
     /// computed from this set so version-skew checks cannot drift from the raw
     /// host payload.
-    public internal(set) var supportedHostCapabilities: Set<String> = []
+    public internal(set) var supportedHostCapabilities: Set<String> = [] {
+        didSet {
+            if oldValue != supportedHostCapabilities { syncSelectedTerminalForWorkspace() }
+        }
+    }
+    @ObservationIgnored var paneRackNavigationState = PaneRackNavigationState()
+    /// Observable live terminal tails consumed by Pane Rack value snapshots.
+    public let paneTailStore: PaneTailStore
+    @ObservationIgnored var paneRackRequestSender: (any PaneRackRequestSending)?
     @ObservationIgnored var terminalThemeState = MobileTerminalThemeState()
     /// The selected surface's effective theme and iOS chrome source of truth.
     public internal(set) var activeTerminalTheme: TerminalTheme = .monokai
@@ -904,6 +912,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         groupCollapseStore: MobileWorkspaceGroupCollapseStore = MobileWorkspaceGroupCollapseStore()
     ) {
         self.runtime = runtime
+        self.paneTailStore = PaneTailStore(now: { runtime?.now() ?? Date() })
         self.draftStore = draftStore
         self.groupCollapseStore = groupCollapseStore
         self.pairedMacStore = pairedMacStore
@@ -1019,6 +1028,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalLiveFontTokensBySurfaceID = [:]
         self.rawTerminalInputBuffer = MobileTerminalInputSendBuffer()
         self.pairingAttemptID = UUID()
+        self.paneTailStore.installReplayRequester(self)
+        self.syncSelectedTerminalForWorkspace()
     }
 
     isolated deinit {
@@ -3807,7 +3818,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Select the active terminal by id without changing workspace selection.
     public func selectTerminal(_ id: MobileTerminalPreview.ID?) {
-        selectedTerminalID = id
+        selectTerminalInPaneRack(id)
     }
 
     /// One-shot "actually navigate" deep-link intent; API in
@@ -3826,7 +3837,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if id != selectedTerminalID {
             terminalAutoFocusSuppressedSurfaceIDs.insert(id.rawValue)
         }
-        selectedTerminalID = id
+        selectTerminalInPaneRack(id)
     }
 
     /// Whether the surface for `terminalID` may grab the keyboard on its next
@@ -5522,19 +5533,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         markMacConnectionUnavailable()
     }
 
-    func syncSelectedTerminalForWorkspace() {
-        guard let selectedWorkspace else {
-            selectedTerminalID = nil
-            return
-        }
-        if let selectedTerminalID,
-           let selectedTerminal = selectedWorkspace.terminals.first(where: { $0.id == selectedTerminalID }),
-           selectedTerminal.isReady || !selectedWorkspace.hasReadyTerminal {
-            return
-        }
-        selectedTerminalID = selectedWorkspace.preferredTerminal?.id
-    }
-
     // MARK: - Per-terminal composer drafts
 
     /// Enqueue one draft-store operation on a strictly ordered (FIFO) pipeline.
@@ -6954,6 +6952,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     MobileDebugLog.anchormux("CMUX_REPLAY raw_tail surface=\(surfaceID) bytes=\(bytes?.count ?? -1) seq=\(replaySeq ?? 0)")
                 }
                 if let renderGrid {
+                    _ = self.paneTailStore.apply(renderGrid)
+                    guard self.hasTerminalOutputSink(surfaceID: surfaceID) else {
+                        return
+                    }
                     guard !self.shouldDropRenderGridBehindPendingInput(renderGrid, source: "replay") else {
                         transferredInFlightToRetry = self.recoverAfterDroppedReplayFrame(
                             surfaceID: surfaceID,
@@ -7136,10 +7138,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // The frame may arrive nested under `render_grid` or as the bare payload;
         // try the wrapper first, then fall back to decoding the whole payload.
         let renderGridDTO = try? MobileTerminalRenderGridEvent.decode(json)
-        guard let renderGrid = renderGridDTO?.frame ?? (try? MobileTerminalRenderGridFrame.decode(json)),
-              hasTerminalOutputSink(surfaceID: renderGrid.surfaceID) else {
+        guard let renderGrid = renderGridDTO?.frame ?? (try? MobileTerminalRenderGridFrame.decode(json)) else {
             return
         }
+        _ = paneTailStore.apply(renderGrid)
+        guard hasTerminalOutputSink(surfaceID: renderGrid.surfaceID) else { return }
         #if DEBUG
         mobileShellLog.info("CMUX_REPLAY live render_grid surface=\(renderGrid.surfaceID, privacy: .public) full=\(renderGrid.full, privacy: .public) spans=\(renderGrid.rowSpans.count, privacy: .public) cleared=\(renderGrid.clearedRows.count, privacy: .public) seq=\(renderGrid.stateSeq, privacy: .public) hasSink=true")
         #endif

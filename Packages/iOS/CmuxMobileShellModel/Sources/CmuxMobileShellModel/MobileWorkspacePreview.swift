@@ -75,6 +75,9 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     public var hasUnread: Bool
     /// The terminals contained in the workspace, in display order.
     public var terminals: [MobileTerminalPreview]
+    /// Spatially ordered panes in the workspace. Empty for Macs that do not
+    /// advertise pane metadata.
+    public var panes: [MobilePanePreview]
     /// The owning Mac's DISTINCT color index in the aggregated list, stamped by
     /// ``MobileWorkspaceAggregation/derivedWorkspaces`` so same-Mac workspaces
     /// share one avatar color and different Macs are guaranteed distinct. `nil`
@@ -113,6 +116,7 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     ///   - lastActivityAt: When the workspace last had activity. Defaults to `nil`.
     ///   - hasUnread: Whether the workspace has unread activity. Defaults to `false`.
     ///   - terminals: The terminals contained in the workspace, in display order.
+    ///   - panes: Spatially ordered panes. Defaults to an empty old-Mac payload.
     public init(
         id: ID,
         macDeviceID: String? = nil,
@@ -125,7 +129,8 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         previewAt: Date? = nil,
         lastActivityAt: Date? = nil,
         hasUnread: Bool = false,
-        terminals: [MobileTerminalPreview]
+        terminals: [MobileTerminalPreview],
+        panes: [MobilePanePreview] = []
     ) {
         self.id = id
         self.remoteWorkspaceID = nil
@@ -140,5 +145,6 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         self.lastActivityAt = lastActivityAt
         self.hasUnread = hasUnread
         self.terminals = terminals
+        self.panes = panes
     }
 }
