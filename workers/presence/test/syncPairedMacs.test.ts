@@ -510,6 +510,20 @@ describe("applyBackupOps", () => {
     ]);
   });
 
+  it("supports forty concurrent current iOS development scopes", async () => {
+    const storage = new FakeStorage();
+    for (let i = 0; i < 40; i += 1) {
+      const deltas = await applyBackupOps(
+        storage,
+        "user-1",
+        [{ kind: "upsert", id: `mac-${i}`, record: record(`mac-${i}`, "10.0.0.1", 4000 + i) }],
+        T0 + i,
+        `ios:v2:tag-${i}`,
+      );
+      expect(deltas).toHaveLength(1);
+    }
+  });
+
   it("isolates v2 scope capacity from legacy heads while keeping both generations bounded", async () => {
     const storage = new FakeStorage();
     for (let i = 0; i < MAX_PAIRED_MAC_CLIENT_SCOPES_PER_USER; i += 1) {
