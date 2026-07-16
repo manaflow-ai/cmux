@@ -60,9 +60,8 @@ extension VerticalTabsSidebar {
         )
         let modifierSymbol = renderContext.workspaceNumberShortcut.numberedDigitHintPrefix
         let showsHintForAnchor = showModifierHoldHints && modifierKeyMonitor.isModifierPressed
-        // Hover is AppKit-owned: the table controller overlays it per cell
-        // configure, so the base snapshot always carries false here.
-        let isPointerHovering = false
+        let rowId = SidebarWorkspaceRenderItemID.group(group.id)
+        let isPointerHovering = pointerInteractionMonitor.hoveredRowId == rowId
         let topDropIndicatorVisible = SidebarTabDropIndicatorPredicate().topVisible(
             forTabId: group.anchorWorkspaceId,
             draggedTabId: dragState.draggedTabId,
@@ -303,6 +302,32 @@ extension VerticalTabsSidebar {
             },
             onContextMenuAppear: onContextMenuAppear,
             onContextMenuDisappear: onContextMenuDisappear
+        )
+    }
+
+    /// Assembles one group row for the SwiftUI lazy list from immutable
+    /// values. Model references appear only inside user-invoked action
+    /// closures; row realization performs no observable reads or mutations.
+    func sidebarWorkspaceGroupRow(
+        snapshot: SidebarWorkspaceGroupRowSnapshot
+    ) -> SidebarWorkspaceGroupRowView {
+        let rowId = SidebarWorkspaceRenderItemID.group(snapshot.groupId)
+        let header = sidebarWorkspaceGroupHeader(
+            snapshot: snapshot,
+            onContextMenuAppear: {},
+            onContextMenuDisappear: {}
+        )
+        return SidebarWorkspaceGroupRowView(
+            header: header,
+            groupId: snapshot.groupId,
+            anchorWorkspaceId: snapshot.anchorWorkspaceId,
+            shouldCollectWorkspaceDropTargets: snapshot.shouldCollectWorkspaceDropTargets,
+            onPointerFrameChange: { [pointerInteractionMonitor, workspaceId = snapshot.anchorWorkspaceId] frame in
+                pointerInteractionMonitor.updateFrame(frame, for: rowId, workspaceId: workspaceId)
+            },
+            onPointerFrameDisappear: { [pointerInteractionMonitor] in
+                pointerInteractionMonitor.removeFrame(for: rowId)
+            }
         )
     }
 }

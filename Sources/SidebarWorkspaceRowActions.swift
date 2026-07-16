@@ -56,6 +56,8 @@ struct SidebarWorkspaceRowActions {
     // hover-freeze callbacks onto the row's own context-menu callbacks.
     var onContextMenuAppear: () -> Void
     var onContextMenuDisappear: () -> Void
+    let onPointerFrameChange: (CGRect) -> Void
+    let onPointerFrameDisappear: () -> Void
 }
 
 /// Binds parent-owned action capabilities to one lazily realized row input.
