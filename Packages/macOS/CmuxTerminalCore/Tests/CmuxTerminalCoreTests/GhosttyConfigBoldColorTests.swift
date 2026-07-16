@@ -19,4 +19,12 @@ import Testing
 
         #expect(config.boldColor == nil)
     }
+
+    @Test func resolvesNamedBoldColor() {
+        var config = GhosttyConfig()
+
+        config.parse("bold-color = black")
+
+        #expect(config.boldColor == "#000000")
+    }
 }
