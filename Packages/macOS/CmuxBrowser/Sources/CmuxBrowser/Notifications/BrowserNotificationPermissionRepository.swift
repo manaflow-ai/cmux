@@ -10,7 +10,8 @@ public enum BrowserNotificationPermissionDecision: String, Codable, Sendable {
     case denied
 }
 
-/// Persists website-notification decisions by browser profile and logical origin.
+/// Persists website-notification decisions by browser profile and exact WebKit
+/// security origin. Display aliases are never used as steady-state keys.
 ///
 /// Origins are canonicalized to lowercased HTTP(S) origins without paths. The
 /// repository is deliberately independent of WebKit so both the native provider
@@ -64,6 +65,37 @@ public final class BrowserNotificationPermissionRepository {
         Set((loadMap()[profileID.uuidString] ?? [:]).compactMap { key, value in
             value == .denied ? key : nil
         })
+    }
+
+    /// Moves an older decision to the exact current security origin when the
+    /// destination has no decision yet, then returns the destination decision.
+    @discardableResult
+    public func migrateDecisionIfNeeded(
+        from legacyOrigin: URL,
+        to securityOrigin: URL,
+        profileID: UUID
+    ) -> BrowserNotificationPermissionDecision {
+        guard let legacyKey = Self.canonicalOrigin(legacyOrigin),
+              let securityKey = Self.canonicalOrigin(securityOrigin) else {
+            return .denied
+        }
+        guard legacyKey != securityKey else {
+            return decision(for: securityOrigin, profileID: profileID)
+        }
+
+        var result = BrowserNotificationPermissionDecision.prompt
+        mutateMap { map in
+            var profile = map[profileID.uuidString] ?? [:]
+            if let existing = profile[securityKey] {
+                result = existing
+                return
+            }
+            guard let legacy = profile.removeValue(forKey: legacyKey) else { return }
+            profile[securityKey] = legacy
+            map[profileID.uuidString] = profile
+            result = legacy
+        }
+        return result
     }
 
     /// Removes every decision owned by a profile.

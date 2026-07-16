@@ -1,3 +1,4 @@
+import CmuxBrowser
 import Foundation
 import WebKit
 
@@ -9,7 +10,7 @@ final class BrowserWebNotificationMessageHandler: NSObject, WKScriptMessageHandl
     let token: String
     let webViewInstanceID: UUID
     private let isCurrentGeneration: @MainActor (WKWebView, UUID) -> Bool
-    private let isPermissionAllowed: @MainActor (URL) -> Bool
+    private let permissionDecision: @MainActor (URL) -> BrowserNotificationPermissionDecision
     private let onPayload: @MainActor (BrowserWebNotificationPayload, UUID) -> Void
     private let onPermissionRequest: @MainActor (URL, @escaping (Bool) -> Void) -> Void
 
@@ -18,7 +19,7 @@ final class BrowserWebNotificationMessageHandler: NSObject, WKScriptMessageHandl
         token: String,
         webViewInstanceID: UUID,
         isCurrentGeneration: @escaping @MainActor (WKWebView, UUID) -> Bool,
-        isPermissionAllowed: @escaping @MainActor (URL) -> Bool,
+        permissionDecision: @escaping @MainActor (URL) -> BrowserNotificationPermissionDecision,
         onPayload: @escaping @MainActor (BrowserWebNotificationPayload, UUID) -> Void,
         onPermissionRequest: @escaping @MainActor (URL, @escaping (Bool) -> Void) -> Void
     ) {
@@ -26,7 +27,7 @@ final class BrowserWebNotificationMessageHandler: NSObject, WKScriptMessageHandl
         self.token = token
         self.webViewInstanceID = webViewInstanceID
         self.isCurrentGeneration = isCurrentGeneration
-        self.isPermissionAllowed = isPermissionAllowed
+        self.permissionDecision = permissionDecision
         self.onPayload = onPayload
         self.onPermissionRequest = onPermissionRequest
     }
@@ -62,8 +63,24 @@ final class BrowserWebNotificationMessageHandler: NSObject, WKScriptMessageHandl
                 return
             }
 
+            if body["type"] as? String == "status" {
+                guard let originURL = Self.originURL(origin) else {
+                    replyHandler("denied", nil)
+                    return
+                }
+                switch permissionDecision(originURL) {
+                case .allowed:
+                    replyHandler("granted", nil)
+                case .denied:
+                    replyHandler("denied", nil)
+                case .prompt:
+                    replyHandler("default", nil)
+                }
+                return
+            }
+
             guard let originURL = Self.originURL(origin),
-                  isPermissionAllowed(originURL) else {
+                  permissionDecision(originURL) == .allowed else {
                 replyHandler(nil, "permission_denied")
                 return
             }

@@ -47,4 +47,31 @@ struct BrowserNotificationPermissionRepositoryTests {
         #expect(repository.decision(for: origin, profileID: second) == .allowed)
         #expect(repository.decision(for: fileURL, profileID: first) == .denied)
     }
+
+    @Test func legacyDisplayOriginMigrationIsAtomicAndProfileScoped() throws {
+        let suite = "cmux.notification-permissions.test.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let migratingProfile = UUID()
+        let otherProfile = UUID()
+        let legacyDisplayOrigin = try #require(URL(string: "http://localhost:3000"))
+        let securityOrigin = try #require(URL(string: "http://cmux-loopback.localtest.me:3000"))
+        let unrelatedOrigin = try #require(URL(string: "https://example.com"))
+        let repository = BrowserNotificationPermissionRepository(defaults: defaults)
+        repository.setDecision(.allowed, for: legacyDisplayOrigin, profileID: migratingProfile)
+        repository.setDecision(.denied, for: unrelatedOrigin, profileID: migratingProfile)
+        repository.setDecision(.denied, for: legacyDisplayOrigin, profileID: otherProfile)
+
+        #expect(repository.migrateDecisionIfNeeded(
+            from: legacyDisplayOrigin,
+            to: securityOrigin,
+            profileID: migratingProfile
+        ) == .allowed)
+        #expect(repository.decision(for: securityOrigin, profileID: migratingProfile) == .allowed)
+        #expect(repository.decision(for: legacyDisplayOrigin, profileID: migratingProfile) == .prompt)
+        #expect(repository.decision(for: unrelatedOrigin, profileID: migratingProfile) == .denied)
+        #expect(repository.decision(for: legacyDisplayOrigin, profileID: otherProfile) == .denied)
+    }
 }

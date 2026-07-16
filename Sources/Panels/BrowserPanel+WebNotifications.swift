@@ -125,6 +125,24 @@ extension BrowserPanel {
             }
           });
 
+          const permissionReady = Promise.resolve(
+            window.webkit.messageHandlers["\(BrowserWebNotificationMessageHandler.name)"].postMessage({
+              type: "status",
+              token: \(tokenLiteral)
+            })
+          ).then(value => {
+            if (value === "granted" || value === "denied" || value === "default") {
+              managedPermission = value;
+            }
+            return managedPermission;
+          }, () => managedPermission);
+          try {
+            Object.defineProperty(window, "__cmuxWebNotificationPermissionReady", {
+              value: permissionReady,
+              configurable: true
+            });
+          } catch (_) {}
+
           const nativePermissions = navigator.permissions;
           if (nativePermissions && typeof nativePermissions.query === "function") {
             const nativeQuery = nativePermissions.query.bind(nativePermissions);
@@ -132,7 +150,7 @@ extension BrowserPanel {
               nativePermissions.query = descriptor => {
                 if (descriptor?.name !== "notifications") return nativeQuery(descriptor);
                 return Promise.resolve({
-                  get state() { return managedPermission; },
+                  get state() { return managedPermission === "default" ? "prompt" : managedPermission; },
                   onchange: null,
                   addEventListener() {},
                   removeEventListener() {},
@@ -213,8 +231,8 @@ extension BrowserPanel {
             isCurrentGeneration: { [weak self] candidate, instanceID in
                 self?.isCurrentWebView(candidate, instanceID: instanceID) == true
             },
-            isPermissionAllowed: { [weak self] origin in
-                self?.webNotificationPermissionDecision(for: origin) == .allowed
+            permissionDecision: { [weak self] origin in
+                self?.webNotificationPermissionDecision(for: origin) ?? .denied
             },
             onPayload: { [weak self] payload, instanceID in
                 self?.handleWebNotificationPayload(payload, fromWebViewInstanceID: instanceID)
@@ -252,15 +270,27 @@ extension BrowserPanel {
         in webView: WKWebView,
         reply: @escaping (Bool) -> Void
     ) {
-        let origin = Self.remoteProxyDisplayURL(for: rawOrigin) ?? rawOrigin
+        guard SettingCatalog().browser.forwardWebNotifications.value(in: .standard) else {
+            reply(false)
+            return
+        }
+        let origin = rawOrigin
+        let displayOriginURL = Self.remoteProxyDisplayURL(for: origin) ?? origin
         let repository = BrowserProfileStore.shared.notificationPermissions
-        switch repository.decision(for: origin, profileID: profileID) {
+        switch storedWebNotificationPermissionDecision(for: origin, repository: repository) {
         case .allowed:
             reply(true)
         case .denied:
             reply(false)
         case .prompt:
-            let displayOrigin = BrowserNotificationPermissionRepository.canonicalOrigin(origin) ?? origin.absoluteString
+            let originKey = BrowserNotificationPermissionRepository.canonicalOrigin(origin) ?? origin.absoluteString
+            let displayOrigin = BrowserNotificationPermissionRepository.canonicalOrigin(displayOriginURL)
+                ?? displayOriginURL.absoluteString
+            if pendingWebNotificationPermissionReplies[originKey] != nil {
+                pendingWebNotificationPermissionReplies[originKey]?.append(reply)
+                return
+            }
+            pendingWebNotificationPermissionReplies[originKey] = [reply]
             let alert = NSAlert()
             alert.messageText = String(
                 localized: "browser.notifications.permission.title",
@@ -272,20 +302,44 @@ extension BrowserPanel {
             )
             alert.addButton(withTitle: String(localized: "browser.notifications.permission.allow", defaultValue: "Allow"))
             alert.addButton(withTitle: String(localized: "browser.notifications.permission.deny", defaultValue: "Don't Allow"))
+            let finish: (Bool, Bool) -> Void = { [weak self] allowed, shouldPersist in
+                guard let self else { return }
+                if shouldPersist {
+                    repository.setDecision(allowed ? .allowed : .denied, for: origin, profileID: self.profileID)
+                }
+                let replies = self.pendingWebNotificationPermissionReplies.removeValue(forKey: originKey) ?? []
+                for reply in replies { reply(allowed) }
+            }
             webNotificationPermissionAlertPresenter(alert, webView, { response in
-                let allowed = response == .alertFirstButtonReturn
-                repository.setDecision(allowed ? .allowed : .denied, for: origin, profileID: self.profileID)
-                reply(allowed)
-            }, {})
+                let settingIsEnabled = SettingCatalog().browser.forwardWebNotifications.value(in: .standard)
+                finish(settingIsEnabled && response == .alertFirstButtonReturn, settingIsEnabled)
+            }, {
+                finish(false, false)
+            })
         }
     }
 
     private func webNotificationPermissionDecision(
         for rawOrigin: URL
     ) -> BrowserNotificationPermissionDecision {
-        let origin = Self.remoteProxyDisplayURL(for: rawOrigin) ?? rawOrigin
-        return BrowserProfileStore.shared.notificationPermissions.decision(
-            for: origin,
+        guard SettingCatalog().browser.forwardWebNotifications.value(in: .standard) else {
+            return .denied
+        }
+        let repository = BrowserProfileStore.shared.notificationPermissions
+        return storedWebNotificationPermissionDecision(
+            for: rawOrigin,
+            repository: repository
+        )
+    }
+
+    private func storedWebNotificationPermissionDecision(
+        for securityOrigin: URL,
+        repository: BrowserNotificationPermissionRepository
+    ) -> BrowserNotificationPermissionDecision {
+        let displayOrigin = Self.remoteProxyDisplayURL(for: securityOrigin) ?? securityOrigin
+        return repository.migrateDecisionIfNeeded(
+            from: displayOrigin,
+            to: securityOrigin,
             profileID: profileID
         )
     }

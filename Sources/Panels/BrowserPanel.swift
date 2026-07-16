@@ -3070,6 +3070,7 @@ final class BrowserPanel: Panel, ObservableObject {
     var webNotificationMessageHandler: BrowserWebNotificationMessageHandler?
     var webNotificationBridgeToken: String?
     var webNotificationPermissionAlertPresenter: BrowserAlertPresenter = browserPresentAlert
+    var pendingWebNotificationPermissionReplies: [String: [(Bool) -> Void]] = [:]
     var deliverWebNotification: @MainActor (UUID, UUID, String, String, String) -> Void = {
         workspaceId, surfaceId, title, subtitle, body in
         TerminalNotificationStore.shared.addNotification(
