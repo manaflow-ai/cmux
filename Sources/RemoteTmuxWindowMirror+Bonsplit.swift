@@ -627,6 +627,7 @@ extension RemoteTmuxWindowMirror: BonsplitDelegate {
     }
 
     func splitTabBarDividerDragDidBegin(_ controller: BonsplitController) {
+        TerminalWindowPortalRegistry.beginInteractiveGeometryResize()
         dividerResizeSentSinceDragBegan = false
         // An imposition that moved a divider parks its baseline at nil,
         // waiting for a post-layout geometry callback to record the clamped
@@ -651,6 +652,7 @@ extension RemoteTmuxWindowMirror: BonsplitDelegate {
     }
 
     func splitTabBarDividerDragDidEnd(_ controller: BonsplitController) {
+        defer { TerminalWindowPortalRegistry.endInteractiveGeometryResize() }
         // A drag ending while a remote layout is being applied cannot run the
         // divider sync mid-apply: the apply is rewriting the tree this send
         // would diff against. Skipping the send outright loses the user's final

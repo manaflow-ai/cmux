@@ -2517,7 +2517,13 @@ enum TerminalWindowPortalRegistry {
     }
 
     static func endInteractiveGeometryResize() {
-        interactiveGeometryResizeCount = max(0, interactiveGeometryResizeCount - 1)
+        guard interactiveGeometryResizeCount > 0 else { return }
+        interactiveGeometryResizeCount -= 1
+        if interactiveGeometryResizeCount == 0 {
+            // Apply the final exact renderer and PTY dimensions after the
+            // interaction-wide pixel-only coalescing gate has cleared.
+            scheduleExternalGeometrySynchronizeForAllWindows(forceImmediate: false)
+        }
     }
 
 #if DEBUG

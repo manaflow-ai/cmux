@@ -5561,6 +5561,58 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         )
     }
 
+    func testInteractiveGeometryResizeEndFlushesFinalTerminalSize() {
+        let window = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 760, height: 420)
+        )
+        let surface = makeTrackedTerminalSurface()
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let container = NSView(frame: NSRect(x: 40, y: 60, width: 420, height: 220))
+        contentView.addSubview(container)
+        let anchor = NSView(frame: container.bounds)
+        container.addSubview(anchor)
+
+        TerminalWindowPortalRegistry.bind(
+            hostedView: surface.hostedView,
+            to: anchor,
+            visibleInUI: true,
+            expectedSurfaceId: surface.id,
+            expectedGeneration: surface.portalBindingGeneration()
+        )
+        TerminalWindowPortalRegistry.synchronizeForAnchor(anchor)
+        realizeWindowLayout(window)
+        let initialPixelSize = surface.debugCurrentPixelSize()
+        XCTAssertGreaterThan(initialPixelSize.width, 0)
+
+        // With frame notifications disabled, only the interaction zero
+        // crossing can discover and apply this final geometry.
+        anchor.postsFrameChangedNotifications = false
+        TerminalWindowPortalRegistry.beginInteractiveGeometryResize()
+        var interactionIsActive = true
+        defer {
+            if interactionIsActive {
+                TerminalWindowPortalRegistry.endInteractiveGeometryResize()
+            }
+        }
+        anchor.frame.size.width -= 120
+        XCTAssertEqual(surface.debugCurrentPixelSize().width, initialPixelSize.width)
+
+        TerminalWindowPortalRegistry.endInteractiveGeometryResize()
+        interactionIsActive = false
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertLess(
+            surface.debugCurrentPixelSize().width,
+            initialPixelSize.width,
+            "Ending the resize interaction should flush the final exact terminal width"
+        )
+    }
+
     func testWindowScopedExternalGeometrySyncDoesNotRefreshOtherWindows() {
         let firstWindow = makeTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 700, height: 420)

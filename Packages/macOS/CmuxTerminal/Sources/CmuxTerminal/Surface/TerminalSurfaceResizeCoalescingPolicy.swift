@@ -10,7 +10,6 @@ extension TerminalSurface {
         interactiveGeometryResizeActive: Bool,
         bypass: Bool
     ) -> Bool {
-        _ = interactiveGeometryResizeActive
-        return windowLiveResizeActive && !bypass
+        (windowLiveResizeActive || interactiveGeometryResizeActive) && !bypass
     }
 }
