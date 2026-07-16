@@ -120,8 +120,13 @@ if [[ "$ATTACH" -eq 1 ]]; then
     ATTACH_URL="$(cmux_attach_mint_url "$TAG" "$ATTACH_TTL_SECONDS" "$REPO_ROOT" "$ATTACH_TARGET" || true)"
   fi
   if [[ -z "$ATTACH_URL" ]]; then
-    if [[ "$ENSURE_MAC" -eq 1 ]]; then
-      echo "warning: could not mint an attach ticket (the tagged Mac app's pairing listener may still be binding, or the macOS Local Network prompt is unanswered — click Allow, then re-run); launching signed-in only" >&2
+    if [[ "$ATTACH_TARGET" == "physical_device" ]]; then
+      echo "error: could not mint a trusted physical-device attach ticket for '$TAG'" >&2
+      echo "error: the tagged Mac must advertise an encrypted Iroh route; Tailscale-only tickets are rejected because they cannot safely carry account credentials" >&2
+      echo "error: repair the tagged Mac's web/Iroh setup and re-run, or pass --no-attach for an intentionally unpaired launch" >&2
+      exit 1
+    elif [[ "$ENSURE_MAC" -eq 1 ]]; then
+      echo "warning: could not mint an attach ticket (the tagged Mac app's pairing listener may still be binding, or the macOS Local Network prompt is unanswered; click Allow, then re-run); launching signed-in only" >&2
     else
       echo "warning: --attach requested but no attach ticket could be minted (is the tagged Mac app for '$TAG' running with the pairing host enabled? try --ensure-mac); launching signed-in only" >&2
     fi

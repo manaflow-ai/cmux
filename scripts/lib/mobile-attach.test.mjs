@@ -1,6 +1,9 @@
 // Run with: node --test scripts/lib/mobile-attach.test.mjs
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import net from "node:net";
+import os from "node:os";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import test from "node:test";
@@ -27,6 +30,72 @@ function validate(tag) {
   ]);
 }
 
+function resolveDevAPIBaseURL(fallback, override = "") {
+  return run("bash", [
+    "-c",
+    'source "$1"; CMUX_DEV_API_BASE_URL="$3" cmux_attach_resolve_dev_api_base_url "$2"',
+    "mobile-attach-test",
+    validator,
+    fallback,
+    override,
+  ]);
+}
+
+async function mintAttachURL(target, payload) {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-mobile-attach-test-"));
+  const scriptsDir = path.join(tempRoot, "scripts");
+  const socketPath = path.join(tempRoot, "mobile.sock");
+  fs.mkdirSync(scriptsDir);
+  const fakeCLI = path.join(scriptsDir, "cmux-debug-cli.sh");
+  fs.writeFileSync(fakeCLI, "#!/usr/bin/env bash\nprintf '%s' \"$CMUX_TEST_ATTACH_PAYLOAD\"\n");
+  fs.chmodSync(fakeCLI, 0o755);
+
+  const server = net.createServer();
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(socketPath, resolve);
+  });
+
+  try {
+    return spawnSync(
+      "bash",
+      [
+        "-c",
+        [
+          'source "$1"',
+          'cmux_attach_socket_path() { printf "%s" "$CMUX_TEST_SOCKET"; }',
+          'cmux_attach_mint_url "test" 60 "$2" "$3" 1',
+        ].join("; "),
+        "mobile-attach-test",
+        validator,
+        tempRoot,
+        target,
+      ],
+      {
+        cwd: repoRoot,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          CMUX_TEST_ATTACH_PAYLOAD: JSON.stringify(payload),
+          CMUX_TEST_SOCKET: socketPath,
+        },
+      },
+    );
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+}
+
+function attachPayload(kind) {
+  return {
+    attach_url: `cmux-ios-dev://attach?v=2&kind=${kind}`,
+    ticket: {
+      routes: [{ id: kind, kind }],
+    },
+  };
+}
+
 test("shared dev-tag validator rejects every spelling that sanitizes to default", () => {
   for (const tag of ["default", "DEFAULT", "...Default..."]) {
     const result = validate(tag);
@@ -40,6 +109,50 @@ test("shared dev-tag validator permits non-sentinel tags", () => {
     const result = validate(tag);
     assert.equal(result.status, 0, `${tag}: ${result.stderr}`);
   }
+});
+
+test("shared dev API origin defaults to the tagged local server", () => {
+  const result = resolveDevAPIBaseURL("http://localhost:4123");
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, "http://localhost:4123");
+});
+
+test("shared dev API origin accepts an explicit trusted backend", () => {
+  const result = resolveDevAPIBaseURL(
+    "http://localhost:4123",
+    "https://cmux-staging.vercel.app",
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, "https://cmux-staging.vercel.app");
+});
+
+test("macOS and iOS reloads share the dev API backend override", () => {
+  const macReload = fs.readFileSync(path.join(repoRoot, "scripts/reload.sh"), "utf8");
+  const iosReload = fs.readFileSync(path.join(repoRoot, "ios/scripts/reload.sh"), "utf8");
+
+  assert.match(macReload, /CMUX_DEV_API_BASE_URL_VALUE=.*cmux_attach_resolve_dev_api_base_url/);
+  assert.match(macReload, /CMUX_API_BASE_URL="\$CMUX_DEV_API_BASE_URL_VALUE"/);
+  assert.match(iosReload, /CMUX_IOS_API_BASE_URL_VALUE=.*CMUX_DEV_API_BASE_URL/);
+});
+
+test("physical-device mint rejects a ticket with only plaintext Tailscale routes", async () => {
+  const result = await mintAttachURL("physical_device", attachPayload("tailscale"));
+  assert.notEqual(result.status, 0);
+  assert.equal(result.stdout, "");
+});
+
+test("physical-device mint accepts an encrypted Iroh route", async () => {
+  const payload = attachPayload("iroh");
+  const result = await mintAttachURL("physical_device", payload);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, payload.attach_url);
+});
+
+test("simulator mint retains its loopback ticket behavior", async () => {
+  const payload = attachPayload("debug_loopback");
+  const result = await mintAttachURL("simulator_injection", payload);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, payload.attach_url);
 });
 
 for (const entrypoint of [
