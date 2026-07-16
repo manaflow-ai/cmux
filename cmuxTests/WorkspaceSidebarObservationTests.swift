@@ -228,6 +228,32 @@ struct WorkspaceSidebarObservationTests {
         )
     }
 
+    @Test func coalesceLatestDoesNotEmitReentrantValueWithoutDemand() {
+        let scheduler = VirtualCoalesceScheduler()
+        let subject = PassthroughSubject<Int, Never>()
+        let subscriber = DemandControlledSubscriber<Int>()
+        subject
+            .coalesceLatest(for: .milliseconds(50), scheduler: scheduler)
+            .subscribe(subscriber)
+        defer { subscriber.cancel() }
+
+        subscriber.onValue = { value in
+            if value == 1 {
+                subject.send(2)
+            }
+        }
+        subscriber.request(.max(1))
+        subject.send(1)
+
+        #expect(
+            subscriber.received == [1],
+            "A reentrant upstream value must wait until the demand-limited subscriber requests another element."
+        )
+
+        subscriber.request(.max(1))
+        #expect(subscriber.received == [1, 2])
+    }
+
     @Test func sidebarObservationPublisherIgnoresRemoteHeartbeatOnlyChanges() {
         let workspace = Workspace()
 
@@ -375,6 +401,35 @@ private final class ObservationChangeFlag: @unchecked Sendable {
 
     func mark() {
         fired = true
+    }
+}
+
+private final class DemandControlledSubscriber<Input>: Subscriber {
+    typealias Failure = Never
+
+    private var subscription: Subscription?
+    private(set) var received: [Input] = []
+    var onValue: ((Input) -> Void)?
+
+    func receive(subscription: Subscription) {
+        self.subscription = subscription
+    }
+
+    func receive(_ input: Input) -> Subscribers.Demand {
+        received.append(input)
+        onValue?(input)
+        return .none
+    }
+
+    func receive(completion: Subscribers.Completion<Never>) {}
+
+    func request(_ demand: Subscribers.Demand) {
+        subscription?.request(demand)
+    }
+
+    func cancel() {
+        subscription?.cancel()
+        subscription = nil
     }
 }
 
