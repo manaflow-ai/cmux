@@ -2,6 +2,12 @@ import CMUXAgentLaunch
 import Foundation
 
 extension CMUXCLI {
+    private struct KimiConfigEdit {
+        let url: URL
+        let oldContent: String
+        let newContent: String
+    }
+
     private static let kimiLifecycleHookTimeoutSeconds = 10
     private static let kimiFeedHookTimeoutSeconds = 120
     private static let legacyKimiConfigDirectory = ".kimi-code"
@@ -29,6 +35,8 @@ extension CMUXCLI {
         let fm = FileManager.default
         let configDir = def.resolvedConfigDir()
         let filePath = "\(configDir)/\(def.configFile)"
+        let activeConfigURL = URL(fileURLWithPath: filePath, isDirectory: false)
+        let legacyConfigURL = Self.legacyKimiConfigURL(fileName: def.configFile)
         let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
             || ProcessInfo.processInfo.arguments.contains("-y")
 
@@ -44,17 +52,15 @@ extension CMUXCLI {
         if configPathExists, !isConfigDirectory.boolValue {
             throw CLIError(message: configDirectoryFileError)
         }
-        if !configPathExists {
-            do {
-                try fm.createDirectory(atPath: configDir, withIntermediateDirectories: true)
-            } catch {
-                throw CLIError(message: configDirectoryFileError)
-            }
-        }
 
         let oldString = try readAgentHookConfig(filePath: filePath, displayName: def.displayName)
         let newString = KimiCodeHookConfig.installing(events: kimiCodeHookEvents(def: def), in: oldString)
-        if oldString == newString {
+        let activeEdit = oldString == newString ? nil : KimiConfigEdit(
+            url: activeConfigURL,
+            oldContent: oldString,
+            newContent: newString
+        )
+        if activeEdit == nil {
             print(String.localizedStringWithFormat(
                 String(
                     localized: "cli.hooks.kimi.alreadyUpToDate",
@@ -63,27 +69,61 @@ extension CMUXCLI {
                 def.displayName,
                 filePath
             ))
-        } else {
-            if !skipConfirm {
-                Self.printInstallPreview(
-                    path: filePath,
-                    oldContent: oldString,
-                    newContent: newString,
-                    fallbackContent: newString
+        }
+
+        var legacyEdit: KimiConfigEdit?
+        var legacyCleanupFailed = false
+        if Self.canonicalKimiConfigURL(activeConfigURL) != Self.canonicalKimiConfigURL(legacyConfigURL) {
+            do {
+                let legacyOldString = try readAgentHookConfig(
+                    filePath: legacyConfigURL.path,
+                    displayName: def.displayName
                 )
+                let legacyNewString = KimiCodeHookConfig.uninstalling(from: legacyOldString)
+                if legacyOldString != legacyNewString {
+                    legacyEdit = KimiConfigEdit(
+                        url: legacyConfigURL,
+                        oldContent: legacyOldString,
+                        newContent: legacyNewString
+                    )
+                }
+            } catch {
+                legacyCleanupFailed = true
+            }
+        }
+
+        let edits = [activeEdit, legacyEdit].compactMap { $0 }
+        if !skipConfirm, !edits.isEmpty {
+            for edit in edits {
+                Self.printInstallPreview(
+                    path: edit.url.path,
+                    oldContent: edit.oldContent,
+                    newContent: edit.newContent,
+                    fallbackContent: edit.newContent
+                )
+            }
+            print(String(
+                localized: "cli.hooks.kimi.confirmProceed",
+                defaultValue: "\nProceed? [y/N] "
+            ), terminator: "")
+            guard readLine()?.lowercased().hasPrefix("y") == true else {
                 print(String(
-                    localized: "cli.hooks.kimi.confirmProceed",
-                    defaultValue: "\nProceed? [y/N] "
-                ), terminator: "")
-                guard readLine()?.lowercased().hasPrefix("y") == true else {
-                    print(String(
-                        localized: "cli.hooks.kimi.aborted",
-                        defaultValue: "Aborted."
-                    ))
-                    return
+                    localized: "cli.hooks.kimi.aborted",
+                    defaultValue: "Aborted."
+                ))
+                return
+            }
+        }
+
+        if let activeEdit {
+            if !configPathExists {
+                do {
+                    try fm.createDirectory(atPath: configDir, withIntermediateDirectories: true)
+                } catch {
+                    throw CLIError(message: configDirectoryFileError)
                 }
             }
-            try newString.write(toFile: filePath, atomically: true, encoding: .utf8)
+            try activeEdit.newContent.write(to: activeEdit.url, atomically: true, encoding: .utf8)
             print(String.localizedStringWithFormat(
                 String(
                     localized: "cli.hooks.kimi.installed",
@@ -94,23 +134,25 @@ extension CMUXCLI {
             ))
         }
 
-        let activeConfigURL = URL(fileURLWithPath: filePath, isDirectory: false)
-        let legacyConfigURL = Self.legacyKimiConfigURL(fileName: def.configFile)
-        guard Self.canonicalKimiConfigURL(activeConfigURL) != Self.canonicalKimiConfigURL(legacyConfigURL) else {
-            return
+        if let legacyEdit {
+            do {
+                try legacyEdit.newContent.write(to: legacyEdit.url, atomically: true, encoding: .utf8)
+                print(String.localizedStringWithFormat(
+                    String(
+                        localized: "cli.hooks.kimi.removed",
+                        defaultValue: "Removed Kimi Code cmux hooks from %@"
+                    ),
+                    legacyEdit.url.path
+                ))
+            } catch {
+                legacyCleanupFailed = true
+            }
         }
-        do {
-            _ = try removeKimiHooks(at: legacyConfigURL, def: def, reportNoChange: false)
-        } catch {
-            let warning = String.localizedStringWithFormat(
-                String(
-                    localized: "cli.hooks.kimi.legacyCleanupWarning",
-                    defaultValue: "Warning: cmux hooks are active at %@, but cmux could not remove its legacy hook block from %@. Check that path and re-run `cmux hooks setup kimi` to finish cleanup."
-                ),
-                activeConfigURL.path,
-                legacyConfigURL.path
+        if legacyCleanupFailed {
+            reportKimiLegacyCleanupWarning(
+                activeConfigURL: activeConfigURL,
+                legacyConfigURL: legacyConfigURL
             )
-            cliWriteStderr(warning + "\n")
         }
     }
 
@@ -170,6 +212,21 @@ extension CMUXCLI {
             configURL.path
         ))
         return true
+    }
+
+    private func reportKimiLegacyCleanupWarning(
+        activeConfigURL: URL,
+        legacyConfigURL: URL
+    ) {
+        let warning = String.localizedStringWithFormat(
+            String(
+                localized: "cli.hooks.kimi.legacyCleanupWarning",
+                defaultValue: "Warning: cmux hooks are active at %@, but cmux could not remove its legacy hook block from %@. Check that path and re-run `cmux hooks setup kimi` to finish cleanup."
+            ),
+            activeConfigURL.path,
+            legacyConfigURL.path
+        )
+        cliWriteStderr(warning + "\n")
     }
 
     private static func legacyKimiConfigURL(fileName: String) -> URL {
