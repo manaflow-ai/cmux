@@ -326,11 +326,20 @@ struct SidebarWorkspaceTableTests {
             to: nil
         )
         container.tableView.setPointerWindowLocation(windowPoint)
-        let cell = try #require(
+        let realized = try #require(
             container.tableView.view(atColumn: 0, row: 0, makeIfNecessary: true)
                 as? SidebarWorkspaceTableCellView
         )
         container.tableView.layoutSubtreeIfNeeded()
+        // The reconfigure path resolves cells with makeIfNecessary: false, so
+        // prove the realized cell is installed in the live table hierarchy
+        // before asserting on the transitions.
+        let cell = try #require(
+            container.tableView.view(atColumn: 0, row: 0, makeIfNecessary: false)
+                as? SidebarWorkspaceTableCellView,
+            "the table did not keep the realized cell in its live hierarchy"
+        )
+        #expect(cell === realized)
         #expect(cell.representedRowId == row.id)
 
         // configure(cell:at:) rebinds the cell probe from the controller on

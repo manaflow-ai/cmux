@@ -128,17 +128,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             reconfigureVisibleRows(contentChanges)
         }
 
-        // Measure after the table adopts the new rows so the near-viewport
-        // window reflects post-update geometry; estimates cover everything
-        // else until rows scroll toward the viewport.
-        let heightChanges = rowHeightCache.prepareHostedRows(
-            nextRows,
-            columnWidth: currentColumnWidth(),
-            measurableRange: measurableRowRange(rowCount: nextRows.count)
-        )
-        if !heightChanges.isEmpty {
-            containerView.tableView.noteHeightOfRows(withIndexesChanged: heightChanges)
-        }
+        // apply() runs inside updateNSView (a SwiftUI render pass), where
+        // measuring would lay out the prototype hosting view reentrantly, so
+        // heights correct on the next main-actor turn; estimates cover the
+        // gap by design.
+        scheduleViewportRowMeasurement()
 
         let shouldScrollAfterWorkspaceChange = SidebarSelectedWorkspaceScrollPolicy
             .shouldScrollSelectedWorkspace(
