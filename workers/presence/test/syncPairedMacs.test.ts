@@ -524,6 +524,33 @@ describe("applyBackupOps", () => {
     }
   });
 
+  it("recycles the oldest inactive current iOS development scope at capacity", async () => {
+    const storage = new FakeStorage();
+    for (let i = 0; i < MAX_PAIRED_MAC_CLIENT_SCOPES_PER_USER; i += 1) {
+      await applyBackupOps(
+        storage,
+        "user-1",
+        [{ kind: "upsert", id: `mac-${i}`, record: record(`mac-${i}`, "10.0.0.1", 5000 + i) }],
+        T0 + i,
+        `ios:v2:tag-${i}`,
+      );
+    }
+
+    const replacement = await applyBackupOps(
+      storage,
+      "user-1",
+      [{ kind: "upsert", id: "newest", record: record("newest", "10.0.0.2", 6000) }],
+      T0 + 24 * 60 * 60 * 1000 + MAX_PAIRED_MAC_CLIENT_SCOPES_PER_USER,
+      "ios:v2:newest",
+    );
+
+    expect(replacement).toHaveLength(1);
+    expect((await listBackupSnapshot(storage, "user-1", "ios:v2:tag-0")).records).toEqual([]);
+    expect((await listBackupSnapshot(storage, "user-1", "ios:v2:newest")).records.map((entry) => entry.macDeviceID)).toEqual([
+      "newest",
+    ]);
+  });
+
   it("isolates v2 scope capacity from legacy heads while keeping both generations bounded", async () => {
     const storage = new FakeStorage();
     for (let i = 0; i < MAX_PAIRED_MAC_CLIENT_SCOPES_PER_USER; i += 1) {
