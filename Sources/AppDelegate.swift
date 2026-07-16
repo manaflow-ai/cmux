@@ -16319,6 +16319,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             notification.notificationNavigationSnapshot
         )
     }
+
+#if DEBUG
+    func handleWebsiteNotificationResponseForTesting(
+        actionIdentifier: String,
+        requestIdentifier: String
+    ) -> Bool {
+        _ = actionIdentifier
+        _ = requestIdentifier
+        return false
+    }
+#endif
     /// Performs a notification click action. Forwards to the shared
     /// `NotificationClickPerformer` (which owns the tilde-expansion and
     /// file-vs-directory reveal logic); `AppDelegate` only supplies the

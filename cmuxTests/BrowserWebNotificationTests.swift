@@ -4,6 +4,7 @@ import CmuxFoundation
 import CmuxSettings
 import Foundation
 import Testing
+import UserNotifications
 import WebKit
 
 #if canImport(cmux_DEV)
@@ -830,6 +831,74 @@ struct BrowserWebNotificationTests {
 
         adapter.handleGlobalNotificationClick(notificationID: notificationID, fallbackOrigin: proxyOrigin)
         #expect(openedURL?.absoluteString == "http://localhost:4317")
+    }
+
+    @Test func websiteClickMarksReadOnlyWhenTheActionIsAccepted() throws {
+        let store = TerminalNotificationStore.shared
+        let adapter = BrowserWebNotificationNativeAdapter.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let profileID = UUID()
+        let origin = try #require(URL(string: "https://example.com"))
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        defer {
+            adapter.resetNativeDeliveryTestingState()
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+        }
+
+        let rejectedID = store.addGlobalWebsiteNotification(
+            title: "Rejected",
+            subtitle: "example.com",
+            body: "Ready",
+            profileID: profileID,
+            origin: origin
+        )
+        let rejected = try #require(store.notifications.first(where: { $0.id == rejectedID }))
+        adapter.externalURLOpenerForTesting = { _ in false }
+        #expect(!appDelegate.openTerminalNotification(rejected))
+        #expect(store.notifications.first(where: { $0.id == rejectedID })?.isRead == false)
+
+        let acceptedID = store.addGlobalWebsiteNotification(
+            title: "Accepted",
+            subtitle: "example.com",
+            body: "Ready",
+            profileID: profileID,
+            origin: origin
+        )
+        let accepted = try #require(store.notifications.first(where: { $0.id == acceptedID }))
+        adapter.externalURLOpenerForTesting = { _ in true }
+        #expect(appDelegate.openTerminalNotification(accepted))
+        #expect(store.notifications.first(where: { $0.id == acceptedID })?.isRead == true)
+    }
+
+    @Test func websiteOSResponseUsesWebsiteClickRouting() throws {
+        let store = TerminalNotificationStore.shared
+        let adapter = BrowserWebNotificationNativeAdapter.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let profileID = UUID()
+        let origin = try #require(URL(string: "https://example.com"))
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        adapter.externalURLOpenerForTesting = { _ in true }
+        defer {
+            adapter.resetNativeDeliveryTestingState()
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+        }
+        let notificationID = store.addGlobalWebsiteNotification(
+            title: "OS click",
+            subtitle: "example.com",
+            body: "Ready",
+            profileID: profileID,
+            origin: origin
+        )
+
+        #expect(appDelegate.handleWebsiteNotificationResponseForTesting(
+            actionIdentifier: UNNotificationDefaultActionIdentifier,
+            requestIdentifier: notificationID.uuidString
+        ))
+        #expect(store.notifications.first(where: { $0.id == notificationID })?.isRead == true)
     }
 
     @Test func settingsFileAndGeneratedTemplateExposeForwardingToggle() throws {
