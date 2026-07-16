@@ -1848,6 +1848,7 @@ fn handle_command(
         Command::Identify => Ok(json!({
             "app": "cmux-tui",
             "version": env!("CARGO_PKG_VERSION"),
+            "build_commit": stamped_build_commit(),
             "protocol": PROTOCOL_VERSION,
             "session": mux.session,
             "pid": std::process::id(),
@@ -1855,6 +1856,7 @@ fn handle_command(
         Command::Ping => Ok(json!({
             "ok": true,
             "version": env!("CARGO_PKG_VERSION"),
+            "build_commit": stamped_build_commit(),
             "protocol": PROTOCOL_VERSION,
         })),
         Command::SetClientInfo { name, kind } => {
@@ -2564,6 +2566,12 @@ fn handle_command(
     }
 }
 
+fn stamped_build_commit() -> Option<&'static str> {
+    option_env!("CMUX_TUI_BUILD_COMMIT")
+        .or(option_env!("CMUX_MUX_BUILD_COMMIT"))
+        .filter(|commit| !commit.is_empty())
+}
+
 fn subscribed_event_json(event: &MuxEvent) -> Value {
     match event {
         MuxEvent::SurfaceOutput(id) => json!({"event": "surface-output", "surface": id}),
@@ -2903,11 +2911,18 @@ mod tests {
     }
 
     #[test]
-    fn ping_returns_version_and_protocol() {
+    fn identify_and_ping_return_build_metadata() {
         let mux = test_mux();
+        let identity = handle_command(&mux, 0, Command::Identify, &test_writer()).unwrap();
+        assert_eq!(identity["app"].as_str(), Some("cmux-tui"));
+        assert_eq!(identity["version"].as_str(), Some(env!("CARGO_PKG_VERSION")));
+        assert_eq!(identity["protocol"].as_u64(), Some(PROTOCOL_VERSION as u64));
+        assert_eq!(identity["build_commit"].as_str(), stamped_build_commit());
+
         let data = handle_command(&mux, 0, Command::Ping, &test_writer()).unwrap();
         assert_eq!(data["ok"].as_bool(), Some(true));
         assert_eq!(data["version"].as_str(), Some(env!("CARGO_PKG_VERSION")));
+        assert_eq!(data["build_commit"].as_str(), stamped_build_commit());
         assert_eq!(data["protocol"].as_u64(), Some(PROTOCOL_VERSION as u64));
     }
 

@@ -86,6 +86,7 @@ fn current_uid_component() -> String {
 pub struct IdentifyResult {
     pub app: String,
     pub version: String,
+    pub build_commit: Option<String>,
     pub protocol: u32,
     pub session: String,
     pub pid: u32,
