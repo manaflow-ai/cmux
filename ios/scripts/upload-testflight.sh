@@ -193,6 +193,21 @@ verify_ipa_framework_minimum_os_versions() {
       rm -rf "$workdir"
       return 1
     fi
+    # The plist must not claim a LOWER minimum than the binary actually
+    # supports: ASC rejects that internal inconsistency as ITMS-90208 ("the
+    # bundle does not support the minimum OS Version specified in the
+    # Info.plist"). This is exactly how Xcode-synthesized dylibs for static
+    # SPM binaryTargets shipped broken (binary minos = app deployment target,
+    # plist copied from the xcframework).
+    binary_minos="$(xcrun vtool -show-build "$framework_binary" 2>/dev/null | awk '/^ *minos /{print $2; exit}')"
+    if [[ -n "$binary_minos" && "$binary_minos" != "$minimum" ]]; then
+      lowest="$(printf '%s\n%s\n' "$minimum" "$binary_minos" | sort -V | head -n 1)"
+      if [[ "$lowest" == "$minimum" ]]; then
+        echo "error: $framework_name Info.plist MinimumOSVersion '$minimum' is lower than its binary's minos '$binary_minos'; ASC rejects this (ITMS-90208)" >&2
+        rm -rf "$workdir"
+        return 1
+      fi
+    fi
   done < <(find "$app" -type d -name '*.framework' -print0)
 
   rm -rf "$workdir"
@@ -1042,7 +1057,30 @@ if [[ "$SIGNING" == "manual" ]]; then
     fi
     echo "embedded framework ${embedded_fw_name}.framework binary: $embedded_fw_kind"
     if [[ "$embedded_fw_kind" == *"dynamically linked shared library"* ]]; then
-      xcrun vtool -show-build "$embedded_fw_bin" 2>/dev/null | sed -n '1,8p' || true
+      # ROOT CAUSE of the ITMS-90208 rejections (proven by build
+      # 20260716050845's diagnostics): Xcode synthesizes the embedded dylib
+      # for a static SPM binaryTarget at build time and stamps it with the
+      # APP's deployment target (minos 18.4), but copies the xcframework's
+      # Info.plist unchanged (MinimumOSVersion 17.5). ASC rejects the
+      # internally inconsistent bundle: its binary cannot run on the minimum
+      # OS its own Info.plist declares. Reconcile the plist to the binary's
+      # actual minos, then re-sign the framework (its seal covers Info.plist);
+      # the app itself is force-re-signed right after this block.
+      embedded_fw_minos="$(xcrun vtool -show-build "$embedded_fw_bin" 2>/dev/null | awk '/^ *minos /{print $2; exit}')"
+      embedded_fw_plist_min="$("$PLISTBUDDY" -c 'Print :MinimumOSVersion' "$embedded_fw/Info.plist" 2>/dev/null || true)"
+      echo "embedded framework ${embedded_fw_name}.framework: binary minos=${embedded_fw_minos:-<none>} Info.plist MinimumOSVersion=${embedded_fw_plist_min:-<absent>}"
+      if [[ -n "$embedded_fw_minos" ]]; then
+        embedded_fw_lowest="$(printf '%s\n%s\n' "${embedded_fw_plist_min:-0}" "$embedded_fw_minos" | sort -V | head -n 1)"
+        if [[ -z "$embedded_fw_plist_min" || ( "$embedded_fw_plist_min" != "$embedded_fw_minos" && "$embedded_fw_lowest" == "$embedded_fw_plist_min" ) ]]; then
+          echo "reconciling ${embedded_fw_name}.framework Info.plist MinimumOSVersion ${embedded_fw_plist_min:-<absent>} -> $embedded_fw_minos (must match the binary or ASC rejects with ITMS-90208)"
+          if [[ -z "$embedded_fw_plist_min" ]]; then
+            "$PLISTBUDDY" -c "Add :MinimumOSVersion string $embedded_fw_minos" "$embedded_fw/Info.plist"
+          else
+            "$PLISTBUDDY" -c "Set :MinimumOSVersion $embedded_fw_minos" "$embedded_fw/Info.plist"
+          fi
+          codesign --force --sign "$RESIGN_IDENTITY" --timestamp "$embedded_fw"
+        fi
+      fi
       continue
     fi
     if otool -L "$RESIGN_APP_EXECUTABLE" | grep -qF "/${embedded_fw_name}.framework/"; then

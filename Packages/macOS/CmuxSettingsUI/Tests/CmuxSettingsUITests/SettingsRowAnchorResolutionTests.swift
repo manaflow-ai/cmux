@@ -125,6 +125,8 @@ struct SettingsRowAnchorResolutionTests {
         "terminal.autoResumeAgentSessions",
         "terminal.copyOnSelect",
         "terminal.resumeCommands",
+        "terminal.sessionContentAlignment",
+        "terminal.sessionContentMaxWidth",
         "terminal.focusTextBoxOnNewTerminals",
         "terminal.scrollSpeed",
         "terminal.showScrollBar",
