@@ -354,6 +354,37 @@ import CmuxGit
         #expect(service.workspacePullRequestTrackedPanelIds(workspaceId: workspaceId).isEmpty)
     }
 
+    @Test func hidingPullRequestsPreservesPassiveRemoteBadgeAcrossReenable() throws {
+        let host = RecordingSidebarGitHost()
+        host.pullRequestActivity = .activePolling
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: "/tmp/remote")
+        host.workspaces[0].state.isRemote = true
+        host.workspaces[0].state.panels[panelId]?.hasTrustedRemoteDirectory = true
+        host.workspaces[0].state.panels[panelId]?.badge = badge(number: 9, status: .open)
+        let service = makeService(host: host, clock: ManualGitPollClock())
+
+        host.pullRequestActivity = .passiveReportsOnly
+        service.sidebarPullRequestPollingSettingsDidChange()
+
+        #expect(host.workspaces[0].state.panels[panelId]?.badge?.number == 9)
+        #expect(!host.events.contains(.clearAllPullRequestMetadata))
+        #expect(service.workspacePullRequestTrackedPanelIds(workspaceId: workspaceId).isEmpty)
+
+        service.handleWorkspacePullRequestCommandHint(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            action: "merge",
+            target: "#9"
+        )
+        #expect(host.workspaces[0].state.panels[panelId]?.badge?.status == .merged)
+
+        host.pullRequestActivity = .activePolling
+        service.sidebarPullRequestPollingSettingsDidChange()
+
+        #expect(host.workspaces[0].state.panels[panelId]?.badge?.status == .merged)
+        #expect(service.workspacePullRequestTrackedPanelIds(workspaceId: workspaceId).isEmpty)
+    }
+
     @Test func rateLimitResetOverridesNormalTransientFailureCadence() {
         let host = RecordingSidebarGitHost()
         host.pollingEnabled = true
