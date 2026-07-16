@@ -1124,8 +1124,20 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         let customShortcut = StoredShortcut(
-            first: ShortcutStroke(key: "k", command: true),
-            second: ShortcutStroke(key: "c")
+            first: ShortcutStroke(
+                key: "k",
+                command: true,
+                shift: false,
+                option: false,
+                control: false
+            ),
+            second: ShortcutStroke(
+                key: "c",
+                command: false,
+                shift: false,
+                option: false,
+                control: false
+            )
         )
         XCTAssertTrue(appDelegate.armConfiguredShortcutChordIfNeeded(
             event: prefixEvent,
