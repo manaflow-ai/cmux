@@ -146,12 +146,13 @@ import Testing
     oldTheme.background = "#111111"
     var newTheme = TerminalTheme.monokai
     newTheme.background = "#f4f0df"
-    let newer = try delayedFrame(
+    var newer = try delayedFrame(
         surfaceID: surfaceID,
         theme: newTheme,
         revision: 2,
         stateSeq: 7
     )
+    newer.terminalConfigTheme = newTheme
     let delayedOlder = try MobileTerminalRenderGridFrame(
         surfaceID: surfaceID,
         stateSeq: 8,
@@ -173,7 +174,7 @@ import Testing
 
     #expect(store.deliverTerminalRenderGrid(delayedOlder, surfaceID: surfaceID))
     let delayedChunk = try #require(await iterator.next())
-    let replay = try #require(String(data: delayedChunk.bytes, encoding: .utf8))
+    let replay = try #require(String(data: delayedChunk.data, encoding: .utf8))
 
     #expect(replay.contains("history"))
     #expect(replay.contains("rgb:f4/f0/df"))

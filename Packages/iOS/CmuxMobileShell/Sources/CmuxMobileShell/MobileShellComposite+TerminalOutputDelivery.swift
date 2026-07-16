@@ -215,18 +215,26 @@ extension MobileShellComposite {
         surfaceID: String,
         bypassReplayBarrier: Bool = false
     ) -> Bool {
+        let hasCurrentThemeRevision = hasCurrentTerminalThemeRevision(frame)
         recordTerminalTheme(frame)
-        guard hasCurrentTerminalThemeRevision(frame) else {
+        let deliveryFrame: MobileTerminalRenderGridFrame
+        if hasCurrentThemeRevision {
+            deliveryFrame = frame
+        } else {
             MobileDebugLog.anchormux(
                 "sync.render_grid_stale_theme surface=\(frame.surfaceID) revision=\(frame.terminalThemeRevision ?? 0)"
             )
-            return false
+            deliveryFrame = frame.replacingThemeColors(
+                with: terminalTheme(for: frame.surfaceID),
+                config: terminalConfigTheme(for: frame.surfaceID),
+                revision: terminalThemeState.revisionsBySurfaceID[frame.surfaceID]
+            )
         }
         return deliverTerminalOutput(
             TerminalOutputDelivery(
-                renderGrid: frame,
-                replaceable: frame.isReplaceableViewportPatchForMobileDelivery,
-                viewportPolicy: frame.mobileViewportPolicy
+                renderGrid: deliveryFrame,
+                replaceable: deliveryFrame.isReplaceableViewportPatchForMobileDelivery,
+                viewportPolicy: deliveryFrame.mobileViewportPolicy
             ),
             surfaceID: surfaceID,
             bypassReplayBarrier: bypassReplayBarrier
@@ -496,4 +504,21 @@ extension MobileShellComposite {
         requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
     }
 
+}
+
+private extension MobileTerminalRenderGridFrame {
+    func replacingThemeColors(
+        with theme: TerminalTheme,
+        config: TerminalTheme,
+        revision: UInt64?
+    ) -> Self {
+        var frame = self
+        frame.terminalForeground = theme.foreground
+        frame.terminalBackground = theme.background
+        frame.terminalCursorColor = theme.cursor
+        frame.terminalTheme = theme
+        frame.terminalConfigTheme = config
+        frame.terminalThemeRevision = revision
+        return frame
+    }
 }
