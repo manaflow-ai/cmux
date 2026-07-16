@@ -69,16 +69,11 @@ extension TerminalPasteboardService: TerminalClipboardReading {
 
     /// Rewrites the terminal's text representations after copy reflow.
     ///
-    /// Existing plain-text, HTML, and RTF flavor availability is retained.
-    /// Rich flavors are regenerated from `string` without requesting their
-    /// potentially lazy source payloads, so paste destinations cannot select
-    /// stale hard-wrapped text or block the copy path on unbounded rich data.
-    /// Attachment-bearing RTFD is dropped because its text cannot be safely
-    /// rewritten independently of its file-wrapper contents.
-    /// For larger payloads, expensive rich flavors are dropped and the
-    /// transformed plain text remains available to every paste destination.
-    /// The replacement item is fully materialized before the pasteboard is
-    /// changed; a failed rich publish falls back to transformed plain text.
+    /// Existing plain-text flavor availability is retained. HTML, RTF, and RTFD
+    /// are dropped because preserving their styling would require synchronously
+    /// requesting potentially lazy source payloads before AppKit invalidates the
+    /// source item. Publishing regenerated rich flavors would silently discard
+    /// the terminal's original attributes.
     ///
     /// - Parameters:
     ///   - string: The transformed text to publish through every text flavor.
@@ -88,11 +83,7 @@ extension TerminalPasteboardService: TerminalClipboardReading {
     public func rewriteTextRepresentations(_ string: String, in pasteboard: NSPasteboard) -> Bool {
         guard let items = pasteboard.pasteboardItems,
               items.count == 1,
-              let replacementItem = rewrittenPasteboardItem(
-                  items[0],
-                  text: string,
-                  preservingRichText: string.utf8.count <= Self.richTextRewriteByteLimit
-              ) else {
+              let replacementItem = rewrittenPasteboardItem(items[0], text: string) else {
             return false
         }
 
@@ -104,14 +95,9 @@ extension TerminalPasteboardService: TerminalClipboardReading {
 }
 
 extension TerminalPasteboardService {
-    /// Keeps synchronous AppKit rich-text serialization below the interactive-copy
-    /// latency budget; larger rewrites publish the authoritative plain text.
-    private static let richTextRewriteByteLimit = 64 * 1024
-
     private func rewrittenPasteboardItem(
         _ source: NSPasteboardItem,
-        text: String,
-        preservingRichText: Bool
+        text: String
     ) -> NSPasteboardItem? {
         let rewritten = NSPasteboardItem()
         let sourceTypes = source.types
@@ -122,22 +108,6 @@ extension TerminalPasteboardService {
         if !plainTextTypes.contains(.string),
            !rewritten.setString(text, forType: .string) {
             return nil
-        }
-        guard preservingRichText else { return rewritten }
-
-        let attributed = NSAttributedString(string: text)
-        for (type, documentType) in [
-            (NSPasteboard.PasteboardType.html, NSAttributedString.DocumentType.html),
-            (.rtf, .rtf),
-        ] where sourceTypes.contains(type) {
-            guard let data = try? attributed.data(
-                from: NSRange(location: 0, length: attributed.length),
-                documentAttributes: [
-                    .documentType: documentType,
-                    .characterEncoding: String.Encoding.utf8.rawValue,
-                ]
-            ),
-                rewritten.setData(data, forType: type) else { return nil }
         }
         return rewritten
     }
