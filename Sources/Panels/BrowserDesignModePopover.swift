@@ -28,23 +28,16 @@ struct BrowserDesignModePopover: View {
             // The card grows downward with the prompt; the inner scroll
             // viewport only engages past this generous ceiling.
             .frame(height: min(max(tokenFieldHeight, 22), 340))
-            let isEmptyPrompt = (controller.snapshot?.selections.isEmpty ?? true)
-                && controller.requestedChange.isEmpty
-            if tokenFieldHeight > 34, !isEmptyPrompt {
-                VStack(alignment: .leading, spacing: 8) {
-                    field
-                    HStack(alignment: .center, spacing: 10) {
-                        modeToggle
-                        Spacer(minLength: 0)
-                        copyButton
-                    }
-                }
-            } else {
-                HStack(alignment: .center, spacing: 10) {
-                    modeToggle
-                    field
-                    copyButton
-                }
+            // ONE layout for every prompt size: the field keeps a constant
+            // width and only grows downward, with the controls riding the
+            // bottom edge. Switching between an inline and a stacked layout
+            // changed the field width, which re-wrapped the text, which
+            // changed the height, which switched the layout back — a SwiftUI
+            // livelock (100% CPU) at boundary-length prompts.
+            HStack(alignment: .bottom, spacing: 10) {
+                modeToggle
+                field
+                copyButton
             }
             errorMessage
         }
