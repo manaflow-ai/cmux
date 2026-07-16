@@ -301,7 +301,7 @@ struct ChatArtifactViewerPager: View {
         Button {
             model.requestBottom()
         } label: {
-            Label(jumpToBottomTitle(snapshot: snapshot), systemImage: "arrow.down.to.line")
+            Label(jumpToEndTitle(snapshot: snapshot), systemImage: "arrow.down.to.line")
         }
         Button {
             model.toggleLineNumbers()
@@ -359,19 +359,21 @@ struct ChatArtifactViewerPager: View {
         )
     }
 
-    private func jumpToBottomTitle(snapshot: ChatArtifactViewerPageSnapshot) -> String {
-        if snapshot.textReachedEOF {
+    private func jumpToEndTitle(snapshot: ChatArtifactViewerPageSnapshot) -> String {
+        switch ChatArtifactTextEndJumpTarget(reachedEOF: snapshot.textReachedEOF) {
+        case .end:
             return String(
                 localized: "chat.artifact.jump.end",
                 defaultValue: "End",
                 bundle: .module
             )
+        case .latest:
+            return String(
+                localized: "chat.artifact.jump.latest",
+                defaultValue: "Latest",
+                bundle: .module
+            )
         }
-        return String(
-            localized: "chat.artifact.jump.bottom",
-            defaultValue: "Bottom",
-            bundle: .module
-        )
     }
     #endif
 }

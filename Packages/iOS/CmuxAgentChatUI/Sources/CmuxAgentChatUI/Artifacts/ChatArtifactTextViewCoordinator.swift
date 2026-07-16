@@ -17,6 +17,7 @@ final class ChatArtifactTextViewCoordinator: NSObject, UITextViewDelegate {
     private var pendingTextAttributes: [NSAttributedString.Key: Any] = [:]
     private var pendingLineNumberUpdate: (index: ChatArtifactLineIndex, isVisible: Bool)?
     private var latestPostAppendWork: (() -> Void)?
+    private var endJumpTarget: ChatArtifactTextEndJumpTarget?
     private weak var containerView: ChatArtifactTextContainerView?
     private let syntaxHighlighter = ChatArtifactSyntaxHighlighter()
     private var highlightTask: Task<Void, Never>?
@@ -67,6 +68,7 @@ final class ChatArtifactTextViewCoordinator: NSObject, UITextViewDelegate {
     }
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        endJumpTarget = nil
         appendPolicy.beginTracking()
         suspendTextStorageWork()
     }
@@ -98,6 +100,7 @@ final class ChatArtifactTextViewCoordinator: NSObject, UITextViewDelegate {
         pendingTextAttributes.removeAll(keepingCapacity: false)
         pendingLineNumberUpdate = nil
         latestPostAppendWork = nil
+        endJumpTarget = nil
         appliedChunkCount = 0
     }
 
@@ -130,6 +133,7 @@ final class ChatArtifactTextViewCoordinator: NSObject, UITextViewDelegate {
     }
 
     func scrollToTop(in textView: UITextView, animated: Bool) {
+        endJumpTarget = nil
         let target = CGPoint(
             x: -textView.adjustedContentInset.left,
             y: -textView.adjustedContentInset.top
@@ -144,6 +148,30 @@ final class ChatArtifactTextViewCoordinator: NSObject, UITextViewDelegate {
         textView.setContentOffset(target, animated: requiresAnimation)
     }
 
+    func requestEndJump(
+        _ target: ChatArtifactTextEndJumpTarget,
+        in textView: UITextView
+    ) {
+        endJumpTarget = target
+        scrollToDocumentEnd(in: textView, animated: true)
+        settleEndJumpIfReady(in: textView)
+    }
+
+    func reconcileEndJump(reachedEOF: Bool, in textView: UITextView) {
+        if reachedEOF, endJumpTarget == .latest {
+            endJumpTarget = .end
+        }
+        settleEndJumpIfReady(in: textView)
+    }
+
+    func scrollToUTF16Offset(_ offset: Int, in textView: UITextView) {
+        endJumpTarget = nil
+        textView.scrollRangeToVisible(NSRange(
+            location: min(max(offset, 0), textView.textStorage.length),
+            length: 0
+        ))
+    }
+
     private func resumeDeferredUpdates(
         releasedChunkCount: Int,
         in textView: UITextView?
@@ -154,6 +182,9 @@ final class ChatArtifactTextViewCoordinator: NSObject, UITextViewDelegate {
         }
         applyPendingLineNumbersIfReady()
         runPostAppendWorkIfReady()
+        if let textView {
+            settleEndJumpIfReady(in: textView)
+        }
     }
 
     private func flushPendingText(releasedChunkCount: Int, in textView: UITextView) {
@@ -176,8 +207,63 @@ final class ChatArtifactTextViewCoordinator: NSObject, UITextViewDelegate {
         textView.selectedRange = selection
         textView.setContentOffset(contentOffset, animated: false)
 
+        settleEndJumpIfReady(in: textView)
         applyPendingLineNumbersIfReady()
         runPostAppendWorkIfReady()
+    }
+
+    /// Replays a durable latest/end intent after streamed edits become visible.
+    private func settleEndJumpIfReady(in textView: UITextView) {
+        guard let target = endJumpTarget,
+              !appendPolicy.isDeferring,
+              pendingTextChunks.isEmpty else { return }
+        scrollToDocumentEnd(in: textView, animated: false)
+        if target == .end {
+            endJumpTarget = nil
+        }
+    }
+
+    /// Lays out only the final TextKit 1 character range and scrolls to its true bottom.
+    private func scrollToDocumentEnd(in textView: UITextView, animated: Bool) {
+        let minimumY = -textView.adjustedContentInset.top
+        var documentBottom = textView.textContainerInset.top
+            + textView.textContainerInset.bottom
+        if textView.textStorage.length > 0 {
+            let finalCharacterRange = NSRange(
+                location: textView.textStorage.length - 1,
+                length: 1
+            )
+            textView.layoutManager.allowsNonContiguousLayout = true
+            textView.layoutManager.ensureLayout(forCharacterRange: finalCharacterRange)
+            let finalGlyphRange = textView.layoutManager.glyphRange(
+                forCharacterRange: finalCharacterRange,
+                actualCharacterRange: nil
+            )
+            let finalGlyphRect = textView.layoutManager.boundingRect(
+                forGlyphRange: finalGlyphRange,
+                in: textView.textContainer
+            )
+            documentBottom += max(
+                finalGlyphRect.maxY,
+                textView.layoutManager.extraLineFragmentRect.maxY
+            )
+        }
+        let target = CGPoint(
+            x: textView.contentOffset.x,
+            y: max(
+                minimumY,
+                documentBottom
+                    - textView.bounds.height
+                    + textView.adjustedContentInset.bottom
+            )
+        )
+        let requiresAnimation = animated
+            && abs(textView.contentOffset.y - target.y) > 0.5
+        if requiresAnimation {
+            appendPolicy.beginProgrammaticAnimation()
+            suspendTextStorageWork()
+        }
+        textView.setContentOffset(target, animated: requiresAnimation)
     }
 
     private func applyPendingLineNumbersIfReady() {
@@ -553,6 +639,7 @@ final class ChatArtifactTextViewCoordinator: NSObject, UITextViewDelegate {
         )
         appliedSearchRange = currentRange
         if scrollToMatch {
+            endJumpTarget = nil
             textView.scrollRangeToVisible(currentRange)
         }
     }

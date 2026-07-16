@@ -50,7 +50,7 @@ struct ChatArtifactTextView: UIViewRepresentable {
             textView.selectedRange = NSRange(location: 0, length: 0)
             context.coordinator.documentID = documentID
             context.coordinator.handledTopRequestID = topRequestID
-            context.coordinator.handledBottomRequestID = bottomRequestID
+            context.coordinator.handledBottomRequestID = 0
             context.coordinator.handledGoToLineRequestID = goToLineRequestID
         }
 
@@ -121,25 +121,22 @@ struct ChatArtifactTextView: UIViewRepresentable {
 
         if isNewDocument {
             coordinator.scrollToTop(in: textView, animated: false)
-        } else {
-            if coordinator.handledTopRequestID != topRequestID {
-                coordinator.handledTopRequestID = topRequestID
-                coordinator.scrollToTop(in: textView, animated: true)
-            }
-            if coordinator.handledBottomRequestID != bottomRequestID {
-                coordinator.handledBottomRequestID = bottomRequestID
-                textView.scrollRangeToVisible(
-                    NSRange(location: textView.textStorage.length, length: 0)
-                )
-            }
-            if coordinator.handledGoToLineRequestID != goToLineRequestID {
-                coordinator.handledGoToLineRequestID = goToLineRequestID
-                textView.scrollRangeToVisible(NSRange(
-                    location: min(max(goToLineUTF16Offset, 0), textView.textStorage.length),
-                    length: 0
-                ))
-            }
+        } else if coordinator.handledTopRequestID != topRequestID {
+            coordinator.handledTopRequestID = topRequestID
+            coordinator.scrollToTop(in: textView, animated: true)
         }
+        if coordinator.handledBottomRequestID != bottomRequestID {
+            coordinator.handledBottomRequestID = bottomRequestID
+            coordinator.requestEndJump(
+                ChatArtifactTextEndJumpTarget(reachedEOF: reachedEOF),
+                in: textView
+            )
+        }
+        if coordinator.handledGoToLineRequestID != goToLineRequestID {
+            coordinator.handledGoToLineRequestID = goToLineRequestID
+            coordinator.scrollToUTF16Offset(goToLineUTF16Offset, in: textView)
+        }
+        coordinator.reconcileEndJump(reachedEOF: reachedEOF, in: textView)
     }
 }
 #endif
