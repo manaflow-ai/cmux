@@ -1700,17 +1700,21 @@ impl ContextMenu {
     }
 
     fn select_previous(&mut self) {
-        if let Some(index) =
-            self.items[..self.selected].iter().rposition(|item| item.action().is_some())
+        if let Some(index) = self
+            .items
+            .get(..self.selected)
+            .and_then(|items| items.iter().rposition(|item| item.action().is_some()))
         {
             self.selected = index;
         }
     }
 
     fn select_next(&mut self) {
-        if let Some(offset) = self.items[self.selected.saturating_add(1)..]
-            .iter()
-            .position(|item| item.action().is_some())
+        let start = self.selected.saturating_add(1);
+        if let Some(offset) = self
+            .items
+            .get(start..)
+            .and_then(|items| items.iter().position(|item| item.action().is_some()))
         {
             self.selected += offset + 1;
         }
@@ -6725,6 +6729,17 @@ mod tests {
         assert_eq!(menu.selected_action(), Some(MenuAction::NewTab(7)));
         menu.select_previous();
         assert_eq!(menu.selected_action(), Some(MenuAction::CloseTab(7)));
+
+        menu.selected = usize::MAX;
+        menu.select_previous();
+        menu.select_next();
+        assert_eq!(menu.selected, usize::MAX);
+        assert_eq!(menu.selected_action(), None);
+
+        let mut empty = ContextMenu::at(10, 5, Vec::new());
+        empty.select_previous();
+        empty.select_next();
+        assert_eq!(empty.selected_action(), None);
     }
 
     #[test]
