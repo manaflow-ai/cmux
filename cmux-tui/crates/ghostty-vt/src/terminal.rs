@@ -499,6 +499,13 @@ impl Terminal {
         )
     }
 
+    /// Cursor position (column, row), zero-indexed within the active area.
+    pub fn cursor_position(&self) -> Option<(u16, u16)> {
+        let x = self.get::<u16>(sys::GHOSTTY_TERMINAL_DATA_CURSOR_X).ok()?;
+        let y = self.get::<u16>(sys::GHOSTTY_TERMINAL_DATA_CURSOR_Y).ok()?;
+        Some((x, y))
+    }
+
     pub fn resize(
         &mut self,
         cols: u16,
@@ -807,7 +814,12 @@ impl Terminal {
         &mut self,
         selection: Option<&sys::GhosttySelection>,
     ) -> Result<Vec<u8>> {
-        self.format(Self::vt_replay_options(selection))
+        let suffix = self.cursor_position_escape();
+        let mut replay = self.format(Self::vt_replay_options(selection))?;
+        if let Some(suffix) = suffix {
+            replay.extend_from_slice(&suffix);
+        }
+        Ok(replay)
     }
 
     fn vt_replay_with_selection_bounded(
@@ -815,7 +827,22 @@ impl Terminal {
         selection: Option<&sys::GhosttySelection>,
         max_bytes: usize,
     ) -> Result<Option<Vec<u8>>> {
-        self.format_bounded(Self::vt_replay_options(selection), max_bytes)
+        let suffix = self.cursor_position_escape().unwrap_or_default();
+        let Some(format_max_bytes) = max_bytes.checked_sub(suffix.len()) else {
+            return Ok(None);
+        };
+        let Some(mut replay) =
+            self.format_bounded(Self::vt_replay_options(selection), format_max_bytes)?
+        else {
+            return Ok(None);
+        };
+        replay.extend_from_slice(&suffix);
+        Ok(Some(replay))
+    }
+
+    fn cursor_position_escape(&self) -> Option<Vec<u8>> {
+        let (x, y) = self.cursor_position()?;
+        Some(format!("\x1b[{};{}H", u32::from(y) + 1, u32::from(x) + 1).into_bytes())
     }
 
     fn vt_replay_options(

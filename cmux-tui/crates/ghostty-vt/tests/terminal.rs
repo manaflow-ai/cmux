@@ -169,6 +169,29 @@ fn cursor_override_tracker_survives_utf8_text() {
 }
 
 #[test]
+fn vt_replay_restores_cursor_position_after_tabstops() {
+    // The formatter emits tabstop programming after its cursor restore. The
+    // replay wrapper re-asserts the true cursor last so a byte-mode frontend
+    // does not end parked on the final tabstop column.
+    let mut source = Terminal::new(104, 39, 0, Callbacks::default()).unwrap();
+    source.vt_write(b"lawrence in ~ \xce\xbb ");
+    let expected = source.cursor_position().unwrap();
+    assert_eq!(expected, (16, 0));
+
+    let full = source.vt_replay().unwrap();
+    let bounded = source.vt_replay_bounded(8 * 1024 * 1024).unwrap();
+    for replay in [&full, &bounded] {
+        let mut mirror = Terminal::new(104, 39, 0, Callbacks::default()).unwrap();
+        mirror.vt_write(replay);
+        assert_eq!(
+            mirror.cursor_position().unwrap(),
+            expected,
+            "mirror cursor diverged after replay"
+        );
+    }
+}
+
+#[test]
 fn plain_text_dump() {
     let mut term = Terminal::new(40, 5, 0, Callbacks::default()).unwrap();
     term.vt_write(b"alpha\r\nbeta");
