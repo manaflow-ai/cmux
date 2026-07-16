@@ -14,10 +14,6 @@ on:
   # release flow. See nightly.yml for the rolling dogfood lane.
   workflow_dispatch:
     inputs:
-      branch:
-        description: Optional branch to checkout (for hotfix releases; defaults to main)
-        required: false
-        default: ""
       build_number:
         description: CFBundleVersion to stamp (defaults to UTC yyyyMMddHHmmss)
         required: false
@@ -347,7 +343,6 @@ jobs:
           # range since the last beta.
           fetch-depth: 0
           fetch-tags: true
-          ref: ${{ github.event.inputs.branch || github.ref_name }}
 
       - name: Select Xcode
         run: |
