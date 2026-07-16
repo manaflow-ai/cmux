@@ -9,7 +9,7 @@ private final class AgentNotificationDeduper: @unchecked Sendable {
 
     func claim(_ key: String, now: TimeInterval = Date().timeIntervalSince1970) -> Bool {
         lock.withLock {
-            recent = recent.filter { now - $0.value <= 60 * 60 }
+            recent = recent.filter { now - $0.value <= 30 }
             guard recent[key] == nil else { return false }
             recent[key] = now
             if recent.count > 128 {

@@ -26821,6 +26821,7 @@ struct CMUXCLI {
                     publishCodexMonitorFailure(
                         failure,
                         sessionId: sessionId,
+                        turnId: turnId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
                         client: client
@@ -26863,6 +26864,7 @@ struct CMUXCLI {
                     publishCodexMonitorFailure(
                         failure,
                         sessionId: sessionId,
+                        turnId: turnId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
                         client: client
@@ -26886,6 +26888,7 @@ struct CMUXCLI {
                     isStreamError: false
                 ),
                 sessionId: sessionId,
+                turnId: turnId,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 client: client
@@ -26919,6 +26922,7 @@ struct CMUXCLI {
     private func publishCodexMonitorFailure(
         _ failure: CodexHookFailureCandidate,
         sessionId: String,
+        turnId: String?,
         workspaceId: String,
         surfaceId: String?,
         client: SocketClient
@@ -26927,6 +26931,7 @@ struct CMUXCLI {
         if let surfaceId, !surfaceId.isEmpty {
             guard let fingerprint = AgentHookNotificationPolicy.codexCriticalFingerprint(
                 sessionId: sessionId,
+                turnId: turnId,
                 body: summary.body
             ) else { return }
             let payload = "Codex|\(sanitizeNotificationField(summary.subtitle))|\(sanitizeNotificationField(summary.body))|d=\(fingerprint)"
@@ -26971,7 +26976,6 @@ struct CMUXCLI {
                 queue: DispatchQueue.global(qos: .utility)
             )
             source.setEventHandler {
-                processExit.record()
                 semaphore.signal()
             }
             source.setCancelHandler {
@@ -26991,6 +26995,7 @@ struct CMUXCLI {
                 queue: DispatchQueue.global(qos: .utility)
             )
             source.setEventHandler {
+                processExit.record()
                 semaphore.signal()
             }
             source.resume()
@@ -31351,7 +31356,11 @@ export default CMUXSessionRestore;
                 body: body
             )
             let codexCriticalFingerprint = stopNotificationStatus == .error
-                ? AgentHookNotificationPolicy.codexCriticalFingerprint(sessionId: sessionId, body: body)
+                ? AgentHookNotificationPolicy.codexCriticalFingerprint(
+                    sessionId: sessionId,
+                    turnId: input.turnId,
+                    body: body
+                )
                 : nil
             let stopNotificationAlreadyRouted = (input.rawObject?["cmux_notification_routed"] as? Bool) == true
                 || (input.object?["cmux_notification_routed"] as? Bool) == true

@@ -65,12 +65,25 @@ struct AgentHookNotificationPolicyTests {
             category: .idleReminder,
             body: "waiting"
         ) == nil)
-        #expect(AgentHookNotificationPolicy.codexCriticalFingerprint(
+        let firstCritical = AgentHookNotificationPolicy.codexCriticalFingerprint(
             sessionId: "session-1",
+            turnId: "turn-1",
             body: "stream disconnected"
-        ) == "codex-critical:a9b90bc348227d0c")
+        )
+        #expect(firstCritical?.hasPrefix("codex-critical:") == true)
+        #expect(firstCritical != AgentHookNotificationPolicy.codexCriticalFingerprint(
+            sessionId: "session-2",
+            turnId: "turn-1",
+            body: "stream disconnected"
+        ))
+        #expect(firstCritical != AgentHookNotificationPolicy.codexCriticalFingerprint(
+            sessionId: "session-1",
+            turnId: "turn-2",
+            body: "stream disconnected"
+        ))
         #expect(AgentHookNotificationPolicy.codexCriticalFingerprint(
             sessionId: "",
+            turnId: "turn-1",
             body: "stream disconnected"
         ) == nil)
         #expect(AgentHookNotificationPolicy.dedupeFingerprint(
