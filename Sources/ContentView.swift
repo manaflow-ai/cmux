@@ -1410,6 +1410,19 @@ struct ContentView: View {
         let timer = DispatchSource.makeTimerSource(queue: .main)
         timer.schedule(deadline: .now(), repeating: .milliseconds(16), leeway: .milliseconds(2))
         timer.setEventHandler {
+            // Ground-truth failsafe: a cancelled SwiftUI drag gesture never
+            // fires onEnded, stranding isResizerDragging and pinning the
+            // resize cursor. If the physical button is up, the drag is over.
+            if isResizerDragging,
+               !CGEventSource.buttonState(.combinedSessionState, button: .left) {
+                isResizerDragging = false
+                sidebarDragStartWidth = nil
+                fileExplorerDragStartWidth = nil
+                hoveredResizerHandles.removeAll()
+                releaseSidebarResizerCursorIfNeeded(force: true)
+                stopSidebarResizerCursorStabilizer()
+                return
+            }
             updateSidebarResizerBandState()
             if isResizerBandActive || isResizerDragging {
                 Self.fixedSidebarResizeCursor.set()
