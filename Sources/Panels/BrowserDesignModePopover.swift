@@ -259,34 +259,66 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
 
         /// Rebuilds the token prefix when the selection stack changed,
         /// preserving the typed text and cursor position.
+        /// Reconciles the storage with the selection stack incrementally so
+        /// tokens stay where the user left them in the prompt: vanished
+        /// selections are deleted in place, new selections append at the END
+        /// of the existing content ("[pill] text [pill] text"), and the caret
+        /// lands after a newly appended token to continue typing.
         func sync(selections: [BrowserDesignModeSelection], requestedChange: String) {
-            guard let textView else { return }
+            guard let textView, let storage = textView.textStorage else { return }
             let identities = selections.map(\.selector)
-            let current = attachmentIdentities(in: textView.textStorage)
-            guard identities != current || plainText(of: textView.textStorage) != requestedChange else {
-                lastIdentities = identities
+            let current = attachmentIdentities(in: storage)
+            guard identities.sorted() != current.sorted()
+                || plainText(of: storage) != requestedChange else {
+                lastIdentities = current
                 return
             }
             syncing = true
             defer { syncing = false }
-            // Preserve the caret relative to the end of the text: a rebuild
-            // only changes the token prefix, so distance-from-end keeps a
-            // mid-text caret in place when a new selection arrives.
-            let oldLength = textView.textStorage?.length ?? 0
-            let caretFromEnd = max(0, oldLength - textView.selectedRange().location)
-            let composed = NSMutableAttributedString()
-            for (index, selection) in selections.enumerated() {
-                composed.append(BrowserDesignModeTokenAttachment.attributedToken(for: selection, at: index))
-                composed.append(NSAttributedString(string: " ", attributes: typingAttributes))
+
+            // Delete tokens whose selections are gone, wherever they sit,
+            // absorbing one trailing space so no double gaps remain.
+            let wanted = Set(identities)
+            var obsolete: [NSRange] = []
+            storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
+                guard let attachment = value as? BrowserDesignModeTokenAttachment,
+                      !wanted.contains(attachment.identity) else { return }
+                var expanded = range
+                if expanded.upperBound < storage.length,
+                   (storage.string as NSString).substring(
+                       with: NSRange(location: expanded.upperBound, length: 1)
+                   ) == " " {
+                    expanded.length += 1
+                }
+                obsolete.append(expanded)
             }
-            composed.append(NSAttributedString(string: requestedChange, attributes: typingAttributes))
-            textView.textStorage?.setAttributedString(composed)
+            for range in obsolete.reversed() {
+                storage.deleteCharacters(in: range)
+            }
+
+            // Append tokens for newly stacked selections after whatever the
+            // user already has.
+            let present = Set(attachmentIdentities(in: storage))
+            var appended = false
+            for selection in selections where !present.contains(selection.selector) {
+                let insertion = NSMutableAttributedString()
+                if storage.length > 0, !storage.string.hasSuffix(" ") {
+                    insertion.append(NSAttributedString(string: " ", attributes: typingAttributes))
+                }
+                insertion.append(BrowserDesignModeTokenAttachment.attributedToken(for: selection, at: 0))
+                insertion.append(NSAttributedString(string: " ", attributes: typingAttributes))
+                storage.append(insertion)
+                appended = true
+            }
+
             textView.typingAttributes = typingAttributes
-            textView.setSelectedRange(NSRange(location: max(0, composed.length - caretFromEnd), length: 0))
-            lastIdentities = identities
-            if identities != current {
+            if appended {
+                textView.setSelectedRange(NSRange(location: storage.length, length: 0))
+                textView.scrollRangeToVisible(NSRange(location: storage.length, length: 0))
                 textView.window?.makeFirstResponder(textView)
             }
+            lastIdentities = attachmentIdentities(in: storage)
+            controller.requestedChange = plainText(of: storage)
             // sync() runs inside makeNSView/updateNSView; defer the height
             // report so the @State write happens outside SwiftUI's update
             // pass. textDidChange() reports synchronously (AppKit event).
@@ -307,19 +339,23 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
             let identities = attachmentIdentities(in: textView.textStorage)
             controller.requestedChange = plainText(of: textView.textStorage)
             if identities != lastIdentities {
-                // Tokens were deleted through editing: remove the matching
-                // selections, highest index first.
+                // Tokens were deleted through editing. Storage order can
+                // diverge from the runtime's click order (tokens may be
+                // moved around in the text), so map each removed identity to
+                // its index in the controller's selections, highest first.
                 var remaining = identities
-                var removed: [Int] = []
-                for (index, identity) in lastIdentities.enumerated() {
+                var removedIdentities: [String] = []
+                for identity in lastIdentities {
                     if let position = remaining.firstIndex(of: identity) {
                         remaining.remove(at: position)
                     } else {
-                        removed.append(index)
+                        removedIdentities.append(identity)
                     }
                 }
                 lastIdentities = identities
-                let indexes = removed.sorted(by: >)
+                let indexes = removedIdentities.compactMap { identity in
+                    controller.snapshot?.selections.firstIndex(where: { $0.selector == identity })
+                }.sorted(by: >)
                 Task { @MainActor [controller] in
                     for index in indexes {
                         await controller.removeSelection(at: index)
