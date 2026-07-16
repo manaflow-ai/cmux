@@ -228,6 +228,46 @@ struct WorkspaceSidebarObservationTests {
         )
     }
 
+    @Test func coalesceLatestDeliversNoMoreValuesThanDownstreamDemanded() {
+        let scheduler = VirtualCoalesceScheduler()
+        let subject = PassthroughSubject<Int, Never>()
+        let subscriber = DemandLimitedSubscriber<Int>(initialDemand: .max(1))
+        subject
+            .coalesceLatest(for: .milliseconds(50), scheduler: scheduler)
+            .subscribe(subscriber)
+
+        subject.send(1) // replay: forwarded, and consumes the only demand
+        #expect(subscriber.received == [1])
+
+        subject.send(2) // leading edge, but downstream has asked for nothing more
+
+        #expect(
+            subscriber.received == [1],
+            "A value must not be forwarded while downstream demand is zero: the sidebar observes this operator through `.values`, and an AsyncPublisher traps on a value it never requested."
+        )
+    }
+
+    @Test func coalesceLatestForwardsValueHeldForDemandOnceDemandArrives() {
+        let scheduler = VirtualCoalesceScheduler()
+        let subject = PassthroughSubject<Int, Never>()
+        let subscriber = DemandLimitedSubscriber<Int>(initialDemand: .max(1))
+        subject
+            .coalesceLatest(for: .milliseconds(50), scheduler: scheduler)
+            .subscribe(subscriber)
+
+        subject.send(1) // replay: consumes the only demand
+        subject.send(2) // held: no demand to forward it with
+        subject.send(3) // supersedes 2 as the latest held value
+        #expect(subscriber.received == [1])
+
+        subscriber.request(.max(1))
+
+        #expect(
+            subscriber.received == [1, 3],
+            "Withholding a value for want of demand must defer it, not drop it, and the coalesced latest is the one that survives."
+        )
+    }
+
     @Test func sidebarObservationPublisherIgnoresRemoteHeartbeatOnlyChanges() {
         let workspace = Workspace()
 
@@ -376,6 +416,37 @@ private final class ObservationChangeFlag: @unchecked Sendable {
     func mark() {
         fired = true
     }
+}
+
+// A subscriber whose demand is bounded and explicit. `sink` requests unlimited
+// demand, so it can never observe whether an operator forwards a value nobody
+// asked for; this records what arrives and asks for more only when told to.
+private final class DemandLimitedSubscriber<Input>: Subscriber, @unchecked Sendable {
+    typealias Failure = Never
+
+    private(set) var received: [Input] = []
+    private var subscription: Subscription?
+    private let initialDemand: Subscribers.Demand
+
+    init(initialDemand: Subscribers.Demand) {
+        self.initialDemand = initialDemand
+    }
+
+    func request(_ demand: Subscribers.Demand) {
+        subscription?.request(demand)
+    }
+
+    func receive(subscription: Subscription) {
+        self.subscription = subscription
+        subscription.request(initialDemand)
+    }
+
+    func receive(_ input: Input) -> Subscribers.Demand {
+        received.append(input)
+        return .none
+    }
+
+    func receive(completion: Subscribers.Completion<Never>) {}
 }
 
 // Deterministic Combine scheduler for coalesceLatest tests: `now` only moves
