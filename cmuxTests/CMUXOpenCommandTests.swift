@@ -50,6 +50,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         let state = MockSocketServerState()
         let workspaceID = UUID().uuidString.lowercased()
         let paneID = UUID().uuidString.lowercased()
+        let callerSurfaceID = UUID().uuidString.lowercased()
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
@@ -57,8 +58,14 @@ final class CMUXOpenCommandTests: XCTestCase {
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
             guard let payload = Self.v2Payload(from: line),
-                  let id = payload["id"] as? String else {
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
                 return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+            if method == "surface.list" {
+                return Self.v2Response(id: id, ok: true, result: [
+                    "surfaces": [["id": callerSurfaceID, "pane_id": paneID]],
+                ])
             }
             return Self.v2Response(id: id, ok: true, result: ["completed": true])
         }
@@ -69,14 +76,16 @@ final class CMUXOpenCommandTests: XCTestCase {
             arguments: ["simulator", "tap", "0.5", "0.5"],
             environmentOverrides: [
                 "CMUX_WORKSPACE_ID": workspaceID,
-                "CMUX_PANE_ID": paneID,
+                "CMUX_SURFACE_ID": callerSurfaceID,
             ]
         )
 
         wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        let command = try XCTUnwrap(state.commands.first)
+        let command = try XCTUnwrap(state.commands.first(where: {
+            Self.v2Payload(from: $0)?["method"] as? String == "simulator.tap"
+        }))
         let payload = try XCTUnwrap(Self.v2Payload(from: command))
         let params = try XCTUnwrap(payload["params"] as? [String: Any])
         XCTAssertEqual(payload["method"] as? String, "simulator.tap")

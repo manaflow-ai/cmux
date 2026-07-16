@@ -227,6 +227,11 @@ extension CMUXCLI {
                 surface: surface, client: client, windowOverride: windowOverride
             )]
             targetsRequireContextResolution = false
+        } else if workspace == nil {
+            targets = [try iosContextPayload(
+                surface: nil, client: client, windowOverride: windowOverride
+            )]
+            targetsRequireContextResolution = false
         } else {
             let candidates = try iosTargetPayloads(
                 workspace: workspace, client: client, windowOverride: windowOverride
@@ -365,16 +370,13 @@ extension CMUXCLI {
     private func iosContextPayload(
         surface: String?, client: SocketClient, windowOverride: String?
     ) throws -> [String: Any] {
-        let window = try normalizeWindowHandle(windowOverride, client: client)
-        let normalizedSurface = try normalizeSurfaceHandle(
-            surface, client: client, windowHandle: window
-        )
-        var params: [String: Any] = [:]
-        if let window { params["window_id"] = window }
-        if let normalizedSurface { params["surface_id"] = normalizedSurface }
         return try client.sendV2(
             method: "simulator.context",
-            params: params,
+            params: simulatorRoutingParams(
+                surface: surface,
+                client: client,
+                windowOverride: windowOverride
+            ),
             responseTimeout: simulatorOperationDeadlines.clientTimeout(
                 for: simulatorOperationDeadlines.selectDevice
             )
@@ -450,22 +452,11 @@ extension CMUXCLI {
             client: client,
             windowHandle: window
         )
-        var params: [String: Any] = [:]
-        if let window { params["window_id"] = window }
-        if let surface { params["surface_id"] = surface }
-        if surface == nil, window == nil {
-            let environment = ProcessInfo.processInfo.environment
-            if let workspaceID = environment["CMUX_WORKSPACE_ID"]?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-               !workspaceID.isEmpty {
-                params["workspace_id"] = workspaceID
-            }
-            if let paneID = environment["CMUX_PANE_ID"]?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-               !paneID.isEmpty {
-                params["pane_id"] = paneID
-            }
-        }
+        var params = try simulatorRoutingParams(
+            normalizedSurface: surface,
+            client: client,
+            window: window
+        )
 
         if let request = try simulatorAgentRequest(subcommand: subcommand, arguments: parsed) {
             params.merge(request.params, uniquingKeysWith: { _, new in new })
@@ -567,6 +558,61 @@ extension CMUXCLI {
                 defaultValue: "Completed"
             ))
         }
+    }
+
+    private func simulatorRoutingParams(
+        surface: String?,
+        client: SocketClient,
+        windowOverride: String?
+    ) throws -> [String: Any] {
+        let window = try normalizeWindowHandle(windowOverride, client: client)
+        let normalizedSurface = try normalizeSurfaceHandle(
+            surface,
+            client: client,
+            windowHandle: window
+        )
+        return try simulatorRoutingParams(
+            normalizedSurface: normalizedSurface,
+            client: client,
+            window: window
+        )
+    }
+
+    private func simulatorRoutingParams(
+        normalizedSurface: String?,
+        client: SocketClient,
+        window: String?
+    ) throws -> [String: Any] {
+        if let window { return ["window_id": window] }
+        if let normalizedSurface { return ["surface_id": normalizedSurface] }
+
+        let environment = ProcessInfo.processInfo.environment
+        guard let workspaceID = environment["CMUX_WORKSPACE_ID"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !workspaceID.isEmpty else { return [:] }
+        var params: [String: Any] = ["workspace_id": workspaceID]
+        if let callerSurfaceID = environment["CMUX_SURFACE_ID"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !callerSurfaceID.isEmpty,
+           let paneID = try simulatorPaneIDForCallerSurface(
+               workspaceID: workspaceID, surfaceID: callerSurfaceID, client: client
+           ) {
+            params["pane_id"] = paneID
+        }
+        return params
+    }
+
+    private func simulatorPaneIDForCallerSurface(
+        workspaceID: String,
+        surfaceID: String,
+        client: SocketClient
+    ) throws -> String? {
+        let payload = try client.sendV2(
+            method: "surface.list",
+            params: ["workspace_id": workspaceID]
+        )
+        let surfaces = payload["surfaces"] as? [[String: Any]] ?? []
+        return surfaces.first(where: { $0["id"] as? String == surfaceID })?["pane_id"] as? String
     }
 
 }
