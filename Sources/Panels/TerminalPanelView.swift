@@ -6,6 +6,7 @@ import CmuxAppKitSupportUI
 import CmuxTestSupport
 import CmuxTerminal
 import CmuxFoundation
+import CmuxSettings
 
 /// View for rendering a terminal panel
 struct TerminalPanelView: View {
@@ -14,6 +15,10 @@ struct TerminalPanelView: View {
     private var notificationPaneRingEnabled = NotificationPaneRingSettings.defaultEnabled
     @AppStorage(TerminalTextBoxInputSettings.maxLinesKey)
     private var textBoxMaxLines = TerminalTextBoxInputSettings.defaultMaxLines
+    @AppStorage(SessionContentWidthSettings.maxWidthKey)
+    private var storedSessionContentMaximumWidth = SessionContentWidthSettings.noMaximumWidth
+    @AppStorage(SessionContentWidthSettings.alignmentKey)
+    private var storedSessionContentAlignment = SessionContentAlignment.center.rawValue
     @State private var terminalFontSize = GhosttyConfig.load(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).fontSize
     let paneId: PaneID
     let isFocused: Bool
@@ -81,6 +86,7 @@ struct TerminalPanelView: View {
                 inactiveOverlayOpacity: appearance.unfocusedOverlayOpacity,
                 searchState: panel.searchState,
                 reattachToken: panel.viewReattachToken,
+                sessionContentWidthPresentation: sessionContentWidthPresentation,
                 onFocus: { _ in
                     panel.terminalDidBecomeFocused()
                     onFocus()
@@ -146,12 +152,20 @@ struct TerminalPanelView: View {
                         panel.preserveTextBoxContentForUnmount(from: view)
                     }
                 )
+                .sessionContentWidth(fillsHeight: false)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(nsColor: appearance.contentBackgroundColor))
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
             terminalFontSize = GhosttyConfig.load(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).fontSize
         }
+    }
+
+    private var sessionContentWidthPresentation: SessionContentWidthPresentation {
+        SessionContentWidthPresentation(
+            storedMaximumWidth: storedSessionContentMaximumWidth,
+            storedAlignment: storedSessionContentAlignment
+        )
     }
 
     @MainActor
