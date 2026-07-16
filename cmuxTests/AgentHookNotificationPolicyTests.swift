@@ -65,6 +65,14 @@ struct AgentHookNotificationPolicyTests {
             category: .idleReminder,
             body: "waiting"
         ) == nil)
+        #expect(AgentHookNotificationPolicy.codexCriticalFingerprint(
+            sessionId: "session-1",
+            body: "stream disconnected"
+        ) == "codex-critical:a9b90bc348227d0c")
+        #expect(AgentHookNotificationPolicy.codexCriticalFingerprint(
+            sessionId: "",
+            body: "stream disconnected"
+        ) == nil)
         #expect(AgentHookNotificationPolicy.dedupeFingerprint(
             agentName: "grok",
             sessionId: "",

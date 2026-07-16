@@ -26980,11 +26980,8 @@ struct CMUXCLI {
     ) {
         let summary = summarizeCodexHookFailureCandidate(failure)
         if let surfaceId, !surfaceId.isEmpty {
-            guard let fingerprint = AgentHookNotificationPolicy.dedupeFingerprint(
-                agentName: "codex",
+            guard let fingerprint = AgentHookNotificationPolicy.codexCriticalFingerprint(
                 sessionId: sessionId,
-                status: .error,
-                category: .other,
                 body: summary.body
             ) else { return }
             let store = ClaudeHookSessionStore()
@@ -31428,6 +31425,9 @@ export default CMUXSessionRestore;
                 category: stopNotificationStatus == .idle ? .turnComplete : .other,
                 body: body
             )
+            let codexCriticalFingerprint = stopNotificationStatus == .error
+                ? AgentHookNotificationPolicy.codexCriticalFingerprint(sessionId: sessionId, body: body)
+                : nil
             let stopNotificationAlreadyRouted = (input.rawObject?["cmux_notification_routed"] as? Bool) == true
                 || (input.object?["cmux_notification_routed"] as? Bool) == true
             // Antigravity's integration defines a stop with active background work
@@ -31449,12 +31449,12 @@ export default CMUXSessionRestore;
             let shouldSendStopAlertNotification: Bool
             if shouldPublishStopAlert,
                isCodexCriticalAlert,
-               let notificationFingerprint,
+               let codexCriticalFingerprint,
                let claimedAt = try? store.claimNotificationEmission(
                    sessionId: sessionId,
-                   fingerprint: notificationFingerprint
+                   fingerprint: codexCriticalFingerprint
                ) {
-                codexCriticalClaim = (notificationFingerprint, claimedAt)
+                codexCriticalClaim = (codexCriticalFingerprint, claimedAt)
                 shouldSendStopAlertNotification = true
             } else {
                 codexCriticalClaim = nil

@@ -210,6 +210,14 @@ enum AgentHookNotificationPolicy {
         return "\(status?.rawValue ?? "attention"):\(stableHash(of: body))"
     }
 
+    /// Critical Codex failures have two publishers: the normal Stop hook and
+    /// the independent transcript monitor. Keep this fingerprint separate from
+    /// the generic agent policy so routine Codex notifications remain undeduped.
+    static func codexCriticalFingerprint(sessionId: String, body: String) -> String? {
+        guard !sessionId.isEmpty else { return nil }
+        return "codex-critical:\(stableHash(of: body))"
+    }
+
     static func preservesDedupeAcrossSessionStart(agentName: String) -> Bool {
         agentName == "grok"
     }
