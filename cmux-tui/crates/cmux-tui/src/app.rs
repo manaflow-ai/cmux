@@ -1618,12 +1618,33 @@ impl MenuAction {
     }
 }
 
+/// One row in a context menu. Separators divide related action groups and
+/// are skipped by keyboard and mouse selection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MenuItem {
+    Action(MenuAction),
+    Separator,
+}
+
+impl MenuItem {
+    pub fn action(self) -> Option<MenuAction> {
+        match self {
+            MenuItem::Action(action) => Some(action),
+            MenuItem::Separator => None,
+        }
+    }
+
+    pub fn label(self) -> Option<&'static str> {
+        self.action().map(|action| action.label())
+    }
+}
+
 /// Right-click context menu overlay. The rect includes the border chrome;
-/// items get a one-cell padding column on each side inside that border
-/// (no extra rows above/below), and the hover/selection highlight spans
-/// the full inner row including those padding cells.
+/// action rows get a one-cell padding column on each side inside that border,
+/// groups are divided by separator rows, and the hover/selection highlight
+/// spans the full inner row including those padding cells.
 pub struct ContextMenu {
-    pub items: Vec<MenuAction>,
+    pub items: Vec<MenuItem>,
     pub selected: usize,
     right_press: (u16, u16),
     right_drag_moved: bool,
@@ -1636,8 +1657,16 @@ impl ContextMenu {
     /// Horizontal padding between the menu edge and the item labels.
     pub const PAD: u16 = 1;
 
-    fn at(x: u16, y: u16, items: Vec<MenuAction>) -> Self {
-        let label_w = items.iter().map(|i| i.label().len()).max().unwrap_or(0) as u16;
+    fn at(x: u16, y: u16, groups: Vec<Vec<MenuAction>>) -> Self {
+        let mut items = Vec::new();
+        for group in groups.into_iter().filter(|group| !group.is_empty()) {
+            if !items.is_empty() {
+                items.push(MenuItem::Separator);
+            }
+            items.extend(group.into_iter().map(MenuItem::Action));
+        }
+        let label_w =
+            items.iter().filter_map(|item| item.label()).map(str::len).max().unwrap_or(0) as u16;
         // One space of inner padding either side of the label, plus the
         // one-cell padding column on each side, plus the border.
         let width = label_w + 2 + Self::PAD * 2 + 2;
@@ -1663,8 +1692,60 @@ impl ContextMenu {
             return None;
         }
         let row = (y - self.rect.y - 1) as usize;
-        (row < self.items.len()).then_some(row)
+        self.items.get(row)?.action().map(|_| row)
     }
+
+    fn selected_action(&self) -> Option<MenuAction> {
+        self.items.get(self.selected).and_then(|item| item.action())
+    }
+
+    fn select_previous(&mut self) {
+        if let Some(index) =
+            self.items[..self.selected].iter().rposition(|item| item.action().is_some())
+        {
+            self.selected = index;
+        }
+    }
+
+    fn select_next(&mut self) {
+        if let Some(offset) = self.items[self.selected.saturating_add(1)..]
+            .iter()
+            .position(|item| item.action().is_some())
+        {
+            self.selected += offset + 1;
+        }
+    }
+}
+
+fn pane_context_menu_groups(
+    pane: PaneId,
+    is_browser: bool,
+    external_browser: bool,
+) -> Vec<Vec<MenuAction>> {
+    let mut browser_actions = Vec::new();
+    if is_browser {
+        browser_actions.extend([
+            MenuAction::BrowserBack(pane),
+            MenuAction::BrowserForward(pane),
+            MenuAction::BrowserReload(pane),
+            MenuAction::BrowserEditUrl(pane),
+            MenuAction::BrowserCopyUrl(pane),
+        ]);
+        if external_browser {
+            browser_actions.push(MenuAction::BrowserActivate(pane));
+        }
+    }
+    vec![
+        vec![MenuAction::RenameTab(pane), MenuAction::CloseTab(pane)],
+        vec![MenuAction::NewTab(pane), MenuAction::NewBrowserTab(pane)],
+        browser_actions,
+        vec![
+            MenuAction::SplitRight(pane),
+            MenuAction::SplitDown(pane),
+            MenuAction::ClosePane(pane),
+        ],
+        vec![MenuAction::CopyTabId(pane), MenuAction::CopyPaneId(pane)],
+    ]
 }
 
 /// What a committed rename prompt applies to.
@@ -4107,15 +4188,15 @@ impl App {
                 Ok(RenderAction::Draw)
             }
             KeyCode::Up => {
-                menu.selected = menu.selected.saturating_sub(1);
+                menu.select_previous();
                 Ok(RenderAction::Draw)
             }
             KeyCode::Down => {
-                menu.selected = (menu.selected + 1).min(menu.items.len().saturating_sub(1));
+                menu.select_next();
                 Ok(RenderAction::Draw)
             }
             KeyCode::Enter => {
-                let action = menu.items[menu.selected];
+                let Some(action) = menu.selected_action() else { return Ok(RenderAction::Draw) };
                 self.menu = None;
                 self.activate_menu(action)?;
                 Ok(RenderAction::Draw)
@@ -5706,8 +5787,9 @@ impl App {
         if plain_open_click {
             self.menu = Some(menu);
         } else if let Some(item) = menu.item_at(x, y) {
-            let action = menu.items[item];
-            self.activate_menu(action)?;
+            if let Some(action) = menu.items[item].action() {
+                self.activate_menu(action)?;
+            }
         } else {
             self.menu = Some(menu);
         }
@@ -5732,7 +5814,9 @@ impl App {
         // the border chrome keep it open without activating.
         if let Some(menu) = self.menu.take() {
             if let Some(item) = menu.item_at(x, y) {
-                self.activate_menu(menu.items[item])?;
+                if let Some(action) = menu.items[item].action() {
+                    self.activate_menu(action)?;
+                }
             } else if menu.rect.contains(x, y) {
                 self.menu = Some(menu); // padding click: keep it open
             }
@@ -6250,9 +6334,8 @@ impl App {
                     x,
                     y,
                     vec![
-                        MenuAction::RenameWorkspace(id),
-                        MenuAction::CopyWorkspaceId(id),
-                        MenuAction::CloseWorkspace(id),
+                        vec![MenuAction::RenameWorkspace(id), MenuAction::CloseWorkspace(id)],
+                        vec![MenuAction::CopyWorkspaceId(id)],
                     ],
                 ));
                 return;
@@ -6261,38 +6344,21 @@ impl App {
                 self.menu = Some(ContextMenu::at(
                     x,
                     y,
-                    vec![MenuAction::RenameScreen(id), MenuAction::CloseScreen(id)],
+                    vec![vec![MenuAction::RenameScreen(id), MenuAction::CloseScreen(id)]],
                 ));
                 return;
             }
             _ => {}
         }
         if let Some(area) = self.pane_area_at(x, y) {
-            let mut items = Vec::new();
-            if self.surface_kind(area.surface) == Some(SurfaceKind::Browser) {
-                items.extend([
-                    MenuAction::BrowserBack(area.pane),
-                    MenuAction::BrowserForward(area.pane),
-                    MenuAction::BrowserReload(area.pane),
-                    MenuAction::BrowserEditUrl(area.pane),
-                    MenuAction::BrowserCopyUrl(area.pane),
-                ]);
-                if self.browser_source(area.surface) == Some(BrowserSource::External) {
-                    items.push(MenuAction::BrowserActivate(area.pane));
-                }
-            }
-            items.extend([
-                MenuAction::RenameTab(area.pane),
-                MenuAction::CopyTabId(area.pane),
-                MenuAction::CopyPaneId(area.pane),
-                MenuAction::NewTab(area.pane),
-                MenuAction::NewBrowserTab(area.pane),
-                MenuAction::SplitRight(area.pane),
-                MenuAction::SplitDown(area.pane),
-                MenuAction::CloseTab(area.pane),
-                MenuAction::ClosePane(area.pane),
-            ]);
-            self.menu = Some(ContextMenu::at(x, y, items));
+            let is_browser = self.surface_kind(area.surface) == Some(SurfaceKind::Browser);
+            let external_browser =
+                self.browser_source(area.surface) == Some(BrowserSource::External);
+            self.menu = Some(ContextMenu::at(
+                x,
+                y,
+                pane_context_menu_groups(area.pane, is_browser, external_browser),
+            ));
         }
     }
 
@@ -6568,14 +6634,14 @@ fn browser_key_mapping(
 #[cfg(test)]
 mod tests {
     use super::{
-        App, AppEvent, BACKGROUND_REFRESH_RETRIES, DeferredInput, Drag, ForwardMuxOutcome,
-        MuxTitleIngress, OrderedSession, PaneArea, PendingSessionMutation,
-        PendingSessionMutationState, PtyFailureIngress, PtyMousePressResult, RenderAction,
-        Selection, SessionCompletion, SessionCompletionAction, SidebarPluginSyncClaim,
-        SidebarPluginSyncState, SurfaceResizeDecision, SurfaceResizeOwnership,
-        browser_content_size_for_rect, browser_hover_forward_allowed, forward_mux_event,
-        forward_mux_events, pane_parts_for_rect, record_surface_resize_dispatch_result,
-        sidebar_plugin_status_settles_passive_claim,
+        App, AppEvent, BACKGROUND_REFRESH_RETRIES, ContextMenu, DeferredInput, Drag,
+        ForwardMuxOutcome, MenuAction, MenuItem, MuxTitleIngress, OrderedSession, PaneArea,
+        PendingSessionMutation, PendingSessionMutationState, PtyFailureIngress,
+        PtyMousePressResult, RenderAction, Selection, SessionCompletion, SessionCompletionAction,
+        SidebarPluginSyncClaim, SidebarPluginSyncState, SurfaceResizeDecision,
+        SurfaceResizeOwnership, browser_content_size_for_rect, browser_hover_forward_allowed,
+        forward_mux_event, forward_mux_events, pane_context_menu_groups, pane_parts_for_rect,
+        record_surface_resize_dispatch_result, sidebar_plugin_status_settles_passive_claim,
     };
     use std::collections::{HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
@@ -6608,6 +6674,75 @@ mod tests {
 
     fn settled(outcome: super::SessionMutationOutcome) -> AppEvent {
         AppEvent::SessionMutationSettled { outcome, routing: false }
+    }
+
+    #[test]
+    fn pane_context_menu_groups_current_tab_creation_layout_and_ids() {
+        let pane = 7;
+        let menu = ContextMenu::at(10, 5, pane_context_menu_groups(pane, false, false));
+
+        assert_eq!(
+            menu.items,
+            vec![
+                MenuItem::Action(MenuAction::RenameTab(pane)),
+                MenuItem::Action(MenuAction::CloseTab(pane)),
+                MenuItem::Separator,
+                MenuItem::Action(MenuAction::NewTab(pane)),
+                MenuItem::Action(MenuAction::NewBrowserTab(pane)),
+                MenuItem::Separator,
+                MenuItem::Action(MenuAction::SplitRight(pane)),
+                MenuItem::Action(MenuAction::SplitDown(pane)),
+                MenuItem::Action(MenuAction::ClosePane(pane)),
+                MenuItem::Separator,
+                MenuItem::Action(MenuAction::CopyTabId(pane)),
+                MenuItem::Action(MenuAction::CopyPaneId(pane)),
+            ]
+        );
+    }
+
+    #[test]
+    fn context_menu_selection_and_hit_testing_skip_separators() {
+        let mut menu = ContextMenu::at(
+            10,
+            5,
+            vec![
+                vec![MenuAction::RenameTab(7), MenuAction::CloseTab(7)],
+                Vec::new(),
+                vec![MenuAction::NewTab(7)],
+            ],
+        );
+
+        assert_eq!(menu.item_at(10, 5), Some(0));
+        assert_eq!(menu.item_at(10, 7), None);
+        assert_eq!(menu.item_at(10, 8), Some(3));
+        assert_eq!(menu.selected_action(), Some(MenuAction::RenameTab(7)));
+
+        menu.select_next();
+        assert_eq!(menu.selected_action(), Some(MenuAction::CloseTab(7)));
+        menu.select_next();
+        assert_eq!(menu.selected_action(), Some(MenuAction::NewTab(7)));
+        menu.select_next();
+        assert_eq!(menu.selected_action(), Some(MenuAction::NewTab(7)));
+        menu.select_previous();
+        assert_eq!(menu.selected_action(), Some(MenuAction::CloseTab(7)));
+    }
+
+    #[test]
+    fn browser_context_menu_keeps_browser_actions_in_their_own_group() {
+        let pane = 7;
+        let groups = pane_context_menu_groups(pane, true, true);
+
+        assert_eq!(
+            groups[2],
+            vec![
+                MenuAction::BrowserBack(pane),
+                MenuAction::BrowserForward(pane),
+                MenuAction::BrowserReload(pane),
+                MenuAction::BrowserEditUrl(pane),
+                MenuAction::BrowserCopyUrl(pane),
+                MenuAction::BrowserActivate(pane),
+            ]
+        );
     }
 
     #[test]
