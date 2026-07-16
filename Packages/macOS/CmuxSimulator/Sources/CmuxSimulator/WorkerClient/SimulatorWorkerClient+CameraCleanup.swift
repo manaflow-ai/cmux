@@ -5,15 +5,29 @@ private let simulatorCameraCleanupWaitTimeout: Duration = .seconds(3)
 struct SimulatorCameraCleanupSnapshot: Sendable {
     let deviceIdentifier: String?
     let bundleIdentifiers: [String]
+    let ownershipTokens: [String: UUID]
 }
 
 extension SimulatorWorkerClient {
     func cameraCleanupSnapshot() -> SimulatorCameraCleanupSnapshot {
-        SimulatorCameraCleanupSnapshot(
+        let bundleIdentifiers = Array(cameraCleanupBundleIdentifiers.union(
+            cameraReplayConfigurations.compactMap(\.targetBundleIdentifier)
+        ).filter { !$0.isEmpty }).sorted()
+        return SimulatorCameraCleanupSnapshot(
             deviceIdentifier: simulatorAttachedDeviceIdentifier(from: lastAttachment),
-            bundleIdentifiers: Array(cameraCleanupBundleIdentifiers.union(
-                cameraReplayConfigurations.compactMap(\.targetBundleIdentifier)
-            ).filter { !$0.isEmpty }).sorted()
+            bundleIdentifiers: bundleIdentifiers,
+            ownershipTokens: cameraCleanupOwners.filter { bundleIdentifiers.contains($0.key) }
+        )
+    }
+
+    func claimCameraCleanupOwnership(bundleIdentifier: String) async {
+        guard !bundleIdentifier.isEmpty,
+              let deviceIdentifier = simulatorAttachedDeviceIdentifier(from: lastAttachment)
+        else { return }
+        cameraCleanupBundleIdentifiers.insert(bundleIdentifier)
+        cameraCleanupOwners[bundleIdentifier] = await cameraCleanupCoordinator.claim(
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier
         )
     }
 
@@ -34,12 +48,15 @@ extension SimulatorWorkerClient {
         cameraCleanupRevision &+= 1
         let simulatorControl = self.simulatorControl
         let permit = cameraCleanupPermit
+        let cleanupCoordinator = cameraCleanupCoordinator
         cameraCleanupTask = await cameraCleanupCoordinator.enqueue {
             guard !Task.isCancelled, await permit.allowsMutation() else { return }
             await cleanSimulatorCameraInjections(
                 deviceIdentifier: deviceIdentifier,
                 bundleIdentifiers: snapshot.bundleIdentifiers,
                 simulatorControl: simulatorControl,
+                ownershipTokens: snapshot.ownershipTokens,
+                cleanupCoordinator: cleanupCoordinator,
                 permit: permit
             )
         }
@@ -81,11 +98,19 @@ func cleanSimulatorCameraInjections(
     deviceIdentifier: String,
     bundleIdentifiers: [String],
     simulatorControl: any SimulatorControlling,
+    ownershipTokens: [String: UUID],
+    cleanupCoordinator: SimulatorCameraCleanupCoordinator,
     permit: SimulatorCameraCleanupPermit? = nil
 ) async {
     for bundleIdentifier in bundleIdentifiers {
+        guard let ownershipToken = ownershipTokens[bundleIdentifier] else { continue }
         guard !Task.isCancelled,
-              await permit?.allowsMutation() != false else { return }
+              await permit?.allowsMutation() != false,
+              await cleanupCoordinator.isCurrent(
+                ownershipToken,
+                deviceIdentifier: deviceIdentifier,
+                bundleIdentifier: bundleIdentifier
+              ) else { continue }
         do {
             _ = try await simulatorControl.perform(.terminateApplication(
                 deviceID: deviceIdentifier,
@@ -95,7 +120,12 @@ func cleanSimulatorCameraInjections(
             return
         } catch {}
         guard !Task.isCancelled,
-              await permit?.allowsMutation() != false else { return }
+              await permit?.allowsMutation() != false,
+              await cleanupCoordinator.isCurrent(
+                ownershipToken,
+                deviceIdentifier: deviceIdentifier,
+                bundleIdentifier: bundleIdentifier
+              ) else { continue }
         do {
             _ = try await simulatorControl.perform(.launchApplication(
                 deviceID: deviceIdentifier,

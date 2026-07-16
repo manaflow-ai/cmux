@@ -25,6 +25,16 @@ struct ShortcutEventFocusContext {
     }
 }
 
+func shortcutResponderAcceptsTextEditing(_ responder: NSResponder) -> Bool {
+    if let textView = responder as? NSTextView {
+        return textView.isEditable || textView.isSelectable || textView.isFieldEditor
+    }
+    if let textField = responder as? NSTextField {
+        return textField.isEditable || textField.isSelectable
+    }
+    return false
+}
+
 struct ShortcutEventFocusContextCache {
     let event: NSEvent
     let context: ShortcutEventFocusContext
@@ -314,6 +324,7 @@ extension AppDelegate {
 
     private func shortcutFocusedSimulatorPanel(in window: NSWindow?) -> SimulatorPanel? {
         guard let window, let responder = window.firstResponder else { return nil }
+        guard !shortcutResponderAcceptsTextEditing(responder) else { return nil }
         if let context = shortcutMainWindowContext(in: window),
            let dock = existingWindowDock(forWindowId: context.windowId) {
             if let panelId = dock.focusedPanelId,

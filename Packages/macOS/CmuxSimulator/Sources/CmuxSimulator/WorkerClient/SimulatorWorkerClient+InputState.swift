@@ -11,7 +11,7 @@ struct SimulatorInputReleaseProof: Sendable {
 }
 
 extension SimulatorWorkerClient {
-    func remember(_ message: SimulatorWorkerInbound) {
+    func remember(_ message: SimulatorWorkerInbound) async {
         switch message {
         case .attach:
             lastAttachment = message
@@ -29,9 +29,8 @@ extension SimulatorWorkerClient {
             pendingTextInputUsages[requestID] = Set(sequence.events.map(\.usage))
         case let .configureCamera(requestID, configuration):
             cameraRequestConfigurations[requestID] = configuration
-            if let bundleIdentifier = configuration.targetBundleIdentifier,
-               !bundleIdentifier.isEmpty {
-                cameraCleanupBundleIdentifiers.insert(bundleIdentifier)
+            if let bundleIdentifier = configuration.targetBundleIdentifier {
+                await claimCameraCleanupOwnership(bundleIdentifier: bundleIdentifier)
             }
         case let .switchCameraSource(requestID, configuration):
             cameraSourceSwitchRequests[requestID] = configuration

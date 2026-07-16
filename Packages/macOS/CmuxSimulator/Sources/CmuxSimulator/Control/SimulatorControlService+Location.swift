@@ -15,18 +15,18 @@ extension SimulatorControlService {
         coordinate: SimulatorLocationCoordinate
     ) async throws {
         let previousRoute = activeLocationRoutes[deviceID]
-        let token = beginLocationOperation(deviceID: deviceID)
+        let token = await beginLocationOperation(deviceID: deviceID)
         do {
             _ = try await output(arguments: [
                 "simctl", "location", deviceID, "set", coordinateArgument(coordinate),
             ])
-            try requireCurrentLocationOperation(deviceID: deviceID, token: token)
+            try await requireCurrentLocationOperation(deviceID: deviceID, token: token)
             activeLocationRoutes.removeValue(forKey: deviceID)
             locationRouteInitialCoordinates.removeValue(forKey: deviceID)
             finishLocationOperation(deviceID: deviceID, token: token)
         } catch {
             finishLocationOperation(deviceID: deviceID, token: token)
-            restoreLocationLifecycle(deviceID: deviceID, state: previousRoute)
+            restoreLocationLifecycle(deviceID: deviceID, state: previousRoute, token: token)
             throw error
         }
     }
@@ -40,16 +40,16 @@ extension SimulatorControlService {
 
     private func clearLocationExclusively(deviceID: String) async throws {
         let previousRoute = activeLocationRoutes[deviceID]
-        let token = beginLocationOperation(deviceID: deviceID)
+        let token = await beginLocationOperation(deviceID: deviceID)
         do {
             _ = try await output(arguments: ["simctl", "location", deviceID, "clear"])
-            try requireCurrentLocationOperation(deviceID: deviceID, token: token)
+            try await requireCurrentLocationOperation(deviceID: deviceID, token: token)
             activeLocationRoutes.removeValue(forKey: deviceID)
             locationRouteInitialCoordinates.removeValue(forKey: deviceID)
             finishLocationOperation(deviceID: deviceID, token: token)
         } catch {
             finishLocationOperation(deviceID: deviceID, token: token)
-            restoreLocationLifecycle(deviceID: deviceID, state: previousRoute)
+            restoreLocationLifecycle(deviceID: deviceID, state: previousRoute, token: token)
             throw error
         }
     }
@@ -73,25 +73,28 @@ extension SimulatorControlService {
         initialCoordinate: SimulatorLocationCoordinate
     ) async throws {
         let previousRoute = activeLocationRoutes[deviceID]
-        let token = beginLocationOperation(deviceID: deviceID)
+        let token = await beginLocationOperation(deviceID: deviceID)
         do {
             try await runLocationRouteCommand(deviceID: deviceID, route: route)
         } catch {
             finishLocationOperation(deviceID: deviceID, token: token)
-            restoreLocationLifecycle(deviceID: deviceID, state: previousRoute)
+            restoreLocationLifecycle(deviceID: deviceID, state: previousRoute, token: token)
             throw error
         }
-        try requireCurrentLocationOperation(deviceID: deviceID, token: token)
+        try await requireCurrentLocationOperation(deviceID: deviceID, token: token)
         locationRouteInitialCoordinates[deviceID] = initialCoordinate
         activeLocationRoutes[deviceID] = .running(route: route, startedAt: now())
         scheduleLocationLifecycle(deviceID: deviceID, route: route, token: token)
     }
 
-    private func restoreLocationLifecycle(deviceID: String, state: ActiveLocationRoute?) {
+    private func restoreLocationLifecycle(
+        deviceID: String,
+        state: ActiveLocationRoute?,
+        token: UUID
+    ) {
         guard let state else { return }
         activeLocationRoutes[deviceID] = state
         guard case let .running(route, startedAt) = state else { return }
-        let token = UUID()
         locationRouteTokens[deviceID] = token
         let elapsed = max(0, now().timeIntervalSince(startedAt))
         let duration = routeDuration(route).map { total in
@@ -170,7 +173,7 @@ extension SimulatorControlService {
         let pausedRoute = remainingRoute(route, after: elapsed)
         let coordinate = pausedRoute.waypoints[0]
         let rollbackState = ActiveLocationRoute.running(route: pausedRoute, startedAt: now())
-        let token = beginLocationOperation(deviceID: deviceID)
+        let token = await beginLocationOperation(deviceID: deviceID)
         var clearCommitted = false
         do {
             _ = try await output(arguments: ["simctl", "location", deviceID, "clear"])
@@ -179,7 +182,7 @@ extension SimulatorControlService {
             _ = try await output(arguments: [
                 "simctl", "location", deviceID, "set", coordinateArgument(coordinate),
             ])
-            try requireCurrentLocationOperation(deviceID: deviceID, token: token)
+            try await requireCurrentLocationOperation(deviceID: deviceID, token: token)
             activeLocationRoutes[deviceID] = .paused(route: pausedRoute)
             finishLocationOperation(deviceID: deviceID, token: token)
         } catch {
@@ -188,7 +191,7 @@ extension SimulatorControlService {
             if clearCommitted {
                 try await restoreExternalLocationLifecycle(deviceID: deviceID, state: rollbackState)
             }
-            restoreLocationLifecycle(deviceID: deviceID, state: rollbackState)
+            restoreLocationLifecycle(deviceID: deviceID, state: rollbackState, token: token)
             throw mutationError
         }
     }
@@ -237,7 +240,7 @@ extension SimulatorControlService {
             return
         }
         let rollbackState = locationRollbackState(activeLocationRoutes[deviceID])
-        let token = beginLocationOperation(deviceID: deviceID)
+        let token = await beginLocationOperation(deviceID: deviceID)
         activeLocationRoutes.removeValue(forKey: deviceID)
         var clearCommitted = false
         do {
@@ -246,7 +249,7 @@ extension SimulatorControlService {
             _ = try await output(arguments: [
                 "simctl", "location", deviceID, "set", coordinateArgument(initialCoordinate),
             ])
-            try requireCurrentLocationOperation(deviceID: deviceID, token: token)
+            try await requireCurrentLocationOperation(deviceID: deviceID, token: token)
             locationRouteInitialCoordinates.removeValue(forKey: deviceID)
             finishLocationOperation(deviceID: deviceID, token: token)
         } catch {
@@ -255,7 +258,7 @@ extension SimulatorControlService {
             if clearCommitted {
                 try await restoreExternalLocationLifecycle(deviceID: deviceID, state: rollbackState)
             }
-            restoreLocationLifecycle(deviceID: deviceID, state: rollbackState)
+            restoreLocationLifecycle(deviceID: deviceID, state: rollbackState, token: token)
             throw mutationError
         }
     }
@@ -480,11 +483,19 @@ extension SimulatorControlService {
         do {
             try await mutationGate.withLocks([.location(deviceIdentifier: deviceID)]) {
                 guard !Task.isCancelled,
+                      await locationOwnershipRegistry.isCurrent(
+                          token,
+                          deviceIdentifier: deviceID
+                      ),
                       locationRouteTokens[deviceID] == token,
                       case let .running(activeRoute, _) = activeLocationRoutes[deviceID],
                       activeRoute == route else { return }
                 try await runLocationRouteCommand(deviceID: deviceID, route: route)
                 guard !Task.isCancelled,
+                      await locationOwnershipRegistry.isCurrent(
+                          token,
+                          deviceIdentifier: deviceID
+                      ),
                       locationRouteTokens[deviceID] == token,
                       case let .running(currentRoute, _) = activeLocationRoutes[deviceID],
                       currentRoute == route else { return }
@@ -502,9 +513,9 @@ extension SimulatorControlService {
         }
     }
 
-    private func beginLocationOperation(deviceID: String) -> UUID {
+    private func beginLocationOperation(deviceID: String) async -> UUID {
         cancelLocationLifecycle(deviceID: deviceID)
-        let token = UUID()
+        let token = await locationOwnershipRegistry.claim(deviceIdentifier: deviceID)
         locationRouteTokens[deviceID] = token
         return token
     }
@@ -514,8 +525,10 @@ extension SimulatorControlService {
         locationRouteTokens.removeValue(forKey: deviceID)
     }
 
-    private func requireCurrentLocationOperation(deviceID: String, token: UUID) throws {
-        guard locationRouteTokens[deviceID] == token else { throw CancellationError() }
+    private func requireCurrentLocationOperation(deviceID: String, token: UUID) async throws {
+        guard locationRouteTokens[deviceID] == token,
+              await locationOwnershipRegistry.isCurrent(token, deviceIdentifier: deviceID)
+        else { throw CancellationError() }
     }
 
     private func cancelLocationLifecycle(deviceID: String) {

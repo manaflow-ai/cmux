@@ -17,6 +17,7 @@ public actor SimulatorControlService: SimulatorControlling {
     let makeUUID: @Sendable () -> UUID
     let now: @Sendable () -> Date
     let routeSleep: @Sendable (Duration) async throws -> Void
+    let locationOwnershipRegistry: SimulatorLocationOwnershipRegistry
     let fractionalDateFormatter: ISO8601DateFormatter
     let internetDateFormatter: ISO8601DateFormatter
     let mutationGate = SimulatorMutationGate()
@@ -43,6 +44,7 @@ public actor SimulatorControlService: SimulatorControlling {
         currentDirectoryURL: URL = URL(fileURLWithPath: ".").standardizedFileURL,
         makeUUID: @escaping @Sendable () -> UUID = UUID.init,
         now: @escaping @Sendable () -> Date = Date.init,
+        locationOwnershipScope: SimulatorLocationOwnershipScope = .shared,
         routeSleep: @escaping @Sendable (Duration) async throws -> Void = {
             try await ContinuousClock().sleep(for: $0)
         }
@@ -61,6 +63,7 @@ public actor SimulatorControlService: SimulatorControlling {
         self.currentDirectoryURL = currentDirectoryURL
         self.makeUUID = makeUUID
         self.now = now
+        self.locationOwnershipRegistry = locationOwnershipScope.registry
         self.routeSleep = routeSleep
         let fractionalDateFormatter = ISO8601DateFormatter()
         fractionalDateFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]

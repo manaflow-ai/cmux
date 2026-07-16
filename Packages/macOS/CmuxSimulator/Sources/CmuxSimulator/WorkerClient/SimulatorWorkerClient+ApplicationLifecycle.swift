@@ -42,6 +42,7 @@ extension SimulatorWorkerClient {
             $0.targetBundleIdentifier == bundleIdentifier
         }
         cameraCleanupBundleIdentifiers.remove(bundleIdentifier)
+        cameraCleanupOwners.removeValue(forKey: bundleIdentifier)
         cameraRequestConfigurations = cameraRequestConfigurations.filter {
             $0.value.targetBundleIdentifier != bundleIdentifier
         }

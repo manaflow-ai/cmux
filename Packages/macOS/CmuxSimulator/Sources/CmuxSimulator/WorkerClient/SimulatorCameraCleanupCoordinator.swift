@@ -4,8 +4,39 @@ import Foundation
 /// client observes the same tail task and cannot configure injection until an
 /// older client's cleanup has stopped mutating Simulator application state.
 actor SimulatorCameraCleanupCoordinator {
+    private struct Target: Hashable {
+        let deviceIdentifier: String
+        let bundleIdentifier: String
+    }
+
     private var tail: Task<Void, Never>?
     private var revision: UInt64 = 0
+    private var ownerByTarget: [Target: UUID] = [:]
+
+    func claim(deviceIdentifier: String, bundleIdentifier: String) async -> UUID {
+        while let pendingCleanup = tail {
+            let observedRevision = revision
+            await pendingCleanup.value
+            if revision == observedRevision { break }
+        }
+        let owner = UUID()
+        ownerByTarget[Target(
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier
+        )] = owner
+        return owner
+    }
+
+    func isCurrent(
+        _ owner: UUID,
+        deviceIdentifier: String,
+        bundleIdentifier: String
+    ) -> Bool {
+        ownerByTarget[Target(
+            deviceIdentifier: deviceIdentifier,
+            bundleIdentifier: bundleIdentifier
+        )] == owner
+    }
 
     func enqueue(
         _ operation: @escaping @Sendable () async -> Void

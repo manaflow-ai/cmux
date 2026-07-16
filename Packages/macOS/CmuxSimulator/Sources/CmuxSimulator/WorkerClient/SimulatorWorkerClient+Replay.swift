@@ -60,7 +60,7 @@ extension SimulatorWorkerClient {
         let message = replayMessages.removeFirst()
         do {
             try child.send(JSONEncoder().encode(message))
-            remember(message)
+            await remember(message)
             if let requestIdentifier = message.requestIdentifier {
                 replayRequestIDs.insert(requestIdentifier)
             } else {
@@ -159,6 +159,7 @@ extension SimulatorWorkerClient {
                 if configuration.isDisabled {
                     cameraReplayConfigurations.removeAll()
                     cameraCleanupBundleIdentifiers.removeAll()
+                    cameraCleanupOwners.removeAll()
                     lastCameraMirrorMode = nil
                 } else {
                     rememberCameraConfiguration(

@@ -175,7 +175,7 @@ extension SimulatorWorkerClient {
             if wasReplay { await driveReplay() }
         case let .cameraTargetResolved(_, bundleIdentifier):
             if !bundleIdentifier.isEmpty {
-                cameraCleanupBundleIdentifiers.insert(bundleIdentifier)
+                await claimCameraCleanupOwnership(bundleIdentifier: bundleIdentifier)
             }
             acknowledgeCameraTargetResolution(for: message)
         case let .cameraMirror(requestID, succeeded):
@@ -324,6 +324,7 @@ extension SimulatorWorkerClient {
               existingIdentifier != deviceIdentifier else { return }
         cameraReplayConfigurations.removeAll()
         cameraCleanupBundleIdentifiers.removeAll()
+        cameraCleanupOwners.removeAll()
         lastCameraMirrorMode = nil
         clearHeldInputState()
     }
@@ -387,6 +388,7 @@ extension SimulatorWorkerClient {
             currentDisplayMetadata = nil
             cameraReplayConfigurations.removeAll()
             cameraCleanupBundleIdentifiers.removeAll()
+            cameraCleanupOwners.removeAll()
             lastCameraMirrorMode = nil
             clearHeldInputState()
         }
@@ -456,7 +458,7 @@ extension SimulatorWorkerClient {
         deferredMessages.removeFirst()
         do {
             try child.send(JSONEncoder().encode(message))
-            remember(message)
+            await remember(message)
             try armResponsivenessProbe()
             completeDeferredDelivery(for: message)
         } catch {

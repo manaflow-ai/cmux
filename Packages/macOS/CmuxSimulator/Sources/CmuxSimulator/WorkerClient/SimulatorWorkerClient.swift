@@ -56,6 +56,7 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
     var cameraSourceSwitchRequests: [UUID: SimulatorCameraConfiguration] = [:]
     var cameraMirrorRequests: [UUID: SimulatorCameraMirrorMode] = [:]
     var cameraCleanupBundleIdentifiers: Set<String> = []
+    var cameraCleanupOwners: [String: UUID] = [:]
     var lastCameraMirrorMode: SimulatorCameraMirrorMode?
     var cameraCleanupTask: Task<Void, Never>?
     var cameraCleanupRevision: UInt64 = 0
@@ -164,12 +165,15 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
                 Task { await pendingCleanup.value }
             } else {
                 let cleanupCoordinator = cameraCleanupCoordinator
+                let cleanupOwners = cameraCleanupOwners
                 Task {
                     _ = await cleanupCoordinator.enqueue {
                         await cleanSimulatorCameraInjections(
                             deviceIdentifier: deviceIdentifier,
                             bundleIdentifiers: bundleIdentifiers,
-                            simulatorControl: simulatorControl
+                            simulatorControl: simulatorControl,
+                            ownershipTokens: cleanupOwners,
+                            cleanupCoordinator: cleanupCoordinator
                         )
                     }
                 }
@@ -432,7 +436,7 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
                 )
                 continue
             }
-            remember(message)
+            await remember(message)
             do {
                 if probe { try armResponsivenessProbe() }
             } catch {
