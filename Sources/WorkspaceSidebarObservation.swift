@@ -31,11 +31,22 @@ extension View {
         task(id: ids) { @MainActor in
             await withTaskGroup(of: Void.self) { group in
                 for (id, workspace) in zip(ids, workspaces) {
+                    // The buffer stage makes the AsyncPublisher bridge
+                    // demand-safe: CombineLatest-backed publishers emit
+                    // synchronously once per @Published write, so two writes in
+                    // one main-runloop tick (workspace init, batch mutations)
+                    // deliver a second value while the async iterator's demand
+                    // is zero, which is a Combine fatalError ("Received an
+                    // output without requesting demand"). Events here are Void
+                    // change signals and the consumer re-reads live state, so
+                    // keeping only the newest buffered signal is lossless.
                     let immediateChanges = workspace.sidebarImmediateObservationPublisher
+                        .buffer(size: 1, prefetch: .byRequest, whenFull: .dropOldest)
                         .values
                     let debouncedChanges = workspace.sidebarObservationPublisher
                         .receive(on: RunLoop.main)
                         .debounce(for: debouncedInterval, scheduler: RunLoop.main)
+                        .buffer(size: 1, prefetch: .byRequest, whenFull: .dropOldest)
                         .values
                     group.addTask { @MainActor in
                         for await _ in immediateChanges {
