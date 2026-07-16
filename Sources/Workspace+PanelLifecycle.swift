@@ -228,7 +228,8 @@ extension Workspace {
             return true
         }
 
-        return (agentPIDKeysByPanelId[panelId] ?? []).contains { isStructuredAgentHookPIDKey($0) }
+        let panelKeys = agentPIDKeysByPanelId[panelId] ?? []
+        return panelKeys.contains { isStructuredAgentHookPIDKey($0) }
     }
 
     private func terminalPanelHasManagedSubagentStartupEnvironment(panelId: UUID) -> Bool {

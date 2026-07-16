@@ -67,6 +67,45 @@ struct CodexCriticalNotificationTests {
         #expect(!result.commands.contains { $0.contains("notify_target") }, "Unexpected notification: \(result.commands)")
     }
 
+    @Test("Turn context scopes budget aborts without repeated turn IDs")
+    func turnContextScopesBudgetAbort() throws {
+        let result = try runMonitor(
+            transcript: """
+            {"type":"turn_context","payload":{"turn_id":"turn-context-budget"}}
+            {"type":"event_msg","payload":{"type":"turn_aborted","reason":"budget_limited"}}
+            """,
+            sessionID: "session-context-budget",
+            turnID: "turn-context-budget"
+        )
+
+        #expect(!result.process.timedOut, result.process.stderr)
+        #expect(result.process.status == 0, result.process.stderr)
+        #expect(
+            result.commands.contains { $0.contains("Codex|Budget reached|Codex stopped because the turn budget was reached") },
+            "Expected a turn-context budget notification, saw \(result.commands)"
+        )
+    }
+
+    @Test("Intentional abort preserves an earlier fatal error")
+    func intentionalAbortPreservesFatalError() throws {
+        let result = try runMonitor(
+            transcript: """
+            {"type":"turn_context","payload":{"turn_id":"turn-error-abort"}}
+            {"type":"event_msg","payload":{"type":"error","message":"Selected model is at capacity. Please try a different model.","codex_error_info":"other"}}
+            {"type":"event_msg","payload":{"type":"turn_aborted","reason":"interrupted"}}
+            """,
+            sessionID: "session-error-abort",
+            turnID: "turn-error-abort"
+        )
+
+        #expect(!result.process.timedOut, result.process.stderr)
+        #expect(result.process.status == 0, result.process.stderr)
+        #expect(
+            result.commands.contains { $0.contains("Selected model is at capacity. Please try a different model.") },
+            "Expected the preceding fatal error to survive the abort, saw \(result.commands)"
+        )
+    }
+
     @Test("Codex process exit before a terminal event notifies")
     func processExitBeforeTerminalEventNotifies() throws {
         let codexProcess = Process()
@@ -110,7 +149,7 @@ struct CodexCriticalNotificationTests {
             """,
             sessionID: "session-gone",
             turnID: "turn-gone",
-            additionalArguments: ["--pid", "999999"]
+            additionalArguments: ["--pid-gone"]
         )
 
         #expect(!result.process.timedOut, result.process.stderr)
@@ -138,7 +177,10 @@ struct CodexCriticalNotificationTests {
         #expect(result.process.status == 0, result.process.stderr)
         #expect(
             result.commands.contains { command in
-                command.contains("notify_target \(workspaceID) \(surfaceID) Codex|Network error|stream disconnected before completion: error sending request for url")
+                command.contains("notify_target \(workspaceID) \(surfaceID) Codex|Network error|Codex lost its connection before finishing. Try again.")
+                    && !command.contains("cmux-mac-mini")
+                    && !command.contains("http://")
+                    && !command.contains("stream disconnected")
             },
             "Expected the terminal stream disconnect to notify, saw \(result.commands)"
         )
