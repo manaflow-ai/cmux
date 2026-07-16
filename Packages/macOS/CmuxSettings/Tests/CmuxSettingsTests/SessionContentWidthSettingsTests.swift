@@ -5,6 +5,13 @@ import Testing
 struct SessionContentWidthSettingsTests {
     private let settings = SessionContentWidthSettings()
 
+    @Test func catalogDefaultsToNoMaximumWidth() {
+        let defaultValue = TerminalCatalogSection().sessionContentMaxWidth.defaultValue
+
+        #expect(defaultValue == SessionContentWidthSettings.noMaximumWidth)
+        #expect(settings.configuredMaximumWidth(from: defaultValue) == nil)
+    }
+
     @Test func disabledSentinelResolvesToNoMaximumWidth() {
         #expect(settings.configuredMaximumWidth(from: SessionContentWidthSettings.noMaximumWidth) == nil)
     }
