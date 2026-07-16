@@ -35,6 +35,32 @@ struct ControlCommandCoordinatorSimulatorTests {
         #expect(cancelled.isMarked)
     }
 
+    @Test("Operation receipt returns completion delivered while cancellation joins")
+    func operationReceiptReturnsCancellationCompletion() {
+        let receipt = ControlSimulatorOperationReceipt(cancellationJoinTimeout: 1)
+        receipt.installCancellation {
+            receipt.complete(.success(.object(["completed": .bool(true)])))
+        }
+
+        #expect(receipt.wait(timeout: 0) == .success(.object(["completed": .bool(true)])))
+    }
+
+    @Test("Text receipt returns completion delivered while cancellation joins")
+    func textReceiptReturnsCancellationCompletion() {
+        let receipt = ControlSimulatorCompletionReceipt(cancellationJoinTimeout: 1)
+        receipt.installCancellation { receipt.complete(.succeeded) }
+
+        #expect(receipt.wait(timeout: 0) == .succeeded)
+    }
+
+    @Test("Web Inspector receipt returns completion delivered while cancellation joins")
+    func webInspectorReceiptReturnsCancellationCompletion() {
+        let receipt = ControlSimulatorWebInspectorReceipt(cancellationJoinTimeout: 1)
+        receipt.installCancellation { receipt.complete(.released) }
+
+        #expect(receipt.wait(timeout: 0) == .released)
+    }
+
     @Test("Long Simulator waits have bounded admission")
     func operationAdmissionIsBounded() {
         let gate = ControlSimulatorOperationAdmissionGate(maximumConcurrentOperations: 2)

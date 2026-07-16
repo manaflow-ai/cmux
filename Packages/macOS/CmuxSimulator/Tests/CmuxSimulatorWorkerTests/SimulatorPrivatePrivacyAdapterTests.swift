@@ -116,6 +116,42 @@ struct SimulatorPrivatePrivacyAdapterTests {
         }
     }
 
+    @Test("Failed notification replacement preserves the original BulletinBoard store")
+    func failedNotificationReplacementPreservesStore() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-bulletin-rollback-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = root.appendingPathComponent(
+            "DEVICE/data/Library/BulletinBoard/VersionedSectionInfo.plist"
+        )
+        try FileManager.default.createDirectory(
+            at: store.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let original = try PropertyListSerialization.data(
+            fromPropertyList: [
+                "sectionInfo": ["com.example.app": ["marker": "original"]],
+            ],
+            format: .binary,
+            options: 0
+        )
+        try original.write(to: store)
+        let missingBlob = root.appendingPathComponent("missing-section.plist")
+        let adapter = SimulatorPrivatePrivacyAdapter(simulatorDevicesDirectory: root)
+
+        await #expect(throws: SimulatorWorkerFailure.self) {
+            try await adapter.mutateNotifications(
+                deviceIdentifier: "DEVICE",
+                bundleIdentifier: "com.example.app",
+                action: .grant,
+                critical: false,
+                blob: missingBlob
+            )
+        }
+
+        #expect(try Data(contentsOf: store) == original)
+    }
+
     @Test("SQLite owns bounded busy handling without worker retry polling")
     func sqliteBusyTimeout() async throws {
         let directory = FileManager.default.temporaryDirectory

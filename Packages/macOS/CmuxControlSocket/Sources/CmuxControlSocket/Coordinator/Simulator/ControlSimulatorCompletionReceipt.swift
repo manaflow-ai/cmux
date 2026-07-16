@@ -45,14 +45,16 @@ public final class ControlSimulatorCompletionReceipt: @unchecked Sendable {
         if result == nil { self.cancellation = nil }
         condition.unlock()
         cancellation?()
-        if result == nil, cancellation != nil, cancellationJoinTimeout > 0 {
-            condition.lock()
-            let unwindDeadline = Date().addingTimeInterval(cancellationJoinTimeout)
-            while completion == nil {
-                guard condition.wait(until: unwindDeadline) else { break }
-            }
-            condition.unlock()
+        guard result == nil, cancellation != nil, cancellationJoinTimeout > 0 else {
+            return result
         }
-        return result
+        condition.lock()
+        let unwindDeadline = Date().addingTimeInterval(cancellationJoinTimeout)
+        while completion == nil {
+            guard condition.wait(until: unwindDeadline) else { break }
+        }
+        let joinedResult = completion
+        condition.unlock()
+        return joinedResult
     }
 }

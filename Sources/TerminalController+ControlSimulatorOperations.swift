@@ -87,17 +87,20 @@ extension TerminalController {
                 payload = .object(values)
             case let .selectDevice(deviceID):
                 try await coordinator.selectDeviceAndWait(id: deviceID)
+                mutationCommitted = operation.commitsExternalMutation
                 payload = .object([
                     "completed": .bool(true),
                     "simulator_id": .string(deviceID),
                 ])
             case .recover:
                 try await coordinator.recoverAndWait()
+                mutationCommitted = operation.commitsExternalMutation
                 payload = .object(["completed": .bool(true)])
             case let .gesture(touches):
                 let geometry = coordinator.display.map(SimulatorOrientationGeometry.init(display:))
                 let events = try touches.map { try controlSimulatorPointerEvent($0, geometry: geometry) }
                 _ = try await coordinator.perform(.interactive(.gesture(events)))
+                mutationCommitted = operation.commitsExternalMutation
                 payload = .object(["completed": .bool(true), "event_count": .int(Int64(events.count))])
             case let .hardwareButton(raw):
                 guard let button = SimulatorHardwareButton(rawValue: raw) else {
@@ -109,6 +112,7 @@ extension TerminalController {
                     ))
                 }
                 _ = try await coordinator.perform(.interactive(.hardwareButton(button)))
+                mutationCommitted = operation.commitsExternalMutation
                 payload = .object(["completed": .bool(true), "button": .string(button.rawValue)])
             case let .rotate(raw):
                 guard let orientation = SimulatorOrientation(rawValue: raw) else {
@@ -120,6 +124,7 @@ extension TerminalController {
                     ))
                 }
                 _ = try await coordinator.perform(.interactive(.rotate(orientation)))
+                mutationCommitted = operation.commitsExternalMutation
                 payload = .object(["completed": .bool(true), "orientation": .string(raw)])
             case let .coreAnimation(raw, enabled):
                 guard let diagnostic = SimulatorCADiagnostic(rawValue: raw) else {
@@ -131,11 +136,13 @@ extension TerminalController {
                     ))
                 }
                 _ = try await coordinator.perform(.interactive(.coreAnimation(diagnostic, enabled: enabled)))
+                mutationCommitted = operation.commitsExternalMutation
                 payload = .object([
                     "completed": .bool(true), "diagnostic": .string(raw), "enabled": .bool(enabled),
                 ])
             case .memoryWarning:
                 _ = try await coordinator.perform(.interactive(.memoryWarning))
+                mutationCommitted = operation.commitsExternalMutation
                 payload = .object(["completed": .bool(true)])
             case let .eventLog(limit):
                 payload = .object(["events": .array(coordinator.actionLog.prefix(limit).map(simulatorEventPayload))])
@@ -149,6 +156,7 @@ extension TerminalController {
                     defaultValue: "Simulator tools action must be show, hide, or toggle"
                 ))
                 }
+                mutationCommitted = operation.commitsExternalMutation
                 payload = .object([
                     "completed": .bool(true),
                     "visible": .bool(coordinator.showsTools),
@@ -159,7 +167,7 @@ extension TerminalController {
                     hostDeviceID: deviceID, bundleIdentifier: bundleID
                 )
                 _ = try await coordinator.perform(.configureCamera(configuration))
-                mutationCommitted = true
+                mutationCommitted = operation.commitsExternalMutation
                 payload = await simulatorCommittedMutationPayload(fallback: [
                     "configuration": simulatorCameraConfigurationPayload(configuration),
                 ]) {
@@ -173,7 +181,7 @@ extension TerminalController {
                     hostDeviceID: deviceID, bundleIdentifier: nil
                 )
                 _ = try await coordinator.perform(.switchCameraSource(configuration))
-                mutationCommitted = true
+                mutationCommitted = operation.commitsExternalMutation
                 payload = await simulatorCommittedMutationPayload(fallback: [
                     "configuration": simulatorCameraConfigurationPayload(configuration),
                 ]) {
@@ -189,7 +197,7 @@ extension TerminalController {
                     ))
                 }
                 _ = try await coordinator.perform(.setCameraMirror(mode))
-                mutationCommitted = true
+                mutationCommitted = operation.commitsExternalMutation
                 payload = await simulatorCommittedMutationPayload(fallback: [
                     "mirror": .string(mode.rawValue),
                 ]) {
@@ -225,7 +233,7 @@ extension TerminalController {
                     service: service,
                     bundleIdentifier: bundleIdentifier
                 ))
-                mutationCommitted = true
+                mutationCommitted = operation.commitsExternalMutation
                 payload = await simulatorCommittedMutationPayload(fallback: [
                     "action": .string(action.rawValue),
                     "service": .string(service.rawValue),
@@ -252,7 +260,7 @@ extension TerminalController {
                     deviceID: deviceID,
                     setting: setting
                 ))
-                mutationCommitted = true
+                mutationCommitted = operation.commitsExternalMutation
                 payload = await simulatorCommittedMutationPayload(fallback: [
                     "option": .string(option),
                     "value": .string(value),
@@ -494,13 +502,26 @@ extension TerminalController {
 
 }
 
-private extension ControlSimulatorOperation {
+extension ControlSimulatorOperation {
     var isAvailableWithoutStreaming: Bool {
         switch self {
         case .selectDevice, .recover, .eventLog, .tools:
             true
         default:
             false
+        }
+    }
+
+    /// Whether a successful worker or UI result has changed externally visible state.
+    var commitsExternalMutation: Bool {
+        switch self {
+        case .context, .eventLog, .cameraStatus, .permissionsRead,
+             .interfaceStatus, .accessibility, .foregroundApplication:
+            false
+        case .selectDevice, .recover, .gesture, .hardwareButton, .rotate,
+             .coreAnimation, .memoryWarning, .tools, .cameraConfigure,
+             .cameraSwitch, .cameraMirror, .permissionsSet, .interfaceSet:
+            true
         }
     }
 }

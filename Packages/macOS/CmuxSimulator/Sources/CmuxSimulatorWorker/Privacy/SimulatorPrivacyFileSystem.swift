@@ -43,6 +43,10 @@ struct SimulatorPrivacyFileSystem: @unchecked Sendable {
         try manager.removeItem(at: url)
     }
 
+    func replaceItem(at destination: URL, with source: URL) throws {
+        _ = try manager.replaceItemAt(destination, withItemAt: source)
+    }
+
     func setAttributes(_ attributes: [FileAttributeKey: Any], atPath path: String) throws {
         try manager.setAttributes(attributes, ofItemAtPath: path)
     }

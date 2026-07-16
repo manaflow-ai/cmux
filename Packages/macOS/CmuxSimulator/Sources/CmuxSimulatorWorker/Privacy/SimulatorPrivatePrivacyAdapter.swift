@@ -134,7 +134,7 @@ struct SimulatorPrivatePrivacyAdapter: Sendable {
         }
     }
 
-    private func mutateNotifications(
+    func mutateNotifications(
         deviceIdentifier: String,
         bundleIdentifier: String,
         action: SimulatorPrivacyAction,
@@ -150,14 +150,22 @@ struct SimulatorPrivatePrivacyAdapter: Sendable {
             )
         }
 
-        _ = try? await run(
-            executable: "/usr/bin/chflags",
-            arguments: ["nouchg", destination.path]
+        guard let original = fileSystem.contents(atPath: destination.path) else {
+            throw SimulatorWorkerFailure.privateAPIUnavailable(
+                "The Simulator BulletinBoard store could not be staged."
+            )
+        }
+        let staged = destination.deletingLastPathComponent().appendingPathComponent(
+            ".cmux-\(UUID().uuidString)-VersionedSectionInfo.plist"
         )
+        try original.write(to: staged, options: [.atomic])
+        defer { try? fileSystem.removeItem(at: staged) }
+
+        var destinationFlagsCleared = false
         do {
             _ = try? await plistBuddy(
                 commands: ["Delete :sectionInfo:\(bundleIdentifier)", "Save"],
-                file: destination,
+                file: staged,
                 allowsFailure: true
             )
             if action != .reset {
@@ -168,15 +176,23 @@ struct SimulatorPrivatePrivacyAdapter: Sendable {
                 }
                 try await plistBuddy(
                     commands: ["Import :sectionInfo:\(bundleIdentifier) \(blob.path)", "Save"],
-                    file: destination
+                    file: staged
                 )
             }
             try await runExpectingSuccess(
                 executable: "/usr/bin/plutil",
-                arguments: ["-convert", "binary1", destination.path]
+                arguments: ["-convert", "binary1", staged.path]
             )
+            _ = try? await run(
+                executable: "/usr/bin/chflags",
+                arguments: ["nouchg", destination.path]
+            )
+            destinationFlagsCleared = true
+            try fileSystem.replaceItem(at: destination, with: staged)
         } catch {
-            await restoreBulletinBoardFlags(destination)
+            if destinationFlagsCleared {
+                await restoreBulletinBoardFlags(destination)
+            }
             throw error
         }
         await restoreBulletinBoardFlags(destination)
