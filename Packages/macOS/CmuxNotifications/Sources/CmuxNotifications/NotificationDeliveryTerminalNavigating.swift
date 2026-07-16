@@ -21,6 +21,10 @@ public protocol NotificationDeliveryTerminalNavigating: AnyObject {
         fallbackRetargetsToLiveSurfaceOwner: Bool
     ) -> Bool
 
+    /// Opens a background website notification through its shared click router.
+    @discardableResult
+    func openWebsiteNotification(id: UUID, fallbackDisplayOrigin: URL) -> Bool
+
     /// Performs a terminal notification click action.
     @discardableResult
     func performClickAction(_ action: NotificationNavClickAction) -> Bool

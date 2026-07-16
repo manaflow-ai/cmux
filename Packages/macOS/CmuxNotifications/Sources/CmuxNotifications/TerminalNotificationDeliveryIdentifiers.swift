@@ -10,6 +10,8 @@ public struct TerminalNotificationDeliveryIdentifiers: Sendable, Equatable {
 
     /// The `userInfo` key carrying whether a notification may follow its live surface owner.
     public let retargetsToLiveSurfaceOwnerUserInfoKey: String
+    /// `userInfo` key carrying a background website's display-origin fallback.
+    public let websiteDisplayOriginUserInfoKey: String
 
     /// Creates terminal notification identifiers for category installation and
     /// response routing.
@@ -21,10 +23,12 @@ public struct TerminalNotificationDeliveryIdentifiers: Sendable, Equatable {
     public init(
         categoryIdentifier: String,
         showActionIdentifier: String,
-        retargetsToLiveSurfaceOwnerUserInfoKey: String
+        retargetsToLiveSurfaceOwnerUserInfoKey: String,
+        websiteDisplayOriginUserInfoKey: String = "websiteDisplayOrigin"
     ) {
         self.categoryIdentifier = categoryIdentifier
         self.showActionIdentifier = showActionIdentifier
         self.retargetsToLiveSurfaceOwnerUserInfoKey = retargetsToLiveSurfaceOwnerUserInfoKey
+        self.websiteDisplayOriginUserInfoKey = websiteDisplayOriginUserInfoKey
     }
 }
