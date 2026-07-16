@@ -58,6 +58,8 @@ describe("RenderTerminal DOM grid", () => {
 
     expect(container.querySelectorAll(".render-row")).toHaveLength(2);
     expect(container.querySelector(".render-row")?.textContent).toBe("界");
+    expect(container.querySelector<HTMLElement>(".render-grid")?.style.width)
+      .toBe("calc(var(--render-cell-width) * 4)");
     expect(container.querySelector<HTMLElement>(".render-run")?.style.width)
       .toBe("calc(var(--render-cell-width) * 2)");
     expect(container.querySelector(".render-cursor-bar.render-cursor-blink")).toHaveStyle({
