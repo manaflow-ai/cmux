@@ -304,6 +304,31 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
             ]
         }
 
+        /// A deletion that removes a pill also absorbs the pill's trailing
+        /// separator space; otherwise every removed token strands one space
+        /// and the prompt accumulates gaps.
+        func textView(
+            _ textView: NSTextView,
+            shouldChangeTextIn affectedRange: NSRange,
+            replacementString: String?
+        ) -> Bool {
+            guard replacementString?.isEmpty == true,
+                  affectedRange.length > 0,
+                  let storage = textView.textStorage else { return true }
+            let content = storage.string as NSString
+            guard content.substring(with: affectedRange).contains("\u{FFFC}") else { return true }
+            var expanded = affectedRange
+            if expanded.upperBound < content.length,
+               content.character(at: expanded.upperBound) == 0x20 {
+                expanded.length += 1
+            }
+            guard expanded != affectedRange else { return true }
+            storage.deleteCharacters(in: expanded)
+            textView.setSelectedRange(NSRange(location: expanded.location, length: 0))
+            textView.didChangeText()
+            return false
+        }
+
         func textDidChange(_ notification: Notification) {
             guard !syncing, let textView else { return }
             let identities = attachmentIdentities(in: textView.textStorage)
@@ -419,12 +444,19 @@ final class BrowserDesignModeTokenTextView: NSTextView {
             localized: "browser.designMode.composer.describeChange",
             defaultValue: "Describe the change"
         )
-        // Anchor after the last laid-out glyph (the trailing token/space) so
-        // the hint reads as the continuation of the prompt.
+        // Anchor after the last VISIBLE glyph (skipping trailing whitespace
+        // and newlines left by edits) so the hint hugs the trailing token
+        // instead of floating after stale separators.
         var origin = NSPoint(x: textContainerInset.width, y: textContainerInset.height)
-        let glyphCount = layoutManager.numberOfGlyphs
-        if glyphCount > 0 {
-            let lastGlyph = glyphCount - 1
+        let content = storage.string as NSString
+        var lastCharacter = content.length - 1
+        while lastCharacter >= 0,
+              let scalar = Unicode.Scalar(content.character(at: lastCharacter)),
+              CharacterSet.whitespacesAndNewlines.contains(scalar) {
+            lastCharacter -= 1
+        }
+        if lastCharacter >= 0 {
+            let lastGlyph = layoutManager.glyphIndexForCharacter(at: lastCharacter)
             let fragment = layoutManager.lineFragmentRect(forGlyphAt: lastGlyph, effectiveRange: nil)
             let location = layoutManager.location(forGlyphAt: lastGlyph)
             let advance = layoutManager.boundingRect(
