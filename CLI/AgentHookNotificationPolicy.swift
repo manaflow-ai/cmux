@@ -247,7 +247,11 @@ enum AgentHookNotificationPolicy {
         if normalizedBody.contains("rate limit") || normalizedBody.contains("too many requests") { return "rate-limit" }
         if normalizedBody.contains("quota") { return "quota" }
         if normalizedBody.contains("exited before finishing") { return "process-exit" }
-        return nil
+        let normalizedFallback = normalizedBody
+            .split(whereSeparator: { $0.isWhitespace })
+            .joined(separator: " ")
+        guard !normalizedFallback.isEmpty else { return nil }
+        return "body:\(stableHash(of: normalizedFallback))"
     }
 
     static func preservesDedupeAcrossSessionStart(agentName: String) -> Bool {

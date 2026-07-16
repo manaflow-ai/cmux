@@ -107,7 +107,14 @@ struct AgentHookNotificationPolicyTests {
         #expect(AgentHookNotificationPolicy.codexCriticalFailureKind(
             codexErrorInfo: nil,
             body: "Unclassified failure"
-        ) == nil)
+        )?.hasPrefix("body:") == true)
+        #expect(AgentHookNotificationPolicy.codexCriticalFailureKind(
+            codexErrorInfo: nil,
+            body: "Codex ended before sending a final response"
+        ) == AgentHookNotificationPolicy.codexCriticalFailureKind(
+            codexErrorInfo: "other",
+            body: "  CODEX ended before   sending a final response  "
+        ))
         #expect(AgentHookNotificationPolicy.dedupeFingerprint(
             agentName: "grok",
             sessionId: "",
