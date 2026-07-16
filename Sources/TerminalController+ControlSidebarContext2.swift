@@ -123,7 +123,7 @@ extension TerminalController {
             return
         }
         controlSidebarSchedulePanelMetadataMutation(target: target) { tab, surfaceId in
-            guard SidebarWorkspaceDetailDefaults.pullRequestPollingEnabled(defaults: .standard) else {
+            guard SidebarWorkspaceDetailDefaults.pullRequestActivity(defaults: .standard).acceptsPassiveReports else {
                 tab.clearPanelPullRequest(panelId: surfaceId)
                 return
             }
@@ -162,7 +162,7 @@ extension TerminalController {
         actionTarget: String?
     ) {
         controlSidebarSchedulePanelMetadataMutation(target: target) { tab, surfaceId in
-            guard SidebarWorkspaceDetailDefaults.pullRequestPollingEnabled(defaults: .standard) else {
+            guard SidebarWorkspaceDetailDefaults.pullRequestActivity(defaults: .standard).acceptsPassiveReports else {
                 tab.clearPanelPullRequest(panelId: surfaceId)
                 return
             }

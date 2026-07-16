@@ -24,9 +24,9 @@ extension PullRequestPollService {
             deferWorkspacePullRequestRefreshForMobileHost()
             return
         }
-        guard sidebarPullRequestPollingEnabled else {
-            resetWorkspacePullRequestRefreshState()
-            host.clearAllSidebarPullRequestMetadata()
+        let activity = sidebarPullRequestActivity
+        guard activity.performsActivePolling else {
+            stopWorkspacePullRequestPolling(activity: activity)
             return
         }
 
@@ -296,6 +296,26 @@ extension PullRequestPollService {
             return
         }
         host.clearPanelPullRequest(workspaceId: key.workspaceId, panelId: key.panelId)
+    }
+
+    func stopWorkspacePullRequestPolling(
+        for key: WorkspaceGitProbeKey,
+        activity: SidebarGitMetadataActivity
+    ) {
+        clearWorkspacePullRequestTracking(for: key)
+        guard activity == .disabled,
+              let host,
+              host.workspaceExists(key.workspaceId) else {
+            return
+        }
+        host.clearPanelPullRequest(workspaceId: key.workspaceId, panelId: key.panelId)
+    }
+
+    func stopWorkspacePullRequestPolling(activity: SidebarGitMetadataActivity) {
+        resetWorkspacePullRequestRefreshState()
+        if activity == .disabled {
+            host?.clearAllSidebarPullRequestMetadata()
+        }
     }
 
     public func clearWorkspacePullRequestMetadata(workspaceId: UUID, panelId: UUID) {

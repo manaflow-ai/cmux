@@ -176,8 +176,8 @@ extension TabManager: SidebarGitHosting {
         SidebarWorkspaceDetailDefaults.gitMetadataActivity(defaults: .standard)
     }
 
-    var isPullRequestPollingEnabled: Bool {
-        SidebarWorkspaceDetailDefaults.pullRequestPollingEnabled(defaults: .standard)
+    var pullRequestActivity: SidebarGitMetadataActivity {
+        SidebarWorkspaceDetailDefaults.pullRequestActivity(defaults: .standard)
     }
 
     func mobileHostHasRecentActivity(within interval: TimeInterval) -> Bool {

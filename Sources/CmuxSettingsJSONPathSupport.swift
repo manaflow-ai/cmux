@@ -94,9 +94,13 @@ extension SidebarWorkspaceDetailDefaults {
             : .passiveReportsOnly
     }
 
-    static func pullRequestPollingEnabled(defaults: UserDefaults) -> Bool {
-        watchGitStatusValue(defaults: defaults)
-            && auxiliaryDetailVisibility(defaults: defaults).requiresPullRequestPolling
+    static func pullRequestActivity(defaults: UserDefaults) -> SidebarGitMetadataActivity {
+        guard watchGitStatusValue(defaults: defaults) else {
+            return .disabled
+        }
+        return auxiliaryDetailVisibility(defaults: defaults).requiresPullRequestPolling
+            ? .activePolling
+            : .passiveReportsOnly
     }
 }
 

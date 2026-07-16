@@ -91,8 +91,8 @@ public protocol SidebarGitHosting: AnyObject {
 
     /// The active/passive/disabled work level for sidebar git metadata.
     var gitMetadataActivity: SidebarGitMetadataActivity { get }
-    /// Whether sidebar pull-request polling is enabled.
-    var isPullRequestPollingEnabled: Bool { get }
+    /// The active/passive/disabled work level for sidebar pull-request metadata.
+    var pullRequestActivity: SidebarGitMetadataActivity { get }
     /// Whether the paired mobile host served a request within `interval`
     /// seconds (background git/PR work defers while true).
     func mobileHostHasRecentActivity(within interval: TimeInterval) -> Bool

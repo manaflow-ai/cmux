@@ -200,7 +200,6 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
 
     // MARK: Environment
 
-    var isPullRequestPollingEnabled: Bool { pullRequestActivity.performsActivePolling }
     func mobileHostHasRecentActivity(within interval: TimeInterval) -> Bool { mobileHostActive }
     func mobileHostQuietDelay(for interval: TimeInterval) -> TimeInterval { mobileHostActive ? interval : 0 }
 }

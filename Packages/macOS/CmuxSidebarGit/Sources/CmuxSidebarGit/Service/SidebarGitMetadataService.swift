@@ -131,7 +131,7 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     }
 
     var sidebarPullRequestPollingEnabled: Bool {
-        host?.isPullRequestPollingEnabled ?? false
+        host?.pullRequestActivity.performsActivePolling ?? false
     }
 
     // MARK: Fallback timer
