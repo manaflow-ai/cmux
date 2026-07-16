@@ -562,6 +562,90 @@ struct WorkspaceForkConversationContextMenuTests {
     }
 
     @Test
+    func sharedForkProbeCachePrunesClosedPanelsBeforeReuse() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-fork-validation-prune-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        try fm.createDirectory(at: root.appendingPathComponent(".cmuxterm", isDirectory: true), withIntermediateDirectories: true)
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let now = OSAllocatedUnfairLock(initialState: Date(timeIntervalSince1970: 0))
+        let includePanel = OSAllocatedUnfairLock(initialState: true)
+        let processScopeGeneration = OSAllocatedUnfairLock(initialState: 0)
+        let probeCount = OSAllocatedUnfairLock(initialState: 0)
+        let snapshot = makeProbeRequiredOpenCodeSnapshot(
+            sessionId: "closed-panel-validation",
+            workingDirectory: root.path
+        )
+
+        func indexResult() -> SharedLiveAgentIndexLoader.LoadResult {
+            let panelKey = RestorableAgentSessionIndex.PanelKey(
+                workspaceId: workspaceId,
+                panelId: panelId
+            )
+            let includePanel = includePanel.withLock { $0 }
+            let index = RestorableAgentSessionIndex.load(
+                homeDirectory: root.path,
+                fileManager: fm,
+                registry: CmuxVaultAgentRegistry(registrations: []),
+                detectedSnapshots: includePanel ? [
+                    panelKey: (
+                        snapshot: snapshot,
+                        updatedAt: now.withLock { $0.timeIntervalSince1970 },
+                        processIDs: [],
+                        agentProcessIDs: [],
+                        sessionIDSource: .explicit
+                    ),
+                ] : [:]
+            )
+            return (
+                index: index,
+                liveAgentProcessFingerprint: [],
+                processScopeFingerprint: ["generation-\(processScopeGeneration.withLock { $0 })"],
+                forkValidatedPanels: includePanel ? [panelKey] : []
+            )
+        }
+
+        let sharedIndex = SharedLiveAgentIndex(
+            indexLoader: { indexResult() },
+            forkSupportProvider: { _, _ in
+                probeCount.withLock { $0 += 1 }
+                return true
+            },
+            hookStoreDirectoryProvider: {
+                root.appendingPathComponent(".cmuxterm", isDirectory: true).path
+            },
+            dateProvider: {
+                now.withLock { $0 }
+            }
+        )
+
+        await sharedIndex.refreshForkAvailabilityNow(workspaceId: workspaceId, panelId: panelId)
+        #expect(probeCount.withLock { $0 } == 1)
+        #expect(sharedIndex.snapshotForForkAvailability(workspaceId: workspaceId, panelId: panelId) != nil)
+
+        includePanel.withLock { $0 = false }
+        processScopeGeneration.withLock { $0 += 1 }
+        now.withLock { $0 = Date(timeIntervalSince1970: 1) }
+        await sharedIndex.refreshForkAvailabilityNow()
+        #expect(sharedIndex.snapshotForForkAvailability(workspaceId: workspaceId, panelId: panelId) == nil)
+
+        includePanel.withLock { $0 = true }
+        processScopeGeneration.withLock { $0 += 1 }
+        now.withLock { $0 = Date(timeIntervalSince1970: 2) }
+        await sharedIndex.refreshForkAvailabilityNow()
+        #expect(
+            !sharedIndex.prepareForkAvailabilityProbe(workspaceId: workspaceId, panelId: panelId),
+            "Recreating a panel inside the validation TTL must not reuse a validation from the closed panel."
+        )
+        await sharedIndex.refreshForkAvailabilityNow(workspaceId: workspaceId, panelId: panelId)
+        #expect(probeCount.withLock { $0 } == 2)
+        #expect(sharedIndex.snapshotForForkAvailability(workspaceId: workspaceId, panelId: panelId) != nil)
+    }
+
+    @Test
     func builtInOmpRequiresProbeButProjectForkOverrideDoesNot() {
         let builtIn = SessionRestorableAgentSnapshot(
             kind: .custom("omp"),
@@ -686,6 +770,45 @@ struct WorkspaceForkConversationContextMenuTests {
         var unsupportedEnvironmentSnapshot = supportedEnvironmentSnapshot
         unsupportedEnvironmentSnapshot.launchCommand?.environment = ["PI_CONFIG_DIR": "unsupported"]
         #expect(!(await AgentForkSupport.supportsFork(snapshot: unsupportedEnvironmentSnapshot)))
+    }
+
+    @Test
+    func forkCapabilityProbeDrainsVerboseOutputWhileProcessRuns() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-pi-verbose-probe-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let executable = root.appendingPathComponent("pi", isDirectory: false)
+        try """
+        #!/bin/sh
+        printf '%s\\n' '0.80.6'
+        i=0
+        while [ "$i" -lt 5000 ]; do
+          printf '%s\\n' 'verbose launcher warning that keeps writing before process exit'
+          i=$((i + 1))
+        done
+        """
+            .write(to: executable, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .pi,
+            sessionId: "pi-verbose-session",
+            workingDirectory: root.path,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "pi",
+                executablePath: executable.path,
+                arguments: [executable.path, "--session", "pi-verbose-session"],
+                workingDirectory: root.path,
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        #expect(await AgentForkSupport.supportsFork(snapshot: snapshot))
     }
 
     @Test
