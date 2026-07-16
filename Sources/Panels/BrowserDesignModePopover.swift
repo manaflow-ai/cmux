@@ -416,9 +416,11 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
                 }
                 Task { @MainActor [controller] in await controller.copySelection() }
                 return true
-            case #selector(NSResponder.cancelOperation(_:)):
-                // Escape in the field follows the shared chain: reset the
-                // prompt first, exit Design Mode on a clean slate.
+            // NSTextView maps Escape to complete: (word completion), not
+            // cancelOperation:, so both must follow the shared chain: reset
+            // the prompt first, exit Design Mode on a clean slate.
+            case #selector(NSResponder.cancelOperation(_:)),
+                 #selector(NSStandardKeyBindingResponding.complete(_:)):
                 Task { @MainActor [controller] in await controller.handleEscape() }
                 return true
             default:
