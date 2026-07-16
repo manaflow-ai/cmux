@@ -447,7 +447,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     }
 
     private func updateCloseVisibility() {
-        closeButton.isHidden = !showsCloseNow
+        closeButton.setRevealed(showsCloseNow)
     }
 
     private func configureMetadata(model: SidebarWorkspaceRowModel, palette: SidebarRowPalette) {

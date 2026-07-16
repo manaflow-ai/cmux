@@ -205,7 +205,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
 
     private func updatePlusVisibility() {
         let showsHint = model?.shortcutHintText != nil
-        plusButton.isHidden = !(isPointerHovering && !contextMenuVisible && !showsHint)
+        plusButton.setRevealed(isPointerHovering && !contextMenuVisible && !showsHint)
     }
 
     // MARK: Layout
@@ -509,6 +509,35 @@ final class SidebarHeaderGlyphButton: NSButton {
 
     override func menu(for event: NSEvent) -> NSMenu? {
         menuProvider?() ?? super.menu(for: event)
+    }
+
+    /// Arc-style hover reveal: 120ms ease-out fade instead of a hard snap.
+    /// Hit-testing follows the target state immediately so a fading-out
+    /// button never swallows a click.
+    func setRevealed(_ revealed: Bool) {
+        if revealed {
+            if isHidden {
+                alphaValue = 0
+                isHidden = false
+            }
+            isEnabled = true
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.12
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                animator().alphaValue = 1
+            }
+        } else {
+            guard !isHidden else { return }
+            isEnabled = false
+            NSAnimationContext.runAnimationGroup({ context in
+                context.duration = 0.12
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                animator().alphaValue = 0
+            }, completionHandler: { [weak self] in
+                guard let self, !self.isEnabled else { return }
+                self.isHidden = true
+            })
+        }
     }
 }
 
