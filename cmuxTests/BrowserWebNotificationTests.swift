@@ -563,6 +563,53 @@ struct BrowserWebNotificationTests {
         #expect(oldHandlerStillCallable == false)
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    func popupUsesIndependentControllerAndBoundNotificationEndpoint() async throws {
+        let setting = SettingCatalog().browser.forwardWebNotifications
+        let defaults = UserDefaults.standard
+        let previousSetting = defaults.object(forKey: setting.userDefaultsKey)
+        let profileID = BrowserProfileRepository.builtInDefaultProfileID
+        let origin = try #require(URL(string: "https://example.com"))
+        let repository = BrowserProfileStore.shared.notificationPermissions
+        let previousDecision = repository.decision(for: origin, profileID: profileID)
+        BrowserWebNotificationNativeAdapter.shared.forceForegroundFallbackForTesting = true
+        defer {
+            BrowserWebNotificationNativeAdapter.shared.forceForegroundFallbackForTesting = false
+            repository.setDecision(previousDecision, for: origin, profileID: profileID)
+            if let previousSetting { defaults.set(previousSetting, forKey: setting.userDefaultsKey) }
+            else { defaults.removeObject(forKey: setting.userDefaultsKey) }
+        }
+        setting.set(true, in: defaults)
+        repository.setDecision(.allowed, for: origin, profileID: profileID)
+        let panel = BrowserPanel(workspaceId: UUID(), profileID: profileID, renderInitialNavigation: false)
+        defer { panel.close() }
+
+        let suppliedConfiguration = WKWebViewConfiguration()
+        suppliedConfiguration.userContentController = panel.webView.configuration.userContentController
+        let popupWebView = try #require(panel.createFloatingPopup(
+            configuration: suppliedConfiguration,
+            windowFeatures: WKWindowFeatures()
+        ))
+        defer { popupWebView.window?.close() }
+        #expect(popupWebView.configuration.userContentController !== panel.webView.configuration.userContentController)
+
+        let loadProbe = BrowserWebNotificationLoadProbe()
+        popupWebView.navigationDelegate = loadProbe
+        defer { popupWebView.navigationDelegate = nil }
+        try await loadProbe.load(
+            "<!doctype html><html><body>popup notification probe</body></html>",
+            in: popupWebView,
+            baseURL: origin
+        )
+        let permission = try await popupWebView.callAsyncJavaScript(
+            "return await Notification.requestPermission()",
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        ) as? String
+        #expect(permission == "granted")
+    }
+
     @Test func fallbackHandlerRejectsDirectPostsWithoutStoredPermission() async throws {
         let setting = SettingCatalog().browser.forwardWebNotifications
         let defaults = UserDefaults.standard
