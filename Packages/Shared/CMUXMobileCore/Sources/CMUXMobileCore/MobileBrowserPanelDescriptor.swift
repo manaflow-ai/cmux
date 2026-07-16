@@ -20,6 +20,8 @@ public struct MobileBrowserPanelDescriptor: Codable, Equatable, Sendable {
     public let canGoForward: Bool
     /// Whether the page is loading.
     public let isLoading: Bool
+    /// Current unresolved native dialog, when one exists at stream start.
+    public let pendingDialog: MobileBrowserDialogEvent?
 
     /// Creates a browser panel descriptor.
     public init(
@@ -31,7 +33,8 @@ public struct MobileBrowserPanelDescriptor: Codable, Equatable, Sendable {
         pageHeight: Double,
         canGoBack: Bool,
         canGoForward: Bool,
-        isLoading: Bool
+        isLoading: Bool,
+        pendingDialog: MobileBrowserDialogEvent? = nil
     ) {
         self.panelID = panelID
         self.workspaceID = workspaceID
@@ -42,6 +45,7 @@ public struct MobileBrowserPanelDescriptor: Codable, Equatable, Sendable {
         self.canGoBack = canGoBack
         self.canGoForward = canGoForward
         self.isLoading = isLoading
+        self.pendingDialog = pendingDialog
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -54,5 +58,6 @@ public struct MobileBrowserPanelDescriptor: Codable, Equatable, Sendable {
         case canGoBack = "can_go_back"
         case canGoForward = "can_go_forward"
         case isLoading = "is_loading"
+        case pendingDialog = "pending_dialog"
     }
 }

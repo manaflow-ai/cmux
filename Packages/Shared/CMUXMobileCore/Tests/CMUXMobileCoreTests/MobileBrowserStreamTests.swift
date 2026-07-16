@@ -6,6 +6,24 @@ import Testing
 struct MobileBrowserStreamTests {
     @Test
     func wireDTOsRoundTripWithSnakeCaseKeys() throws {
+        let dialog = MobileBrowserDialogEvent(
+            panelID: "panel-1",
+            dialogID: "dialog-1",
+            kind: .httpBasicAuthentication,
+            title: "Authentication Required",
+            message: "example.com requires a username and password.",
+            host: "example.com",
+            buttons: [
+                MobileBrowserDialogButton(id: "sign_in", label: "Sign In", role: .default),
+                MobileBrowserDialogButton(id: "cancel", label: "Cancel", role: .cancel),
+            ],
+            textField: MobileBrowserDialogTextField(
+                placeholder: "Password",
+                initial: "octocat",
+                secure: true
+            ),
+            informational: false
+        )
         let descriptor = MobileBrowserPanelDescriptor(
             panelID: "panel-1",
             workspaceID: "workspace-1",
@@ -15,11 +33,12 @@ struct MobileBrowserStreamTests {
             pageHeight: 480,
             canGoBack: true,
             canGoForward: false,
-            isLoading: true
+            isLoading: true,
+            pendingDialog: dialog
         )
         try expectRoundTrip(descriptor, expectedKeys: [
             "panel_id", "workspace_id", "url", "title", "page_width", "page_height",
-            "can_go_back", "can_go_forward", "is_loading",
+            "can_go_back", "can_go_forward", "is_loading", "pending_dialog",
         ])
 
         try expectRoundTrip(
@@ -62,6 +81,88 @@ struct MobileBrowserStreamTests {
             expectedKeys: ["panel_id", "key", "modifiers"]
         )
         try expectRoundTrip(MobileBrowserTextInput(panelID: "panel-1", text: "héllo"), expectedKeys: ["panel_id", "text"])
+        try expectRoundTrip(
+            dialog,
+            expectedKeys: [
+                "panel_id", "dialog_id", "kind", "title", "message", "host",
+                "buttons", "text_field", "informational",
+            ]
+        )
+        try expectRoundTrip(
+            MobileBrowserDialogRespondParameters(
+                panelID: "panel-1",
+                dialogID: "dialog-1",
+                buttonID: "sign_in",
+                text: "octocat\u{0}secret"
+            ),
+            expectedKeys: ["panel_id", "dialog_id", "button_id", "text"]
+        )
+        try expectRoundTrip(
+            MobileBrowserDialogResolvedEvent(panelID: "panel-1", dialogID: "dialog-1"),
+            expectedKeys: ["panel_id", "dialog_id"]
+        )
+        #expect(dialog.textField?.secure == true)
+    }
+
+    @Test
+    func dialogQueueClaimsExactlyOnceAndHandsPendingDialogToLateSubscriber() {
+        let first = MobileBrowserDialogEvent(
+            panelID: "panel-1",
+            dialogID: "dialog-1",
+            kind: .javaScriptConfirm,
+            title: "This page says:",
+            message: "Continue?",
+            host: nil,
+            buttons: [MobileBrowserDialogButton(id: "cancel", label: "Cancel", role: .cancel)],
+            textField: nil,
+            informational: false
+        )
+        let second = MobileBrowserDialogEvent(
+            panelID: "panel-1",
+            dialogID: "dialog-2",
+            kind: .fileUpload,
+            title: "Needs your Mac",
+            message: nil,
+            host: nil,
+            buttons: [MobileBrowserDialogButton(id: "cancel", label: "Cancel", role: .cancel)],
+            textField: nil,
+            informational: true
+        )
+        var queue = MobileBrowserDialogQueue()
+        let installedFirst = queue.install(first)
+        let installedSecond = queue.install(second)
+        #expect(installedFirst)
+        #expect(installedSecond)
+        #expect(queue.current == first)
+        let firstClaim = queue.claim(dialogID: first.dialogID)
+        let secondClaim = queue.claim(dialogID: first.dialogID)
+        #expect(firstClaim == first)
+        #expect(secondClaim == nil)
+        #expect(queue.current == second)
+    }
+
+    @Test
+    func dialogQueueClaimsAllPendingDialogsOnPanelClose() {
+        var queue = MobileBrowserDialogQueue()
+        for index in 1...2 {
+            let installed = queue.install(MobileBrowserDialogEvent(
+                panelID: "panel-1",
+                dialogID: "dialog-\(index)",
+                kind: .javaScriptAlert,
+                title: nil,
+                message: nil,
+                host: nil,
+                buttons: [MobileBrowserDialogButton(id: "ok", label: "OK", role: .default)],
+                textField: nil,
+                informational: false
+            ))
+            #expect(installed)
+        }
+        let claimed = queue.claimAll()
+        let secondClaim = queue.claimAll()
+        #expect(claimed.map(\.dialogID) == ["dialog-1", "dialog-2"])
+        #expect(queue.current == nil)
+        #expect(secondClaim.isEmpty)
     }
 
     @Test
