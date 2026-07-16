@@ -1508,7 +1508,7 @@ struct ContentView: View {
             .onDisappear {
                 hoveredResizerHandles.remove(handle)
                 if isResizerDragging {
-                    TerminalWindowPortalRegistry.endInteractiveGeometryResize()
+                    TerminalWindowPortalRegistry.endInteractiveGeometryResize(owner: tabManager)
                     isResizerDragging = false
                 }
                 sidebarDragStartWidth = nil
@@ -1520,7 +1520,10 @@ struct ContentView: View {
                     .onChanged { value in
                         let config = resizerConfig(for: handle, availableWidth: availableWidth)
                         if !isResizerDragging {
-                            TerminalWindowPortalRegistry.beginInteractiveGeometryResize()
+                            TerminalWindowPortalRegistry.beginInteractiveGeometryResize(
+                                owner: tabManager,
+                                in: observedWindow
+                            )
                             isResizerDragging = true
                             config.captureStart()
                         }
@@ -1529,7 +1532,7 @@ struct ContentView: View {
                     }
                     .onEnded { _ in
                         if isResizerDragging {
-                            TerminalWindowPortalRegistry.endInteractiveGeometryResize()
+                            TerminalWindowPortalRegistry.endInteractiveGeometryResize(owner: tabManager)
                             isResizerDragging = false
                             let config = resizerConfig(for: handle, availableWidth: availableWidth)
                             config.finishDrag()
@@ -3080,7 +3083,7 @@ struct ContentView: View {
 
         view = AnyView(view.onDisappear {
             if isResizerDragging {
-                TerminalWindowPortalRegistry.endInteractiveGeometryResize()
+                TerminalWindowPortalRegistry.endInteractiveGeometryResize(owner: tabManager)
                 isResizerDragging = false
                 sidebarDragStartWidth = nil
             }
