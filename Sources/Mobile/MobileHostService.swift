@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxAuthRuntime
+import CmuxGit
 import CmuxIrohTransport
 import CmuxMobileTransport
 import CmuxSettings
@@ -216,6 +217,8 @@ enum MobileHostPortApplyOutcome: Equatable {
 final class MobileHostService {
     static let shared = MobileHostService()
     nonisolated private static let maximumActiveConnectionCount = 10
+    /// Process-lifetime owner for the repository-root summary TTL cache.
+    let workspaceChangesService = WorkspaceChangesService()
 
     /// The single shape every public `mobile.host.status` reply uses (the
     /// public-status cache, the network status gate, and
