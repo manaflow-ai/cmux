@@ -11,7 +11,6 @@ extension VerticalTabsSidebar {
         renderContext: WorkspaceListRenderContext,
         unreadSummariesByWorkspaceId: [UUID: SidebarWorkspaceUnreadSummary],
         notificationIndex: SidebarWorkspaceNotificationIndex,
-        shouldCollectWorkspaceDropTargets: Bool,
         showModifierHoldHints: Bool
     ) -> SidebarWorkspaceGroupRowSnapshot {
         let settings = renderContext.tabItemSettings
@@ -60,8 +59,6 @@ extension VerticalTabsSidebar {
         )
         let modifierSymbol = renderContext.workspaceNumberShortcut.numberedDigitHintPrefix
         let showsHintForAnchor = showModifierHoldHints && modifierKeyMonitor.isModifierPressed
-        let rowId = SidebarWorkspaceRenderItemID.group(group.id)
-        let isPointerHovering = pointerInteractionMonitor.hoveredRowId == rowId
         let topDropIndicatorVisible = SidebarTabDropIndicatorPredicate().topVisible(
             forTabId: group.anchorWorkspaceId,
             draggedTabId: dragState.draggedTabId,
@@ -94,7 +91,6 @@ extension VerticalTabsSidebar {
             shortcutDigit: shortcutDigit,
             shortcutModifierSymbol: modifierSymbol,
             showsShortcutHint: showsHintForAnchor,
-            isPointerHovering: isPointerHovering,
             shortcutHintXOffset: settings.sidebarShortcutHintXOffset,
             shortcutHintYOffset: settings.sidebarShortcutHintYOffset,
             fontScale: settings.sidebarFontScale,
@@ -104,8 +100,7 @@ extension VerticalTabsSidebar {
             isFirstRow: renderContext.sidebarReorderIds.first == group.anchorWorkspaceId,
             isBeingDragged: dragState.draggedTabId == group.anchorWorkspaceId,
             topDropIndicatorVisible: topDropIndicatorVisible,
-            bottomDropIndicatorVisible: bottomDropIndicatorVisible,
-            shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
+            bottomDropIndicatorVisible: bottomDropIndicatorVisible
         )
     }
 
@@ -113,16 +108,10 @@ extension VerticalTabsSidebar {
     /// for it. Model references appear only inside user-invoked action
     /// closures; row realization performs no observable reads or mutations.
     func sidebarWorkspaceGroupRow(
-        snapshot: SidebarWorkspaceGroupRowSnapshot
+        snapshot: SidebarWorkspaceGroupRowSnapshot,
+        isPointerHovering: Bool,
+        onContextMenuVisibilityChanged: ((Bool) -> Void)?
     ) -> SidebarWorkspaceGroupRowView {
-        let rowId = SidebarWorkspaceRenderItemID.group(snapshot.groupId)
-        let onDragStart: () -> NSItemProvider = { [anchorId = snapshot.anchorWorkspaceId] in
-#if DEBUG
-            cmuxDebugLog("sidebar.onDrag groupAnchor=\(anchorId.uuidString.prefix(5))")
-#endif
-            dragState.beginDragging(tabId: anchorId)
-            return SidebarTabDragPayload(tabId: anchorId).provider()
-        }
         let header = SidebarWorkspaceGroupHeaderView(
             groupId: snapshot.groupId,
             anchorWorkspaceId: snapshot.anchorWorkspaceId,
@@ -142,7 +131,7 @@ extension VerticalTabsSidebar {
             shortcutDigit: snapshot.shortcutDigit,
             shortcutModifierSymbol: snapshot.shortcutModifierSymbol,
             showsShortcutHint: snapshot.showsShortcutHint,
-            isPointerHovering: snapshot.isPointerHovering,
+            isPointerHovering: isPointerHovering,
             shortcutHintXOffset: snapshot.shortcutHintXOffset,
             shortcutHintYOffset: snapshot.shortcutHintYOffset,
             fontScale: snapshot.fontScale,
@@ -153,7 +142,6 @@ extension VerticalTabsSidebar {
             isBeingDragged: snapshot.isBeingDragged,
             topDropIndicatorVisible: snapshot.topDropIndicatorVisible,
             bottomDropIndicatorVisible: snapshot.bottomDropIndicatorVisible,
-            onDragStart: onDragStart,
             onToggleCollapsed: { [weak tabManager, groupId = snapshot.groupId] in
                 tabManager?.toggleWorkspaceGroupCollapsed(groupId: groupId)
             },
@@ -256,20 +244,49 @@ extension VerticalTabsSidebar {
             },
             onOpenDocs: {
                 SidebarWorkspaceGroupConfigOpener.openWorkspaceGroupsDocs()
-            }
+            },
+            onContextMenuVisibilityChanged: onContextMenuVisibilityChanged
         )
 
         return SidebarWorkspaceGroupRowView(
             header: header,
             groupId: snapshot.groupId,
-            anchorWorkspaceId: snapshot.anchorWorkspaceId,
-            shouldCollectWorkspaceDropTargets: snapshot.shouldCollectWorkspaceDropTargets,
-            onPointerFrameChange: { [pointerInteractionMonitor, workspaceId = snapshot.anchorWorkspaceId] frame in
-                pointerInteractionMonitor.updateFrame(frame, for: rowId, workspaceId: workspaceId)
-            },
-            onPointerFrameDisappear: { [pointerInteractionMonitor] in
-                pointerInteractionMonitor.removeFrame(for: rowId)
-            }
+            anchorWorkspaceId: snapshot.anchorWorkspaceId
         )
+    }
+
+    /// Builds the AppKit table row configuration for one group header. Hover
+    /// and context-menu pinning are injected per-cell by the table controller;
+    /// equivalence is the group snapshot value, so unrelated publishes never
+    /// reconfigure the cell.
+    func sidebarWorkspaceGroupTableRowConfiguration(
+        snapshot: SidebarWorkspaceGroupRowSnapshot,
+        environment: SidebarWorkspaceTableEnvironmentSnapshot
+    ) -> SidebarWorkspaceTableRowConfiguration {
+        SidebarWorkspaceTableRowConfiguration(
+            id: .group(snapshot.groupId),
+            workspaceId: snapshot.anchorWorkspaceId,
+            groupId: snapshot.groupId,
+            isGroupHeader: true,
+            isPinned: snapshot.isPinned,
+            environment: environment,
+            equivalenceValue: snapshot
+        ) { isPointerHovering, contextMenuActions in
+            AnyView(
+                environment.apply(
+                    to: sidebarWorkspaceGroupRow(
+                        snapshot: snapshot,
+                        isPointerHovering: isPointerHovering,
+                        onContextMenuVisibilityChanged: { visible in
+                            if visible {
+                                contextMenuActions.didOpen()
+                            } else {
+                                contextMenuActions.didClose()
+                            }
+                        }
+                    )
+                )
+            )
+        }
     }
 }

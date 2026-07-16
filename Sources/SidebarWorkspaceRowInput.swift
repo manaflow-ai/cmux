@@ -29,7 +29,6 @@ struct SidebarWorkspaceRowInput {
     let showsAgentActivity: Bool
     let rowSpacing: CGFloat
     let showsModifierShortcutHints: Bool
-    let isPointerHovering: Bool
     let isBeingDragged: Bool
     let topDropIndicatorVisible: Bool
     let bottomDropIndicatorVisible: Bool
@@ -45,8 +44,17 @@ struct SidebarWorkspaceRowInput {
     let activeTodoOverride: WorkspaceTaskStatus?
     let isTodoStatusHidden: Bool
 
+    /// Builds the row's immutable render snapshot.
+    ///
+    /// `isPointerHovering` is supplied by the AppKit table cell at configure
+    /// time, not by the parent projection: hover is table-owned state, so a
+    /// pointer move reconfigures at most two cells instead of re-projecting
+    /// every row input.
     @MainActor
-    func rowSnapshot(list: SidebarWorkspaceRowsSnapshot) -> SidebarWorkspaceRowSnapshot {
+    func rowSnapshot(
+        list: SidebarWorkspaceRowsSnapshot,
+        isPointerHovering: Bool
+    ) -> SidebarWorkspaceRowSnapshot {
         let targetAggregate = list.contextMenuTargetAggregate(for: self)
         return SidebarWorkspaceRowSnapshot(
             workspaceId: workspaceId,
