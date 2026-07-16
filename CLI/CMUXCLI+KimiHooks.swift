@@ -96,7 +96,9 @@ extension CMUXCLI {
 
         let activeConfigURL = URL(fileURLWithPath: filePath, isDirectory: false)
         let legacyConfigURL = Self.legacyKimiConfigURL(fileName: def.configFile)
-        guard activeConfigURL.standardizedFileURL != legacyConfigURL.standardizedFileURL else { return }
+        guard Self.canonicalKimiConfigURL(activeConfigURL) != Self.canonicalKimiConfigURL(legacyConfigURL) else {
+            return
+        }
         do {
             _ = try removeKimiHooks(at: legacyConfigURL, def: def, reportNoChange: false)
         } catch {
@@ -118,7 +120,8 @@ extension CMUXCLI {
             .appendingPathComponent(def.configFile, isDirectory: false)
         let legacyConfigURL = Self.legacyKimiConfigURL(fileName: def.configFile)
         let configURLs = [activeConfigURL, legacyConfigURL].reduce(into: [URL]()) { urls, url in
-            guard !urls.contains(where: { $0.standardizedFileURL == url.standardizedFileURL }) else { return }
+            let canonicalURL = Self.canonicalKimiConfigURL(url)
+            guard !urls.contains(where: { Self.canonicalKimiConfigURL($0) == canonicalURL }) else { return }
             urls.append(url)
         }
 
@@ -182,5 +185,9 @@ extension CMUXCLI {
             ?? URL(fileURLWithPath: home, isDirectory: true)
                 .appendingPathComponent(legacyKimiConfigDirectory, isDirectory: true)
         return legacyDirectory.appendingPathComponent(fileName, isDirectory: false)
+    }
+
+    private static func canonicalKimiConfigURL(_ url: URL) -> URL {
+        url.resolvingSymlinksInPath().standardizedFileURL
     }
 }
