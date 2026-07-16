@@ -2,6 +2,40 @@
   "sourceLanguage": "en",
   "version": "1.0",
   "strings": {
+    "NSAppBundlesUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A program running within cmux would like to access the contents of other apps."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 内で実行中のプログラムがほかのアプリのバンドル内容へのアクセスを求めています。"
+          }
+        }
+      }
+    },
+    "NSAppDataUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A program running within cmux would like to access data from other apps."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 内で実行中のプログラムがほかのアプリのデータへのアクセスを求めています。"
+          }
+        }
+      }
+    },
     "NSBluetoothAlwaysUsageDescription": {
       "extractionState": "manual",
       "localizations": {
@@ -70,6 +104,74 @@
         }
       }
     },
+    "NSDesktopFolderUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A program running within cmux would like to access files in your Desktop folder."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 内で実行中のプログラムがデスクトップフォルダ内のファイルへのアクセスを求めています。"
+          }
+        }
+      }
+    },
+    "NSDocumentsFolderUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A program running within cmux would like to access files in your Documents folder."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 内で実行中のプログラムが書類フォルダ内のファイルへのアクセスを求めています。"
+          }
+        }
+      }
+    },
+    "NSDownloadsFolderUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A program running within cmux would like to access files in your Downloads folder."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 内で実行中のプログラムがダウンロードフォルダ内のファイルへのアクセスを求めています。"
+          }
+        }
+      }
+    },
+    "NSFileProviderDomainUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A program running within cmux would like to access files managed by a file provider."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 内で実行中のプログラムがファイルプロバイダによって管理されているファイルへのアクセスを求めています。"
+          }
+        }
+      }
+    },
     "NSLocalNetworkUsageDescription": {
       "extractionState": "manual",
       "localizations": {
@@ -88,6 +190,23 @@
       }
     },
     "NSLocationUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A program running within cmux would like to access your location."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 内で実行中のプログラムが位置情報へのアクセスを求めています。"
+          }
+        }
+      }
+    },
+    "NSLocationWhenInUseUsageDescription": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -234,6 +353,23 @@
         }
       }
     },
+    "NSNetworkVolumesUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A program running within cmux would like to access files on a network volume."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 内で実行中のプログラムがネットワークボリューム上のファイルへのアクセスを求めています。"
+          }
+        }
+      }
+    },
     "NSPhotoLibraryUsageDescription": {
       "extractionState": "manual",
       "localizations": {
@@ -264,6 +400,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux 内で実行中のプログラムがリマインダーへのアクセスを求めています。"
+          }
+        }
+      }
+    },
+    "NSRemovableVolumesUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A program running within cmux would like to access files on a removable volume."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 内で実行中のプログラムがリムーバブルボリューム上のファイルへのアクセスを求めています。"
           }
         }
       }

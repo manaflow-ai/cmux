@@ -82,6 +82,22 @@
 	<string>A program running within cmux would like to use Bluetooth to discover passkeys and security keys.</string>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>A program running within cmux would like to use AppleScript.</string>
+	<key>NSAppBundlesUsageDescription</key>
+	<string>A program running within cmux would like to access the contents of other apps.</string>
+	<key>NSAppDataUsageDescription</key>
+	<string>A program running within cmux would like to access data from other apps.</string>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>A program running within cmux would like to access files in your Desktop folder.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>A program running within cmux would like to access files in your Documents folder.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>A program running within cmux would like to access files in your Downloads folder.</string>
+	<key>NSFileProviderDomainUsageDescription</key>
+	<string>A program running within cmux would like to access files managed by a file provider.</string>
+	<key>NSNetworkVolumesUsageDescription</key>
+	<string>A program running within cmux would like to access files on a network volume.</string>
+	<key>NSRemovableVolumesUsageDescription</key>
+	<string>A program running within cmux would like to access files on a removable volume.</string>
 	<key>NSCalendarsUsageDescription</key>
 	<string>A program running within cmux would like to access your calendars.</string>
 	<key>NSContactsUsageDescription</key>
@@ -89,6 +105,8 @@
 	<key>NSRemindersUsageDescription</key>
 	<string>A program running within cmux would like to access your reminders.</string>
 	<key>NSLocationUsageDescription</key>
+	<string>A program running within cmux would like to access your location.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>A program running within cmux would like to access your location.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>A program running within cmux would like to use speech recognition.</string>
