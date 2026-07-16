@@ -16,10 +16,6 @@ import Testing
         let timedOut: Bool
     }
 
-    @Test func testCodexTeamsPaneTitleUsesSubagentPrefix() {
-        #expect(CMUXCLI.codexTeamsPaneTitle(label: "contract-tests", depth: 2) == "sub: d2 contract-tests")
-    }
-
     @Test func testCLIErrorPathDoesNotCrashWhenStderrIsClosed() throws {
         let cliPath = try bundledCLIPath()
         let result = runShell(

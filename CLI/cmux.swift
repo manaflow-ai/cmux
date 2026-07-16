@@ -21018,25 +21018,21 @@ struct CMUXCLI {
 
             let targetSurfaceId = lastAgentSurfaceId ?? rootSurfaceId
             let direction = lastAgentSurfaceId == nil ? "right" : "down"
-            var splitParams: [String: Any] = [
-                "workspace_id": workspaceId,
-                "surface_id": targetSurfaceId,
-                "direction": direction,
-                "focus": false,
-                "title": CMUXCLI.codexTeamsTitle(thread: thread, spawn: spawn, depth: depth),
-                "initial_command": startupScript,
-                "tmux_start_command": commandText,
-                "startup_environment": [
+            let splitParams = CodexTeamsApprovalBridge.subagentSplitParams(
+                workspaceID: workspaceId,
+                targetSurfaceID: targetSurfaceId,
+                direction: direction,
+                title: CMUXCLI.codexTeamsTitle(thread: thread, spawn: spawn, depth: depth),
+                initialCommand: startupScript,
+                tmuxStartCommand: commandText,
+                startupEnvironment: [
                     managedSubagentEnvironmentKey: "1",
                     codexTeamsThreadEnvironmentKey: thread.id,
                     codexTeamsParentThreadEnvironmentKey: spawn.parentThreadId,
                     codexTeamsDepthEnvironmentKey: String(max(1, depth))
-                ]
-            ]
-            if let cwd = thread.cwd?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !cwd.isEmpty {
-                splitParams["working_directory"] = cwd
-            }
+                ],
+                workingDirectory: thread.cwd
+            )
 
             let created = try socketClient.sendV2(method: "surface.split", params: splitParams)
             if (created["accepted"] as? Bool) == true {
@@ -21255,11 +21251,7 @@ struct CMUXCLI {
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .first { !$0.isEmpty }
             ?? String(thread.id.prefix(8))
-        return codexTeamsPaneTitle(label: label, depth: depth)
-    }
-
-    static func codexTeamsPaneTitle(label: String, depth: Int) -> String {
-        "sub: d\(depth) \(label)"
+        return CodexTeamsApprovalBridge.subagentPaneTitle(label: label, depth: depth)
     }
 
     private func runCodexTeams(
