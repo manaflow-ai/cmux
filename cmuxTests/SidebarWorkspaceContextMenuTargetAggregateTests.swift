@@ -13,6 +13,22 @@ import Testing
 @Suite
 struct SidebarWorkspaceContextMenuTargetAggregateTests {
     @Test
+    func remoteTmuxMirrorRemainsEligibleForRemoteContextMenuActions() {
+        let workspace = Workspace()
+        workspace.isRemoteTmuxMirror = true
+        let model = SidebarWorkspaceRowModelSnapshot(workspace: workspace)
+
+        let aggregate = SidebarWorkspaceContextMenuTargetAggregate(
+            targetWorkspaceIds: [workspace.id],
+            modelSnapshotsById: [workspace.id: model],
+            unreadSummariesByWorkspaceId: [:],
+            anchorWorkspaceIds: []
+        )
+
+        #expect(aggregate.remoteTargetWorkspaceIds == [workspace.id])
+    }
+
+    @Test
     func selectedRowsReuseCorrectParentAggregateAndSingleRowsStayScoped() throws {
         let groupId = UUID()
         let connectingWorkspaceId = UUID()
