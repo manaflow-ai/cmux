@@ -5,6 +5,8 @@ import Foundation
 // SAFETY: CGImage and its provider are immutable after construction. The
 // provider retains a deep CFData copy and has no shared-memory backing.
 struct SimulatorFramePresentation: @unchecked Sendable {
+    private static let deviceRGBColorSpace = CGColorSpaceCreateDeviceRGB()
+
     let image: CGImage
     let sequence: UInt64
 
@@ -25,7 +27,7 @@ struct SimulatorFramePresentation: @unchecked Sendable {
                 bitsPerComponent: 8,
                 bitsPerPixel: 32,
                 bytesPerRow: snapshot.bytesPerRow,
-                space: CGColorSpaceCreateDeviceRGB(),
+                space: Self.deviceRGBColorSpace,
                 bitmapInfo: [
                     .byteOrder32Little,
                     CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedFirst.rawValue),

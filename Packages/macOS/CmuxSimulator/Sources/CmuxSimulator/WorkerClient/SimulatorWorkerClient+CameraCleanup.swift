@@ -47,7 +47,8 @@ extension SimulatorWorkerClient {
         }
     }
 
-    func waitForCameraCleanup() async {
+    @discardableResult
+    func waitForCameraCleanup() async -> Bool {
         while let task = cameraCleanupTask {
             let revision = cameraCleanupRevision
             let outcome = await SimulatorCameraCleanupWaitState().wait(
@@ -59,14 +60,15 @@ extension SimulatorWorkerClient {
             case .completed:
                 if revision == cameraCleanupRevision {
                     cameraCleanupTask = nil
-                    return
+                    return true
                 }
             case .timedOut, .cancelled:
                 // Bound the caller's wait without discarding the cleanup. The
-                // next activation joins the same durable obligation again.
-                return
+                // next activation must fail and retry after the obligation finishes.
+                return false
             }
         }
+        return true
     }
 
 }

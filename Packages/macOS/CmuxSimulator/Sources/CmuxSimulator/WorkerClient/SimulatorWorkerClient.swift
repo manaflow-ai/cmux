@@ -187,7 +187,17 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
     /// Boots, waits for, and attaches the isolated worker to a device.
     public func activateDevice(id: String, geometry: SimulatorSurfaceGeometry?) async throws {
         try requireOpen()
-        await waitForCameraCleanup()
+        guard await waitForCameraCleanup() else {
+            try Task.checkCancellation()
+            throw SimulatorFailure(
+                code: "simulator_camera_cleanup_pending",
+                message: String(
+                    localized: "simulator.failure.cameraCleanupPending",
+                    defaultValue: "Camera cleanup is still running. Retry after it finishes."
+                ),
+                isRecoverable: true
+            )
+        }
         try requireOpen()
         let discoveredDevices = try? await simulatorControl.discoverDevices()
         try Task.checkCancellation()
@@ -302,7 +312,17 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
     /// attachment and geometry.
     public func recover() async throws {
         try requireOpen()
-        await waitForCameraCleanup()
+        guard await waitForCameraCleanup() else {
+            try Task.checkCancellation()
+            throw SimulatorFailure(
+                code: "simulator_camera_cleanup_pending",
+                message: String(
+                    localized: "simulator.failure.cameraCleanupPending",
+                    defaultValue: "Camera cleanup is still running. Retry after it finishes."
+                ),
+                isRecoverable: true
+            )
+        }
         try requireOpen()
         prepareExplicitRecovery()
         if child != nil,
@@ -325,7 +345,7 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
             graceful: cleanup.bundleIdentifiers.isEmpty
         )
         if !cleanupAlreadyQueued { enqueueCameraCleanup(cleanup) }
-        await waitForCameraCleanup()
+        _ = await waitForCameraCleanup()
         await broadcast(.workerStopped)
     }
 
@@ -345,7 +365,7 @@ public actor SimulatorWorkerClient: SimulatorPaneClient {
         isPermanentlyStopped = true
         isClosing = true
         if !cleanupAlreadyQueued { enqueueCameraCleanup(cleanup) }
-        await waitForCameraCleanup()
+        _ = await waitForCameraCleanup()
         for continuation in subscribers.values {
             await continuation.finish()
         }

@@ -95,7 +95,7 @@ public final class SimulatorPaneCoordinator {
     @ObservationIgnored let preferredDeviceID: String?
     @ObservationIgnored let preferredRuntimeIdentifier: String?
     @ObservationIgnored let preferredDeviceTypeIdentifier: String?
-    @ObservationIgnored var requiresExplicitDeviceSelection: Bool
+    @ObservationIgnored public internal(set) var requiresExplicitDeviceSelection: Bool
     @ObservationIgnored var outgoingStream: AsyncStream<SimulatorWorkerInbound>
     @ObservationIgnored var outgoingContinuation: AsyncStream<SimulatorWorkerInbound>.Continuation
     @ObservationIgnored var outgoingTask: Task<Void, Never>?

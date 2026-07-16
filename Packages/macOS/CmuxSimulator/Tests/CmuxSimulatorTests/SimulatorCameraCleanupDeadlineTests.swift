@@ -3,6 +3,27 @@ import Testing
 @testable import CmuxSimulator
 
 extension SimulatorWorkerClientTests {
+    @Test("Activation fails while durable camera cleanup is still pending")
+    func activationWaitsForCameraCleanup() async throws {
+        let launcher = TestWorkerLauncher()
+        let sleeper = ManualCameraCleanupDeadlineSleeper()
+        let cleanupGate = PendingCameraCleanupGate()
+        let client = makeClient(launcher: launcher, sleeper: sleeper)
+        await client.installPendingCameraCleanup(waitingOn: cleanupGate)
+        defer { Task { await cleanupGate.release() } }
+        await sleeper.fireDeadline()
+
+        do {
+            try await client.activateDevice(id: "DEVICE", geometry: nil)
+            Issue.record("Activation must not start while camera cleanup is pending")
+        } catch let failure as SimulatorFailure {
+            #expect(failure.code == "simulator_camera_cleanup_pending")
+        }
+
+        #expect(launcher.endpoint(at: 0) == nil)
+        await cleanupGate.release()
+    }
+
     @Test("Pane close timeout preserves camera cleanup through its late relaunch")
     func cameraCleanupCloseDeadline() async throws {
         let deviceIdentifier = "CAMERA-DEADLINE-\(UUID().uuidString)"
@@ -76,5 +97,28 @@ extension SimulatorWorkerClientTests {
                 configuration: SimulatorLaunchConfiguration(terminateRunningProcess: true)
             ),
         ])
+    }
+}
+
+private actor PendingCameraCleanupGate {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var released = false
+
+    func wait() async {
+        if released { return }
+        await withCheckedContinuation { continuation = $0 }
+    }
+
+    func release() {
+        released = true
+        continuation?.resume()
+        continuation = nil
+    }
+}
+
+private extension SimulatorWorkerClient {
+    func installPendingCameraCleanup(waitingOn gate: PendingCameraCleanupGate) {
+        cameraCleanupRevision &+= 1
+        cameraCleanupTask = Task { await gate.wait() }
     }
 }

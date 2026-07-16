@@ -38,12 +38,17 @@ final class SimulatorPanel: Panel {
 
     var displayIcon: String? { "iphone" }
 
-    var selectedDeviceID: String? { coordinator.selectedDevice?.id ?? preferredDeviceID }
+    var selectedDeviceID: String? {
+        guard !coordinator.requiresExplicitDeviceSelection else { return nil }
+        return coordinator.selectedDevice?.id ?? preferredDeviceID
+    }
     var selectedRuntimeIdentifier: String? {
-        coordinator.selectedDevice?.runtimeIdentifier ?? preferredRuntimeIdentifier
+        guard !coordinator.requiresExplicitDeviceSelection else { return nil }
+        return coordinator.selectedDevice?.runtimeIdentifier ?? preferredRuntimeIdentifier
     }
     var selectedDeviceTypeIdentifier: String? {
-        coordinator.selectedDevice?.deviceTypeIdentifier ?? preferredDeviceTypeIdentifier
+        guard !coordinator.requiresExplicitDeviceSelection else { return nil }
+        return coordinator.selectedDevice?.deviceTypeIdentifier ?? preferredDeviceTypeIdentifier
     }
     var selectedDeviceName: String? { coordinator.selectedDevice?.name }
     var selectedDeviceState: String? {
@@ -233,13 +238,18 @@ final class SimulatorPanel: Panel {
     }
 
     private func rememberSelection() {
-        let selectedDeviceID = selectedDeviceID
-        preferredDeviceID = selectedDeviceID
-        preferredRuntimeIdentifier = selectedRuntimeIdentifier
-        preferredDeviceTypeIdentifier = selectedDeviceTypeIdentifier
-        if selectedDeviceID != nil {
-            requiresExplicitDeviceSelection = false
+        if coordinator.requiresExplicitDeviceSelection {
+            preferredDeviceID = nil
+            preferredRuntimeIdentifier = nil
+            preferredDeviceTypeIdentifier = nil
+            requiresExplicitDeviceSelection = true
+            return
         }
+        guard let selectedDevice = coordinator.selectedDevice else { return }
+        preferredDeviceID = selectedDevice.id
+        preferredRuntimeIdentifier = selectedDevice.runtimeIdentifier
+        preferredDeviceTypeIdentifier = selectedDevice.deviceTypeIdentifier
+        requiresExplicitDeviceSelection = false
     }
 
     private func startCoordinator() {
