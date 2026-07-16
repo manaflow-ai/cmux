@@ -351,6 +351,9 @@ extension SimulatorPaneCoordinator {
                 throw CancellationError()
             }
         }
+        guard explicitSelectionRequestGeneration == requestGeneration else {
+            throw CancellationError()
+        }
         guard selectedDeviceID == id, status == .streaming else {
             throw failure ?? SimulatorFailure(
                 code: "simulator_device_selection_failed",
