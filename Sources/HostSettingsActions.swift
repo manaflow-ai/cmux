@@ -116,6 +116,7 @@ final class HostSettingsActions: SettingsHostActions {
     func resetAllSettingsSideEffects() {
         LanguageSettingsStore(defaults: .standard).applyLanguageOverride(.system)
         PaneChromeSettings.notifyDidChange()
+        AppDelegate.shared?.reconcileSocketListenerConfiguration(source: "settings.reset_all")
     }
 
     func notifyShortcutSettingsDidChange() {
@@ -161,6 +162,12 @@ final class HostSettingsActions: SettingsHostActions {
         task.arguments = ["-n", bundlePath]
         try? task.run()
         NSApp.terminate(nil)
+    }
+
+    func socketControlConfigurationDidChange() {
+        AppDelegate.shared?.reconcileSocketListenerConfiguration(
+            source: "settings.automation.socketControlMode.commit"
+        )
     }
 
     func openBrowserImportFlow() {

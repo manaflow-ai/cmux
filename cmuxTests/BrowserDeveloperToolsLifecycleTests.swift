@@ -212,9 +212,8 @@ extension BrowserDeveloperToolsVisibilityPersistenceTests {
         defer { tearDownMainWindow(mainWindow, manager: manager) }
         let inspector = FakeInspector()
         browserPanel.webView.cmuxSetUnitTestInspector(inspector)
-        if browserPanel.webView.superview == nil {
-            browserPanel.webView.frame = mainWindow.contentView?.bounds ?? .zero
-            mainWindow.contentView?.addSubview(browserPanel.webView)
+        if let contentView = mainWindow.contentView {
+            attachPanelPresentationIfNeeded(browserPanel, to: contentView)
         }
         let inspectorWindow = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
@@ -265,9 +264,8 @@ extension BrowserDeveloperToolsVisibilityPersistenceTests {
         defer { tearDownMainWindow(mainWindow, manager: manager) }
         let inspector = FakeInspector()
         browserPanel.webView.cmuxSetUnitTestInspector(inspector)
-        if browserPanel.webView.superview == nil {
-            browserPanel.webView.frame = mainWindow.contentView?.bounds ?? .zero
-            mainWindow.contentView?.addSubview(browserPanel.webView)
+        if let contentView = mainWindow.contentView {
+            attachPanelPresentationIfNeeded(browserPanel, to: contentView)
         }
         let inspectorWindow = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
@@ -323,9 +321,8 @@ extension BrowserDeveloperToolsVisibilityPersistenceTests {
         defer { tearDownMainWindow(mainWindow, manager: manager) }
         let inspector = FakeInspector()
         browserPanel.webView.cmuxSetUnitTestInspector(inspector)
-        if browserPanel.webView.superview == nil {
-            browserPanel.webView.frame = mainWindow.contentView?.bounds ?? .zero
-            mainWindow.contentView?.addSubview(browserPanel.webView)
+        if let contentView = mainWindow.contentView {
+            attachPanelPresentationIfNeeded(browserPanel, to: contentView)
         }
         let inspectorWindow = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
@@ -397,9 +394,8 @@ extension BrowserDeveloperToolsVisibilityPersistenceTests {
         defer { tearDownMainWindow(mainWindow, manager: manager) }
         let inspector = FakeInspector()
         browserPanel.webView.cmuxSetUnitTestInspector(inspector)
-        if browserPanel.webView.superview == nil {
-            browserPanel.webView.frame = mainWindow.contentView?.bounds ?? .zero
-            mainWindow.contentView?.addSubview(browserPanel.webView)
+        if let contentView = mainWindow.contentView {
+            attachPanelPresentationIfNeeded(browserPanel, to: contentView)
         }
         let inspectorWindow = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),

@@ -196,19 +196,19 @@ struct WorkspaceGroupTests {
             tabs: manager.tabs,
             groupsById: Dictionary(uniqueKeysWithValues: manager.workspaceGroups.map { ($0.id, $0) })
         )
-
+        let memberWorkspaceIdsByGroupId = SidebarWorkspaceRenderItem.memberWorkspaceIdsByGroupId(tabs: manager.tabs)
         var groupMemberIds: [UUID] = []
         var visibleWorkspaceIds: [UUID] = []
         var visibleRowIds: [UUID] = []
         for item in items {
             visibleRowIds.append(item.rowWorkspaceId)
             switch item {
-            case .groupHeader(let renderedGroup, let memberWorkspaceIds) where renderedGroup.id == groupId:
-                groupMemberIds = memberWorkspaceIds
+            case .groupHeader(let renderedGroupId, _) where renderedGroupId == groupId:
+                groupMemberIds = memberWorkspaceIdsByGroupId[renderedGroupId] ?? []
             case .groupHeader:
                 break
-            case .workspace(let workspace):
-                visibleWorkspaceIds.append(workspace.id)
+            case .workspace(let workspaceId):
+                visibleWorkspaceIds.append(workspaceId)
             }
         }
 

@@ -242,6 +242,7 @@ extension BrowserPanel {
         developerToolsPreservedVisibleIntentForNextAttach = false
         developerToolsLastKnownVisibleAt = Date()
         developerToolsLastAttachedHostAt = Date()
+        resetAutomationViewportForAttachedBrowserInspector()
         setPreferredDeveloperToolsPresentation(.attached)
         setPreferredDeveloperToolsVisible(true)
         cancelDeveloperToolsRestoreRetry()

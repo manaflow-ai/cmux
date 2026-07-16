@@ -33,7 +33,9 @@ extension MobileHostAuthorizationTests {
             workspaceID: "",
             terminalID: nil,
             routes: [iroh, tailscale],
-            ttl: 3600
+            ttl: 3600,
+            macUserEmail: "private@example.com",
+            macUserID: "opaque-user-id"
         )
 
         let payload = try store.payload(
@@ -78,6 +80,74 @@ extension MobileHostAuthorizationTests {
         #expect(decoded.routes.count == 1)
         #expect(decoded.routes.first?.kind == .tailscale)
         #expect(decoded.routes.first?.endpoint == .hostPort(host: "100.64.0.7", port: 58465))
+    }
+
+    @Test func testLegacyPairingPayloadDropsIrohFromMixedHostRoutes() throws {
+        let store = MobileAttachTicketStore()
+        let iroh = try CmxAttachRoute(
+            id: "iroh",
+            kind: .iroh,
+            endpoint: .peer(
+                identity: CmxIrohPeerIdentity(endpointID: String(repeating: "a", count: 64)),
+                pathHints: []
+            ),
+            priority: 0
+        )
+        let tailscale = try CmxAttachRoute(
+            id: "tailscale",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.7", port: 58465),
+            priority: 10
+        )
+        let ticket = try store.createTicket(
+            workspaceID: "",
+            terminalID: nil,
+            routes: [iroh, tailscale],
+            ttl: 3600,
+            macUserEmail: "private@example.com",
+            macUserID: "opaque-user-id"
+        )
+
+        let payload = try store.payload(
+            for: ticket,
+            routeDisclosureMode: .legacyPrivateNetworkCompatibility
+        )
+        let attachURL = try #require(payload["attach_url"] as? String)
+        let decoded = try CmxAttachTicketInput.decode(attachURL)
+
+        #expect(!CmxPairingQRCode().isPairingCodeURLString(attachURL))
+        #expect(decoded.routes == [tailscale])
+        #expect(decoded.authToken == nil)
+        let sourceExpiry = try #require(ticket.expiresAt)
+        let legacyExpiry = try #require(decoded.expiresAt)
+        #expect(legacyExpiry > sourceExpiry.addingTimeInterval(365 * 24 * 60 * 60))
+        #expect(!attachURL.contains(String(repeating: "a", count: 64)))
+
+        let components = try #require(URLComponents(string: attachURL))
+        let encoded = try #require(
+            components.queryItems?.first(where: { $0.name == "payload" })?.value
+        )
+        let legacyData = try #require(Self.decodeBase64URL(encoded))
+        let legacyObject = try #require(
+            JSONSerialization.jsonObject(with: legacyData) as? [String: Any]
+        )
+        #expect(legacyObject["version"] as? Int == CmxAttachTicket.currentVersion)
+        #expect(legacyObject["expiresAt"] != nil)
+        #expect(legacyObject["auth_token"] == nil)
+        #expect(legacyObject["macUserEmail"] == nil)
+        #expect(legacyObject["macUserID"] as? String == "opaque-user-id")
+        #expect((legacyObject["routes"] as? [[String: Any]])?.count == 1)
+    }
+
+    private static func decodeBase64URL(_ value: String) -> Data? {
+        var base64 = value
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        let padding = base64.count % 4
+        if padding > 0 {
+            base64.append(String(repeating: "=", count: 4 - padding))
+        }
+        return Data(base64Encoded: base64)
     }
 
     @Test func testBindingPublicationDoesNotWaitForPersistence() async {
