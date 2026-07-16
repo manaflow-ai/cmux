@@ -1184,6 +1184,7 @@ struct ContentView: View {
                     withTransaction(Transaction(animation: nil)) {
                         sidebarWidth = nextWidth
                     }
+                    flushSidebarResizeToDisplay()
                 },
                 finishDrag: { sidebarDragStartWidth = nil }
             )
@@ -1201,6 +1202,7 @@ struct ContentView: View {
                     withTransaction(Transaction(animation: nil)) {
                         fileExplorerWidth = nextWidth
                     }
+                    flushSidebarResizeToDisplay()
                 },
                 finishDrag: {
                     fileExplorerDragStartWidth = nil
@@ -1330,6 +1332,17 @@ struct ContentView: View {
             fileExplorerWidth = nextWidth
         }
         fileExplorerState.width = nextWidth
+    }
+
+    /// Glues divider drags to the cursor: flushes the pending SwiftUI layout
+    /// commit, the terminal portal's anchor sync (immediate path during
+    /// interactive resize), and the window's display inside the SAME mouse
+    /// event, removing the async runloop hop that made resizes feel choppy
+    /// while the main thread sat idle.
+    private func flushSidebarResizeToDisplay() {
+        guard let window = observedWindow else { return }
+        window.contentView?.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
     }
 
     private func activateSidebarResizerCursor() {
