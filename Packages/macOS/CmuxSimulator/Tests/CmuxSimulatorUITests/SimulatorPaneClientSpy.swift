@@ -11,6 +11,7 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
     private let delaysActivation: Bool
     private let delaysWebInspectorSend: Bool
     private let failsApplicationInstall: Bool
+    private let cancelsControlActionBeforeReturning: Bool
     private let eventStream: SimulatorWorkerEventStream
     private let eventContinuation: SimulatorWorkerEventStream.Continuation
     private var sentMessages: [SimulatorWorkerInbound] = []
@@ -32,7 +33,8 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
         delaysInvalidation: Bool = false,
         delaysActivation: Bool = false,
         delaysWebInspectorSend: Bool = false,
-        failsApplicationInstall: Bool = false
+        failsApplicationInstall: Bool = false,
+        cancelsControlActionBeforeReturning: Bool = false
     ) {
         self.devicesValue = devices
         self.applicationValues = applications
@@ -41,6 +43,7 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
         self.delaysActivation = delaysActivation
         self.delaysWebInspectorSend = delaysWebInspectorSend
         self.failsApplicationInstall = failsApplicationInstall
+        self.cancelsControlActionBeforeReturning = cancelsControlActionBeforeReturning
         let source = SimulatorWorkerEventStreamSource(
             maximumBufferedBytes: 1_024 * 1_024,
             maximumBufferedEvents: 64,
@@ -93,6 +96,9 @@ actor SimulatorPaneClientSpy: SimulatorPaneClient {
 
     func perform(_ action: SimulatorControlAction) async throws -> SimulatorControlResult {
         actionValues.append(action)
+        if cancelsControlActionBeforeReturning {
+            withUnsafeCurrentTask { $0?.cancel() }
+        }
         if case .sendWebInspectorMessage = action, delaysWebInspectorSend {
             return try await withTaskCancellationHandler {
                 try await withCheckedThrowingContinuation { continuation in

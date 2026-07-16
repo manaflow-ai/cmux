@@ -88,12 +88,11 @@ extension AppDelegate {
         guard context.bool(ShortcutContextKnownKey.simulatorFocus.rawValue),
               let manager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager,
               let workspace = manager.selectedWorkspace,
+              let focusedPanelID = workspace.focusedPanelId,
+              let panel = workspace.panels[focusedPanelID] as? SimulatorPanel,
               let window = event.window,
               let responder = window.firstResponder,
-              let panel = workspace.panels.values.compactMap({ $0 as? SimulatorPanel }).first(where: {
-                  $0.ownedFocusIntent(for: responder, in: window) != nil
-              }),
-              workspace.focusedPanelId == panel.id,
+              panel.ownedFocusIntent(for: responder, in: window) != nil,
               let action = KeyboardShortcutSettings.Action.simulatorActions.first(where: {
                   matchConfiguredShortcut(event: event, action: $0)
               }) else {

@@ -140,6 +140,28 @@ extension SimulatorPaneCoordinatorTests {
         #expect(coordinator.actionLog.last?.action == "worker-25")
     }
 
+    @Test("Cancellation racing a successful result preserves the commit boundary")
+    func cancellationAfterSuccessfulResult() async throws {
+        let client = SimulatorPaneClientSpy(
+            devices: [],
+            cancelsControlActionBeforeReturning: true
+        )
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        let operation = Task {
+            try await coordinator.perform(.setInterface(
+                deviceID: "phone",
+                setting: .appearance(.dark)
+            ))
+        }
+
+        let result = try await operation.value
+
+        #expect(result == .none)
+        #expect(operation.isCancelled)
+        #expect(coordinator.controlFailure == nil)
+        #expect(coordinator.actionLog.isEmpty)
+    }
+
     @Test("Action history is preserved separately for each selected device")
     func actionHistoryIsDeviceScoped() async {
         let client = SimulatorPaneClientSpy(devices: [

@@ -30,7 +30,9 @@ extension SimulatorPaneCoordinator {
         }
         do {
             let result = try await client.perform(action)
-            try Task.checkCancellation()
+            // A returned result is the external commit boundary. Cancellation
+            // after it suppresses stale presentation work, not the success.
+            guard !Task.isCancelled else { return result }
             guard generation == selectionGeneration, !closed else { return result }
             controlFailure = nil
             apply(result, for: action)
