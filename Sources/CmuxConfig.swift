@@ -343,6 +343,7 @@ enum CmuxConfigAgentKind: Sendable, Hashable {
     case codex
     case claudeCode
     case opencode
+    case codePuppy
     case custom(String)
 
     var commandName: String {
@@ -353,6 +354,8 @@ enum CmuxConfigAgentKind: Sendable, Hashable {
             return "claude"
         case .opencode:
             return "opencode"
+        case .codePuppy:
+            return "code-puppy"
         case .custom(let name):
             return name
         }
@@ -366,6 +369,8 @@ enum CmuxConfigAgentKind: Sendable, Hashable {
             return .symbol("brain.head.profile")
         case .opencode:
             return .symbol("chevron.left.forwardslash.chevron.right")
+        case .codePuppy:
+            return .symbol("dog")
         case .custom:
             return .symbol("terminal")
         }
@@ -384,6 +389,8 @@ extension CmuxConfigAgentKind: Codable {
             self = .claudeCode
         case "opencode", "openCode", "open-code":
             self = .opencode
+        case "code-puppy", "codePuppy", "code_puppy", "pup":
+            self = .codePuppy
         default:
             guard !value.isEmpty,
                   value.unicodeScalars.allSatisfy({ !CharacterSet.whitespacesAndNewlines.contains($0) }) else {
