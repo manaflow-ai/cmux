@@ -22,6 +22,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     let session: MobileCoreRPCSession
     private let stackTokenGate: RPCStackTokenGate
     private let stackTokenForceRefreshGate: RPCStackTokenGate
+    private let connectionAuthGate: MobileRPCConnectionAuthGate
 
     /// Create a client bound to one route + attach ticket.
     /// - Parameters:
@@ -56,6 +57,9 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             ?? RPCStackTokenGate(timedOutResetNanoseconds: stackTokenGateResetNanoseconds)
         self.stackTokenForceRefreshGate = stackTokenForceRefreshGate
             ?? RPCStackTokenGate(timedOutResetNanoseconds: stackTokenGateResetNanoseconds)
+        self.connectionAuthGate = MobileRPCConnectionAuthGate(
+            timedOutResetNanoseconds: stackTokenGateResetNanoseconds
+        )
         let independentEventFactory: MobileCoreRPCSession.IndependentEventByteStreamFactory?
         if route.kind == .iroh,
            let provider = runtime.independentEventByteStreamProvider {
@@ -226,16 +230,89 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             requestData,
             forceID: !allowAuthRetry
         )
-        let authenticated = try await requestDataWithAuth(
-            augmented,
-            deadline: deadline
-        )
-        try Task.checkCancellation()
-        return try await session.send(
-            payload: authenticated,
-            requestID: id,
-            deadlineUptimeNanoseconds: deadline.uptimeNanoseconds
-        )
+        guard transportRequest.authorizationMode == .stackBearer,
+              Self.requestRequiresAuthData(augmented) else {
+            let authenticated = try await requestDataWithAuth(
+                augmented,
+                deadline: deadline
+            )
+            try Task.checkCancellation()
+            return try await session.send(
+                payload: authenticated,
+                requestID: id,
+                deadlineUptimeNanoseconds: deadline.uptimeNanoseconds
+            )
+        }
+
+        guard allowsStackAuthFallback,
+              MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) else {
+            throw MobileShellConnectionError.insecureManualRoute
+        }
+
+        // Bind admission and the caller's request to the same installed
+        // transport. If a reconnect lands between those steps, retry only the
+        // negotiation; the original RPC has not entered the writer queue yet.
+        for _ in 0..<2 {
+            let connectionID = try await session.connectionID(
+                deadlineUptimeNanoseconds: deadline.uptimeNanoseconds
+            )
+            do {
+                let mode = try await connectionAuthGate.mode(
+                    for: connectionID,
+                    timeoutNanoseconds: try deadline.remainingNanoseconds()
+                ) { [self] in
+                    let authenticationDeadline = RPCRequestDeadline(
+                        timeoutNanoseconds: runtime.rpcRequestTimeoutNanoseconds
+                    )
+                    return try await authenticateConnection(
+                        connectionID: connectionID,
+                        deadline: authenticationDeadline
+                    )
+                }
+                let authenticated = try await requestDataWithAuth(
+                    augmented,
+                    deadline: deadline,
+                    includeStackAccessToken: mode == .legacyPerRequest
+                )
+                try Task.checkCancellation()
+                return try await session.send(
+                    payload: authenticated,
+                    requestID: id,
+                    deadlineUptimeNanoseconds: deadline.uptimeNanoseconds,
+                    requiredConnectionID: connectionID
+                )
+            } catch is MobileCoreRPCSession.ConnectionChangedError {
+                continue
+            }
+        }
+        throw MobileShellConnectionError.connectionClosed
+    }
+
+    private func authenticateConnection(
+        connectionID: UUID,
+        deadline: RPCRequestDeadline
+    ) async throws -> MobileRPCConnectionAuthMode {
+        let token = try await stackAccessToken(deadline: deadline)
+        let requestID = UUID().uuidString
+        let request: [String: Any] = [
+            "id": requestID,
+            "method": "mobile.connection.authenticate",
+            "params": [:],
+            "auth": ["stack_access_token": token],
+        ]
+        let payload = try JSONSerialization.data(withJSONObject: request)
+        do {
+            _ = try await session.send(
+                payload: payload,
+                requestID: requestID,
+                deadlineUptimeNanoseconds: deadline.uptimeNanoseconds,
+                requiredConnectionID: connectionID
+            )
+            return .connectionAuthenticated
+        } catch let MobileShellConnectionError.rpcError(code, _)
+            where code == "method_not_found" {
+            return .legacyPerRequest
+        }
     }
 
     private static func requestWithGuaranteedID(
@@ -256,7 +333,11 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         return (id, data)
     }
 
-    private func requestDataWithAuth(_ requestData: Data, deadline: RPCRequestDeadline) async throws -> Data {
+    private func requestDataWithAuth(
+        _ requestData: Data,
+        deadline: RPCRequestDeadline,
+        includeStackAccessToken: Bool = true
+    ) async throws -> Data {
         guard var request = try JSONSerialization.jsonObject(with: requestData) as? [String: Any] else {
             return requestData
         }
@@ -282,15 +363,11 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                 throw MobileShellConnectionError.attachTicketExpired
             }
         }
-        // The host treats Stack auth as the SOLE authorization gate: EVERY
-        // authorized request must carry the owner's stack_access_token, even when
-        // an attach_token is also present. The attach ticket is route-discovery
-        // and workspace-selection only and never authorizes on its own, so a
-        // request that ships attach_token-only (e.g. ticket-covered workspace.list)
-        // is rejected host-side with `missingStackTokens`. Always present the
-        // Stack token for authorized requests; attach_token rides along as
-        // supplementary route/workspace context.
-        let shouldSendStackAuth = requestNeedsAuth
+        // A legacy Mac requires the Stack token on every authorized request.
+        // A Mac that accepted `mobile.connection.authenticate` already bound
+        // this transport to the account, so later requests carry only any
+        // attach-ticket context needed for resource scoping.
+        let shouldSendStackAuth = requestNeedsAuth && includeStackAccessToken
         if shouldSendStackAuth {
             guard allowsStackAuthFallback,
                   MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) else {
@@ -330,6 +407,13 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             request["auth"] = auth
         }
         return try JSONSerialization.data(withJSONObject: request)
+    }
+
+    private static func requestRequiresAuthData(_ requestData: Data) -> Bool {
+        guard let request = try? JSONSerialization.jsonObject(with: requestData) as? [String: Any] else {
+            return true
+        }
+        return requestRequiresAuth(request)
     }
 
     private func stackAccessTokenForStatus(deadline: RPCRequestDeadline) async throws -> String? {

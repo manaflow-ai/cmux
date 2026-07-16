@@ -113,6 +113,7 @@ func hostPortRoute(
 actor QueuedCancellationProbeTransport: CmxByteTransport {
     private var sentPayloads: [Data] = []
     private var receiveWaiters: [CheckedContinuation<Data?, Never>] = []
+    private var queuedResponses: [Data] = []
     private var firstSendRelease: CheckedContinuation<Void, Never>?
     private var shouldBlockFirstSend = true
     private var isClosed = false
@@ -123,6 +124,9 @@ actor QueuedCancellationProbeTransport: CmxByteTransport {
         if isClosed {
             return nil
         }
+        if !queuedResponses.isEmpty {
+            return queuedResponses.removeFirst()
+        }
         return await withCheckedContinuation { continuation in
             receiveWaiters.append(continuation)
         }
@@ -131,7 +135,34 @@ actor QueuedCancellationProbeTransport: CmxByteTransport {
     func send(_ data: Data) async throws {
         var buffer = data
         let payloads = try MobileSyncFrameCodec.decodeFrames(from: &buffer)
-        sentPayloads.append(contentsOf: payloads)
+        var legacyPayloads: [Data] = []
+        for payload in payloads {
+            let request = try recordedRPCRequest(from: payload)
+            if request.method == "mobile.connection.authenticate" {
+                let response: [String: Any] = [
+                    "id": request.id ?? "",
+                    "ok": false,
+                    "error": [
+                        "code": "method_not_found",
+                        "message": "Unknown mobile method",
+                    ],
+                ]
+                let responsePayload = try JSONSerialization.data(withJSONObject: response)
+                let responseFrame = try MobileSyncFrameCodec.encodeFrame(responsePayload)
+                if let waiter = receiveWaiters.first {
+                    receiveWaiters.removeFirst()
+                    waiter.resume(returning: responseFrame)
+                } else {
+                    queuedResponses.append(responseFrame)
+                }
+                continue
+            }
+            legacyPayloads.append(payload)
+        }
+        sentPayloads.append(contentsOf: legacyPayloads)
+        guard !legacyPayloads.isEmpty else {
+            return
+        }
         if shouldBlockFirstSend {
             shouldBlockFirstSend = false
             await withCheckedContinuation { continuation in
@@ -165,7 +196,7 @@ actor QueuedCancellationProbeTransport: CmxByteTransport {
 
     func waitForSentRequestCount(_ count: Int) async throws -> [RecordedRPCRequest] {
         var requests: [RecordedRPCRequest] = []
-        for _ in 0..<200 {
+        for _ in 0..<1_000 {
             requests = try sentRequests()
             if requests.count >= count {
                 return requests

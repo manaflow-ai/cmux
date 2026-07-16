@@ -2,6 +2,7 @@ internal import CMUXMobileCore
 import Foundation
 
 actor MobileCoreRPCSession {
+    struct ConnectionChangedError: Error {}
     typealias TransportFactory = @Sendable () throws -> any CmxByteTransport
     typealias IndependentEventByteStreamFactory = @Sendable () async throws -> CmxIndependentEventByteStream
     typealias ConnectedCandidateHook = @Sendable (_ candidate: any CmxByteTransport) async -> Void
@@ -93,10 +94,29 @@ actor MobileCoreRPCSession {
         writeQueue?.finish()
     }
 
-    func send(payload: Data, requestID: String, deadlineUptimeNanoseconds: UInt64) async throws -> Data {
+    func connectionID(deadlineUptimeNanoseconds: UInt64) async throws -> UUID {
         _ = try await ensureConnected(
             timeoutNanoseconds: try taskTimeout.remainingNanoseconds(until: deadlineUptimeNanoseconds)
         )
+        guard let installedConnectionID else {
+            throw MobileShellConnectionError.connectionClosed
+        }
+        return installedConnectionID
+    }
+
+    func send(
+        payload: Data,
+        requestID: String,
+        deadlineUptimeNanoseconds: UInt64,
+        requiredConnectionID: UUID? = nil
+    ) async throws -> Data {
+        _ = try await ensureConnected(
+            timeoutNanoseconds: try taskTimeout.remainingNanoseconds(until: deadlineUptimeNanoseconds)
+        )
+        if let requiredConnectionID,
+           installedConnectionID != requiredConnectionID {
+            throw ConnectionChangedError()
+        }
         let frame = try MobileSyncFrameCodec.encodeFrame(payload)
         let responseTimeoutNanoseconds = try taskTimeout.remainingNanoseconds(until: deadlineUptimeNanoseconds)
 

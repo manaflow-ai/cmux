@@ -240,6 +240,52 @@ extension MobileHostAuthorizationTests {
         #expect(await transport.observedCloseCount() == 1)
         #expect(await invocationRecorder.count() == 0)
     }
+    @Test func testMobileHostConnectionAuthenticatesStackOnceAndKeepsTicketChecks() async throws {
+        let transport = RecordingMobileHostByteTransport()
+        let legacyAuthorization = MobileHostAuthorizationInvocationRecorder()
+        let stackAuthorization = MobileHostAuthorizationInvocationRecorder()
+        let ticketAuthorization = MobileHostAuthorizationInvocationRecorder()
+        let handledRequests = MobileHostConnectionRequestRecorder()
+        let session = MobileHostConnection(
+            id: UUID(),
+            transport: transport,
+            authorizeRequest: { _ in
+                await legacyAuthorization.record()
+                return nil
+            },
+            authenticateConnection: { _ in
+                await stackAuthorization.record()
+                return nil
+            },
+            authorizeAuthenticatedRequest: { _ in
+                await ticketAuthorization.record()
+                return nil
+            },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { request in
+                await handledRequests.record(request)
+                return .ok([:])
+            },
+            onClose: { _ in }
+        )
+
+        let authenticate = try MobileSyncFrameCodec.encodeFrame(
+            Data(#"{"id":"auth","method":"mobile.connection.authenticate","params":{},"auth":{"stack_access_token":"token"}}"#.utf8)
+        )
+        await session.debugHandleReceiveDataForTesting(authenticate)
+        _ = await transport.waitForSentBufferCount(1)
+
+        let input = try MobileSyncFrameCodec.encodeFrame(
+            Data(#"{"id":"input","method":"terminal.input","params":{"text":"a"},"auth":{"attach_token":"ticket"}}"#.utf8)
+        )
+        await session.debugHandleReceiveDataForTesting(input)
+        _ = await transport.waitForSentBufferCount(2)
+
+        #expect(await stackAuthorization.count() == 1)
+        #expect(await legacyAuthorization.count() == 0)
+        #expect(await ticketAuthorization.count() == 1)
+        #expect(await handledRequests.recordedMethods() == ["terminal.input"])
+    }
     // MARK: - Advertised mobile host capabilities
     @Test func testMobileHostAdvertisesWorkspaceActionCapabilities() {
         let capabilities = MobileHostService.mobileHostCapabilities
@@ -249,6 +295,7 @@ extension MobileHostAuthorizationTests {
         #expect(capabilities.contains("workspace.move.v1"))
         #expect(capabilities.contains("workspace.group_actions.v1"))
         #expect(capabilities.contains("terminal.render_grid.v1"))
+        #expect(capabilities.contains("connection.stack_auth.v1"))
     }
     // MARK: - Mobile workspace.action sub-action gate
     @Test func testMobileWorkspaceActionGateAllowsOnlyPinNameAndReadStateActions() {

@@ -27,9 +27,11 @@ actor FirstConnectCancellationThenSucceedsTransport: CmxByteTransport {
     func send(_ data: Data) async throws {
         var buffer = data
         let payloads = try MobileSyncFrameCodec.decodeFrames(from: &buffer)
-        sentPayloads.append(contentsOf: payloads)
         for payload in payloads {
             let request = try recordedRPCRequest(from: payload)
+            if request.method != "mobile.connection.authenticate" {
+                sentPayloads.append(payload)
+            }
             try enqueueResponse(id: request.id)
         }
     }
