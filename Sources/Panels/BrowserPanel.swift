@@ -7602,6 +7602,12 @@ extension BrowserPanel {
     @discardableResult
     func setOmnibarVisible(_ visible: Bool) -> Bool {
         guard isOmnibarVisible != visible else { return false }
+#if DEBUG
+        cmuxDebugLog(
+            "browser.omnibar.visible panel=\(id.uuidString.prefix(5)) visible=\(visible ? 1 : 0) " +
+            "callers=\(Thread.callStackSymbols.dropFirst().prefix(5).map { frame in String(frame.split(separator: " ").dropFirst(3).first ?? "?") }.joined(separator: "<"))"
+        )
+#endif
         isOmnibarVisible = visible
         if !visible {
             pendingAddressBarFocusRequestId = nil

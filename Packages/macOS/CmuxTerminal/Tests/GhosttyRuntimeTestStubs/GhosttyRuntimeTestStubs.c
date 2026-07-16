@@ -81,12 +81,12 @@ bool ghostty_config_get(
     return true;
 }
 
-void ghostty_config_diagnostics_count(void) {}
-void ghostty_config_free(void) {}
-void ghostty_config_get(void) {}
+uint32_t ghostty_config_diagnostics_count(void *raw_config) {
+    GhosttyRuntimeTestConfig *config = raw_config;
+    return config == NULL ? 0 : config->diagnostics_count;
+}
+
 void ghostty_config_get_diagnostic(void) {}
-void ghostty_config_load_string(void) {}
-void ghostty_config_new(void) {}
 void ghostty_string_free(ghostty_string_s string) {
     (void)string;
 }

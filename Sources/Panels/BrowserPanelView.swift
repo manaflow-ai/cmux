@@ -994,6 +994,14 @@ struct BrowserPanelView: View {
         if panel.isOmnibarVisible {
             addressBar
                 .fixedSize(horizontal: false, vertical: true)
+                .onDisappear {
+#if DEBUG
+                    cmuxDebugLog(
+                        "browser.omnibar.header.disappear panel=\(panel.id.uuidString.prefix(5)) " +
+                        "visible=\(panel.isOmnibarVisible ? 1 : 0) focusMode=\(panel.isBrowserFocusModeActive ? 1 : 0)"
+                    )
+#endif
+                }
         }
     }
 
