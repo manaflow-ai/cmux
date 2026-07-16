@@ -8,7 +8,7 @@ Create a pane from File > New Simulator Pane, the command palette, or the CLI:
 cmux new-surface --type simulator --pane pane:1 --focus true
 ```
 
-Choose an installed iPhone or iPad from the pane toolbar. cmux remembers the device identifier and falls back to the newest matching runtime and device type if that identifier disappears.
+Choose an installed iPhone or iPad from the pane toolbar. cmux remembers its device identifier. If that identifier disappears, restoration requires an explicit device selection; saved runtime and device-type fields are descriptive metadata only.
 
 ## Input
 
