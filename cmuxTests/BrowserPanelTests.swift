@@ -655,6 +655,48 @@ final class BrowserPanelInitialNavigationTests: XCTestCase {
         XCTAssertTrue(normalLocalhostPanel.shouldPersistSessionSnapshot())
     }
 
+    func testBundledFeedURLIsPersistedForSessionRestore() throws {
+        let feedURL = try XCTUnwrap(CmuxDiffViewerURLSchemeHandler.diffViewerURL(
+            token: CmuxDiffViewerURLSchemeHandler.bundledFeedToken,
+            requestPath: "/feed.html"
+        ))
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: feedURL,
+            renderInitialNavigation: false
+        )
+
+        XCTAssertEqual(panel.nativeCapabilities, [.feed])
+        XCTAssertTrue(
+            panel.shouldPersistSessionSnapshot(),
+            "The bundled Feed panel must survive session restore instead of leaving an empty workspace that becomes a terminal."
+        )
+
+        let snapshot = SessionBrowserPanelSnapshot(
+            urlString: nil,
+            profileID: nil,
+            shouldRenderWebView: false,
+            pageZoom: 1,
+            developerToolsVisible: false,
+            omnibarVisible: true,
+            backHistoryURLStrings: nil,
+            forwardHistoryURLStrings: nil,
+            diffViewerToken: CmuxDiffViewerURLSchemeHandler.bundledFeedToken,
+            diffViewerRequestPath: "/feed.html"
+        )
+        let restoredPanel = BrowserPanel(
+            workspaceId: UUID(),
+            renderInitialNavigation: false,
+            omnibarVisible: true,
+            nativeCapabilities: BrowserNativeCapability.restored(from: snapshot)
+        )
+
+        restoredPanel.restoreSessionSnapshot(snapshot)
+
+        XCTAssertEqual(restoredPanel.currentURL, feedURL)
+        XCTAssertFalse(restoredPanel.isOmnibarVisible)
+    }
+
     func testDiffViewerURLIsNotRecordedInBrowserHistory() throws {
         let fileURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-browser-history-\(UUID().uuidString).json")
@@ -1006,6 +1048,21 @@ final class BrowserPanelAddressBarFocusRequestTests: XCTestCase {
 
 @MainActor
 final class BrowserPanelReactGrabBridgeTests: XCTestCase {
+    func testFocusDefersUntilWebViewCanAttachAndUnfocusCancelsIt() {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: URL(string: "https://example.com")!,
+            isRemoteWorkspace: false
+        )
+        defer { panel.close() }
+
+        panel.focus()
+        XCTAssertTrue(panel.hasDeferredWebViewFocus)
+
+        panel.unfocus()
+        XCTAssertFalse(panel.hasDeferredWebViewFocus)
+    }
+
     @MainActor
     func testExplicitWebViewFocusDoesNotSuppressOmnibarAutofocusWhenFocusFails() {
         let panel = BrowserPanel(workspaceId: UUID())

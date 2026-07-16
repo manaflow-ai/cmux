@@ -75,6 +75,7 @@ extension AppDelegate {
         let model = NewWorkspaceMenuModel.build(
             newWorkspaceContextMenuItems: cmuxConfigStore.newWorkspaceContextMenuItems,
             agentChatAction: resolvedBuiltInNewAgentChatAction(cmuxConfigStore: cmuxConfigStore),
+            feedAction: resolvedBuiltInFeedAction(cmuxConfigStore: cmuxConfigStore),
             cloudSectionEnabled: CmuxFeatureFlags.shared.isCloudVMUIEnabled,
             templateNames: savedLayoutNames(),
             loadedActions: cmuxConfigStore.loadedActions,
@@ -114,6 +115,20 @@ extension AppDelegate {
             return nil
         }
         return action
+    }
+
+    private func resolvedBuiltInFeedAction(
+        cmuxConfigStore: CmuxConfigStore
+    ) -> CmuxResolvedConfigAction? {
+        guard BrowserAvailabilitySettings.isEnabled() else { return nil }
+        let actionID = CmuxSurfaceTabBarBuiltInAction.feed.configID
+        let action = cmuxConfigStore.resolvedAction(id: actionID) ?? .builtIn(.feed)
+        guard action.newWorkspaceMenu != false else { return nil }
+        let configuredActionIDs = Set(cmuxConfigStore.newWorkspaceContextMenuItems.compactMap { item -> String? in
+            guard case .action(let menuAction) = item else { return nil }
+            return menuAction.action.id
+        })
+        return configuredActionIDs.contains(actionID) ? nil : action
     }
 
     private func shouldAppendBuiltInNewAgentChatMenuItem(

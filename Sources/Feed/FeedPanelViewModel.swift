@@ -4,15 +4,17 @@ import Foundation
 import Observation
 import SwiftUI
 
-/// Bridges the `@Observable` WorkstreamStore to a Combine `@Published`
-/// snapshot so SwiftUI reliably re-renders the Feed panel on every
-/// mutation.
+/// Projects the shared `WorkstreamStore` into immutable Feed snapshots for
+/// SwiftUI. Observation owns rendering; the only task is a cancellable history
+/// request whose lifetime is tied to this model.
 @MainActor
-final class FeedPanelViewModel: ObservableObject {
-    @Published private(set) var items: [WorkstreamItem] = []
-    @Published private(set) var hasMorePersistedItems = false
-    @Published private(set) var isLoadingOlderItems = false
-    private var storeInstalledObserver: NSObjectProtocol?
+@Observable
+final class FeedPanelViewModel {
+    private(set) var items: [WorkstreamItem] = []
+    private(set) var hasMorePersistedItems = false
+    private(set) var isLoadingOlderItems = false
+    @ObservationIgnored private var storeInstalledObserver: NSObjectProtocol?
+    @ObservationIgnored private var loadOlderTask: Task<Void, Never>?
 
     init() {
         storeInstalledObserver = NotificationCenter.default.addObserver(
@@ -28,6 +30,7 @@ final class FeedPanelViewModel: ObservableObject {
     }
 
     deinit {
+        loadOlderTask?.cancel()
         if let storeInstalledObserver {
             NotificationCenter.default.removeObserver(storeInstalledObserver)
         }
@@ -46,10 +49,13 @@ final class FeedPanelViewModel: ObservableObject {
         }
     }
 
-    nonisolated func loadOlderItems() {
-        Task { @MainActor [weak self] in
-            guard let self, !self.isLoadingOlderItems, self.hasMorePersistedItems else { return }
-            await FeedCoordinator.shared.store?.loadOlderItems()
+    func loadOlderItems() {
+        guard !isLoadingOlderItems,
+              hasMorePersistedItems,
+              let store = FeedCoordinator.shared.store else { return }
+        loadOlderTask?.cancel()
+        loadOlderTask = Task { @MainActor in
+            await store.loadOlderItems()
         }
     }
 }

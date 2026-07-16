@@ -1596,7 +1596,8 @@ extension Workspace {
                 focus: false,
                 preferredProfileID: snapshot.browser?.profileID,
                 creationPolicy: .restoration,
-                transparentBackground: snapshot.browser?.transparentBackground ?? false
+                transparentBackground: snapshot.browser?.transparentBackground ?? false,
+                nativeCapabilities: BrowserNativeCapability.restored(from: snapshot.browser)
             ) else {
                 return nil
             }
@@ -7842,6 +7843,7 @@ final class Workspace: Identifiable, ObservableObject {
         omnibarVisible: Bool = true,
         transparentBackground: Bool = false,
         bypassRemoteProxy: Bool = false,
+        nativeCapabilities: Set<BrowserNativeCapability>? = nil,
         webViewConfiguration: WKWebViewConfiguration? = nil,
         allowWebExtensionInitialNavigationConfiguration: Bool = true
     ) -> BrowserPanel? {
@@ -7881,6 +7883,7 @@ final class Workspace: Identifiable, ObservableObject {
             bypassRemoteProxy: bypassRemoteProxy,
             isRemoteWorkspace: isRemoteWorkspace,
             remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil,
+            nativeCapabilities: nativeCapabilities,
             browserWebExtensionHost: browserWebExtensionHost,
             webViewConfiguration: webViewConfiguration,
             allowWebExtensionInitialNavigationConfiguration: allowWebExtensionInitialNavigationConfiguration
@@ -12436,6 +12439,14 @@ extension Workspace: BonsplitDelegate {
             case .newWorkspace:
                 owningTabManager?.addWorkspace()
             case .newAgentChat: performSurfaceTabBarNewAgentChatAction(presentingWindow: presentingWindow)
+            case .feed:
+                if let owningTabManager {
+                    _ = AppDelegate.shared?.executeConfiguredCmuxAction(
+                        id: CmuxSurfaceTabBarBuiltInAction.feed.configID,
+                        tabManager: owningTabManager,
+                        preferredWindow: presentingWindow
+                    )
+                }
             case .cloudVM:
                 _ = AppDelegate.shared?.performCloudVMAction(tabManager: owningTabManager, preferredWindow: presentingWindow, debugSource: "surfaceTabBar.cloudVM")
             case .mobileConnect:

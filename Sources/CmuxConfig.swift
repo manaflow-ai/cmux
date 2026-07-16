@@ -1374,6 +1374,9 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
         case .newAgentChat:
             title = String(localized: "command.newAgentChat.title", defaultValue: "New agent chat")
             keywords = ["create", "new", "agent", "chat", "browser", "codex", "claude"]
+        case .feed:
+            title = String(localized: "rightSidebar.mode.feed", defaultValue: "Feed")
+            keywords = ["agent", "activity", "approvals", "feed", "questions"]
         case .cloudVM:
             title = String(localized: "command.cloudVM.title", defaultValue: "Open Base")
             keywords = ["base", "cloud", "vm", "virtual", "machine", "remote"]
@@ -1641,6 +1644,7 @@ struct CmuxSurfaceDefinition: Codable, Sendable, Hashable {
     var env: [String: String]?
     var url: String?
     var focus: Bool?
+    var omnibarVisible: Bool? = nil
 }
 
 enum CmuxSurfaceType: String, Codable, Sendable {

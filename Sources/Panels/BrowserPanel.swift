@@ -14,6 +14,7 @@ import CFNetwork
 import SQLite3
 import CryptoKit
 import Darwin
+import zlib
 import CmuxTerminal
 #if canImport(CommonCrypto)
 import CommonCrypto
@@ -1777,10 +1778,28 @@ enum BrowserInsecureHTTPNavigationResolution {
     }
 }
 
+enum BrowserNativeCapability: Hashable, Sendable {
+    case feed
+
+    static func restored(from snapshot: SessionBrowserPanelSnapshot?) -> Set<Self> {
+        guard let snapshot else { return [] }
+        if snapshot.diffViewerToken == CmuxDiffViewerURLSchemeHandler.bundledFeedToken {
+            return [.feed]
+        }
+        let restoredURL = snapshot.urlString.flatMap(URL.init(string:))
+        return FeedSurfaceBridge.isLegacyPackagedFeedURL(restoredURL) ? [.feed] : []
+    }
+}
+
 final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
     static let scheme = "cmux-diff-viewer"
     static let shared = CmuxDiffViewerURLSchemeHandler()
     static let maxRegisteredFiles = 1024
+    static let bundledFeedToken = "bundled-feed-surface"
+
+    static func isBundledFeedSurface(token: String, requestPath: String) -> Bool {
+        token == bundledFeedToken && requestPath == "/feed.html"
+    }
 
     struct RegisteredFile {
         let requestPath: String
@@ -1823,6 +1842,11 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
     private var sessions: [String: Session] = [:]
     private var activeSchemeTasks: [ObjectIdentifier: SchemeTaskState] = [:]
     private let streamQueue = DispatchQueue(label: "com.manaflow.cmux.diff-viewer-stream", qos: .userInitiated)
+    private let bundledAssetQueue = DispatchQueue(
+        label: "com.manaflow.cmux.bundled-webview-assets",
+        qos: .userInitiated,
+        attributes: .concurrent
+    )
     // Branch picker routes shell out to the bundled CLI (git). Run them on a
     // dedicated concurrent queue, NOT the serial file-serving streamQueue, so a
     // slow/hung git invocation cannot stall restored diff-viewer file serving.
@@ -1863,7 +1887,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
 
             let standardizedURL = file.fileURL.standardizedFileURL.resolvingSymlinksInPath()
             var isDirectory: ObjCBool = false
-            guard isTrustedDiffViewerFileURL(standardizedURL),
+            guard isTrustedRegisteredFileURL(standardizedURL, token: token),
                   FileManager.default.fileExists(atPath: standardizedURL.path, isDirectory: &isDirectory),
                   !isDirectory.boolValue,
                   FileManager.default.isReadableFile(atPath: standardizedURL.path) else {
@@ -1889,6 +1913,65 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         pruneExpiredSessionsLocked(now: now)
         sessions[token] = Session(token: token, filesByPath: byPath, createdAt: now, lease: lease)
         lock.unlock()
+    }
+
+    func registerBundledFeedAssets(resourceURL: URL? = Bundle.main.resourceURL) throws -> URL {
+        guard let root = resourceURL?
+            .appendingPathComponent("markdown-viewer/webviews-app", isDirectory: true)
+            .standardizedFileURL
+            .resolvingSymlinksInPath(),
+              let enumerator = FileManager.default.enumerator(
+                at: root,
+                includingPropertiesForKeys: [.isRegularFileKey],
+                options: [.skipsHiddenFiles]
+              ) else {
+            throw NSError(domain: "CmuxDiffViewerURLSchemeHandler", code: 6)
+        }
+        let files = enumerator.compactMap { entry -> RegisteredFile? in
+            guard let fileURL = entry as? URL,
+                  (try? fileURL.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else {
+                return nil
+            }
+            var relativePath = String(fileURL.path.dropFirst(root.path.count))
+            if relativePath.hasSuffix(".deflate") {
+                relativePath.removeLast(".deflate".count)
+            }
+            let mimeType: String
+            if relativePath.hasSuffix(".html") {
+                mimeType = "text/html"
+            } else if relativePath.hasSuffix(".mjs") || relativePath.hasSuffix(".js") {
+                mimeType = "text/javascript"
+            } else if relativePath.hasSuffix(".css") {
+                mimeType = "text/css"
+            } else {
+                return nil
+            }
+            return RegisteredFile(requestPath: relativePath, fileURL: fileURL, mimeType: mimeType)
+        }
+        try register(token: Self.bundledFeedToken, files: files)
+        guard let url = Self.diffViewerURL(token: Self.bundledFeedToken, requestPath: "/feed.html") else {
+            throw NSError(domain: "CmuxDiffViewerURLSchemeHandler", code: 7)
+        }
+        return url
+    }
+
+    /// Resolves a persisted internal browser surface and restores the backing
+    /// asset registration that was process-local before the app relaunched.
+    func sessionRestoreURL(token: String, requestPath: String) -> URL? {
+        if Self.isBundledFeedSurface(token: token, requestPath: requestPath) {
+            return try? registerBundledFeedAssets()
+        }
+        guard registerFromManifest(token: token) else { return nil }
+        return Self.diffViewerURL(token: token, requestPath: requestPath)
+    }
+
+    /// Bundled surfaces are restorable from the app resources in every process.
+    /// Dynamic diff surfaces remain restorable only when their manifest is local.
+    func sessionRestorable(token: String, requestPath: String) -> Bool {
+        if Self.isBundledFeedSurface(token: token, requestPath: requestPath) {
+            return true
+        }
+        return diffViewerRestorable(token: token, requestPath: requestPath)
     }
 
     /// Whether the token currently has a registered (or manifest-restorable)
@@ -2379,7 +2462,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
     }
 
     private static func isAllowedMimeType(_ mimeType: String) -> Bool {
-        mimeType == "text/html" || mimeType == "text/javascript" || mimeType == "text/x-diff"
+        mimeType == "text/html" || mimeType == "text/javascript" || mimeType == "text/css" || mimeType == "text/x-diff"
     }
 
     private static func pathExtensionMatchesMimeType(path: String, mimeType: String) -> Bool {
@@ -2388,6 +2471,9 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         }
         if mimeType == "text/javascript" {
             return path.hasSuffix(".mjs") || path.hasSuffix(".js")
+        }
+        if mimeType == "text/css" {
+            return path.hasSuffix(".css")
         }
         if mimeType == "text/x-diff" {
             return path.hasSuffix(".patch")
@@ -2406,7 +2492,10 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         activeSchemeTasks[taskID] = state
         lock.unlock()
 
-        streamQueue.async { [weak self] in
+        let queue = file.fileURL.lastPathComponent.hasSuffix(".deflate")
+            ? bundledAssetQueue
+            : streamQueue
+        queue.async { [weak self] in
             guard let self else { return }
             do {
                 let response = HTTPURLResponse(
@@ -2517,9 +2606,58 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         return fileSize
     }
 
+    static func inflateZlibData(_ compressed: Data) throws -> Data {
+        let maximumSize = 128 * 1024 * 1024
+        var capacity = max(64 * 1024, compressed.count * 4)
+
+        while capacity <= maximumSize {
+            var output = Data(count: capacity)
+            var decodedCount = uLongf(capacity)
+            let status = output.withUnsafeMutableBytes { destinationBuffer in
+                compressed.withUnsafeBytes { sourceBuffer in
+                    guard let destination = destinationBuffer.bindMemory(to: UInt8.self).baseAddress,
+                          let source = sourceBuffer.bindMemory(to: UInt8.self).baseAddress else {
+                        return Z_DATA_ERROR
+                    }
+                    return uncompress(
+                        destination,
+                        &decodedCount,
+                        source,
+                        uLong(compressed.count)
+                    )
+                }
+            }
+            if status == Z_OK {
+                output.count = Int(decodedCount)
+                return output
+            }
+            guard status == Z_BUF_ERROR else {
+                throw NSError(domain: "CmuxDiffViewerURLSchemeHandler", code: 8, userInfo: [
+                    NSLocalizedDescriptionKey: "Bundled webview asset has invalid zlib data"
+                ])
+            }
+            capacity *= 2
+        }
+
+        throw NSError(domain: "CmuxDiffViewerURLSchemeHandler", code: 8, userInfo: [
+            NSLocalizedDescriptionKey: "Bundled webview asset could not be decompressed"
+        ])
+    }
+
     private func isTrustedDiffViewerFileURL(_ url: URL) -> Bool {
         let rootPath = trustedRootURL.path
         return url.isFileURL && url.path.hasPrefix(rootPath + "/")
+    }
+
+    private func isTrustedRegisteredFileURL(_ url: URL, token: String) -> Bool {
+        if token == Self.bundledFeedToken,
+           let bundleRoot = Bundle.main.resourceURL?
+            .appendingPathComponent("markdown-viewer/webviews-app", isDirectory: true)
+            .standardizedFileURL
+            .resolvingSymlinksInPath() {
+            return url.isFileURL && url.path.hasPrefix(bundleRoot.path + "/")
+        }
+        return isTrustedDiffViewerFileURL(url)
     }
 
     private func pruneExpiredSessionsLocked(now: Date) {
@@ -2538,7 +2676,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
             headers["Content-Security-Policy"] = [
                 "default-src 'none'",
                 "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'",
-                "style-src 'unsafe-inline'",
+                "style-src 'self' 'unsafe-inline'",
                 "img-src 'self' data:",
                 "connect-src 'self'",
                 "font-src 'none'",
@@ -2679,6 +2817,8 @@ final class BrowserPanel: Panel, ObservableObject {
     /// The workspace ID this panel belongs to
     private(set) var workspaceId: UUID
 
+    let nativeCapabilities: Set<BrowserNativeCapability>
+
     @Published private(set) var profileID: UUID
     @Published private(set) var historyStore: BrowserHistoryStore
 
@@ -2717,6 +2857,7 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Used to keep omnibar text-field focus from being immediately stolen by panel focus.
     private var suppressWebViewFocusUntil: Date?
     private var suppressWebViewFocusForAddressBar: Bool = false
+    private(set) var hasDeferredWebViewFocus = false
     private let blankURLString = "about:blank"
 
     /// Owns the address-bar page-focus capture/restore subsystem.
@@ -3153,6 +3294,9 @@ final class BrowserPanel: Panel, ObservableObject {
                 allowBlankShellHeal: changed || isFirstVisibilityRecord
             )
             drainPendingInteractiveBrowserPromptsIfPossible(reason: "visible.\(reason)")
+            if hasDeferredWebViewFocus {
+                focus()
+            }
         } else if changed || isFirstVisibilityRecord || !hiddenWebViewDiscardManager.hasScheduledDiscard {
             scheduleHiddenWebViewDiscardIfNeeded(reason: reason, now: now)
         }
@@ -3490,12 +3634,20 @@ final class BrowserPanel: Panel, ObservableObject {
     static func makeWebView(
         profileID: UUID,
         websiteDataStore: WKWebsiteDataStore? = nil,
+        nativeCapabilities: Set<BrowserNativeCapability> = [],
         browserWebExtensionHost: (any BrowserWebExtensionHosting)? = nil,
         webViewConfiguration: WKWebViewConfiguration? = nil
     ) -> CmuxWebView {
         let config = webViewConfiguration ?? WKWebViewConfiguration()
         if webViewConfiguration == nil {
-            configureWebViewConfiguration(config, websiteDataStore: websiteDataStore ?? BrowserProfileStore.shared.websiteDataStore(for: profileID), browserWebExtensionHost: browserWebExtensionHost)
+            configureWebViewConfiguration(
+                config,
+                websiteDataStore: websiteDataStore ?? BrowserProfileStore.shared.websiteDataStore(for: profileID),
+                nativeCapabilities: nativeCapabilities,
+                browserWebExtensionHost: browserWebExtensionHost
+            )
+        } else if nativeCapabilities.contains(.feed) {
+            FeedSurfaceBridge.installIfNeeded(on: config.userContentController)
         }
 
         let webView = CmuxWebView(frame: .zero, configuration: config)
@@ -3515,6 +3667,7 @@ final class BrowserPanel: Panel, ObservableObject {
     static func configureWebViewConfiguration(
         _ configuration: WKWebViewConfiguration,
         websiteDataStore: WKWebsiteDataStore,
+        nativeCapabilities: Set<BrowserNativeCapability> = [],
         browserWebExtensionHost: (any BrowserWebExtensionHosting)? = nil
     ) {
         configuration.mediaTypesRequiringUserActionForPlayback = []
@@ -3532,6 +3685,9 @@ final class BrowserPanel: Panel, ObservableObject {
         // The handler itself rejects every frame that is not a registered diff
         // viewer session, so installing it on all browser webviews is safe.
         DiffSidecarBridge.installViewerBridges(on: configuration.userContentController)
+        if nativeCapabilities.contains(.feed) {
+            FeedSurfaceBridge.installIfNeeded(on: configuration.userContentController)
+        }
 
         // Enable developer extras (DevTools)
         configuration.preferences.setValue(true, forKey: "developerExtrasEnabled")
@@ -3914,14 +4070,20 @@ final class BrowserPanel: Panel, ObservableObject {
         bypassRemoteProxy: Bool = false,
         isRemoteWorkspace: Bool = false,
         remoteWebsiteDataStoreIdentifier: UUID? = nil,
+        nativeCapabilities: Set<BrowserNativeCapability>? = nil,
         browserWebExtensionHost: (any BrowserWebExtensionHosting)? = nil,
-        webViewConfiguration: WKWebViewConfiguration? = nil, allowWebExtensionInitialNavigationConfiguration: Bool = true
+        webViewConfiguration: WKWebViewConfiguration? = nil,
+        allowWebExtensionInitialNavigationConfiguration: Bool = true
     ) {
         // Register fallback defaults and normalize legacy/out-of-range settings once
         // per process, before any setting is read below or by the SwiftUI view.
         Self.bootstrapBrowserDefaultsIfNeeded()
         self.id = UUID()
         self.workspaceId = workspaceId
+        let initialNavigationURL = initialRequest?.url ?? initialURL
+        let resolvedNativeCapabilities = nativeCapabilities
+            ?? (FeedSurfaceBridge.isTrustedFeedURL(initialNavigationURL) ? [.feed] : [])
+        self.nativeCapabilities = resolvedNativeCapabilities
         let resolvedProfileID = Self.resolvedProfileID(requested: profileID)
         self.profileID = resolvedProfileID
         self.historyStore = BrowserProfileStore.shared.historyStore(for: resolvedProfileID)
@@ -3944,7 +4106,9 @@ final class BrowserPanel: Panel, ObservableObject {
             ?? initialExtensionNavigationConfiguration?.webViewConfiguration
         let webView: CmuxWebView
         var adoptedPrewarmedWebView = false
-        if initialWebViewConfiguration == nil, let prewarmed = Self.claimedPrewarmedWebView(
+        if resolvedNativeCapabilities.isEmpty,
+           initialWebViewConfiguration == nil,
+           let prewarmed = Self.claimedPrewarmedWebView(
             isRemoteWorkspace: isRemoteWorkspace,
             initialRequest: initialRequest,
             renderInitialNavigation: renderInitialNavigation,
@@ -3959,6 +4123,7 @@ final class BrowserPanel: Panel, ObservableObject {
             webView = Self.makeWebView(
                 profileID: resolvedProfileID,
                 websiteDataStore: websiteDataStore,
+                nativeCapabilities: resolvedNativeCapabilities,
                 browserWebExtensionHost: browserWebExtensionHost,
                 webViewConfiguration: initialWebViewConfiguration
             )
@@ -4616,6 +4781,7 @@ final class BrowserPanel: Panel, ObservableObject {
         let replacement = Self.makeWebView(
             profileID: resolvedProfileID,
             websiteDataStore: websiteDataStore,
+            nativeCapabilities: nativeCapabilities,
             browserWebExtensionHost: browserWebExtensionHost
         )
         replacement.pageZoom = desiredZoom
@@ -4724,16 +4890,21 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func restoreSessionSnapshot(_ snapshot: SessionBrowserPanelSnapshot) {
-        // Diff viewer surfaces re-register their token from the on-disk manifest
-        // and navigate via the app-owned custom scheme, so they restore even
-        // though the local HTTP server that originally served them is gone.
+        // Internal surfaces restore their backing registration, from bundled
+        // resources for Feed or an on-disk manifest for dynamic diff viewers.
         if let token = snapshot.diffViewerToken,
            let requestPath = snapshot.diffViewerRequestPath,
-           CmuxDiffViewerURLSchemeHandler.shared.registerFromManifest(token: token),
-           let diffURL = CmuxDiffViewerURLSchemeHandler.diffViewerURL(token: token, requestPath: requestPath) {
+           let diffURL = CmuxDiffViewerURLSchemeHandler.shared.sessionRestoreURL(
+               token: token,
+               requestPath: requestPath
+           ) {
             hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(snapshot.shouldRenderWebView)
             setMuted(snapshot.isMuted)
-            setOmnibarVisible(snapshot.omnibarVisible ?? false)
+            setOmnibarVisible(
+                token == CmuxDiffViewerURLSchemeHandler.bundledFeedToken
+                    ? false
+                    : snapshot.omnibarVisible ?? false
+            )
             currentURL = diffURL
             let shouldRenderRestoredWebView = snapshot.shouldRenderWebView && BrowserAvailabilitySettings.isEnabled()
             guard shouldRenderRestoredWebView else {
@@ -4745,11 +4916,15 @@ final class BrowserPanel: Panel, ObservableObject {
             return
         }
 
-        let restoredURL = Self.remappedAppPricingSessionRestoreURL(Self.sanitizedSessionHistoryURL(snapshot.urlString))
+        let sanitizedURL = Self.sanitizedSessionHistoryURL(snapshot.urlString)
+        let isLegacyPackagedFeed = FeedSurfaceBridge.isLegacyPackagedFeedURL(sanitizedURL)
+        let restoredURL = isLegacyPackagedFeed
+            ? FeedSurfaceBridge.feedURL()
+            : Self.remappedAppPricingSessionRestoreURL(sanitizedURL)
         let shouldRenderRestoredWebView = snapshot.shouldRenderWebView && BrowserAvailabilitySettings.isEnabled()
         hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(snapshot.shouldRenderWebView)
         setMuted(snapshot.isMuted)
-        setOmnibarVisible(snapshot.omnibarVisible ?? true)
+        setOmnibarVisible(isLegacyPackagedFeed ? false : snapshot.omnibarVisible ?? true)
 
         restoreSessionNavigationHistory(
             backHistoryURLStrings: snapshot.backHistoryURLStrings ?? [],
@@ -4787,12 +4962,11 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func shouldPersistSessionSnapshot() -> Bool {
-        // Diff viewer surfaces are otherwise treated as temporary. Persist them
-        // only when they can actually be restored via the custom scheme (a
-        // local-only, non-pending manifest); otherwise persisting would leave a
-        // blank panel on restart with no URL to fall back to.
+        // Internal surfaces are otherwise treated as temporary. Persist them
+        // only when their bundled resources or local, non-pending manifest can
+        // restore the custom-scheme URL after relaunch.
         if let components = diffViewerSessionComponents() {
-            return CmuxDiffViewerURLSchemeHandler.shared.diffViewerRestorable(
+            return CmuxDiffViewerURLSchemeHandler.shared.sessionRestorable(
                 token: components.token,
                 requestPath: components.requestPath
             )
@@ -5224,19 +5398,25 @@ final class BrowserPanel: Panel, ObservableObject {
 
     func focus() {
         if shouldSuppressWebViewFocus() {
+            hasDeferredWebViewFocus = false
             return
         }
 
-        guard let window = webView.window, !webView.isHiddenOrHasHiddenAncestor else { return }
+        guard let window = webView.window, !webView.isHiddenOrHasHiddenAncestor else {
+            hasDeferredWebViewFocus = true
+            return
+        }
 
         // If nothing meaningful is loaded yet, prefer letting the omnibar take focus.
         if !webView.isLoading {
             let urlString = Self.remoteProxyDisplayURL(for: webView.url)?.absoluteString ?? currentURL?.absoluteString
             if urlString == nil || urlString == "about:blank" {
+                hasDeferredWebViewFocus = false
                 return
             }
         }
 
+        hasDeferredWebViewFocus = false
         if Self.responderChainContains(window.firstResponder, target: webView) {
             noteWebViewFocused()
             return
@@ -5282,6 +5462,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func unfocus() {
+        hasDeferredWebViewFocus = false
         clearBrowserFocusMode(reason: "panelUnfocus")
         invalidateSearchFocusRequests(reason: "panelUnfocus")
         guard let window = webView.window else { return }
@@ -5857,6 +6038,7 @@ final class BrowserPanel: Panel, ObservableObject {
         let replacement = Self.makeWebView(
             profileID: profileID,
             websiteDataStore: websiteDataStore,
+            nativeCapabilities: nativeCapabilities,
             browserWebExtensionHost: browserWebExtensionHost,
             webViewConfiguration: webViewConfiguration
         )
@@ -6241,6 +6423,7 @@ extension BrowserPanel {
         let replacement = Self.makeWebView(
             profileID: profileID,
             websiteDataStore: websiteDataStore,
+            nativeCapabilities: nativeCapabilities,
             browserWebExtensionHost: browserWebExtensionHost
         )
         webViewInstanceID = UUID()

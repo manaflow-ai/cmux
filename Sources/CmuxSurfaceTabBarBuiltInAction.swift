@@ -4,6 +4,7 @@ import Foundation
 enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Hashable {
     case newWorkspace = "cmux.newWorkspace"
     case newAgentChat = "cmux.newAgentChat"
+    case feed = "cmux.feed"
     case cloudVM = "cmux.cloudvm"
     case mobileConnect = "cmux.mobileconnect"
     case newTerminal = "cmux.newTerminal"
@@ -17,6 +18,8 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             self = .newWorkspace
         case "cmux.newAgentChat", "cmux.agentChat", "newAgentChat", "new-agent-chat", "agentChat":
             self = .newAgentChat
+        case "cmux.feed", "feed", "openFeed", "open-feed":
+            self = .feed
         case "cmux.cloudvm", "cmux.cloudVM", "cloudVM", "cloudvm",
              "cmux.newCloudVM", "cmux.newCloudVm", "newCloudVM", "newCloudVm",
              "cmux.startCloudVM", "cmux.startCloudVm", "startCloudVM", "startCloudVm":
@@ -47,6 +50,8 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
             return "plus.square"
         case .newAgentChat:
             return "message"
+        case .feed:
+            return "dot.radiowaves.left.and.right"
         case .cloudVM:
             return "cloud"
         case .mobileConnect:
@@ -64,7 +69,7 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
 
     var bonsplitAction: BonsplitConfiguration.SplitActionButton.Action? {
         switch self {
-        case .newWorkspace, .newAgentChat, .cloudVM, .mobileConnect:
+        case .newWorkspace, .newAgentChat, .feed, .cloudVM, .mobileConnect:
             return nil
         case .newTerminal:
             return .newTerminal

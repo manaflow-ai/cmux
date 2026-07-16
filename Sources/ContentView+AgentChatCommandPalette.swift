@@ -10,6 +10,8 @@ extension ContentView {
             return CmuxSurfaceTabBarBuiltInAction.newBrowser.configID
         case "palette.newAgentChat":
             return CmuxSurfaceTabBarBuiltInAction.newAgentChat.configID
+        case "palette.feed":
+            return CmuxSurfaceTabBarBuiltInAction.feed.configID
         case "palette.terminalSplitRight":
             return CmuxSurfaceTabBarBuiltInAction.splitRight.configID
         case "palette.terminalSplitDown":
@@ -30,6 +32,16 @@ extension ContentView {
         )]
     }
 
+    static func commandPaletteFeedContributions() -> [CommandPaletteCommandContribution] {
+        [CommandPaletteCommandContribution(
+            commandId: "palette.feed",
+            title: { _ in String(localized: "rightSidebar.mode.feed", defaultValue: "Feed") },
+            subtitle: { _ in String(localized: "command.cmuxConfig.builtInSubtitle", defaultValue: "cmux") },
+            keywords: ["agent", "activity", "approvals", "feed", "questions"],
+            when: { !$0.bool(CommandPaletteContextKeys.browserDisabled) }
+        )]
+    }
+
     func registerAgentChatCommandPaletteHandler(_ registry: inout CommandPaletteHandlerRegistry) {
         registry.register(commandId: "palette.newAgentChat") {
             guard CmuxFeatureFlags.shared.isAgentChatUIEnabled else {
@@ -42,6 +54,22 @@ extension ContentView {
             }
             if !appDelegate.executeConfiguredCmuxAction(
                 id: CmuxSurfaceTabBarBuiltInAction.newAgentChat.configID,
+                tabManager: tabManager,
+                preferredWindow: appDelegate.mainWindow(for: windowId)
+            ) {
+                NSSound.beep()
+            }
+        }
+    }
+
+    func registerFeedCommandPaletteHandler(_ registry: inout CommandPaletteHandlerRegistry) {
+        registry.register(commandId: "palette.feed") {
+            guard let appDelegate = AppDelegate.shared else {
+                NSSound.beep()
+                return
+            }
+            if !appDelegate.executeConfiguredCmuxAction(
+                id: CmuxSurfaceTabBarBuiltInAction.feed.configID,
                 tabManager: tabManager,
                 preferredWindow: appDelegate.mainWindow(for: windowId)
             ) {

@@ -10,6 +10,75 @@ import CMUXAgentLaunch
 
 @Suite("Feed coordinator", .serialized)
 struct FeedCoordinatorTests {
+    @Test func feedSurfaceTrustIsLimitedToTheBundledEntryPoint() throws {
+        let token = CmuxDiffViewerURLSchemeHandler.bundledFeedToken
+        #expect(CmuxDiffViewerURLSchemeHandler.isValidToken(token))
+        let feedURL = try #require(CmuxDiffViewerURLSchemeHandler.diffViewerURL(token: token, requestPath: "/feed.html"))
+
+        #expect(FeedSurfaceBridge.isTrustedFeedURL(feedURL))
+        #expect(!FeedSurfaceBridge.isTrustedFeedURL(URL(string: feedURL.absoluteString + "#feed")))
+        #expect(!FeedSurfaceBridge.isTrustedFeedURL(URL(string: "cmux-diff-viewer://\(token)/index.html")))
+        #expect(!FeedSurfaceBridge.isTrustedFeedURL(URL(string: "https://example.com/feed.html")))
+    }
+
+    @Test func legacyPackagedFeedURLIsRecognizedForSessionMigration() throws {
+        let legacyURL = try #require(URL(string:
+            "file:///Applications/cmux.app/Contents/Resources/markdown-viewer/webviews-app/feed.html"
+        ))
+
+        #expect(FeedSurfaceBridge.isLegacyPackagedFeedURL(legacyURL))
+        #expect(!FeedSurfaceBridge.isLegacyPackagedFeedURL(URL(string: "file:///tmp/feed.html")))
+        #expect(!FeedSurfaceBridge.isLegacyPackagedFeedURL(URL(string: "https://example.com/feed.html")))
+    }
+
+    @Test func restoredFeedSnapshotsRetainTheirNativeCapability() {
+        let feedSnapshot = SessionBrowserPanelSnapshot(
+            urlString: "cmux-diff-viewer://bundled-feed-surface/feed.html",
+            profileID: nil,
+            shouldRenderWebView: true,
+            pageZoom: 1,
+            developerToolsVisible: false,
+            backHistoryURLStrings: nil,
+            forwardHistoryURLStrings: nil,
+            diffViewerToken: CmuxDiffViewerURLSchemeHandler.bundledFeedToken,
+            diffViewerRequestPath: "/feed.html"
+        )
+        let normalSnapshot = SessionBrowserPanelSnapshot(
+            urlString: "https://example.com",
+            profileID: nil,
+            shouldRenderWebView: true,
+            pageZoom: 1,
+            developerToolsVisible: false,
+            backHistoryURLStrings: nil,
+            forwardHistoryURLStrings: nil
+        )
+        let legacySnapshot = SessionBrowserPanelSnapshot(
+            urlString: "file:///Applications/cmux.app/Contents/Resources/markdown-viewer/webviews-app/feed.html",
+            profileID: nil,
+            shouldRenderWebView: true,
+            pageZoom: 1,
+            developerToolsVisible: false,
+            backHistoryURLStrings: nil,
+            forwardHistoryURLStrings: nil
+        )
+
+        #expect(BrowserNativeCapability.restored(from: feedSnapshot) == [.feed])
+        #expect(BrowserNativeCapability.restored(from: legacySnapshot) == [.feed])
+        #expect(BrowserNativeCapability.restored(from: normalSnapshot).isEmpty)
+    }
+
+    @Test func bundledFeedAssetsUseZlibDecompression() throws {
+        let compressed = Data([
+            0x78, 0xda, 0x4b, 0xce, 0xcf, 0x2b, 0xce, 0xcf, 0x49,
+            0xd5, 0xcb, 0xc9, 0x4f, 0xd7, 0x50, 0x4f, 0x4b, 0x4d,
+            0x4d, 0x51, 0xd7, 0x04, 0x00, 0x47, 0xe8, 0x06, 0x97,
+        ])
+
+        let decoded = try CmuxDiffViewerURLSchemeHandler.inflateZlibData(compressed)
+
+        #expect(String(decoding: decoded, as: UTF8.self) == "console.log('feed')")
+    }
+
     @Test func codexTeamsResolvesExplicitWorkingDirectoryFlags() {
         let base = "/tmp/cmux-base"
 

@@ -91,6 +91,51 @@ extension AppDelegate {
     }
 
     @discardableResult
+    func performConfiguredFeedAction(
+        context: MainWindowContext,
+        onExecuted: (() -> Void)?
+    ) -> Bool {
+        guard BrowserAvailabilitySettings.isEnabled(),
+              let feedURL = FeedSurfaceBridge.feedURL() else {
+            NSSound.beep()
+            return false
+        }
+        let beforeIDs = Set(context.tabManager.tabs.map(\.id))
+        let title = String(localized: "rightSidebar.mode.feed", defaultValue: "Feed")
+        let workspace = CmuxWorkspaceDefinition(
+            name: title,
+            layout: .pane(CmuxPaneDefinition(surfaces: [
+                CmuxSurfaceDefinition(
+                    type: .browser,
+                    name: title,
+                    command: nil,
+                    cwd: nil,
+                    env: nil,
+                    url: feedURL.absoluteString,
+                    focus: true,
+                    omnibarVisible: false
+                ),
+            ]))
+        )
+        let command = CmuxCommandDefinition(name: title, workspace: workspace)
+        let baseCWD = context.tabManager.selectedWorkspace?.currentDirectory
+            ?? FileManager.default.homeDirectoryForCurrentUser.path
+        guard CmuxConfigExecutor.executeWorkspaceCommand(
+            command: command,
+            workspace: workspace,
+            tabManager: context.tabManager,
+            baseCwd: baseCWD
+        ) else {
+            return false
+        }
+        guard context.tabManager.tabs.contains(where: { !beforeIDs.contains($0.id) }) else {
+            return false
+        }
+        onExecuted?()
+        return true
+    }
+
+    @discardableResult
     func executeConfiguredCmuxAction(
         id actionID: String,
         tabManager: TabManager,
