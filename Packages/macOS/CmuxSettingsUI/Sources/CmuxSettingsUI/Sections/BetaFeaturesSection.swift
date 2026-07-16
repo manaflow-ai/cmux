@@ -11,6 +11,7 @@ public struct BetaFeaturesSection: View {
     @State private var dock: DefaultsValueModel<Bool>
     @State private var extensions: DefaultsValueModel<Bool>
     @State private var customSidebars: DefaultsValueModel<Bool>
+    @State private var appKitSidebarList: DefaultsValueModel<Bool>
     @State private var remoteTmux: DefaultsValueModel<Bool>
     @State private var workspaceTodosChecklistStyle: DefaultsValueModel<WorkspaceTodoChecklistStyle>
 
@@ -19,6 +20,7 @@ public struct BetaFeaturesSection: View {
         _dock = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarDock))
         _extensions = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.extensions))
         _customSidebars = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.customSidebars))
+        _appKitSidebarList = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.appKitSidebarList))
         _remoteTmux = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.remoteTmux))
         _workspaceTodosChecklistStyle = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.workspaceTodosChecklistStyle))
     }
@@ -39,6 +41,8 @@ public struct BetaFeaturesSection: View {
                 SettingsCardDivider()
                 customSidebarsRow
                 SettingsCardDivider()
+                appKitSidebarListRow
+                SettingsCardDivider()
                 remoteTmuxRow
                 SettingsCardDivider()
                 workspaceTodosChecklistStyleRow
@@ -53,6 +57,7 @@ public struct BetaFeaturesSection: View {
             dock,
             extensions,
             customSidebars,
+            appKitSidebarList,
             remoteTmux,
             workspaceTodosChecklistStyle,
         ]
@@ -148,6 +153,23 @@ public struct BetaFeaturesSection: View {
                 .labelsHidden()
                 .controlSize(.small)
                 .accessibilityIdentifier("SettingsBetaCustomSidebarsToggle")
+        }
+    }
+
+    @ViewBuilder
+    private var appKitSidebarListRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:betaFeatures:appKitSidebarList",
+            String(localized: "settings.betaFeatures.appKitSidebarList", defaultValue: "AppKit Sidebar List"),
+            subtitle: appKitSidebarList.current
+                ? String(localized: "settings.betaFeatures.appKitSidebarList.subtitleOn", defaultValue: "Renders the workspace list with a native AppKit table for smoother scrolling with many workspaces.")
+                : String(localized: "settings.betaFeatures.appKitSidebarList.subtitleOff", defaultValue: "Uses the existing SwiftUI workspace list until you enable the native table here.")
+        ) {
+            Toggle("", isOn: Binding(get: { appKitSidebarList.current }, set: { appKitSidebarList.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsBetaAppKitSidebarListToggle")
         }
     }
 

@@ -29,7 +29,9 @@ struct SidebarWorkspaceRowInput {
     let showsAgentActivity: Bool
     let rowSpacing: CGFloat
     let showsModifierShortcutHints: Bool
-    let isPointerHovering: Bool
+    // `var`: the AppKit table's content factory overlays the controller-owned
+    // hover state on an otherwise immutable input value per cell configure.
+    var isPointerHovering: Bool
     let isBeingDragged: Bool
     let topDropIndicatorVisible: Bool
     let bottomDropIndicatorVisible: Bool

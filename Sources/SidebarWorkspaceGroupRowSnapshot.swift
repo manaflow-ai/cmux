@@ -7,7 +7,7 @@ import Foundation
 /// Live group, notification, config, drag, and pointer models are reduced to
 /// this value before the lazy-list boundary. Only action closures are bound
 /// when SwiftUI realizes the row.
-struct SidebarWorkspaceGroupRowSnapshot {
+struct SidebarWorkspaceGroupRowSnapshot: Equatable {
     let groupId: UUID
     let anchorWorkspaceId: UUID
     let name: String
@@ -26,7 +26,9 @@ struct SidebarWorkspaceGroupRowSnapshot {
     let shortcutDigit: Int?
     let shortcutModifierSymbol: String?
     let showsShortcutHint: Bool
-    let isPointerHovering: Bool
+    // `var`: the AppKit table's content factory overlays the controller-owned
+    // hover state per cell configure.
+    var isPointerHovering: Bool
     let shortcutHintXOffset: Double
     let shortcutHintYOffset: Double
     let fontScale: CGFloat

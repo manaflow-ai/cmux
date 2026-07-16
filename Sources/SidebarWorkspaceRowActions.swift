@@ -52,8 +52,10 @@ struct SidebarWorkspaceRowActions {
     let onToggleChecklistExpansion: () -> Void
     let onConsumeChecklistAddFieldActivation: () -> Void
     let onChecklistPopoverPresentedChange: (Bool) -> Void
-    let onContextMenuAppear: () -> Void
-    let onContextMenuDisappear: () -> Void
+    // `var`: the AppKit table's content factory chains the controller's
+    // hover-freeze callbacks onto the row's own context-menu callbacks.
+    var onContextMenuAppear: () -> Void
+    var onContextMenuDisappear: () -> Void
     let onPointerFrameChange: (CGRect) -> Void
     let onPointerFrameDisappear: () -> Void
 }

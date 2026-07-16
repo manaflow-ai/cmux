@@ -56,6 +56,16 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarWorkspaceTodosChecklistStyle"
     )
 
+    /// AppKit sidebar list: renders the workspace sidebar's scrollable list
+    /// with a native NSTableView (measured-once row heights, explicit
+    /// diffing) instead of the SwiftUI LazyVStack scroll core. Defaults off;
+    /// while off, the existing SwiftUI list path is unchanged.
+    public let appKitSidebarList = DefaultsKey<Bool>(
+        id: "sidebar.beta.appKitList.enabled",
+        defaultValue: false,
+        userDefaultsKey: "sidebar.beta.appKitList.enabled"
+    )
+
     /// Remote tmux: mirror a remote host's tmux sessions in the cmux sidebar
     /// over `ssh … tmux -CC` (iTerm2-style control mode). Sessions appear as
     /// sidebar workspaces, tmux windows as tabs, and tmux panes as splits;
