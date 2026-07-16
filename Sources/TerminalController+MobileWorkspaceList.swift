@@ -1,4 +1,6 @@
 import AppKit
+import CMUXMobileCore
+import CmuxAgentChat
 import CmuxWorkspaces
 import Foundation
 
@@ -9,6 +11,63 @@ import Foundation
 // group collapse/expand handler. Lives in its own file so the mobile list
 // payload code stays together without growing TerminalController.swift.
 extension TerminalController {
+    /// Builds the bounded account-registry view of every live workspace.
+    ///
+    /// The full workspace/chat RPCs remain authoritative after attach. This
+    /// summary carries only enough identity and state for discovery and one-tap
+    /// handoff; it never includes prompts, transcript content, or terminal output.
+    func deviceRegistryLiveSessions(workspaceID: String? = nil, limit: Int = 50) -> [CmxLiveSession] {
+        guard let app = AppDelegate.shared else { return [] }
+        var seenWorkspaceIDs: Set<UUID> = []
+        var sessions: [CmxLiveSession] = []
+        let agentSessionsByWorkspaceID = Dictionary(
+            grouping: agentChatTranscriptService?.sessionDescriptors(workspaceID: workspaceID) ?? [],
+            by: \.workspaceID
+        )
+
+        for window in app.listMainWindowSummaries() {
+            guard let tabManager = app.tabManagerFor(windowId: window.windowId) else { continue }
+            for workspace in tabManager.tabs where seenWorkspaceIDs.insert(workspace.id).inserted {
+                guard workspaceID == nil || workspace.id.uuidString == workspaceID else { continue }
+                let agentSessions = agentSessionsByWorkspaceID[workspace.id.uuidString] ?? []
+                let preferredAgent = ChatSessionDescriptor.openable(agentSessions).first
+                let status: CmxLiveSessionStatus
+                switch preferredAgent?.state {
+                case .working:
+                    status = .working
+                case .needsInput:
+                    status = .needsInput
+                case .ended:
+                    status = .ended
+                case .idle, .none:
+                    status = .idle
+                }
+                let workspaceActivity = app.notificationStore?
+                    .latestNotification(forTabId: workspace.id)?.createdAt ?? workspace.createdAt
+                let lastActivity = max(
+                    workspaceActivity,
+                    preferredAgent?.lastActivityAt ?? .distantPast
+                )
+                sessions.append(CmxLiveSession(
+                    id: workspace.id.uuidString,
+                    workspaceID: workspace.id.uuidString,
+                    terminalID: preferredAgent?.terminalID,
+                    agentSessionID: preferredAgent?.id,
+                    title: workspace.title,
+                    agent: preferredAgent?.agentKind.sourceName,
+                    status: status,
+                    lastActivityAt: lastActivity.timeIntervalSince1970
+                ))
+            }
+        }
+
+        return Array(
+            sessions
+                .sorted { $0.lastActivityAt > $1.lastActivityAt }
+                .prefix(max(0, limit))
+        )
+    }
+
     /// Mobile-gated collapse/expand of a workspace group. P1 group support on
     /// iOS is display-only: the phone renders collapsible group sections and can
     /// toggle a section open/closed, but cannot create, rename, or restructure

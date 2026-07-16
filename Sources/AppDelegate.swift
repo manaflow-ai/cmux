@@ -2041,7 +2041,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         AIAccountsClient.bootstrap(auth: auth.coordinator)
         PhonePushClient.shared.configure(auth: auth.coordinator)
         MobileHostService.shared.configure(auth: auth.coordinator)
-        DeviceRegistryClient.shared.configure(auth: auth.coordinator)
+        DeviceRegistryClient.shared.configure(auth: auth.coordinator) { TerminalController.shared.deviceRegistryLiveSessions(workspaceID: $0) }
         PresenceHeartbeatClient.shared.configure(auth: auth.coordinator)
         // DEV-only: auto-publish this Mac's attach route to the signed-in user's
         // pairedMacs backup so a fresh dev iOS build restores it (no manual host

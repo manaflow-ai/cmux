@@ -146,7 +146,6 @@ struct MobileHostAuthorizationTests {
         }
     }
     #endif
-
     @Test func testMobileHostRPCRejectsInvalidParamsShape() {
         let data = Data(#"{"id":"bad-params","method":"workspace.list","params":[]}"#.utf8)
         let result = MobileHostRPCEnvelope.decodeRequest(data)

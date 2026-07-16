@@ -1,14 +1,15 @@
 import CMUXMobileCore
 import CmuxAuthRuntime
+import CmuxFoundation
 import Foundation
 
 /// Registers this Mac (and its running cmux app instance's attach routes) in the
 /// team-scoped device registry (`POST /api/devices`), so a phone can look up the
 /// Mac's current routes on reload and auto-pair instead of re-scanning a QR.
 ///
-/// Event-driven: it observes ``MobileHostService/statusUpdates()`` and registers
-/// whenever the advertised route set changes (e.g. the Mac moved networks or
-/// rebound to a different port), which is exactly the freshness the phone needs.
+/// Event-driven: it observes ``MobileHostService/statusUpdates()`` and the live
+/// workspace/session projection, registering whenever either advertised routes
+/// or the bounded session summaries change.
 /// Gating falls out of the routes: ``MobileHostService`` advertises no routes
 /// until the user has enabled mobile pairing, so an empty route set is never
 /// registered. There is no separate opt-in flag — the registry is core to the
@@ -21,28 +22,56 @@ import Foundation
 final class DeviceRegistryClient {
     static let shared = DeviceRegistryClient()
 
+    nonisolated static let maximumRequestBytes = 64 * 1024
+    /// Leaves half of the server's 64 KiB request limit for routes and envelope fields.
+    nonisolated static let maximumLiveSessionPayloadBytes = 32 * 1024
+
     private let session = CmxCredentialedHTTPSession()
+    private let liveSessionLeaseClock: any Clock<Duration>
+    private let liveSessionLeaseRenewalInterval: Duration
     private var auth: AuthCoordinator?
-    private var observeTask: Task<Void, Never>?
-    /// The scope (team + tag + routes) most recently registered, used to skip
+    private var liveSessions: @MainActor (String?) -> [CmxLiveSession] = { _ in [] }
+    private var routeObserveTask: Task<Void, Never>?
+    private var liveSessionRegistrationTask: Task<Void, Never>?
+    private var liveSessionLeaseTask: Task<Void, Never>?
+    private var liveSessionLeaseGeneration: UInt64 = 0
+    private var latestRoutes: [CmxAttachRoute] = []
+    private var registrationInFlight = false
+    private var registrationPending = false
+    private var forcedRegistrationPending = false
+    private var fullLiveSessionProjectionPending = false
+    private var pendingLiveSessionWorkspaceIDs: Set<String> = []
+    /// The scope (team + tag + routes + sessions) most recently registered, used to skip
     /// redundant POSTs. Keyed on the full scope rather than routes alone so an
     /// account/team switch with unchanged routes still re-registers in the newly
     /// selected team instead of being deduped away.
     private var lastRegistration: Registration?
+    private var lastRegistrationUsedSessionFallback = false
 
     /// The identity of a registration POST, for deduplication.
     struct Registration: Equatable {
         var teamID: String?
         var tag: String
         var routes: [CmxAttachRoute]
+        var sessions: [CmxLiveSession]
     }
 
-    private init() {}
+    private init(
+        liveSessionLeaseClock: any Clock<Duration> = ContinuousClock(),
+        liveSessionLeaseRenewalInterval: Duration = .seconds(60)
+    ) {
+        self.liveSessionLeaseClock = liveSessionLeaseClock
+        self.liveSessionLeaseRenewalInterval = liveSessionLeaseRenewalInterval
+    }
 
     /// Inject the auth dependency and begin observing host-route changes. Call
     /// once at the composition root (after `auth` is constructed).
-    func configure(auth: AuthCoordinator) {
+    func configure(
+        auth: AuthCoordinator,
+        liveSessions: @escaping @MainActor (String?) -> [CmxLiveSession]
+    ) {
         self.auth = auth
+        self.liveSessions = liveSessions
         startObserving()
     }
 
@@ -51,7 +80,7 @@ final class DeviceRegistryClient {
     ///
     /// Pure so it is unit-testable without any network or host service.
     ///
-    /// Fires (returns `true`) when the team, tag, or routes differ from the last
+    /// Fires (returns `true`) when the team, tag, routes, or session summaries differ from the last
     /// registration. The team is part of the key so an account/team switch with
     /// unchanged routes still registers in the new team. The routes-empty
     /// transition (the user turned mobile pairing off) also fires once, so the
@@ -62,31 +91,189 @@ final class DeviceRegistryClient {
     /// exactly once rather than on every empty tick.
     nonisolated static func shouldReRegister(
         previous: Registration?,
-        current: Registration
+        current: Registration,
+        force: Bool = false
     ) -> Bool {
+        if force { return true }
         // Treat "never registered" as an empty-routes baseline in the same scope
         // so an initial empty set (pairing off at launch) is a no-op, but a later
         // clear, or any team/tag change, still fires.
-        let baseline = previous ?? Registration(teamID: current.teamID, tag: current.tag, routes: [])
+        let baseline = previous ?? Registration(
+            teamID: current.teamID,
+            tag: current.tag,
+            routes: [],
+            sessions: []
+        )
         return baseline != current
     }
 
+    /// Re-register from the authoritative live-session projection after its existing observer batch settles.
+    func liveSessionsDidChange(workspaceIDs: Set<String>?) {
+        guard !latestRoutes.isEmpty else { return }
+        if let workspaceIDs {
+            guard !workspaceIDs.isEmpty else { return }
+            if !fullLiveSessionProjectionPending {
+                pendingLiveSessionWorkspaceIDs.formUnion(workspaceIDs)
+            }
+        } else {
+            fullLiveSessionProjectionPending = true
+            pendingLiveSessionWorkspaceIDs.removeAll(keepingCapacity: true)
+        }
+        registrationPending = true
+        guard !registrationInFlight, liveSessionRegistrationTask == nil else { return }
+        liveSessionRegistrationTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.liveSessionRegistrationTask = nil }
+            await self.requestRegistration(projectAllLiveSessions: false)
+        }
+    }
+
+    /// Sessions are discoverable only while the same registration advertises a
+    /// reachable host route. Turning mobile pairing off clears both together.
+    nonisolated static func advertisedSessions(
+        routes: [CmxAttachRoute],
+        sessions: [CmxLiveSession]
+    ) -> [CmxLiveSession] {
+        guard !routes.isEmpty else { return [] }
+        var payloadBytes = 2 // JSON array brackets.
+        var advertised: [CmxLiveSession] = []
+
+        for session in sessions
+            .sorted(by: Self.liveSessionSort)
+            .prefix(50) {
+            guard let bounded = Self.registryBoundedSession(session),
+                  let encoded = try? JSONEncoder().encode(bounded) else {
+                continue
+            }
+            let candidateBytes = payloadBytes + encoded.count + (advertised.isEmpty ? 0 : 1)
+            guard candidateBytes <= maximumLiveSessionPayloadBytes else { break }
+            payloadBytes = candidateBytes
+            advertised.append(bounded)
+        }
+        return advertised
+    }
+
+    nonisolated static func registrationBody(
+        deviceID: String,
+        tag: String,
+        routes: [CmxAttachRoute],
+        sessions: [CmxLiveSession],
+        displayName: String?,
+        disclosureDate: Date = Date()
+    ) -> Data? {
+        var body: [String: Any] = [
+            "deviceId": deviceID,
+            "platform": "mac",
+            "tag": tag,
+            "routes": routes.mobileHostJSONObjects(
+                for: .cloudRendezvous,
+                at: disclosureDate
+            ),
+        ]
+        if let encodedSessions = try? JSONEncoder().encode(sessions),
+           let sessionObjects = try? JSONSerialization.jsonObject(with: encodedSessions) {
+            body["sessions"] = sessionObjects
+        }
+        if let displayName, !displayName.isEmpty {
+            body["displayName"] = displayName
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: body),
+              data.count <= maximumRequestBytes else {
+            return nil
+        }
+        return data
+    }
+
     private func startObserving() {
-        observeTask?.cancel()
-        // Registration is currently driven only by host-route changes. The dedup
-        // key includes the team, so a team switch *does* re-register once the
-        // next status tick arrives, but a mid-session team switch with otherwise
-        // unchanged routes is not registered in the new team until then. Known
-        // limitation; an explicit auth/team-change trigger is a follow-up.
-        observeTask = Task { @MainActor [weak self] in
+        routeObserveTask?.cancel()
+        routeObserveTask = Task { @MainActor [weak self] in
             for await status in MobileHostService.shared.statusUpdates() {
                 if Task.isCancelled { break }
-                await self?.registerIfRoutesChanged(routes: status.routes)
+                guard let self else { break }
+                self.latestRoutes = status.routes
+                await self.requestRegistration()
             }
         }
     }
 
-    private func registerIfRoutesChanged(routes: [CmxAttachRoute]) async {
+    /// Renew the server-side advertisement lease while routes and sessions remain live.
+    private func updateLiveSessionLeaseTask(isActive: Bool) {
+        guard isActive else {
+            liveSessionLeaseGeneration &+= 1
+            liveSessionLeaseTask?.cancel()
+            liveSessionLeaseTask = nil
+            return
+        }
+        guard liveSessionLeaseTask == nil else { return }
+        liveSessionLeaseGeneration &+= 1
+        let generation = liveSessionLeaseGeneration
+        let clock = liveSessionLeaseClock
+        let renewalInterval = liveSessionLeaseRenewalInterval
+        liveSessionLeaseTask = Task { @MainActor [weak self] in
+            defer {
+                if let self, self.liveSessionLeaseGeneration == generation {
+                    self.liveSessionLeaseTask = nil
+                }
+            }
+            while !Task.isCancelled {
+                // Genuine lease-renewal cadence; cancellation is wired to routes/session lifecycle above.
+                guard (try? await clock.sleep(for: renewalInterval)) != nil else { return }
+                guard let self,
+                      self.liveSessionLeaseGeneration == generation,
+                      !self.latestRoutes.isEmpty else {
+                    return
+                }
+                await self.requestRegistration(force: true)
+            }
+        }
+    }
+
+    /// Serialize route- and session-driven writes through one mutation path. If
+    /// state changes during a POST, one trailing pass publishes the newest state.
+    private func requestRegistration(
+        force: Bool = false,
+        projectAllLiveSessions: Bool = true
+    ) async {
+        registrationPending = true
+        forcedRegistrationPending = forcedRegistrationPending || force
+        fullLiveSessionProjectionPending = fullLiveSessionProjectionPending || projectAllLiveSessions
+        guard !registrationInFlight else { return }
+        registrationInFlight = true
+        defer { registrationInFlight = false }
+        while registrationPending {
+            registrationPending = false
+            let forceCurrentRegistration = forcedRegistrationPending
+            forcedRegistrationPending = false
+            let projectAllCurrentLiveSessions = fullLiveSessionProjectionPending
+                || lastRegistration == nil
+                || lastRegistrationUsedSessionFallback
+            let invalidatedWorkspaceIDs = pendingLiveSessionWorkspaceIDs
+            fullLiveSessionProjectionPending = false
+            pendingLiveSessionWorkspaceIDs.removeAll(keepingCapacity: true)
+            await registerCurrentState(
+                force: forceCurrentRegistration,
+                projectAllLiveSessions: projectAllCurrentLiveSessions,
+                invalidatedWorkspaceIDs: invalidatedWorkspaceIDs
+            )
+        }
+    }
+
+    private func registerCurrentState(
+        force: Bool,
+        projectAllLiveSessions: Bool,
+        invalidatedWorkspaceIDs: Set<String>
+    ) async {
+        var projectionReconciled = false
+        defer {
+            if !projectionReconciled {
+                if projectAllLiveSessions {
+                    fullLiveSessionProjectionPending = true
+                    pendingLiveSessionWorkspaceIDs.removeAll(keepingCapacity: true)
+                } else if !fullLiveSessionProjectionPending {
+                    pendingLiveSessionWorkspaceIDs.formUnion(invalidatedWorkspaceIDs)
+                }
+            }
+        }
         guard let auth else { return }
         // Await tokens FIRST: this both gates on "signed in" and waits for launch
         // auth bootstrap. `resolvedTeamID` is derived from `availableTeams`, which
@@ -106,8 +293,33 @@ final class DeviceRegistryClient {
         // routes is detected and the POST targets the intended team.
         let teamID = auth.resolvedTeamID
         let tag = MobileHostIdentity.instanceTag()
-        let registration = Registration(teamID: teamID, tag: tag, routes: routes)
-        guard Self.shouldReRegister(previous: lastRegistration, current: registration) else { return }
+        let projectedSessions: [CmxLiveSession]
+        if projectAllLiveSessions {
+            projectedSessions = liveSessions(nil)
+        } else {
+            let replacements = invalidatedWorkspaceIDs.sorted().flatMap { liveSessions($0) }
+            projectedSessions = Self.replacingLiveSessions(
+                previous: lastRegistration?.sessions ?? [],
+                invalidatedWorkspaceIDs: invalidatedWorkspaceIDs,
+                replacements: replacements
+            )
+        }
+        let sessions = Self.advertisedSessions(routes: latestRoutes, sessions: projectedSessions)
+        updateLiveSessionLeaseTask(isActive: !latestRoutes.isEmpty && !sessions.isEmpty)
+        let registration = Registration(
+            teamID: teamID,
+            tag: tag,
+            routes: latestRoutes,
+            sessions: sessions
+        )
+        guard Self.shouldReRegister(
+            previous: lastRegistration,
+            current: registration,
+            force: force
+        ) else {
+            projectionReconciled = true
+            return
+        }
 
         guard var comps = URLComponents(url: AuthEnvironment.vmAPIBaseURL, resolvingAgainstBaseURL: false) else {
             return
@@ -115,19 +327,17 @@ final class DeviceRegistryClient {
         comps.path = (comps.path.hasSuffix("/") ? String(comps.path.dropLast()) : comps.path) + "/api/devices"
         guard let url = comps.url else { return }
 
+        let deviceID = MobileHostIdentity.deviceID()
+        let displayName = MobileHostIdentity.baseDisplayName()
         let disclosureDate = Date()
-        var bodyDict: [String: Any] = [
-            "deviceId": MobileHostIdentity.deviceID(),
-            "platform": "mac",
-            "tag": tag,
-            "routes": routes.mobileHostJSONObjects(
-                for: .cloudRendezvous,
-                at: disclosureDate
-            ),
-        ]
-        if let displayName = MobileHostIdentity.baseDisplayName(), !displayName.isEmpty {
-            bodyDict["displayName"] = displayName
-        }
+        guard let payload = Self.registrationPayload(
+            deviceID: deviceID,
+            tag: tag,
+            routes: registration.routes,
+            sessions: registration.sessions,
+            displayName: displayName,
+            disclosureDate: disclosureDate
+        ) else { return }
 
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
@@ -138,7 +348,7 @@ final class DeviceRegistryClient {
             req.setValue(teamID, forHTTPHeaderField: "X-Cmux-Team-Id")
         }
         req.setValue("application/json", forHTTPHeaderField: "content-type")
-        req.httpBody = try? JSONSerialization.data(withJSONObject: bodyDict, options: [])
+        req.httpBody = payload.body
 
         do {
             let (_, response) = try await session.data(for: req)
@@ -146,7 +356,14 @@ final class DeviceRegistryClient {
                 if (200...299).contains(http.statusCode) {
                     // Only remember the scope once the server accepted it, so a
                     // transient failure retries on the next status tick.
-                    lastRegistration = registration
+                    lastRegistration = Registration(
+                        teamID: registration.teamID,
+                        tag: registration.tag,
+                        routes: registration.routes,
+                        sessions: payload.transmittedSessions
+                    )
+                    lastRegistrationUsedSessionFallback = payload.transmittedSessions != registration.sessions
+                    projectionReconciled = true
                 } else {
                     NSLog("cmux.deviceRegistry register failed status=%d", http.statusCode)
                 }
@@ -154,6 +371,79 @@ final class DeviceRegistryClient {
         } catch {
             // best-effort; registry must never disrupt the Mac.
         }
+    }
+
+    /// Encode the preferred registration, falling back to the exact session scope sent on the wire.
+    nonisolated static func registrationPayload(
+        deviceID: String,
+        tag: String,
+        routes: [CmxAttachRoute],
+        sessions: [CmxLiveSession],
+        displayName: String?,
+        disclosureDate: Date = Date()
+    ) -> (body: Data, transmittedSessions: [CmxLiveSession])? {
+        if let body = registrationBody(
+            deviceID: deviceID,
+            tag: tag,
+            routes: routes,
+            sessions: sessions,
+            displayName: displayName,
+            disclosureDate: disclosureDate
+        ) {
+            return (body, sessions)
+        }
+        guard let body = registrationBody(
+            deviceID: deviceID,
+            tag: tag,
+            routes: routes,
+            sessions: [],
+            displayName: displayName,
+            disclosureDate: disclosureDate
+        ) else { return nil }
+        return (body, [])
+    }
+
+    /// Replace only invalidated workspace slices in the last accepted registration snapshot.
+    nonisolated static func replacingLiveSessions(
+        previous: [CmxLiveSession],
+        invalidatedWorkspaceIDs: Set<String>,
+        replacements: [CmxLiveSession]
+    ) -> [CmxLiveSession] {
+        previous.filter { !invalidatedWorkspaceIDs.contains($0.workspaceID) }
+            + replacements.filter { invalidatedWorkspaceIDs.contains($0.workspaceID) }
+    }
+
+    private nonisolated static func liveSessionSort(_ lhs: CmxLiveSession, _ rhs: CmxLiveSession) -> Bool {
+        if lhs.lastActivityAt != rhs.lastActivityAt {
+            return lhs.lastActivityAt > rhs.lastActivityAt
+        }
+        return lhs.id < rhs.id
+    }
+
+    private nonisolated static func registryBoundedSession(_ session: CmxLiveSession) -> CmxLiveSession? {
+        guard let id = boundedString(session.id, maximumScalars: 128),
+              let workspaceID = boundedString(session.workspaceID, maximumScalars: 128),
+              let title = boundedString(session.title, maximumScalars: 160),
+              session.lastActivityAt.isFinite,
+              (0...253_402_300_799).contains(session.lastActivityAt) else {
+            return nil
+        }
+        return CmxLiveSession(
+            id: id,
+            workspaceID: workspaceID,
+            terminalID: session.terminalID.flatMap { boundedString($0, maximumScalars: 128) },
+            agentSessionID: session.agentSessionID.flatMap { boundedString($0, maximumScalars: 128) },
+            title: title,
+            agent: session.agent.flatMap { boundedString($0, maximumScalars: 32) },
+            status: session.status,
+            lastActivityAt: session.lastActivityAt
+        )
+    }
+
+    private nonisolated static func boundedString(_ value: String, maximumScalars: Int) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return String(trimmed.unicodeScalars.prefix(maximumScalars))
     }
 
 }

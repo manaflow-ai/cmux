@@ -25,6 +25,14 @@ import Testing
               "routes": [
                 { "id": "r1", "kind": "tailscale", "priority": 0,
                   "endpoint": { "type": "host_port", "host": "100.1.1.1", "port": 51001 } }
+              ],
+              "sessions": [
+                { "id": "workspace-1", "workspaceID": "workspace-1",
+                  "terminalID": "terminal-1", "agentSessionID": "agent-session-1",
+                  "title": "Ship handoff", "agent": "codex",
+                  "status": "needs_input", "lastActivityAt": 1800000000 },
+                { "id": "bad-status", "workspaceID": "bad-status",
+                  "title": "Future", "status": "future_state", "lastActivityAt": 1800000001 }
               ]
             },
             {
@@ -61,6 +69,10 @@ import Testing
         // Two tagged app instances on the same device.
         #expect(mac.instances.count == 2)
         #expect(Set(mac.instances.map(\.tag)) == ["stable", "dog"])
+        let stable = try #require(mac.instances.first { $0.tag == "stable" })
+        #expect(stable.sessions.count == 1)
+        #expect(stable.sessions.first?.workspaceID == "workspace-1")
+        #expect(stable.sessions.first?.status == .needsInput)
     }
 
     @Test func malformedRouteIsDroppedNotFatal() throws {

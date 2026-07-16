@@ -22,8 +22,28 @@ import CMUXMobileCore
         )
     }
 
-    private func reg(team: String?, tag: String = "default", routes: [CmxAttachRoute]) -> DeviceRegistryClient.Registration {
-        DeviceRegistryClient.Registration(teamID: team, tag: tag, routes: routes)
+    private func reg(
+        team: String?,
+        tag: String = "default",
+        routes: [CmxAttachRoute],
+        sessions: [CmxLiveSession] = []
+    ) -> DeviceRegistryClient.Registration {
+        DeviceRegistryClient.Registration(teamID: team, tag: tag, routes: routes, sessions: sessions)
+    }
+
+    private func liveSession(
+        id: String = "workspace-1",
+        title: String = "Handoff",
+        status: CmxLiveSessionStatus = .idle
+    ) -> CmxLiveSession {
+        CmxLiveSession(
+            id: id,
+            workspaceID: id,
+            title: title,
+            agent: "codex",
+            status: status,
+            lastActivityAt: 1_800_000_000
+        )
     }
 
     @Test func initialEmptyRoutesDoNotRegister() {
@@ -50,6 +70,116 @@ import CMUXMobileCore
         let previous = reg(team: "team-a", routes: [try route(host: "100.0.0.1", port: 51000)])
         let current = reg(team: "team-a", routes: [try route(host: "100.9.9.9", port: 51999)])
         #expect(DeviceRegistryClient.shouldReRegister(previous: previous, current: current) == true)
+    }
+
+    @Test func changedLiveSessionStateReRegistersWithUnchangedRoutes() throws {
+        let routes = [try route(host: "100.0.0.1", port: 51000)]
+        let previous = reg(team: "team-a", routes: routes, sessions: [liveSession(status: .working)])
+        let current = reg(team: "team-a", routes: routes, sessions: [liveSession(status: .needsInput)])
+        #expect(DeviceRegistryClient.shouldReRegister(previous: previous, current: current) == true)
+    }
+
+    @Test func forcedLeaseRenewalReRegistersUnchangedLiveSessions() throws {
+        let routes = [try route(host: "100.0.0.1", port: 51000)]
+        let registration = reg(team: "team-a", routes: routes, sessions: [liveSession()])
+
+        #expect(DeviceRegistryClient.shouldReRegister(
+            previous: registration,
+            current: registration,
+            force: true
+        ))
+    }
+
+    @Test func scopedProjectionReplacesOnlyInvalidatedWorkspaces() {
+        let previous = [
+            liveSession(id: "workspace-a", title: "Old A"),
+            liveSession(id: "workspace-b", title: "Unchanged B"),
+        ]
+        let replacements = [
+            liveSession(id: "workspace-a", title: "New A"),
+            liveSession(id: "workspace-c", title: "Unrelated C"),
+        ]
+
+        let projected = DeviceRegistryClient.replacingLiveSessions(
+            previous: previous,
+            invalidatedWorkspaceIDs: ["workspace-a"],
+            replacements: replacements
+        )
+        let titlesByWorkspaceID = Dictionary(uniqueKeysWithValues: projected.map { ($0.workspaceID, $0.title) })
+
+        #expect(titlesByWorkspaceID == [
+            "workspace-a": "New A",
+            "workspace-b": "Unchanged B",
+        ])
+        #expect(DeviceRegistryClient.replacingLiveSessions(
+            previous: previous,
+            invalidatedWorkspaceIDs: ["workspace-a"],
+            replacements: []
+        ).map(\.workspaceID) == ["workspace-b"])
+    }
+
+    @Test func pairingOffSuppressesSessionDiscovery() {
+        #expect(DeviceRegistryClient.advertisedSessions(routes: [], sessions: [liveSession()]).isEmpty)
+    }
+
+    @Test func advertisedSessionsStayWithinTheRegistrationWireBudget() throws {
+        let routes = [try route(host: "100.0.0.1", port: 51000)]
+        let oversizedTitle = String(repeating: "🚀", count: 10_000)
+        let sessions = (0..<50).map { index in
+            liveSession(id: "workspace-\(index)", title: oversizedTitle)
+        }
+
+        let advertised = DeviceRegistryClient.advertisedSessions(routes: routes, sessions: sessions)
+        let encoded = try JSONEncoder().encode(advertised)
+        let requestBody = try #require(DeviceRegistryClient.registrationBody(
+            deviceID: "00000000-0000-4000-8000-000000000000",
+            tag: "default",
+            routes: routes,
+            sessions: advertised,
+            displayName: "Mac"
+        ))
+
+        #expect(encoded.count <= DeviceRegistryClient.maximumLiveSessionPayloadBytes)
+        #expect(requestBody.count <= DeviceRegistryClient.maximumRequestBytes)
+        #expect(advertised.allSatisfy { $0.title.unicodeScalars.count <= 160 })
+    }
+
+    @Test func registrationUsesCloudRendezvousRouteDisclosure() throws {
+        let directAddress = "8.8.8.8:49152"
+        let route = try CmxAttachRoute(
+            id: "iroh",
+            kind: .iroh,
+            endpoint: .peer(
+                identity: CmxIrohPeerIdentity(
+                    endpointID: String(repeating: "a", count: 64)
+                ),
+                pathHints: [
+                    try CmxIrohPathHint(
+                        kind: .directAddress,
+                        value: directAddress,
+                        source: .native,
+                        privacyScope: .publicInternet
+                    ),
+                    try CmxIrohPathHint(
+                        kind: .relayURL,
+                        value: "https://relay.example.test/",
+                        source: .native,
+                        privacyScope: .publicInternet
+                    ),
+                ]
+            )
+        )
+        let body = try #require(DeviceRegistryClient.registrationBody(
+            deviceID: "00000000-0000-4000-8000-000000000000",
+            tag: "default",
+            routes: [route],
+            sessions: [liveSession()],
+            displayName: "Mac"
+        ))
+        let text = try #require(String(data: body, encoding: .utf8))
+
+        #expect(!text.contains(directAddress))
+        #expect(text.contains("relay.example.test"))
     }
 
     @Test func teamSwitchReRegistersEvenWithUnchangedRoutes() throws {

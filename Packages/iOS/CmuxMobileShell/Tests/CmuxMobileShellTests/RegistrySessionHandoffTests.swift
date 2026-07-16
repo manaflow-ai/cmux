@@ -1,0 +1,158 @@
+import CMUXMobileCore
+import CmuxAgentChat
+import CmuxMobileShellModel
+import Testing
+@testable import CmuxMobileShell
+
+@Suite @MainActor struct RegistrySessionHandoffTests {
+    @Test func resolvesRuntimeWorkspaceForTheAdvertisingMac() throws {
+        var matching = MobileWorkspacePreview(
+            id: .init(rawValue: "row-mac-a"),
+            macDeviceID: "mac-a",
+            name: "Handoff",
+            terminals: []
+        )
+        matching.remoteWorkspaceID = .init(rawValue: "runtime-workspace")
+        var otherMac = MobileWorkspacePreview(
+            id: .init(rawValue: "row-mac-b"),
+            macDeviceID: "mac-b",
+            name: "Other",
+            terminals: []
+        )
+        otherMac.remoteWorkspaceID = .init(rawValue: "runtime-workspace")
+
+        let resolved = CMUXMobileShellStore.registryHandoffWorkspaceID(
+            workspaceID: "runtime-workspace",
+            deviceID: "mac-a",
+            workspaces: [otherMac, matching]
+        )
+
+        #expect(resolved == matching.id)
+    }
+
+    @Test func staleWorkspaceDoesNotResolve() {
+        let workspace = MobileWorkspacePreview(
+            id: .init(rawValue: "row"),
+            macDeviceID: "mac-a",
+            name: "Still live",
+            terminals: []
+        )
+
+        #expect(CMUXMobileShellStore.registryHandoffWorkspaceID(
+            workspaceID: "gone",
+            deviceID: "mac-a",
+            workspaces: [workspace]
+        ) == nil)
+    }
+
+    @Test func failedAuthoritativeRefreshDoesNotResolveCachedWorkspace() {
+        var cached = MobileWorkspacePreview(
+            id: .init(rawValue: "cached-row"),
+            macDeviceID: "mac-a",
+            name: "Stale cache",
+            terminals: []
+        )
+        cached.remoteWorkspaceID = .init(rawValue: "runtime-workspace")
+
+        #expect(CMUXMobileShellStore.registryHandoffWorkspaceID(
+            workspaceID: "runtime-workspace",
+            deviceID: "mac-a",
+            workspaces: [cached],
+            authoritativeRefreshSucceeded: false
+        ) == nil)
+    }
+
+    @Test func unknownOwnerDoesNotShadowAdvertisingMac() {
+        var unknownOwner = MobileWorkspacePreview(
+            id: .init(rawValue: "unknown-owner-row"),
+            name: "Unknown owner",
+            terminals: []
+        )
+        unknownOwner.remoteWorkspaceID = .init(rawValue: "runtime-workspace")
+        var advertisingMac = MobileWorkspacePreview(
+            id: .init(rawValue: "advertising-mac-row"),
+            macDeviceID: "mac-a",
+            name: "Advertising Mac",
+            terminals: []
+        )
+        advertisingMac.remoteWorkspaceID = .init(rawValue: "runtime-workspace")
+
+        let resolved = CMUXMobileShellStore.registryHandoffWorkspaceID(
+            workspaceID: "runtime-workspace",
+            deviceID: "mac-a",
+            workspaces: [unknownOwner, advertisingMac]
+        )
+
+        #expect(resolved == advertisingMac.id)
+    }
+
+    @Test func resolvesOnlyTheExactAuthoritativeAgentSession() throws {
+        let advertisement = CmxLiveSession(
+            id: "runtime-workspace",
+            workspaceID: "runtime-workspace",
+            terminalID: "terminal-a",
+            agentSessionID: "agent-a",
+            title: "Handoff",
+            status: .working,
+            lastActivityAt: 100
+        )
+        let otherSession = ChatSessionDescriptor(
+            id: "agent-b",
+            agentKind: .codex,
+            workspaceID: "runtime-workspace",
+            terminalID: "terminal-a"
+        )
+        let exactSession = ChatSessionDescriptor(
+            id: "agent-a",
+            agentKind: .codex,
+            workspaceID: "runtime-workspace",
+            terminalID: "terminal-a"
+        )
+
+        let resolved = CMUXMobileShellStore.registryHandoffAgentSession(
+            advertisedSession: advertisement,
+            authoritativeSessions: [otherSession, exactSession]
+        )
+
+        #expect(resolved == exactSession)
+    }
+
+    @Test func rejectsAgentSessionWhoseAuthoritativeBindingChanged() throws {
+        let advertisement = CmxLiveSession(
+            id: "runtime-workspace",
+            workspaceID: "runtime-workspace",
+            terminalID: "terminal-a",
+            agentSessionID: "agent-a",
+            title: "Handoff",
+            status: .working,
+            lastActivityAt: 100
+        )
+        let reboundSession = ChatSessionDescriptor(
+            id: "agent-a",
+            agentKind: .codex,
+            workspaceID: "runtime-workspace",
+            terminalID: "terminal-b"
+        )
+
+        #expect(CMUXMobileShellStore.registryHandoffAgentSession(
+            advertisedSession: advertisement,
+            authoritativeSessions: [reboundSession]
+        ) == nil)
+    }
+
+    @Test func cachesAuthoritativeAgentSessionUnderResolvedRowIdentity() {
+        let store = CMUXMobileShellStore.preview()
+        let resolvedWorkspaceID = MobileWorkspacePreview.ID(rawValue: "mac-a-row")
+        let session = ChatSessionDescriptor(
+            id: "agent-a",
+            agentKind: .codex,
+            workspaceID: "runtime-workspace",
+            terminalID: "terminal-a"
+        )
+
+        store.rememberRegistryHandoffChatSessions([session], workspaceID: resolvedWorkspaceID)
+
+        #expect(store.cachedChatSessions(workspaceID: resolvedWorkspaceID.rawValue) == [session])
+        #expect(store.cachedChatSessions(workspaceID: session.workspaceID ?? "") == [])
+    }
+}

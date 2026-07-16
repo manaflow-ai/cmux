@@ -19,9 +19,8 @@ final class AgentChatTranscriptService {
     private let now: () -> Date
     /// Drives the live agent-prose streaming preview.
     private var proseStreamer: AgentChatProseStreamer!
-    /// Sessions whose transcript could not be resolved; skipped until an
-    /// explicit history request retries, so per-hook-event resolution
-    /// failures don't rescan the filesystem during tool storms.
+    /// Sessions whose transcript could not be resolved; skipped until an explicit
+    /// history retry so hook storms do not rescan the filesystem per event.
     private var failedResolutions: Set<String> = []
     private var endedListability = AgentChatEndedTranscriptListabilityCache()
 
@@ -430,16 +429,18 @@ final class AgentChatTranscriptService {
                 completedAt = max(completedAt ?? message.timestamp, message.timestamp)
             case .toolUse, .terminal, .fileEdit, .permissionRequest, .question:
                 return nil
-            case .status:
-                break
-            case .attachment:
+            case .status, .attachment:
                 break
             }
         }
         return completedAt
     }
-
     private func handleRecordChange(_ record: AgentChatSessionRecord, previous: AgentChatSessionRecord?) {
+        let descriptorChanged = Self.descriptorChangedMeaningfully(previous: previous, current: record)
+        let affectedWorkspaceIDs = Set([record.workspaceID, previous?.workspaceID].compactMap { $0 })
+        if descriptorChanged, !affectedWorkspaceIDs.isEmpty {
+            DeviceRegistryClient.shared.liveSessionsDidChange(workspaceIDs: affectedWorkspaceIDs)
+        }
         let endedRecordIsListable: Bool
         if record.state == .ended {
             endedRecordIsListable = record.agentKind == .codex
@@ -451,14 +452,11 @@ final class AgentChatTranscriptService {
         let stateChanged = previous?.state != record.state
         let transcriptBecameAvailable = previous?.transcriptPath == nil && record.transcriptPath != nil
         if stateChanged, record.state == .ended {
-            // The transcript can no longer grow; stop any live preview loop so
-            // an agent that exits without a Stop hook doesn't leak the poll task.
+            // Stop live preview when an ended session has no final Stop hook.
             proseStreamer.turnEnded(sessionID: record.sessionID)
             if let tailer = tailers.removeValue(forKey: record.sessionID) {
-                // The transcript can no longer grow; release the file watcher
-                // and cache instead of holding them until app quit. Evicting
-                // only on the TRANSITION keeps unrelated record updates (title
-                // discovery while paging an ended session) from churning it.
+                // Release the file watcher/cache only on the transition; later
+                // title discovery while paging must not churn it.
                 Task { await tailer.stop() }
             }
         }
@@ -476,12 +474,14 @@ final class AgentChatTranscriptService {
         // Pure activity bumps (every pre/postToolUse moves lastActivityAt)
         // don't merit a descriptor push to every phone; emit only when the
         // descriptor changed beyond the activity timestamp.
-        if Self.descriptorChangedMeaningfully(previous: previous, current: record) {
+        if descriptorChanged {
             emit(frame: ChatSessionEventFrame(sessionID: record.sessionID, event: .descriptorChanged(record.descriptor)))
         }
     }
-
     private func handleRecordRemoval(_ record: AgentChatSessionRecord) {
+        if let workspaceID = record.workspaceID {
+            DeviceRegistryClient.shared.liveSessionsDidChange(workspaceIDs: [workspaceID])
+        }
         proseStreamer.turnEnded(sessionID: record.sessionID)
         if let tailer = tailers.removeValue(forKey: record.sessionID) {
             Task { await tailer.stop() }

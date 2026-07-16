@@ -29,6 +29,13 @@ struct DeviceTreeView: View {
     /// Stored at list scope so reusable rows do not own transient presentation
     /// state while `List` is recycling swipe-action rows.
     @State private var computerPendingRemovalID: String?
+    /// The registry session currently attaching; row identity keeps repeated
+    /// taps from launching competing destructive Mac switches.
+    @State private var pendingHandoffID: String?
+    @State private var handoffTask: Task<Void, Never>?
+    @State private var handoffGeneration: UInt64 = 0
+    /// The advertised session that could not be resolved after attaching.
+    @State private var failedHandoffSessionTitle: String?
 
     /// The user's computers as immutable snapshots, sourced from the paired-Mac
     /// backup (`pairedMacs`) — this feature's source of truth, the same set that
@@ -43,12 +50,21 @@ struct DeviceTreeView: View {
         MacComputerSnapshot.snapshots(from: store)
     }
 
+    /// Account-discovered sessions are immutable row snapshots; the live RPC
+    /// replaces them after a successful attach.
+    private var handoffSessions: [RegistryLiveSessionSnapshot] {
+        RegistryLiveSessionSnapshot.snapshots(from: store.registryDevices)
+    }
+
     var body: some View {
         NavigationStack {
             List {
-                if computers.isEmpty {
+                if !handoffSessions.isEmpty {
+                    handoffSection
+                }
+                if computers.isEmpty, handoffSessions.isEmpty {
                     emptySection
-                } else {
+                } else if !computers.isEmpty {
                     Section {
                         ForEach(computers) { computer in
                             MacComputerRow(
@@ -89,6 +105,7 @@ struct DeviceTreeView: View {
                     Button(L10n.string("mobile.common.done", defaultValue: "Done")) {
                         dismiss()
                     }
+                    .disabled(pendingHandoffID != nil)
                     .accessibilityIdentifier("MobileDeviceTreeDone")
                 }
             }
@@ -96,20 +113,65 @@ struct DeviceTreeView: View {
             .task {
                 // This screen is the user's connection-debug view. The online dots
                 // (presence) and secondary workspace counts already update live via
-                // push subscriptions, so keeping it "live" just needs a gentle,
-                // timer-driven refresh of the local rows + connected foreground state.
+                // push subscriptions. Refresh local rows + connected foreground
+                // state every tick, and the account registry every third tick so
+                // handoff rows advance without turning this into a hot polling path.
                 // `refreshComputersScreen()` deliberately does NOT dial offline Macs
                 // on the timer (that would fan out a reconnect storm to every saved
                 // Mac); presence-push recovery and the explicit pull-to-refresh /
                 // per-Mac Reconnect button handle reconnects. The timer sequence is
                 // cancelled on dismiss by the surrounding SwiftUI `.task`.
                 await reload()
+                var registryRefreshTicks = 0
                 for await _ in Timer.publish(every: 10, on: .main, in: .common).autoconnect().values {
                     await store.refreshComputersScreen()
+                    registryRefreshTicks += 1
+                    if registryRefreshTicks.isMultiple(of: 3) {
+                        await store.loadRegistryDevices()
+                    }
                 }
             }
         }
+        .alert(
+            L10n.string("mobile.handoff.failure.title", defaultValue: "Couldn't Continue Session"),
+            isPresented: Binding(
+                get: { failedHandoffSessionTitle != nil },
+                set: { if !$0 { failedHandoffSessionTitle = nil } }
+            )
+        ) {
+            Button(L10n.string("mobile.common.ok", defaultValue: "OK"), role: .cancel) {}
+        } message: {
+            Text(L10n.string(
+                "mobile.handoff.failure.message",
+                defaultValue: "The session may have ended or its computer may be offline. Refresh and try again."
+            ))
+        }
+        .interactiveDismissDisabled(pendingHandoffID != nil)
+        .onDisappear(perform: cancelPendingHandoff)
         .accessibilityIdentifier("MobileDeviceTree")
+    }
+
+    private var handoffSection: some View {
+        Section {
+            ForEach(handoffSessions) { session in
+                RegistryLiveSessionRow(
+                    session: session,
+                    isConnecting: pendingHandoffID == session.id,
+                    continueSession: { continueSession(session) }
+                )
+                .disabled(pendingHandoffID != nil)
+            }
+        } header: {
+            Text(L10n.string(
+                "mobile.handoff.section.title",
+                defaultValue: "Continue on This Device"
+            ))
+        } footer: {
+            Text(L10n.string(
+                "mobile.handoff.section.footer",
+                defaultValue: "Choose a live session to connect to its computer and pick up where you left off."
+            ))
+        }
     }
 
     /// End-of-list affordance mirroring the top-left toolbar button, so users who
@@ -169,6 +231,45 @@ struct DeviceTreeView: View {
             await store.forgetMac(macDeviceID: deviceID)
             await reload()
         }
+    }
+
+    private func continueSession(_ session: RegistryLiveSessionSnapshot) {
+        guard pendingHandoffID == nil else { return }
+        handoffGeneration &+= 1
+        let generation = handoffGeneration
+        pendingHandoffID = session.id
+        let task = Task { @MainActor in
+            defer {
+                if handoffGeneration == generation {
+                    pendingHandoffID = nil
+                    handoffTask = nil
+                }
+            }
+            guard !Task.isCancelled, handoffGeneration == generation else { return }
+            guard let workspaceID = await store.prepareRegistrySessionHandoff(
+                deviceID: session.deviceID,
+                instanceTag: session.instanceTag,
+                sessionID: session.sessionID,
+                agentSessionID: session.agentSessionID
+            ) else {
+                guard !Task.isCancelled, handoffGeneration == generation else { return }
+                await reload()
+                guard !Task.isCancelled, handoffGeneration == generation else { return }
+                failedHandoffSessionTitle = session.workspaceTitle
+                return
+            }
+            guard !Task.isCancelled, handoffGeneration == generation else { return }
+            selectWorkspace(workspaceID)
+            dismiss()
+        }
+        handoffTask = task
+    }
+
+    private func cancelPendingHandoff() {
+        handoffGeneration &+= 1
+        handoffTask?.cancel()
+        handoffTask = nil
+        pendingHandoffID = nil
     }
 
     private func reload() async {

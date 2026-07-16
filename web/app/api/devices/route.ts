@@ -28,12 +28,17 @@ import {
   AccountDeletionMutationBlockedError,
   assertAccountDeletionUserMutationAllowed,
 } from "../../../services/account/deletionLock";
+import {
+  labelsWithLiveSessions,
+  liveSessionsFromFreshInstance,
+  publicInstanceLabels,
+} from "./live-sessions";
 import { sanitizeServerPublishedRoutes } from "../../../services/iroh/publicationPolicy";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const MAX_REQUEST_BYTES = 16 * 1024;
+const MAX_REQUEST_BYTES = 64 * 1024;
 const MAX_DEVICES_PER_TEAM = 200;
 // A device's app instances are keyed by `(deviceId, tag)`, and `tag` is
 // client-supplied, so cap instances per device to keep one device from creating
@@ -41,6 +46,7 @@ const MAX_DEVICES_PER_TEAM = 200;
 const MAX_INSTANCES_PER_DEVICE = 25;
 const MAX_ROUTES = 16;
 const MAX_TAG_LENGTH = 64;
+const MAX_LIVE_SESSIONS_PER_RESPONSE = 500;
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -153,7 +159,10 @@ export async function POST(request: Request): Promise<Response> {
   void _ignoredManualLabel;
   const tag = trimmedString(body.value.tag) || "default";
   const routes = sanitizeServerPublishedRoutes(routesArray(body.value.routes));
-  const instanceLabels = recordOrEmpty(body.value.instanceLabels);
+  const instanceLabels = labelsWithLiveSessions(
+    recordOrEmpty(body.value.instanceLabels),
+    routes.length > 0 ? body.value.sessions : [],
+  );
   // `manual: true` marks a user-initiated remote added through the cmux CLI
   // (`cmux remotes add`) rather than a Mac self-registering its own live
   // routes. The Mac self-registration legitimately advertises a `debug_loopback`
@@ -326,6 +335,7 @@ export async function POST(request: Request): Promise<Response> {
 type DeviceListRow = {
   id: string;
   deviceUuid: string;
+  userId: string;
   platform: string;
   displayName: string | null;
   labels: Record<string, unknown>;
@@ -352,6 +362,7 @@ export async function GET(request: Request): Promise<Response> {
     .select({
       id: devices.id,
       deviceUuid: devices.deviceUuid,
+      userId: devices.userId,
       platform: devices.platform,
       displayName: devices.displayName,
       labels: devices.labels,
@@ -380,6 +391,28 @@ export async function GET(request: Request): Promise<Response> {
     instancesByDevice.set(row.deviceId, list);
   }
 
+  // Instance rows are newest-first. Spend one response-wide budget in that
+  // order so an account with the maximum 200 devices × 25 tags cannot turn the
+  // per-instance session cap into an unbounded multi-megabyte response. Session
+  // metadata is user-private even inside a team: teammates retain the existing
+  // device/route visibility, but never receive another member's workspace titles.
+  const sessionVisibleDeviceIDs = new Set(
+    deviceRows.filter((device) => device.userId === user.id).map((device) => device.id),
+  );
+  const sessionsByInstance = new Map<(typeof instanceRows)[number], ReturnType<typeof liveSessionsFromFreshInstance>>();
+  let remainingLiveSessionBudget = MAX_LIVE_SESSIONS_PER_RESPONSE;
+  const sessionLeaseNow = new Date();
+  for (const instance of instanceRows) {
+    if (remainingLiveSessionBudget === 0 || !sessionVisibleDeviceIDs.has(instance.deviceId)) {
+      sessionsByInstance.set(instance, []);
+      continue;
+    }
+    const sessions = liveSessionsFromFreshInstance(instance.labels, instance.lastSeenAt, sessionLeaseNow)
+      .slice(0, remainingLiveSessionBudget);
+    sessionsByInstance.set(instance, sessions);
+    remainingLiveSessionBudget -= sessions.length;
+  }
+
   const devicesPayload = deviceRows.map((device) => ({
     // The phone matches its stored `macDeviceID` (the cmux device UUID) against
     // this, so expose `deviceUuid`, not the internal surrogate row id.
@@ -393,7 +426,8 @@ export async function GET(request: Request): Promise<Response> {
       routes: sanitizeServerPublishedRoutes(
         Array.isArray(instance.routes) ? instance.routes : [],
       ),
-      labels: instance.labels,
+      labels: publicInstanceLabels(instance.labels),
+      sessions: sessionsByInstance.get(instance) ?? [],
       lastSeenAt: instance.lastSeenAt.toISOString(),
     })),
   }));

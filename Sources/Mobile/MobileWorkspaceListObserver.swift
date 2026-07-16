@@ -3,7 +3,7 @@ import CmuxWorkspaces
 import Foundation
 import OSLog
 
-private let mobileWorkspaceObserverLog = Logger(subsystem: "dev.cmux", category: "mobile-workspace-observer")
+nonisolated private let mobileWorkspaceObserverLog = Logger(subsystem: "dev.cmux", category: "mobile-workspace-observer")
 
 /// Watches `TabManager.tabs` (and each workspace's panels publisher) and emits
 /// `workspace.updated` to subscribed mobile clients whenever the iOS-facing
@@ -115,7 +115,7 @@ final class MobileWorkspaceListObserver {
             previewSignatures: currentPreviewSignatures(for: tabManager.tabs)
         )
         lastSummaryHash = initial
-        emitIfNeeded(force: true)
+        emitIfNeeded(force: true, affectedWorkspaceIDs: nil)
 
         tabsCancellable = tabManager.tabsPublisher
             .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
@@ -125,7 +125,7 @@ final class MobileWorkspaceListObserver {
                 cmuxDebugLog("mobile.observer tabs sink fired count=\(tabs.count)")
                 #endif
                 self.refreshPerWorkspaceSubscriptions(tabs: tabs)
-                self.emitIfNeeded(force: false)
+                self.emitIfNeeded(force: false, affectedWorkspaceIDs: nil)
             }
         // Selection changes (Mac user clicks a different sidebar tab) need
         // to push to iPhone too. iPhone's selectedWorkspaceID drives which
@@ -133,7 +133,7 @@ final class MobileWorkspaceListObserver {
         selectionCancellable = tabManager.selectedTabIdPublisher
             .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] _ in
-                self?.emitIfNeeded(force: false)
+                self?.emitIfNeeded(force: false, affectedWorkspaceIDs: [])
             }
         // Group structure (order, name, collapse/pin, anchor, membership) is
         // iOS-facing: the phone renders collapsible group sections. A pure
@@ -144,7 +144,7 @@ final class MobileWorkspaceListObserver {
         groupsCancellable = tabManager.workspaceGroupsPublisher
             .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] _ in
-                self?.emitIfNeeded(force: false)
+                self?.emitIfNeeded(force: false, affectedWorkspaceIDs: [])
             }
         // Last-activity preview lines come from the notification store, which is
         // not part of the TabManager graph. A new notification (or a cleared one)
@@ -165,7 +165,7 @@ final class MobileWorkspaceListObserver {
         notificationsCancellable = notificationStore?.$notifications
             .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] _ in
-                self?.emitIfNeeded(force: false)
+                self?.emitIfNeeded(force: false, affectedWorkspaceIDs: nil)
             }
         // Workspace-level unread indicators (manual mark-unread, panel-derived,
         // session-restored) live in their own published sets, not in
@@ -179,7 +179,7 @@ final class MobileWorkspaceListObserver {
             )
             .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] _ in
-                self?.emitIfNeeded(force: false)
+                self?.emitIfNeeded(force: false, affectedWorkspaceIDs: [])
             }
         }
 
@@ -265,13 +265,14 @@ final class MobileWorkspaceListObserver {
             ]
             let merged = Publishers.MergeMany(publishers)
                 .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
+            let workspaceID = workspace.id
             perWorkspaceCancellables[workspace.id] = merged.sink { [weak self] _ in
-                self?.emitIfNeeded(force: false)
+                self?.emitIfNeeded(force: false, affectedWorkspaceIDs: [workspaceID])
             }
         }
     }
 
-    private func emitIfNeeded(force: Bool) {
+    private func emitIfNeeded(force: Bool, affectedWorkspaceIDs: Set<UUID>?) {
         let signpost = MobileWorkspaceObserverSignposts.begin("mobile-workspace-emit-if-needed", "force=\(force)"); defer { MobileWorkspaceObserverSignposts.end(signpost) }
         guard let tabManager else { return }
         let hash = Self.summaryHash(
@@ -292,6 +293,9 @@ final class MobileWorkspaceListObserver {
         cmuxDebugLog("mobile.observer EMIT workspace.updated hash=\(hash) tabs=\(tabManager.tabs.count) force=\(force)")
         #endif
         MobileHostService.shared.emitEvent(topic: "workspace.updated", payload: [:])
+        DeviceRegistryClient.shared.liveSessionsDidChange(
+            workspaceIDs: affectedWorkspaceIDs.map { Set($0.map(\.uuidString)) }
+        )
     }
 
     /// Stable hash of the iOS-facing shape: workspace ids + titles + their

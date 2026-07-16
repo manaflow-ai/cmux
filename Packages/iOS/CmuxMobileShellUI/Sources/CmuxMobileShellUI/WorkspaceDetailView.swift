@@ -90,7 +90,6 @@ struct WorkspaceDetailView: View {
     #endif
     var body: some View {
         let content = Group { detailSurfaceContent }
-
         #if os(iOS)
         content
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
@@ -99,6 +98,7 @@ struct WorkspaceDetailView: View {
             .toolbar { workspaceDetailToolbar }
             .task(id: chatRefreshKey) { await refreshChatSessions() }
             .task(id: chatConversationWarmKey) { await runWarmChatConversation() }
+            .task(id: store.registrySessionHandoffNavigationRequest) { applyRegistrySessionHandoffNavigationRequestIfNeeded() }
             .onChange(of: selectedTerminalID) { _, _ in
                 visibleArtifactCount = 0
                 refreshCachedChatToggleAnchor()
