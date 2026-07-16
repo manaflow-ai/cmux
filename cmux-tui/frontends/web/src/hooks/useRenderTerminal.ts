@@ -14,6 +14,7 @@ import { syncCanvasBackground } from "../lib/canvasTheme";
 import { isForeignSmaller, nextFitSize, type TerminalSize } from "../lib/fit";
 import { createFrameBatch } from "../lib/frameBatch";
 import { encodeTerminalKey } from "../lib/keyEncoding";
+import { beginTerminalSelection, clampTerminalSelection, releaseTerminalSelection } from "../lib/terminalSelection";
 import { applyDelta, applySnapshot, type RenderModel } from "../lib/renderModel";
 import {
   createScrollbackWindow,
@@ -348,6 +349,11 @@ export function useRenderTerminal({ client, surface, active, onError }: RenderTe
       if (selection !== null && !selection.isCollapsed) return;
       textarea?.focus({ preventScroll: true });
     };
+    const handleSelectionStart = (event: PointerEvent) => {
+      if (event.pointerType === "mouse" && event.button !== 0) return;
+      beginTerminalSelection(host);
+    };
+    const handleSelectionChange = () => clampTerminalSelection(host);
     const handleKeyDown = (event: KeyboardEvent) => {
       const selection = window.getSelection();
       const hasSelection = selection !== null && !selection.isCollapsed;
@@ -438,11 +444,13 @@ export function useRenderTerminal({ client, surface, active, onError }: RenderTe
     textarea?.addEventListener("compositionend", handleCompositionEnd);
     textarea?.addEventListener("input", handleInput);
     textarea?.addEventListener("paste", handlePaste);
+    host.addEventListener("pointerdown", handleSelectionStart);
     host.addEventListener("pointerup", focusInput);
     host.addEventListener("wheel", handleWheel, { passive: false });
     host.addEventListener("touchstart", handleTouchStart, { passive: true });
     host.addEventListener("touchmove", handleTouchMove, { passive: true });
     scroller?.addEventListener("scroll", handleScroll, { passive: true });
+    document.addEventListener("selectionchange", handleSelectionChange);
 
     void (async () => {
       try {
@@ -521,16 +529,19 @@ export function useRenderTerminal({ client, surface, active, onError }: RenderTe
       textarea?.removeEventListener("compositionend", handleCompositionEnd);
       textarea?.removeEventListener("input", handleInput);
       textarea?.removeEventListener("paste", handlePaste);
+      host.removeEventListener("pointerdown", handleSelectionStart);
       host.removeEventListener("pointerup", focusInput);
       host.removeEventListener("wheel", handleWheel);
       host.removeEventListener("touchstart", handleTouchStart);
       host.removeEventListener("touchmove", handleTouchMove);
       scroller?.removeEventListener("scroll", handleScroll);
+      document.removeEventListener("selectionchange", handleSelectionChange);
       for (const frame of frames) cancelAnimationFrame(frame);
       frames.clear();
       frameBatch.cancel();
       stream?.close();
       stage?.style.removeProperty("--surface-background");
+      releaseTerminalSelection(host);
       if (controllerRef.current === controller) controllerRef.current = null;
       dispatch({ type: "reset", client, surface });
     };

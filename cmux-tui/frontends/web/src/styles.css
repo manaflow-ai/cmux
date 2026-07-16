@@ -141,6 +141,8 @@ button { color: inherit; touch-action: manipulation; }
 .render-scroll.live { overflow: hidden; }
 .render-scroll.history { overflow: auto; }
 .render-grid { position: relative; min-width: 0; color: var(--terminal-foreground); user-select: text; -webkit-user-select: text; }
+.app-shell.terminal-selection-active .render-grid { user-select: none; -webkit-user-select: none; }
+.app-shell.terminal-selection-active .terminal-selection-owner .render-grid { user-select: text; -webkit-user-select: text; }
 .render-row { position: absolute; left: 0; width: 100%; height: var(--render-cell-height); overflow: hidden; white-space: pre; user-select: text; -webkit-user-select: text; }
 .render-row::selection, .render-row *::selection { background: var(--selection-bg); }
 .render-run { display: inline-block; height: var(--render-cell-height); overflow: hidden; white-space: pre; vertical-align: top; }
