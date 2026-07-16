@@ -50,8 +50,6 @@ actor AgentForkCapabilityProbeCache {
     private func removeValue(for key: String) {
         valuesByKey.removeValue(forKey: key)
         expirationByKey.removeValue(forKey: key)
-        while insertionOrder.first == key {
-            insertionOrder.removeFirst()
-        }
+        insertionOrder.removeAll { $0 == key }
     }
 }

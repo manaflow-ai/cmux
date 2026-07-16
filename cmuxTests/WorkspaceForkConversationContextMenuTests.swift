@@ -466,6 +466,23 @@ struct WorkspaceForkConversationContextMenuTests {
     }
 
     @Test
+    func forkCapabilityProbeCacheReinsertedExpiredKeysKeepNewestOrder() async {
+        let cache = AgentForkCapabilityProbeCache(maxEntries: 2)
+        await cache.store(true, for: "first", now: 0, expiresAt: 100)
+        await cache.store(false, for: "second", now: 0, expiresAt: 1)
+
+        #expect(await cache.value(for: "second", now: 2) == nil)
+
+        await cache.store(true, for: "third", now: 2, expiresAt: 100)
+        await cache.store(true, for: "second", now: 3, expiresAt: 100)
+        await cache.store(false, for: "fourth", now: 4, expiresAt: 100)
+
+        #expect(await cache.value(for: "second", now: 5) == true)
+        #expect(await cache.value(for: "third", now: 5) == nil)
+        #expect(await cache.value(for: "fourth", now: 5) == false)
+    }
+
+    @Test
     func sharedForkProbeCacheInvalidatesWhenPiFamilyLauncherChanges() async throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
