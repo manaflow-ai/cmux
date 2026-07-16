@@ -140,7 +140,17 @@ import Testing
             )]],
             blockedTeams: []
         )
+        let transportFactory = RouteRecordingTransportFactory(
+            router: LivenessHostRouter(),
+            box: TransportBox(),
+            failingPorts: [51_001]
+        )
         let store = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: transportFactory,
+                now: Date.init,
+                supportedRouteKinds: [.tailscale]
+            ),
             isSignedIn: true,
             pairedMacStore: pairedStore,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
@@ -176,14 +186,12 @@ import Testing
             scope: accountScope
         )
         await store.pushedRouteSyncTask?.value
+        await store.recoveryTask?.value
 
         #expect(try await storedInstanceTag(in: pairedStore) == "default")
         #expect(await pairedStore.currentUpsertCount() == 1)
         #expect(try await storedRoutes(in: pairedStore) == [defaultRoute])
-        let recoveryRan = try await pollUntil(attempts: 50) {
-            store.connectionRecoveryFailed
-        }
-        #expect(recoveryRan)
+        #expect(store.connectionRecoveryFailed)
     }
 
     @Test func explicitEmptyRoutesClearRegistryWithoutErasingPersistedRoutes() async throws {

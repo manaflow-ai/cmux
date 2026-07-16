@@ -1,6 +1,7 @@
 public import CMUXMobileCore
 public import CmuxAgentChat
 internal import CmuxMobileDiagnostics
+public import CmuxMobileBrowserStream
 public import CmuxMobilePairedMac
 public import CmuxMobileRPC
 public import CmuxMobileShellModel
@@ -45,11 +46,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         var eventTopics: [String] {
             switch self {
             case .hybrid:
-                return ["workspace.updated", "terminal.bytes", "terminal.render_grid", "terminal.set_font", "notification.dismissed", "notification.badge"]
+                return ["workspace.updated", "terminal.bytes", "terminal.render_grid", "terminal.set_font", "notification.dismissed", "notification.badge", "browser.frame", "browser.state", "browser.closed"]
             case .renderGrid:
-                return ["workspace.updated", "terminal.render_grid", "terminal.set_font", "notification.dismissed", "notification.badge"]
+                return ["workspace.updated", "terminal.render_grid", "terminal.set_font", "notification.dismissed", "notification.badge", "browser.frame", "browser.state", "browser.closed"]
             case .rawBytes:
-                return ["workspace.updated", "terminal.bytes", "terminal.set_font", "notification.dismissed", "notification.badge"]
+                return ["workspace.updated", "terminal.bytes", "terminal.set_font", "notification.dismissed", "notification.badge", "browser.frame", "browser.state", "browser.closed"]
             }
         }
 
@@ -86,6 +87,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private static let terminalRenderGridCapability = "terminal.render_grid.v1"
     private static let terminalBytesCapability = "terminal.bytes.v1"
+    static let browserStreamCapability = MobileBrowserStreamCapability.identifier
     static let terminalReplayCapability = "terminal.replay.v1"
     static let maxTerminalReplayBarrierDroppedOutputBeforeFailOpen: UInt64 = 256
     static let workspaceActionsCapability = "workspace.actions.v1"
@@ -137,8 +139,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard oldValue != connectionState else { return }
             if connectionState == .connected {
                 restartTerminalLanesForMountedSurfaces()
+                browserStreamEvents?.setBrowserStreamConnectionStatus(.connected)
+                restartActiveMobileBrowserStreams()
             } else {
                 deactivateAllTerminalLanes()
+                startedMobileBrowserPanelIDs.removeAll()
+                browserStreamEvents?.setBrowserStreamConnectionStatus(
+                    macConnectionStatus == .reconnecting ? .reconnecting : .disconnected
+                )
             }
             // Intentional teardown (sign-out, forget, switch) must not look like
             // a network outage: swallow this edge and reset the throttle so a
@@ -323,6 +331,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// computed from this set so version-skew checks cannot drift from the raw
     /// host payload.
     public internal(set) var supportedHostCapabilities: Set<String> = []
+    /// Separate app-lifetime browser event sink; never stored in workspace preview state.
+    @ObservationIgnored let browserStreamEvents: (any BrowserStreamEventReceiving)?
+    @ObservationIgnored let mobileBrowserStreamLifecycle = MobileBrowserStreamLifecycleCoordinator()
+    @ObservationIgnored var startedMobileBrowserPanelIDs: Set<String> = []
     @ObservationIgnored var terminalThemeState = MobileTerminalThemeState()
     /// The selected surface's effective theme and iOS chrome source of truth.
     public internal(set) var activeTerminalTheme: TerminalTheme = .monokai
@@ -875,6 +887,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Create a mobile shell store with injectable runtime services for app
     /// composition, previews, and package tests.
+    /// - Parameter browserStreamEvents: App-lifetime browser stream state kept outside workspace previews.
     public init(
         runtime: (any MobileSyncRuntime)? = nil,
         isSignedIn: Bool = false,
@@ -901,11 +914,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         feedbackEmailSubmitter: (any MobileFeedbackEmailSubmitting)? = nil,
         feedbackStampProvider: @escaping @MainActor () -> MobileFeedbackStamp = { MobileShellComposite.emptyFeedbackStamp },
         draftStore: (any TerminalDraftStoring)? = nil,
-        groupCollapseStore: MobileWorkspaceGroupCollapseStore = MobileWorkspaceGroupCollapseStore()
+        groupCollapseStore: MobileWorkspaceGroupCollapseStore = MobileWorkspaceGroupCollapseStore(),
+        browserStreamEvents: (any BrowserStreamEventReceiving)? = nil
     ) {
         self.runtime = runtime
         self.draftStore = draftStore
         self.groupCollapseStore = groupCollapseStore
+        self.browserStreamEvents = browserStreamEvents
         self.pairedMacStore = pairedMacStore
         self.pairedMacRestoreBoundary = pairedMacRestoreBoundary
         self.deviceRegistry = deviceRegistry
@@ -5992,6 +6007,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // guards; returning the fallback here is inert.
             guard remoteClient === client else { return fallback }
             supportedHostCapabilities = Set(payload.capabilities)
+            restartActiveMobileBrowserStreams()
+            refreshVisibleMobileBrowserPanels()
             prepareTerminalThemeRevisionAuthority(
                 macInstanceTag: payload.macInstanceTag, producerEpoch: payload.terminalThemeRevisionEpoch,
                 connectionID: connectionGeneration.uuidString
@@ -6123,6 +6140,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 self.markMacConnectionHealthy()
                 if event.topic == "workspace.updated" {
                     self.scheduleWorkspaceListRefreshFromEvent()
+                    self.refreshVisibleMobileBrowserPanels()
                 } else if event.topic == "terminal.render_grid" {
                     self.handleTerminalRenderGridEvent(event)
                 } else if event.topic == "terminal.set_font" {
@@ -6136,6 +6154,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     await self.handleNotificationDismissedEvent(event)
                 } else if event.topic == "notification.badge" {
                     self.handleNotificationBadgeEvent(event)
+                } else if event.topic == "browser.frame" {
+                    self.handleMobileBrowserFrameEvent(event)
+                } else if event.topic == "browser.state" {
+                    self.handleMobileBrowserStateEvent(event)
+                } else if event.topic == "browser.closed" {
+                    self.handleMobileBrowserClosedEvent(event)
                 }
             }
             guard let self else { return }
