@@ -1,8 +1,9 @@
 /// Produces a complete render-time value dictionary without changing its cache.
 ///
-/// Cached entries retain their values and construction cost. The builder runs
-/// only for keys that are absent, so a cold cache cannot remove a row while the
-/// parent-owned cache catches up on the next observation callback.
+/// Cached entries retain their values and construction cost while the caller's
+/// render-context predicate accepts them. The builder runs only for missing or
+/// rejected entries, so a cold or stale cache cannot remove or misrender a row
+/// while the parent-owned cache catches up on the next observation callback.
 struct SidebarWorkspaceSnapshotCacheOverlay<Key: Hashable, Value> {
     let cachedValues: [Key: Value]
 
