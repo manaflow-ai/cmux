@@ -35,6 +35,48 @@ struct WorktreeSidebarSchedulingTests {
         #expect(queue.isEmpty)
     }
 
+    @MainActor
+    @Test("removed rows stay blocked until a post-removal listing reconciles")
+    func removedRowsStayBlockedUntilPostRemovalListingReconciliation() async throws {
+        let projectRoot = "/tmp/worktree-sidebar-review-project"
+        let worktreePath = projectRoot + "/linked"
+        let manager = TabManager(
+            initialWorkingDirectory: projectRoot,
+            autoWelcomeIfNeeded: false
+        )
+        let git = WorktreeSidebarReviewRegressionGit(
+            projectRootPath: projectRoot,
+            worktreePath: worktreePath
+        )
+        let model = WorktreeSidebarModel(
+            projectRootPath: projectRoot,
+            git: git,
+            dialogs: WorktreeSidebarReviewRegressionDialogs(),
+            workspaces: WorktreeSidebarWorkspaceController(tabManager: manager)
+        )
+        let waiter = WorktreeSidebarModelWaiter()
+        model.start()
+        defer { model.stop() }
+        await waiter.wait(for: model) { !$0.rows.isEmpty }
+        let row = try #require(model.rows.first)
+
+        model.refreshAll()
+        await git.waitUntilListingCall(2)
+
+        model.requestDeletion(for: row)
+        await waiter.wait(for: model) { $0.operationPhase == .idle }
+        let workspaceCount = manager.tabs.count
+
+        await git.resumeListingCall(2)
+        await git.waitUntilListingCall(3)
+        model.openTerminal(for: row)
+
+        #expect(manager.tabs.count == workspaceCount)
+
+        await git.resumeListingCall(3)
+        await waiter.wait(for: model) { $0.rows.isEmpty }
+    }
+
     @Test("keep-unmerged disposition preserves a branch already merged into HEAD")
     func keepUnmergedDispositionPreservesBranchMergedIntoHEAD() async throws {
         let container = FileManager.default.temporaryDirectory

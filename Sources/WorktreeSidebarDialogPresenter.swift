@@ -3,7 +3,7 @@ import Foundation
 
 /// Owns the localized AppKit prompts for create, delete, and failure flows.
 @MainActor
-struct WorktreeSidebarDialogPresenter {
+struct WorktreeSidebarDialogPresenter: WorktreeSidebarDialogPresenting {
     func promptForBranchName(projectName: String) -> String? {
         let alert = NSAlert()
         alert.messageText = String(

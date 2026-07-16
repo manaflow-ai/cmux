@@ -37,7 +37,7 @@ final class WorktreeSidebarModel {
     private(set) var listingErrorDetails: String?
 
     @ObservationIgnored private let git: any WorktreeSidebarGitOperating
-    @ObservationIgnored private let dialogs: WorktreeSidebarDialogPresenter
+    @ObservationIgnored private let dialogs: any WorktreeSidebarDialogPresenting
     @ObservationIgnored private let workspaces: WorktreeSidebarWorkspaceController
     @ObservationIgnored private var lifecyclePhase: LifecyclePhase = .stopped
     @ObservationIgnored private var refreshState: RefreshState = .idle
@@ -63,7 +63,7 @@ final class WorktreeSidebarModel {
     init(
         projectRootPath: String,
         git: (any WorktreeSidebarGitOperating)? = nil,
-        dialogs: WorktreeSidebarDialogPresenter? = nil,
+        dialogs: (any WorktreeSidebarDialogPresenting)? = nil,
         workspaces: WorktreeSidebarWorkspaceController,
         statusDebounceDuration: Duration = .milliseconds(750)
     ) {
