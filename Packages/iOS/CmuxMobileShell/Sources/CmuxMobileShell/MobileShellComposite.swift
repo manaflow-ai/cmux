@@ -680,6 +680,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// across re-subscribes) so events arriving during the round-trip are
     /// consumed, not buffered invisibly behind the await.
     private var terminalSubscriptionStartTask: Task<Void, Never>?
+    /// True from the first failed start handshake until its authenticated
+    /// stored-Mac redial either subscribes successfully or fails. This is the
+    /// one-retry budget that prevents a persistently broken host from causing a
+    /// tight reconnect loop.
+    private var terminalSubscriptionRedialPending = false
     // Liveness watchdog for the render-grid push subscription. The `for await`
     // listener loop blocks indefinitely if the underlying connection half-dies
     // (network blip, Mac stops pushing, background/foreground cycle): the
@@ -1425,6 +1430,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var networkPathObservationTask: Task<Void, Never>?
     var recoveryInFlight = false
     var recoveryTask: Task<Void, Never>?
+    var recoveryID: UUID?
     var foregroundConnectionRecoveryTask: Task<Void, Never>?
     var foregroundConnectionRecoveryID: UUID?
     var lastReconnectStackUserID: String?
@@ -6245,10 +6251,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard ack.isSubscribed else {
                 MobileDebugLog.anchormux("sync.subscribe_failed reason=start")
                 self.diagnosticLog?.record(DiagnosticEvent(.error))
-                self.stopTerminalRefreshPolling()
-                self.markMacConnectionUnavailable()
+                self.recoverStoredMacAfterTerminalSubscriptionFailure(
+                    listenerID: listenerID,
+                    client: client
+                )
                 return
             }
+            self.terminalSubscriptionRedialPending = false
             self.markMacConnectionHealthy()
             MobileDebugLog.anchormux("sync.subscribe_ok topics=\(topics.count) transport=\(transport)")
             self.scheduleNotificationReconcile(client: client)
@@ -6273,8 +6282,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             mobileShellLog.info("terminal event stream ended before subscribe ack, marking unavailable")
             MobileDebugLog.anchormux("sync.stream_ended before subscribe ack; failed start")
             diagnosticLog?.record(DiagnosticEvent(.error))
-            stopTerminalRefreshPolling()
-            markMacConnectionUnavailable()
+            recoverStoredMacAfterTerminalSubscriptionFailure(
+                listenerID: listenerID,
+                client: client
+            )
             return
         }
         mobileShellLog.info("terminal event stream ended, restarting")
@@ -6285,6 +6296,78 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalEventListenerID = nil
         startTerminalRefreshPolling()
         scheduleWorkspaceListRefreshFromEvent()
+    }
+
+    /// A listener that dies before its subscribe handshake completes belongs to
+    /// a dead RPC shell, not merely a stale event stream. Tear down only that
+    /// exact client, then use the authenticated stored-Mac path to mint a fresh
+    /// session. Stored reconnect route selection remains Iroh-pinned, so this
+    /// recovery cannot downgrade an Iroh pairing to raw Tailscale/TCP.
+    private func recoverStoredMacAfterTerminalSubscriptionFailure(
+        listenerID: UUID,
+        client: MobileCoreRPCClient
+    ) {
+        guard terminalEventListenerID == listenerID,
+              remoteClient === client,
+              connectionState == .connected else {
+            return
+        }
+        stopTerminalRefreshPolling()
+
+        // Preview and legacy tests can have a live client without durable
+        // pairing state. They cannot safely redial, so retain the prior
+        // unavailable verdict instead of inventing a route.
+        guard pairedMacStore != nil else {
+            markMacConnectionUnavailable()
+            return
+        }
+
+        let isRedialReplacement = terminalSubscriptionRedialPending
+        let stackUserID = lastReconnectStackUserID ?? identityProvider?.currentUserID
+        foregroundConnectionRecoveryTask?.cancel()
+        foregroundConnectionRecoveryTask = nil
+        foregroundConnectionRecoveryID = nil
+        connectionState = .disconnected
+        macConnectionStatus = .unavailable
+        clearRemoteConnectionContext()
+
+        // One automatic redial is enough to distinguish a stale shell from a
+        // persistently broken host. If the replacement itself cannot subscribe,
+        // let its owning recovery attempt finish as failed instead of creating a
+        // tight reconnect loop.
+        guard !isRedialReplacement else {
+            terminalSubscriptionRedialPending = false
+            connectionRecoveryFailed = true
+            return
+        }
+
+        recoveryTask?.cancel()
+        let redialID = UUID()
+        terminalSubscriptionRedialPending = true
+        recoveryID = redialID
+        recoveryInFlight = true
+        isRecoveringConnection = true
+        connectionRecoveryFailed = false
+
+        recoveryTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                if self.recoveryID == redialID {
+                    self.recoveryTask = nil
+                    self.recoveryID = nil
+                    self.recoveryInFlight = false
+                    self.isRecoveringConnection = false
+                }
+            }
+            let reconnected = await self.reconnectActiveMacIfAvailable(
+                stackUserID: stackUserID
+            )
+            guard !Task.isCancelled, self.recoveryID == redialID else { return }
+            if !reconnected {
+                self.terminalSubscriptionRedialPending = false
+                self.connectionRecoveryFailed = true
+            }
+        }
     }
 
     // MARK: - Render-grid liveness watchdog

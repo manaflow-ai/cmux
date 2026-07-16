@@ -936,10 +936,8 @@ extension ReconnectRouteSelectionTests {
 
         let recovered = try await pollUntil(attempts: 100) {
             guard let current = box.get() else { return false }
-            let foregroundProbeCount = await router.count(of: "mobile.workspace.list")
             return current !== firstTransport
                 && store.connectionState == .connected
-                && foregroundProbeCount >= 1
         }
         #expect(recovered)
         #expect(store.activeRoute?.kind == .iroh)
@@ -987,6 +985,50 @@ extension ReconnectRouteSelectionTests {
                 && workspaceListCount >= 2
         }
         #expect(recovered)
+        #expect(factory.attemptedKinds() == [.iroh, .iroh])
+    }
+
+    @Test func repeatedSubscribeStartFailureStopsAfterOneIrohRedial() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let factory = KindRecordingTransportFactory(router: router, box: box)
+        await router.holdSubscribeRequest(number: 1)
+        await router.holdSubscribeRequest(number: 2)
+        defer {
+            Task { await router.releaseAllHeld() }
+        }
+        let store = try await makeReconnectStore(
+            routes: [try iroh()],
+            runtime: LivenessTestRuntime(
+                transportFactory: factory,
+                now: { clock.now },
+                supportedRouteKinds: [.iroh]
+            )
+        )
+
+        #expect(await store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        let firstTransport = try #require(box.get())
+        #expect(try await pollUntil {
+            await router.count(of: "mobile.events.subscribe") == 1
+        })
+        await firstTransport.close()
+
+        let replacementStarted = try await pollUntil {
+            guard let replacement = box.get(), replacement !== firstTransport else {
+                return false
+            }
+            return await router.count(of: "mobile.events.subscribe") == 2
+        }
+        #expect(replacementStarted)
+        let replacement = try #require(box.get())
+        await replacement.close()
+
+        let stopped = try await pollUntil {
+            store.connectionState == .disconnected
+                && store.connectionRecoveryFailed
+        }
+        #expect(stopped)
         #expect(factory.attemptedKinds() == [.iroh, .iroh])
     }
 

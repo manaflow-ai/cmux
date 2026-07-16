@@ -101,14 +101,22 @@ extension MobileShellComposite {
         connectionRecoveryFailed = false
         let stackUserID = lastReconnectStackUserID
         recoveryTask?.cancel()
+        let recoveryID = UUID()
+        self.recoveryID = recoveryID
         recoveryTask = Task { @MainActor [weak self] in
             defer {
-                self?.recoveryInFlight = false
-                self?.isRecoveringConnection = false
+                if self?.recoveryID == recoveryID {
+                    self?.recoveryTask = nil
+                    self?.recoveryID = nil
+                    self?.recoveryInFlight = false
+                    self?.isRecoveringConnection = false
+                }
             }
-            guard let self, self.connectionState != .connected else { return }
+            guard let self,
+                  self.recoveryID == recoveryID,
+                  self.connectionState != .connected else { return }
             let reconnected = await self.reconnectActiveMacIfAvailable(stackUserID: stackUserID)
-            if !reconnected, !Task.isCancelled {
+            if !reconnected, !Task.isCancelled, self.recoveryID == recoveryID {
                 self.connectionRecoveryFailed = true
             }
         }
