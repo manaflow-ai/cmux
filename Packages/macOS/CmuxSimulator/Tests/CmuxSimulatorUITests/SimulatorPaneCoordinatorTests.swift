@@ -371,7 +371,7 @@ struct SimulatorPaneCoordinatorTests {
 
     @Test("Cancelling text invalidates in-flight worker state and releases its request ID")
     func cancelQueuedTextInput() async {
-        let client = SimulatorPaneClientSpy(devices: [])
+        let client = SimulatorPaneClientSpy(devices: [], delaysInvalidation: true)
         let coordinator = SimulatorPaneCoordinator(client: client)
         await coordinator.start()
         await client.emit(.message(.capabilities([.keyboard])))
@@ -388,7 +388,18 @@ struct SimulatorPaneCoordinatorTests {
         coordinator.cancelTextInput(requestID: submission.requestIdentifier)
 
         await eventually { await client.invalidationCount() == 1 }
+        #expect(coordinator.status == .connecting)
+        guard case .failure(.inputUnavailable) = coordinator.beginTypeText(
+            "too soon",
+            completion: nil
+        ) else {
+            Issue.record("Expected input to remain gated during worker invalidation")
+            return
+        }
+
+        await client.resumeInvalidation()
         await eventually { coordinator.cancelledTextInputRequestIDs.isEmpty }
+        #expect(coordinator.status == .workerCrashed)
         #expect(completions.values() == [false])
     }
 

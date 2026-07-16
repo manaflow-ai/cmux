@@ -12,6 +12,7 @@ extension SimulatorPaneCoordinator {
         display = nil
         status = .failed(failure)
         let previousRecoveryTask = outgoingRecoveryTask
+        outgoingRecoveryGeneration &+= 1
         outgoingRecoveryTask = Task { [client] in
             _ = await previousRecoveryTask?.value
             await client.invalidateWorker()
@@ -55,6 +56,7 @@ extension SimulatorPaneCoordinator {
         display = nil
         stopLiveStatusWatcher()
         beginLocationRouteTeardown()
+        outgoingRecoveryGeneration &+= 1
         outgoingRecoveryTask = Task { [client] in
             _ = await deliveryTask?.value
             await client.send(.releaseInputs)

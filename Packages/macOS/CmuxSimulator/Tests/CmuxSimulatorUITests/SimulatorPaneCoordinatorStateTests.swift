@@ -194,7 +194,7 @@ extension SimulatorPaneCoordinatorTests {
         #expect(coordinator.actionLog.map(\.action) == ["pad-action"])
     }
 
-    @Test("Discovery prunes action history for removed devices")
+    @Test("Discovery prunes removed history and fails closed when the selected device disappears")
     func actionHistoryPrunesRemovedDevices() async {
         let phone = Self.device(id: "phone", family: .iPhone, state: .booted)
         let pad = Self.device(id: "pad", family: .iPad, state: .shutdown)
@@ -221,9 +221,11 @@ extension SimulatorPaneCoordinatorTests {
 
         await coordinator.reloadDevices()
 
-        #expect(coordinator.selectedDeviceID == "phone")
-        #expect(coordinator.actionLog.map(\.action) == ["phone-action"])
+        #expect(coordinator.selectedDeviceID == nil)
+        #expect(coordinator.actionLog.isEmpty)
         #expect(Set(coordinator.actionHistoryByDeviceID.keys) == ["phone"])
+        #expect(coordinator.requiresExplicitDeviceSelection)
+        #expect(coordinator.failure?.code == "simulator_saved_device_unavailable")
     }
 
     @Test("Device unavailability clears stale rendering state")

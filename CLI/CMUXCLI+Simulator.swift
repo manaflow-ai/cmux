@@ -154,8 +154,9 @@ extension CMUXCLI {
         workspace: String?, client: SocketClient, windowOverride: String?
     ) throws -> [[String: Any]] {
         let window = try normalizeWindowHandle(windowOverride, client: client)
-        let requestedWorkspace = workspace
-            ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
+        let requestedWorkspace = workspace ?? (window == nil
+            ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
+            : nil)
         let workspaceID: String
         if let requestedWorkspace,
            let normalized = try normalizeWorkspaceHandle(

@@ -137,6 +137,63 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual(params["surface_id"] as? String, surfaceID)
     }
 
+    func testIOSListUsesExplicitWindowInsteadOfAmbientWorkspace() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("ioswin")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowID = UUID().uuidString.lowercased()
+        let ambientWorkspaceID = UUID().uuidString.lowercased()
+        let selectedWorkspaceID = UUID().uuidString.lowercased()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+            switch method {
+            case "workspace.current":
+                return Self.v2Response(id: id, ok: true, result: [
+                    "workspace_id": selectedWorkspaceID,
+                ])
+            case "surface.list":
+                return Self.v2Response(id: id, ok: true, result: [
+                    "workspace_id": selectedWorkspaceID,
+                    "surfaces": [],
+                ])
+            default:
+                return Self.v2Response(id: id, ok: false, error: ["code": "unexpected"])
+            }
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["--window", windowID, "ios", "list"],
+            environmentOverrides: ["CMUX_WORKSPACE_ID": ambientWorkspaceID]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let payloads = state.commands.compactMap { Self.v2Payload(from: $0) }
+        let currentParams = try XCTUnwrap(payloads.first(where: {
+            $0["method"] as? String == "workspace.current"
+        })?["params"] as? [String: Any])
+        XCTAssertEqual(currentParams["window_id"] as? String, windowID)
+        let listParams = try XCTUnwrap(payloads.first(where: {
+            $0["method"] as? String == "surface.list"
+        })?["params"] as? [String: Any])
+        XCTAssertEqual(listParams["window_id"] as? String, windowID)
+        XCTAssertEqual(listParams["workspace_id"] as? String, selectedWorkspaceID)
+        XCTAssertNotEqual(listParams["workspace_id"] as? String, ambientWorkspaceID)
+    }
+
     func testOpenCommandHonorsTerminatorForDashPrefixedPath() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("open-dash")

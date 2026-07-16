@@ -98,7 +98,7 @@ struct SimulatorPaneCoordinatorLocationLifecycleTests {
         #expect(coordinator.locationRouteDeviceID == nil)
     }
 
-    @Test("Discovery restores a removed device route before selecting its fallback")
+    @Test("Discovery restores a removed device route before failing closed")
     func discoveryLossStopsRoute() async {
         let client = LocationLifecyclePaneClient(devices: [Self.device("A"), Self.device("B")])
         let coordinator = SimulatorPaneCoordinator(client: client)
@@ -108,7 +108,9 @@ struct SimulatorPaneCoordinatorLocationLifecycleTests {
 
         await coordinator.reloadDevices()
 
-        #expect(coordinator.selectedDeviceID == "B")
+        #expect(coordinator.selectedDeviceID == nil)
+        #expect(coordinator.requiresExplicitDeviceSelection)
+        #expect(coordinator.failure?.code == "simulator_saved_device_unavailable")
         #expect(await client.operations().contains("stop:A"))
         #expect(!coordinator.locationRouteIsActive)
         await coordinator.close()

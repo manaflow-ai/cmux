@@ -100,6 +100,7 @@ public final class SimulatorPaneCoordinator {
     @ObservationIgnored var outgoingContinuation: AsyncStream<SimulatorWorkerInbound>.Continuation
     @ObservationIgnored var outgoingTask: Task<Void, Never>?
     @ObservationIgnored var outgoingRecoveryTask: Task<Void, Never>?
+    @ObservationIgnored var outgoingRecoveryGeneration: UInt64 = 0
     @ObservationIgnored var outgoingOverflowed = false
     @ObservationIgnored var eventsTask: Task<Void, Never>?
     @ObservationIgnored var activationTask: Task<Void, Never>?

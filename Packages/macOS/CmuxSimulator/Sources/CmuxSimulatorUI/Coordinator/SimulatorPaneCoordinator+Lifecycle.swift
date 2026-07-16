@@ -134,6 +134,7 @@ extension SimulatorPaneCoordinator {
         outgoingTask = nil
         outgoingContinuation.finish()
         let outgoingRecoveryTask = outgoingRecoveryTask
+        outgoingRecoveryGeneration &+= 1
         self.outgoingRecoveryTask = nil
         _ = await outgoingRecoveryTask?.value
         if !cameraConfiguration.isDisabled {
@@ -230,6 +231,7 @@ extension SimulatorPaneCoordinator {
             }
             await client.invalidateWorker()
         }
+        outgoingRecoveryGeneration &+= 1
         outgoingRecoveryTask = cleanup
         await cleanup.value
     }
@@ -245,6 +247,7 @@ extension SimulatorPaneCoordinator {
         let sessions = detachLongRunningSessions()
         let shouldDisableCamera = !cameraConfiguration.isDisabled
         let outgoingRecoveryTask = outgoingRecoveryTask
+        outgoingRecoveryGeneration &+= 1
         self.outgoingRecoveryTask = nil
         selectionGeneration &+= 1
         let generation = selectionGeneration
@@ -410,8 +413,20 @@ extension SimulatorPaneCoordinator {
         outgoingTask = Task { @MainActor [weak self, client] in
             for await message in stream {
                 guard !Task.isCancelled, let self else { return }
+                while true {
+                    let recoveryGeneration = self.outgoingRecoveryGeneration
+                    let recoveryTask = self.outgoingRecoveryTask
+                    _ = await recoveryTask?.value
+                    guard !Task.isCancelled else { return }
+                    if self.outgoingRecoveryGeneration == recoveryGeneration { break }
+                }
                 if case let .typeText(requestID, _) = message,
                    self.cancelledTextInputRequestIDs.remove(requestID) != nil {
+                    continue
+                }
+                if case let .typeText(requestID, _) = message,
+                   self.status != .streaming {
+                    self.textInputCompletions.removeValue(forKey: requestID)?(false)
                     continue
                 }
                 await client.send(message)
@@ -426,6 +441,7 @@ extension SimulatorPaneCoordinator {
         previousDeliveryTask?.cancel()
         if let previousDeliveryTask {
             let previousRecoveryTask = outgoingRecoveryTask
+            outgoingRecoveryGeneration &+= 1
             outgoingRecoveryTask = Task {
                 _ = await previousDeliveryTask.value
                 _ = await previousRecoveryTask?.value
