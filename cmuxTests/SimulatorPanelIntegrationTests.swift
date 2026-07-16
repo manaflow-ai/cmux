@@ -356,6 +356,14 @@ struct SimulatorPanelIntegrationTests {
             return
         }
         #expect(resolved === second)
+
+        second.suspendForRemoteDisable()
+        guard case .unavailable = TerminalController.shared.resolveSimulatorPanel(
+            routing: routing
+        ) else {
+            Issue.record("A transitioning Simulator should resolve as unavailable")
+            return
+        }
     }
 
     @Test("Control gestures map logical touches and edges through every orientation")

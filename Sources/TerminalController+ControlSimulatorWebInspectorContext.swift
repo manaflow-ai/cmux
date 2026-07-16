@@ -98,6 +98,8 @@ extension TerminalController {
     ) -> ControlSimulatorWebInspectorStartResolution {
         guard CmuxFeatureFlags.shared.isSimulatorEnabled else { return .unavailable }
         switch resolveSimulatorPanel(routing: routing) {
+        case .unavailable:
+            return .unavailable
         case let .failure(failure):
             return .failed(failure)
         case let .panel(panel):

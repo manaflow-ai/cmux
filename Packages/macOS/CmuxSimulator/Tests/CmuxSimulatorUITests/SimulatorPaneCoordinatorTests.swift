@@ -238,6 +238,23 @@ struct SimulatorPaneCoordinatorTests {
         #expect(await client.activations().map(\.id) == ["selected"])
     }
 
+    @Test("Explicit selection survives its own missing-device cleanup")
+    func explicitSelectionAfterDisappearance() async throws {
+        let selected = Self.device(id: "selected", family: .iPhone, state: .booted)
+        let replacement = Self.device(id: "replacement", family: .iPad, state: .booted)
+        let client = SimulatorPaneClientSpy(devices: [selected, replacement])
+        let coordinator = SimulatorPaneCoordinator(client: client)
+        await coordinator.reloadDevices()
+        try await coordinator.selectDeviceAndWait(id: selected.id)
+        await client.setDevices([replacement])
+
+        try await coordinator.selectDeviceAndWait(id: replacement.id)
+
+        #expect(coordinator.selectedDeviceID == replacement.id)
+        #expect(coordinator.status == .streaming)
+        await coordinator.close()
+    }
+
     @Test("Explicit device selection waits for the requested iPad")
     func explicitDeviceSelection() async throws {
         let client = SimulatorPaneClientSpy(devices: [

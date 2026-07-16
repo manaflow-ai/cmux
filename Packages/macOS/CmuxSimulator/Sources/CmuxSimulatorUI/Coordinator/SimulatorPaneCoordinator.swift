@@ -109,6 +109,7 @@ public final class SimulatorPaneCoordinator {
     @ObservationIgnored var closed = false
     @ObservationIgnored var geometry: SimulatorSurfaceGeometry?
     @ObservationIgnored var selectionGeneration: UInt64 = 0
+    @ObservationIgnored var explicitSelectionRequestGeneration: UInt64 = 0
     @ObservationIgnored var deviceDiscoveryGeneration: UInt64 = 0
     @ObservationIgnored var activeControlActions = 0
     @ObservationIgnored var actionHistoryByDeviceID: [String: [SimulatorActionLogEntry]] = [:]

@@ -249,6 +249,11 @@ extension SimulatorPaneCoordinator {
     /// Selects, boots, and attaches one Simulator device.
     /// - Parameter id: The CoreSimulator device identifier.
     public func selectDevice(id: String) {
+        explicitSelectionRequestGeneration &+= 1
+        selectDeviceForCurrentRequest(id: id)
+    }
+
+    private func selectDeviceForCurrentRequest(id: String) {
         guard !closed, devices.contains(where: { $0.id == id }) else { return }
         requiresExplicitDeviceSelection = false
         let previousActivation = activationTask
@@ -305,18 +310,20 @@ extension SimulatorPaneCoordinator {
     /// Selects one discovered device and waits for its attachment to finish.
     public func selectDeviceAndWait(id: String) async throws {
         let previousDeviceID = selectedDeviceID
-        let discoveryGeneration = selectionGeneration
+        let initialSelectionGeneration = selectionGeneration
+        explicitSelectionRequestGeneration &+= 1
+        let requestGeneration = explicitSelectionRequestGeneration
         await reloadDevices()
         do {
             try Task.checkCancellation()
         } catch {
             restoreSelectionAfterCancellation(
                 previousDeviceID: previousDeviceID,
-                generation: discoveryGeneration
+                generation: initialSelectionGeneration
             )
             throw CancellationError()
         }
-        guard selectionGeneration == discoveryGeneration else {
+        guard explicitSelectionRequestGeneration == requestGeneration else {
             throw CancellationError()
         }
         guard devices.contains(where: { $0.id == id }) else {
@@ -329,7 +336,7 @@ extension SimulatorPaneCoordinator {
                 isRecoverable: false
             )
         }
-        selectDevice(id: id)
+        selectDeviceForCurrentRequest(id: id)
         let selectionTask = activationTask
         let generation = selectionGeneration
         if let selectionTask {

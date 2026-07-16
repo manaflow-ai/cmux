@@ -15,6 +15,11 @@ extension TerminalController {
             ))
         }
         switch resolveSimulatorPanel(routing: routing) {
+        case .unavailable:
+            return .unavailable(String(
+                localized: "cli.simulator.error.featureDisabled",
+                defaultValue: "Simulator has been disabled remotely"
+            ))
         case let .failure(failure):
             return .failed(failure)
         case let .panel(panel):

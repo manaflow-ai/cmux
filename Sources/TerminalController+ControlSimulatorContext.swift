@@ -5,6 +5,7 @@ import Foundation
 
 enum ResolvedSimulatorPanel {
     case panel(SimulatorPanel)
+    case unavailable
     case failure(ControlSimulatorTargetFailure)
 }
 
@@ -16,6 +17,8 @@ extension TerminalController: ControlSimulatorContext {
     ) -> ControlSimulatorTypeStartResolution {
         guard CmuxFeatureFlags.shared.isSimulatorEnabled else { return .inputUnavailable }
         switch resolveSimulatorPanel(routing: routing) {
+        case .unavailable:
+            return .inputUnavailable
         case let .failure(failure):
             return .failed(failure)
         case let .panel(panel):
@@ -111,7 +114,7 @@ extension TerminalController: ControlSimulatorContext {
             guard let simulator = panel as? SimulatorPanel else {
                 return .failure(.surfaceNotSimulator(surfaceID))
             }
-            return .panel(simulator)
+            return resolveReadySimulatorPanel(simulator)
         }
 
         if let paneID = routing.paneID {
@@ -122,14 +125,14 @@ extension TerminalController: ControlSimulatorContext {
             }
             if let selected = workspace.bonsplitController.selectedTab(inPane: pane),
                let simulator = workspace.panel(for: selected.id) as? SimulatorPanel {
-                return .panel(simulator)
+                return resolveReadySimulatorPanel(simulator)
             }
             let simulators = workspace.bonsplitController.tabs(inPane: pane).compactMap {
                 workspace.panel(for: $0.id) as? SimulatorPanel
             }
             switch simulators.count {
             case 1:
-                return .panel(simulators[0])
+                return resolveReadySimulatorPanel(simulators[0])
             case 0:
                 if let selected = workspace.bonsplitController.selectedTab(inPane: pane),
                    let panel = workspace.panel(for: selected.id) {
@@ -143,12 +146,12 @@ extension TerminalController: ControlSimulatorContext {
 
         if let focusedID = workspace.focusedPanelId,
            let focused = workspace.panels[focusedID] as? SimulatorPanel {
-            return .panel(focused)
+            return resolveReadySimulatorPanel(focused)
         }
         let simulators = workspace.panels.values.compactMap { $0 as? SimulatorPanel }
         switch simulators.count {
         case 1:
-            return .panel(simulators[0])
+            return resolveReadySimulatorPanel(simulators[0])
         case 0:
             if let focusedID = workspace.focusedPanelId,
                workspace.panels[focusedID] != nil {
@@ -158,6 +161,10 @@ extension TerminalController: ControlSimulatorContext {
         default:
             return .failure(.ambiguousSimulatorSurfaces(simulators.count))
         }
+    }
+
+    private func resolveReadySimulatorPanel(_ panel: SimulatorPanel) -> ResolvedSimulatorPanel {
+        panel.isFeatureReady ? .panel(panel) : .unavailable
     }
 
 }
