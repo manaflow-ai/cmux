@@ -93,6 +93,8 @@ final class BrowserWebNotificationNativeAdapter {
     private var persistentClicks: [UUID: PersistentClickRegistration] = [:]
 #if DEBUG
     var forceForegroundFallbackForTesting = false
+    var externalURLOpenerForTesting: ((URL) -> Bool)?
+    var persistentClickProcessorForTesting: ((WKWebsiteDataStore, NSDictionary, @escaping (Bool) -> Void) -> Bool)?
 #endif
 
     private init() {
@@ -191,17 +193,57 @@ final class BrowserWebNotificationNativeAdapter {
     func handleGlobalNotificationClick(notificationID: UUID, fallbackOrigin: URL) {
         guard let registration = persistentClicks.removeValue(forKey: notificationID),
               let dataStore = registration.dataStore,
-              Self.processPersistentClick(
+              processPersistentClick(
                   on: dataStore,
                   dictionary: registration.dictionary,
                   completion: { processed in
-                      if !processed { NSWorkspace.shared.open(registration.origin) }
+                      if !processed { _ = self.openExternalURL(registration.origin) }
                   }
               ) else {
-            NSWorkspace.shared.open(fallbackOrigin)
+            _ = openExternalURL(fallbackOrigin)
             return
         }
     }
+
+#if DEBUG
+    func setProfileForTesting(_ profileID: UUID?, on dataStore: WKWebsiteDataStore) {
+        let key = ObjectIdentifier(dataStore)
+        if let profileID { dataStoreProfiles[key] = profileID }
+        else { dataStoreProfiles.removeValue(forKey: key) }
+    }
+
+    @discardableResult
+    func provisionManagerForTesting(_ manager: UnsafeRawPointer) -> Bool {
+        managers.insert(Self.key(manager)).inserted
+    }
+
+    func simulateManagerRemovalForTesting(_ manager: UnsafeRawPointer) {
+        _ = manager
+    }
+
+    func isManagerTrackedForTesting(_ manager: UnsafeRawPointer) -> Bool {
+        managers.contains(Self.key(manager))
+    }
+
+    func registerPersistentClickForTesting(
+        notificationID: UUID,
+        dataStore: WKWebsiteDataStore,
+        dictionary: NSDictionary = [:],
+        origin: URL
+    ) {
+        persistentClicks[notificationID] = PersistentClickRegistration(
+            dataStore: dataStore,
+            dictionary: dictionary,
+            origin: origin
+        )
+    }
+
+    func resetNativeDeliveryTestingState() {
+        externalURLOpenerForTesting = nil
+        persistentClickProcessorForTesting = nil
+        persistentClicks.removeAll()
+    }
+#endif
 
     private func installDataStoreDelegate(on dataStore: WKWebsiteDataStore) {
         let selector = NSSelectorFromString("set_delegate:")
@@ -325,6 +367,27 @@ final class BrowserWebNotificationNativeAdapter {
         let function = unsafeBitCast(implementation, to: Function.self)
         function(dataStore, selector, dictionary, completion)
         return true
+    }
+
+    private func processPersistentClick(
+        on dataStore: WKWebsiteDataStore,
+        dictionary: NSDictionary,
+        completion: @escaping (Bool) -> Void
+    ) -> Bool {
+#if DEBUG
+        if let persistentClickProcessorForTesting {
+            return persistentClickProcessorForTesting(dataStore, dictionary, completion)
+        }
+#endif
+        return Self.processPersistentClick(on: dataStore, dictionary: dictionary, completion: completion)
+    }
+
+    @discardableResult
+    private func openExternalURL(_ url: URL) -> Bool {
+#if DEBUG
+        if let externalURLOpenerForTesting { return externalURLOpenerForTesting(url) }
+#endif
+        return NSWorkspace.shared.open(url)
     }
 
     private static func key(_ pointer: UnsafeRawPointer) -> UInt {
