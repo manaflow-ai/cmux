@@ -7994,6 +7994,7 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             if selectWhenNotFocused {
                 hideBrowserPortalsForDeselectedTabs(inPane: paneId, selectedTabId: newTabId)
+                hideTerminalPortalsForDeselectedTabs(inPane: paneId, selectedTabId: newTabId)
             }
             preserveFocusAfterNonFocusSplit(
                 preferredPanelId: previousFocusedPanelId,
@@ -11355,6 +11356,32 @@ extension Workspace: BonsplitDelegate {
         }
     }
 
+    /// Hide terminal portals for tabs that are no longer selected in the given pane.
+    /// The SwiftUI update that delivers visible=false to a deselected terminal tab is
+    /// dropped by the portal-host ownership gate — `isCurrentPaneOwner()` is already
+    /// false for a deselected tab, so updateNSView rejects the hosted-state write
+    /// (`ws.hostState.deferApply reason=hostOwnershipRejected`). A selection-only tab
+    /// switch produces no geometry churn that would hide the layer later, so the stale
+    /// terminal kept rendering above SwiftUI chrome: the previous terminal's content
+    /// filled the browser omnibar band while the webview below rendered normally.
+    /// Route the hide through the registry, which is not ownership-gated (this mirrors
+    /// hideBrowserPortalsForDeselectedTabs above).
+    private func hideTerminalPortalsForDeselectedTabs(inPane pane: PaneID, selectedTabId: TabID) {
+        for tab in bonsplitController.tabs(inPane: pane) {
+            guard tab.id != selectedTabId else { continue }
+            guard let panelId = panelIdFromSurfaceId(tab.id),
+                  let terminalPanel = panels[panelId] as? TerminalPanel else { continue }
+            // Mirror-rendered window-tab panels drive their own portals (see
+            // reconcileTerminalPortalVisibilityForCurrentRenderedLayout).
+            if remoteTmuxWindowMirrors[terminalPanel.id] != nil { continue }
+            terminalPanel.hostedView.setVisibleInUI(false)
+            TerminalWindowPortalRegistry.updateEntryVisibility(
+                for: terminalPanel.hostedView,
+                visibleInUI: false
+            )
+        }
+    }
+
     private func applyTabSelectionNow(
         tabId: TabID,
         inPane pane: PaneID,
@@ -11457,6 +11484,12 @@ extension Workspace: BonsplitDelegate {
         // affected by SwiftUI opacity. Without an explicit hide, the deselected browser's
         // portal layer can remain visible above the newly selected tab.
         hideBrowserPortalsForDeselectedTabs(inPane: focusedPane, selectedTabId: selectedTabId)
+        // Terminals need the same explicit hide: their hosted views also render at the
+        // window level, and the SwiftUI visible=false update is ownership-gated (see
+        // hideTerminalPortalsForDeselectedTabs). Terminal→terminal switches masked this
+        // because the incoming full-pane terminal covers the stale one; terminal→browser
+        // leaves the omnibar band uncovered.
+        hideTerminalPortalsForDeselectedTabs(inPane: focusedPane, selectedTabId: selectedTabId)
 
         if let focusWindow = activationWindow(for: panel) {
             yieldForeignOwnedFocusIfNeeded(

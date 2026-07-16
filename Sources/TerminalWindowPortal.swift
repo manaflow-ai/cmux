@@ -1459,6 +1459,7 @@ final class WindowTerminalPortal: NSObject {
         let needsReattach = visibleInUI && hostedViewNeedsPortalReattachForVisiblePresentation(withId: hostedId)
         guard var entry = entriesByHostedId[hostedId] else { return needsReattach }
         let becameVisible = visibleInUI && !entry.visibleInUI
+        let becameHidden = !visibleInUI && entry.visibleInUI
         entry.visibleInUI = visibleInUI
         if !visibleInUI { entry.transientRecoveryRetriesRemaining = 0 }
         entriesByHostedId[hostedId] = entry
@@ -1467,7 +1468,15 @@ final class WindowTerminalPortal: NSObject {
         // hidden entry's frame is deliberately left alone). Visibility is a
         // sizing input like any other: it schedules a pass rather than
         // trusting that some earlier one already ran.
-        if becameVisible {
+        //
+        // A flip to invisible must schedule the same pass: the hide is applied
+        // by synchronizeHostedView (shouldHide reads entry.visibleInUI), and a
+        // selection-only tab switch produces no window geometry churn that
+        // would run one otherwise. An unscheduled hide left the deselected
+        // terminal's layer rendering above SwiftUI chrome — the previous
+        // terminal's content filled the browser omnibar band until unrelated
+        // churn (sidebar toggle, window resize) healed it.
+        if becameVisible || becameHidden {
             scheduleExternalGeometrySynchronize(forceImmediate: false)
         }
         return needsReattach
