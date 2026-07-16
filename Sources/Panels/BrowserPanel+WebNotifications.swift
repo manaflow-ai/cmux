@@ -209,6 +209,36 @@ extension BrowserPanel {
 
     /// Binds the native endpoint for a preconfigured compatibility script.
     func setupWebNotificationBridge(for webView: WKWebView) {
+        let boundWebViewInstanceID = webViewInstanceID
+        let handler = makeWebNotificationMessageHandler(
+            for: webView,
+            webViewInstanceID: boundWebViewInstanceID,
+            isCurrentGeneration: { [weak self] candidate, instanceID in
+                self?.isCurrentWebView(candidate, instanceID: instanceID) == true
+            }
+        )
+        webNotificationMessageHandler = handler
+        webNotificationBridgeToken = handler?.token
+    }
+
+    /// Binds an independently configured popup to the opener's notification
+    /// destination without sharing the opener web view's bridge generation.
+    func setupPopupWebNotificationBridge(for webView: WKWebView) -> BrowserWebNotificationMessageHandler? {
+        let instanceID = UUID()
+        return makeWebNotificationMessageHandler(
+            for: webView,
+            webViewInstanceID: instanceID,
+            isCurrentGeneration: { [weak webView] candidate, candidateInstanceID in
+                candidate === webView && candidateInstanceID == instanceID
+            }
+        )
+    }
+
+    private func makeWebNotificationMessageHandler(
+        for webView: WKWebView,
+        webViewInstanceID boundWebViewInstanceID: UUID,
+        isCurrentGeneration: @escaping @MainActor (WKWebView, UUID) -> Bool
+    ) -> BrowserWebNotificationMessageHandler? {
         BrowserWebNotificationNativeAdapter.shared.register(
             webView: webView,
             profileID: profileID,
@@ -218,24 +248,20 @@ extension BrowserPanel {
             webView.configuration.userContentController,
             &Self.webNotificationBridgeConfigurationKey
         ) as? BrowserWebNotificationBridgeConfiguration else {
-            webNotificationMessageHandler = nil
-            webNotificationBridgeToken = nil
-            return
+            return nil
         }
 
-        let boundWebViewInstanceID = webViewInstanceID
         let handler = BrowserWebNotificationMessageHandler(
             webView: webView,
             token: bridge.token,
             webViewInstanceID: boundWebViewInstanceID,
-            isCurrentGeneration: { [weak self] candidate, instanceID in
-                self?.isCurrentWebView(candidate, instanceID: instanceID) == true
-            },
+            isCurrentGeneration: isCurrentGeneration,
             permissionDecision: { [weak self] origin in
                 self?.webNotificationPermissionDecision(for: origin) ?? .denied
             },
-            onPayload: { [weak self] payload, instanceID in
-                self?.handleWebNotificationPayload(payload, fromWebViewInstanceID: instanceID)
+            onPayload: { [weak self] payload, _ in
+                guard let self else { return }
+                self.handleWebNotificationPayload(payload, fromWebViewInstanceID: self.webViewInstanceID)
             },
             onPermissionRequest: { [weak self, weak webView] origin, reply in
                 guard let self, let webView else {
@@ -249,8 +275,7 @@ extension BrowserPanel {
         let controller = webView.configuration.userContentController
         controller.removeScriptMessageHandler(forName: BrowserWebNotificationMessageHandler.name, contentWorld: .page)
         controller.addScriptMessageHandler(handler, contentWorld: .page, name: BrowserWebNotificationMessageHandler.name)
-        webNotificationMessageHandler = handler
-        webNotificationBridgeToken = bridge.token
+        return handler
     }
 
     /// Removes the endpoint before a browser webview is released or superseded.

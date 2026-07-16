@@ -35,6 +35,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
     private let downloadDelegate: BrowserDownloadDelegate
     private let webAuthnCoordinator: BrowserWebAuthnCoordinator
     private var sslTrustBypassMessageHandler: BrowserSSLTrustBypassMessageHandler?
+    private var webNotificationMessageHandler: BrowserWebNotificationMessageHandler?
     private var globalFontObserver: GlobalFontMagnificationChangeObserver?
 
     private static var associatedObjectKey: UInt8 = 0
@@ -52,6 +53,10 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         self.parentPopupController = parentPopupController
         self.nestingDepth = nestingDepth
 
+        // WebKit may supply the opener's user-content controller. Sharing it
+        // would let popup setup replace opener handlers and stack duplicate
+        // document-start shims, so rebuild cmux's scripts on a fresh controller.
+        configuration.userContentController = WKUserContentController()
         BrowserPanel.configureWebViewConfiguration(
             configuration,
             websiteDataStore: browserContext.websiteDataStore,
@@ -163,6 +168,17 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
         // --- Delegates ---
         uiDel.controller = self
+        uiDel.requestNotificationPermission = { [weak self] webView, origin, decisionHandler in
+            guard let self else {
+                decisionHandler(false)
+                return
+            }
+            self.resolveWebNotificationPermission(
+                for: origin,
+                in: webView,
+                decisionHandler: decisionHandler
+            )
+        }
         navDel.controller = self
         navDel.downloadDelegate = dlDel
         dlDel.savePanelParentWindow = { [weak panel] in
@@ -185,6 +201,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         let userContentController = webView.configuration.userContentController
         userContentController.removeScriptMessageHandler(forName: BrowserSSLTrustBypassMessageHandler.name)
         userContentController.add(sslTrustBypassMessageHandler, name: BrowserSSLTrustBypassMessageHandler.name)
+        webNotificationMessageHandler = openerPanel?.setupPopupWebNotificationBridge(for: webView)
         webAuthnCoordinator.install(on: webView)
 
         // Context menu "Open Link in New Tab" → open in opener's workspace,
@@ -287,7 +304,13 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         webView.configuration.userContentController.removeScriptMessageHandler(
             forName: BrowserSSLTrustBypassMessageHandler.name
         )
+        webView.configuration.userContentController.removeScriptMessageHandler(
+            forName: BrowserWebNotificationMessageHandler.name,
+            contentWorld: .page
+        )
+        BrowserWebNotificationNativeAdapter.shared.unregister(webView: webView)
         sslTrustBypassMessageHandler = nil
+        webNotificationMessageHandler = nil
         webAuthnCoordinator.tearDown(from: webView); webView.stopLoading()
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
@@ -355,6 +378,22 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         browserLoadRequest(request, in: webView)
     }
 
+    fileprivate func resolveWebNotificationPermission(
+        for securityOrigin: WKSecurityOrigin,
+        in webView: WKWebView,
+        decisionHandler: @escaping (Bool) -> Void
+    ) {
+        var components = URLComponents()
+        components.scheme = securityOrigin.protocol
+        components.host = securityOrigin.host
+        if securityOrigin.port != 0 { components.port = securityOrigin.port }
+        guard let openerPanel, let origin = components.url else {
+            decisionHandler(false)
+            return
+        }
+        openerPanel.resolveWebNotificationPermission(for: origin, in: webView, reply: decisionHandler)
+    }
+
     // MARK: - Insecure HTTP prompt (parity with main browser)
 
     /// Shows the same 3-button insecure HTTP alert as the main browser.
@@ -411,6 +450,16 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
 private class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
     weak var controller: BrowserPopupWindowController?
+    var requestNotificationPermission: ((WKWebView, WKSecurityOrigin, @escaping (Bool) -> Void) -> Void)?
+
+    @objc(_webView:requestNotificationPermissionForSecurityOrigin:decisionHandler:)
+    func webView(
+        _ webView: WKWebView,
+        requestNotificationPermissionFor securityOrigin: WKSecurityOrigin,
+        decisionHandler: @escaping (Bool) -> Void
+    ) {
+        requestNotificationPermission?(webView, securityOrigin, decisionHandler) ?? decisionHandler(false)
+    }
 
     func webViewDidClose(_ webView: WKWebView) {
         #if DEBUG
