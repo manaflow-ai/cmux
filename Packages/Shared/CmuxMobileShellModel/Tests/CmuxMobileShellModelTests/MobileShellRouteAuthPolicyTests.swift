@@ -169,6 +169,15 @@ import Testing
         #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(
             lanUnderTailscaleKind, trust: .loopbackAndTailscaleTunnel
         ))
+        // Tailscale's IPv6 ULA range is part of the tunnel too — hosts
+        // advertise it as a fallback route.
+        let tailscaleIPv6 = try hostPortRoute(
+            kind: .tailscale, host: "fd7a:115c:a1e0::f536:b524", port: CmxMobileDefaults.defaultHostPort
+        )
+        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(tailscaleIPv6))
+        #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(
+            tailscaleIPv6, trust: .loopbackAndTailscaleTunnel
+        ))
         // Loopback stays allowed in both trust sets.
         #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(loopback))
         #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(
