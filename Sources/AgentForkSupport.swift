@@ -363,7 +363,7 @@ enum AgentForkSupport {
             waitingForOutputDrain = true
             Task {
                 let output = await outputDrainTask.value
-                await self.finishDrainedOutput(output)
+                self.finishDrainedOutput(output)
             }
         }
 
@@ -513,7 +513,7 @@ enum AgentForkSupport {
                 if bytesRead > 0 {
                     let remaining = maximumBytes - output.count
                     if remaining > 0 {
-                        output.append(buffer.prefix(min(Int(bytesRead), remaining)))
+                        output.append(contentsOf: buffer.prefix(min(Int(bytesRead), remaining)))
                     }
                 } else if bytesRead == 0 {
                     break
