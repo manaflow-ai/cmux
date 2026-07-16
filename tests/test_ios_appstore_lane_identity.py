@@ -313,6 +313,7 @@ if "archive" in args:
     write_plist(
         app / "Info.plist",
         {{
+            "CFBundleExecutable": "cmux",
             "CFBundleIdentifier": bundle_id,
             "CFBundleVersion": build_number,
             "CFBundleShortVersionString": marketing_version,
@@ -509,6 +510,7 @@ def _bump_patch(version: str) -> str:
 def _write_fake_archive(path: Path, *, bundle_id: str, build_number: str, marketing_version: str) -> None:
     app = path / "Products" / "Applications" / "cmux.app"
     info = {
+        "CFBundleExecutable": "cmux",
         "CFBundleIdentifier": bundle_id,
         "CFBundleVersion": build_number,
         "CFBundleShortVersionString": marketing_version,
