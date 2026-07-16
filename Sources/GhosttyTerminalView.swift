@@ -2911,6 +2911,7 @@ class GhosttyApp {
         case GHOSTTY_ACTION_COLOR_CHANGE:
             let change = action.action.color_change
             let newColor = color(from: change)
+            if let surfaceID = surfaceView.terminalSurface?.id { NotificationCenter.default.post(name: .ghosttySurfaceThemeDidChange, object: surfaceID) }
             if action.action.color_change.kind == GHOSTTY_ACTION_COLOR_KIND_BACKGROUND {
                 if backgroundLogEnabled {
                     logBackground(
@@ -2932,6 +2933,7 @@ class GhosttyApp {
             }
             return true
         case GHOSTTY_ACTION_CONFIG_CHANGE:
+            let configChangeSurfaceID = surfaceView.terminalSurface?.id
             DispatchQueue.main.async { [self] in
                 if let staleOverride = surfaceView.backgroundColor {
                     surfaceView.backgroundColor = nil
@@ -2944,8 +2946,6 @@ class GhosttyApp {
                     surfaceView.applyWindowBackgroundIfActive()
                 }
             }
-            // Keep surface config-change handling scoped to the surface. The app-level
-            // default background is owned by reloadConfiguration's resolved GhosttyConfig.
             let effectiveConfigChangeColorScheme = effectiveTerminalColorSchemePreference
             synchronizeGhosttyRuntimeColorScheme(
                 effectiveConfigChangeColorScheme,
@@ -2956,6 +2956,7 @@ class GhosttyApp {
                     force: true,
                     preferredColorScheme: effectiveConfigChangeColorScheme
                 )
+                if let configChangeSurfaceID { NotificationCenter.default.post(name: .ghosttySurfaceThemeDidChange, object: configChangeSurfaceID) }
             }
             if backgroundLogEnabled {
                 logBackground(
@@ -7858,7 +7859,6 @@ private extension NSScreen {
         return nil
     }
 }
-
 extension Notification.Name {
     static let ghosttyDidTick = Notification.Name("ghosttyDidTick")
     static let ghosttyDidRenderFrame = Notification.Name("ghosttyDidRenderFrame")
@@ -7868,6 +7868,7 @@ extension Notification.Name {
     static let ghosttySearchFocus = Notification.Name("ghosttySearchFocus")
     static let ghosttyConfigDidReload = Notification.Name("ghosttyConfigDidReload")
     static let ghosttyDefaultBackgroundDidChange = Notification.Name("ghosttyDefaultBackgroundDidChange")
+    static let ghosttySurfaceThemeDidChange = Notification.Name("ghosttySurfaceThemeDidChange")
     static let browserSearchFocus = Notification.Name("browserSearchFocus")
     static let workspaceRemoteConnectionPresentationDidChange = Notification.Name(
         "cmux.workspaceRemoteConnectionPresentationDidChange"
