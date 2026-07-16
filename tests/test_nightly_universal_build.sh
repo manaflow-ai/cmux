@@ -30,16 +30,22 @@ if ! awk '
 fi
 
 if ! awk '
-  /^      - name: Cache Xcode compilation results/ { in_cache=1; next }
+  /^  refresh-compilation-cache:/ { job="refresh"; next }
+  /^  build-sign-notarize-nightly:/ { job="publish"; next }
+  /^  [a-zA-Z0-9_-]+:/ { job="" }
+  job && /^      - name: Cache Xcode compilation results/ { in_cache=1; next }
   in_cache && /^      - name:/ { in_cache=0 }
-  in_cache && /path: build-universal\/CompilationCache\.noindex/ { saw_path=1 }
-  in_cache && /key: xcode-compilation-release-/ { saw_key=1 }
-  in_cache && /steps\.compilation-cache-key\.outputs\.toolchain/ { saw_toolchain=1 }
-  in_cache && /needs\.decide\.outputs\.head_sha/ { saw_head_sha=1 }
-  in_cache && /restore-keys:/ { saw_restore=1 }
-  END { exit !(saw_path && saw_key && saw_toolchain && saw_head_sha && saw_restore) }
+  in_cache && /path: build-universal\/CompilationCache\.noindex/ { saw_path[job]=1 }
+  in_cache && /key: xcode-compilation-release-/ { saw_key[job]=1 }
+  in_cache && /steps\.compilation-cache-key\.outputs\.toolchain/ { saw_toolchain[job]=1 }
+  in_cache && /needs\.decide\.outputs\.head_sha/ { saw_head_sha[job]=1 }
+  in_cache && /restore-keys:/ { saw_restore[job]=1 }
+  END {
+    exit !(saw_path["refresh"] && saw_key["refresh"] && saw_toolchain["refresh"] && saw_head_sha["refresh"] && saw_restore["refresh"] &&
+           saw_path["publish"] && saw_key["publish"] && saw_toolchain["publish"] && saw_head_sha["publish"] && saw_restore["publish"])
+  }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly workflow must roll the shared Release compilation cache forward by source revision"
+  echo "FAIL: cache warming and publishing must both roll the shared Release compilation cache forward by source revision"
   exit 1
 fi
 
