@@ -120,7 +120,7 @@ enum SyntheticKeyEventFactory {
         case "forward_delete": (storedKey, keyCode) = ("\u{f728}", 117)
         case "space": (storedKey, keyCode) = (" ", 49)
         default:
-            guard key.count == 1, let resolved = keyCode(for: key) else { return nil }
+            guard key.count == 1, let resolved = Self.keyCode(for: key) else { return nil }
             storedKey = key
             keyCode = resolved
         }
