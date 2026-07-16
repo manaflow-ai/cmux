@@ -122,6 +122,14 @@ test("Feed React surface invokes the typed permission primitive", async () => {
   keyboardRoot.focus();
   keyboardRoot.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { bubbles: true, key: "j" }));
   expect(document.activeElement).toBe(cards[0]);
+  cards[0]?.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { bubbles: true, key: "Tab" }));
+  expect(document.activeElement?.textContent).toBe("Deny");
+  document.activeElement?.dispatchEvent(new dom!.window.KeyboardEvent("keydown", {
+    bubbles: true,
+    key: "Tab",
+    shiftKey: true,
+  }));
+  expect(document.activeElement).toBe(cards[0]);
   cards[0]?.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { bubbles: true, ctrlKey: true, key: "n" }));
   expect(document.activeElement).toBe(cards[1]);
   cards[1]?.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { bubbles: true, key: "ArrowUp" }));
