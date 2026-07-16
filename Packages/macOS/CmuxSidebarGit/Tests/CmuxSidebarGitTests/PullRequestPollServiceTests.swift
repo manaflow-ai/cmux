@@ -353,4 +353,97 @@ import CmuxGit
         #expect(host.workspaces[0].state.panels[panelId]?.badge == nil)
         #expect(service.workspacePullRequestTrackedPanelIds(workspaceId: workspaceId).isEmpty)
     }
+
+    @Test func rateLimitResetOverridesNormalTransientFailureCadence() {
+        let host = RecordingSidebarGitHost()
+        host.pollingEnabled = true
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: "/tmp/repo")
+        host.workspaces[0].state.panels[panelId]?.branch = SidebarPanelGitBranch(
+            branch: "issue-8175",
+            isDirty: false
+        )
+        let service = makeService(host: host, clock: ManualGitPollClock())
+        let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        service.workspacePullRequestProbeStateByKey[key] = .inFlight(rerunPending: false)
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let retryDate = now.addingTimeInterval(300)
+
+        service.applyWorkspacePullRequestRefreshResults(
+            [
+                WorkspacePullRequestRefreshResult(
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    resolution: .transientFailure,
+                    usedCachedRepoData: false
+                ),
+            ],
+            repoResults: [:],
+            requestedKeys: [key],
+            now: now,
+            reason: "rateLimited",
+            rateLimitRetryDate: retryDate
+        )
+
+        #expect(service.workspacePullRequestNextPollAtByKey[key] == retryDate)
+    }
+
+    @Test func rateLimitClampsEarlyContinuesAndPreservesDeferredCacheBypass() {
+        let host = RecordingSidebarGitHost()
+        host.pollingEnabled = true
+        let (rerunWorkspaceId, rerunPanelId) = host.addWorkspace(panelDirectory: "/tmp/repo")
+        let (missingWorkspaceId, missingPanelId) = host.addWorkspace(panelDirectory: "/tmp/repo")
+        let service = makeService(host: host, clock: ManualGitPollClock())
+        let rerunKey = WorkspaceGitProbeKey(
+            workspaceId: rerunWorkspaceId,
+            panelId: rerunPanelId
+        )
+        let missingResultKey = WorkspaceGitProbeKey(
+            workspaceId: missingWorkspaceId,
+            panelId: missingPanelId
+        )
+        service.workspacePullRequestProbeStateByKey[rerunKey] = .inFlight(rerunPending: true)
+        service.workspacePullRequestProbeStateByKey[missingResultKey] = .inFlight(rerunPending: false)
+        service.workspacePullRequestNextPollAtByKey[rerunKey] = .distantPast
+        service.workspacePullRequestFollowUpShouldBypassRepoCache = true
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let retryDate = now.addingTimeInterval(300)
+
+        service.applyWorkspacePullRequestRefreshResults(
+            [
+                WorkspacePullRequestRefreshResult(
+                    workspaceId: rerunWorkspaceId,
+                    panelId: rerunPanelId,
+                    resolution: .transientFailure,
+                    usedCachedRepoData: true
+                ),
+            ],
+            repoResults: [:],
+            requestedKeys: [rerunKey, missingResultKey],
+            now: now,
+            reason: "rateLimited",
+            rateLimitRetryDate: retryDate
+        )
+
+        #expect(service.workspacePullRequestNextPollAtByKey[rerunKey] == retryDate)
+        #expect(service.workspacePullRequestNextPollAtByKey[missingResultKey] == retryDate)
+        #expect(service.workspacePullRequestFollowUpShouldBypassRepoCache)
+
+        service.workspacePullRequestProbeStateByKey[rerunKey] = .inFlight(rerunPending: false)
+        service.applyWorkspacePullRequestRefreshResults(
+            [
+                WorkspacePullRequestRefreshResult(
+                    workspaceId: rerunWorkspaceId,
+                    panelId: rerunPanelId,
+                    resolution: .transientFailure,
+                    usedCachedRepoData: false
+                ),
+            ],
+            repoResults: [:],
+            requestedKeys: [rerunKey],
+            now: retryDate,
+            reason: "postReset"
+        )
+
+        #expect(!service.workspacePullRequestFollowUpShouldBypassRepoCache)
+    }
 }
