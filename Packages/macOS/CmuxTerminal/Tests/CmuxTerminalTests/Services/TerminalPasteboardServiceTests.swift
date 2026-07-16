@@ -101,9 +101,10 @@ struct PasteboardTextContentsTests {
         let scratch = ScratchPasteboard()
         let service = TerminalPasteboardService()
         let originalAttributed = NSMutableAttributedString(string: "hard\nwrapped")
+        let originalLink = try #require(URL(string: "https://example.com/reflow"))
         originalAttributed.addAttribute(
             .link,
-            value: try #require(URL(string: "https://example.com/reflow")),
+            value: originalLink,
             range: NSRange(location: 0, length: 4)
         )
         let originalHTML = try originalAttributed.data(
@@ -135,6 +136,8 @@ struct PasteboardTextContentsTests {
         ))
         #expect(html.string.trimmingCharacters(in: .newlines) == "hard wrapped")
         #expect(rtf.string == "hard wrapped")
+        #expect(html.attribute(.link, at: 0, effectiveRange: nil) as? URL == originalLink)
+        #expect(rtf.attribute(.link, at: 0, effectiveRange: nil) as? URL == originalLink)
         let types = try #require(scratch.pasteboard.types)
         #expect(types.contains(.html))
         #expect(types.contains(.rtf))
