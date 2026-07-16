@@ -75,6 +75,10 @@
   // Exclusive interaction modes: "select" picks elements, "draw" captures
   // freehand regions. Never both at once.
   let interactionMode = "select";
+  // The native composer card's viewport rect. The webview's tracking area
+  // still receives mouse moves over the card (tracking ignores z-order), so
+  // the runtime must treat that region as hover-dead itself.
+  let composerFrame = null;
 
   const number = (value) => {
     const parsed = Number.parseFloat(String(value || "0"));
@@ -1390,6 +1394,15 @@
       }
     }
     if (interactionMode === "draw") return;
+    if (composerFrame
+        && event.clientX >= composerFrame.x && event.clientX <= composerFrame.x + composerFrame.width
+        && event.clientY >= composerFrame.y && event.clientY <= composerFrame.y + composerFrame.height) {
+      if (hoveredElement) {
+        hoveredElement = null;
+        scheduleOverlayRefresh();
+      }
+      return;
+    }
     const candidate = elementUnderPoint(event.clientX, event.clientY);
     if (!candidate || candidate === hoveredElement) return;
     hoveredElement = candidate;
@@ -1641,6 +1654,19 @@
 
     clearSelection() {
       return clearSelection();
+    },
+
+    setComposerFrame(x, y, width, height) {
+      if ([x, y, width, height].every((value) => Number.isFinite(value)) && width > 0 && height > 0) {
+        composerFrame = { x, y, width, height };
+        if (hoveredElement) {
+          hoveredElement = null;
+          scheduleOverlayRefresh();
+        }
+      } else {
+        composerFrame = null;
+      }
+      return snapshot();
     },
 
     clearHover() {

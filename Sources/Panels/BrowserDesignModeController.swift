@@ -319,6 +319,29 @@ final class BrowserDesignModeController {
     }
     @ObservationIgnored private var lastHoverClearAt: ContinuousClock.Instant?
 
+    /// Publishes the composer card's frame (webview viewport coordinates) to
+    /// the page runtime, which treats that region as hover-dead. The webview's
+    /// tracking area receives mouse moves over the native card regardless of
+    /// z-order, so the runtime must know where the card is.
+    func updateComposerFrame(_ frame: CGRect) {
+        guard frame != lastPublishedComposerFrame else { return }
+        lastPublishedComposerFrame = frame
+        guard phase == .active, let webView else { return }
+        Task { @MainActor in
+            _ = try? await self.evaluate(
+                "return globalThis.__cmuxDesignMode?.setComposerFrame(x, y, w, h);",
+                arguments: [
+                    "x": frame.origin.x,
+                    "y": frame.origin.y,
+                    "w": frame.width,
+                    "h": frame.height,
+                ],
+                in: webView
+            )
+        }
+    }
+    @ObservationIgnored private var lastPublishedComposerFrame: CGRect?
+
     /// Flashes the outline of the selection at `index` on the page.
     func revealSelection(at index: Int) async {
         guard phase == .active,
