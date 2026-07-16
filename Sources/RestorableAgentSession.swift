@@ -436,9 +436,10 @@ enum AgentResumeCommandBuilder {
     static func openCodeVersionProbe(
         launchCommand: AgentLaunchCommandSnapshot?
     ) -> (executable: String, arguments: [String])? {
-        switch launchCommand?.launcher {
-        case "omo", "omo-slim", "omos":
+        if AgentLaunchCaptureTrust.launcherIsOpenCodeSessionWrapper(launchCommand?.launcher) {
             return nil
+        }
+        switch launchCommand?.launcher {
         case "omx", "omc":
             return nil
         default:

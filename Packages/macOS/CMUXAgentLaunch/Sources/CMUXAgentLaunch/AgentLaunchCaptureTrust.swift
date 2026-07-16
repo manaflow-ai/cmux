@@ -10,11 +10,17 @@ import Foundation
 /// capture verbatim poisons resume/fork for the session — the rendered command
 /// runs the wrong binary with the wrong flags.
 public enum AgentLaunchCaptureTrust {
+    private static let openCodeSessionWrapperLaunchers: Set<String> = [
+        "omo",
+        "omo-slim",
+        "omos",
+    ]
+
     /// Wrapper launchers that legitimately differ from the hook kind they launch.
     private static let wrapperLaunchersByKind: [String: Set<String>] = [
         "claude": ["claudeteams"],
         "codex": ["codexteams"],
-        "opencode": ["omo", "omo-slim", "omos", "omx", "omc"],
+        "opencode": openCodeSessionWrapperLaunchers.union(["omx", "omc"]),
         "pi": ["omp"],
     ]
 
@@ -55,7 +61,7 @@ public enum AgentLaunchCaptureTrust {
     public static func launcherIsOpenCodeSessionWrapper(_ launcher: String?) -> Bool {
         guard let launcher = launcher?.trimmingCharacters(in: .whitespacesAndNewlines),
               !launcher.isEmpty else { return false }
-        return ["omo", "omo-slim", "omos"].contains(launcher.lowercased())
+        return openCodeSessionWrapperLaunchers.contains(launcher.lowercased())
     }
 
     /// True when a captured argv describes a shell dispatcher (`sh -c …`,

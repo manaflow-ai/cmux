@@ -281,7 +281,7 @@ public struct AgentResumeArgv: Sendable, Equatable {
                     + codexResumeConfigOverrides(preserved: preserved) + preserved
             )
         case "omo", "omo-slim", "omos":
-            let launcherName = launcher ?? "omo"
+            guard let launcherName = launcher else { return .passthrough }
             let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "cmux")
             var tail = parts.tail
             if tail.first == launcherName { tail.removeFirst() }
