@@ -1,4 +1,5 @@
 import CmuxMobileBrowser
+import CmuxMobileBrowserStream
 import CmuxMobileTerminal
 import SwiftUI
 
@@ -28,6 +29,9 @@ extension WorkspaceDetailView {
             } else if surface == .browser, let browser = activeBrowser {
                 browserContent(browser)
                     .background(store.activeTerminalTheme.terminalBackgroundColor)
+            } else if surface == .browserStream, let browser = activeBrowserStream {
+                browserStreamContent(browser)
+                    .background(store.activeTerminalTheme.terminalBackgroundColor)
             }
         }
         .onChange(of: surface) { _, newSurface in
@@ -55,6 +59,34 @@ extension WorkspaceDetailView {
         )
         .id(browser.id.rawValue)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    func browserStreamContent(_ browser: BrowserStreamSurfaceState) -> some View {
+        if let frames = browserStreamStore.frames(for: browser.id) {
+            BrowserStreamPane(
+                state: browser,
+                frames: frames,
+                actions: BrowserStreamSurfaceActions(
+                    pointer: { await store.sendMobileBrowserPointer($0) },
+                    scroll: { await store.sendMobileBrowserScroll($0) },
+                    key: { await store.sendMobileBrowserKey($0) },
+                    text: { await store.sendMobileBrowserText($0) },
+                    navigate: { await store.navigateMobileBrowser(panelID: $0, url: $1) },
+                    back: { await store.backMobileBrowser(panelID: $0) },
+                    forward: { await store.forwardMobileBrowser(panelID: $0) },
+                    reload: { await store.reloadMobileBrowser(panelID: $0) }
+                ),
+                didDisplay: { browserStreamStore.didDisplay($0, for: browser.id) },
+                close: {
+                    browserStreamStore.deactivate(in: workspace.rpcWorkspaceID.rawValue)
+                    Task { await store.stopMobileBrowserStream(panelID: browser.id) }
+                },
+                reconnect: { Task { await store.reconnectOrRefresh() } }
+            )
+            .id(browser.id)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
     }
     #endif
 }

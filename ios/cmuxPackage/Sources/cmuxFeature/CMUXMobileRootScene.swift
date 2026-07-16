@@ -3,6 +3,7 @@ import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxMobileAnalytics
 import CmuxMobilePairedMac
+import CmuxMobileBrowserStream
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -283,26 +284,37 @@ public struct CMUXMobileRootScene: View {
         } else if ProcessInfo.processInfo.environment["CMUX_BOTTOM_SCROLL_STRESS"] == "1" {
             MobileBottomScrollStressView()
         } else {
-            CMUXMobileAppView(
-                store: makeStore(),
-                onboardingStore: onboardingStore,
-                signOutHook: signOutHook
-            )
+            makeMobileAppView()
         }
         #else
-        CMUXMobileAppView(
-            store: makeStore(),
-            onboardingStore: onboardingStore,
-            signOutHook: signOutHook
-        )
+        makeMobileAppView()
         #endif
         #else
-        CMUXMobileAppView(store: makeStore(), signOutHook: signOutHook)
+        makeMobileAppView()
         #endif
     }
 
     @MainActor
-    private func makeStore() -> CMUXMobileShellStore {
+    private func makeMobileAppView() -> CMUXMobileAppView {
+        let browserStreamStore = BrowserStreamStore()
+        #if os(iOS)
+        return CMUXMobileAppView(
+            store: makeStore(browserStreamEvents: browserStreamStore),
+            browserStreamStore: browserStreamStore,
+            onboardingStore: onboardingStore,
+            signOutHook: signOutHook
+        )
+        #else
+        return CMUXMobileAppView(
+            store: makeStore(browserStreamEvents: browserStreamStore),
+            browserStreamStore: browserStreamStore,
+            signOutHook: signOutHook
+        )
+        #endif
+    }
+
+    @MainActor
+    private func makeStore(browserStreamEvents: any BrowserStreamEventReceiving) -> CMUXMobileShellStore {
         let coordinator = auth.coordinator
         let buildScope = MobileIOSBuildScope.current()
         let identityProvider = AuthCoordinatorIdentityProvider(
@@ -335,7 +347,8 @@ public struct CMUXMobileRootScene: View {
             diagnosticLog: diagnosticLog,
             feedbackEmailSubmitter: feedbackEmailSubmitter,
             feedbackStampProvider: feedbackStampProvider,
-            draftStore: draftStore
+            draftStore: draftStore,
+            browserStreamEvents: browserStreamEvents
         )
         #else
         return CMUXMobileShellStore(
@@ -351,7 +364,8 @@ public struct CMUXMobileRootScene: View {
             analytics: analytics,
             feedbackEmailSubmitter: feedbackEmailSubmitter,
             feedbackStampProvider: feedbackStampProvider,
-            draftStore: draftStore
+            draftStore: draftStore,
+            browserStreamEvents: browserStreamEvents
         )
         #endif
     }
