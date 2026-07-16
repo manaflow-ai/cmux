@@ -228,6 +228,21 @@ struct WorkspaceSidebarObservationTests {
         )
     }
 
+    @Test func publisherBufferedValuesKeepsLatestSynchronousBurstWithoutDemandFailure() async {
+        let subject = PassthroughSubject<Int, Never>()
+        let values = subject.bufferedValues()
+
+        for value in 0..<1_000 {
+            subject.send(value)
+        }
+
+        var iterator = values.makeAsyncIterator()
+        #expect(await iterator.next() == 999)
+
+        subject.send(1_000)
+        #expect(await iterator.next() == 1_000)
+    }
+
     @Test func sidebarObservationPublisherIgnoresRemoteHeartbeatOnlyChanges() {
         let workspace = Workspace()
 
