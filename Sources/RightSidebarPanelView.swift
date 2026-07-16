@@ -12,49 +12,6 @@ private func rightSidebarDebugResponder(_ responder: NSResponder?) -> String {
     return String(describing: type(of: responder))
 }
 
-/// Mode shown in the right sidebar (the panel toggled by ⌘⌥B).
-enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
-    case files
-    case find
-    case sessions
-    case feed
-    case dock
-    case customSidebar = "custom-sidebar"
-
-    var label: String {
-        switch self {
-        case .files: return String(localized: "rightSidebar.mode.files", defaultValue: "Files")
-        case .find: return String(localized: "rightSidebar.mode.find", defaultValue: "Find")
-        case .sessions: return String(localized: "rightSidebar.mode.sessions", defaultValue: "Vault")
-        case .feed: return String(localized: "rightSidebar.mode.feed", defaultValue: "Feed")
-        case .dock: return String(localized: "rightSidebar.mode.dock", defaultValue: "Dock")
-        case .customSidebar: return String(localized: "rightSidebar.mode.customSidebar", defaultValue: "Custom")
-        }
-    }
-
-    var symbolName: String {
-        switch self {
-        case .files: return "folder"
-        case .find: return "magnifyingglass"
-        case .sessions: return "books.vertical"
-        case .feed: return "dot.radiowaves.left.and.right"
-        case .dock: return "dock.rectangle"
-        case .customSidebar: return "wand.and.stars"
-        }
-    }
-
-    var shortcutAction: KeyboardShortcutSettings.Action? {
-        switch self {
-        case .files: return .switchRightSidebarToFiles
-        case .find: return .switchRightSidebarToFind
-        case .sessions: return .switchRightSidebarToSessions
-        case .feed: return .switchRightSidebarToFeed
-        case .dock: return .switchRightSidebarToDock
-        case .customSidebar: return nil
-        }
-    }
-}
-
 extension RightSidebarMode {
     static let paneModes: [RightSidebarMode] = [.files, .find, .sessions]
 
@@ -75,7 +32,7 @@ enum FileExplorerRootSyncPolicy {
         switch mode {
         case .files, .find:
             return true
-        case .sessions, .feed, .dock, .customSidebar:
+        case .sessions, .pullRequests, .feed, .dock, .customSidebar:
             return false
         }
     }
@@ -397,6 +354,24 @@ struct RightSidebarPanelView: View {
                     .onAppear {
                         sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)
                     }
+            case .pullRequests:
+                if let workspace = tabManager.selectedWorkspace {
+                    PullRequestPanelWorkspaceView(
+                        workspace: workspace,
+                        service: tabManager.pullRequestPanelService,
+                        isVisible: fileExplorerState.isVisible,
+                        onOpenURL: { url in
+                            tabManager.openSidebarPullRequestURL(
+                                url,
+                                inWorkspace: workspace.id,
+                                preferSplitRight: true
+                            )
+                        }
+                    )
+                    .id(workspace.id)
+                } else {
+                    Color.clear
+                }
             case .feed:
                 FeedPanelView()
             case .dock:

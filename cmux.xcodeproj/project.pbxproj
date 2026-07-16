@@ -1174,6 +1174,13 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A5C0DE0000000000000000B8 /* ProjectTargetsTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C0DE0000000000000000B7 /* ProjectTargetsTabView.swift */; };
 		0A110711000000000000001A /* PromptTurnNotificationHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A110711000000000000001B /* PromptTurnNotificationHandler.swift */; };
 		C0DEA771000000000000000F /* ProWelcomeChecklist.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEA7710000000000000010 /* ProWelcomeChecklist.swift */; };
+		A13F10070000000000000007 /* PullRequestCheckRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F00070000000000000007 /* PullRequestCheckRow.swift */; };
+		A13F10010000000000000001 /* PullRequestPanelActivation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F00010000000000000001 /* PullRequestPanelActivation.swift */; };
+		A13F10080000000000000008 /* PullRequestPanelObservationID.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F00080000000000000008 /* PullRequestPanelObservationID.swift */; };
+		8ACF001A8ACF001A8ACF001A /* PullRequestPanelRemoteWorkspaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ACF001B8ACF001B8ACF001B /* PullRequestPanelRemoteWorkspaceTests.swift */; };
+		A13F10030000000000000003 /* PullRequestPanelView+Presentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F00030000000000000003 /* PullRequestPanelView+Presentation.swift */; };
+		A13F10020000000000000002 /* PullRequestPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F00020000000000000002 /* PullRequestPanelView.swift */; };
+		A13F10060000000000000006 /* PullRequestPanelWorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F00060000000000000006 /* PullRequestPanelWorkspaceView.swift */; };
 		A64610010000000000000001 /* QuitConfirmationAlertPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A64610010000000000000002 /* QuitConfirmationAlertPresenter.swift */; };
 		A64610020000000000000001 /* QuitConfirmationAlertPresenterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A64610020000000000000002 /* QuitConfirmationAlertPresenterTests.swift */; };
 		A500RG01 /* ReactGrab.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500RG00 /* ReactGrab.swift */; };
@@ -1332,6 +1339,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		B7F9A604B7F9A604B7F9A604 /* RightSidebarChromeStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F9A605B7F9A605B7F9A605 /* RightSidebarChromeStyle.swift */; };
 		C3408A000000000000000003 /* RightSidebarCommandPaletteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3408A000000000000000004 /* RightSidebarCommandPaletteTests.swift */; };
 		B37A00000000000000000003 /* RightSidebarMode+Availability.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A00000000000000000004 /* RightSidebarMode+Availability.swift */; };
+		A13F10040000000000000004 /* RightSidebarMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F00040000000000000004 /* RightSidebarMode.swift */; };
 		46814000000000000000000D /* RightSidebarModeShortcutEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46814000000000000000000E /* RightSidebarModeShortcutEntry.swift */; };
 		468110000000000000000005 /* RightSidebarModeShortcutMatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468110000000000000000006 /* RightSidebarModeShortcutMatcher.swift */; };
 		FE003103 /* RightSidebarPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003003 /* RightSidebarPanelView.swift */; };
@@ -1610,6 +1618,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		E3B7A400000000000000000B /* TabManager+FocusHistoryHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A400000000000000000C /* TabManager+FocusHistoryHosting.swift */; };
 		737100000000000000000001 /* TabManager+NonInteractiveClose.swift in Sources */ = {isa = PBXBuildFile; fileRef = 737100000000000000000002 /* TabManager+NonInteractiveClose.swift */; };
 		E3B7A4000000000000000009 /* TabManager+NotificationDismissalHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A400000000000000000A /* TabManager+NotificationDismissalHosting.swift */; };
+		A13F10050000000000000005 /* TabManager+PullRequestLinkOpening.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13F00050000000000000005 /* TabManager+PullRequestLinkOpening.swift */; };
 		C0DE1A030000000000000001 /* TabManager+SavedLayouts.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1A030000000000000002 /* TabManager+SavedLayouts.swift */; };
 		C548600B0000000000000001 /* TabManager+SessionRestoreIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C548600B0000000000000002 /* TabManager+SessionRestoreIdentity.swift */; };
 		C5B6A10000000000000000B1 /* TabManager+SidebarGitHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5B6A10000000000000000B2 /* TabManager+SidebarGitHosting.swift */; };
@@ -3133,6 +3142,13 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A5C0DE0000000000000000B7 /* ProjectTargetsTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ProjectTargetsTabView.swift; sourceTree = "<group>"; };
 		0A110711000000000000001B /* PromptTurnNotificationHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptTurnNotificationHandler.swift; sourceTree = "<group>"; };
 		C0DEA7710000000000000010 /* ProWelcomeChecklist.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProWelcomeChecklist.swift; sourceTree = "<group>"; };
+		A13F00070000000000000007 /* PullRequestCheckRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PullRequestCheckRow.swift; sourceTree = "<group>"; };
+		A13F00010000000000000001 /* PullRequestPanelActivation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PullRequestPanelActivation.swift; sourceTree = "<group>"; };
+		A13F00080000000000000008 /* PullRequestPanelObservationID.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PullRequestPanelObservationID.swift; sourceTree = "<group>"; };
+		8ACF001B8ACF001B8ACF001B /* PullRequestPanelRemoteWorkspaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PullRequestPanelRemoteWorkspaceTests.swift; sourceTree = "<group>"; };
+		A13F00030000000000000003 /* PullRequestPanelView+Presentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PullRequestPanelView+Presentation.swift"; sourceTree = "<group>"; };
+		A13F00020000000000000002 /* PullRequestPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PullRequestPanelView.swift; sourceTree = "<group>"; };
+		A13F00060000000000000006 /* PullRequestPanelWorkspaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PullRequestPanelWorkspaceView.swift; sourceTree = "<group>"; };
 		A64610010000000000000002 /* QuitConfirmationAlertPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuitConfirmationAlertPresenter.swift; sourceTree = "<group>"; };
 		A64610020000000000000002 /* QuitConfirmationAlertPresenterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuitConfirmationAlertPresenterTests.swift; sourceTree = "<group>"; };
 		A500RG00 /* ReactGrab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ReactGrab.swift; sourceTree = "<group>"; };
@@ -3289,6 +3305,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		B7F9A605B7F9A605B7F9A605 /* RightSidebarChromeStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarChromeStyle.swift; sourceTree = "<group>"; };
 		C3408A000000000000000004 /* RightSidebarCommandPaletteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarCommandPaletteTests.swift; sourceTree = "<group>"; };
 		B37A00000000000000000004 /* RightSidebarMode+Availability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RightSidebarMode+Availability.swift"; sourceTree = "<group>"; };
+		A13F00040000000000000004 /* RightSidebarMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarMode.swift; sourceTree = "<group>"; };
 		46814000000000000000000E /* RightSidebarModeShortcutEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarModeShortcutEntry.swift; sourceTree = "<group>"; };
 		468110000000000000000006 /* RightSidebarModeShortcutMatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarModeShortcutMatcher.swift; sourceTree = "<group>"; };
 		FE003003 /* RightSidebarPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarPanelView.swift; sourceTree = "<group>"; };
@@ -3555,6 +3572,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		E3B7A400000000000000000C /* TabManager+FocusHistoryHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+FocusHistoryHosting.swift"; sourceTree = "<group>"; };
 		737100000000000000000002 /* TabManager+NonInteractiveClose.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+NonInteractiveClose.swift"; sourceTree = "<group>"; };
 		E3B7A400000000000000000A /* TabManager+NotificationDismissalHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+NotificationDismissalHosting.swift"; sourceTree = "<group>"; };
+		A13F00050000000000000005 /* TabManager+PullRequestLinkOpening.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+PullRequestLinkOpening.swift"; sourceTree = "<group>"; };
 		C0DE1A030000000000000002 /* TabManager+SavedLayouts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+SavedLayouts.swift"; sourceTree = "<group>"; };
 		C548600B0000000000000002 /* TabManager+SessionRestoreIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+SessionRestoreIdentity.swift"; sourceTree = "<group>"; };
 		C5B6A10000000000000000B2 /* TabManager+SidebarGitHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+SidebarGitHosting.swift"; sourceTree = "<group>"; };
@@ -4223,6 +4241,14 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A5001041 /* Sources */ = {
 			isa = PBXGroup;
 			children = (
+				A13F00010000000000000001 /* PullRequestPanelActivation.swift */,
+				A13F00070000000000000007 /* PullRequestCheckRow.swift */,
+				A13F00080000000000000008 /* PullRequestPanelObservationID.swift */,
+				A13F00020000000000000002 /* PullRequestPanelView.swift */,
+				A13F00030000000000000003 /* PullRequestPanelView+Presentation.swift */,
+				A13F00060000000000000006 /* PullRequestPanelWorkspaceView.swift */,
+				A13F00040000000000000004 /* RightSidebarMode.swift */,
+				A13F00050000000000000005 /* TabManager+PullRequestLinkOpening.swift */,
 				3023B1003023B1003023B100 /* ConfigSource.swift */,
 				3023B1013023B1013023B101 /* ConfigSettingsView.swift */,
 				A11EAB000000000000000001 /* AppearanceSettings.swift */,
@@ -5863,6 +5889,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				FEED49850000000000000002 /* FeedEventClassificationTests.swift */,
 				42D69572C8D276745E502B94 /* SessionIndexViewTests.swift */,
 				F1C3F1DBF6BF5D7223C4A30C /* SidebarMarkdownRendererTests.swift */,
+				8ACF001B8ACF001B8ACF001B /* PullRequestPanelRemoteWorkspaceTests.swift */,
 				14A7DC53B9CA33BE2A421711 /* WorkspacePullRequestSidebarTests.swift */,
 				5659A0045659A0045659A004 /* WorkspaceSidebarObservationTests.swift */,
 				14D09524E94048DBB6773437 /* WorkspaceSidebarProcessTitleObservationTests.swift */,
@@ -7106,6 +7133,12 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					A5C0DE0000000000000000B8 /* ProjectTargetsTabView.swift in Sources */,
 				0A110711000000000000001A /* PromptTurnNotificationHandler.swift in Sources */,
 				C0DEA771000000000000000F /* ProWelcomeChecklist.swift in Sources */,
+				A13F10070000000000000007 /* PullRequestCheckRow.swift in Sources */,
+				A13F10010000000000000001 /* PullRequestPanelActivation.swift in Sources */,
+				A13F10080000000000000008 /* PullRequestPanelObservationID.swift in Sources */,
+				A13F10030000000000000003 /* PullRequestPanelView+Presentation.swift in Sources */,
+				A13F10020000000000000002 /* PullRequestPanelView.swift in Sources */,
+				A13F10060000000000000006 /* PullRequestPanelWorkspaceView.swift in Sources */,
 					A64610010000000000000001 /* QuitConfirmationAlertPresenter.swift in Sources */,
 				A500RG01 /* ReactGrab.swift in Sources */,
 				A6D1F0000000000000000002 /* ReleasingWindowController.swift in Sources */,
@@ -7202,6 +7235,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B7F9A600B7F9A600B7F9A600 /* RightSidebarChromeGeometryReporting.swift in Sources */,
 				B7F9A604B7F9A604B7F9A604 /* RightSidebarChromeStyle.swift in Sources */,
 				B37A00000000000000000003 /* RightSidebarMode+Availability.swift in Sources */,
+				A13F10040000000000000004 /* RightSidebarMode.swift in Sources */,
 				46814000000000000000000D /* RightSidebarModeShortcutEntry.swift in Sources */,
 				468110000000000000000005 /* RightSidebarModeShortcutMatcher.swift in Sources */,
 				FE003103 /* RightSidebarPanelView.swift in Sources */,
@@ -7377,6 +7411,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				E3B7A400000000000000000B /* TabManager+FocusHistoryHosting.swift in Sources */,
 				737100000000000000000001 /* TabManager+NonInteractiveClose.swift in Sources */,
 				E3B7A4000000000000000009 /* TabManager+NotificationDismissalHosting.swift in Sources */,
+				A13F10050000000000000005 /* TabManager+PullRequestLinkOpening.swift in Sources */,
 				C0DE1A030000000000000001 /* TabManager+SavedLayouts.swift in Sources */,
 				C548600B0000000000000001 /* TabManager+SessionRestoreIdentity.swift in Sources */,
 				C5B6A10000000000000000B1 /* TabManager+SidebarGitHosting.swift in Sources */,
@@ -8108,6 +8143,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B8E9500A0000000000000001 /* PostHogAnalyticsPropertiesTests.swift in Sources */,
 				DE71CE00000000000000000A /* PresenceHeartbeatClientTests.swift in Sources */,
 				C47110010000000000000001 /* ProcessPipeReadCrashRegressionTests.swift in Sources */,
+				8ACF001A8ACF001A8ACF001A /* PullRequestPanelRemoteWorkspaceTests.swift in Sources */,
 				A64610020000000000000001 /* QuitConfirmationAlertPresenterTests.swift in Sources */,
 				A6D1F0400000000000000002 /* ReleasingWindowControllerTests.swift in Sources */,
 				791100030000000000000001 /* RemoteDisconnectLifecycleTests.swift in Sources */,

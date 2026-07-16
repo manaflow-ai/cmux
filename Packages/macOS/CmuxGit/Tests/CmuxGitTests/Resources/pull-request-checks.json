@@ -1,0 +1,12 @@
+[
+  {
+    "name": "tests",
+    "state": "SUCCESS",
+    "link": "https://github.com/manaflow-ai/cmux/actions/runs/1"
+  },
+  {
+    "name": "lint",
+    "state": "PENDING",
+    "link": "https://github.com/manaflow-ai/cmux/actions/runs/2"
+  }
+]

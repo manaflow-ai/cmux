@@ -192,6 +192,35 @@ private struct SidebarObservationState: Equatable {
 }
 
 extension Workspace {
+    /// Observes only repository/branch inputs needed by the pull-request panel.
+    func pullRequestSidebarObservationStream() -> AsyncStream<Void> {
+        let publisher = Publishers.CombineLatest4(
+            $currentDirectory,
+            $remoteConfiguration,
+            sidebarMetadata.gitBranchPublisher,
+            currentDirectoryChangeRevisionPublisher()
+        )
+        .compactMap { [weak self] _ -> (directory: String?, branch: String?)? in
+            guard let self else { return nil }
+            return (presentedCurrentDirectory, presentedGitBranch?.branch)
+        }
+        .removeDuplicates { previous, next in
+            previous.directory == next.directory && previous.branch == next.branch
+        }
+        .map { _ in () }
+        .eraseToAnyPublisher()
+        return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            let observationTask = Task { @MainActor in
+                for await _ in publisher.values {
+                    if Task.isCancelled { break }
+                    continuation.yield(())
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in observationTask.cancel() }
+        }
+    }
+
     // User-owned sidebar fields keep a synchronous leading edge. Automatic
     // process titles settle separately: agent TUIs can animate their terminal
     // title at 10 Hz, and per-workspace burst coalescing cannot reduce changes

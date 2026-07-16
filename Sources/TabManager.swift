@@ -443,19 +443,13 @@ class TabManager: ObservableObject {
     private var uiTestCancellables = Set<AnyCancellable>()
 #endif
 
-    // Process-wide cap on concurrent sidebar git snapshot probes, shared by
-    // every window's SidebarGitMetadataService. A static (not a per-instance
-    // default) on purpose: the cap is per process, not per window, matching
-    // the legacy shared limiter; tests inject their own instance.
+    // Shared process-wide scheduler; git probes and PR refreshes use independent permit pools.
     private static let sharedWorkspaceGitProbeLimiter = WorkspaceGitMetadataProbeLimiter(limit: 2)
 
-    // The sidebar git/PR subsystem (extracted to CmuxSidebarGit). TabManager
-    // is the per-window composition point: it constructs the concrete
-    // services, stores only the seams, implements SidebarGitHosting
-    // (see TabManager+SidebarGitHosting.swift), and forwards its legacy
-    // entry points.
+    // Per-window composition point for sidebar git and PR services.
     let sidebarGitMetadataService: any SidebarGitMetadataServing
     let pullRequestProbing: any PullRequestProbing
+    let pullRequestPanelService: any PullRequestPanelServing
     /// Process-scoped GitHub transport state. AppDelegate passes this same
     /// value to every subsequently-created window so their pollers share one
     /// session, ETag cache, backoff deadline, and request queue.
@@ -476,9 +470,14 @@ class TabManager: ObservableObject {
         settings: any SettingsWriting = UserDefaultsSettingsClient(defaults: .standard),
         closeTabWarningDefaults: UserDefaults = .standard
     ) {
+        let resolvedGitProbeLimiter = gitProbeLimiter ?? Self.sharedWorkspaceGitProbeLimiter
         self.settings = settings
         self.panelTitleUpdateCoalescer = panelTitleUpdateCoalescer ?? NotificationBurstCoalescer()
         self.closeTabWarningDefaults = closeTabWarningDefaults
+        self.pullRequestPanelService = GitHubPullRequestPanelService(
+            commandRunner: commandRunner, gitMetadataService: gitMetadataService,
+            refreshLimiter: resolvedGitProbeLimiter
+        )
         workspaceReordering = WorkspaceReorderCoordinator(model: workspaces)
         workspaceGrouping = WorkspaceGroupCoordinator(model: workspaces)
 #if DEBUG
@@ -514,7 +513,7 @@ class TabManager: ObservableObject {
             workspaceGitMetadataReader: workspaceGitMetadataReader ?? gitMetadataService,
             gitMetadataService: gitMetadataService,
             pullRequestProbing: pullRequestPollService,
-            probeLimiter: gitProbeLimiter ?? Self.sharedWorkspaceGitProbeLimiter,
+            probeLimiter: resolvedGitProbeLimiter,
             clock: gitPollClock,
             debugLog: sidebarGitDebugLog
         )

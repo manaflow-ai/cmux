@@ -9297,24 +9297,15 @@ struct ContentView: View {
         let pullRequests = workspace.sidebarPullRequestsInDisplayOrder()
         guard !pullRequests.isEmpty else { return false }
 
-        var openedCount = 0
-        if BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowser() {
-            for pullRequest in pullRequests {
-                if tabManager.openBrowser(url: pullRequest.url, insertAtEnd: true) != nil {
-                    openedCount += 1
-                } else if NSWorkspace.shared.open(pullRequest.url) {
-                    openedCount += 1
-                }
-            }
-            return openedCount > 0
-        }
-
+        var opened = false
         for pullRequest in pullRequests {
-            if NSWorkspace.shared.open(pullRequest.url) {
-                openedCount += 1
-            }
+            opened = tabManager.openSidebarPullRequestURL(
+                pullRequest.url,
+                inWorkspace: workspace.id,
+                preferSplitRight: false
+            ) || opened
         }
-        return openedCount > 0
+        return opened
     }
 
     private func openFocusedDirectory(in target: TerminalDirectoryOpenTarget) -> Bool {
