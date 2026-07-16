@@ -79,28 +79,107 @@ enum BrowserWebExtensionPackageVerifier {
     }
 }
 
+final class BrowserWebExtensionPackageSession: @unchecked Sendable {
+    static let defaultMaximumResponseByteCount = 25 * 1024 * 1024
+
+    private let redirectDelegate: BrowserWebExtensionHTTPSRedirectDelegate
+    private let session: URLSession
+    private let maximumResponseByteCount: Int
+
+    init(
+        configuration: sending URLSessionConfiguration = .ephemeral,
+        maximumResponseByteCount: Int = defaultMaximumResponseByteCount
+    ) {
+        precondition(maximumResponseByteCount > 0)
+        configuration.httpShouldSetCookies = false
+        configuration.httpCookieStorage = nil
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        let redirectDelegate = BrowserWebExtensionHTTPSRedirectDelegate()
+        self.redirectDelegate = redirectDelegate
+        self.maximumResponseByteCount = maximumResponseByteCount
+        session = URLSession(
+            configuration: configuration,
+            delegate: redirectDelegate,
+            delegateQueue: nil
+        )
+    }
+
+    func data(from url: URL) async throws -> (Data, URLResponse) {
+        let (bytes, response) = try await session.bytes(from: url)
+        if response.expectedContentLength > maximumResponseByteCount {
+            bytes.task.cancel()
+            throw BrowserWebExtensionCatalogInstallError.packageTooLarge
+        }
+        let data = try await Self.collect(
+            bytes,
+            maximumByteCount: maximumResponseByteCount,
+            expectedByteCount: max(0, Int(response.expectedContentLength)),
+            cancel: { bytes.task.cancel() }
+        )
+        return (data, response)
+    }
+
+    static func collect<Bytes: AsyncSequence>(
+        _ bytes: Bytes,
+        maximumByteCount: Int,
+        expectedByteCount: Int = 0,
+        cancel: @Sendable () -> Void
+    ) async throws -> Data where Bytes.Element == UInt8 {
+        precondition(maximumByteCount > 0)
+        var data = Data()
+        data.reserveCapacity(min(expectedByteCount, maximumByteCount))
+        for try await byte in bytes {
+            guard data.count < maximumByteCount else {
+                cancel()
+                throw BrowserWebExtensionCatalogInstallError.packageTooLarge
+            }
+            data.append(byte)
+        }
+        return data
+    }
+
+    deinit {
+        session.invalidateAndCancel()
+    }
+}
+
+final class BrowserWebExtensionHTTPSRedirectDelegate: NSObject,
+    URLSessionTaskDelegate,
+    @unchecked Sendable
+{
+    func urlSession(
+        _: URLSession,
+        task _: URLSessionTask,
+        willPerformHTTPRedirection _: HTTPURLResponse,
+        newRequest: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        guard newRequest.url?.scheme?.lowercased() == "https" else {
+            completionHandler(nil)
+            return
+        }
+        completionHandler(newRequest)
+    }
+}
+
 actor BrowserWebExtensionCatalogPackageRepository {
-    private static let maximumPackageBytes = 25 * 1024 * 1024
+    private let packageSession: BrowserWebExtensionPackageSession
+
+    init(packageSession: BrowserWebExtensionPackageSession = BrowserWebExtensionPackageSession()) {
+        self.packageSession = packageSession
+    }
 
     func download(_ entry: BrowserWebExtensionCatalogEntry) async throws -> URL {
         guard entry.packageURL.scheme?.lowercased() == "https" else {
             throw BrowserWebExtensionCatalogInstallError.insecurePackageURL
         }
 
-        let (downloadURL, response) = try await URLSession.shared.download(from: entry.packageURL)
+        let (data, response) = try await packageSession.data(from: entry.packageURL)
         guard let response = response as? HTTPURLResponse,
               (200..<300).contains(response.statusCode),
               response.url?.scheme?.lowercased() == "https" else {
             throw BrowserWebExtensionCatalogInstallError.invalidHTTPResponse
-        }
-        let resourceValues = try downloadURL.resourceValues(forKeys: [.fileSizeKey])
-        guard let fileSize = resourceValues.fileSize,
-              fileSize <= Self.maximumPackageBytes else {
-            throw BrowserWebExtensionCatalogInstallError.packageTooLarge
-        }
-        let data = try Data(contentsOf: downloadURL, options: .mappedIfSafe)
-        guard data.count <= Self.maximumPackageBytes else {
-            throw BrowserWebExtensionCatalogInstallError.packageTooLarge
         }
         try BrowserWebExtensionPackageVerifier.verify(data, expectedSHA256: entry.packageSHA256)
 

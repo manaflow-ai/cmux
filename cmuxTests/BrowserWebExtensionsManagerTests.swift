@@ -45,16 +45,25 @@ struct BrowserWebExtensionsManagerTests {
         ],
     ]
 
-    private static func makeIconPNG() throws -> Data {
+    private static func makeIconPNG(color: NSColor = .systemBlue) throws -> Data {
         let size = NSSize(width: 16, height: 16)
         let image = NSImage(size: size, flipped: false) { rect in
-            NSColor.systemBlue.setFill()
+            color.setFill()
             rect.fill()
             return true
         }
         let tiffData = try #require(image.tiffRepresentation)
         let bitmap = try #require(NSBitmapImageRep(data: tiffData))
         return try #require(bitmap.representation(using: .png, properties: [:]))
+    }
+
+    private static func centerColor(in pngData: Data) throws -> NSColor {
+        let bitmap = try #require(NSBitmapImageRep(data: pngData))
+        let color = try #require(bitmap.colorAt(
+            x: bitmap.pixelsWide / 2,
+            y: bitmap.pixelsHigh / 2
+        ))
+        return try #require(color.usingColorSpace(.sRGB))
     }
 
     @available(macOS 15.4, *)
@@ -88,6 +97,86 @@ struct BrowserWebExtensionsManagerTests {
         #expect(throws: BrowserWebExtensionCatalogInstallError.integrityMismatch) {
             try BrowserWebExtensionPackageVerifier.verify(data + Data([0]), expectedSHA256: digest)
         }
+    }
+
+    @Test func catalogPackageSessionRejectsDeclaredOversizedResponseBeforeBuffering() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [DeclaredOversizedWebExtensionURLProtocol.self]
+        let session = BrowserWebExtensionPackageSession(
+            configuration: configuration,
+            maximumResponseByteCount: 8
+        )
+        let url = try #require(URL(string: "https://extensions.example/package.zip"))
+
+        await confirmation("declared oversized package transfer was cancelled") { cancelled in
+            DeclaredOversizedWebExtensionURLProtocol.observeCancellation {
+                cancelled()
+            }
+            await #expect(throws: BrowserWebExtensionCatalogInstallError.packageTooLarge) {
+                _ = try await session.data(from: url)
+            }
+        }
+    }
+
+    @Test func catalogPackageCollectorRejectsFirstBytePastLimitAndCancels() async throws {
+        let state = CountingByteSequenceState()
+        let bytes = CountingByteSequence(bytes: Array(Data("ninebytes".utf8)), state: state)
+
+        await #expect(throws: BrowserWebExtensionCatalogInstallError.packageTooLarge) {
+            _ = try await BrowserWebExtensionPackageSession.collect(
+                bytes,
+                maximumByteCount: 8,
+                cancel: { state.recordCancellation() }
+            )
+        }
+
+        #expect(state.snapshot == (nextCount: 9, cancellationCount: 1))
+    }
+
+    @Test func catalogPackageCollectorAcceptsResponseExactlyAtLimit() async throws {
+        let state = CountingByteSequenceState()
+        let bytes = CountingByteSequence(bytes: Array(Data("8-bytes!".utf8)), state: state)
+
+        let data = try await BrowserWebExtensionPackageSession.collect(
+            bytes,
+            maximumByteCount: 8,
+            cancel: { state.recordCancellation() }
+        )
+
+        #expect(data == Data("8-bytes!".utf8))
+        #expect(state.snapshot == (nextCount: 9, cancellationCount: 0))
+    }
+
+    @Test func catalogPackageRedirectsRemainHTTPS() throws {
+        let source = try #require(URL(string: "https://extensions.example/package.zip"))
+        let insecureDestination = try #require(URL(string: "http://cdn.example/package.zip"))
+        let secureDestination = try #require(URL(string: "https://cdn.example/package.zip"))
+        let response = try #require(HTTPURLResponse(
+            url: source,
+            statusCode: 302,
+            httpVersion: nil,
+            headerFields: nil
+        ))
+        let session = URLSession(configuration: .ephemeral)
+        let task = session.dataTask(with: source)
+        let delegate = BrowserWebExtensionHTTPSRedirectDelegate()
+
+        var acceptedRequest: URLRequest?
+        delegate.urlSession(
+            session,
+            task: task,
+            willPerformHTTPRedirection: response,
+            newRequest: URLRequest(url: insecureDestination)
+        ) { acceptedRequest = $0 }
+        #expect(acceptedRequest == nil)
+
+        delegate.urlSession(
+            session,
+            task: task,
+            willPerformHTTPRedirection: response,
+            newRequest: URLRequest(url: secureDestination)
+        ) { acceptedRequest = $0 }
+        #expect(acceptedRequest?.url == secureDestination)
     }
 
     @available(macOS 15.4, *)
@@ -150,6 +239,81 @@ struct BrowserWebExtensionsManagerTests {
         let item = try #require(manager.presentationSnapshot().extensions.first)
         let iconData = try #require(item.iconData)
         #expect(NSImage(data: iconData) != nil)
+    }
+
+    @available(macOS 15.4, *)
+    @Test func presentationSnapshotUsesEachPackageManifestIconWithoutNameMapping() async throws {
+        let root = try Self.makeExtensionsRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        var alphaManifest = Self.minimalManifest
+        alphaManifest["name"] = "Arbitrary Alpha"
+        alphaManifest["icons"] = ["16": "extension-icon.png"]
+        alphaManifest["action"] = ["default_icon": ["16": "action-icon.png"]]
+        let alphaDirectory = try Self.writeExtension(
+            named: "arbitrary-alpha",
+            in: root,
+            manifest: alphaManifest
+        )
+        try "// no-op".write(
+            to: alphaDirectory.appendingPathComponent("content.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try Self.makeIconPNG(color: NSColor(srgbRed: 1, green: 0, blue: 0, alpha: 1))
+            .write(to: alphaDirectory.appendingPathComponent("extension-icon.png"))
+        try Self.makeIconPNG(color: NSColor(srgbRed: 0, green: 0, blue: 1, alpha: 1))
+            .write(to: alphaDirectory.appendingPathComponent("action-icon.png"))
+
+        var betaManifest = Self.minimalManifest
+        betaManifest["name"] = "Arbitrary Beta"
+        betaManifest["icons"] = ["16": "extension-icon.png"]
+        let betaDirectory = try Self.writeExtension(
+            named: "arbitrary-beta",
+            in: root,
+            manifest: betaManifest
+        )
+        try "// no-op".write(
+            to: betaDirectory.appendingPathComponent("content.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try Self.makeIconPNG(color: NSColor(srgbRed: 0, green: 1, blue: 0, alpha: 1))
+            .write(to: betaDirectory.appendingPathComponent("extension-icon.png"))
+
+        var iconlessManifest = Self.minimalManifest
+        iconlessManifest["name"] = "Arbitrary Iconless"
+        let iconless = try Self.writeExtension(
+            named: "arbitrary-iconless",
+            in: root,
+            manifest: iconlessManifest
+        )
+        try "// no-op".write(
+            to: iconless.appendingPathComponent("content.js"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let manager = BrowserWebExtensionsManager(
+            directory: root,
+            controllerConfiguration: .nonPersistent()
+        )
+
+        await manager.loadExtensions()
+
+        let itemsByName = Dictionary(
+            uniqueKeysWithValues: manager.presentationSnapshot().extensions.map { ($0.name, $0) }
+        )
+        let alpha = try #require(itemsByName["Arbitrary Alpha"]?.iconData)
+        let beta = try #require(itemsByName["Arbitrary Beta"]?.iconData)
+        let alphaColor = try Self.centerColor(in: alpha)
+        let betaColor = try Self.centerColor(in: beta)
+        #expect(abs(alphaColor.redComponent) < 0.05)
+        #expect(abs(alphaColor.greenComponent) < 0.05)
+        #expect(abs(alphaColor.blueComponent - 1) < 0.05)
+        #expect(abs(betaColor.redComponent) < 0.05)
+        #expect(abs(betaColor.greenComponent - 1) < 0.05)
+        #expect(abs(betaColor.blueComponent) < 0.05)
+        #expect(itemsByName["Arbitrary Iconless"]?.iconData == nil)
     }
 
     @available(macOS 15.4, *)
@@ -364,6 +528,94 @@ struct BrowserWebExtensionsManagerTests {
         #expect(snapshot.extensions.map(\.name) == ["cmux test extension"])
         #expect(snapshot.failures.map(\.entryName) == ["broken"])
         #expect(snapshot.directoryPath == root.path)
+    }
+}
+
+private final class DeclaredOversizedWebExtensionURLProtocol: URLProtocol, @unchecked Sendable {
+    private static let cancellationObserver = WebExtensionURLProtocolCancellationObserver()
+
+    static func observeCancellation(_ observer: @escaping @Sendable () -> Void) {
+        cancellationObserver.install(observer)
+    }
+
+    override class func canInit(with _: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let url = request.url,
+              let response = HTTPURLResponse(
+                  url: url,
+                  statusCode: 200,
+                  httpVersion: "HTTP/1.1",
+                  headerFields: ["Content-Length": "9"]
+              ) else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    }
+
+    override func stopLoading() {
+        Self.cancellationObserver.fire()
+    }
+}
+
+private final class WebExtensionURLProtocolCancellationObserver: @unchecked Sendable {
+    private let lock = NSLock()
+    private var observer: (@Sendable () -> Void)?
+
+    func install(_ observer: @escaping @Sendable () -> Void) {
+        lock.withLock { self.observer = observer }
+    }
+
+    func fire() {
+        let observer = lock.withLock { () -> (@Sendable () -> Void)? in
+            defer { self.observer = nil }
+            return self.observer
+        }
+        observer?()
+    }
+}
+
+private struct CountingByteSequence: AsyncSequence, Sendable {
+    typealias Element = UInt8
+
+    struct AsyncIterator: AsyncIteratorProtocol {
+        let bytes: [UInt8]
+        let state: CountingByteSequenceState
+        var index = 0
+
+        mutating func next() async -> UInt8? {
+            state.recordNext()
+            guard index < bytes.count else { return nil }
+            defer { index += 1 }
+            return bytes[index]
+        }
+    }
+
+    let bytes: [UInt8]
+    let state: CountingByteSequenceState
+
+    func makeAsyncIterator() -> AsyncIterator {
+        AsyncIterator(bytes: bytes, state: state)
+    }
+}
+
+private final class CountingByteSequenceState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var nextCount = 0
+    private var cancellationCount = 0
+
+    var snapshot: (nextCount: Int, cancellationCount: Int) {
+        lock.withLock { (nextCount, cancellationCount) }
+    }
+
+    func recordNext() {
+        lock.withLock { nextCount += 1 }
+    }
+
+    func recordCancellation() {
+        lock.withLock { cancellationCount += 1 }
     }
 }
 
