@@ -66,8 +66,7 @@ final class SimulatorProcessSession {
                 arguments: descriptor.arguments,
                 standardOutputFD: outputDescriptor,
                 standardErrorFD: outputDescriptor,
-                fileDescriptorsToClose: descriptorsToClose,
-                grouping: .dedicatedProcessGroup
+                fileDescriptorsToClose: descriptorsToClose
             )
             self.process = process
             self.onTermination = onTermination

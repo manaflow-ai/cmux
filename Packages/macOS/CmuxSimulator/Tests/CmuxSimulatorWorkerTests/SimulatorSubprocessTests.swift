@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import Testing
+@testable import CmuxSimulator
 @testable import CmuxSimulatorWorker
 
 @Suite("Simulator subprocess cancellation")
@@ -93,8 +94,8 @@ struct SimulatorSubprocessTests {
         #expect(await sleeper.callCount >= 2)
     }
 
-    @Test("Cancelling a worker command terminates its inherited descendants")
-    func cancellationTerminatesInheritedSubprocessTree() async throws {
+    @Test("Cancelling a worker command terminates its command group")
+    func cancellationTerminatesSubprocessGroup() async throws {
         let marker = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-subprocess-descendant-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: marker) }
@@ -123,48 +124,96 @@ struct SimulatorSubprocessTests {
             )
         }
         let identifiers = try await Self.requireProcessTreeMarker(marker)
-        #expect(identifiers.leaderGroup == getpgrp())
-        #expect(identifiers.childGroup == getpgrp())
+        #expect(identifiers.leaderGroup == identifiers.childGroup)
+        #expect(identifiers.leaderGroup != getpgrp())
         #expect(identifiers.leaderGroup != identifiers.leader)
         task.cancel()
         _ = try await task.value
         await Self.expectProcessExited(identifiers.child)
     }
 
-    @Test("Normal leader exit terminates inherited descendants")
-    func normalExitTerminatesInheritedSubprocessTree() async throws {
-        let marker = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-subprocess-normal-descendant-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: marker) }
+    @Test("Normal leader exit terminates command descendants")
+    func normalExitTerminatesSubprocessGroup() async throws {
         let runner = SimulatorSubprocessRunner()
-        let result = try await runner.run(
-            executableURL: URL(fileURLWithPath: "/usr/bin/perl"),
-            arguments: [
-                "-MPOSIX",
-                "-e",
-                #"""
-            my $child = fork();
-            defined($child) or die "fork: $!";
-            if ($child == 0) {
-                open(STDIN, '<', '/dev/null') or die "stdin: $!";
-                open(STDOUT, '>', '/dev/null') or die "stdout: $!";
-                open(STDERR, '>', '/dev/null') or die "stderr: $!";
-                while (1) { sleep 1; }
-            }
+        for _ in 0..<32 {
+            let marker = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-subprocess-normal-descendant-\(UUID().uuidString)")
+            defer { try? FileManager.default.removeItem(at: marker) }
+            let result = try await runner.run(
+                executableURL: URL(fileURLWithPath: "/usr/bin/perl"),
+                arguments: [
+                    "-MPOSIX",
+                    "-e",
+                    #"""
+                my $child = fork();
+                defined($child) or die "fork: $!";
+                if ($child == 0) {
+                    open(STDIN, '<', '/dev/null') or die "stdin: $!";
+                    open(STDOUT, '>', '/dev/null') or die "stdout: $!";
+                    open(STDERR, '>', '/dev/null') or die "stderr: $!";
+                    while (1) { sleep 1; }
+                }
+                open(my $marker, '>', $ARGV[0]) or die "marker: $!";
+                print $marker "$$ ", POSIX::getpgrp(), " $child\n";
+                close($marker);
+                exit 0;
+                """#,
+                    marker.path,
+                ]
+            )
+            let identifiers = try await Self.requireNormalExitMarker(marker)
+
+            #expect(result.status == 0)
+            #expect(identifiers.leaderGroup != getpgrp())
+            #expect(identifiers.leaderGroup != identifiers.leader)
+            await Self.expectProcessExited(identifiers.child)
+        }
+    }
+
+    @Test("Worker lifetime EOF terminates the supervised command group")
+    func parentLifetimeEOFTerminatesSubprocessGroup() async throws {
+        let marker = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-subprocess-parent-eof-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: marker) }
+        let parentLifetime = Pipe()
+        let target = URL(fileURLWithPath: "/usr/bin/perl")
+        let targetArguments = [
+            "-MPOSIX",
+            "-e",
+            #"""
             open(my $marker, '>', $ARGV[0]) or die "marker: $!";
-            print $marker "$$ ", POSIX::getpgrp(), " $child\n";
+            print $marker "$$ ", POSIX::getpgrp(), "\n";
             close($marker);
-            exit 0;
+            while (1) { sleep 1; }
             """#,
-                marker.path,
+            marker.path,
+        ]
+        let process = try SimulatorProcessGroupProcess(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: [
+                "-c",
+                SimulatorSubprocessBox.supervisorScript,
+                "cmux-simulator-command-supervisor",
+                target.path,
+            ] + targetArguments,
+            standardInputFD: parentLifetime.fileHandleForReading.fileDescriptor,
+            fileDescriptorsToClose: [
+                parentLifetime.fileHandleForReading.fileDescriptor,
+                parentLifetime.fileHandleForWriting.fileDescriptor,
             ]
         )
-        let identifiers = try await Self.requireNormalExitMarker(marker)
+        try? parentLifetime.fileHandleForReading.close()
+        let identifiers = try await Self.requireSupervisorMarker(marker)
+        #expect(identifiers.group == process.processIdentifier)
 
-        #expect(result.status == 0)
-        #expect(identifiers.leaderGroup == getpgrp())
-        #expect(identifiers.leaderGroup != identifiers.leader)
-        await Self.expectProcessExited(identifiers.child)
+        try parentLifetime.fileHandleForWriting.close()
+        let deadline = ContinuousClock().now.advanced(by: .seconds(2))
+        while await process.isRunning, ContinuousClock().now < deadline {
+            try await ContinuousClock().sleep(for: .milliseconds(10))
+        }
+
+        #expect(await process.terminationStatus == SIGKILL)
+        await Self.expectProcessExited(identifiers.process)
     }
 
     private static func readProcessTreeMarker(
@@ -209,6 +258,24 @@ struct SimulatorSubprocessTests {
         }
         throw SimulatorWorkerFailure.privateAPIUnavailable(
             "The normal-exit fixture did not publish its process tree."
+        )
+    }
+
+    private static func requireSupervisorMarker(
+        _ marker: URL
+    ) async throws -> (process: Int32, group: Int32) {
+        let deadline = ContinuousClock().now.advanced(by: .seconds(2))
+        while ContinuousClock().now < deadline {
+            if let fields = try? String(contentsOf: marker, encoding: .utf8)
+                .split(whereSeparator: \.isWhitespace)
+                .compactMap({ Int32($0) }),
+               fields.count == 2 {
+                return (fields[0], fields[1])
+            }
+            try await ContinuousClock().sleep(for: .milliseconds(10))
+        }
+        throw SimulatorWorkerFailure.privateAPIUnavailable(
+            "The supervisor fixture did not publish its process group."
         )
     }
 

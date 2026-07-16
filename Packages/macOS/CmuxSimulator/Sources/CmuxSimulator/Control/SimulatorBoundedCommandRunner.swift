@@ -131,8 +131,7 @@ struct SimulatorBoundedCommandRunner: SimulatorBoundedCommandRunning, Sendable {
                     standardOutput.fileHandleForWriting.fileDescriptor,
                     standardError.fileHandleForReading.fileDescriptor,
                     standardError.fileHandleForWriting.fileDescriptor,
-                ],
-                grouping: .dedicatedProcessGroup
+                ]
             )
         } catch {
             try? standardOutput.fileHandleForWriting.close()

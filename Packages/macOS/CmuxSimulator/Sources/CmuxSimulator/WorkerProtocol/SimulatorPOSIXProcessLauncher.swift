@@ -16,24 +16,16 @@ package struct SimulatorPOSIXProcessLauncher: Sendable {
         arguments: [String],
         environment: [String: String],
         currentDirectoryURL: URL?,
+        standardInputFD: Int32?,
         standardOutputFD: Int32?,
         standardErrorFD: Int32?,
-        fileDescriptorsToClose: [Int32],
-        grouping: SimulatorProcessLaunchGrouping
+        fileDescriptorsToClose: [Int32]
     ) throws -> Int32 {
         var fileActions: posix_spawn_file_actions_t?
         try throwPOSIXErrorIfNeeded(posix_spawn_file_actions_init(&fileActions))
         defer { posix_spawn_file_actions_destroy(&fileActions) }
 
-        try "/dev/null".withCString { path in
-            try throwPOSIXErrorIfNeeded(posix_spawn_file_actions_addopen(
-                &fileActions,
-                STDIN_FILENO,
-                path,
-                O_RDONLY,
-                0
-            ))
-        }
+        try configureInput(&fileActions, descriptor: standardInputFD)
         try configureOutput(
             &fileActions,
             descriptor: standardOutputFD,
@@ -65,15 +57,8 @@ package struct SimulatorPOSIXProcessLauncher: Sendable {
         var attributes: posix_spawnattr_t?
         try throwPOSIXErrorIfNeeded(posix_spawnattr_init(&attributes))
         defer { posix_spawnattr_destroy(&attributes) }
-        var spawnFlags = Int16(POSIX_SPAWN_CLOEXEC_DEFAULT)
-        if grouping == .dedicatedProcessGroup {
-            spawnFlags |= Int16(POSIX_SPAWN_SETPGROUP)
-            try throwPOSIXErrorIfNeeded(posix_spawnattr_setpgroup(&attributes, 0))
-        } else {
-            // The process wrapper installs NOTE_FORK monitoring before resuming
-            // inherited commands, so a fast fork-and-exit cannot outrun it.
-            spawnFlags |= Int16(POSIX_SPAWN_START_SUSPENDED)
-        }
+        let spawnFlags = Int16(POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETPGROUP)
+        try throwPOSIXErrorIfNeeded(posix_spawnattr_setpgroup(&attributes, 0))
         try throwPOSIXErrorIfNeeded(posix_spawnattr_setflags(&attributes, spawnFlags))
 
         var mergedEnvironment = inheritedEnvironment
@@ -103,6 +88,28 @@ package struct SimulatorPOSIXProcessLauncher: Sendable {
         try throwPOSIXErrorIfNeeded(spawnStatus)
         guard processIdentifier > 1 else { throw POSIXError(.ECHILD) }
         return processIdentifier
+    }
+
+    private func configureInput(
+        _ fileActions: inout posix_spawn_file_actions_t?,
+        descriptor: Int32?
+    ) throws {
+        if let descriptor {
+            guard descriptor > STDERR_FILENO else { throw POSIXError(.EBADF) }
+            try throwPOSIXErrorIfNeeded(
+                posix_spawn_file_actions_adddup2(&fileActions, descriptor, STDIN_FILENO)
+            )
+        } else {
+            try "/dev/null".withCString { path in
+                try throwPOSIXErrorIfNeeded(posix_spawn_file_actions_addopen(
+                    &fileActions,
+                    STDIN_FILENO,
+                    path,
+                    O_RDONLY,
+                    0
+                ))
+            }
+        }
     }
 
     private func configureOutput(

@@ -2,11 +2,24 @@ import CmuxSimulator
 import Foundation
 
 actor SimulatorSubprocessBox {
+    static let supervisorScript = #"""
+    exec 3<&0
+    (IFS= read -r _ <&3 || kill -KILL 0) &
+    watchdog=$!
+    exec 3<&-
+    "$@" </dev/null
+    status=$?
+    kill -KILL "$watchdog" 2>/dev/null
+    wait "$watchdog" 2>/dev/null
+    exit "$status"
+    """#
+
     private let executableURL: URL
     private let arguments: [String]
     private let environment: [String: String]
     private let standardOutput: Pipe
     private let standardError: Pipe
+    private let parentLifetime = Pipe()
     private let outputReader: SimulatorPipeReader
     private let errorReader: SimulatorPipeReader
     private let terminationGrace: Duration
@@ -65,28 +78,38 @@ actor SimulatorSubprocessBox {
         await errorReader.start()
         do {
             let process = try SimulatorProcessGroupProcess(
-                executableURL: executableURL,
-                arguments: arguments,
+                executableURL: URL(fileURLWithPath: "/bin/sh"),
+                arguments: [
+                    "-c",
+                    Self.supervisorScript,
+                    "cmux-simulator-command-supervisor",
+                    executableURL.path,
+                ] + arguments,
                 environment: environment,
+                standardInputFD: parentLifetime.fileHandleForReading.fileDescriptor,
                 standardOutputFD: standardOutput.fileHandleForWriting.fileDescriptor,
                 standardErrorFD: standardError.fileHandleForWriting.fileDescriptor,
                 fileDescriptorsToClose: [
+                    parentLifetime.fileHandleForReading.fileDescriptor,
+                    parentLifetime.fileHandleForWriting.fileDescriptor,
                     standardOutput.fileHandleForReading.fileDescriptor,
                     standardOutput.fileHandleForWriting.fileDescriptor,
                     standardError.fileHandleForReading.fileDescriptor,
                     standardError.fileHandleForWriting.fileDescriptor,
-                ],
-                grouping: .inheritedProcessGroup
+                ]
             )
             self.process = process
             await process.setTerminationHandler { [self] status in
                 Task { await finish(status: status, continuation: continuation) }
             }
+            try? parentLifetime.fileHandleForReading.close()
             try? standardOutput.fileHandleForWriting.close()
             try? standardError.fileHandleForWriting.close()
             terminateIfCancellationWasRequested()
             scheduleTimeout()
         } catch {
+            try? parentLifetime.fileHandleForReading.close()
+            try? parentLifetime.fileHandleForWriting.close()
             try? standardOutput.fileHandleForWriting.close()
             try? standardError.fileHandleForWriting.close()
             await outputReader.requestStop()
@@ -114,6 +137,7 @@ actor SimulatorSubprocessBox {
         status: Int32,
         continuation: CheckedContinuation<SimulatorSubprocessResult, Error>
     ) async {
+        try? parentLifetime.fileHandleForWriting.close()
         await outputReader.requestStop()
         await errorReader.requestStop()
         let output = await outputReader.waitForEnd()

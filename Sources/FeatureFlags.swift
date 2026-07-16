@@ -19,8 +19,9 @@ struct CmuxFeatureFlagDefinition: Identifiable, Equatable {
 /// Fallback semantics (flags must never break the app):
 /// - Until a payload arrives, the last remote value survives restarts. A flag
 ///   that has never loaded keeps its safe default.
-/// - Once a payload has arrived, a false flag reads as off. An absent flag
-///   still uses the explicit per-flag fallback below.
+/// - Once a payload has arrived, its value remains authoritative until a later
+///   payload supplies a replacement. Missing refresh values never erase a
+///   cached remote kill switch.
 ///
 /// Registry contract (enforced by scripts/lint-feature-flags.py in CI): each
 /// flag declares key / owner / reviewBy / defaultWhenUnavailable in the FLAG
@@ -268,12 +269,10 @@ final class CmuxFeatureFlags {
 
     func applyLoadedFlags() {
         let previousEffectiveValues = effectiveValuesByKey
-        remoteValuesByKey = Self.allFlags.reduce(into: [:]) { values, definition in
+        for definition in Self.allFlags {
             if let value = Self.coerceBoolFlagValue(remoteFlagValueProvider(definition.key)) {
-                values[definition.key] = value
+                remoteValuesByKey[definition.key] = value
                 defaults.set(value, forKey: Self.remoteCacheKey(for: definition.key))
-            } else {
-                defaults.removeObject(forKey: Self.remoteCacheKey(for: definition.key))
             }
         }
         recomputeEffectiveValues()

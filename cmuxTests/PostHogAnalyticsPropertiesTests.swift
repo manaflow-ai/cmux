@@ -55,8 +55,8 @@ struct PostHogAnalyticsPropertiesTests {
 
         remoteValues.removeValue(forKey: flag.key)
         flags.applyLoadedFlags()
-        #expect(flags.remoteValue(for: flag) == nil)
-        #expect(flags.effectiveValue(for: flag))
+        #expect(flags.remoteValue(for: flag) == false)
+        #expect(!flags.effectiveValue(for: flag))
     }
 
     @MainActor
@@ -78,7 +78,7 @@ struct PostHogAnalyticsPropertiesTests {
         #expect(!offlineRelaunch.isSimulatorEnabled)
 
         offlineRelaunch.applyLoadedFlags()
-        #expect(offlineRelaunch.isSimulatorEnabled)
+        #expect(!offlineRelaunch.isSimulatorEnabled)
     }
 
     @MainActor
