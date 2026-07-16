@@ -83,6 +83,15 @@ public final class HiveRemoteTerminalSession {
         phase = .idle
     }
 
+    /// Re-request a full replay snapshot, e.g. after the local mirror surface
+    /// first applies its real size (a replay delivered to a zero-sized manual
+    /// surface renders nothing until the next full frame).
+    public func refreshReplay() {
+        Task { [weak self] in
+            try? await self?.requestReplay()
+        }
+    }
+
     // MARK: - Input
 
     /// Send typed text to the remote PTY (`terminal.input`).

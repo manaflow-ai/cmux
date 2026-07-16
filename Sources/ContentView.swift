@@ -9895,6 +9895,10 @@ struct VerticalTabsSidebar: View {
     @EnvironmentObject var sidebarUnread: SidebarUnreadModel
     var notificationStore: TerminalNotificationStore { .shared }
     @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
+    // Computer scope for the workspace list (This Mac / All Computers / one
+    // device). Scope changes are rare and user-driven, so observing the
+    // shared model here does not add churn to typing-hot paths.
+    @ObservedObject var hiveScope = HiveSidebarScopeModel.shared
     @Binding var selection: SidebarSelection
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
@@ -10274,7 +10278,15 @@ struct VerticalTabsSidebar: View {
         let _ = { minimalModeInvalidationProbe.verticalTabsSidebarBody?() }()
 #endif
         let signpost = SidebarProfilingSignposts.begin("vertical-sidebar-body", "workspaces=\(tabManager.tabs.count) selected=\(sidebarShortTabId(tabManager.selectedTabId))")
-        let tabs = tabManager.tabs
+        let scope = hiveScope.scope
+        let tabs = scope == .allComputers
+            ? tabManager.tabs
+            : tabManager.tabs.filter { workspace in
+                HiveSidebarScopeModel.isVisible(
+                    deviceID: HiveComputerMirrorController.shared.deviceID(forWorkspace: workspace.id),
+                    scope: scope
+                )
+            }
         let workspaceCount = tabs.count
         let canCloseWorkspace = workspaceCount > 1
         let workspaceNumberShortcut = self.workspaceNumberShortcut

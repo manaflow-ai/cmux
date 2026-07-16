@@ -238572,6 +238572,23 @@
           }
         }
       }
+    },
+    "hive.scopePicker.allComputers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All Computers"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのコンピュータ"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

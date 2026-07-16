@@ -17,6 +17,36 @@ struct HiveScopeComputer: Equatable, Identifiable {
     let name: String
 }
 
+/// Which computers' workspaces the sidebar shows — the macOS counterpart of
+/// the iOS workspace-title Mac picker's scopes.
+enum HiveSidebarScope: Equatable {
+    /// Local workspaces only (the default).
+    case thisMac
+    /// Local workspaces plus every attached computer's mirrors.
+    case allComputers
+    /// One computer's mirror workspaces only.
+    case device(String)
+}
+
+/// App-wide sidebar computer scope. Global (not per-window) in v1; scope
+/// changes are rare and user-driven.
+@MainActor
+final class HiveSidebarScopeModel: ObservableObject {
+    static let shared = HiveSidebarScopeModel()
+    @Published var scope: HiveSidebarScope = .thisMac
+    private init() {}
+
+    /// Whether `workspace` is visible under the current scope, given the
+    /// device that owns it (`nil` for local workspaces).
+    nonisolated static func isVisible(deviceID: String?, scope: HiveSidebarScope) -> Bool {
+        switch scope {
+        case .thisMac: return deviceID == nil
+        case .allComputers: return true
+        case .device(let id): return deviceID == id
+        }
+    }
+}
+
 /// Bottom-of-sidebar computer scope picker, shown only in
 /// `computers.presentation = sidebar` mode when paired computers exist:
 /// switches the main window between This Mac and a remote computer's live
@@ -27,38 +57,16 @@ struct HiveSidebarScopePicker: View {
     @LiveSetting(\.computers.presentation) private var presentation
     @State private var computers: [HiveScopeComputer] = []
 
+    @ObservedObject private var scopeModel = HiveSidebarScopeModel.shared
+
     var body: some View {
         if presentation == .sidebar, !computers.isEmpty {
             Menu {
-                Button {
-                    selection = .tabs
-                } label: {
-                    if activeDeviceID == nil {
-                        Label(thisMacTitle, systemImage: "checkmark")
-                    } else {
-                        Text(thisMacTitle)
-                    }
-                }
+                scopeButton(scope: .thisMac, title: thisMacTitle)
+                scopeButton(scope: .allComputers, title: allComputersTitle)
                 Divider()
                 ForEach(computers) { computer in
-                    Button {
-                        // Native mirrors: the computer's workspaces become
-                        // real sidebar workspaces; selection stays on .tabs.
-                        selection = .tabs
-                        let manager = tabManager
-                        Task { @MainActor in
-                            _ = await HiveComputerMirrorController.shared.attach(
-                                deviceID: computer.id,
-                                into: manager
-                            )
-                        }
-                    } label: {
-                        if activeDeviceID == computer.id {
-                            Label(computer.name, systemImage: "checkmark")
-                        } else {
-                            Text(computer.name)
-                        }
-                    }
+                    scopeButton(scope: .device(computer.id), title: computer.name)
                 }
             } label: {
                 Label(currentTitle, systemImage: "desktopcomputer")
@@ -78,18 +86,51 @@ struct HiveSidebarScopePicker: View {
         }
     }
 
-    private var activeDeviceID: String? {
-        if case let .computer(deviceID) = selection { return deviceID }
-        return nil
+    @ViewBuilder
+    private func scopeButton(scope: HiveSidebarScope, title: String) -> some View {
+        Button {
+            selection = .tabs
+            scopeModel.scope = scope
+            let manager = tabManager
+            // Scoping to a computer (or all) attaches its native mirrors.
+            let deviceIDs: [String]
+            switch scope {
+            case .thisMac: deviceIDs = []
+            case .allComputers: deviceIDs = computers.map(\.id)
+            case .device(let id): deviceIDs = [id]
+            }
+            guard !deviceIDs.isEmpty else { return }
+            Task { @MainActor in
+                for deviceID in deviceIDs {
+                    _ = await HiveComputerMirrorController.shared.attach(
+                        deviceID: deviceID,
+                        into: manager
+                    )
+                }
+            }
+        } label: {
+            if scopeModel.scope == scope {
+                Label(title, systemImage: "checkmark")
+            } else {
+                Text(title)
+            }
+        }
     }
 
     private var thisMacTitle: String {
         String(localized: "hive.scopePicker.thisMac", defaultValue: "This Mac")
     }
 
+    private var allComputersTitle: String {
+        String(localized: "hive.scopePicker.allComputers", defaultValue: "All Computers")
+    }
+
     private var currentTitle: String {
-        guard let activeDeviceID else { return thisMacTitle }
-        return computers.first(where: { $0.id == activeDeviceID })?.name ?? thisMacTitle
+        switch scopeModel.scope {
+        case .thisMac: return thisMacTitle
+        case .allComputers: return allComputersTitle
+        case .device(let id): return computers.first(where: { $0.id == id })?.name ?? thisMacTitle
+        }
     }
 
     private func observeComputers() async {
