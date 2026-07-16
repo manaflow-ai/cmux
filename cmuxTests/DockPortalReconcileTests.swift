@@ -49,6 +49,55 @@ struct DockPortalReconcileTests {
         #expect(panel.surface.debugPortalHostLease().paneId == dockPane.id)
     }
 
+    @Test("Detached replacement cannot displace a rearmed Dock portal host")
+    @MainActor
+    func detachedReplacementCannotDisplaceRearmedDockPortalHost() {
+        let panel = TerminalPanel(workspaceId: UUID())
+        defer { panel.surface.teardownSurface() }
+        let liveHost = NSView()
+        let detachedReplacement = NSView()
+        let pane = PaneID()
+        let bounds = CGRect(x: 0, y: 0, width: 400, height: 300)
+
+        #expect(panel.surface.claimPortalHost(
+            hostId: ObjectIdentifier(liveHost),
+            paneId: pane,
+            instanceSerial: 1,
+            ownershipGeneration: 1,
+            inWindow: true,
+            bounds: bounds,
+            reason: "test.dock.liveHost"
+        ))
+        #expect(panel.surface.preparePortalHostReplacementIfOwned(
+            hostId: ObjectIdentifier(liveHost),
+            reason: "test.dock.liveHostDismantled"
+        ))
+
+        #expect(!panel.surface.claimPortalHost(
+            hostId: ObjectIdentifier(detachedReplacement),
+            paneId: pane,
+            instanceSerial: 2,
+            ownershipGeneration: 2,
+            inWindow: false,
+            bounds: .zero,
+            reason: "test.dock.detachedReplacement"
+        ))
+        #expect(
+            panel.surface.debugPortalHostLease().hostId ==
+                String(describing: ObjectIdentifier(liveHost))
+        )
+
+        #expect(panel.surface.claimPortalHost(
+            hostId: ObjectIdentifier(detachedReplacement),
+            paneId: pane,
+            instanceSerial: 2,
+            ownershipGeneration: 2,
+            inWindow: true,
+            bounds: bounds,
+            reason: "test.dock.attachedReplacement"
+        ))
+    }
+
     @Test("Newer stale workspace host is rejected by live Dock ownership")
     @MainActor
     func newerStaleWorkspaceHostIsRejectedByLiveDockOwnership() {
