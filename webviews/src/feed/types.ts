@@ -42,6 +42,14 @@ export type FeedCopy = {
   allowBypass: string;
   allowOnce: string;
   deny: string;
+  demoPermissionBody: string;
+  demoPermissionTitle: string;
+  demoPlanBody: string;
+  demoPlanTitle: string;
+  demoQuestionOptionFocused: string;
+  demoQuestionOptionFull: string;
+  demoQuestionPrompt: string;
+  demoQuestionTitle: string;
   emptyActionable: string;
   emptyActionableDescription: string;
   emptyActivity: string;
@@ -54,6 +62,7 @@ export type FeedCopy = {
   integrationReady: string;
   integrationsTitle: string;
   keyboardHelp: string;
+  loadExamples: string;
   loadOlder: string;
   loadingOlder: string;
   planAuto: string;

@@ -4,6 +4,7 @@ import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { FeedApp, feedActivityPageSize } from "../src/feed/App";
 import { receiveFeedNativeEvent } from "../src/feed/bridge";
+import { feedSourceIcons } from "../src/feed/sourceIcons";
 
 let root: Root | null = null;
 let dom: JSDOM | null = null;
@@ -39,12 +40,17 @@ test("Feed React surface invokes the typed permission primitive", async () => {
           actionable: "Actionable", activity: "All Activity", allowAll: "All tools",
           allowAlways: "Always Allow", allowBypass: "Bypass",
           allowOnce: "Allow Once", deny: "Deny", emptyActionable: "No pending decisions",
+          demoPermissionBody: "bun run db:migrate", demoPermissionTitle: "Run database migration",
+          demoPlanBody: "Update the bridge, add tests, then build.", demoPlanTitle: "Plan ready for review",
+          demoQuestionOptionFocused: "Focused tests", demoQuestionOptionFull: "Full test suite",
+          demoQuestionPrompt: "Which verification should run?", demoQuestionTitle: "Verification scope",
           emptyActionableDescription: "Requests from agents appear here.",
           emptyActivity: "No activity yet", emptyActivityDescription: "Agent activity appears here.",
           feed: "Feed", integrationChecking: "Checking...", integrationDisabled: "Disabled in Settings",
           integrationHint: "Claude and Codex use Settings. Other agents need hooks setup.",
           integrationNeedsSetup: "Setup needed", integrationReady: "Ready",
           integrationsTitle: "Agent integrations", keyboardHelp: "Use J/K to navigate.",
+          loadExamples: "Load examples",
           loadOlder: "Load older activity",
           loadingOlder: "Loading older activity...", planAuto: "Auto", planManual: "Manual",
           planUltraplan: "Ultraplan", questionPlaceholder: "Type something...",
@@ -144,6 +150,23 @@ test("Feed React surface invokes the typed permission primitive", async () => {
   expect(container.textContent).toContain("CodexDisabled in Settings");
   expect(container.textContent).toContain("OpenCodeSetup needed");
   expect(container.textContent).toContain("Use J/K to navigate.");
+  const loadExamples = [...container.querySelectorAll<HTMLButtonElement>("button")]
+    .find((button) => button.textContent === "Load examples")!;
+  flushSync(() => loadExamples.click());
+  expect(container.querySelectorAll(".feed-card")).toHaveLength(3);
+  expect(container.textContent).toContain("Run database migration");
+  expect(container.textContent).toContain("Plan ready for review");
+  expect(container.textContent).toContain("Verification scope");
+  const demoAllowOnce = [...container.querySelectorAll<HTMLButtonElement>("button")]
+    .find((button) => button.textContent === "Allow Once")!;
+  flushSync(() => demoAllowOnce.click());
+  expect(container.querySelectorAll(".feed-card")).toHaveLength(2);
+  expect(calls.some((call: any) => call.params?.itemId === "feed-demo-permission")).toBe(false);
+  expect(Object.keys(feedSourceIcons).sort()).toEqual([
+    "codebuddy", "copilot", "cursor", "factory", "gemini", "qoder",
+  ]);
+  expect(feedSourceIcons.cursor?.presentation).toBe("mask");
+  expect(feedSourceIcons.codebuddy?.presentation).toBe("image");
 });
 
 async function waitFor(predicate: () => boolean, timeout = 1_000) {

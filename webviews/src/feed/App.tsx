@@ -1,7 +1,8 @@
 import { useCallback, useRef, useState, useSyncExternalStore } from "react";
 import { callFeedNative, feedSnapshotStore } from "./bridge";
+import { feedSourceIcons } from "./sourceIcons";
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from "react";
-import type { FeedIntegration, FeedItem, FeedQuestion } from "./types";
+import type { FeedCopy, FeedIntegration, FeedItem, FeedQuestion } from "./types";
 import "./styles.css";
 
 type Filter = "actionable" | "activity";
@@ -76,6 +77,48 @@ function handleTabNavigation(event: ReactKeyboardEvent<HTMLDivElement>) {
   tabs[nextIndex]?.click();
 }
 
+export function createDemoFeedItems(copy: FeedCopy): FeedItem[] {
+  const createdAt = new Date().toISOString();
+  return [{
+    allowed_permission_modes: ["deny", "once", "always"],
+    created_at: createdAt,
+    id: "feed-demo-permission",
+    kind: "permissionRequest",
+    source: "claude",
+    status: "pending",
+    tool_input: copy.demoPermissionBody,
+    tool_name: copy.demoPermissionTitle,
+    workstream_id: "feed-demo",
+  }, {
+    created_at: createdAt,
+    id: "feed-demo-plan",
+    kind: "exitPlan",
+    plan: copy.demoPlanBody,
+    source: "codex",
+    status: "pending",
+    title: copy.demoPlanTitle,
+    workstream_id: "feed-demo",
+  }, {
+    created_at: createdAt,
+    id: "feed-demo-question",
+    kind: "question",
+    question_prompt: copy.demoQuestionPrompt,
+    questions: [{
+      id: "verification",
+      multi_select: false,
+      options: [
+        { id: "focused", label: copy.demoQuestionOptionFocused },
+        { id: "full", label: copy.demoQuestionOptionFull },
+      ],
+      prompt: copy.demoQuestionPrompt,
+    }],
+    source: "gemini",
+    status: "pending",
+    title: copy.demoQuestionTitle,
+    workstream_id: "feed-demo",
+  }];
+}
+
 export function FeedApp() {
   const snapshot = useSyncExternalStore(
     feedSnapshotStore.subscribe,
@@ -84,6 +127,7 @@ export function FeedApp() {
   );
   const [filter, setFilter] = useState<Filter>("actionable");
   const [activityLimit, setActivityLimit] = useState(feedActivityPageSize);
+  const [demoItems, setDemoItems] = useState<FeedItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const keyboardCleanup = useRef<() => void>(() => {});
   const bindKeyboardRoot = useCallback((node: HTMLElement | null) => {
@@ -97,9 +141,10 @@ export function FeedApp() {
   }, []);
 
   if (!snapshot) return <main className="feed-shell feed-loading" aria-busy="true" />;
+  const sourceItems = snapshot.items.length > 0 ? snapshot.items : demoItems;
   const items = filter === "actionable"
-    ? snapshot.items.filter((item) => item.status === "pending")
-    : snapshot.items;
+    ? sourceItems.filter((item) => item.status === "pending")
+    : sourceItems;
   const visibleItems = filter === "activity" ? items.slice(0, activityLimit) : items;
   const hasBufferedActivity = filter === "activity" && visibleItems.length < items.length;
   const themeStyle = {
@@ -110,6 +155,13 @@ export function FeedApp() {
 
   const perform = async (method: string, params: Record<string, unknown>) => {
     setError(null);
+    const itemId = typeof params.itemId === "string" ? params.itemId : "";
+    if (itemId.startsWith("feed-demo-")) {
+      setDemoItems((current) => current.map((item) => (
+        item.id === itemId ? { ...item, status: "resolved" } : item
+      )));
+      return;
+    }
     try {
       await callFeedNative(method, params);
     } catch {
@@ -152,7 +204,15 @@ export function FeedApp() {
       {error && <div className="feed-error" role="alert">{error}</div>}
       <section className="feed-list">
         {visibleItems.length === 0 ? (
-          <FeedEmptyState filter={filter} snapshot={snapshot} />
+          <FeedEmptyState
+            canLoadExamples={snapshot.items.length === 0}
+            filter={filter}
+            onLoadExamples={() => {
+              setDemoItems(createDemoFeedItems(snapshot.copy));
+              setFilter("actionable");
+            }}
+            snapshot={snapshot}
+          />
         ) : visibleItems.map((item) => (
           <FeedCard
             key={item.id}
@@ -184,8 +244,10 @@ export function FeedApp() {
   );
 }
 
-function FeedEmptyState({ filter, snapshot }: {
+function FeedEmptyState({ canLoadExamples, filter, onLoadExamples, snapshot }: {
+  canLoadExamples: boolean;
   filter: Filter;
+  onLoadExamples: () => void;
   snapshot: NonNullable<ReturnType<typeof feedSnapshotStore.getSnapshot>>;
 }) {
   const title = filter === "actionable" ? snapshot.copy.emptyActionable : snapshot.copy.emptyActivity;
@@ -202,6 +264,9 @@ function FeedEmptyState({ filter, snapshot }: {
     <div className="feed-empty">
       <h2>{title}</h2>
       <p>{description}</p>
+      {canLoadExamples && (
+        <button className="feed-load-examples" onClick={onLoadExamples}>{snapshot.copy.loadExamples}</button>
+      )}
       <section aria-labelledby="feed-integrations-title" className="feed-integrations">
         <h3 id="feed-integrations-title">{snapshot.copy.integrationsTitle}</h3>
         <div className="feed-integration-grid">
@@ -251,14 +316,26 @@ function FeedCard({ item, copy, perform, sourceIcon, sourceLabel }: {
 
 function SourceIdentity({ icon, label, source }: { icon?: string; label?: string; source: string }) {
   const displayLabel = label ?? source;
-  const style = icon
-    ? ({ "--feed-source-icon": `url(${JSON.stringify(icon)})` } as CSSProperties)
+  const resolvedIcon = icon
+    ? { presentation: "image" as const, url: icon }
+    : feedSourceIcons[source];
+  const style = resolvedIcon?.presentation === "mask"
+    ? ({ "--feed-source-icon": `url(${JSON.stringify(resolvedIcon.url)})` } as CSSProperties)
     : undefined;
   return (
     <span className="feed-source" data-feed-source={source}>
-      <span className="feed-source-logo" data-fallback={icon ? undefined : ""} style={style} aria-hidden="true">
-        {!icon && displayLabel.slice(0, 1).toUpperCase()}
-      </span>
+      {resolvedIcon?.presentation === "image" ? (
+        <img alt="" aria-hidden="true" className="feed-source-logo feed-source-logo-image" src={resolvedIcon.url} />
+      ) : (
+        <span
+          className="feed-source-logo feed-source-logo-mask"
+          data-fallback={resolvedIcon ? undefined : ""}
+          style={style}
+          aria-hidden="true"
+        >
+          {!resolvedIcon && displayLabel.slice(0, 1).toUpperCase()}
+        </span>
+      )}
       <span>{displayLabel}</span>
     </span>
   );

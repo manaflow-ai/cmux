@@ -114,19 +114,23 @@ button, input { font: inherit; }
 }
 
 .feed-source-logo {
-  background: currentColor;
   display: inline-grid;
-  height: 13px;
-  line-height: 13px;
+  height: 15px;
+  line-height: 15px;
+  object-fit: contain;
+  place-items: center;
+  width: 15px;
+}
+
+.feed-source-logo-mask {
+  background: currentColor;
   mask-image: var(--feed-source-icon);
   mask-position: center;
   mask-repeat: no-repeat;
   mask-size: contain;
-  place-items: center;
-  width: 13px;
 }
 
-.feed-source-logo[data-fallback] {
+.feed-source-logo-mask[data-fallback] {
   background: transparent;
   border: 1px solid currentColor;
   mask-image: none;
@@ -169,6 +173,7 @@ button, input { font: inherit; }
 .feed-actions button,
 .feed-question-actions > button,
 .feed-options button,
+.feed-load-examples,
 .feed-load-more {
   background: transparent;
   border: 1px solid var(--feed-border-strong);
@@ -180,6 +185,7 @@ button, input { font: inherit; }
 .feed-actions button:hover,
 .feed-question-actions > button:hover,
 .feed-options button:hover,
+.feed-load-examples:hover,
 .feed-load-more:hover { background: var(--feed-fill-hover); }
 
 .feed-actions .primary,
@@ -234,6 +240,11 @@ button, input { font: inherit; }
   margin: 0 auto;
   max-width: 520px;
   text-align: center;
+}
+
+.feed-load-examples {
+  justify-self: center;
+  margin-top: 6px;
 }
 
 .feed-integrations {
