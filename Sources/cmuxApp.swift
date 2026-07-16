@@ -2264,7 +2264,7 @@ private final class AcknowledgmentsWindowController: ReleasingWindowController {
 }
 
 private struct AcknowledgmentsView: View {
-    private let content = AboutLicenseContent.load(from: .main)
+    private let content = AboutLicenseContent(bundle: .main).load()
 
     var body: some View {
         ScrollView {

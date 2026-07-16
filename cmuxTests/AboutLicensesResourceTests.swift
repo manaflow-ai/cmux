@@ -21,23 +21,28 @@ struct AboutLicensesResourceTests {
 
     @Test("The About licenses content includes the project GPL and source directions")
     func aboutContentIncludesProjectLicenseAndSourceDirections() throws {
-        let contents = AboutLicenseContent.load(from: .main)
+        let licenseContent = AboutLicenseContent(bundle: .main)
+        let contents = licenseContent.load()
 
         #expect(contents.contains("Copyright (c) 2024-present Manaflow, Inc."))
         #expect(contents.contains("GNU GENERAL PUBLIC LICENSE"))
-        #expect(contents.contains(AboutLicenseContent.repositoryURL.absoluteString))
-        #expect(contents.contains(AboutLicenseContent.correspondingSourceURL(in: .main).absoluteString))
+        #expect(contents.contains(licenseContent.repositoryURL.absoluteString))
+        #expect(contents.contains(licenseContent.correspondingSourceURL().absoluteString))
     }
 
     @Test("Stable builds link corresponding source to their exact version tag")
     func stableBuildUsesVersionTag() {
-        let url = AboutLicenseContent.correspondingSourceURL(
+        let repositoryURL = URL(string: "https://example.com/cmux-source")!
+        let url = AboutLicenseContent(
+            bundle: .main,
+            repositoryURL: repositoryURL
+        ).correspondingSourceURL(
             version: "0.64.19",
             bundleIdentifier: "com.cmuxterm.app",
             commit: "abcdef123"
         )
 
-        #expect(url.absoluteString == "https://github.com/manaflow-ai/cmux/tree/v0.64.19")
+        #expect(url.absoluteString == "https://example.com/cmux-source/tree/v0.64.19")
     }
 
     @Test(
@@ -45,7 +50,7 @@ struct AboutLicensesResourceTests {
         arguments: ["com.cmuxterm.app.debug.licpkg", "com.cmuxterm.app.nightly"]
     )
     func nonStableBuildUsesCommit(bundleIdentifier: String) {
-        let url = AboutLicenseContent.correspondingSourceURL(
+        let url = AboutLicenseContent(bundle: .main).correspondingSourceURL(
             version: "0.64.19",
             bundleIdentifier: bundleIdentifier,
             commit: "abcdef123"

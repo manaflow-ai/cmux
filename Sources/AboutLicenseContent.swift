@@ -1,9 +1,18 @@
 import Foundation
 
 struct AboutLicenseContent {
-    static let repositoryURL = URL(string: "https://github.com/manaflow-ai/cmux")!
+    let bundle: Bundle
+    let repositoryURL: URL
 
-    static func load(from bundle: Bundle) -> String {
+    init(
+        bundle: Bundle,
+        repositoryURL: URL = URL(string: "https://github.com/manaflow-ai/cmux")!
+    ) {
+        self.bundle = bundle
+        self.repositoryURL = repositoryURL
+    }
+
+    func load() -> String {
         let missingMessage = String(
             localized: "about.licenses.notFound",
             defaultValue: "Licenses file not found.",
@@ -39,7 +48,7 @@ struct AboutLicenseContent {
         # \(projectHeading)
 
         \(projectSourceLabel): \(repositoryURL.absoluteString)
-        \(correspondingSourceLabel): \(correspondingSourceURL(in: bundle).absoluteString)
+        \(correspondingSourceLabel): \(correspondingSourceURL().absoluteString)
 
         \(projectLicense)
 
@@ -49,7 +58,7 @@ struct AboutLicenseContent {
         """
     }
 
-    static func correspondingSourceURL(in bundle: Bundle) -> URL {
+    func correspondingSourceURL() -> URL {
         correspondingSourceURL(
             version: bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
             bundleIdentifier: bundle.bundleIdentifier,
@@ -57,7 +66,7 @@ struct AboutLicenseContent {
         )
     }
 
-    static func correspondingSourceURL(
+    func correspondingSourceURL(
         version: String?,
         bundleIdentifier: String?,
         commit: String?
@@ -75,7 +84,7 @@ struct AboutLicenseContent {
         return repositoryURL
     }
 
-    private static func resourceText(
+    private func resourceText(
         named name: String,
         fileExtension: String?,
         in bundle: Bundle
@@ -86,7 +95,7 @@ struct AboutLicenseContent {
         return try? String(contentsOf: url, encoding: .utf8)
     }
 
-    private static func normalized(_ value: String?) -> String? {
+    private func normalized(_ value: String?) -> String? {
         guard let value else { return nil }
         let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return normalized.isEmpty ? nil : normalized
